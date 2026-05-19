@@ -1,36 +1,53 @@
-{ pkgs, theme ? "auto", ... }:
+{ pkgs, lib ? pkgs.lib, theme ? "auto", ... }:
 
 let
+  inherit (import ./lib.nix { inherit pkgs lib; }) mkClaudeFlavor mkMcpServer;
   statusline = import ./statusline.nix { inherit pkgs theme; };
-  lspPlugins = import ./lsp-plugins.nix;
 
-  # Merges managed keys into ~/.claude/settings.json, preserving user-set values.
-  settingsMerge = pkgs.writeShellApplication {
-    name = "claude-settings-merge";
-    runtimeInputs = [ pkgs.jq ];
-    text = ''
-      statusline_cmd="''${1:-}"
-      settings_file="$HOME/.claude/settings.json"
-      mkdir -p "$(dirname "$settings_file")"
-      [ ! -f "$settings_file" ] && printf '{}' > "$settings_file"
-      tmp=$(mktemp)
-      jq --arg cmd "$statusline_cmd" \
-        --argjson lsp '${builtins.toJSON lspPlugins.enabled}' \
-        '. + {statusLine: {type: "command", command: $cmd}, autoMemoryEnabled: false, effortLevel: "medium"}
-         | .enabledPlugins = ((.enabledPlugins // {}) + $lsp)' \
-        "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
-    '';
+  baseSettings = {
+    statusLine = {
+      type = "command";
+      command = "${statusline}/bin/claude-statusline";
+    };
+    autoMemoryEnabled = false;
+    effortLevel = "medium";
+    enabledPlugins = {
+      "typescript-lsp@claude-plugins-official" = true;
+    };
   };
 
+  mcpCatalog = {
+    figma = mkMcpServer {
+      command = "npx";
+      args = [ "-y" "figma-developer-mcp" "--stdio" ];
+      token = { path = "/run/secrets/figma-token"; envVar = "FIGMA_API_KEY"; };
+    };
+  };
+
+  claude-base = mkClaudeFlavor {
+    name = "claude";
+    inherit baseSettings mcpCatalog;
+  };
+
+  claude-web-ui = mkClaudeFlavor {
+    name = "claude-web-ui";
+    inherit baseSettings mcpCatalog;
+    extraSettings.enabledPlugins = {
+      "frontend-design@claude-plugins-official" = true;
+    };
+    mcpServers = [ "figma" ];
+  };
+
+  baseSettingsFile = pkgs.writeText "claude-base-settings.json"
+    (builtins.toJSON baseSettings);
 in
 {
-  inherit statusline settingsMerge;
+  packages = [ claude-base claude-web-ui ];
 
-  package = pkgs.claude-code;
-
-  # All packages needed to use Claude Code in a shell or home environment.
-  packages = [ pkgs.claude-code statusline settingsMerge ];
-
-  # Ready-to-use string for home.activation or shellHook.
-  activationScript = "${settingsMerge}/bin/claude-settings-merge \"${statusline}/bin/claude-statusline\"";
+  # Writes base settings on every rebuild so the file exists before the first
+  # `claude` invocation. Each wrapper then overwrites it at launch time.
+  activationScript = ''
+    mkdir -p "$HOME/.claude"
+    cp ${baseSettingsFile} "$HOME/.claude/settings.json"
+  '';
 }

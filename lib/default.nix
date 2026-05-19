@@ -30,12 +30,14 @@ let
       inherit system;
       specialArgs = { inherit inputs root; };
       modules = [
+        inputs.sops-nix.darwinModules.sops
         inputs.home-manager.darwinModules.home-manager
         "${root}/modules/theme.nix"
         { myConfig.theme = theme; }
         "${root}/modules/macos/common.nix"
         "${root}/modules/macos/user.nix"
         "${root}/modules/macos/home-manager.nix"
+        "${root}/modules/macos/sops.nix"
         "${root}/hosts/${hostname}/configuration.nix"
       ];
     };
