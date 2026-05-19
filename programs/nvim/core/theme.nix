@@ -26,7 +26,6 @@ in
         notify = {
           enable = true;
           settings = {
-            backgroundColour = "#000000";
             timeout = 1500;
           };
         };
@@ -164,10 +163,12 @@ in
         enable = true;
         settings.flavour = "mocha";
       };
+      plugins.notify.settings.backgroundColour = "#1e1e2e";
     })
 
     # --- THEME: TOKYONIGHT (Moon) ---
     (lib.mkIf (cfg.style == "tokyonight") {
+      plugins.notify.settings.backgroundColour = "#222436";
       colorschemes.tokyonight = {
         enable = true;
         settings = {
@@ -197,7 +198,7 @@ in
         require("catppuccin").setup({ flavour = _dark and "mocha" or "latte" })
         vim.cmd("colorscheme catppuccin")
         -- Match notify background to the resolved theme so it looks correct on light
-        require("notify").setup({ background_colour = _dark and "#000000" or "#eff1f5" })
+        require("notify").setup({ background_colour = _dark and "#1e1e2e" or "#eff1f5" })
         -- On light (latte) override notify highlight groups so titles/icons are visible
         if not _dark then
           local function _set_notify_hl()
