@@ -24,13 +24,13 @@ macOS (Apple Silicon or Intel)
 
 ## Recommended: use the darwin-install dev shell
 
-After Nix is installed (Part 1), enter the dedicated dev shell from the repo root:
+After cloning the repo (step 2.5), enter the dedicated dev shell from the repo root:
 
 ```bash
 nix develop .#darwin-install
 ```
 
-This drops you into a shell with everything you need pre-loaded: `just`, `git`, `nvim` (with Nix LSP), and `nixpkgs-fmt`. It also prints a quick-reference of all available `just` commands on entry.
+This drops you into a shell with everything you need pre-loaded: `just`, `git`, `nvim` (with Nix LSP), `nixpkgs-fmt`, `age`, and `sops`. It also exports `SOPS_AGE_KEY_FILE` so all `sops` and `just edit-secrets` commands work without extra configuration, and prints a quick-reference of all available `just` commands on entry.
 
 > [!TIP]
 > All `just` commands in this guide can be run directly from inside this shell — no need to install anything else manually.
@@ -120,6 +120,32 @@ sudo mv /etc/bashrc /etc/bashrc.before-nix-darwin
 git clone <repo-url> ~/ivy-apps/repo/nixos
 cd ~/ivy-apps/repo/nixos
 ```
+
+Enter the darwin-install shell — all remaining steps should be run from inside it:
+
+```bash
+nix develop .#darwin-install
+```
+
+### 2.6 Install the SOPS age key
+
+sops-nix decrypts secrets (including the Figma token) during `darwin-bootstrap`. The age private key must be on disk before that runs.
+
+Open Bitwarden and copy your age private key, then run:
+
+```bash
+just darwin-install-age-key
+```
+
+Paste the key when prompted and press **Ctrl-D on a new line** to finish. The recipe will:
+
+1. Validate the content looks like a valid age private key
+2. Write it to `/var/lib/sops-age/keys.txt` (never touches a temp file)
+3. Set `root:staff 750` on the directory and `root:staff 640` on the file
+4. Print the public key so you can confirm it matches `.sops.yaml`
+
+> [!IMPORTANT]
+> The printed public key must match the recipient in `.sops.yaml`. If it doesn't, sops-nix will fail to decrypt during bootstrap.
 
 ---
 
@@ -267,6 +293,34 @@ darwin-rebuild --list-generations
 ---
 
 ## Troubleshooting
+
+### sops-nix fails to decrypt secrets during bootstrap
+
+```
+Failed to get the data key required to decrypt the SOPS file.
+```
+
+This means the age key is missing, unreadable, or doesn't match the recipient in `.sops.yaml`. Check each in order:
+
+```bash
+# 1. Key file exists and is readable by your user
+ls -la /var/lib/sops-age/keys.txt
+# expect: -rw-r----- root staff ...
+
+# 2. Public key matches the recipient in .sops.yaml
+sudo grep 'public key' /var/lib/sops-age/keys.txt
+grep 'recipient' .sops.yaml
+```
+
+If the key is missing, re-run `just darwin-install-age-key`. If permissions are wrong, fix them:
+
+```bash
+sudo chown root:staff /var/lib/sops-age /var/lib/sops-age/keys.txt
+sudo chmod 750 /var/lib/sops-age
+sudo chmod 640 /var/lib/sops-age/keys.txt
+```
+
+If the public key doesn't match `.sops.yaml`, you are using a different age key than the one that encrypted the secrets — copy the correct key from Bitwarden.
 
 ### `primary user does not exist`
 
