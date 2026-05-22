@@ -59,7 +59,7 @@ _:
     {
       mode = "n";
       key = "<leader>>";
-      action = "<cmd>vertical resize +5<CR>";
+      action = "<cmd>vertical resize +15<CR>";
       options = {
         desc = "Make window wider horizontally";
       };
@@ -67,7 +67,7 @@ _:
     {
       mode = "n";
       key = "<leader><";
-      action = "<cmd>vertical resize -5<CR>";
+      action = "<cmd>vertical resize -15<CR>";
       options = {
         desc = "Make window narrower horizontally";
       };
