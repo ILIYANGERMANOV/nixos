@@ -26,6 +26,8 @@
       htop
       firefox # Useful white setting up NixOS
       just
+      age # inspect / validate the SOPS age key
+      sops # edit secrets/secrets.yaml
     ];
   };
 
