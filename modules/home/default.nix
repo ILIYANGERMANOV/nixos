@@ -7,6 +7,7 @@
     ./gitui.nix
     ./git.nix
     ./kalker.nix
+    ./deslop.nix
     ./languages/typescript.nix
     ./languages/haskell.nix
     ./languages/nix.nix
