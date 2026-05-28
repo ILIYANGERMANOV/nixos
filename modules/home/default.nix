@@ -12,6 +12,7 @@
     ./languages/haskell.nix
     ./languages/nix.nix
     ./languages/yaml.nix
+    ./languages/d2.nix
   ];
 
   home = {
