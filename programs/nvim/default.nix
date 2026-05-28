@@ -18,6 +18,7 @@
     ./languages/haskell.nix
     ./languages/yaml.nix
     ./languages/elixir.nix
+    ./languages/d2.nix
   ];
 
   env = {
