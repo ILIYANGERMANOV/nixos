@@ -1,14 +1,6 @@
 { pkgs, ... }:
 
 {
-  keymaps = [
-    {
-      mode = "n";
-      key = "<leader>oi";
-      action = "<cmd>TSToolsRemoveUnused<CR>";
-      options.desc = "Clean Unused Imports (TS)";
-    }
-  ];
   autoCmd = [
     {
       event = [ "BufRead" "BufNewFile" ];
@@ -27,6 +19,8 @@
       run = function(action)
         if action == "test" then
           require("toggleterm").exec("npm run test", 1)
+        elseif action == "organize-imports" then
+          vim.cmd("TSToolsRemoveUnused")
         end
       end,
     })

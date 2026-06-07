@@ -62,9 +62,6 @@ in
         # Keybinding hints popup
         which-key.enable = true;
 
-        # Smooth scrolling
-        neoscroll.enable = true;
-
         # Welcome Dashboard
         alpha = {
           enable = true;
@@ -152,6 +149,8 @@ in
             vim.api.nvim_set_hl(0, "NotifyTRACETitle",  { fg = "#8839ef" })
             vim.api.nvim_set_hl(0, "NotifyTRACEIcon",   { fg = "#8839ef" })
             vim.api.nvim_set_hl(0, "NotifyTRACEBorder", { fg = "#8839ef" })
+            -- NvimTree selected file: surface1 bg (#bcc0cc) gives clear contrast on latte
+            vim.api.nvim_set_hl(0, "NvimTreeCursorLine", { bg = "#bcc0cc" })
           end,
         })
       '';
@@ -217,6 +216,7 @@ in
             vim.api.nvim_set_hl(0, "NotifyTRACETitle",  { fg = "#8839ef" })
             vim.api.nvim_set_hl(0, "NotifyTRACEIcon",   { fg = "#8839ef" })
             vim.api.nvim_set_hl(0, "NotifyTRACEBorder", { fg = "#8839ef" })
+            vim.api.nvim_set_hl(0, "NvimTreeCursorLine", { bg = "#bcc0cc" })
           end
           _set_notify_hl()
           vim.api.nvim_create_autocmd("ColorScheme", { pattern = "*", callback = _set_notify_hl })

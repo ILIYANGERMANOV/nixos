@@ -12,6 +12,7 @@
     ./core/lsp.nix
     ./core/clipboard.nix
     ./core/context-aware-keymaps.nix
+    ./core/scrolling.nix
     ./languages/nix.nix
     ./languages/mdc.nix
     ./languages/typescript.nix
