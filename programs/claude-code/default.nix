@@ -12,9 +12,6 @@ let
     autoMemoryEnabled = false;
     effortLevel = "medium";
     theme = "auto";
-    enabledPlugins = {
-      "typescript-lsp@claude-plugins-official" = true;
-    };
   };
 
   mcpCatalog = {
@@ -25,15 +22,24 @@ let
     };
   };
 
-  claude-base = mkClaudeFlavor {
+  claude = mkClaudeFlavor {
     name = "claude";
     inherit baseSettings mcpCatalog;
+  };
+
+  claude-ts = mkClaudeFlavor {
+    name = "claude-ts";
+    inherit baseSettings mcpCatalog;
+    extraSettings.enabledPlugins = {
+      "typescript-lsp@claude-plugins-official" = true;
+    };
   };
 
   claude-web-ui = mkClaudeFlavor {
     name = "claude-web-ui";
     inherit baseSettings mcpCatalog;
     extraSettings.enabledPlugins = {
+      "typescript-lsp@claude-plugins-official" = true;
       "frontend-design@claude-plugins-official" = true;
     };
     mcpServers = [ "figma" ];
@@ -43,7 +49,7 @@ let
     (builtins.toJSON baseSettings);
 in
 {
-  packages = [ claude-base claude-web-ui ];
+  packages = [ claude claude-ts claude-web-ui ];
 
   # Writes base settings on every rebuild so the file exists before the first
   # `claude` invocation. Each wrapper then overwrites it at launch time.
