@@ -17,6 +17,15 @@
   ];
 
   extraConfigLua = ''
+    _G.HaskellRemoveUnusedImports = function()
+      vim.lsp.buf.code_action({
+        filter = function(action)
+          return action.title == "Remove all redundant imports"
+        end,
+        apply = true,
+      })
+    end
+
     _G.HlsRestart = function()
       vim.lsp.stop_client(vim.lsp.get_active_clients({ name = 'hls' }))
       vim.cmd('edit')
@@ -31,6 +40,8 @@
       run = function(action)
         if action == "test" then
           require("toggleterm").exec("cabal test --test-show-details=direct", 1)
+        elseif action == "organize-imports" then
+          _G.HaskellRemoveUnusedImports()
         end
       end,
     })
