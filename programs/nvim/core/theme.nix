@@ -62,9 +62,6 @@ in
         # Keybinding hints popup
         which-key.enable = true;
 
-        # Smooth scrolling
-        neoscroll.enable = true;
-
         # Welcome Dashboard
         alpha = {
           enable = true;
