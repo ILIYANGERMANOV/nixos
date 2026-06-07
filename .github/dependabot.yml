@@ -7,9 +7,17 @@ updates:
       day: "friday"
     ignore:
       - dependency-name: "lanzaboote"
+    groups:
+      nix-updates:
+        patterns:
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "friday"
+    groups:
+      ci-updates:
+        patterns:
+          - "*"
