@@ -11,6 +11,7 @@ let
     };
     autoMemoryEnabled = false;
     effortLevel = "medium";
+    theme = "auto";
     enabledPlugins = {
       "typescript-lsp@claude-plugins-official" = true;
     };
