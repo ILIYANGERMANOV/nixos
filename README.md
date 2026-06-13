@@ -1,6 +1,6 @@
 # My NixOS (experimental toy project)
 
-This is a personal playground for experimenting with NixOS. It is not intended for anyone else to use.
+Personal nix-darwin / NixOS configuration for macOS-first development. Primary machine runs nix-darwin; there is a secondary NixOS host. Everything is managed with Home Manager.
 
 ---
 
@@ -19,30 +19,64 @@ This is a personal playground for experimenting with NixOS. It is not intended f
 
 ---
 
-## NeoVim Setup
+## Key Programs
 
-### Install Nix from https://github.com/DeterminateSystems/nix-installer
+**NixVim** — `programs/nvim/`  
+Full Neovim config via NixVim. LSP client config lives in `programs/nvim/languages/`; language binaries are installed via `modules/home/languages/`. Supports Haskell, TypeScript, Elixir, Nix, D2, YAML, and MDC.
 
-### Install [iTerm2](https://iterm2.com/)
+**Claude Code** — `programs/claude-code/`  
+Three flavors (`claude`, `claude-ts`, `claude-web-ui`) with shared base settings, MCP server wiring, and a custom statusline binary. Each flavor wraps the `claude` CLI and writes `~/.claude/settings.json` at launch.
 
-### Optimize MacOS keyboard
-Since you are on MacOS, the default keyboard "Repeat Rate" is often too slow for Vim navigation (holding `j` to scroll down will feel sluggish).
+**Ghostty** — `modules/home/terminal.nix`  
+Terminal with TokyoNight theme, JetBrains Mono Nerd Font, and zsh + Starship + fzf / zoxide / eza / ripgrep.
 
-1. Open **System Settings** -> **Keyboard**.
-2. Set **Key repeat rate** to **Fast** (Max).
-3. Set **Delay until repeat** to **Short** (Max).
+---
 
-*This makes moving around with `h` `j` `k` `l` feel instantaneous.*
+## Directory Structure
 
-### Configure iTerm2
-
-```shell
-brew install --cask iterm2
-brew install --cask font-jetbrains-mono-nerd-font
+```
+flake.nix           — outputs: devShells, nixosConfigurations, darwinConfigurations
+hosts/              — per-host identity (hostname, user)
+  macos-main/       — primary nix-darwin machine
+  macos-work/       — secondary nix-darwin machine
+  lenovo-old/       — legacy NixOS machine
+lib/                — system builder helpers (NixOS, Darwin, dev shells)
+modules/
+  home/             — Home Manager modules (thin wiring into programs/)
+  macos/            — nix-darwin system-level config
+  nixos/            — NixOS system-level config
+programs/
+  nvim/             — NixVim Neovim config (core/, languages/)
+  claude-code/      — Claude Code flavors + statusline
+shells/             — dev shells for install workflows
+docs/               — setup and operations guides
+just/               — Justfile recipes
 ```
 
-**iTerm2 Settings:**
-1. Open iTerm
-2. Settings > Profiles > Text.
-3. Check "Use a different font for non-ASCII text".
-4. Select the `JetBrainsMono Nerd Font`.
+---
+
+## Docs
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/nix-darwin-install.md](docs/nix-darwin-install.md) | Bootstrap nix-darwin on a new Mac (primary path) |
+| [docs/nixos-install.md](docs/nixos-install.md) | Bootstrap NixOS on bare metal |
+| [docs/SOPS.md](docs/SOPS.md) | Secrets management with SOPS + age |
+
+---
+
+## Common Commands
+
+```shell
+# Lint Nix files
+just lint
+
+# Lint + flake check
+just check
+
+# Rebuild and switch (macOS)
+darwin-rebuild switch --flake .#macos-main
+
+# Rebuild and switch (NixOS)
+nixos-rebuild switch --flake .#lenovo-old
+```
