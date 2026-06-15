@@ -1,9 +1,8 @@
 { root, inputs, pkgs, lib, themeConfig, ... }:
 
 let
-  claude-code = inputs.llm-agents.packages.${pkgs.system}.claude-code;
-  claude = import "${root}/programs/claude-code" {
-    inherit pkgs lib claude-code;
+  claude = import "${root}/lib/claude-code.nix" {
+    inherit root pkgs inputs lib;
     theme = themeConfig;
   };
 in

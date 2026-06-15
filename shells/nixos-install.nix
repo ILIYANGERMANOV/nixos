@@ -7,9 +7,9 @@ let
     module = import "${self}/programs/nvim";
     extraSpecialArgs = { profile = "sops"; };
   };
-  claudeCode = import "${self}/programs/claude-code" {
-    inherit pkgs;
-    claude-code = inputs.llm-agents.packages.${system}.claude-code;
+  claudeCode = import "${self}/lib/claude-code.nix" {
+    root = self;
+    inherit pkgs inputs;
   };
 in
 pkgs.mkShell {

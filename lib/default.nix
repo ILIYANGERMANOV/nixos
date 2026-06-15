@@ -13,6 +13,8 @@ let
         inputs.lanzaboote.nixosModules.lanzaboote
         "${root}/modules/theme.nix"
         { myConfig.theme = theme; }
+        "${root}/modules/nix.nix"
+        "${root}/modules/home-manager.nix"
         "${root}/modules/nixos/common.nix"
         "${root}/modules/nixos/desktop.nix"
         "${root}/modules/nixos/audio.nix"
@@ -20,7 +22,6 @@ let
         "${root}/modules/nixos/security/disk-encryption.nix"
         "${root}/modules/nixos/security/secure-boot.nix"
         "${root}/modules/nixos/user.nix"
-        "${root}/modules/nixos/home-manager.nix"
         "${root}/hosts/${hostname}/configuration.nix"
       ];
     };
@@ -34,9 +35,10 @@ let
         inputs.home-manager.darwinModules.home-manager
         "${root}/modules/theme.nix"
         { myConfig.theme = theme; }
+        "${root}/modules/nix.nix"
+        "${root}/modules/home-manager.nix"
         "${root}/modules/macos/common.nix"
         "${root}/modules/macos/user.nix"
-        "${root}/modules/macos/home-manager.nix"
         "${root}/modules/macos/sops.nix"
         "${root}/hosts/${hostname}/configuration.nix"
       ];

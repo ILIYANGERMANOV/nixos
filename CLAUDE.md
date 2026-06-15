@@ -8,8 +8,9 @@ Mono-repo for NixOS, nix-darwin, and dev-shell configs. Entry point: `flake.nix`
 flake.nix       — outputs: devShells, nixosConfigurations, darwinConfigurations
 lib/            — system builder helpers (NixOS, Darwin, dev shells)
 hosts/          — per-host identity (hostname, user)
-modules/nixos/  — NixOS system-level configuration
-modules/macos/  — nix-darwin system-level configuration
+modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix)
+modules/nixos/  — NixOS-only system configuration
+modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 shells/         — dev shells (web, haskell, nixos-install)
