@@ -1,7 +1,7 @@
-{ pkgs, lib ? pkgs.lib, theme ? "auto", ... }:
+{ pkgs, lib ? pkgs.lib, claude-code, theme ? "auto", ... }:
 
 let
-  inherit (import ./lib.nix { inherit pkgs lib; }) mkClaudeFlavor mkMcpServer;
+  inherit (import ./lib.nix { inherit pkgs lib claude-code; }) mkClaudeFlavor mkMcpServer;
   statusline = import ./statusline.nix { inherit pkgs theme; };
 
   baseSettings = {
