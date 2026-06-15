@@ -27,6 +27,9 @@
       url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Intentionally NOT following nixpkgs: llm-agents tracks nixpkgs-unstable
+    # so we always get the latest claude-code release. flake.lock pins the rev.
+    llm-agents.url = "github:numtide/llm-agents.nix";
   };
 
   outputs = { self, ... }@inputs:

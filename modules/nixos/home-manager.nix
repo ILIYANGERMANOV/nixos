@@ -4,7 +4,7 @@
     useUserPackages = true;
     sharedModules = [ inputs.nixvim.homeModules.nixvim ];
     extraSpecialArgs = {
-      inherit root;
+      inherit inputs root;
       userConfig = config.myConfig.user;
       themeConfig = config.myConfig.theme;
     };

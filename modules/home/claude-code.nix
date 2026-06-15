@@ -1,7 +1,11 @@
-{ root, pkgs, lib, themeConfig, ... }:
+{ root, inputs, pkgs, lib, themeConfig, ... }:
 
 let
-  claude = import "${root}/programs/claude-code" { inherit pkgs lib; theme = themeConfig; };
+  claude-code = inputs.llm-agents.packages.${pkgs.system}.claude-code;
+  claude = import "${root}/programs/claude-code" {
+    inherit pkgs lib claude-code;
+    theme = themeConfig;
+  };
 in
 {
   home.packages = claude.packages;

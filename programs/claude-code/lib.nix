@@ -1,4 +1,4 @@
-{ pkgs, lib ? pkgs.lib, ... }:
+{ pkgs, lib ? pkgs.lib, claude-code, ... }:
 
 let
 
@@ -55,7 +55,7 @@ let
         mkdir -p "$HOME/.claude"
         cp "${settingsFile}" "$HOME/.claude/settings.json"
         ${mkApplyMcp { inherit mcpStaticFile serversWithTokens; }}
-        exec ${pkgs.claude-code}/bin/claude "$@"
+        exec ${claude-code}/bin/claude "$@"
       '';
     };
 

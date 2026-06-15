@@ -6,7 +6,10 @@ let
     module = import "${self}/programs/nvim";
     extraSpecialArgs = { profile = "nix"; };
   };
-  claudeCode = import "${self}/programs/claude-code" { inherit pkgs; };
+  claudeCode = import "${self}/programs/claude-code" {
+    inherit pkgs;
+    claude-code = inputs.llm-agents.packages.${system}.claude-code;
+  };
 in
 pkgs.mkShell {
   packages = with pkgs; [
