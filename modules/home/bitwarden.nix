@@ -1,6 +1,3 @@
 { pkgs, ... }: {
-  home.packages = with pkgs; [
-    bitwarden-desktop
-    bitwarden-cli
-  ];
+  home.packages = [ pkgs.bitwarden-cli ];
 }
