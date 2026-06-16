@@ -10,7 +10,8 @@ let
       command = "${statusline}/bin/claude-statusline";
     };
     autoMemoryEnabled = false;
-    effortLevel = "medium";
+    effortLevel = "high";
+    model = "opus";
     theme = "auto";
   };
 
