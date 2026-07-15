@@ -41,6 +41,10 @@
     breakindent = true;
     ignorecase = true;
     smartcase = true;
+
+    # Untrusted-folder hardening: never let a file's contents drive the editor.
+    modeline = false; # ignore file-embedded vim options (historical RCE vector)
+    exrc = false; # never auto-source project-local .nvimrc/.exrc/.nvim.lua
   };
 
   keymaps = import ./keymaps.nix;

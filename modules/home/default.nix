@@ -6,6 +6,7 @@
     ./bitwarden.nix
     ./gitui.nix
     ./git.nix
+    ./ssh.nix
     ./kalker.nix
     ./deslop.nix
     ./languages/typescript.nix

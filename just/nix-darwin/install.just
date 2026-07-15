@@ -34,7 +34,7 @@ darwin-install-age-key:
     sudo chown root:staff /var/lib/sops-age; \
     sudo chmod 750 /var/lib/sops-age; \
     sudo chown root:staff /var/lib/sops-age/keys.txt; \
-    sudo chmod 640 /var/lib/sops-age/keys.txt; \
+    sudo chmod 600 /var/lib/sops-age/keys.txt; \
     echo ""; \
     echo "Age key installed. Public key:"; \
     sudo grep 'public key' /var/lib/sops-age/keys.txt

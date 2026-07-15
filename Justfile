@@ -1,6 +1,7 @@
 set shell := ["bash", "-eo", "pipefail", "-c"]
 
 import 'just/secrets.just'
+import 'just/ssh.just'
 import 'just/nixos/live-iso.just'
 import 'just/nixos/post-boot.just'
 import 'just/nix-darwin/install.just'
