@@ -15,6 +15,9 @@
       };
       init.defaultBranch = "main";
 
+      # Normalize CRLF to LF on commit, leave the working tree untouched on checkout.
+      core.autocrlf = "input";
+
       # Sign commits and tags with SSH by default (GitHub shows a "Verified" badge).
       gpg.format = "ssh";
       commit.gpgsign = true;
