@@ -29,5 +29,10 @@ rotate-ssh-key:
     echo "--------------------------------------------------------------------------"
     cat "$KEY.pub"
     echo "=========================================================================="
-    echo "Then verify:  ssh -T git@github.com"
+    echo "Then verify:  \`ssh -T git@github.com\`"
     echo "Then DELETE the old key (both entries) at https://github.com/settings/keys"
+    if [ -n "${BACKUP:-}" ]; then
+      echo "--------------------------------------------------------------------------"
+      echo "Once verified, securely wipe the backed-up old key:"
+      echo "  \`rm -rf \"$BACKUP\"\`"
+    fi
