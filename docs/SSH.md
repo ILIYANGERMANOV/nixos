@@ -1,51 +1,125 @@
-# SSH Keys & Commit Signing
+# SSH Keys & Commit Signing (YubiKey-backed)
 
-One passphrase-protected ed25519 key per machine, at `~/.ssh/id_ed25519`, used for **both** GitHub auth and git commit signing. The SSH client config and signing are declared in Nix (`modules/home/ssh.nix`, `modules/home/git.nix`); only key generation and the GitHub upload are manual.
+Each host's SSH key is a **FIDO2 resident credential that lives inside a YubiKey** (`ed25519-sk`). The same key is used for **both** GitHub auth and git commit signing. The private key never touches disk — the files in `~/.ssh` are only *key handles* (stubs) that point at the hardware. Every SSH connection and every signed commit requires a **physical tap** on the YubiKey.
+
+You have **two** YubiKeys per host: a **primary** (`~/.ssh/id_ed25519_sk`) you carry, and a **backup** (`~/.ssh/id_ed25519_sk_backup`) kept somewhere safe. FIDO2 credentials cannot be cloned, so each YubiKey holds its **own** independently-generated credential and both are registered on GitHub.
+
+Config is declared in Nix (`modules/home/ssh.nix`, `modules/home/git.nix`); enrollment and GitHub upload are done through `just` recipes + the GitHub web UI.
+
+> **macOS caveat:** Apple's `/usr/bin/ssh` (LibreSSL) cannot use `-sk` keys. The config forces the Nix build of OpenSSH (`gpg.ssh.program`, `core.sshCommand` in `git.nix`, and `pkgs.openssh` on PATH via `ssh.nix`). Keep those in place.
 
 ---
 
-## Rotate / set up this machine's key
+## Threat model
 
-```bash
-just rotate-ssh-key
-```
+| Attack | Outcome |
+| --- | --- |
+| **Local malware** (e.g. PolinRider) tries to sign/push silently | **Blocked** — no private key on disk or in RAM; every op stalls waiting for a physical tap. |
+| **YubiKey stolen alone** | **Blocked** — resident credentials can't be enumerated or extracted (`ssh-keygen -K`) without the FIDO2 PIN; 8 wrong PINs wipe the applet. |
+| **YubiKey + locked MacBook stolen** | **Blocked** — stub files sit on the FileVault-encrypted disk, unreachable without login; the token still needs the PIN to extract anything. |
+| **Primary YubiKey lost** | **Not locked out** — the backup YubiKey has its own credential already on GitHub. |
 
-Backs up any existing key, generates a new ed25519 key (prompts for a passphrase you type once — macOS Keychain remembers it after that), fixes permissions, loads it into the agent, and prints the public key.
+The one residual gap (accepted): if malware exfiltrates the stub files **and** the physical YubiKey is later stolen, the pair could be used until you revoke the GitHub key. The stub is useless without the hardware, so this requires both a software compromise and a physical theft.
 
-## What you MUST do manually in GitHub
+---
 
-Add the printed public key **twice** at <https://github.com/settings/ssh/new>:
+## First-time setup (per host)
 
-| Key type             | Why                                            |
-| -------------------- | ---------------------------------------------- |
-| Authentication Key   | lets this machine `git push` / `pull` over SSH |
-| Signing Key          | makes your signed commits show **Verified**    |
+Run these on the host itself. `<host>` is `macos-main`, `macos-work`, or `lenovo-old`.
+
+1. **Apply the Nix config** (installs FIDO OpenSSH + `ykman`, points git/ssh at the sk key):
+   ```bash
+   just darwin-rebuild <host>     # macOS
+   just nixos-rebuild lenovo-old  # Linux
+   ```
+2. **Check the primary YubiKey** and set a PIN if it has none:
+   ```bash
+   just yubikey-check
+   just yubikey-set-pin   # only if "PIN is set: false" — store the PIN in Bitwarden
+   ```
+3. **Enroll the primary** (prompts for PIN once, then a tap):
+   ```bash
+   just setup-yubikey-ssh
+   ```
+   This also backs up and unloads any old passphrase key. Add the printed public key to GitHub **twice** (see below).
+4. **Enroll the backup** — unplug the primary, plug in the backup YubiKey (set its PIN first if needed), then:
+   ```bash
+   just enroll-backup-yubikey
+   ```
+   Add *its* printed public key to GitHub **twice** as well.
+5. **Verify** (below), then delete the old passphrase key's two GitHub entries and wipe the local backup dir the recipe printed.
+
+### What you MUST do manually in GitHub
+
+For **each** public key (primary and backup), add it **twice** at <https://github.com/settings/ssh/new>:
+
+| Key type            | Why                                            |
+| ------------------- | ---------------------------------------------- |
+| Authentication Key  | lets this machine `git push` / `pull` over SSH |
+| Signing Key         | makes your signed commits show **Verified**    |
+
+So after full setup a host has **4 GitHub entries**: primary auth + primary signing + backup auth + backup signing.
+
+---
 
 ## Verify
 
-- `ssh -T git@github.com` → greets you by username = auth works.
-- Make a commit and push → GitHub shows a **Verified** badge = signing works.
+- `ssh -T git@github.com` → the YubiKey LED flashes; **tap it** → GitHub greets you by username = auth works.
+- `git commit --allow-empty -m "test signing"` → tap when the LED flashes → `git push` → GitHub shows a **Verified** badge = signing works.
+- `ykman fido credentials list` → shows an `ssh:<host>` entry = the resident credential is on the token.
+- Unplug the primary, plug in the backup, `ssh -T git@github.com` → tap → still works = backup path is good.
 
 ---
 
-## If a key is compromised
+## Restore on a fresh / rebuilt machine
 
-> [!IMPORTANT]
-> The **Verified** badge is recomputed live — it is not frozen at commit time.
-
-1. **Delete both GitHub entries** for that machine's key (Authentication **and** Signing) at <https://github.com/settings/keys>. This stops the attacker pushing as you and forging Verified commits.
-2. Run `just rotate-ssh-key` on that machine and upload the new key (both types).
-3. **Audit** what was pushed during the exposure window — assume forged commits could exist.
-
-> [!NOTE]
-> Deleting the compromised key flips **all** commits it ever signed from Verified → Unverified, retroactively. That is intended: once the key is stolen, GitHub can no longer tell your commits from forgeries. Other machines' keys are unaffected — the blast radius is one host. You normally do **not** re-sign old history (it rewrites every commit SHA).
-
----
-
-## If it re-prompts for the passphrase
-
-The agent lost the key (e.g. after reboot). Reload it into the agent + Keychain:
+The stub files are the only local state, and they're trivially regenerated from the YubiKey — **the actual key is in the hardware**. On a new machine (after `darwin-rebuild`/`nixos-rebuild`), plug in a YubiKey and run:
 
 ```bash
-ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+just restore-ssh-stubs primary   # or: just restore-ssh-stubs backup
 ```
+
+This runs `ssh-keygen -K` (prompts for the FIDO2 **PIN** + a tap — which is exactly why a stolen token alone is useless), finds this host's credential, and installs the stub. No GitHub changes needed — the key is unchanged.
+
+---
+
+## Rotation
+
+Rotate a host's credential on whichever YubiKey is plugged in:
+
+```bash
+just rotate-ssh-key          # primary (default)
+just rotate-ssh-key backup   # backup key
+```
+
+This deletes the old resident credential from the token (PIN required), generates a fresh one, and prints the new public key. **Add the new key to GitHub (Authentication + Signing) before deleting the old entries.**
+
+> [!NOTE]
+> The **Verified** badge is recomputed live. Deleting a Signing key flips **all** commits it ever signed from Verified → Unverified, retroactively. Rotate only when needed; you normally do not re-sign old history (it rewrites every commit SHA).
+
+---
+
+## Lost or stolen YubiKey
+
+1. **Keep working** — your backup YubiKey already has a valid credential on GitHub. `ssh.nix` lists both stubs, so if the backup stub is present it's used automatically. If only the primary stub exists on this machine, run `just restore-ssh-stubs backup` with the backup plugged in (or copy the backup into `~/.ssh/id_ed25519_sk`).
+2. **Revoke the lost key on GitHub** — delete the lost YubiKey's two entries (auth + signing) at <https://github.com/settings/keys> for **every** host it was enrolled on.
+3. **Restore two-key redundancy** — buy/repurpose a new YubiKey, set its PIN, and run `just enroll-backup-yubikey` on each host, uploading the new public keys to GitHub.
+4. **If the lost key turns up later**, factory-reset its FIDO2 applet before reuse: `ykman fido reset` (wipes all resident credentials on the token).
+
+---
+
+## FIDO2 PIN management
+
+- **Set / change:** `just yubikey-set-pin` (wraps `ykman fido access change-pin`). Store it in Bitwarden.
+- **Retry counter:** after **3** wrong PINs the FIDO2 applet locks until you re-insert the key; after **8** consecutive wrong PINs it **permanently wipes** all resident credentials. That's the anti-theft guarantee — and why the backup YubiKey matters.
+- **Recover from a wipe:** the credential on that token is gone. Use the backup key, revoke the wiped key's GitHub entries, and re-enroll the token as a fresh backup.
+
+---
+
+## Troubleshooting
+
+- **`sign_and_send_pubkey: signing failed` / auth hangs** — the YubiKey isn't plugged in, or you didn't tap in time (the LED flashes for ~25s). Re-run and tap.
+- **`Key enrollment failed: invalid format` / `-sk` not recognized** — you're using Apple's `/usr/bin/ssh`. Ensure the Nix OpenSSH is first on PATH (`which ssh` should point into `/nix/store` or `~/.nix-profile`); the git config already pins it for git operations.
+- **Commits from Neovim / a GUI git client silently hang** — the tap prompt isn't visible in that UI; watch for the flashing YubiKey LED and tap. `commit.gpgsign = true` means *every* commit needs a tap.
+- **`no FIDO2 PIN set` error from a recipe** — run `just yubikey-set-pin` first; resident-credential creation requires a PIN.
+- **`ykman: command not found`** — rebuild the host so home-manager installs `yubikey-manager`, or open a new shell to pick up the updated PATH.
