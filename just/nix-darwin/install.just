@@ -31,9 +31,9 @@ darwin-install-age-key:
     fi; \
     sudo mkdir -p /var/lib/sops-age; \
     printf '%s\n' "$key" | sudo tee /var/lib/sops-age/keys.txt > /dev/null; \
-    sudo chown root:staff /var/lib/sops-age; \
-    sudo chmod 750 /var/lib/sops-age; \
-    sudo chown root:staff /var/lib/sops-age/keys.txt; \
+    sudo chown root:wheel /var/lib/sops-age; \
+    sudo chmod 700 /var/lib/sops-age; \
+    sudo chown root:wheel /var/lib/sops-age/keys.txt; \
     sudo chmod 600 /var/lib/sops-age/keys.txt; \
     echo ""; \
     echo "Age key installed. Public key:"; \

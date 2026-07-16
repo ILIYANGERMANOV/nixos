@@ -24,24 +24,46 @@ nix develop .#sops
 
 ---
 
-## One-time setup: generate an age key
+## One-time setup: install the age key (new macOS machine)
 
-Do this once per machine. Skip if the key already exists at `/var/lib/sops-age/keys.txt`.
+The age private key decrypts **everything** in `secrets/secrets.yaml`, so it must be readable by `root` only. sops-nix decrypts during activation as root and never needs your user to read the key, so locking it down does not break rebuilds.
+
+> On macOS, keep the key at mode `600`, owned `root:wheel`. Do **not** leave it group-readable by `staff` — every admin user is in `staff`, so `640 root:staff` would let any local process (including malware running as you) read the master key.
+
+Install the key from your password manager using the bundled recipe, which applies the correct ownership and permissions:
 
 ```bash
-# On the target NixOS machine (as root or via sudo)
-sudo mkdir -p /var/lib/sops-age
-sudo chmod 700 /var/lib/sops-age          # restrict directory listing to root
-sudo age-keygen -o /var/lib/sops-age/keys.txt
+just darwin-install-age-key
+```
+
+Run it **before** `just darwin-bootstrap` so sops-nix can decrypt during the first activation. Verify afterwards:
+
+```bash
+ls -le /var/lib/sops-age/keys.txt
+# expect: -rw-------  1 root  wheel   (no group/other read)
+```
+
+If an older install left the wrong ownership, fix it in place:
+
+```bash
+sudo chown root:wheel /var/lib/sops-age /var/lib/sops-age/keys.txt
+sudo chmod 700 /var/lib/sops-age
 sudo chmod 600 /var/lib/sops-age/keys.txt
 ```
 
-Print the public key so you can add it to `.sops.yaml`:
+### Generating a brand-new key
+
+Only if you don't already have one to reuse (a new key requires re-encrypting `secrets.yaml` for the added recipient):
 
 ```bash
-sudo grep 'public key' /var/lib/sops-age/keys.txt
-# example output:
-# Public key: age1fz8wfwqx8s6ucnsn7l0a32yp6avnaqy6vz8j4xy8ye9udgyy6urq09lfxt
+sudo mkdir -p /var/lib/sops-age
+sudo chmod 700 /var/lib/sops-age
+sudo age-keygen -o /var/lib/sops-age/keys.txt
+sudo chown root:wheel /var/lib/sops-age/keys.txt
+sudo chmod 600 /var/lib/sops-age/keys.txt
+
+# Print the public key to add to .sops.yaml:
+sudo grep 'public key' /var/lib/sops-age/keys.txt   # -> age1...
 ```
 
 ---
