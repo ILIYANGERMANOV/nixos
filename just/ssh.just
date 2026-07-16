@@ -178,7 +178,8 @@ restore-ssh-stubs which="primary":
     echo "Verify: ssh -T git@github.com"
 
 # Rotate this host's credential on the plugged-in YubiKey (delete + regenerate).
-rotate-ssh-key which="primary":
+# which: primary | backup (required) — selects the local stub file to replace.
+rotate-ssh-key which:
     #!/usr/bin/env bash
     set -euo pipefail
     HOST=$(hostname -s)
