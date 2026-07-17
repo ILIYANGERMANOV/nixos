@@ -8,6 +8,11 @@
     enable = true;
     lfs.enable = true;
     settings = {
+      # git-lfs defaults to spinning up its OWN ssh control connection, bypassing
+      # the OpenSSH ControlMaster configured in ssh.nix and forcing an extra
+      # YubiKey ceremony per push. Disable it so LFS reuses the shared master.
+      lfs.ssh.autoMultiplex = false;
+
       user = {
         inherit (userConfig) email;
         name = userConfig.fullName;
