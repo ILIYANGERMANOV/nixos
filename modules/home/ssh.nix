@@ -53,4 +53,15 @@
       };
     };
   };
+
+  # The github.com ControlMaster socket (~/.ssh/control-%C) carries a live,
+  # YubiKey-authenticated connection. Its ONLY access control is the containing
+  # directory: 0700 keeps other local users off the socket. HM/OpenSSH normally
+  # create ~/.ssh as 0700, but enforce it every activation so a stray chmod can't
+  # silently widen the piggyback surface.
+  home.activation.sshDirPerms = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ -d "$HOME/.ssh" ]; then
+      run chmod 700 "$HOME/.ssh"
+    fi
+  '';
 }
