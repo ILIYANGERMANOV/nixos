@@ -20,6 +20,24 @@
         # missing file, so plugging in either YubiKey (or the backup) just works.
         IdentityFile = [ "~/.ssh/id_ed25519_sk" "~/.ssh/id_ed25519_sk_backup" ];
         IdentitiesOnly = true; # only offer these keys, never spray other agent keys at GitHub
+
+        # Connection multiplexing. A verify-required ed25519-sk key re-runs the
+        # full YubiKey ceremony (touch + PIN) on *every* SSH session, and a single
+        # `git push` on an LFS repo opens several (git-lfs-authenticate, the
+        # receive-pack push, LFS transfers) within seconds of each other. Share one
+        # authenticated master so the ceremony happens once per push.
+        #
+        # SECURITY: ControlPersist keeps that authenticated connection alive in the
+        # background, so anything running as this user can ride it to GitHub without
+        # a tap until it expires. It does NOT expose the key (still in hardware) or
+        # allow use from another machine — only same-user piggybacking on THIS box
+        # during the window. Kept deliberately short (1m) — long enough to bridge
+        # the sequential connections of one push, short enough to minimize that
+        # window. %C is a short hash, keeping the socket path under macOS's
+        # ~104-char UNIX-socket limit. See docs/SSH.md.
+        ControlMaster = "auto";
+        ControlPath = "~/.ssh/control-%C";
+        ControlPersist = "1m";
       };
 
       # Written last (after specific blocks) so per-host directives win.
