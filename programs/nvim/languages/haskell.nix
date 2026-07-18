@@ -10,14 +10,6 @@
     }
     {
       mode = "n";
-      key = "<leader>rg";
-      # ghcid wraps `cabal repl`, so the project dev shell still owns GHC/HLS.
-      # Runs in its own terminal (2) so it survives alongside the REPL (1).
-      action = ''<cmd>lua require("toggleterm").exec("ghcid --command 'cabal repl'", 2)<CR>'';
-      options.desc = "ghcid (watch + reload)";
-    }
-    {
-      mode = "n";
       key = "<leader>lx";
       action = "<cmd>lua _G.HlsRestart()<CR>";
       options.desc = "Restart Haskell LSP (HLS)";
