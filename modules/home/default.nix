@@ -8,7 +8,6 @@
     ./git.nix
     ./ssh.nix
     ./kalker.nix
-    ./deslop.nix
     ./languages/typescript.nix
     ./languages/haskell.nix
     ./languages/nix.nix
