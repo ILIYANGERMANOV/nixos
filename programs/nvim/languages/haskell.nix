@@ -69,6 +69,12 @@
           function(args)
             vim.bo[args.buf].smartindent = false
             vim.bo[args.buf].autoindent = true
+            -- 4-space indent to match fourmolu (global default is 2). The
+            -- where keyword lands at 2 spaces in fourmolu style; format-on-save
+            -- normalizes that, so typing at multiples of 4 stays comfortable.
+            vim.bo[args.buf].shiftwidth = 4
+            vim.bo[args.buf].softtabstop = 4
+            vim.bo[args.buf].tabstop = 4
             -- Clear treesitter's indentexpr *after* it attaches on FileType.
             vim.schedule(function()
               if vim.api.nvim_buf_is_valid(args.buf) then
