@@ -55,6 +55,30 @@
         __raw = "function() vim.lsp.codelens.refresh() end";
       };
     }
+    {
+      # Haskell indentation: nvim-treesitter's Haskell indent queries are
+      # incomplete and return 0 for most positions, so pressing <CR> inside a
+      # do-block dumps the cursor to column 0. Swap to plain autoindent (copy
+      # the previous line's indent), which is the predictable choice for a
+      # whitespace-significant language. Scoped to Haskell buffers only; every
+      # other filetype keeps its global treesitter indent + smartindent.
+      event = [ "FileType" ];
+      pattern = [ "haskell" ];
+      callback = {
+        __raw = ''
+          function(args)
+            vim.bo[args.buf].smartindent = false
+            vim.bo[args.buf].autoindent = true
+            -- Clear treesitter's indentexpr *after* it attaches on FileType.
+            vim.schedule(function()
+              if vim.api.nvim_buf_is_valid(args.buf) then
+                vim.bo[args.buf].indentexpr = ""
+              end
+            end)
+          end
+        '';
+      };
+    }
   ];
 
   plugins = {
