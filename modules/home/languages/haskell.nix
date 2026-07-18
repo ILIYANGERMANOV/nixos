@@ -5,6 +5,7 @@ in
 {
   home.packages = [
     pkgs.cabal-install
+    pkgs.ghcid
     pkgs.hlint
     pkgs.fourmolu
     hpkgs.haskell-language-server
