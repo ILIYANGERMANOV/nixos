@@ -48,9 +48,12 @@ _:
       options.desc = "Substitute (discard old text)";
     }
 
-    # 4. Single-char delete discards (note: breaks the `xp` transpose idiom).
+    # 4. Normal-mode single-char delete discards, so tapping `x` on a stray char
+    # never clobbers the clipboard (note: breaks the `xp` transpose idiom).
+    # Visual mode is intentionally left vanilla: `Vx` is a deliberate *cut* and
+    # should land the selection in the clipboard so it can be moved/pasted.
     {
-      mode = [ "n" "x" ];
+      mode = "n";
       key = "x";
       action = ''"_x'';
       options.desc = "Delete char (discard)";
