@@ -86,9 +86,6 @@ in
         # Git — reset
         grh = "git reset --hard";
         grs = "git reset --soft";
-
-        # Other
-        calc = "kalker";
       };
 
       initContent = ''

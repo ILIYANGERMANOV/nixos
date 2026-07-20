@@ -4,10 +4,8 @@
     ./terminal.nix
     ./claude-code.nix
     ./bitwarden.nix
-    ./gitui.nix
     ./git.nix
     ./ssh.nix
-    ./kalker.nix
     ./languages/typescript.nix
     ./languages/haskell.nix
     ./languages/nix.nix
