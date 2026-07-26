@@ -25,6 +25,7 @@
       curl
       htop
       just
+      websocat # test WebSocket endpoints from the terminal (wscat alternative)
       age # inspect / validate the SOPS age key
       sops # edit secrets/secrets.yaml
     ];
