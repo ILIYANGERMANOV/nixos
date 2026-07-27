@@ -24,8 +24,10 @@
         ];
         IdentitiesOnly = true; # only offer these keys, never spray other agent keys at GitHub
 
-        # Connection multiplexing. A verify-required ed25519-sk key re-runs the
-        # full YubiKey ceremony (touch + PIN) on *every* SSH session, and a single
+        # Connection multiplexing. An ed25519-sk key demands a fresh physical tap
+        # on *every* SSH session (the credential is enrolled user-presence-only,
+        # sk_flags 0x21 — the FIDO2 PIN gates enrollment and extraction, not
+        # per-signature use), and a single
         # `git push` on an LFS repo opens several (git-lfs-authenticate, the
         # receive-pack push, LFS transfers) within seconds of each other. Share one
         # authenticated master so the ceremony happens once per push.

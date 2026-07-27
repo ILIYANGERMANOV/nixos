@@ -1,9 +1,22 @@
 {
+  root,
   pkgs,
   lib,
   userConfig,
   ...
 }:
+let
+  # macOS-only: make the YubiKey touch request audible, since the LED is
+  # unreadable in bright light. Linux keeps the plain OpenSSH binaries.
+  touchSound = import "${root}/programs/yubikey-touch-sound" { inherit pkgs lib; };
+
+  sshCommand = if pkgs.stdenv.isDarwin then lib.getExe touchSound.ssh else lib.getExe pkgs.openssh;
+  sshKeygenCommand =
+    if pkgs.stdenv.isDarwin then
+      lib.getExe touchSound.sshKeygen
+    else
+      lib.getExe' pkgs.openssh "ssh-keygen";
+in
 {
   home.packages = with pkgs; [
     pre-commit
@@ -31,9 +44,11 @@
 
       # Force the FIDO-capable Nix OpenSSH for both transport and signing. Without
       # this, git (or a GUI client) could fall back to macOS's /usr/bin/ssh, which
-      # cannot use ed25519-sk keys and would break auth + signing.
-      core.sshCommand = lib.getExe pkgs.openssh;
-      gpg.ssh.program = lib.getExe' pkgs.openssh "ssh-keygen";
+      # cannot use ed25519-sk keys and would break auth + signing. On macOS both
+      # go through thin wrappers that sound an alert while the token waits for a
+      # tap — see programs/yubikey-touch-sound.
+      core.sshCommand = sshCommand;
+      gpg.ssh.program = sshKeygenCommand;
 
       # Sign commits and tags with SSH by default (GitHub shows a "Verified" badge).
       gpg.format = "ssh";

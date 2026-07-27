@@ -71,6 +71,37 @@ So after full setup a host has **4 GitHub entries**: primary auth + primary sign
 
 ---
 
+## Audible touch alert (macOS)
+
+The LED is unreadable in bright light, so on macOS both git paths run through thin
+wrappers (`programs/yubikey-touch-sound`, wired up in `modules/home/git.nix`) that
+play a stock system sound on a loop while the token waits for a tap, and stop the
+moment you tap. Only Apple software makes the noise: `/usr/bin/afplay` and
+`/System/Library/Sounds/Hero.aiff` — the loudest of the stock sounds, amplified
+with `afplay -v` so it cuts through outdoors. No daemon, no agent, no third-party
+package. Sound, gain and repeat interval are arguments of
+`programs/yubikey-touch-sound`.
+
+```bash
+just yubikey-test-sound   # exercises both paths; tap when you hear the alert
+```
+
+The two paths differ because OpenSSH treats them differently:
+
+| Path | Mechanism |
+| --- | --- |
+| **SSH auth** (`git push`, `ssh`) | OpenSSH's own notifier: `notify_start()` forks `$SSH_ASKPASS` when a tap is needed and SIGTERMs it once you tap. The wrapper points `SSH_ASKPASS` at the alert script, puts stderr on a pipe and sets a placeholder `DISPLAY`, because the notifier only fires when stderr isn't a tty **and** a display is set. |
+| **Commit signing** (`ssh-keygen -Y sign`) | No hook exists — `sign_one()` writes its notice with a bare `fprintf(stderr)` and git captures the signer's stderr, so nothing reaches your terminal at all. The wrapper alerts for the duration of the signing call instead. Verification and other subcommands pass through silently. |
+
+Notes and limits:
+
+- **Nothing about the threat model changes.** The alert cannot approve anything — presence is enforced in hardware. The askpass helper only ever receives the presence notice and refuses any other prompt rather than answering it; `SSH_ASKPASS_REQUIRE=force` is deliberately **not** set, so no passphrase prompt can ever be routed into it. The scripts live in `/nix/store` (immutable, hash-addressed).
+- **A muted Mac hears nothing** — the alert respects system volume.
+- **A warm `ControlMaster` needs no tap**, and correctly stays silent.
+- Not covered: browser WebAuthn taps (macOS shows its own dialog), `ssh-keygen -K` and the enrollment recipes, and Linux hosts (`lenovo-old` keeps the plain binaries).
+
+---
+
 ## Restore on a fresh / rebuilt machine
 
 The stub files are the only local state, and they're trivially regenerated from the YubiKey — **the actual key is in the hardware**. On a new machine (after `darwin-rebuild`/`nixos-rebuild`), plug in a YubiKey and run:
@@ -120,6 +151,7 @@ This deletes the old resident credential from the token (PIN required), generate
 
 - **`sign_and_send_pubkey: signing failed` / auth hangs** — the YubiKey isn't plugged in, or you didn't tap in time (the LED flashes for ~25s). Re-run and tap.
 - **`Key enrollment failed: invalid format` / `-sk` not recognized** — you're using Apple's `/usr/bin/ssh`. Ensure the Nix OpenSSH is first on PATH (`which ssh` should point into `/nix/store` or `~/.nix-profile`); the git config already pins it for git operations.
-- **Commits from Neovim / a GUI git client silently hang** — the tap prompt isn't visible in that UI; watch for the flashing YubiKey LED and tap. `commit.gpgsign = true` means *every* commit needs a tap.
+- **Commits from Neovim / a GUI git client silently hang** — the tap prompt isn't visible in that UI; listen for the touch alert (macOS) or watch for the flashing YubiKey LED, and tap. `commit.gpgsign = true` means *every* commit needs a tap.
+- **No touch alert on macOS** — check the system volume first, then `git config --get core.sshCommand` / `gpg.ssh.program`: both should point at a `yubikey-touch-*` wrapper in `/nix/store`. Verify with `just yubikey-test-sound`.
 - **`no FIDO2 PIN set` error from a recipe** — run `just yubikey-set-pin` first; resident-credential creation requires a PIN.
 - **`ykman: command not found`** — rebuild the host so home-manager installs `yubikey-manager`, or open a new shell to pick up the updated PATH.
