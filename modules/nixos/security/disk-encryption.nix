@@ -18,7 +18,10 @@ in
       }
     ];
 
-    boot.initrd.kernelModules = [ "aesni_intel" "cryptd" ];
+    boot.initrd.kernelModules = [
+      "aesni_intel"
+      "cryptd"
+    ];
 
     disko.devices.disk.main = {
       type = "disk";
@@ -64,23 +67,39 @@ in
               ];
               content = {
                 type = "btrfs";
-                extraArgs = [ "-L" "nixos" "-f" ];
+                extraArgs = [
+                  "-L"
+                  "nixos"
+                  "-f"
+                ];
                 subvolumes = {
                   "/root" = {
                     mountpoint = "/";
-                    mountOptions = [ "compress=zstd:3" "noatime" ];
+                    mountOptions = [
+                      "compress=zstd:3"
+                      "noatime"
+                    ];
                   };
                   "/home" = {
                     mountpoint = "/home";
-                    mountOptions = [ "compress=zstd:3" "noatime" ];
+                    mountOptions = [
+                      "compress=zstd:3"
+                      "noatime"
+                    ];
                   };
                   "/nix" = {
                     mountpoint = "/nix";
-                    mountOptions = [ "compress=zstd:3" "noatime" ];
+                    mountOptions = [
+                      "compress=zstd:3"
+                      "noatime"
+                    ];
                   };
                   "/log" = {
                     mountpoint = "/var/log";
-                    mountOptions = [ "compress=zstd:3" "noatime" ];
+                    mountOptions = [
+                      "compress=zstd:3"
+                      "noatime"
+                    ];
                   };
                 };
               };

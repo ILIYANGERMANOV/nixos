@@ -18,7 +18,10 @@
         User = "git";
         # Hardware-backed key-handle stubs. Primary first; ssh silently skips a
         # missing file, so plugging in either YubiKey (or the backup) just works.
-        IdentityFile = [ "~/.ssh/id_ed25519_sk" "~/.ssh/id_ed25519_sk_backup" ];
+        IdentityFile = [
+          "~/.ssh/id_ed25519_sk"
+          "~/.ssh/id_ed25519_sk_backup"
+        ];
         IdentitiesOnly = true; # only offer these keys, never spray other agent keys at GitHub
 
         # Connection multiplexing. A verify-required ed25519-sk key re-runs the
@@ -42,7 +45,10 @@
 
       # Written last (after specific blocks) so per-host directives win.
       "*" = lib.hm.dag.entryAfter [ "github.com" ] {
-        IdentityFile = [ "~/.ssh/id_ed25519_sk" "~/.ssh/id_ed25519_sk_backup" ];
+        IdentityFile = [
+          "~/.ssh/id_ed25519_sk"
+          "~/.ssh/id_ed25519_sk_backup"
+        ];
         # No AddKeysToAgent / UseKeychain: sk stubs carry no on-disk secret and
         # require a physical tap per operation — there is nothing to cache.
         ForwardAgent = false; # never expose the agent to remote hosts

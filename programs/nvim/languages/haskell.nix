@@ -86,7 +86,11 @@
 
   autoCmd = [
     {
-      event = [ "BufEnter" "CursorHold" "InsertLeave" ];
+      event = [
+        "BufEnter"
+        "CursorHold"
+        "InsertLeave"
+      ];
       pattern = [ "*.hs" ];
       callback = {
         __raw = "function() vim.lsp.codelens.refresh() end";
@@ -145,38 +149,83 @@
             # HLS, so they are intentionally absent.
             plugin = {
               # Imports
-              importLens = { globalOn = true; }; # make imports explicit (code action)
-              "ghcide-extend-import-action" = { globalOn = true; }; # add a symbol to an existing import list
-              qualifyImportedNames = { globalOn = true; }; # qualify imported names
+              importLens = {
+                globalOn = true;
+              }; # make imports explicit (code action)
+              "ghcide-extend-import-action" = {
+                globalOn = true;
+              }; # add a symbol to an existing import list
+              qualifyImportedNames = {
+                globalOn = true;
+              }; # qualify imported names
 
               # Code actions / refactors
-              class = { globalOn = true; }; # fill in typeclass method stubs
-              gadt = { globalOn = true; }; # convert a datatype to GADT syntax
-              "explicit-fields" = { globalOn = true; }; # expand record wildcards to explicit fields
-              "overloaded-record-dot" = { globalOn = true; }; # rewrite selectors to record-dot syntax
-              moduleName = { globalOn = true; }; # fix a wrong module name
-              changeTypeSignature = { globalOn = true; }; # fix a wrong type signature
-              "ghcide-code-actions-type-signatures" = { globalOn = true; }; # add missing type signatures
-              "ghcide-code-actions-fill-holes" = { globalOn = true; }; # fill typed holes
-              "ghcide-code-actions-imports-exports" = { globalOn = true; }; # import/export quick fixes
+              class = {
+                globalOn = true;
+              }; # fill in typeclass method stubs
+              gadt = {
+                globalOn = true;
+              }; # convert a datatype to GADT syntax
+              "explicit-fields" = {
+                globalOn = true;
+              }; # expand record wildcards to explicit fields
+              "overloaded-record-dot" = {
+                globalOn = true;
+              }; # rewrite selectors to record-dot syntax
+              moduleName = {
+                globalOn = true;
+              }; # fix a wrong module name
+              changeTypeSignature = {
+                globalOn = true;
+              }; # fix a wrong type signature
+              "ghcide-code-actions-type-signatures" = {
+                globalOn = true;
+              }; # add missing type signatures
+              "ghcide-code-actions-fill-holes" = {
+                globalOn = true;
+              }; # fill typed holes
+              "ghcide-code-actions-imports-exports" = {
+                globalOn = true;
+              }; # import/export quick fixes
 
               # Pragmas
-              "pragmas-completion" = { globalOn = true; }; # complete {-# LANGUAGE ... #-}
-              "pragmas-suggest" = { globalOn = true; }; # add a missing LANGUAGE pragma
-              "pragmas-disable" = { globalOn = true; }; # disable a warning via pragma
+              "pragmas-completion" = {
+                globalOn = true;
+              }; # complete {-# LANGUAGE ... #-}
+              "pragmas-suggest" = {
+                globalOn = true;
+              }; # add a missing LANGUAGE pragma
+              "pragmas-disable" = {
+                globalOn = true;
+              }; # disable a warning via pragma
 
               # Lenses / hovers
-              "ghcide-type-lenses" = { globalOn = true; }; # inferred type signatures as code lenses
-              eval = { globalOn = true; }; # evaluate `-- >>> expr` doctest comments inline
-              alternateNumberFormat = { globalOn = true; }; # toggle numeric literal formats
-              "explicit-fixity" = { globalOn = true; }; # show operator fixity in hovers
+              "ghcide-type-lenses" = {
+                globalOn = true;
+              }; # inferred type signatures as code lenses
+              eval = {
+                globalOn = true;
+              }; # evaluate `-- >>> expr` doctest comments inline
+              alternateNumberFormat = {
+                globalOn = true;
+              }; # toggle numeric literal formats
+              "explicit-fixity" = {
+                globalOn = true;
+              }; # show operator fixity in hovers
 
               # Rename (crossModule = rename edits other modules too, not just this file)
-              rename = { globalOn = true; config.crossModule = true; };
+              rename = {
+                globalOn = true;
+                config.crossModule = true;
+              };
 
               # Static analysis / highlighting
-              stan = { globalOn = true; }; # stan static-analysis diagnostics
-              semanticTokens = { globalOn = true; }; # HLS semantic highlighting layered over treesitter
+              stan = {
+                globalOn = true;
+              }; # stan static-analysis diagnostics
+              semanticTokens = {
+                globalOn = true;
+              }; # HLS semantic highlighting layered over treesitter
             };
           };
         };

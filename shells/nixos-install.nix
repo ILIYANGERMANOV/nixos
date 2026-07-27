@@ -1,11 +1,17 @@
-{ pkgs, inputs, self }:
+{
+  pkgs,
+  inputs,
+  self,
+}:
 let
   inherit (pkgs.stdenv.hostPlatform) system;
   inherit (pkgs.stdenv.hostPlatform) isLinux;
   nvim = inputs.nixvim.legacyPackages.${system}.makeNixvimWithModule {
     inherit pkgs;
     module = import "${self}/programs/nvim";
-    extraSpecialArgs = { profile = "sops"; };
+    extraSpecialArgs = {
+      profile = "sops";
+    };
   };
   claudeCode = import "${self}/lib/claude-code.nix" {
     root = self;
@@ -13,17 +19,21 @@ let
   };
 in
 pkgs.mkShell {
-  packages = with pkgs; [
-    just # run Just recipes (just install <host>, just enroll-secure-boot, etc.)
-    git # clone the repo on the live ISO
-    age # age-keygen for generate-age-key recipe
-    nvim # edit secrets and config files
-    sops # encrypt/decrypt secrets (just edit-secrets, just new-root-password)
-    ssh-to-age # convert SSH host keys to age keys
-    whois # provides mkpasswd for hashing passwords
-  ] ++ pkgs.lib.optionals isLinux [
-    sbctl # Secure Boot key creation and enrollment (Linux-only)
-  ] ++ claudeCode.packages;
+  packages =
+    with pkgs;
+    [
+      just # run Just recipes (just install <host>, just enroll-secure-boot, etc.)
+      git # clone the repo on the live ISO
+      age # age-keygen for generate-age-key recipe
+      nvim # edit secrets and config files
+      sops # encrypt/decrypt secrets (just edit-secrets, just new-root-password)
+      ssh-to-age # convert SSH host keys to age keys
+      whois # provides mkpasswd for hashing passwords
+    ]
+    ++ pkgs.lib.optionals isLinux [
+      sbctl # Secure Boot key creation and enrollment (Linux-only)
+    ]
+    ++ claudeCode.packages;
   shellHook = ''
     export EDITOR=nvim
     export SOPS_AGE_KEY_FILE="/var/lib/sops-age/keys.txt"

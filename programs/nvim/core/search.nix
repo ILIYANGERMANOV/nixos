@@ -15,24 +15,44 @@ let
     ".next"
     "coverage"
   ];
-  excludeFlags = lib.concatMap (d: [ "--exclude" d ]) excludeDirs;
+  excludeFlags = lib.concatMap (d: [
+    "--exclude"
+    d
+  ]) excludeDirs;
 
   # Render a Nix list of strings as a Lua array literal: { "a", "b" }
   toLuaList = xs: "{ " + lib.concatStringsSep ", " (map (x: ''"${x}"'') xs) + " }";
 
   # Respects .gitignore (fd's default), just hardened with explicit excludes
   # for repos that lack a .gitignore.
-  fdRespect = [ "fd" "--type" "f" "--hidden" ] ++ excludeFlags;
+  fdRespect = [
+    "fd"
+    "--type"
+    "f"
+    "--hidden"
+  ]
+  ++ excludeFlags;
 
   # Ignores .gitignore so git-ignored files (e.g. .env.local) show up, but
   # still prunes the heavy directories above.
-  fdNoIgnore = [ "fd" "--type" "f" "--hidden" "--no-ignore-vcs" ] ++ excludeFlags;
+  fdNoIgnore = [
+    "fd"
+    "--type"
+    "f"
+    "--hidden"
+    "--no-ignore-vcs"
+  ]
+  ++ excludeFlags;
 
   # Env files anywhere in the project: .env.local, .env.example,
   # .environments/.env.beta, ... `--glob` matches the file's basename.
-  fdEnv = fdNoIgnore ++ [ "--glob" ".env*" ];
+  fdEnv = fdNoIgnore ++ [
+    "--glob"
+    ".env*"
+  ];
 
-  findFiles = fd: ''<cmd>lua require('telescope.builtin').find_files({ find_command = ${toLuaList fd} })<CR>'';
+  findFiles =
+    fd: "<cmd>lua require('telescope.builtin').find_files({ find_command = ${toLuaList fd} })<CR>";
 in
 {
   keymaps = [

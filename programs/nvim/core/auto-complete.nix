@@ -47,7 +47,10 @@ _:
       settings = {
         check_ts = true; # Use treesitter to check for a pair
         ts_config = {
-          lua = [ "string" "source" ];
+          lua = [
+            "string"
+            "source"
+          ];
         };
         # This allows it to work with nvim-cmp
         fast_wrap = {

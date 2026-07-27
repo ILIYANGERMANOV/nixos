@@ -1,4 +1,9 @@
-{ config, lib, root, ... }:
+{
+  config,
+  lib,
+  root,
+  ...
+}:
 let
   cfg = config.myConfig.user;
 in

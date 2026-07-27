@@ -3,7 +3,10 @@
 {
   autoCmd = [
     {
-      event = [ "BufRead" "BufNewFile" ];
+      event = [
+        "BufRead"
+        "BufNewFile"
+      ];
       pattern = [ "*.mdx" ];
       command = "set filetype=mdx";
     }
@@ -50,13 +53,25 @@
     };
 
     lsp.servers = {
-      biome = { enable = true; package = null; };
-      html = { enable = true; package = null; };
-      cssls = { enable = true; package = null; };
+      biome = {
+        enable = true;
+        package = null;
+      };
+      html = {
+        enable = true;
+        package = null;
+      };
+      cssls = {
+        enable = true;
+        package = null;
+      };
     };
 
     nvim-autopairs.settings.ts_config = {
-      javascript = [ "string" "template_string" ];
+      javascript = [
+        "string"
+        "template_string"
+      ];
     };
 
     conform-nvim.settings.formatters_by_ft = {

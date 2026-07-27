@@ -17,9 +17,7 @@
   home = {
     username = userConfig.name;
     homeDirectory =
-      if pkgs.stdenv.isDarwin
-      then "/Users/${userConfig.name}"
-      else "/home/${userConfig.name}";
+      if pkgs.stdenv.isDarwin then "/Users/${userConfig.name}" else "/home/${userConfig.name}";
     stateVersion = "25.11";
     packages = with pkgs; [
       wget
@@ -35,7 +33,9 @@
   programs.direnv = {
     enable = true;
     nix-direnv.enable = true;
-    package = pkgs.direnv.overrideAttrs (_: { doCheck = false; });
+    package = pkgs.direnv.overrideAttrs (_: {
+      doCheck = false;
+    });
   };
 
 }

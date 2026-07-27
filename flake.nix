@@ -36,9 +36,13 @@
     };
   };
 
-  outputs = { self, ... }@inputs:
+  outputs =
+    { self, ... }@inputs:
     let
-      lib = import ./lib { inherit inputs; root = self; };
+      lib = import ./lib {
+        inherit inputs;
+        root = self;
+      };
     in
     {
       devShells = lib.forAllSystems (pkgs: {
