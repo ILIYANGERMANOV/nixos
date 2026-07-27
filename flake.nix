@@ -30,6 +30,10 @@
     # Intentionally NOT following nixpkgs: llm-agents tracks nixpkgs-unstable
     # so we always get the latest claude-code release. flake.lock pins the rev.
     llm-agents.url = "github:numtide/llm-agents.nix";
+    herdr = {
+      url = "github:ogulcancelik/herdr";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = { self, ... }@inputs:

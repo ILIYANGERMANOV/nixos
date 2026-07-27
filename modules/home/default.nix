@@ -2,6 +2,7 @@
   imports = [
     ./nvim.nix
     ./terminal.nix
+    ./herdr.nix
     ./claude-code.nix
     ./bitwarden.nix
     ./git.nix
