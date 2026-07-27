@@ -221,3 +221,26 @@ rotate-ssh-key which:
     echo "=========================================================================="
     echo "Then delete the old entries at https://github.com/settings/keys"
     echo "Note: deleting a Signing key flips its past commits to Unverified (recomputed live)."
+
+# Verify the audible touch alert on both paths: SSH auth and commit signing.
+yubikey-test-sound:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$(uname -s)" != "Darwin" ]; then
+      echo "The touch alert is macOS-only (uses /usr/bin/afplay)." >&2
+      exit 1
+    fi
+    SSH_CMD=$(git config --get core.sshCommand)
+    SIGN_CMD=$(git config --get gpg.ssh.program)
+    echo "── 1/2  SSH auth ───────────────────────────────────"
+    echo "Contacting github.com — the alert should sound until you tap, then stop."
+    # ControlPath=none forces a fresh connection: a warm ControlMaster needs no
+    # tap, and correctly stays silent.
+    $SSH_CMD -o ControlPath=none -T git@github.com || true
+    echo ""
+    echo "── 2/2  Commit signing ─────────────────────────────"
+    echo "Signing a test payload — the alert should sound until you tap, then stop."
+    printf 'yubikey-test-sound' | \
+      $SIGN_CMD -Y sign -n test -f "$HOME/.ssh/id_ed25519_sk.pub" - >/dev/null
+    echo ""
+    echo "✓ Both paths alerted. If you heard nothing, check the system volume."
