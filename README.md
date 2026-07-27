@@ -71,7 +71,10 @@ just/               — Justfile recipes
 # Lint Nix files
 just lint
 
-# Lint + flake check
+# Format Nix files (nixfmt)
+just format
+
+# Lint + format check + flake check
 just check
 
 # Rebuild and switch (macOS)
