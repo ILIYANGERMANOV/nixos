@@ -89,6 +89,18 @@ in
       };
 
       initContent = ''
+        # Jump to a dir with zoxide, then open Neovim there
+        # Usage: nvz <query>
+        nvz() {
+          z "$@" && nvim .
+        }
+
+        # Interactive zoxide jump (fzf picker), then open Neovim there
+        # Usage: nvzi [query]
+        nvzi() {
+          zi "$@" && nvim .
+        }
+
         # Delete all local branches except main and any branches passed as args
         # Usage: gbd_all [branch1 branch2 ...]
         gbd_all() {
