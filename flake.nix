@@ -36,11 +36,18 @@
     };
   };
 
-  outputs = { self, ... }@inputs:
+  outputs =
+    { self, ... }@inputs:
     let
-      lib = import ./lib { inherit inputs; root = self; };
+      lib = import ./lib {
+        inherit inputs;
+        root = self;
+      };
     in
     {
+      # `nix fmt` — nixfmt (RFC 166) via a treefmt wrapper.
+      formatter = lib.forAllSystems (pkgs: pkgs.nixfmt-tree);
+
       devShells = lib.forAllSystems (pkgs: {
         nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
         darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };

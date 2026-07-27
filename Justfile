@@ -16,7 +16,12 @@ lint:
     statix check .
     deadnix .
 
-# Run all checks (lint + flake check)
+# Format all Nix files (nixfmt); pass --ci to check without writing
+format *ARGS:
+    nix fmt -- {{ ARGS }}
+
+# Run all checks (lint + format + flake check)
 check:
     just lint
+    just format --ci
     nix flake check

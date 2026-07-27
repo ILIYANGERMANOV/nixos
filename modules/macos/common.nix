@@ -1,7 +1,10 @@
 { config, ... }: {
   # Only root and the primary user may push store paths to the daemon,
   # not every admin account (was "@admin").
-  nix.settings.trusted-users = [ "root" config.myConfig.user.name ];
+  nix.settings.trusted-users = [
+    "root"
+    config.myConfig.user.name
+  ];
 
   # Enable Touch ID for sudo (macOS only)
   security.pam.services.sudo_local.touchIdAuth = true;

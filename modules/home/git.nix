@@ -1,4 +1,10 @@
-{ pkgs, lib, userConfig, ... }: {
+{
+  pkgs,
+  lib,
+  userConfig,
+  ...
+}:
+{
   home.packages = with pkgs; [
     pre-commit
     gh

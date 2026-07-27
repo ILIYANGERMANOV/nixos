@@ -1,4 +1,10 @@
-{ pkgs, lib ? pkgs.lib, claude-code, theme ? "auto", ... }:
+{
+  pkgs,
+  lib ? pkgs.lib,
+  claude-code,
+  theme ? "auto",
+  ...
+}:
 
 let
   inherit (import ./lib.nix { inherit pkgs lib claude-code; }) mkClaudeFlavor mkMcpServer;
@@ -18,8 +24,15 @@ let
   mcpCatalog = {
     figma = mkMcpServer {
       command = "npx";
-      args = [ "-y" "figma-developer-mcp" "--stdio" ];
-      token = { path = "/run/secrets/figma-token"; envVar = "FIGMA_API_KEY"; };
+      args = [
+        "-y"
+        "figma-developer-mcp"
+        "--stdio"
+      ];
+      token = {
+        path = "/run/secrets/figma-token";
+        envVar = "FIGMA_API_KEY";
+      };
     };
   };
 
@@ -46,11 +59,14 @@ let
     mcpServers = [ "figma" ];
   };
 
-  baseSettingsFile = pkgs.writeText "claude-base-settings.json"
-    (builtins.toJSON baseSettings);
+  baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
 {
-  packages = [ claude claude-ts claude-web-ui ];
+  packages = [
+    claude
+    claude-ts
+    claude-web-ui
+  ];
 
   # Writes base settings on every rebuild so the file exists before the first
   # `claude` invocation. Each wrapper then overwrites it at launch time.

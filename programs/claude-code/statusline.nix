@@ -27,24 +27,27 @@ let
   # For "auto": sets light colors first (safe default), then overrides to dark
   # if the system reports dark mode.
   colorSetup =
-    if theme == "dark" then darkVars
-    else if theme == "light" then lightVars
-    else ''
-      ${lightVars}
-      _detect_dark=false
-      if command -v defaults > /dev/null 2>&1; then
-        if defaults read -g AppleInterfaceStyle 2>/dev/null | grep -q "Dark"; then
-          _detect_dark=true
+    if theme == "dark" then
+      darkVars
+    else if theme == "light" then
+      lightVars
+    else
+      ''
+        ${lightVars}
+        _detect_dark=false
+        if command -v defaults > /dev/null 2>&1; then
+          if defaults read -g AppleInterfaceStyle 2>/dev/null | grep -q "Dark"; then
+            _detect_dark=true
+          fi
+        elif command -v gsettings > /dev/null 2>&1; then
+          if gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -q "dark"; then
+            _detect_dark=true
+          fi
         fi
-      elif command -v gsettings > /dev/null 2>&1; then
-        if gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -q "dark"; then
-          _detect_dark=true
+        if [[ "$_detect_dark" == "true" ]]; then
+          ${darkVars}
         fi
-      fi
-      if [[ "$_detect_dark" == "true" ]]; then
-        ${darkVars}
-      fi
-    '';
+      '';
 
   # Outputs: "<cyan>dir</cyan>  <green>branch</green>"
   # SC2034: colorSetup defines the full palette; only CYAN/GREEN/RESET used here.
@@ -174,7 +177,13 @@ in
 # Orchestrator: reads JSON from stdin, dispatches to sub-scripts, assembles output.
 pkgs.writeShellApplication {
   name = "claude-statusline";
-  runtimeInputs = [ pkgs.jq dir model usage tokens ];
+  runtimeInputs = [
+    pkgs.jq
+    dir
+    model
+    usage
+    tokens
+  ];
   text = ''
     input=$(cat)
 

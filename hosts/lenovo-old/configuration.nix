@@ -4,7 +4,13 @@
     ./disk-config.nix
   ];
 
-  boot.initrd.availableKernelModules = [ "xhci_pci" "ahci" "nvme" "usb_storage" "sd_mod" ];
+  boot.initrd.availableKernelModules = [
+    "xhci_pci"
+    "ahci"
+    "nvme"
+    "usb_storage"
+    "sd_mod"
+  ];
   boot.kernelModules = [ "kvm-intel" ];
 
   networking.hostName = "lenovo-old";

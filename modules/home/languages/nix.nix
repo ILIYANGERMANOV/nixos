@@ -2,7 +2,7 @@
 {
   home.packages = [
     pkgs.nil
-    pkgs.nixpkgs-fmt
+    pkgs.nixfmt
     pkgs.statix
     pkgs.deadnix
     pkgs.nix-tree

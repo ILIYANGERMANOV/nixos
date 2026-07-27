@@ -1,10 +1,12 @@
 { pkgs, themeConfig, ... }:
 let
-  ghosttyTheme = {
-    dark = "TokyoNight";
-    light = "TokyoNight Day";
-    auto = "light:TokyoNight Day,dark:TokyoNight";
-  }.${themeConfig};
+  ghosttyTheme =
+    {
+      dark = "TokyoNight";
+      light = "TokyoNight Day";
+      auto = "light:TokyoNight Day,dark:TokyoNight";
+    }
+    .${themeConfig};
 in
 {
   # fontconfig is Linux-only; macOS locates fonts via ~/Library/Fonts automatically

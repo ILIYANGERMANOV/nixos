@@ -1,10 +1,17 @@
-{ root, themeConfig, pkgs, ... }:
+{
+  root,
+  themeConfig,
+  pkgs,
+  ...
+}:
 let
-  nvimStyle = {
-    dark = "catppuccin_dark";
-    light = "catppuccin_light";
-    auto = "auto";
-  }.${themeConfig};
+  nvimStyle =
+    {
+      dark = "catppuccin_dark";
+      light = "catppuccin_light";
+      auto = "auto";
+    }
+    .${themeConfig};
 in
 {
   programs.nixvim = {

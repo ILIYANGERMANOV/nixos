@@ -10,14 +10,14 @@
       nil_ls = {
         enable = true;
         settings = {
-          formatting.command = [ "nixpkgs-fmt" ];
+          formatting.command = [ "nixfmt" ];
           nix.flake.autoArchive = true; # Helps with flake path resolution
         };
       };
     };
 
     conform-nvim.settings.formatters_by_ft = {
-      nix = [ "nixpkgs_fmt" ];
+      nix = [ "nixfmt" ];
     };
   };
 }

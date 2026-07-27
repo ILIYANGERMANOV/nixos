@@ -5,7 +5,12 @@ let
 in
 {
   options.myNixVim.style = lib.mkOption {
-    type = lib.types.enum [ "catppuccin_light" "catppuccin_dark" "tokyonight" "auto" ];
+    type = lib.types.enum [
+      "catppuccin_light"
+      "catppuccin_dark"
+      "tokyonight"
+      "auto"
+    ];
     default = "catppuccin_dark";
     description = "Select the color theme for NeoVim.";
   };
@@ -43,8 +48,14 @@ in
         lualine = {
           enable = true;
           settings.options = {
-            component_separators = { left = "│"; right = "│"; };
-            section_separators = { left = ""; right = ""; };
+            component_separators = {
+              left = "│";
+              right = "│";
+            };
+            section_separators = {
+              left = "";
+              right = "";
+            };
             theme = "auto";
           };
         };
@@ -90,7 +101,16 @@ in
             prompt_prefix = "   ";
             selection_caret = "  ";
             # Enforce rounded borders for telescope
-            borderchars = [ "─" "│" "─" "│" "╭" "╮" "╯" "╰" ];
+            borderchars = [
+              "─"
+              "│"
+              "─"
+              "│"
+              "╭"
+              "╮"
+              "╯"
+              "╰"
+            ];
           };
         };
 

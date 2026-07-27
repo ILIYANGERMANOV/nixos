@@ -2,7 +2,11 @@
 let
   inherit (inputs.nixpkgs) lib;
 
-  mkNixosSystem = hostname: system: { theme ? "auto" }:
+  mkNixosSystem =
+    hostname: system:
+    {
+      theme ? "auto",
+    }:
     inputs.nixpkgs.lib.nixosSystem {
       inherit system;
       specialArgs = { inherit inputs root; };
@@ -26,7 +30,11 @@ let
       ];
     };
 
-  mkDarwinSystem = hostname: system: { theme ? "auto" }:
+  mkDarwinSystem =
+    hostname: system:
+    {
+      theme ? "auto",
+    }:
     inputs.nix-darwin.lib.darwinSystem {
       inherit system;
       specialArgs = { inherit inputs root; };
@@ -44,10 +52,17 @@ let
       ];
     };
 
-  forAllSystems = f:
-    lib.genAttrs
-      [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]
-      (system: f (import inputs.nixpkgs { inherit system; config.allowUnfree = true; }));
+  forAllSystems =
+    f:
+    lib.genAttrs [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ] (
+      system:
+      f (
+        import inputs.nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        }
+      )
+    );
 in
 {
   inherit mkNixosSystem mkDarwinSystem forAllSystems;

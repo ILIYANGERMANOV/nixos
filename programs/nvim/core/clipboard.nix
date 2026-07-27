@@ -28,7 +28,10 @@ _:
 
     # 2. Change to end of line discards the replaced text.
     {
-      mode = [ "n" "x" ];
+      mode = [
+        "n"
+        "x"
+      ];
       key = "C";
       action = ''"_C'';
       options.desc = "Change to EOL (discard old text)";
@@ -36,13 +39,19 @@ _:
 
     # 3. All change operators (c, cc, ciw, ...) discard the replaced text.
     {
-      mode = [ "n" "x" ];
+      mode = [
+        "n"
+        "x"
+      ];
       key = "c";
       action = ''"_c'';
       options.desc = "Change (discard old text)";
     }
     {
-      mode = [ "n" "x" ];
+      mode = [
+        "n"
+        "x"
+      ];
       key = "s";
       action = ''"_s'';
       options.desc = "Substitute (discard old text)";

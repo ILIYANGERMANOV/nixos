@@ -10,7 +10,10 @@
     email = "iliyan@coinlist.co";
   };
 
-  sops.secrets.figma-token = { key = "figma-token-macos-work"; owner = config.myConfig.user.name; };
+  sops.secrets.figma-token = {
+    key = "figma-token-macos-work";
+    owner = config.myConfig.user.name;
+  };
 
   system.stateVersion = 6;
 }

@@ -1,4 +1,9 @@
-{ config, lib, root, ... }:
+{
+  config,
+  lib,
+  root,
+  ...
+}:
 let
   cfg = config.myConfig.user;
 in
@@ -18,13 +23,20 @@ in
     };
     extraGroups = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "wheel" "networkmanager" "video" "audio" ];
+      default = [
+        "wheel"
+        "networkmanager"
+        "video"
+        "audio"
+      ];
       description = "Groups the user belongs to";
     };
   };
 
   config = {
-    sops.secrets."${cfg.name}-password" = { neededForUsers = true; };
+    sops.secrets."${cfg.name}-password" = {
+      neededForUsers = true;
+    };
 
     users.mutableUsers = false;
     users.users.${cfg.name} = {
