@@ -152,8 +152,6 @@ let
 in
 {
   inherit
-    beep
-    askpass
     ssh
     sshKeygen
     ;
