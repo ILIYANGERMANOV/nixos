@@ -17,7 +17,7 @@ pkgs.mkShell {
     git            # clone / work with the repo
     nvim           # edit host config and flake.nix before bootstrapping
     nil            # Nix LSP (inside nvim)
-    nixpkgs-fmt    # Nix formatter (inside nvim)
+    nixfmt         # Nix formatter (inside nvim)
     age            # inspect / validate the SOPS age key
     sops           # edit secrets/secrets.yaml
   ] ++ claudeCode.packages;
