@@ -29,6 +29,10 @@
   volume ? "6",
   # Gap between repeats, in seconds.
   interval ? "0.7",
+  # Hard ceiling on a single alert, in seconds. Matches the ~25s touch window
+  # the LED flashes for: past that the operation has failed anyway, so a still-
+  # sounding alert can only mean it was orphaned. See `beep`.
+  timeoutSeconds ? "30",
 }:
 
 let
@@ -40,7 +44,12 @@ let
   # share one implementation.
   beep = pkgs.writeShellApplication {
     name = "yubikey-touch-beep";
+    # `sleep`. Without this, writeShellApplication leaves PATH as the caller's,
+    # so a shadowed `sleep` would run inside the auth path.
+    runtimeInputs = [ pkgs.coreutils ];
     text = ''
+      parent=$PPID
+      deadline=$(( SECONDS + ${timeoutSeconds} ))
       child=""
 
       # Take the in-flight afplay down with us instead of letting it finish.
@@ -52,16 +61,26 @@ let
         fi
         exit 0
       }
-      trap cleanup TERM INT
+      trap cleanup TERM INT HUP
 
-      while :; do
+      # Nothing outside can be relied on to stop us. A SIGKILLed ssh never
+      # reaches notify_complete(), and a SIGKILLed or SIGTERMed signing wrapper
+      # never runs its EXIT trap — either way this process is orphaned and
+      # would beep until logout. No trap can cover SIGKILL, so police
+      # ourselves: stop once the parent is gone, and in any case once the touch
+      # window has closed.
+      while [ "$SECONDS" -lt "$deadline" ]; do
+        kill -0 "$parent" 2>/dev/null || exit 0
+
         ${afplay} -v ${volume} ${sound} >/dev/null 2>&1 &
         child=$!
         wait "$child" || true
+        child="" # reaped — the PID can be recycled, so never kill it again
 
         sleep ${interval} &
         child=$!
         wait "$child" || true
+        child=""
       done
     '';
   };
@@ -71,11 +90,6 @@ let
   askpass = pkgs.writeShellApplication {
     name = "yubikey-touch-askpass";
     text = ''
-      # This must never behave like a passphrase reader. Our credentials are
-      # touch-only (sk_flags 0x21: user-presence + resident, no
-      # user-verification), so the presence notification is the only prompt
-      # that can legitimately reach us. Refuse anything else loudly rather than
-      # answering it with an empty line, which ssh would take as a passphrase.
       case "''${1-}" in
       "Confirm user presence"*) ;;
       *)
@@ -95,10 +109,15 @@ let
   #
   # notify_start() only uses $SSH_ASKPASS when stderr is NOT a tty (or BatchMode
   # is on) AND DISPLAY/WAYLAND_DISPLAY is set. Hence the two adjustments below.
-  # We deliberately do NOT set SSH_ASKPASS_REQUIRE=force, which would also route
-  # passphrase prompts through the helper.
+  # We deliberately do NOT set SSH_ASKPASS_REQUIRE=force, which would route
+  # passphrase prompts through the helper even when a tty is available. Setting
+  # DISPLAY still opens that door for the no-tty case, which is why the helper
+  # guards on the prompt text.
   ssh = pkgs.writeShellApplication {
     name = "yubikey-touch-ssh";
+    # `cat`. Without this, writeShellApplication leaves PATH as the caller's,
+    # so a shadowed `cat` would run inside the auth path.
+    runtimeInputs = [ pkgs.coreutils ];
     text = ''
       export SSH_ASKPASS=${lib.getExe askpass}
       # macOS has no X server; ssh only consults DISPLAY for X11 forwarding,
@@ -137,9 +156,11 @@ let
         exec ${opensshKeygen} "$@"
       fi
 
-      # stdout carries the signature back to git — keep the alert off it.
-      ${lib.getExe beep} >/dev/null 2>&1 &
+      # stdout carries the signature back to git — keep the alert off it, and
+      # off stdin too, which is the pipe git streams the payload down.
+      ${lib.getExe beep} </dev/null >/dev/null 2>&1 &
       loop=$!
+      # Best-effort: an untrapped signal skips this, so beep also stops itself.
       trap 'kill "$loop" 2>/dev/null || true' EXIT
 
       set +e

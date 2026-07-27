@@ -95,9 +95,12 @@ The two paths differ because OpenSSH treats them differently:
 
 Notes and limits:
 
-- **Nothing about the threat model changes.** The alert cannot approve anything — presence is enforced in hardware. The askpass helper only ever receives the presence notice and refuses any other prompt rather than answering it; `SSH_ASKPASS_REQUIRE=force` is deliberately **not** set, so no passphrase prompt can ever be routed into it. The scripts live in `/nix/store` (immutable, hash-addressed).
+- **The key stays unreachable.** The alert cannot approve anything — presence is enforced in hardware — and nothing here touches the token, the agent or any key material. `$SSH_ASKPASS` is a write-only channel from the helper's side: `notify_start()` forks it with stdin and stdout on `/dev/null` and only ever *passes* it a prompt string, so a compromised helper could supply a wrong answer but never read one.
+- **The helper can still see a real passphrase prompt**, so it guards on the prompt text and refuses anything that isn't the presence notice. `SSH_ASKPASS_REQUIRE=force` is deliberately **not** set — that would route prompts through the helper even when a tty is available — but setting `DISPLAY` is itself what sets `allow_askpass` in `readpass.c`, so whenever `open("/dev/tty")` fails (GUI git client, launchd, CI) `read_passphrase()` picks askpass on its own. The guard, not the absence of `force`, is what holds the line.
+- **Refusing is not entirely free.** A non-zero exit from the helper becomes `""` back in `read_passphrase()`. For a host-key confirmation that fails closed (`""` isn't `yes`). But `""` would also be an empty *PIN* — `sshsk_sign()` doesn't normalize it — and 8 consecutive wrong PINs wipe the applet. Today no PIN prompt exists (the credentials are user-presence-only). **Revisit this helper before enrolling any `-O verify-required` key.**
 - **A muted Mac hears nothing** — the alert respects system volume.
 - **A warm `ControlMaster` needs no tap**, and correctly stays silent.
+- **An orphaned alert stops itself.** Neither wrapper can guarantee cleanup — a SIGKILLed `ssh` never reaches `notify_complete()`, and a signal that skips the signing wrapper's `EXIT` trap leaves the loop running — so the beep exits on its own once its parent is gone or the touch window has closed.
 - Not covered: browser WebAuthn taps (macOS shows its own dialog), `ssh-keygen -K` and the enrollment recipes, and Linux hosts (`lenovo-old` keeps the plain binaries).
 
 ---
