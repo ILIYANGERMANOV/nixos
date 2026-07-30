@@ -27,7 +27,14 @@ let
     .${themeConfig};
 
   configFile = (pkgs.formats.toml { }).generate "herdr-config.toml" {
+    # Skip the first-run onboarding wizard; everything it asks is set here.
+    onboarding = false;
     theme = themeSettings;
+    keys = {
+      # ctrl+b is Claude Code's "background this command"; ctrl+x only shadows
+      # things with an easy escape hatch (press it twice to send it through).
+      prefix = "ctrl+x";
+    };
   };
 in
 {
