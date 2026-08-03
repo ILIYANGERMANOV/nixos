@@ -1,0 +1,21 @@
+# Committed spell-check allowlist for this repo — the only layer CI sees.
+#
+# Words that must not be disclosed go in the private global allowlist instead
+# (~/.config/typos/typos.toml); see programs/typos. Everything here is safe to
+# publish, which is why it lives in git where `nix flake check` can reach it.
+
+[files]
+# SOPS ciphertext. The false positive (`Iy` -> `It`) sits inside base64, and the
+# letters are reshuffled on every re-encrypt, so allowlisting the word would both
+# break at the next rotation and blind us to a real `Iy` in prose.
+extend-exclude = ["secrets/secrets.yaml"]
+
+[default.extend-words]
+# The nvim-noice plugin. Lowercase covers `Noice` and `NoiceDismiss` too, since
+# matching is case-insensitive and happens after identifiers are split.
+noice = "noice"
+
+# Half of the `<leader>nd` keybinding in programs/nvim/core/theme.nix, not a word.
+# Scoped to this repo on purpose: allowing `nd` globally would hide a genuine
+# `nd` -> `and` in prose everywhere, forever.
+nd = "nd"

@@ -10,6 +10,7 @@ let
     module = import "${self}/programs/nvim";
     extraSpecialArgs = {
       profile = "nix";
+      root = self;
     };
   };
   claudeCode = import "${self}/lib/claude-code.nix" {
