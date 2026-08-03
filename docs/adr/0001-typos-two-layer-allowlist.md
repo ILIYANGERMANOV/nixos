@@ -19,7 +19,8 @@ Two independent reasons, either one sufficient:
 
 Home Manager therefore *seeds* the file when it is absent and never touches it
 again. This is a one-time seed, not a managed value: later improvements to the
-seed in this repo do not reach already-provisioned machines.
+seed in this repo do not reach already-provisioned machines. After that it is
+edited only by hand — `<leader>ad` from a typo in Neovim, or `just typos-edit`.
 
 ## Why `--config` and not a file in `$HOME`
 
@@ -58,4 +59,6 @@ only mechanism that genuinely layers: it loads into typos' *override* layer, whe
   break `<leader>ad` entirely.
 - **typos is pinned** to the locked nixpkgs in both the flake check and `just
   typos`, because its dictionary grows every release and a floating version could
-  turn CI red with no change to the repo.
+  turn CI red with no change to the repo. The corollary is that bumping
+  `flake.lock` *can* legitimately surface new findings: that is the pin working as
+  intended, and the fix is to allowlist the words, not to unpin typos.

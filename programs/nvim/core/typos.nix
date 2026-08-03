@@ -1,5 +1,8 @@
-{ pkgs, typos, ... }:
+{ pkgs, root, ... }:
 
+let
+  typos = import "${root}/programs/typos" { inherit pkgs; };
+in
 {
   plugins.lsp.servers.typos_lsp = {
     enable = true;
@@ -12,9 +15,9 @@
       # editor equivalent of the CLI's `--config`. See programs/typos.
       config = typos.globalConfigPath;
 
-      # Subordinate to real LSP diagnostics. typos is always-on across every file
-      # that gets opened; at the default "Info" it crowds out actual errors in the
-      # <leader>e float and the sign column.
+      # Neovim renders diagnostics as an underline plus a sign and nothing else
+      # (`virtual_text` defaults to false), so anything below Warning is easy to
+      # miss entirely — a Hint is a faint underline with no message anywhere.
       diagnosticSeverity = "Warning";
     };
   };

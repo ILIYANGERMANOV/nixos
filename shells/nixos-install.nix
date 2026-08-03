@@ -11,6 +11,7 @@ let
     module = import "${self}/programs/nvim";
     extraSpecialArgs = {
       profile = "sops";
+      root = self;
     };
   };
   claudeCode = import "${self}/lib/claude-code.nix" {

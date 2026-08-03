@@ -20,17 +20,21 @@ lint:
 format *ARGS:
     nix fmt -- {{ ARGS }}
 
-# Spell check (typos). `--inputs-from .` resolves nixpkgs through flake.lock, so
-# this is the same build the `typos` flake check runs in CI. Runs unwrapped, so
-# it sees only the committed .typos.toml — exactly what CI sees.
+# `--inputs-from .` resolves nixpkgs through flake.lock, so this is the same
+# build the `typos` flake check runs in CI. Runs unwrapped, so it sees only the
+# committed .typos.toml — never the private global allowlist, exactly like CI.
+#
+# Spell check all files (pinned to flake.lock; identical to CI)
 typos *ARGS:
     nix run --inputs-from . nixpkgs#typos -- {{ ARGS }}
 
-# Edit the private global typos allowlist. Not committed anywhere — it holds
-# words that must not be disclosed, which is why it is seeded once by home
-# activation and left unmanaged. Path mirrors programs/typos (source of truth).
-# Already-running Neovim instances keep the old list until their typos_lsp
-# restarts; <leader>ad does that automatically, editing by hand does not.
+# Holds words that must not be disclosed, so it is committed nowhere — seeded
+# once by home activation, then left unmanaged. Path mirrors programs/typos,
+# which is the source of truth. Note that already-running Neovim instances keep
+# the old list until their typos_lsp restarts: <leader>ad does that for you,
+# editing by hand does not.
+#
+# Edit the private global typos allowlist in Neovim
 typos-edit:
     #!/usr/bin/env bash
     set -euo pipefail
