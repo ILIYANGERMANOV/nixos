@@ -27,6 +27,9 @@ Full Neovim config via NixVim. LSP client config lives in `programs/nvim/languag
 **Claude Code** — `programs/claude-code/`  
 Three flavors (`claude`, `claude-ts`, `claude-web-ui`) with shared base settings, MCP server wiring, and a custom statusline binary. Each flavor wraps the `claude` CLI and writes `~/.claude/settings.json` at launch.
 
+**Skills** — `programs/skills/`  
+Agent skills pinned in the flake. Third-party sets are declared as `flake = false` inputs and installed from an explicit allowlist; custom skills are plain `SKILL.md` files under `programs/skills/custom/`. Each Claude flavor relinks `~/.claude/skills` at launch from its own set. `nix flake check` validates every skill's frontmatter.
+
 **Ghostty** — `modules/home/terminal.nix`  
 Terminal with TokyoNight theme, JetBrains Mono Nerd Font, and zsh + Starship + fzf / zoxide / eza / ripgrep.
 
@@ -48,6 +51,7 @@ modules/
 programs/
   nvim/             — NixVim Neovim config (core/, languages/)
   claude-code/      — Claude Code flavors + statusline
+  skills/           — agent skill catalog (custom/ holds committed skills)
 shells/             — dev shells for install workflows
 docs/               — setup and operations guides
 just/               — Justfile recipes

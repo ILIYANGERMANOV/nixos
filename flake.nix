@@ -34,6 +34,14 @@
       url = "github:ogulcancelik/herdr";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Not a flake — a plain repo of SKILL.md directories. `flake = false` keeps it
+    # a regular store path, so skills can be discovered with builtins.readDir at
+    # eval time. A fetchFromGitHub result could not: modules/nix.nix sets
+    # allow-import-from-derivation = false. flake.lock pins the rev.
+    mattpocock-skills = {
+      url = "github:mattpocock/skills";
+      flake = false;
+    };
   };
 
   outputs =
@@ -47,6 +55,17 @@
     {
       # `nix fmt` — nixfmt (RFC 166) via a treefmt wrapper.
       formatter = lib.forAllSystems (pkgs: pkgs.nixfmt-tree);
+
+      # `nix flake check` (run by `just check` in CI) validates every installed
+      # SKILL.md: frontmatter present, name matches the directory, description
+      # within the Agent Skills limit.
+      checks = lib.forAllSystems (pkgs: {
+        skills =
+          (import ./lib/skills.nix {
+            inherit inputs pkgs;
+            root = self;
+          }).check;
+      });
 
       devShells = lib.forAllSystems (pkgs: {
         nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };

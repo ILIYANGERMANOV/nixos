@@ -2,12 +2,20 @@
   pkgs,
   lib ? pkgs.lib,
   claude-code,
+  skills,
   theme ? "auto",
   ...
 }:
 
 let
-  inherit (import ./lib.nix { inherit pkgs lib claude-code; }) mkClaudeFlavor mkMcpServer;
+  inherit
+    (import ./lib.nix {
+      inherit pkgs lib claude-code;
+      inherit (skills) mkSkillFarm;
+    })
+    mkClaudeFlavor
+    mkMcpServer
+    ;
   statusline = import ./statusline.nix { inherit pkgs theme; };
 
   baseSettings = {
@@ -36,14 +44,25 @@ let
     };
   };
 
+  # Skills every flavor gets. Names must be installed by programs/skills —
+  # requesting an unknown one aborts evaluation. Flavor-specific additions go in
+  # that flavor's `extraSkills`.
+  baseSkills = [
+    "grill-with-docs"
+    "grilling"
+    "domain-modeling"
+    "grill-me"
+    "setup-matt-pocock-skills"
+  ];
+
   claude = mkClaudeFlavor {
     name = "claude";
-    inherit baseSettings mcpCatalog;
+    inherit baseSettings mcpCatalog baseSkills;
   };
 
   claude-ts = mkClaudeFlavor {
     name = "claude-ts";
-    inherit baseSettings mcpCatalog;
+    inherit baseSettings mcpCatalog baseSkills;
     extraSettings.enabledPlugins = {
       "typescript-lsp@claude-plugins-official" = true;
     };
@@ -51,7 +70,7 @@ let
 
   claude-web-ui = mkClaudeFlavor {
     name = "claude-web-ui";
-    inherit baseSettings mcpCatalog;
+    inherit baseSettings mcpCatalog baseSkills;
     extraSettings.enabledPlugins = {
       "typescript-lsp@claude-plugins-official" = true;
       "frontend-design@claude-plugins-official" = true;
