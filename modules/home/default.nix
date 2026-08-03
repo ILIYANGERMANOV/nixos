@@ -7,6 +7,7 @@
     ./bitwarden.nix
     ./git.nix
     ./ssh.nix
+    ./typos.nix
     ./languages/typescript.nix
     ./languages/haskell.nix
     ./languages/nix.nix

@@ -65,6 +65,12 @@
             inherit inputs pkgs;
             root = self;
           }).check;
+
+        # Spell check. Pinned to the locked nixpkgs deliberately: typos' dictionary
+        # is its product and grows with every release, so a floating version could
+        # turn CI red with no change to this repo. Sees only the committed
+        # `.typos.toml`, never the private global allowlist.
+        typos = (import ./programs/typos { inherit pkgs; }).mkCheck self;
       });
 
       devShells = lib.forAllSystems (pkgs: {

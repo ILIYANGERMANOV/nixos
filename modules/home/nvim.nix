@@ -2,9 +2,12 @@
   root,
   themeConfig,
   pkgs,
+  lib,
   ...
 }:
 let
+  typos = import "${root}/programs/typos" { inherit pkgs lib; };
+
   nvimStyle =
     {
       dark = "catppuccin_dark";
@@ -23,6 +26,9 @@ in
     myNixVim.style = nvimStyle;
     imports = [
       (import "${root}/programs/nvim")
+      # Shared with modules/home/typos.nix so the allowlist path has one source
+      # of truth; nixvim modules don't get `root`, so it has to be passed in.
+      { _module.args.typos = typos; }
     ];
   };
 }

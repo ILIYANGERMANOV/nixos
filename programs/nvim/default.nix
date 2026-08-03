@@ -13,6 +13,7 @@
     ./core/clipboard.nix
     ./core/context-aware-keymaps.nix
     ./core/scrolling.nix
+    ./core/typos.nix
     ./languages/nix.nix
     ./languages/mdc.nix
     ./languages/typescript.nix
