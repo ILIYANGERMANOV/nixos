@@ -34,6 +34,14 @@ let
       # ctrl+b is Claude Code's "background this command"; ctrl+x only shadows
       # things with an easy escape hatch (press it twice to send it through).
       prefix = "ctrl+x";
+
+      # Jump straight to a sidebar agent by position: prefix, then alt+N.
+      # "1..9" is herdr's only range token, and alt is what keeps the bare
+      # prefix+1..9 digits on switch_tab — a user binding silently wins over a
+      # default one, so without alt this would take tab switching away.
+      # Positions follow the sidebar (workspace, then tab, then pane) and skip
+      # panes with no agent, so they stay put as long as the layout does.
+      focus_agent = "prefix+alt+1..9";
     };
   };
 in
