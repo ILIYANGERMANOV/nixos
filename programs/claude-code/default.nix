@@ -60,6 +60,7 @@ let
     "domain-modeling"
     "grill-me"
     "setup-matt-pocock-skills"
+    "skeptic"
   ];
 
   claude = mkClaudeFlavor {
