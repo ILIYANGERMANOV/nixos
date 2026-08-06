@@ -55,6 +55,7 @@ let
   # requesting an unknown one aborts evaluation. Flavor-specific additions go in
   # that flavor's `extraSkills`.
   baseSkills = [
+    "engineering"
     "grill-with-docs"
     "grilling"
     "domain-modeling"

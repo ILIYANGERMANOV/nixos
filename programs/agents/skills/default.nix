@@ -48,6 +48,7 @@ let
   # Custom skills committed under ./custom. Only names listed here are installed;
   # any other directory stays committed as a draft. See ./custom/README.md.
   custom = [
+    "engineering" # coding style and engineering principles, model-invoked on any code work
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
   ];
 
