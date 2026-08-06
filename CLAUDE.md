@@ -13,7 +13,7 @@ modules/nixos/  — NixOS-only system configuration
 modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
-programs/skills/— agent skill catalog (custom/ holds committed SKILL.md files)
+programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
 shells/         — dev shells (web, haskell, nixos-install)
 ```
 
@@ -50,19 +50,37 @@ Helpers that compose inputs, modules, and hosts into complete NixOS/Darwin syste
 3. Register the HM module in `modules/home/default.nix`.
 4. Optionally import `programs/<name>` directly in any `shells/` that need it.
 
-## Agent Skills
+## Agent Configuration
 
-**`programs/skills/` owns the catalog. The Claude flavor wrappers own the disk.**
+**`programs/agents/` is agent-agnostic. Agent-specific code lives in that
+agent's own program.**
 
-- `programs/skills/default.nix` — the catalog: third-party sources with an
+`programs/agents/` provides content and knows nothing about installation,
+because the agents disagree on where config goes. Each agent program installs
+what it needs the way its tool expects. See
+`docs/adr/0002-agent-agnostic-configuration.md`, which also documents how to add
+a second agent such as Codex.
+
+- `programs/agents/AGENTS.md` — the shared instructions, plain committed
+  markdown. Exposed as `instructions`.
+- `programs/agents/default.nix` — the shared surface: `instructions`, `skills`
+  and `check`. `lib/agents.nix` is the only adapter; it injects `flake = false`
+  inputs as `externalSrcs`.
+- `programs/claude-code/` — installs `instructions` as `~/.claude/CLAUDE.md`,
+  the only user-scope memory file Claude Code reads. It does **not** read
+  `AGENTS.md` at user scope. A project's own `CLAUDE.md` still stacks on top.
+
+### Agent Skills
+
+**`programs/agents/skills/` owns the catalog. The Claude flavor wrappers own the disk.**
+
+- `programs/agents/skills/default.nix` — the catalog: third-party sources with an
   explicit allowlist and rename map, plus the list of enabled custom skills.
-- `programs/skills/lib.nix` — discovery, collision detection, rename, farm and
+- `programs/agents/skills/lib.nix` — discovery, collision detection, rename, farm and
   validation. No policy.
-- `programs/skills/custom/<name>/SKILL.md` — hand-written skills, committed. A
+- `programs/agents/skills/custom/<name>/SKILL.md` — hand-written skills, committed. A
   directory is only installed once its name is added to `custom`, so drafts can
-  stay in version control. See `programs/skills/custom/README.md`.
-- `lib/skills.nix` — adapter that injects `flake = false` inputs as
-  `externalSrcs`, mirroring `lib/claude-code.nix`.
+  stay in version control. See `programs/agents/skills/custom/README.md`.
 
 External sets are pinned as flake inputs rather than `fetchFromGitHub`. That is
 deliberate: `modules/nix.nix` sets `allow-import-from-derivation = false`, so a
@@ -73,11 +91,13 @@ searched for recursively.
 `~/.claude/skills` is **not** Home Manager managed. Each flavor wrapper wipes and
 relinks it at launch from its own `linkFarm`, so switching flavors never leaves a
 stale skill behind — the same pattern `mkClaudeFlavor` already uses for
-`settings.json` and `.mcpServers`. Anything hand-placed there is destroyed on the
-next launch; prototype in a project's `.claude/skills/` instead.
+`settings.json`, `CLAUDE.md` and `.mcpServers`. Anything hand-placed there is
+destroyed on the next launch; prototype in a project's `.claude/skills/` instead.
 
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
-`programs/claude-code/default.nix`) plus per-flavor `extraSkills`.
+`programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Instructions
+work the same way: `baseInstructions` plus per-flavor `extraInstructions`, which
+is empty everywhere today.
 
 `nix flake check` — and therefore `just check` in CI — validates every installed
 skill: frontmatter present, `name` matching the installed directory, and a
@@ -86,10 +106,10 @@ skill: frontmatter present, `name` matching the installed directory, and a
 ### Adding a skill
 
 - **Third-party**: add the repo as a `flake = false` input in `flake.nix`,
-  forward it through `lib/skills.nix` as `externalSrcs.<name>`, add a source
-  entry in `programs/skills/default.nix`, then add the skill name to
+  forward it through `lib/agents.nix` as `externalSrcs.<name>`, add a source
+  entry in `programs/agents/skills/default.nix`, then add the skill name to
   `baseSkills` or a flavor's `extraSkills`.
-- **Custom**: create `programs/skills/custom/<name>/SKILL.md`, add `<name>` to
+- **Custom**: create `programs/agents/skills/custom/<name>/SKILL.md`, add `<name>` to
   `custom`, then add it to `baseSkills` or a flavor's `extraSkills`.
 
 ## Neovim + LSP Architecture

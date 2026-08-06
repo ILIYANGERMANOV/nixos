@@ -5,7 +5,7 @@
   lib ? pkgs.lib,
 }:
 
-import "${root}/programs/skills" {
+import "${root}/programs/agents" {
   inherit pkgs lib;
   externalSrcs.mattpocock = inputs.mattpocock-skills;
 }

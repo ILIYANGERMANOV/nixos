@@ -60,8 +60,8 @@
       # SKILL.md: frontmatter present, name matches the directory, description
       # within the Agent Skills limit.
       checks = lib.forAllSystems (pkgs: {
-        skills =
-          (import ./lib/skills.nix {
+        agents =
+          (import ./lib/agents.nix {
             inherit inputs pkgs;
             root = self;
           }).check;

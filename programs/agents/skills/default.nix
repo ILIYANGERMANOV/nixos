@@ -23,7 +23,7 @@ let
   #
   # To add a source:
   #   1. declare the repo as a `flake = false` input in flake.nix
-  #   2. forward it through lib/skills.nix as `externalSrcs.<name>`
+  #   2. forward it through lib/agents.nix as `externalSrcs.<name>`
   #   3. add an entry here
   sources = {
     mattpocock = {

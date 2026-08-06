@@ -18,21 +18,23 @@ let
     }:
     { inherit command args; } // lib.optionalAttrs (token != null) { inherit token; };
 
-  # Builds a named Claude wrapper binary that owns ~/.claude/settings.json, the
-  # mcpServers key in ~/.claude.json, and the ~/.claude/skills directory for its
-  # lifetime. Every invocation resets all three so switching between flavors is
-  # always clean.
+  # Builds a named Claude wrapper binary that owns ~/.claude/settings.json,
+  # ~/.claude/CLAUDE.md, the mcpServers key in ~/.claude.json, and the
+  # ~/.claude/skills directory for its lifetime. Every invocation resets all four
+  # so switching between flavors is always clean.
   #
   # Security model: secrets are read from sops-nix at invocation time, exported
   # as process env vars, and inherited by Claude Code via exec. ~/.claude.json
   # stores only ${VAR} references which Claude Code resolves via expandVars.
   #
   # Options:
-  #   name          — binary name (required)
-  #   extraSettings — Nix attrset deep-merged onto baseSettings
-  #   mcpServers    — list of server names from mcpCatalog to activate
-  #   baseSkills    — skill names every flavor gets (passed in from default.nix)
-  #   extraSkills   — skill names this flavor adds on top
+  #   name              - binary name (required)
+  #   extraSettings     - Nix attrset deep-merged onto baseSettings
+  #   mcpServers        - list of server names from mcpCatalog to activate
+  #   baseSkills        - skill names every flavor gets (passed in from default.nix)
+  #   extraSkills       - skill names this flavor adds on top
+  #   baseInstructions  - the agent-agnostic AGENTS.md (passed in from default.nix)
+  #   extraInstructions - markdown files this flavor appends to them
   #
   # To add a new flavor:
   #   myFlavor = makeFlavor {
@@ -47,10 +49,12 @@ let
       name,
       baseSettings,
       mcpCatalog,
+      baseInstructions,
       extraSettings ? { },
       mcpServers ? [ ],
       baseSkills ? [ ],
       extraSkills ? [ ],
+      extraInstructions ? [ ],
     }:
     let
       servers = lib.filterAttrs (n: _: builtins.elem n mcpServers) mcpCatalog;
@@ -66,6 +70,15 @@ let
 
       skillNames = lib.unique (baseSkills ++ extraSkills);
       skillFarm = if skillNames == [ ] then null else mkSkillFarm "${name}-skills" skillNames;
+
+      # A flavor with nothing to add installs the shared file as-is, so the common
+      # case costs no build and ~/.claude/CLAUDE.md is byte-identical to
+      # programs/agents/AGENTS.md.
+      instructionsFile =
+        if extraInstructions == [ ] then
+          baseInstructions
+        else
+          pkgs.concatText "${name}-instructions.md" ([ baseInstructions ] ++ extraInstructions);
     in
     pkgs.writeShellApplication {
       inherit name;
@@ -73,7 +86,8 @@ let
       text = ''
         mkdir -p "$HOME/.claude"
         ${mkApplySkills skillFarm}
-        cp "${settingsFile}" "$HOME/.claude/settings.json"
+        ${mkApplyInstructions instructionsFile}
+        install -m 600 "${settingsFile}" "$HOME/.claude/settings.json"
         ${mkApplyMcp { inherit mcpStaticFile serversWithTokens; }}
         exec ${claude-code}/bin/claude "$@"
       '';
@@ -85,7 +99,7 @@ let
   # flavors can never leave a stale skill behind. The cost is that anything
   # hand-placed in ~/.claude/skills is discarded on the next launch — prototype
   # new skills in a project's .claude/skills instead, then commit them to
-  # programs/skills/custom.
+  # programs/agents/skills/custom.
   #
   # Entries are per-skill symlinks into the store rather than one symlink for the
   # whole directory: per-entry symlinks are what Claude Code documents support for.
@@ -98,6 +112,20 @@ let
       mkdir -p "$HOME/.claude/skills"
       ln -s ${skillFarm}/* "$HOME/.claude/skills/"
     '';
+
+  # Shell snippet: rewrite ~/.claude/CLAUDE.md from the store on every launch.
+  #
+  # User-scope memory is Nix-owned, on the same terms as ~/.claude/skills: the
+  # file is replaced wholesale, so anything written into it by hand or by the `#`
+  # memory shortcut is discarded on the next launch. Machine-local rules belong
+  # in a project's own CLAUDE.md, which still stacks on top of this one.
+  #
+  # `install -m 600`, not `cp`: store paths are mode 444 and Claude Code never
+  # rewrites CLAUDE.md, so a plain `cp` would succeed once and then fail with
+  # EACCES on every later launch - fatal under `set -o errexit`.
+  mkApplyInstructions = instructionsFile: ''
+    install -m 600 "${instructionsFile}" "$HOME/.claude/CLAUDE.md"
+  '';
 
   # Shell snippet: validate each secret file exists, then export it as an env var.
   # Secrets are NOT written to any file. Claude Code's expandVars (confirmed enabled
