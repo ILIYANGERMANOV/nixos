@@ -23,7 +23,7 @@ let
   #
   # To add a source:
   #   1. declare the repo as a `flake = false` input in flake.nix
-  #   2. forward it through lib/skills.nix as `externalSrcs.<name>`
+  #   2. forward it through lib/agents.nix as `externalSrcs.<name>`
   #   3. add an entry here
   sources = {
     mattpocock = {
@@ -47,7 +47,9 @@ let
 
   # Custom skills committed under ./custom. Only names listed here are installed;
   # any other directory stays committed as a draft. See ./custom/README.md.
-  custom = [ ];
+  custom = [
+    "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
+  ];
 
   # Custom skills go through the same resolution as external sources so they get
   # the same collision detection, rename support and validation.

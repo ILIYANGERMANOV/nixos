@@ -5,10 +5,10 @@ installed into `~/.claude/skills/` by the Claude flavor wrappers.
 
 ## Adding a skill
 
-1. Create `programs/skills/custom/<name>/SKILL.md`.
+1. Create `programs/agents/skills/custom/<name>/SKILL.md`.
 2. Add `"<name>"` to the `custom` list in `../default.nix`.
 3. Add it to `baseSkills` (or a flavor's `extraSkills`) in
-   `../../claude-code/default.nix`.
+   `programs/claude-code/default.nix`.
 4. `darwin-rebuild switch --flake .` — then restart Claude Code if
    `~/.claude/skills` did not exist when the session started.
 

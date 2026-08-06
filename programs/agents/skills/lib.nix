@@ -236,7 +236,7 @@ let
 
       if [ "$status" -ne 0 ]; then
         echo "" >&2
-        echo "skills check failed — see programs/skills/default.nix" >&2
+        echo "skills check failed - see programs/agents/skills/default.nix" >&2
         exit 1
       fi
 
