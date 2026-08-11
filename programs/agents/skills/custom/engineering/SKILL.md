@@ -7,10 +7,28 @@ description: The engineering principles and coding style to follow for all code 
 
 Apply to all code you write, modify or review, in any language.
 
+## Engineering principles
+
+- Simplicity: complexity is the root of all evil. Prefer simplicity over bloated
+  and complicated solutions. Simplicity does not mean ignoring architecture and
+  abstraction best practices - the code should be re-usable and scalable.
+- DRY: do not repeat yourself. When developing systems, think about how you can
+  make them re-usable. Prefer small functions that composed together build
+  bigger functions. Abstract the same concept, never merely the same shape; when
+  unsure whether it is the same concept, ask.
+- Premature optimization: avoid micro-optimization until the user explicitly
+  asks for performance. Prefer correctness and maintainability over performance
+  and complexity.
+- Type-safety: prefer explicit and strict typing. The compiler is your friend
+  and it should catch bugs before the program even runs. Define strictly input
+  and output types for each function. In dynamic languages use the strongest
+  available equivalent - type hints with a checker, schema validation at the
+  boundary. Where no type system exists, validate once at the edge and keep the
+  core total.
+
 ## Domain modeling
 
-This skill governs how to model a domain. Use `/domain-modeling` only when the
-resulting terms should be recorded as a glossary or an ADR.
+This skill governs how to model a domain.
 
 - Use ADTs and follow DDD (Domain Driven Design). The domain model must match
   the business reality exactly and have a 1:1 relationship with the real world.
@@ -39,24 +57,9 @@ resulting terms should be recorded as a glossary or an ADR.
   functions it uses below it. This applies to code you write - do not reorder
   existing functions unless asked.
 
-## Engineering principles
+## Structuring code
 
-- Simplicity: complexity is the root of all evil. Prefer simplicity over bloated
-  and complicated solutions. Simplicity does not mean ignoring architecture and
-  abstraction best practices - the code should be re-usable and scalable.
-- DRY: do not repeat yourself. When developing systems, think about how you can
-  make them re-usable. Prefer small functions that composed together build
-  bigger functions. Abstract the same concept, never merely the same shape; when
-  unsure whether it is the same concept, ask.
-- Premature optimization: avoid micro-optimization until the user explicitly
-  asks for performance. Prefer correctness and maintainability over performance
-  and complexity.
-- Type-safety: prefer explicit and strict typing. The compiler is your friend
-  and it should catch bugs before the program even runs. Define strictly input
-  and output types for each function. In dynamic languages use the strongest
-  available equivalent - type hints with a checker, schema validation at the
-  boundary. Where no type system exists, validate once at the edge and keep the
-  core total.
+- Code placement: if the code is feature-specific place it in a feature-specific directory. If the code is feature-agnostic and re-usable, place the code in a shared directory. When unsure whether a given piece of code is feature-specific or feature-agnostic, ask. Shared code must be feature-agnostic. Feature-specific code must never be shared.
 
 ## Ask, do not guess
 
