@@ -95,6 +95,7 @@ let
       baseSkills
       baseInstructions
       ;
+    extraSkills = [ "ui-coding" ];
     extraSettings.enabledPlugins = {
       "typescript-lsp@claude-plugins-official" = true;
       "frontend-design@claude-plugins-official" = true;

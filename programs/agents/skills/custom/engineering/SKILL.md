@@ -13,7 +13,7 @@ Apply to all code you write, modify or review, in any language.
   and complicated solutions. Simplicity does not mean ignoring architecture and
   abstraction best practices - the code should be re-usable and scalable.
 - DRY: do not repeat yourself. When developing systems, think about how you can
-  make them re-usable. Prefer small functions that composed together build
+  make them re-usable. Prefer small functions that compose together into
   bigger functions. Abstract the same concept, never merely the same shape; when
   unsure whether it is the same concept, ask.
 - Premature optimization: avoid micro-optimization until the user explicitly
@@ -30,7 +30,7 @@ Apply to all code you write, modify or review, in any language.
 
 This skill governs how to model a domain.
 
-- Use ADTs and follow DDD (Domain Driven Design). The domain model must match
+- Use ADTs and follow DDD (Domain-Driven Design). The domain model must match
   the business reality exactly and have a 1:1 relationship with the real world.
 - Prefer SUM (union) types over nullable (optional) fields. Nullable is
   acceptable only when the field is optional by domain - an item has a mandatory
@@ -50,16 +50,20 @@ This skill governs how to model a domain.
   guards are acceptable only for validation and intentional early termination.
   To run logic based on a SUM type (e.g. `orderType`), pattern-match.
 - Programming style: language-idiomatic - write what a senior engineer in that
-  language would write. Within that idiom, prefer FP Haskell style principles:
+  language would write. Within that idiom, prefer Haskell-style FP principles:
   immutability, pure functions and side effects pushed to the edges.
 - Function order: follow Clean Code top-down ordering. The file reads like a book
-  from top to bottom, with the bigger public function at the top and the
-  functions it uses below it. This applies to code you write - do not reorder
+  from top to bottom, with the larger public functions at the top and the
+  functions they use below them. This applies to code you write - do not reorder
   existing functions unless asked.
 
 ## Structuring code
 
-- Code placement: if the code is feature-specific place it in a feature-specific directory. If the code is feature-agnostic and re-usable, place the code in a shared directory. When unsure whether a given piece of code is feature-specific or feature-agnostic, ask. Shared code must be feature-agnostic. Feature-specific code must never be shared.
+- Code placement: if the code is feature-specific, place it in a
+  feature-specific directory. If the code is feature-agnostic and re-usable,
+  place it in a shared directory. When unsure whether a given piece of code is
+  feature-specific or feature-agnostic, ask. Shared code must be
+  feature-agnostic. Feature-specific code must never be shared.
 
 ## Ask, do not guess
 
