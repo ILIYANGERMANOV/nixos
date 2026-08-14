@@ -60,6 +60,7 @@ let
     "grilling"
     "domain-modeling"
     "grill-me"
+    "pragmatic-review"
     "setup-matt-pocock-skills"
     "skeptic"
   ];
