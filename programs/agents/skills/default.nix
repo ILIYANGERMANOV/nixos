@@ -49,6 +49,7 @@ let
   # any other directory stays committed as a draft. See ./custom/README.md.
   custom = [
     "engineering" # coding style and engineering principles, model-invoked on any code work
+    "pragmatic-review" # /pragmatic-review - diff and PR review, explicit invocation only
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
     "ui-coding" # UI-specific rules on top of engineering, web flavor only
   ];
