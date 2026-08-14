@@ -1,8 +1,8 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or a PR the way a pragmatic engineer would - hunts real regressions, reproducible bugs, critical security vulnerabilities and genuine anti-patterns, verifies each against the actual code and drops the false positives. Blocks only on what every senior engineer would agree is wrong, so anything two competent engineers could argue about is taste and gets dropped. Two classes invert that and always block - security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects). Ignores nits, style, accessibility and micro-optimisations. Finding nothing is a normal and good outcome; the goal is catching real bugs and obvious incompetence, not exhaustive review. Produces a findings table in the chat and never commits, pushes, comments or posts a review unless told to. Use before merging a PR or the current branch.
+description: Reviews a diff or a PR the way a pragmatic engineer would - hunts real regressions, reproducible bugs, critical security vulnerabilities and genuine anti-patterns, verifies each against the code and drops false positives. Blocks only on what every senior engineer would agree is wrong, so anything two competent engineers could argue about is taste and gets dropped. Two classes invert that and always block - security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects). Ignores nits, style, accessibility and micro-optimisations. Finding nothing is a normal and good outcome; the goal is catching real bugs and obvious incompetence, not exhaustive review. Produces a findings table in the chat and never commits, pushes or posts a review unless told to. Accepts optional reviewer tips and always answers them. Use before merging a PR or the current branch.
 disable-model-invocation: true
-argument-hint: "[what to look at] [PR number or URL]"
+argument-hint: "[tips] [PR number or URL]"
 ---
 
 # Pragmatic Review
@@ -174,6 +174,10 @@ requirements, and refactors of code the diff did not touch.
 
 With no PR, review the current branch.
 
+Tips are not confined to `$ARGUMENTS`. Anything the user names as worth looking
+at is a tip, including in their phase 2 reply - which is usually where the real
+one arrives. Collect the whole set before spawning phase 3.
+
 ### Tips are authoritative
 
 A tip comes from the engineer who wrote the code. They know where they are
@@ -183,7 +187,8 @@ a tip as a direct question that must be answered, not as background colour.
 Concretely:
 
 - Every agent receives the tips verbatim.
-- A dedicated fourth agent is spawned for the tips alone (phase 3d).
+- Each tip is triaged in phase 2, and one not settled there gets its own
+  dedicated agent (phase 3d).
 - The tips get an explicit answer in phase 5 - including "I checked, it is fine",
   which is an answer and must not be replaced by silence.
 
@@ -191,6 +196,12 @@ Tips **add** scope, they never remove it. The three standard agents run on every
 review regardless of what the tips say. If a tip asks you to skip a category
 outright, ask the user to confirm before honouring it, and never let it suppress
 a blocker.
+
+A tip may point at code this diff never touched - the caching layer, the job
+that consumes the new column, a helper three files away. Follow it. The user
+asked, and "that is outside the diff" is a shrug, not an answer. Anything you
+find out there is reported as **pre-existing**: it is answered, it is flagged as
+pre-existing, and it never blocks the merge.
 
 ## Phase 1 - context
 
@@ -245,17 +256,40 @@ Do not review a change you have not understood, and do not review it against the
 wrong intent. The agents in phase 3 inherit your understanding, so a wrong
 assumption here wastes the entire run.
 
-Post a short numbered list of the assumptions you are reviewing under. Then ask
-**at most three questions**, and only ones whose answer would change what counts
-as a bug. If the answer would not change a verdict, do not ask it - look it up
-or leave it.
+Post a short numbered list of the assumptions you are reviewing under.
+
+### Triage the tips
+
+Settle what you can cheaply, before spending an agent on it. Read the path the
+tip names, and run a check the repo already has - its type checker, linter, test
+command or build. Never write files, never run anything with side effects, never
+install anything.
+
+A tip you have settled does not need an agent; carry the answer straight to
+phase 5. **Triage may settle a tip away only when it asks about practice, design
+or readability.** Every other tip gets its agent however conclusive the check
+looked - security, irreversible damage, a critical bug in a new code path, a
+regression in an existing one - and so does any tip you cannot confidently
+place. Those agents get your triage as a starting point, never as a verdict.
+
+Report the triage alongside the assumptions: what you checked, and what it
+showed. A tip that arrives in the user's reply is triaged the same way before
+you spawn.
+
+### Questions
+
+Then ask **at most three questions**, and only ones whose answer would change
+what counts as a bug. If the answer would not change a verdict, do not ask it -
+look it up or leave it. A tip too vague to turn into a concrete check outranks
+any question about the code: spend one of the three on it rather than sending an
+agent off to guess what the user meant.
 
 Then **wait**. Spawn nothing until the user confirms.
 
 ## Phase 3 - the reviewers, in parallel
 
-Spawn 3a, 3b and 3c on every review, plus 3d when the user gave tips. Send them
-all in a single message so they run concurrently.
+Spawn 3a, 3b and 3c on every review, plus one 3d per tip that survived triage.
+Send them all in a single message so they run concurrently.
 
 Each one gets: the base ref and how to reproduce the diff, the list of changed
 files, the user's reviewer tips verbatim, **your own distilled intent summary
@@ -310,21 +344,28 @@ If it cannot be finished, it is a nit. Drop it. **Cap: the three worst.**
 Naming, formatting, file layout, missing tests, "I would have written this
 differently" - never findings.
 
-**3d - the tips. Spawned only when the user gave tips; skipped entirely when
-they did not.** This agent's whole job is the question the user asked. Give it
-the tips verbatim as its brief, and tell it to ignore everything in the diff that
-the tips do not concern - the other three agents already cover that ground, and
-its value is depth on one thing rather than another pass over everything.
+**3d - the tips. One agent per surviving concern, up to three; none at all when
+the tips were empty or triage settled them.** One concern, one agent - splitting
+a single agent across three questions produces exactly the shallow sweep this
+agent exists to avoid. If the tips name more than three separable concerns, take
+the three the user leaned on hardest and say in phase 5 which you dropped.
+
+Each one's whole job is its own question. Give it that tip verbatim as its
+brief, plus your phase 2 triage as a starting point, and tell it to ignore
+everything the tip does not concern - the other three agents already cover that
+ground, and its value is depth on one thing rather than another pass over
+everything. Its scope is the tip, not the diff: if the tip points at untouched
+code, it goes there and marks what it finds as pre-existing.
 
 Its bar is lower than theirs, deliberately. The user pointed at this code and
 asked, so the unanimity test does not apply inside the tip's scope and `likely`
 is enough to report. Nits are still nits.
 
-It must return an explicit verdict for **each** thing the tips named, even when
-the verdict is "checked, found nothing", and that verdict must say what it
-actually examined - which files, which paths, which cases - so the user can tell
-a real check from a shrug. If a tip is too vague to check, it says so and names
-what it would need, rather than inventing a plausible interpretation.
+It must return an explicit verdict on its tip, even when that verdict is
+"checked, found nothing", and the verdict must say what it actually examined -
+which files, which paths, which cases - so the user can tell a real check from a
+shrug. If the tip is still too vague to check, it says so and names what it
+would need, rather than inventing a plausible interpretation.
 
 ## Phase 4 - verify, then filter
 
@@ -360,12 +401,26 @@ actually have.
 Deduplicate findings the agents raised twice.
 
 Report the arithmetic in one line - `9 raised, 2 survived`. Do not list what was
-dropped unless the user asks.
+dropped unless the user asks. A tip verdict that found nothing is not a dropped
+finding and does not count in that arithmetic; it is an answer, and it is
+reported as one.
 
 ## Phase 5 - the findings table
 
-**If the user gave tips, answer them first**, above everything else and whether
-or not they produced findings. One short line per tip, saying what was checked
+The order is fixed: **verdict, then the tip answers, then the table.**
+
+### The verdict
+
+One line, and it comes first. If a 🔴 row exists that verdict is **do not
+merge**, not a summary of how many things were found. If nothing survived it is
+the whole report bar the tip answers:
+
+> Ready to merge 👌 - nothing serious found. 9 raised, 0 survived.
+
+### The tip answers
+
+**If the user gave tips, answer every one of them**, whether or not it produced
+a finding, and before the table. One short line per tip, saying what was checked
 and what came of it:
 
 > **You asked about the retry path.** Checked `client.ts` and both call sites -
@@ -374,28 +429,30 @@ and what came of it:
 > **You asked whether the migration is backwards compatible.** Checked against
 > the current schema and the previous release's queries - it is.
 
-Never let a tip go unanswered. "I looked and it is fine" is the answer the user
-is paying for; silence reads as "I forgot to look".
+A tip settled in phase 2 triage is answered here exactly like one that got an
+agent. A tip dropped for exceeding the cap of three is named here as unchecked,
+not quietly omitted. Never let a tip go unanswered - "I looked and it is fine"
+is the answer the user is paying for, and silence reads as "I forgot to look".
 
-If nothing survived, say so and stop. Phases 5 and 6 do not run:
+### The table
 
-> Ready to merge 👌 - nothing serious found. 9 raised, 0 survived.
+If nothing survived, the tip answers are the end of it. Stop; phase 6 does not
+run.
 
-That line still comes after the tip answers, never instead of them.
-
-Otherwise, print a numbered table, blockers first and marked 🔴:
+Otherwise, print a numbered table, blockers first and marked 🔴. A row that came
+from a tip is marked 🔍: it cleared a lower bar than the rest, and the user is
+entitled to see which rows those are.
 
 | # | What | Impact | Fix |
 |---|------|--------|-----|
 | 1 | 🔴 `auth.ts:41` - session id compared with `==` | Any user can forge a session by sending an integer | Compare with a constant-time equality on the raw string |
-
-Lead the table with a one-line verdict, and if a 🔴 row exists that verdict is
-**do not merge**, not a summary of how many things were found.
+| 2 | 🔍 `retry.ts:88` - backoff resets on every 5xx | A failing endpoint is hot-looped instead of backed off | Carry the attempt count through the retry |
 
 Then ask the user which findings survive, as checkboxes: `AskUserQuestion` with
-`multiSelect`, grouped by category (blockers / bugs / practices), up to four per
-question. If more than sixteen survived, the filtering failed - say so, put the
-sixteen worst in the checkboxes, and leave the rest in the table only.
+`multiSelect`, grouped by category (blockers / bugs / practices / you asked
+about), up to four per question. If more than sixteen survived, the filtering
+failed - say so, put the sixteen worst in the checkboxes, and leave the rest in
+the table only.
 
 Blockers go in the checkboxes like everything else - the user may dismiss any of
 them and that is their call. But every 🔴 row starts pre-selected, and it is
@@ -434,7 +491,8 @@ Do nothing until they answer:
 - Never pad. A clean diff gets "nothing serious found", not a paragraph of
   gentle suggestions to justify the review.
 - Do not review the code that was already there. Only what this diff changes,
-  plus what it breaks.
+  plus what it breaks - unless a tip sends you there, and then what you find is
+  pre-existing and does not block.
 - If the diff is too large or too unfamiliar to judge honestly, say which parts
   you could not assess rather than implying you covered them.
 - Drop a finding the moment the user shows it is wrong. Do not reach for a
