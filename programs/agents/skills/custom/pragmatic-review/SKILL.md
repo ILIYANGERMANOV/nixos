@@ -2,7 +2,7 @@
 name: pragmatic-review
 description: Reviews a diff or a PR the way a pragmatic engineer would - hunts real regressions, reproducible bugs, critical security vulnerabilities and genuine anti-patterns, verifies each against the actual code and drops the false positives. Blocks only on what every senior engineer would agree is wrong, so anything two competent engineers could argue about is taste and gets dropped. Two classes invert that and always block - security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects). Ignores nits, style, accessibility and micro-optimisations. Finding nothing is a normal and good outcome; the goal is catching real bugs and obvious incompetence, not exhaustive review. Produces a findings table in the chat and never commits, pushes, comments or posts a review unless told to. Use before merging a PR or the current branch.
 disable-model-invocation: true
-argument-hint: "[review tips] [PR number or URL]"
+argument-hint: "[what to look at] [PR number or URL]"
 ---
 
 # Pragmatic Review
@@ -170,9 +170,27 @@ requirements, and refactors of code the diff did not touch.
 `$ARGUMENTS` may contain either, both, or neither:
 
 - A bare number, or a `github.com/.../pull/N` URL - the PR to review.
-- Anything else - reviewer tips, meaning what the user wants you to look at.
+- Anything else - **reviewer tips**.
 
 With no PR, review the current branch.
+
+### Tips are authoritative
+
+A tip comes from the engineer who wrote the code. They know where they are
+unsure, and that is worth more than anything you will infer from the diff. Treat
+a tip as a direct question that must be answered, not as background colour.
+
+Concretely:
+
+- Every agent receives the tips verbatim.
+- A dedicated fourth agent is spawned for the tips alone (phase 3d).
+- The tips get an explicit answer in phase 5 - including "I checked, it is fine",
+  which is an answer and must not be replaced by silence.
+
+Tips **add** scope, they never remove it. The three standard agents run on every
+review regardless of what the tips say. If a tip asks you to skip a category
+outright, ask the user to confirm before honouring it, and never let it suppress
+a blocker.
 
 ## Phase 1 - context
 
@@ -234,14 +252,16 @@ or leave it.
 
 Then **wait**. Spawn nothing until the user confirms.
 
-## Phase 3 - three reviewers, in parallel
+## Phase 3 - the reviewers, in parallel
 
-Spawn three agents in a single message so they run concurrently. Each one gets:
-the base ref and how to reproduce the diff, the list of changed files, the
-user's reviewer tips, **your own distilled intent summary from phase 2** - never
-the raw PR prose - and **the bar, restated verbatim in its prompt, including the
-unanimity test and the exclusion list.** An agent that has not been told the bar
-will report at its own, which is always lower.
+Spawn 3a, 3b and 3c on every review, plus 3d when the user gave tips. Send them
+all in a single message so they run concurrently.
+
+Each one gets: the base ref and how to reproduce the diff, the list of changed
+files, the user's reviewer tips verbatim, **your own distilled intent summary
+from phase 2** - never the raw PR prose - and **the bar, restated verbatim in its
+prompt, including the unanimity test and the exclusion list.** An agent that has
+not been told the bar will report at its own, which is always lower.
 
 Tell each agent that returning `NONE` is a good answer and costs it nothing. Left
 to themselves, review agents invent findings to look useful.
@@ -290,6 +310,22 @@ If it cannot be finished, it is a nit. Drop it. **Cap: the three worst.**
 Naming, formatting, file layout, missing tests, "I would have written this
 differently" - never findings.
 
+**3d - the tips. Spawned only when the user gave tips; skipped entirely when
+they did not.** This agent's whole job is the question the user asked. Give it
+the tips verbatim as its brief, and tell it to ignore everything in the diff that
+the tips do not concern - the other three agents already cover that ground, and
+its value is depth on one thing rather than another pass over everything.
+
+Its bar is lower than theirs, deliberately. The user pointed at this code and
+asked, so the unanimity test does not apply inside the tip's scope and `likely`
+is enough to report. Nits are still nits.
+
+It must return an explicit verdict for **each** thing the tips named, even when
+the verdict is "checked, found nothing", and that verdict must say what it
+actually examined - which files, which paths, which cases - so the user can tell
+a real check from a shrug. If a tip is too vague to check, it says so and names
+what it would need, rather than inventing a plausible interpretation.
+
 ## Phase 4 - verify, then filter
 
 Treat every finding as a claim to be disproved, not a result to be reported.
@@ -307,6 +343,12 @@ For each one:
    a true observation that engineers could argue about is still taste, and taste
    does not reach the table.
 
+**Step 5 does not apply to findings from 3d.** The user asked about that code, so
+a real answer they might disagree with is still worth having. Verify it like
+anything else - steps 1 to 4 stand - but do not drop it for failing unanimity.
+Carry 3d's verdicts through verification intact, including the ones that found
+nothing; they are the answer to a question, not findings competing for space.
+
 **Steps 4 and 5 do not apply to blockers.** A blocker is dropped only when you
 can show it is *wrong* - the input is parameterised after all, the route is
 unreachable, the guard lives upstream, the `WHERE` clause provably matches only
@@ -322,9 +364,24 @@ dropped unless the user asks.
 
 ## Phase 5 - the findings table
 
+**If the user gave tips, answer them first**, above everything else and whether
+or not they produced findings. One short line per tip, saying what was checked
+and what came of it:
+
+> **You asked about the retry path.** Checked `client.ts` and both call sites -
+> the retry is idempotent, but see finding 2 for the timeout it inherits.
+>
+> **You asked whether the migration is backwards compatible.** Checked against
+> the current schema and the previous release's queries - it is.
+
+Never let a tip go unanswered. "I looked and it is fine" is the answer the user
+is paying for; silence reads as "I forgot to look".
+
 If nothing survived, say so and stop. Phases 5 and 6 do not run:
 
 > Ready to merge 👌 - nothing serious found. 9 raised, 0 survived.
+
+That line still comes after the tip answers, never instead of them.
 
 Otherwise, print a numbered table, blockers first and marked 🔴:
 
@@ -369,6 +426,8 @@ Do nothing until they answer:
 - Lead with the verdict. Safe to merge, or here is what stops it.
 - Reluctance is for bugs and taste. Never for blockers - where the damage cannot
   be undone, silence is the expensive mistake and a false alarm is cheap.
+- Answer the question you were asked. If the user pointed at something, they get
+  a verdict on it, whether or not you found anything there.
 - Be specific or be quiet. "This could have security implications" is noise;
   "an unauthenticated POST to `/import` writes to the orders table" is signal.
 - One real bug beats ten observations. If the list is long, the bar slipped.
