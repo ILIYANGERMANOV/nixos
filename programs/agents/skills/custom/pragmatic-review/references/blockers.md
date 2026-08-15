@@ -22,21 +22,27 @@ next week, because by then it has already happened.
 ## Step 1 - the mechanical sweep, before you reason about anything
 
 Cheapest, highest-value check in the review. Run it first, on the **added lines
-only**. `$PATCH` is the patch file named in your prompt.
+only**. `<diff>` below is the diff command pinned in your prompt.
 
 ```sh
-grep -E '^\+' "$PATCH" | grep -E -i \
+<diff> | grep -E '^\+' | grep -E -i \
   'sk-[A-Za-z0-9_-]{16}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20}|xox[baprs]-|-----BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|secret|password|passwd|token|credential|private[_-]?key|client[_-]?secret)[[:space:]]*[:=][[:space:]]*.{8}|Bearer [A-Za-z0-9._~+/-]{20}|[a-z][a-z0-9+.-]*://[^/[:space:]:@]+:[^@[:space:]]+@'
 ```
 
 Then the same pass for high-entropy literals that carry no keyword - quoted
-runs of 40+ base64 characters, or 32+ hex characters - and then the added file
-paths:
+runs of 40+ base64 characters, or 32+ hex characters - and then the file paths,
+both the ones the diff carries and the untracked ones your prompt lists:
 
 ```sh
-grep -E '^\+\+\+ b/' "$PATCH"                  # every file the diff adds or edits
-git check-ignore -v <each added path>          # is it actually gitignored?
+<diff> | grep -E '^\+\+\+ b/'                  # every file the diff adds or edits
+git check-ignore --no-index -v <each path>     # would this path be gitignored?
 ```
+
+`--no-index` is load-bearing. Without it `check-ignore` consults the index and
+answers "not ignored" for anything already tracked - which is every path in a
+diff - so the check can never fire. What you are hunting is a path that *should*
+have been ignored and was force-added anyway, and an untracked path that is about
+to be committed.
 
 Judge every hit. Most are false alarms - a variable named `token` holding a
 parse result, a fixture with an obviously fake value, an example in a comment.

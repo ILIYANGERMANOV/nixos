@@ -119,9 +119,9 @@ than inventing a plausible interpretation of it.
 
 ## Working rules
 
-- The patch has already been produced for you at the path in your prompt. Read
-  it there. Do not run `git diff`, `gh pr diff` or any other command to
-  re-derive it.
+- Your prompt carries the exact command that produces the diff, with the base
+  already pinned. Run it once, and use that. Do not widen the range, and do not
+  work out a base of your own.
 - Your prompt names the files most relevant to your angle. Start there. You may
   go wider when your angle demands it - the routing is a starting point, not a
   fence.

@@ -185,31 +185,26 @@ pre-existing, and it never blocks the merge.
 
 ## Phase 1 - context, and only enough of it
 
-Get the diff and write it to a file, once, so no agent has to derive it again.
-With no PR argument this is the branch as it currently stands, **including
-uncommitted work**:
+Get the diff. With no PR argument this is the branch as it currently stands,
+**including uncommitted work**:
 
 ```sh
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
-MERGE_BASE=$(git merge-base HEAD "$BASE")
-PATCH=$(mktemp "${TMPDIR:-/tmp}/pragmatic-review.XXXXXX.patch")
-git diff "$MERGE_BASE" > "$PATCH"   # committed, staged and unstaged
-git status --short                  # untracked files the patch does not show
-echo "$PATCH"                       # the path every agent is given
+git merge-base HEAD "$BASE"   # the SHA you pin into every agent's prompt
+git diff <that SHA>           # committed, staged and unstaged
+git status --short            # untracked files the diff does not show
 ```
 
-`mktemp`, not a fixed name. `TMPDIR` is per-user, not per-session, so a second
-review started in any repo while this one is running would truncate a fixed path
-under it - and since agents are forbidden to re-derive the diff and phase 4 never
-reopens it, the run would report clean on a diff no agent ever read.
+Pin the **literal merge-base SHA** and hand every agent the exact command to run.
+Each one derives the diff itself: that is a single tool call, the diff costs the
+same in its context however it arrives, and a pinned SHA means all three read the
+same bytes. Do not write the diff to a file - this skill writes nothing.
 
-With a PR argument, `gh pr diff <n> > "$PATCH"` plus `gh pr view <n> --json
-title,body,comments,reviews,commits`.
+With a PR argument, `gh pr diff <n>` is the command every agent runs instead, and
+you also read `gh pr view <n> --json title,body,comments,reviews,commits`.
 
-Writing that patch file is the **one** exception to the no-writing rule below,
-and it is what makes the fan-out cheap: every agent reads that path instead of
-running its own `git diff`. Untracked files never appear in a patch, so carry
-the `git status` list separately and pass it to the agents.
+Untracked files never appear in a diff, so carry the `git status` list separately
+and pass it to the agents.
 
 ### Read the patch. Then stop.
 
@@ -350,8 +345,8 @@ Every agent's prompt carries:
   `references/bar.md` and its own brief before starting. That is where the bar,
   the exclusion list, the refutation rule and the output schema live - do not
   restate them in the prompt.
-- The **path to the patch file**, the base ref, and the list of untracked files.
-  Tell it explicitly not to re-derive the diff.
+- The **exact command to get the diff**, with the merge-base SHA already
+  substituted, plus the list of untracked files.
 - The files routed to its angle from your map, as a starting point.
 - **Your own intent summary**, in your words - never the raw PR prose.
 - Any tip injected into it, verbatim, plus the note that its bar inside that
