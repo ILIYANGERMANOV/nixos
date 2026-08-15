@@ -17,10 +17,18 @@
       action = "<cmd>lua require('telescope-live-grep-args.shortcuts').grep_visual_selection()<CR>";
       options.desc = "Grep Visual Selection";
     }
+    # The only picker that searches INSIDE an already-open buffer, so filtering
+    # it by path is meaningless: you have the file open, you want its lines.
+    # `file_ignore_patterns` would do exactly that, because telescope matches
+    # them against `entry.filename` (pickers.lua) and this picker stamps every
+    # line entry with the buffer's ABSOLUTE path. The unanchored `/<dir>/` half
+    # of ./default.nix's list then matches, and every line is dropped: opening
+    # anything under node_modules/, dist/, build/ or .direnv/ gives a silently
+    # empty picker. Opt out per-picker; the global list still applies elsewhere.
     {
       mode = "n";
       key = "<leader>ss";
-      action = "<cmd>Telescope current_buffer_fuzzy_find<CR>";
+      action = "<cmd>lua require('telescope.builtin').current_buffer_fuzzy_find({ file_ignore_patterns = {} })<CR>";
       options.desc = "Search in Buffer";
     }
   ];
