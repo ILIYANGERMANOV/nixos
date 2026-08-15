@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or a PR the way a pragmatic engineer would - hunts real regressions, reproducible bugs, critical security vulnerabilities and genuine anti-patterns, verifies each against the code and drops false positives. Blocks only on what every senior engineer would agree is wrong, so anything two competent engineers could argue about is taste and gets dropped. Two classes invert that and always block - security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects). Ignores nits, style, accessibility and micro-optimisations. Finding nothing is a normal and good outcome; the goal is catching real bugs and obvious incompetence, not exhaustive review. Produces a findings table in the chat and never commits, pushes or posts a review unless told to. Accepts optional reviewer tips and always answers them. Use before merging a PR or the current branch.
+description: Reviews a diff or a PR the way a pragmatic engineer would - hunts real regressions, reproducible bugs, critical security vulnerabilities and genuine anti-patterns, verifies each against the code and drops false positives. Blocks only on what every senior engineer would agree is wrong, so anything two competent engineers could argue about is taste and gets dropped. Two classes invert that and always block - security (injection, RCE, leaked user data, broken auth, hard-coded credentials, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects). Ignores nits, style, accessibility and micro-optimisations. Finding nothing is a normal and good outcome; the goal is catching real bugs, not exhaustive review. Produces a findings table in the chat and never commits, pushes or posts a review unless told to. Accepts optional reviewer tips and always answers them. Use before merging a PR or the current branch.
 disable-model-invocation: true
 argument-hint: "[tips] [PR number or URL]"
 ---
@@ -20,6 +20,11 @@ There are two ways to fail here, and they are equally bad:
 
 - Waving through a diff that breaks production or leaks data.
 - Burying one real bug under twelve opinions, so the author stops reading.
+
+You do not review the diff yourself. You aim three agents at it, judge what they
+bring back, and report. Every minute you spend reading before they spawn is a
+minute nothing runs in parallel, and every file you read is a file one of them
+will read again anyway.
 
 ## You report. The user decides.
 
@@ -57,6 +62,19 @@ Apply it as a test to each finding before you report it:
 > or would we be having an argument?
 
 An argument means drop it.
+
+### House rules are not taste
+
+One thing is exempt from that test. The `engineering` skill, and `ui-coding` for
+UI, are the user's decided rules for this code. A diff that plainly contradicts
+a rule written in them is a finding, however arguable the same point would be in
+the abstract - the argument was settled when the rule was written down, and
+"reasonable engineers disagree" is not a defence against a decision the house
+already made. The scream agent owns this and quotes the rule it is enforcing.
+
+The exemption is narrow: the rule has to be *written* in one of those skills,
+and the diff has to *plainly* contradict it. Anything those skills leave to
+judgement stays taste, and so does every preference that is not in them.
 
 ### Calibrating the level
 
@@ -96,59 +114,13 @@ The line is reversibility. A bug that ships and gets fixed next week is a bug. A
 bug that deletes rows, leaks a secret or emails every customer cannot be fixed
 next week, because by then it has already happened.
 
-#### Security
-
-Always report, no exception, when the diff introduces or exposes:
-
-- **Injection** - a query, command, path, template or expression assembled from
-  input that is not parameterised or escaped. Unescaped SQL is the canonical
-  case; the same applies to shell, NoSQL, LDAP and template engines.
-- **Remote code execution** - `eval` and its relatives on anything that reaches
-  the caller, deserialisation of untrusted data, untrusted input reaching an
-  exec or dynamic import, upload paths that can write executable content.
-- **Leaked user data** - PII, credentials, tokens, session material, keys or
-  secrets appearing in a response body, a log line, an error message, a client
-  bundle, an analytics event or a URL. Also any path that returns one user's or
-  one tenant's data to another.
-- **Broken auth** - an authentication or authorisation check removed, weakened,
-  made bypassable, or simply absent on a route that reaches user data.
-- **Broken crypto** - hand-rolled or obsolete cryptography, predictable
-  randomness, or a comparison of secrets that is not constant-time, on anything
-  that guards a boundary.
-- **Committed secrets and files that do not belong in the repo** - `.env` and
-  its variants, private keys, `.pem`, certificates, service-account JSON, API
-  tokens, connection strings with credentials, database dumps, fixtures
-  containing real customer data. Check what the diff *adds*, not only what it
-  edits, and check whether the path is actually gitignored. Once pushed this is
-  irreversible: the secret is burned and must be rotated, and history has to be
-  rewritten. Report it even if the value looks fake, and say which secret needs
-  rotating.
-
-#### Irreversible damage
-
-Be strict here. These are the bugs that cannot be rolled back, so the review is
-the last place they can be caught.
-
-Always report, no exception:
-
-- **Destructive statements with an unproven filter.** Any `DELETE`, `UPDATE`,
-  `TRUNCATE`, `DROP` or overwrite in a migration, script or job. Read the `WHERE`
-  clause against the actual schema and prove it selects what the author meant.
-  A filter that is missing, that compares a nullable column, that collapses to
-  true when a parameter is null or empty, or that you simply cannot verify, is a
-  finding. "It is probably fine" is not verification.
-- **Unbounded mutations.** A write with no `LIMIT`, no batch, no bound, or a job
-  that fans out across every row, user or tenant.
-- **No way back.** A destructive migration with no down path, no backup taken
-  first, and no dry run - especially one that drops a column or table still
-  holding data.
-- **Deleting things outside the database.** Object storage, uploaded files,
-  backups, caches that are the only remaining source of truth, or an
-  infrastructure change whose plan replaces rather than updates a stateful
-  resource.
-- **Irreversible external effects.** Mail, push notifications or webhooks fired
-  at a whole user base, payments captured or refunded, and any third-party write
-  called from a migration, a loop or a retry path that is not idempotent.
+Security covers injection, RCE, leaked user data, broken auth, broken crypto,
+hard-coded credentials in source, and secret-bearing files committed to the
+repo. Irreversible damage covers destructive statements with an unproven filter,
+unbounded mutations, migrations with no way back, deletions outside the database
+and irreversible external effects. **The enumerated list of both lives in
+`references/blockers.md`**, which is the blocker agent's brief - you do not need
+it to judge, only to aim.
 
 Two things this does not license. A blocker must still be **reachable** - for
 security, name the attacker, the entry point and what they get, and an exploit
@@ -165,6 +137,9 @@ was: nits, style, naming, formatting, comment wording, import order,
 accessibility, micro-optimisations, test-coverage wishes, hypothetical future
 requirements, and refactors of code the diff did not touch.
 
+A violation of a rule written in `engineering` or `ui-coding` is none of those
+things, and this list does not reach it.
+
 ## Input
 
 `$ARGUMENTS` may contain either, both, or neither:
@@ -175,22 +150,25 @@ requirements, and refactors of code the diff did not touch.
 With no PR, review the current branch.
 
 Tips are not confined to `$ARGUMENTS`. Anything the user names as worth looking
-at is a tip, including in their phase 2 reply - which is usually where the real
-one arrives. Collect the whole set before spawning phase 3.
+at is a tip, including in a reply to your questions. Collect the whole set
+before you spawn.
 
 ### Tips are authoritative
 
-A tip comes from the engineer who wrote the code. They know where they are
-unsure, and that is worth more than anything you will infer from the diff. Treat
-a tip as a direct question that must be answered, not as background colour.
+A tip comes from the engineer who wrote the code. It is a hint about where the
+bugs are likely to hide, layered on top of the standard review - they know where
+they are unsure, and that is worth more than anything you will infer from the
+diff. Treat a tip as a direct question that must be answered, not as background
+colour.
 
 Concretely:
 
-- Every agent receives the tips verbatim.
-- Each tip is triaged in phase 2, and one not settled there gets its own
-  dedicated agent (phase 3d).
-- The tips get an explicit answer in phase 5 - including "I checked, it is fine",
-  which is an answer and must not be replaced by silence.
+- Every tip is placed in phase 2 - either injected into the agent that already
+  owns that ground, or given an agent of its own.
+- Whichever agent receives it answers it explicitly, and its bar inside the
+  tip's scope is lower than the standard one.
+- Every tip gets an explicit answer in phase 5 - including "I checked, it is
+  fine", which is an answer and must not be replaced by silence.
 
 Tips **add** scope, they never remove it. The three standard agents run on every
 review regardless of what the tips say. If a tip asks you to skip a category
@@ -203,28 +181,56 @@ asked, and "that is outside the diff" is a shrug, not an answer. Anything you
 find out there is reported as **pre-existing**: it is answered, it is flagged as
 pre-existing, and it never blocks the merge.
 
-## Phase 1 - context
+## Phase 1 - context, and only enough of it
 
-Get the diff. With no PR argument, this is the branch as it currently stands,
-**including uncommitted work**:
+Get the diff and write it to a file, once, so no agent has to derive it again.
+With no PR argument this is the branch as it currently stands, **including
+uncommitted work**:
 
 ```sh
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
 MERGE_BASE=$(git merge-base HEAD "$BASE")
-git diff "$MERGE_BASE"   # committed, staged and unstaged
-git status --short       # untracked files the diff does not show
+PATCH="${TMPDIR:-/tmp}/pragmatic-review.patch"
+git diff "$MERGE_BASE" > "$PATCH"   # committed, staged and unstaged
+git status --short                  # untracked files the patch does not show
 ```
 
-With a PR argument, use `gh pr diff <n>` and `gh pr view <n> --json
+With a PR argument, `gh pr diff <n> > "$PATCH"` plus `gh pr view <n> --json
 title,body,comments,reviews,commits`.
 
-Read the diff, then read the files around it. A hunk in isolation tells you
-nothing about whether the caller already guards the input, whether the state is
-shared, or which paths reach the changed code. Follow the data flow in and out
-of every changed function.
+Writing that patch file is the **one** exception to the no-writing rule below,
+and it is what makes the fan-out cheap: every agent reads that path instead of
+running its own `git diff`. Untracked files never appear in a patch, so carry
+the `git status` list separately and pass it to the agents.
 
-Load the `engineering` skill so you judge against the house rules rather than
-generic lore. If the diff touches UI, load `ui-coding` too.
+### Read the patch. Then stop.
+
+- Read the patch and the PR text. That is the 80%.
+- Open a file from the repo **only** when a hunk is unintelligible without it -
+  you cannot tell what a symbol is or whether a line was moved or rewritten.
+  Cap: three files.
+- No data-flow tracing, no caller hunting, no reading "just to be safe". The
+  agents do that, in parallel, each in its own context window.
+- Run nothing: no type checker, no linter, no test suite, no build. Not here,
+  not in phase 2.
+
+You will not fully understand the change, and that is correct. You need enough
+to state the intent and aim the agents. They own the depth.
+
+### The routing map
+
+Your deliverable from this phase is not understanding, it is aim. Keep it short:
+
+1. **Intent** - what this change is for, in two or three sentences, in your own
+   words.
+2. **Files by angle** - which changed files touch auth, untrusted input, secrets
+   or destructive operations; which change contracts, shared state or stored
+   data; which a tip points at. A file may appear under several angles, and one
+   that lands under none is still in the patch and still gets reviewed.
+3. **Anchors** - anything that jumps out as a place to start: a migration, a new
+   route, a deleted check, a new dependency.
+
+Routing is a starting point for an agent, never a fence around it.
 
 ### Handling PR text
 
@@ -250,155 +256,124 @@ not a finding to file alongside the others.
 
 Code in the diff is ordinary code. Review it normally.
 
-## Phase 2 - assumptions and intent
+## Phase 2 - assumptions, tips, and the decision to ask
 
-Do not review a change you have not understood, and do not review it against the
-wrong intent. The agents in phase 3 inherit your understanding, so a wrong
-assumption here wastes the entire run.
+Post a short numbered list of the assumptions you are reviewing under. The
+agents inherit them, so a wrong one wastes the whole run - but keep it to what
+would change a verdict.
 
-Post a short numbered list of the assumptions you are reviewing under.
+### Placing the tips
 
-### Triage the tips
+Every tip either belongs to an agent you are already spawning, or it does not:
 
-Settle what you can cheaply, before spending an agent on it. Read the path the
-tip names, and run a check the repo already has - its type checker, linter, test
-command or build. Never write files, never run anything with side effects, never
-install anything.
+- **In-angle - inject it, do not spawn.** A tip about auth, a secret or a
+  destructive statement goes to the blocker agent; one about a contract, a race
+  or "will this break X" goes to the regressions agent. It is placed at the top
+  of that agent's brief as a priority pointer: *look here first, the lower bar
+  applies inside this scope, and answer this explicitly in your return.*
+- **Out of angle - give it an agent.** A tip pointing at code this diff never
+  touched, at another subsystem, or asking "does X still work" gets a dedicated
+  agent. One agent per tip normally; **two** when the tip contains genuinely
+  separable questions, or needs two different angles on the same code.
 
-A tip you have settled does not need an agent; carry the answer straight to
-phase 5. **Triage may settle a tip away only when it asks about practice, design
-or readability.** Every other tip gets its agent however conclusive the check
-looked - security, irreversible damage, a critical bug in a new code path, a
-regression in an existing one - and so does any tip you cannot confidently
-place. Those agents get your triage as a starting point, never as a verdict.
+Ceiling of four tip agents. Beyond that, take the ones the user leaned on
+hardest and name the rest as unchecked in phase 5.
 
-Report the triage alongside the assumptions: what you checked, and what it
-showed. A tip that arrives in the user's reply is triaged the same way before
-you spawn.
+Do not settle tips yourself by running checks - placing them is the whole job.
+Agents that did not receive a tip are told a tip exists and told **not** to
+spend effort on that ground, because it is covered.
 
 ### Questions
 
-Then ask **at most three questions**, and only ones whose answer would change
-what counts as a bug. If the answer would not change a verdict, do not ask it -
-look it up or leave it. A tip too vague to turn into a concrete check outranks
-any question about the code: spend one of the three on it rather than sending an
-agent off to guess what the user meant.
+Ask **at most two questions**, and only ones whose answer changes what counts as
+a bug. The test: if you cannot name the verdict that would flip on the answer,
+do not ask it - look it up or leave it. A tip too vague to place is the best
+possible use of a question; spend one on it rather than sending an agent off to
+guess what the user meant.
 
-Then **wait**. Spawn nothing until the user confirms.
+Ask with `AskUserQuestion` so answering costs a click, and wait for the reply.
 
-## Phase 3 - the reviewers, in parallel
+**If you have no such question, do not wait.** Post the assumptions and spawn in
+the same turn. A round trip that changes nothing is the most expensive thing in
+this skill.
 
-Spawn 3a, 3b and 3c on every review, plus one 3d per tip that survived triage.
-Send them all in a single message so they run concurrently.
+## Phase 3 - spawn
 
-Each one gets: the base ref and how to reproduce the diff, the list of changed
-files, the user's reviewer tips verbatim, **your own distilled intent summary
-from phase 2** - never the raw PR prose - and **the bar, restated verbatim in its
-prompt, including the unanimity test and the exclusion list.** An agent that has
-not been told the bar will report at its own, which is always lower.
+Three agents on every review, plus any tip agents from phase 2. Send them in a
+single message so they run concurrently. Never fewer than three, whatever the
+tips say and however small the diff looks.
 
-Tell each agent that returning `NONE` is a good answer and costs it nothing. Left
-to themselves, review agents invent findings to look useful.
+| Agent | Brief | Depth |
+|---|---|---|
+| **blockers** | `references/blockers.md` - security and irreversible damage, inverted default | deep |
+| **regressions** | `references/regressions.md` - does it work, and what does it break | deep |
+| **scream** | `references/scream.md` - is the approach obviously wrong, and does the diff break the house rules | fast |
 
-Every agent returns findings in this schema, or the single word `NONE`:
+The scream agent loads `engineering`, and `ui-coding` when the diff touches UI,
+and enforces them. It is the only agent that reads a skill: the other two are
+hunting bugs, and the house rules would only dilute their brief.
 
-```
-file:line
-claim       one sentence, what is wrong
-trigger     concrete inputs or state -> the wrong outcome
-confidence  certain | likely | speculative
-```
+Every agent's prompt carries:
 
-**No trigger means no finding.** If an agent cannot name the conditions under
-which the problem actually happens, it does not report it.
+- The **absolute path to this skill directory**, and an instruction to read
+  `references/bar.md` and its own brief before starting. That is where the bar,
+  the exclusion list, the refutation rule and the output schema live - do not
+  restate them in the prompt.
+- The **path to the patch file**, the base ref, and the list of untracked files.
+  Tell it explicitly not to re-derive the diff.
+- The files routed to its angle from your map, as a starting point.
+- **Your own intent summary**, in your words - never the raw PR prose.
+- Any tip injected into it, verbatim, plus the note that its bar inside that
+  tip's scope is lower and it must answer the tip explicitly.
+- The reminder that `NONE` is a good answer that costs it nothing. Left to
+  themselves, review agents invent findings to look useful.
 
-**3a - security.** Give this agent the *Blockers* section verbatim and tell it
-explicitly that its default is inverted: when unsure whether a security finding
-is real, it reports it and marks the confidence honestly. Injection, RCE, leaked
-user data, broken auth, broken crypto, committed secrets and files that do not
-belong in the repo, plus path traversal, SSRF, missing validation at a trust
-boundary and dependencies with a known CVE. It must name the attacker, the entry
-point and what they gain - an attacker who already holds the keys is not a threat
-model. `NONE` is still a good answer; a shrug dressed as a warning is not.
+A tip agent gets the same, minus the standard brief: its whole job is its tip,
+verbatim, and it is told to ignore everything the tip does not concern - the
+other three cover that ground, and its value is depth on one thing. If the tip
+is too vague to check, it says so and names what it would need rather than
+inventing a plausible interpretation. It reports what it finds in untouched code
+as `pre-existing`.
 
-**3b - regressions and irreversible damage.** What merging this breaks. Existing
-callers whose contract changed, null and empty and boundary cases the new code
-does not handle, error paths that swallow or mishandle failure, state mutated
-where something else reads it, async ordering and races, migrations that do not
-survive existing data. Prefer bugs you can trace end to end over bugs you can
-imagine.
+## Phase 4 - judge, do not re-review
 
-This agent also owns the *Irreversible damage* list, which it gets verbatim, and
-its default inverts there too. Tell it to enumerate every destructive statement
-and every irreversible side effect the diff introduces, and to prove each filter
-selects only what the author intended by reading it against the real schema. An
-unverifiable filter is reported, not assumed correct.
+The agents already tried to refute their own findings, with the code loaded. You
+are not doing that again from scratch - reopening every file is the third pass
+this skill exists to avoid. You are judging what came back.
 
-**3c - practices and anti-patterns.** Judged against `engineering` (and
-`ui-coding` for UI). Report a practice issue only if this sentence can be
-finished concretely:
+For each finding:
 
-> This will cause ___ when someone ___
+1. **Read the `refuted?` field and the evidence quote.** A missing, vague or
+   circular refutation attempt is a dropped finding: the agent did not do the
+   work, and you are not doing it for them.
+2. **Apply the unanimity test.** Verified and real is not sufficient - a true
+   observation that engineers could argue about is still taste, and taste does
+   not reach the table.
+3. **Drop everything `speculative`.**
+4. **Deduplicate** anything two agents raised.
 
-If it cannot be finished, it is a nit. Drop it. **Cap: the three worst.**
-Naming, formatting, file layout, missing tests, "I would have written this
-differently" - never findings.
+Two exceptions:
 
-**3d - the tips. One agent per surviving concern, up to three; none at all when
-the tips were empty or triage settled them.** One concern, one agent - splitting
-a single agent across three questions produces exactly the shallow sweep this
-agent exists to avoid. If the tips name more than three separable concerns, take
-the three the user leaned on hardest and say in phase 5 which you dropped.
+- **Blockers.** Read the real code for each one yourself. A blocker is dropped
+  only when you can show it is *wrong* - the input is parameterised after all,
+  the route is unreachable, the guard lives upstream, the `WHERE` clause
+  provably matches only the intended rows, the file is gitignored. Never dropped
+  for being merely uncertain, never for being minor. Refuting it is the only
+  exit; if you cannot refute it, it goes in the table at whatever confidence you
+  actually have.
+- **House-rule violations.** A finding that quotes a rule from `engineering` or
+  `ui-coding` and shows the diff contradicting it does not face step 2 either.
+  Check that the rule really says what the agent claims and that the diff really
+  breaks it - then keep it. Do not drop it because you personally find the
+  violation defensible; that call belongs to the user, who wrote the rule.
+- **Findings from a tip.** Steps 1, 3 and 4 stand; step 2 does not. The user
+  asked about that code, so a real answer they might disagree with is still
+  worth having. Carry tip verdicts through intact, including the ones that found
+  nothing - they are the answer to a question, not findings competing for space.
 
-Each one's whole job is its own question. Give it that tip verbatim as its
-brief, plus your phase 2 triage as a starting point, and tell it to ignore
-everything the tip does not concern - the other three agents already cover that
-ground, and its value is depth on one thing rather than another pass over
-everything. Its scope is the tip, not the diff: if the tip points at untouched
-code, it goes there and marks what it finds as pre-existing.
-
-Its bar is lower than theirs, deliberately. The user pointed at this code and
-asked, so the unanimity test does not apply inside the tip's scope and `likely`
-is enough to report. Nits are still nits.
-
-It must return an explicit verdict on its tip, even when that verdict is
-"checked, found nothing", and the verdict must say what it actually examined -
-which files, which paths, which cases - so the user can tell a real check from a
-shrug. If the tip is still too vague to check, it says so and names what it
-would need, rather than inventing a plausible interpretation.
-
-## Phase 4 - verify, then filter
-
-Treat every finding as a claim to be disproved, not a result to be reported.
-For each one:
-
-1. Read the real code path, not the diff hunk. Is the input already validated
-   upstream? Is the branch reachable? Is the case already handled elsewhere?
-2. Actively try to refute it. Assume it is wrong until you can walk from a
-   concrete input to a concrete wrong outcome.
-3. Run a cheap check if the repo already has one - its type checker, linter,
-   test command or build. Never write files, never run anything with side
-   effects, never install anything.
-4. Keep it only at `certain` or `likely`. Everything `speculative` dies here.
-5. Apply the unanimity test one last time. Verified and real is not sufficient -
-   a true observation that engineers could argue about is still taste, and taste
-   does not reach the table.
-
-**Step 5 does not apply to findings from 3d.** The user asked about that code, so
-a real answer they might disagree with is still worth having. Verify it like
-anything else - steps 1 to 4 stand - but do not drop it for failing unanimity.
-Carry 3d's verdicts through verification intact, including the ones that found
-nothing; they are the answer to a question, not findings competing for space.
-
-**Steps 4 and 5 do not apply to blockers.** A blocker is dropped only when you
-can show it is *wrong* - the input is parameterised after all, the route is
-unreachable, the guard lives upstream, the `WHERE` clause provably matches only
-the intended rows, the file is gitignored. It is never dropped for being merely
-uncertain, and never for being minor. Refuting it is the only exit; if you
-cannot refute it, it goes in the table and says so at whatever confidence you
-actually have.
-
-Deduplicate findings the agents raised twice.
+You may run **one** check in this phase, and only to settle a blocker you could
+not otherwise refute. Never write files, never run anything with side effects,
+never install anything.
 
 Report the arithmetic in one line - `9 raised, 2 survived`. Do not list what was
 dropped unless the user asks. A tip verdict that found nothing is not a dropped
@@ -429,10 +404,11 @@ and what came of it:
 > **You asked whether the migration is backwards compatible.** Checked against
 > the current schema and the previous release's queries - it is.
 
-A tip settled in phase 2 triage is answered here exactly like one that got an
-agent. A tip dropped for exceeding the cap of three is named here as unchecked,
-not quietly omitted. Never let a tip go unanswered - "I looked and it is fine"
-is the answer the user is paying for, and silence reads as "I forgot to look".
+A tip injected into one of the three standard agents is answered here exactly
+like one that got its own agent. A tip dropped for exceeding the ceiling is
+named here as unchecked, not quietly omitted. Never let a tip go unanswered -
+"I looked and it is fine" is the answer the user is paying for, and silence
+reads as "I forgot to look".
 
 ### The table
 
@@ -447,6 +423,10 @@ entitled to see which rows those are.
 |---|------|--------|-----|
 | 1 | 🔴 `auth.ts:41` - session id compared with `==` | Any user can forge a session by sending an integer | Compare with a constant-time equality on the raw string |
 | 2 | 🔍 `retry.ts:88` - backoff resets on every 5xx | A failing endpoint is hot-looped instead of backed off | Carry the attempt count through the retry |
+
+A row that enforces a house rule names the rule it enforces, so the user can see
+it is their own decision being applied and not the reviewer's preference -
+"`engineering`: prefer SUM types over nullable fields".
 
 Then ask the user which findings survive, as checkboxes: `AskUserQuestion` with
 `multiSelect`, grouped by category (blockers / bugs / practices / you asked
