@@ -125,3 +125,30 @@ skill: frontmatter present, `name` matching the installed directory, and a
 Project flakes have **no dependency on this nixos repo** — they are standalone.
 
 **Context-aware keymaps** (`programs/nvim/core/context-aware-keymaps.nix`) provide a single `<leader>tt` that dispatches to the right test runner at runtime. The registry (`_G.ContextRunners`) is initialized in `extraConfigLuaPre` (runs before all plugin/language Lua) to avoid ordering issues. Each language file registers its runner via `_G.RegisterContextRunner` in `extraConfigLua`.
+
+## Neovim Search
+
+**fff owns `<leader>ff`. Telescope owns every other picker.** Two engines by
+design, not a half-finished migration - see
+`docs/adr/0003-fff-owns-file-search.md`.
+
+`programs/nvim/core/search/` splits along that boundary:
+
+- `file.nix` - fff plus the telescope file pickers (`<leader>fa`, `fe`, `fr`).
+- `grep.nix` - content search (`<leader>fw`, `fg`, `fd`, `ss`).
+- `default.nix` - telescope engine config belonging to neither (`ui-select`,
+  `fzf-native`, `file_ignore_patterns`), plus `<leader>fl` and `<leader>nh`.
+- `shared.nix` - a plain function, **not** a module, so it can export helpers.
+  Holds the single `excludeDirs` list that both the `fd --exclude` flags and
+  telescope's `file_ignore_patterns` are derived from. Add an exclusion here,
+  never in one consumer.
+
+Anything needing `vim.ui.select` (code actions), quickfix population from a text
+search, or git-ignored files must stay on telescope: fff provides no
+`vim.ui.select` and has no "show git-ignored" mode.
+
+The nixvim `fff` module is **freeform** - no `settingsOptions`, so a misspelled
+key is silently ignored instead of failing the build, and its `settingsExample`
+is stale against the pinned version. `plugins.fff.settings` is therefore kept
+minimal; everything not set there is relied on as a fff default. Verify any
+change to it by running the built Neovim, not by trusting evaluation.

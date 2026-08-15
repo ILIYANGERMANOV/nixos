@@ -8,7 +8,7 @@
     ./core/git.nix
     ./core/format.nix
     ./core/auto-complete.nix
-    ./core/search.nix
+    ./core/search
     ./core/lsp.nix
     ./core/clipboard.nix
     ./core/context-aware-keymaps.nix
