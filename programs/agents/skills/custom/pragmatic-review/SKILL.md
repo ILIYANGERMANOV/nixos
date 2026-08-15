@@ -164,8 +164,9 @@ colour.
 
 Concretely:
 
-- Every tip is placed in phase 2 - either injected into the agent that already
-  owns that ground, or given an agent of its own.
+- Every tip is placed in phase 2, into one of the three agents. There is no
+  fourth agent and no tip agent - a tip is extra ground for an agent you were
+  spawning anyway.
 - Whichever agent receives it answers it explicitly, and its bar inside the
   tip's scope is lower than the standard one.
 - Every tip gets an explicit answer in phase 5 - including "I checked, it is
@@ -271,20 +272,36 @@ would change a verdict.
 
 ### Placing the tips
 
-Every tip either belongs to an agent you are already spawning, or it does not:
+You spawn three agents and only ever three. A tip is not a reason to spawn a
+fourth - it is extra ground handed to one of the three, placed at the top of that
+agent's brief as a priority pointer: *look here first, the lower bar applies
+inside this scope, and answer this explicitly in your return.*
 
-- **In-angle - inject it, do not spawn.** A tip about auth, a secret or a
-  destructive statement goes to the blocker agent; one about a contract, a race
-  or "will this break X" goes to the regressions agent. It is placed at the top
-  of that agent's brief as a priority pointer: *look here first, the lower bar
-  applies inside this scope, and answer this explicitly in your return.*
-- **Out of angle - give it an agent.** A tip pointing at code this diff never
-  touched, at another subsystem, or asking "does X still work" gets a dedicated
-  agent. One agent per tip normally; **two** when the tip contains genuinely
-  separable questions, or needs two different angles on the same code.
+Send each tip to exactly one agent, by subject:
 
-Ceiling of four tip agents. Beyond that, take the ones the user leaned on
-hardest and name the rest as unchecked in phase 5.
+| The tip is about | Agent |
+|---|---|
+| security, secrets, auth, destructive or irreversible operations | blockers |
+| correctness, contracts, races, migrations, "does X still work", "will this break Y" | regressions |
+| design, approach, structure, house rules, "is this the right way" | scream |
+| nothing that fits cleanly | regressions - the broadest angle |
+
+**The blockers agent takes a tip only when the tip is itself about security or
+irreversible damage.** Never anything else, however well it would fit nowhere
+else - send that to regressions instead. A caching question parked on top of the
+blocker brief is how the mechanical secret sweep ends up skipped, and that sweep
+runs first precisely because nothing is allowed to compete with it.
+
+**Cap: two tips per agent.** Past that an agent is spread across four questions
+and answers none of them properly. Take the ones the user leaned on hardest and
+name the rest as unchecked in phase 5.
+
+One thing this costs you, and it is the right trade: a heavy question about
+another subsystem now shares an agent with a full standard brief, so it gets less
+than a dedicated run would have given it. The agent says which part it could not
+cover, phase 5 reports the tip as partially checked, and the user can re-run with
+that tip as the only focus. Fabricating coverage is the failure; running out of
+room and saying so is not.
 
 Do not settle tips yourself by running checks - placing them is the whole job.
 Agents that did not receive a tip are told a tip exists and told **not** to
@@ -295,8 +312,9 @@ spend effort on that ground, because it is covered.
 Ask **at most two questions**, and only ones whose answer changes what counts as
 a bug. The test: if you cannot name the verdict that would flip on the answer,
 do not ask it - look it up or leave it. A tip too vague to place is the best
-possible use of a question; spend one on it rather than sending an agent off to
-guess what the user meant.
+possible use of a question, and now the only way to resolve one: there is no
+dedicated agent to send off guessing at what the user meant, so a vague tip that
+survives phase 2 is a wasted slot in an agent's brief.
 
 Ask with `AskUserQuestion` so answering costs a click, and wait for the reply.
 
@@ -306,9 +324,15 @@ this skill.
 
 ## Phase 3 - spawn
 
-Three agents on every review, plus any tip agents from phase 2. Send them in a
-single message so they run concurrently. Never fewer than three, whatever the
-tips say and however small the diff looks.
+Three agents, always. Not two on a small diff, not four when the tips are
+interesting - **exactly these three, on every review**. Send them in a single
+message so they run concurrently.
+
+That number is fixed on purpose. An agent costs roughly the same whatever you ask
+of it - most of the spend is its own context and the patch, not how deep it
+goes - so depth is nearly free once you have paid for the agent and a fourth
+agent is the most expensive thing this skill can do. Tips ride along with the
+three; they never buy another one.
 
 | Agent | Brief | Depth |
 |---|---|---|
@@ -338,12 +362,13 @@ Every agent's prompt carries:
 - The reminder that `NONE` is a good answer that costs it nothing. Left to
   themselves, review agents invent findings to look useful.
 
-A tip agent gets the same, minus the standard brief: its whole job is its tip,
-verbatim, and it is told to ignore everything the tip does not concern - the
-other three cover that ground, and its value is depth on one thing. If the tip
-is too vague to check, it says so and names what it would need rather than
-inventing a plausible interpretation. It reports what it finds in untouched code
-as `pre-existing`.
+An agent carrying a tip is also told that the tip is **additive**: it never
+displaces the standard brief, and the brief is finished either way. Its scope
+widens to wherever the tip points, including code this diff never touched, and
+what it finds out there is reported as `pre-existing`. If the tip is too vague to
+check, it says so and names what it would need rather than inventing a plausible
+interpretation. If it runs out of room to do both jobs properly, it says which
+part it could not cover.
 
 ## Phase 4 - judge, do not re-review
 
@@ -420,11 +445,11 @@ and what came of it:
 
 Write each line from the verdict its agent returned, and never invent the scope
 of a check you did not see - if an agent came back without one, say that it
-reported no verdict rather than implying a check happened. A tip injected into
-one of the three standard agents is answered here exactly like one that got its
-own agent. A tip dropped for exceeding the ceiling is named here as unchecked,
-not quietly omitted. Never let a tip go unanswered - "I looked and it is fine" is
-the answer the user is paying for, and silence reads as "I forgot to look".
+reported no verdict rather than implying a check happened. A tip dropped for
+exceeding the two-per-agent cap is named here as unchecked, and so is one its
+agent could only partly cover; neither is quietly omitted. Never let a tip go
+unanswered - "I looked and it is fine" is the answer the user is paying for, and
+silence reads as "I forgot to look".
 
 ### The table
 

@@ -95,11 +95,18 @@ gets dropped.
 
 ### If your brief carries a tip, you owe a verdict as well
 
-The rule above - findings and nothing else - is what the three standard agents
-return. A tip is a direct question from the user, and a question is answered even
-when the answer is "nothing wrong here", so an agent carrying one **always**
-returns a short verdict on it, above any findings, including when its findings
+The rule above - findings and nothing else - is what an agent returns when its
+brief is only the standard one. A tip is extra ground handed to you on top of
+that brief, and it is a direct question from the user, answered even when the
+answer is "nothing wrong here". So if your brief carries one you **always**
+return a short verdict on it, above any findings, including when your findings
 are `NONE`.
+
+The tip never displaces your standard brief - you finish that either way, and
+your scope simply widens to wherever the tip points, including code this diff did
+not touch, where what you find is marked `pre-existing`. If you run out of room
+to do both properly, say which part you could not cover. That is a usable answer;
+implying you covered both is not.
 
 The verdict says **what you actually examined** - which files, which paths, which
 cases - so the user can tell a real check from a shrug. It is the one place a
