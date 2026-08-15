@@ -149,6 +149,6 @@ search, or git-ignored files must stay on telescope: fff provides no
 
 The nixvim `fff` module is **freeform** - no `settingsOptions`, so a misspelled
 key is silently ignored instead of failing the build, and its `settingsExample`
-is stale against the pinned version. `plugins.fff` therefore passes no
-`settings` at all; every property relied on is a fff default. Verify changes by
-running the built Neovim, not by trusting evaluation.
+is stale against the pinned version. `plugins.fff.settings` is therefore kept
+minimal; everything not set there is relied on as a fff default. Verify any
+change to it by running the built Neovim, not by trusting evaluation.

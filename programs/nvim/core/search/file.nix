@@ -31,23 +31,58 @@ in
   # keeps <leader>fa and every non-file picker.
   # See docs/adr/0003-fff-owns-file-search.md.
   #
-  # Every property we want is a fff default, so this carries no `settings`:
-  # cwd-scoped indexing, hidden-but-not-ignored files (it only skips dotfiles
-  # outside a git root), an 0.8x0.8 dialog with a preview, and `middle` path
-  # shortening that keeps both the top-level directory and the filename.
+  # Almost every property we want is a fff default, so `settings` stays as
+  # small as possible: cwd-scoped indexing, hidden-but-not-ignored files (it
+  # only skips dotfiles outside a git root), an 0.8x0.8 dialog with a preview,
+  # and `middle` path shortening that keeps both the top-level directory and
+  # the filename all come for free.
   #
-  # That matters more than usual here: the nixvim fff module is freeform (no
-  # `settingsOptions`), so a misspelled key is silently ignored rather than
-  # failing the build - and its `settingsExample` is stale against the pinned
-  # 0.8.4 (it shows `key_bindings`/`select_file`; conf.lua reads
-  # `keymaps`/`select`). Passing nothing sidesteps both traps.
+  # Keep it that way. The nixvim fff module is freeform (no `settingsOptions`),
+  # so a misspelled key is silently ignored rather than failing the build, and
+  # its `settingsExample` is stale against the pinned 0.8.4 (it shows
+  # `key_bindings`/`select_file`; conf.lua reads `keymaps`/`select`). Anything
+  # set below has to be checked against a running editor, not just evaluated.
   #
   # Searching: a plain query is fuzzy (`useViewModel` finds
   # useLoginViewModel.ts). A query containing a glob metacharacter switches to
   # glob mode, where the pattern is anchored to the WHOLE relative path and `*`
   # crosses `/` - so it is `*use*ViewModel*`, not `use*ViewModel`. `**` and
   # brace expansion work: `src/**/*.{ts,tsx}`.
-  plugins.fff.enable = true;
+  plugins.fff = {
+    enable = true;
+
+    # <Tab>/<S-Tab> to walk the candidate list, matching telescope. The
+    # directions are not a typo: under the default bottom prompt fff
+    # reverse-renders, so the best match sits at the BOTTOM next to the prompt
+    # (picker_ui.lua:1703) exactly as telescope's `sorting_strategy =
+    # "descending"` does. Visually moving up therefore means moving toward
+    # worse results in both, so <Tab> -> move_up reproduces telescope's
+    # `move_selection_worse`.
+    #
+    # `vim.tbl_deep_extend` replaces list values wholesale rather than merging
+    # them, so the arrow and <C-n>/<C-p> defaults have to be repeated here or
+    # they would be dropped.
+    settings.keymaps = {
+      move_up = [
+        "<Up>"
+        "<C-p>"
+        "<Tab>"
+      ];
+      move_down = [
+        "<Down>"
+        "<C-n>"
+        "<S-Tab>"
+      ];
+
+      # Both of these default to the keys just claimed above, and picker_ui.lua
+      # binds them AFTER move_up/move_down (lines 473 and 475 vs 450 and 451),
+      # so leaving them alone would silently win the conflict and break
+      # navigation. Rehomed rather than dropped: toggle_select is what feeds
+      # <C-q> and therefore `:cfdo`.
+      toggle_select = "<C-Space>";
+      cycle_grep_modes = "<C-g>";
+    };
+  };
 
   keymaps = [
     {

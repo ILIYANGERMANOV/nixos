@@ -32,10 +32,11 @@ the results.
 
 fff also supplies, as defaults, everything else that was wanted - a large
 dialog with a preview, path shortening that keeps both the top-level directory
-and the filename, and dotfiles-but-not-git-ignored indexing. It carries no
-`settings` block for that reason, which matters more than usual here: the nixvim
-`fff` module is freeform, so a misspelled key is silently ignored rather than
-failing the build.
+and the filename, and dotfiles-but-not-git-ignored indexing. Its `settings`
+block is kept to the minimum for that reason, which matters more than usual
+here: the nixvim `fff` module is freeform, so a misspelled key is silently
+ignored rather than failing the build. Anything set there has to be checked
+against a running editor.
 
 ## Why telescope was not replaced wholesale
 
@@ -68,7 +69,14 @@ belongs on telescope.
 Two in-picker keys differ from telescope and are left alone: fff uses `<C-s>`
 for a horizontal split where telescope uses `<C-x>`, and `<Esc>` closes fff
 directly. Everything else - `<C-n>`/`<C-p>`, `<CR>`, `<C-v>`, `<C-t>`,
-`<C-u>`/`<C-d>`, `<Tab>`, `<C-q>` - is already identical.
+`<C-u>`/`<C-d>`, `<C-q>` - is already identical.
+
+`<Tab>`/`<S-Tab>` navigate the candidate list, which is what telescope's
+defaults do too once its `toggle_selection` half is ignored. That displaces
+fff's `toggle_select` to `<C-Space>` and `cycle_grep_modes` to `<C-g>`; both had
+to move rather than be dropped, because `picker_ui.lua` binds them after
+`move_up`/`move_down` and would otherwise silently win the conflict, and because
+`toggle_select` is what populates `<C-q>` and therefore `:cfdo`.
 
 fff's search box is fuzzy until the query contains a glob metacharacter, at
 which point the pattern is anchored to the whole relative path and `*` crosses
