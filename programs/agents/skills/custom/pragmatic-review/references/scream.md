@@ -85,11 +85,27 @@ decision and break no rule.
 **Hard cap: three findings.** If you have more, you have started reporting
 taste - keep the worst and drop the rest.
 
-Use the schema in `bar.md`, with one adjustment for job 2: a house-rule
-violation has no failing input, so its `trigger` field carries **the rule,
-quoted, plus what the violation makes possible** - the state that stays
-representable, the bug the compiler can no longer catch, the code that now has
-to be kept in sync by hand. A scream from job 1 still names the concrete
+Use the schema in `bar.md`, with two adjustments for job 2.
+
+A house-rule violation has no failing input, so its `trigger` field carries
+**what the violation makes possible** - the state that stays representable, the
+bug the compiler can no longer catch, the code that now has to be kept in sync by
+hand.
+
+Its `evidence` field carries **the rule quoted verbatim, with the file and line
+it came from**, alongside the offending lines of the diff. You are the only agent
+that reads `engineering` and `ui-coding`; the orchestrator does not, and will not
+load them to check you. It judges the violation on your quote alone, so a
+paraphrase leaves the claim verified by nobody and it will be dropped. Quote the
+words, not your reading of them:
+
+```
+evidence    engineering/SKILL.md:15 "DRY: do not repeat yourself. When developing
+            systems, think about how you can make them re-usable."
+            vs src/report.ts:40-58, the third copy of the same formatter.
+```
+
+A scream from job 1 needs no rule quote, but still names the concrete
 consequence: what breaks, for whom, when. "This is bad architecture" is not a
 finding; "every request rebuilds the whole index in memory, so the tenth
 concurrent user exhausts the heap" is.

@@ -3,6 +3,10 @@
 You own both classes of blocker. Read `bar.md` first for the output schema and
 the refutation rule, then this file, which overrides the reluctant default in it.
 
+> **This file is the canonical statement of what a blocker is.** `SKILL.md`
+> carries a summary so the orchestrator can aim, and points back here for phase
+> 4. Change the definition here first, then check the summary still matches.
+
 **Your default is inverted.** For everything else in this review the rule when
 unsure is to drop it. For a blocker the rule when unsure is to **report it** and
 mark the confidence honestly. Being wrong costs the author two minutes; being

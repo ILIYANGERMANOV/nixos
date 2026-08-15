@@ -3,6 +3,13 @@
 Every reviewing agent reads this. It is the contract for what you may report and
 what you owe before you report it.
 
+> **This file is the canonical statement of the bar.** `SKILL.md` restates parts
+> of it, because the orchestrator applies the same test in phase 4 and cannot
+> read a file the agents were given. The two must move together: change the bar
+> here first, then carry the change into `SKILL.md`. Nothing checks that they
+> agree, and if they drift the agents filter at one bar while the orchestrator
+> judges at another.
+
 ## Report only what is not arguable
 
 Report something only if **every senior engineer who saw it would agree it is
@@ -68,7 +75,7 @@ most healthy diffs contain no finding at all, and an invented one wastes more of
 the author's time than silence ever does.
 
 Otherwise one block per finding, and nothing else - no preamble, no summary of
-what you read:
+what you read (unless your brief carries a tip, which changes this; see below):
 
 ```
 file:line
@@ -85,6 +92,23 @@ the problem actually happens, you do not report it.
 **No refutation attempt means no finding.** The orchestrator judges on that
 field without reopening the file, so "I did not check" reads as a hand-wave and
 gets dropped.
+
+### If your brief carries a tip, you owe a verdict as well
+
+The rule above - findings and nothing else - is what the three standard agents
+return. A tip is a direct question from the user, and a question is answered even
+when the answer is "nothing wrong here", so an agent carrying one **always**
+returns a short verdict on it, above any findings, including when its findings
+are `NONE`.
+
+The verdict says **what you actually examined** - which files, which paths, which
+cases - so the user can tell a real check from a shrug. It is the one place a
+summary of what you read is required rather than forbidden. The orchestrator
+cannot write this line for you: it is not permitted to reopen the code, so what
+you leave out is simply lost, and the user is told nothing was looked at.
+
+If the tip was too vague to check, say so and name what you would need, rather
+than inventing a plausible interpretation of it.
 
 ## Working rules
 

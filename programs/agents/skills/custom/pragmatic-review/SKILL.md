@@ -63,6 +63,11 @@ Apply it as a test to each finding before you report it:
 
 An argument means drop it.
 
+The agents filter at this same bar, from `references/bar.md`, which is its
+canonical statement - what follows here is the part you apply yourself in phase
+4. Change one and you must change the other, or the agents will filter at one bar
+while you judge at another.
+
 ### House rules are not taste
 
 One thing is exempt from that test. The `engineering` skill, and `ui-coding` for
@@ -103,24 +108,20 @@ that, and they are called **blockers**: anything that compromises security, and
 anything that can cause **irreversible damage**.
 
 For bugs and practices the default when unsure is to drop it. **For a blocker
-the default when unsure is to report it.** Being wrong costs the author two
-minutes; being silent costs a breach or a restore from backup. A blocker never
-has to clear the unanimity test - it clears it by construction, because no
-senior engineer defends an exploitable hole or an unbounded `DELETE` - and it is
-never held back for being inconvenient, small, one-line, or "probably fine in
-practice".
-
-The line is reversibility. A bug that ships and gets fixed next week is a bug. A
-bug that deletes rows, leaks a secret or emails every customer cannot be fixed
-next week, because by then it has already happened.
+the default when unsure is to report it**, because the line is reversibility: a
+bug that ships and gets fixed next week is a bug, but one that deletes rows,
+leaks a secret or emails every customer has already happened by then. A blocker
+never has to clear the unanimity test, and is never held back for being minor.
 
 Security covers injection, RCE, leaked user data, broken auth, broken crypto,
 hard-coded credentials in source, and secret-bearing files committed to the
 repo. Irreversible damage covers destructive statements with an unproven filter,
 unbounded mutations, migrations with no way back, deletions outside the database
-and irreversible external effects. **The enumerated list of both lives in
-`references/blockers.md`**, which is the blocker agent's brief - you do not need
-it to judge, only to aim.
+and irreversible external effects. **`references/blockers.md` is the canonical
+statement of both** - the enumerated lists, the reasoning behind the inverted
+default, and the rule for dropping one. It is the blocker agent's brief; the
+summary above is all you need to aim, and you read the file itself only in phase
+4, and only if a blocker actually came back.
 
 Two things this does not license. A blocker must still be **reachable** - for
 security, name the attacker, the entry point and what they get, and an exploit
@@ -190,10 +191,16 @@ uncommitted work**:
 ```sh
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
 MERGE_BASE=$(git merge-base HEAD "$BASE")
-PATCH="${TMPDIR:-/tmp}/pragmatic-review.patch"
+PATCH=$(mktemp "${TMPDIR:-/tmp}/pragmatic-review.XXXXXX.patch")
 git diff "$MERGE_BASE" > "$PATCH"   # committed, staged and unstaged
 git status --short                  # untracked files the patch does not show
+echo "$PATCH"                       # the path every agent is given
 ```
+
+`mktemp`, not a fixed name. `TMPDIR` is per-user, not per-session, so a second
+review started in any repo while this one is running would truncate a fixed path
+under it - and since agents are forbidden to re-derive the diff and phase 4 never
+reopens it, the run would report clean on a diff no agent ever read.
 
 With a PR argument, `gh pr diff <n> > "$PATCH"` plus `gh pr view <n> --json
 title,body,comments,reviews,commits`.
@@ -324,7 +331,10 @@ Every agent's prompt carries:
 - The files routed to its angle from your map, as a starting point.
 - **Your own intent summary**, in your words - never the raw PR prose.
 - Any tip injected into it, verbatim, plus the note that its bar inside that
-  tip's scope is lower and it must answer the tip explicitly.
+  tip's scope is lower, and that it must return a verdict on the tip naming
+  **what it actually examined** - which files, which paths, which cases - even
+  when its findings are `NONE`. That verdict is the only thing phase 5 has to
+  answer the user with; you cannot reconstruct it later.
 - The reminder that `NONE` is a good answer that costs it nothing. Left to
   themselves, review agents invent findings to look useful.
 
@@ -352,20 +362,24 @@ For each finding:
 3. **Drop everything `speculative`.**
 4. **Deduplicate** anything two agents raised.
 
-Two exceptions:
+Three exceptions:
 
-- **Blockers.** Read the real code for each one yourself. A blocker is dropped
-  only when you can show it is *wrong* - the input is parameterised after all,
-  the route is unreachable, the guard lives upstream, the `WHERE` clause
-  provably matches only the intended rows, the file is gitignored. Never dropped
-  for being merely uncertain, never for being minor. Refuting it is the only
-  exit; if you cannot refute it, it goes in the table at whatever confidence you
-  actually have.
+- **Blockers.** Read the real code for each one yourself, and refute it or keep
+  it - those are the only two exits. Never dropped for being merely uncertain,
+  never for being minor; if you cannot refute it, it goes in the table at
+  whatever confidence you actually have. The list of what counts as a refutation
+  is in `references/blockers.md` under *Refutation*; read it when you have a
+  blocker to judge, which is the only time you need it.
 - **House-rule violations.** A finding that quotes a rule from `engineering` or
   `ui-coding` and shows the diff contradicting it does not face step 2 either.
-  Check that the rule really says what the agent claims and that the diff really
-  breaks it - then keep it. Do not drop it because you personally find the
-  violation defensible; that call belongs to the user, who wrote the rule.
+  You have not read those skills and you are not going to - loading them here is
+  the cost this phase exists to avoid. Judge on the quote instead: the scream
+  agent returns the rule **verbatim** in its `evidence` field, so check that the
+  quoted words actually forbid what the agent says they forbid, and that the diff
+  plainly does it. A finding that paraphrases the rule instead of quoting it has
+  not been verified by anyone, and is dropped like any other unrefuted claim. Do
+  not drop a verified one because you personally find the violation defensible;
+  that call belongs to the user, who wrote the rule.
 - **Findings from a tip.** Steps 1, 3 and 4 stand; step 2 does not. The user
   asked about that code, so a real answer they might disagree with is still
   worth having. Carry tip verdicts through intact, including the ones that found
@@ -404,11 +418,13 @@ and what came of it:
 > **You asked whether the migration is backwards compatible.** Checked against
 > the current schema and the previous release's queries - it is.
 
-A tip injected into one of the three standard agents is answered here exactly
-like one that got its own agent. A tip dropped for exceeding the ceiling is
-named here as unchecked, not quietly omitted. Never let a tip go unanswered -
-"I looked and it is fine" is the answer the user is paying for, and silence
-reads as "I forgot to look".
+Write each line from the verdict its agent returned, and never invent the scope
+of a check you did not see - if an agent came back without one, say that it
+reported no verdict rather than implying a check happened. A tip injected into
+one of the three standard agents is answered here exactly like one that got its
+own agent. A tip dropped for exceeding the ceiling is named here as unchecked,
+not quietly omitted. Never let a tip go unanswered - "I looked and it is fine" is
+the answer the user is paying for, and silence reads as "I forgot to look".
 
 ### The table
 
