@@ -416,21 +416,35 @@ reported as one.
 
 ## Phase 5 - the findings table
 
-The order is fixed: **verdict, then the tip answers, then the table.**
+The order is fixed: **the table, then the tip answers, then the verdict.**
 
-### The verdict
+Facts first, the call last. A verdict read first anchors the reader: they skim
+the findings looking for confirmation of a conclusion they have already been
+handed, instead of judging each row on what it actually says. Make them read the
+evidence, then give them the call it leads to.
 
-One line, and it comes first. If a 🔴 row exists that verdict is **do not
-merge**, not a summary of how many things were found. If nothing survived it is
-the whole report bar the tip answers:
+### The table
 
-> Ready to merge 👌 - nothing serious found. 9 raised, 0 survived.
+If nothing survived, skip this section entirely - no empty table, no placeholder
+row, no "no findings" heading. Go straight to the tip answers.
+
+Otherwise, print a numbered table, blockers first and marked 🔴. A row that came
+from a tip is marked 🔍: it cleared a lower bar than the rest, and the user is
+entitled to see which rows those are.
+
+| # | What | Impact | Fix |
+|---|------|--------|-----|
+| 1 | 🔴 `auth.ts:41` - session id compared with `==` | Any user can forge a session by sending an integer | Compare with a constant-time equality on the raw string |
+| 2 | 🔍 `retry.ts:88` - backoff resets on every 5xx | A failing endpoint is hot-looped instead of backed off | Carry the attempt count through the retry |
+
+A row that enforces a house rule names the rule it enforces, so the user can see
+it is their own decision being applied and not the reviewer's preference -
+"`engineering`: prefer SUM types over nullable fields".
 
 ### The tip answers
 
 **If the user gave tips, answer every one of them**, whether or not it produced
-a finding, and before the table. One short line per tip, saying what was checked
-and what came of it:
+a finding. One short line per tip, saying what was checked and what came of it:
 
 > **You asked about the retry path.** Checked `client.ts` and both call sites -
 > the retry is idempotent, but see finding 2 for the timeout it inherits.
@@ -446,26 +460,30 @@ agent could only partly cover; neither is quietly omitted. Never let a tip go
 unanswered - "I looked and it is fine" is the answer the user is paying for, and
 silence reads as "I forgot to look".
 
-### The table
+### The verdict
 
-If nothing survived, the tip answers are the end of it. Stop; phase 6 does not
-run.
+One line, and it comes last. It names the rows that drive it and says in a short
+phrase what each one is, so the call stands on its own without the reader
+scrolling back up:
 
-Otherwise, print a numbered table, blockers first and marked 🔴. A row that came
-from a tip is marked 🔍: it cleared a lower bar than the rest, and the user is
-entitled to see which rows those are.
+> Do not merge 🔴 - row 1 (session id is forgeable) and row 3 (unbounded DELETE
+> on `orders`). 9 raised, 2 survived.
 
-| # | What | Impact | Fix |
-|---|------|--------|-----|
-| 1 | 🔴 `auth.ts:41` - session id compared with `==` | Any user can forge a session by sending an integer | Compare with a constant-time equality on the raw string |
-| 2 | 🔍 `retry.ts:88` - backoff resets on every 5xx | A failing endpoint is hot-looped instead of backed off | Carry the attempt count through the retry |
+If a 🔴 row exists the verdict is **do not merge**, not a summary of how many
+things were found. Past three blocking rows, name the two worst and count the
+rest rather than listing them all - the table above already has them.
 
-A row that enforces a house rule names the rule it enforces, so the user can see
-it is their own decision being applied and not the reviewer's preference -
-"`engineering`: prefer SUM types over nullable fields".
+If nothing survived, the verdict is the whole report bar the tip answers:
 
-Then ask the user which findings survive, as checkboxes: `AskUserQuestion` with
-`multiSelect`, grouped by category (blockers / bugs / practices / you asked
+> Ready to merge 👌 - nothing serious found. 9 raised, 0 survived.
+
+### Then ask which findings survive
+
+If nothing survived there is nothing to select. Skip the question and go to
+phase 6.
+
+Otherwise ask the user which findings survive, as checkboxes: `AskUserQuestion`
+with `multiSelect`, grouped by category (blockers / bugs / practices / you asked
 about), up to four per question. If more than sixteen survived, the filtering
 failed - say so, put the sixteen worst in the checkboxes, and leave the rest in
 the table only.
@@ -481,22 +499,60 @@ Do nothing until they answer:
 
 - **Fix locally** - edit the files. Never `git add`, `git commit` or `git push`.
 - **Post to the PR** - one review with inline comments anchored to `file:line`
-  plus a short summary body. Always `event=COMMENT`; never `APPROVE`, never
-  `REQUEST_CHANGES`. If a comment cannot be anchored (the line is not in the
-  diff), fall back to a single `gh pr comment` carrying the table.
-
-  ```sh
-  gh api "repos/{owner}/{repo}/pulls/{n}/reviews" \
-    -f event=COMMENT -f body='<summary>' \
-    -F 'comments[][path]=src/auth.ts' -F 'comments[][line]=41' \
-    -F 'comments[][body]=<finding>'
-  ```
-
+  plus a short summary body. If a comment cannot be anchored (the line is not in
+  the diff), fall back to a single `gh pr comment` carrying the table.
 - **Nothing** - done.
+
+A clean review reaches this phase too. There is nothing to fix and nothing to
+anchor, so the choice is narrower: a single `gh pr comment` saying nothing
+serious was found, or nothing at all.
+
+### Disclose the AI review
+
+Anything this skill posts to GitHub opens with this line, verbatim:
+
+> 🤖 AI-assisted review. I read every finding below and accepted it before
+> posting.
+
+On a clean review there are no findings below, so the second half has nothing to
+point at and the line is:
+
+> 🤖 AI-assisted review. I read it and accepted it before posting.
+
+It goes at the top of the review summary body, and at the top of the
+`gh pr comment` fallback, where that comment *is* the body. **Once, and only
+there** - do not repeat it on the inline comments, which are read alongside a
+summary that already carries it.
+
+The sentence is a claim about the user, not about you, and it is theirs to make.
+Post it as written and do not editorialise it - no hedging about what the model
+did or did not check.
+
+### The event type is the user's call
+
+**Never `APPROVE`.** Approving is a human's sign-off on a PR, and this skill does
+not take that authority however clean the diff looked.
+
+That leaves two, and choosing between them is the user's, not yours. Recommend
+one and ask:
+
+- **`COMMENT`** - the default. Findings worth raising, nothing that must stop the
+  merge.
+- **`REQUEST_CHANGES`** - the PR is dangerous or does not work: a 🔴 row survived,
+  or a regression means the change fails at what it set out to do.
+
+```sh
+gh api "repos/{owner}/{repo}/pulls/{n}/reviews" \
+  -f event=COMMENT -f body='<disclosure + summary>' \
+  -F 'comments[][path]=src/auth.ts' -F 'comments[][line]=41' \
+  -F 'comments[][body]=<finding>'
+```
 
 ## Rules of engagement
 
-- Lead with the verdict. Safe to merge, or here is what stops it.
+- Close with the verdict. The findings come first and the call follows from
+  them - a verdict read first anchors the reader, who then skims the table
+  looking for confirmation instead of judging it.
 - Reluctance is for bugs and taste. Never for blockers - where the damage cannot
   be undone, silence is the expensive mistake and a false alarm is cheap.
 - Answer the question you were asked. If the user pointed at something, they get
