@@ -2,7 +2,15 @@
   description = "NixOS & dev-shell configuration";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    # Tracks the *darwin* channel branch, not nixos-26.05. Both fast-forward
+    # along release-26.05, but different Hydra jobsets advance them: the
+    # NixOS/Linux one advances nixos-26.05, the darwin one advances
+    # nixpkgs-26.05-darwin. A rev on nixos-26.05 is only guaranteed to have
+    # *Linux* binaries in cache.nixos.org; darwin coverage is incidental, and a
+    # miss means building Swift and .NET from source for hours.
+    # See docs/adr/0004-darwin-tracks-the-darwin-channel.md before repointing
+    # this, and docs/NON-DARWIN-NIXOS-ISSUES.md for what it costs lenovo-old.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     nixvim = {
       url = "github:nix-community/nixvim/nixos-26.05";
       inputs.nixpkgs.follows = "nixpkgs";

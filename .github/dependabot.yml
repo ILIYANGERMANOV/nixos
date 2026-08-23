@@ -7,10 +7,29 @@ updates:
       day: "friday"
     ignore:
       - dependency-name: "lanzaboote"
+    # Two groups, not one. A nixpkgs rev whose darwin closure is not cached
+    # fails `just darwin-cache-check`, and under a single group that red PR
+    # would also hold back the cheap tool bumps - which is exactly what forced
+    # the wholesale revert in 58f2f8e. Splitting lets tools land while nixpkgs
+    # waits for a rev the guard accepts.
+    # See docs/adr/0004-darwin-tracks-the-darwin-channel.md.
     groups:
-      nix-updates:
+      # Everything whose version is decided by, or moves in step with, nixpkgs.
+      nixpkgs-core:
         patterns:
-          - "*"
+          - "nixpkgs"
+          - "home-manager"
+          - "nixvim"
+          - "nix-darwin"
+          - "sops-nix"
+          - "disko"
+      # Self-contained and cheap to rebuild. llm-agents deliberately does not
+      # follow nixpkgs (see flake.nix) and mattpocock-skills is `flake = false`.
+      tools:
+        patterns:
+          - "herdr"
+          - "llm-agents"
+          - "mattpocock-skills"
 
   - package-ecosystem: "github-actions"
     directory: "/"

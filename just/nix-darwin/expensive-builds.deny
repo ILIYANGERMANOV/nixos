@@ -1,0 +1,51 @@
+# Derivations that must never be built locally: each one is hours, not minutes.
+#
+# Extended regexes, one per line, anchored at the start of the derivation NAME
+# (`darwin-cache-check` strips the /nix/store/<hash>- prefix before matching).
+# Blank lines and lines starting with # are ignored. Edit freely - the recipe
+# canary-tests the matcher on every run, so a broken regex fails loudly instead
+# of silently passing every plan.
+#
+# Anchor with ^ or a pattern will match mid-name: an unanchored `go-1\.` also
+# matches car`go-1.9`6.1-aarch64-apple-darwin, which is a cheap tarball unpack.
+
+# Swift, and .NET's source-build VMR which pulls Swift in on darwin.
+# Reachable from pre-commit via its nativeCheckInputs. See ADR 0004.
+^swift
+^swiftpm
+^dotnet
+
+# The Haskell toolchain behind modules/home/languages/haskell.nix. Hydra's
+# darwin jobset builds this set only while ghc9103 stays nixpkgs' default
+# haskellPackages compiler; the day it moves, this fires.
+^ghc-9
+^ghcide
+^haskell-language-server
+^hls-
+
+# Compilers and language runtimes. clang-wrapper is cheap and deliberately
+# not matched; clang-unwrapped and a bare clang-<version> are not.
+^llvm-[0-9]
+^clang-unwrapped
+^clang-[0-9]
+^nodejs-[0-9]
+^go-1\.
+^zig-[0-9]
+^openjdk
+
+# nixpkgs' own rustc/cargo, built from source. The rust-overlay toolchain that
+# herdr pulls in is named rustc-<version>-<triple> and is only a tarball
+# unpack, so the trailing anchor keeps it out.
+^rustc-[0-9.]+\.drv$
+^cargo-[0-9.]+\.drv$
+
+# Browser engines and desktop toolkits.
+^chromium
+^electron-
+^webkitgtk
+^qtbase
+^qtwebengine
+
+# Miscellaneous known multi-hour builds.
+^texlive
+^boost-[0-9]

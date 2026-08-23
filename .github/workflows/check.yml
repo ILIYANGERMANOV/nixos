@@ -22,3 +22,24 @@ jobs:
 
       - name: Run checks
         run: nix shell nixpkgs#just nixpkgs#statix nixpkgs#deadnix --command just check
+
+  # Refuses a dependency bump that would make the next darwin-rebuild take
+  # hours. Runs on Linux on purpose: `nix build --dry-run` only queries
+  # substituters, so an aarch64-darwin plan needs no darwin builder.
+  # See docs/adr/0004-darwin-tracks-the-darwin-channel.md.
+  cache-guard:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          # Must mirror modules/nix.nix, or the guard reports a miss for
+          # anything that is only on the numtide cache.
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            extra-substituters = https://cache.numtide.com
+            extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
+
+      - name: Guard against expensive local rebuilds
+        run: nix shell nixpkgs#just --command just darwin-cache-check
