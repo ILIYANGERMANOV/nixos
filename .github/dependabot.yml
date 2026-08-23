@@ -7,10 +7,56 @@ updates:
       day: "friday"
     ignore:
       - dependency-name: "lanzaboote"
+    # Three groups, not one. A nixpkgs rev whose darwin closure is not cached
+    # fails `just darwin-cache-check`, and under a single group that red PR
+    # would also hold back the cheap tool bumps - which is exactly what forced
+    # the wholesale revert in 58f2f8e. Splitting lets the rest land while
+    # nixpkgs waits for a rev the guard accepts.
+    # See docs/adr/0004-darwin-tracks-the-darwin-channel.md.
+    #
+    # `ungrouped` is a catch-all, so a new flake input can never go un-updated
+    # by falling outside the curated groups - the worst it can do is arrive in
+    # a PR of its own. Dependabot has no group-reference syntax, so its
+    # exclude-patterns restate the curated memberships by hand; keep the two
+    # lists in step. Those excludes are what keep the groups disjoint, not the
+    # order they are declared in.
     groups:
-      nix-updates:
+      # Everything whose version is decided by, or moves in step with, nixpkgs.
+      nixpkgs-core:
+        patterns:
+          - "nixpkgs"
+          - "home-manager"
+          - "nixvim"
+          - "nix-darwin"
+          - "sops-nix"
+          - "disko"
+      # Agent tooling: the agent packages, their workspace manager, and every
+      # skill source. All self-contained and cheap to rebuild - llm-agents
+      # deliberately does not follow nixpkgs (see flake.nix), skill repos are
+      # `flake = false`, and herdr is a Rust TUI that rebuilds in minutes.
+      # The glob means a new skill source is picked up without editing this.
+      ai:
+        patterns:
+          - "llm-agents"
+          - "herdr"
+          - "*skills*"
+      # Anything not classified above, so nothing is ever left un-updated. It
+      # matches nothing today; an input landing here is the prompt to decide
+      # whether it belongs in a curated group, not a failure. `lanzaboote` is
+      # in `ignore` above, so it stays out of this and every other group.
+      ungrouped:
         patterns:
           - "*"
+        exclude-patterns:
+          - "nixpkgs"
+          - "home-manager"
+          - "nixvim"
+          - "nix-darwin"
+          - "sops-nix"
+          - "disko"
+          - "llm-agents"
+          - "herdr"
+          - "*skills*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
