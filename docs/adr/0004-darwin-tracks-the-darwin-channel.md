@@ -96,6 +96,11 @@ Hydra-built path and HLS gets built from source - a worse outcome than the Swift
 one, since it is the entire Haskell package set. The denylist covers it, so the
 guard will say so rather than the laptop discovering it.
 
-Dependabot is split into a `nixpkgs-core` group and a `tools` group for the same
-reason the revert hurt: with one group, a nixpkgs rev the guard rejects also
-holds back herdr, llm-agents and the skills.
+Dependabot is split for the same reason the revert hurt: with one group, a
+nixpkgs rev the guard rejects also holds back herdr, llm-agents and the skills.
+`nixpkgs-core` is the expensive, guard-gated group; `ai` is the agent tooling;
+`ungrouped` is a catch-all matching everything else, so an input that nobody
+classified still gets updates instead of silently freezing. Dependabot has no
+group-reference syntax, so `ungrouped`'s exclude-patterns restate the other two
+memberships by hand - those excludes are what keep the groups disjoint, not the
+order they are declared in.

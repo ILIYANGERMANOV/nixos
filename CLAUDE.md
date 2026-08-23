@@ -60,7 +60,7 @@ Both branches fast-forward along `release-26.05`, but different Hydra jobsets ad
 
 The denylist is a plain pattern-per-line file, edited by hand. Anchor every pattern with `^`: unanchored, `go-1\.` also matches car`go-1.9`6.1-aarch64-apple-darwin, which herdr's rust-overlay toolchain builds every time. The recipe self-tests its own pipeline against a synthetic plan before trusting a real one, because both of its failure modes report a bad plan as clean.
 
-Dependabot splits nix inputs into `nixpkgs-core` and `tools` so a nixpkgs rev the guard rejects does not also hold back herdr, llm-agents and the skills.
+Dependabot splits nix inputs into `nixpkgs-core` (guard-gated), `ai` (agent tooling and skill sources) and `ungrouped` (a catch-all matching everything else), so a nixpkgs rev the guard rejects does not also hold back herdr, llm-agents and the skills, and an input nobody classified still gets updates instead of silently freezing. `ungrouped` restates the other two memberships in `exclude-patterns` because dependabot has no group-reference syntax; keep them in step.
 
 ## Agent Configuration
 
