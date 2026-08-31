@@ -24,7 +24,7 @@ nix develop .#sops
 
 ---
 
-## One-time setup: install the age key (new macOS machine)
+## Install or restore the age key (macOS)
 
 The age private key decrypts **everything** in `secrets/secrets.yaml`, so it must be readable by `root` only. sops-nix decrypts during activation as root and never needs your user to read the key, so locking it down does not break rebuilds.
 
@@ -36,7 +36,11 @@ Install the key from your password manager using the bundled recipe, which appli
 just darwin-install-age-key
 ```
 
-Run it **before** `just darwin-bootstrap` so sops-nix can decrypt during the first activation. Verify afterwards:
+On a new machine run it **before** `just darwin-bootstrap`, so sops-nix can decrypt during the first activation.
+
+The same recipe recovers a lost or corrupted key on a Mac that is already set up, and `just darwin-restore-age-key` is an alias for it. Nothing else needs restoring: the key belongs at this one path, and `just edit-secrets` reads it from there. If you ever find a copy under `~/Library/Application Support/sops/age/`, delete it - it is a readable copy of the master key and nothing in this repo uses it.
+
+Verify afterwards:
 
 ```bash
 ls -le /var/lib/sops-age/keys.txt
@@ -56,14 +60,15 @@ sudo chmod 600 /var/lib/sops-age/keys.txt
 Only if you don't already have one to reuse (a new key requires re-encrypting `secrets.yaml` for the added recipient):
 
 ```bash
-sudo mkdir -p /var/lib/sops-age
-sudo chmod 700 /var/lib/sops-age
-sudo age-keygen -o /var/lib/sops-age/keys.txt
-sudo chown root:wheel /var/lib/sops-age/keys.txt
-sudo chmod 600 /var/lib/sops-age/keys.txt
+just darwin-generate-age-key
+```
 
-# Print the public key to add to .sops.yaml:
-sudo grep 'public key' /var/lib/sops-age/keys.txt   # -> age1...
+`root` runs `age-keygen`, so the private key is never held by a process running as you, and the directory is made root-only before the key lands in it. The recipe refuses to overwrite an existing key, verifies the resulting ownership and mode, shows the key once so you can save it to Bitwarden, then clears the screen and prints the public key.
+
+To rotate deliberately, move the old key aside first - the recipe will not clobber it:
+
+```bash
+sudo mv /var/lib/sops-age/keys.txt /var/lib/sops-age/keys.txt.old
 ```
 
 ---
