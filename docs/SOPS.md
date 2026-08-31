@@ -75,7 +75,7 @@ sudo grep 'public key' /var/lib/sops-age/keys.txt   # -> age1...
 Open the encrypted file with your editor (SOPS decrypts in-place, re-encrypts on save):
 
 ```bash
-sops secrets/secrets.yaml
+just edit-secrets
 ```
 
 Add a new key under the YAML structure, for example:
@@ -137,7 +137,7 @@ mkpasswd -m sha-512
 ### Store it as a SOPS secret
 
 ```bash
-sops secrets/secrets.yaml
+just edit-secrets
 ```
 
 Paste the hash as the value:
