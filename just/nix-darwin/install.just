@@ -21,7 +21,10 @@ darwin-bootstrap host:
 
 # Paste the key from Bitwarden, then press Ctrl-D on a new line. It is written
 # root-only (root:wheel, mode 600) so no process running as you can read the
-# master key; see docs/SOPS.md. On a new machine this must run before
+# master key; see docs/SOPS.md. The directory is made root-only before the key
+# lands in it, and root writes the file under `umask 077`, so the key is never
+# on disk at a mode another user could read - not even for the moment between
+# the write and a chmod. On a new machine this must run before
 # darwin-bootstrap, so sops-nix can decrypt during the first activation. Use the
 # same recipe to recover a lost or corrupted key on an already-installed Mac.
 #
@@ -34,15 +37,17 @@ darwin-install-age-key:
       echo "Error: does not look like an age private key (missing AGE-SECRET-KEY-1 line)." >&2; \
       exit 1; \
     fi; \
-    sudo mkdir -p /var/lib/sops-age; \
-    printf '%s\n' "$key" | sudo tee /var/lib/sops-age/keys.txt > /dev/null; \
-    sudo chown root:wheel /var/lib/sops-age; \
-    sudo chmod 700 /var/lib/sops-age; \
+    sudo install -d -o root -g wheel -m 700 /var/lib/sops-age; \
+    printf '%s\n' "$key" | sudo sh -c 'umask 077; cat > /var/lib/sops-age/keys.txt'; \
     sudo chown root:wheel /var/lib/sops-age/keys.txt; \
     sudo chmod 600 /var/lib/sops-age/keys.txt; \
     echo ""; \
     echo "Age key installed. Public key:"; \
     sudo grep 'public key' /var/lib/sops-age/keys.txt
+
+# docs/SOPS.md sends anyone recovering a lost key here, and "restore" is the
+# name they reach for.
+alias darwin-restore-age-key := darwin-install-age-key
 
 # Root runs age-keygen, so the private key never exists inside a process running
 # as you, and the directory is made root-only before the key lands in it. Refuses
@@ -58,7 +63,7 @@ darwin-generate-age-key:
     key_dir=$(dirname "$key_file")
 
     if ! age_keygen=$(command -v age-keygen); then
-        echo "ERROR: age-keygen not found on PATH - run inside 'nix develop .#sops'" >&2
+        echo "ERROR: age-keygen not found on PATH - run inside 'nix develop .#darwin-install'" >&2
         exit 1
     fi
 
