@@ -8,6 +8,7 @@
     ./git.nix
     ./ssh.nix
     ./typos.nix
+    ./blockchain.nix
     ./languages/typescript.nix
     ./languages/haskell.nix
     ./languages/nix.nix
