@@ -4,6 +4,7 @@
   pkgs,
   lib,
   themeConfig,
+  secretsConfig,
   ...
 }:
 
@@ -16,6 +17,7 @@ let
       lib
       ;
     theme = themeConfig;
+    secrets = secretsConfig;
   };
 in
 {

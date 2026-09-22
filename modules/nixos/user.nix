@@ -34,7 +34,9 @@ in
   };
 
   config = {
-    sops.secrets."${cfg.name}-password" = {
+    # The per-host secrets file already scopes this to one machine, so the
+    # value needs no username prefix. It is a yescrypt hash, not a password.
+    myConfig.secrets.password-hash = {
       neededForUsers = true;
     };
 
@@ -43,7 +45,7 @@ in
       isNormalUser = true;
       description = cfg.fullName;
       inherit (cfg) extraGroups;
-      hashedPasswordFile = config.sops.secrets."${cfg.name}-password".path;
+      hashedPasswordFile = config.sops.secrets.password-hash.path;
     };
 
     home-manager.users.${cfg.name} = import "${root}/modules/home/default.nix";

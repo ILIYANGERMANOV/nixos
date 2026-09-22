@@ -50,8 +50,8 @@ generate-age-key:
     echo "Screen cleared. Public key (add this to .sops.yaml):"
     sudo grep "public key" /mnt/var/lib/sops-age/keys.txt
     echo ""
-    echo "Next: run 'sops updatekeys secrets/secrets.yaml' to authorise this key,"
-    echo "then commit .sops.yaml and secrets/secrets.yaml before rebuilding."
+    echo "Next: run 'sops updatekeys' on every file under secrets/ to authorise"
+    echo "this key, then commit .sops.yaml and secrets/ before rebuilding."
 
 # Create Secure Boot signing keys and stage them for lanzaboote.
 setup-secure-boot:

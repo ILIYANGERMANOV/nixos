@@ -27,9 +27,9 @@ pkgs.mkShell {
       git # clone the repo on the live ISO
       age # age-keygen for generate-age-key recipe
       nvim # edit secrets and config files
-      sops # encrypt/decrypt secrets (just edit-secrets, just new-root-password)
+      sops # encrypt/decrypt secrets (just edit-secrets, just set-password-hash)
       ssh-to-age # convert SSH host keys to age keys
-      whois # provides mkpasswd for hashing passwords
+      mkpasswd # hash passwords for just set-password-hash (yescrypt)
     ]
     ++ pkgs.lib.optionals isLinux [
       sbctl # Secure Boot key creation and enrollment (Linux-only)
@@ -48,7 +48,7 @@ pkgs.mkShell {
     echo "  just generate-age-key        — generate a fresh age key (key rotation only)"
     echo "  just enroll-secure-boot      — post-boot: enroll keys into UEFI firmware"
     echo "  just rebuild <host>          — post-boot: rebuild and switch"
-    echo "  just new-root-password       — hash a new root password and open secrets for editing"
+    echo "  just set-password-hash <host> — hash a password straight into that host's secrets"
     echo ""
     echo "Run 'just' to list all available recipes."
   '';

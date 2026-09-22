@@ -8,13 +8,14 @@ Mono-repo for NixOS, nix-darwin, and dev-shell configs. Entry point: `flake.nix`
 flake.nix       — outputs: devShells, nixosConfigurations, darwinConfigurations
 lib/            — system builder helpers (NixOS, Darwin, dev shells)
 hosts/          — per-host identity (hostname, user)
-modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix)
+modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix, secrets.nix)
 modules/nixos/  — NixOS-only system configuration
 modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
 shells/         — dev shells (web, haskell, nixos-install)
+secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 ```
 
 ## Architecture
@@ -62,6 +63,47 @@ The denylist is a plain pattern-per-line file, edited by hand. Anchor every patt
 
 Dependabot splits nix inputs into `nixpkgs-core` (guard-gated), `ai` (agent tooling and skill sources) and `ungrouped` (a catch-all matching everything else), so a nixpkgs rev the guard rejects does not also hold back herdr, llm-agents and the skills, and an input nobody classified still gets updates instead of silently freezing. `ungrouped` restates the other two memberships in `exclude-patterns` because dependabot has no group-reference syntax; keep them in step.
 
+## Secrets
+
+**`myConfig.secrets` is the only door to `sops.secrets`. Never write
+`sops.secrets` by hand.**
+
+Every secret has a **scope**, which picks the file it is read from:
+`global` -> `secrets/common.yaml` (every host), `host` -> `secrets/hosts/<hostname>.yaml`
+(only hosts that declare it). Names are bare: `figma-token`, never
+`figma-token-macos-work`. The file already says which host it belongs to.
+
+`modules/secrets.nix` holds the registry, the age key path and the expansion
+into `sops.secrets`. A host declares what it provides in one line
+(`myConfig.secrets.figma-token = { };`) and says nothing at all about secrets it
+does not have. `scope` is explicit rather than inferred because the module
+system merges all definitions and erases where each came from.
+
+**A declaration is a promise, and absence is a feature.** Declaring a secret
+asserts the value exists in the matching file; a missing file is a build error.
+Not declaring one is how a host opts out, so anything depending on a secret must
+key off its availability and disable itself where it is absent - never assume
+every host has every secret, and never add a placeholder value to make a build
+pass. That placeholder is exactly what this design removed.
+
+Home Manager receives `secretsConfig` (`name -> path`, declared secrets only)
+through `extraSpecialArgs`, alongside `userConfig` and `themeConfig`.
+`programs/` takes it as a plain parameter and stays host-agnostic: it gates on
+what it was handed, it never looks a host up. `programs/claude-code` is the
+worked example - catalog entries name the secrets they need
+(`env.FIGMA_API_KEY = "figma-token"`), unavailable entries are dropped before
+any flavor sees them, and names are validated against the full catalog so a typo
+still aborts while an unavailable server stays silent.
+
+**Paths only, never values.** `sops.secrets.<n>.path` is a build-time string and
+producing it decrypts nothing. `builtins.readFile` on a decrypted path would
+bake plaintext into a world-readable store path: do not do it. Secrets are read
+at runtime by the process that needs them.
+
+All hosts share one age key today, so the per-host split is organisational, not
+a trust boundary. See `docs/adr/0005-host-scoped-secrets.md` for the upgrade
+path, and `docs/SOPS.md` for the day-to-day recipes.
+
 ## Agent Configuration
 
 **`programs/agents/` is agent-agnostic. Agent-specific code lives in that
@@ -81,6 +123,62 @@ a second agent such as Codex.
 - `programs/claude-code/` — installs `instructions` as `~/.claude/CLAUDE.md`,
   the only user-scope memory file Claude Code reads. It does **not** read
   `AGENTS.md` at user scope. A project's own `CLAUDE.md` still stacks on top.
+
+### Claude Code: config in `default.nix`, plumbing in `lib.nix`
+
+**Changing the Claude Code setup means editing `default.nix` and nothing else.**
+
+- `default.nix` — the configuration: `baseSettings`, `baseSkills`,
+  `baseInstructions`, the `mcpCatalog`, and the flavors. Nothing derived lives
+  here.
+- `lib.nix` — `mkFlavorBuilder`, applied once to that configuration and
+  returning the function from an attrset of flavors to their wrapper
+  derivations. The attr key is the binary name, so a flavor's name is written
+  once. Everything derived from the configuration — the available catalog, the
+  list of defined server names, the merged settings — is computed once in that
+  closure rather than per flavor.
+- `mcp.nix` - the pure MCP logic: `mkStdioServer` and `mkHttpServer`,
+  availability against this host's secrets, per-flavor selection, and the
+  `~/.claude.json` structure. No derivations, which is what makes it testable.
+- `check.nix` — `checks.claude-code`, running `mcp.nix` against a synthetic
+  catalog and a synthetic `secrets` attrset.
+
+#### Two transports, two auth stories
+
+A catalog entry is a **local** server or a **remote** one, tagged by `type`. The
+tag is the same field Claude Code reads from `~/.claude.json`, so writing an
+entry out is a projection rather than a translation, and `toWire` dispatches on
+it through an attrset - an unhandled transport aborts evaluation instead of
+falling through to a wrong shape.
+
+**Local (`mkStdioServer`)** - Claude Code spawns a subprocess. Its `env` maps an
+environment variable to the **name** of the secret that fills it. Omitting `env`
+means the server needs no secrets - an empty attrset, not a special case, so
+availability is simply "every secret this server names is declared" and holds
+vacuously for none. This is the only mechanism that gates a server to a host.
+
+**Remote (`mkHttpServer`)** - Claude Code connects over HTTP and authenticates
+**out-of-band**: `/mcp` inside a running session opens the OAuth flow, once per
+machine. There is no secret to inject, so a remote server carries `env = { }`
+and is available on every host. **A remote server cannot be host-gated by the
+secrets mechanism.** Keeping one off a machine means not running a flavor that
+lists it - which is why `claude-pm` exists on `macos-main` but is simply not
+used there.
+
+The OAuth grant lives in the **macOS Keychain** (on Linux,
+`~/.claude/.credentials.json`) under a key derived from the server's `name`,
+`type`, `url` and `headers`. Nothing about it is in `~/.claude.json`, which is
+why the wrapper replacing `.mcpServers` wholesale on every launch cannot lose
+it, and why switching flavors never forces a re-login. Two things do orphan a
+grant: **renaming a catalog entry or changing its `url`** (one re-login), and
+logging out of the Claude account, which wipes every MCP grant at once
+([claude-code#90647](https://github.com/anthropics/claude-code/issues/90647)).
+
+`mkHttpServer` takes only a `url`. Claude Code expands `${VAR}` references in
+`headers` exactly as it does in `env` on a local server, so a remote server
+that ever wants a static bearer token - both Linear and Superhuman Docs accept
+one - is a small addition here rather than a redesign. Nothing needs it yet,
+and a static token is what would let a remote server be host-gated after all.
 
 ### Agent Skills
 
@@ -113,7 +211,8 @@ is empty everywhere today.
 
 `nix flake check` — and therefore `just check` in CI — validates every installed
 skill: frontmatter present, `name` matching the installed directory, and a
-`description` within the 1024-character Agent Skills limit.
+`description` within the 1024-character Agent Skills limit. It also runs
+`checks.claude-code` over the MCP catalog logic.
 
 ### Adding a skill
 

@@ -108,5 +108,5 @@ darwin-generate-age-key:
     echo "Public key (add this to .sops.yaml):"
     sudo grep 'public key' "$key_file"
     echo ""
-    echo "Next: add it to .sops.yaml, then run 'sops updatekeys secrets/secrets.yaml'"
-    echo "to authorise it, and commit .sops.yaml and secrets/secrets.yaml."
+    echo "Next: add it to .sops.yaml, then run 'sops updatekeys' on every file"
+    echo "under secrets/ to authorise it, and commit .sops.yaml and secrets/."

@@ -19,10 +19,10 @@ let
         { myConfig.theme = theme; }
         "${root}/modules/nix.nix"
         "${root}/modules/home-manager.nix"
+        "${root}/modules/secrets.nix"
         "${root}/modules/nixos/common.nix"
         "${root}/modules/nixos/desktop.nix"
         "${root}/modules/nixos/audio.nix"
-        "${root}/modules/nixos/security/sops.nix"
         "${root}/modules/nixos/security/disk-encryption.nix"
         "${root}/modules/nixos/security/secure-boot.nix"
         "${root}/modules/nixos/user.nix"
@@ -45,9 +45,9 @@ let
         { myConfig.theme = theme; }
         "${root}/modules/nix.nix"
         "${root}/modules/home-manager.nix"
+        "${root}/modules/secrets.nix"
         "${root}/modules/macos/common.nix"
         "${root}/modules/macos/user.nix"
-        "${root}/modules/macos/sops.nix"
         "${root}/hosts/${hostname}/configuration.nix"
       ];
     };

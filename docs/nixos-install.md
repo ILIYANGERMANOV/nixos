@@ -70,13 +70,13 @@ See /hosts/lenovo-old/configuration.nix.
 
 ### 1.5 Set the root password
 
-The root password is stored as a SOPS secret. Hash a new password and save it into `secrets/secrets.yaml` before committing:
+The root password is stored as a SOPS secret, under `password-hash` in that host's own file. Hash a new password and save it before committing:
 
 ```bash
-just new-root-password
+just set-password-hash lenovo-old
 ```
 
-This hashes the password with yescrypt, clears the screen (so the plaintext is gone from scroll-back), then opens `secrets/secrets.yaml` in your editor for you to paste the hash in.
+This asks for the password twice, hashes it with yescrypt and writes the hash straight into `secrets/hosts/lenovo-old.yaml` under `password-hash`. The password and the hash never reach the screen, so there is nothing in scroll-back and nothing to paste.
 
 ### 1.6 Commit and push
 
