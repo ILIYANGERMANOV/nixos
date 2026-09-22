@@ -8,13 +8,14 @@ Mono-repo for NixOS, nix-darwin, and dev-shell configs. Entry point: `flake.nix`
 flake.nix       — outputs: devShells, nixosConfigurations, darwinConfigurations
 lib/            — system builder helpers (NixOS, Darwin, dev shells)
 hosts/          — per-host identity (hostname, user)
-modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix)
+modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix, secrets.nix)
 modules/nixos/  — NixOS-only system configuration
 modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
 shells/         — dev shells (web, haskell, nixos-install)
+secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 ```
 
 ## Architecture
@@ -61,6 +62,46 @@ Both branches fast-forward along `release-26.05`, but different Hydra jobsets ad
 The denylist is a plain pattern-per-line file, edited by hand. Anchor every pattern with `^`: unanchored, `go-1\.` also matches car`go-1.9`6.1-aarch64-apple-darwin, which herdr's rust-overlay toolchain builds every time. The recipe self-tests its own pipeline against a synthetic plan before trusting a real one, because both of its failure modes report a bad plan as clean.
 
 Dependabot splits nix inputs into `nixpkgs-core` (guard-gated), `ai` (agent tooling and skill sources) and `ungrouped` (a catch-all matching everything else), so a nixpkgs rev the guard rejects does not also hold back herdr, llm-agents and the skills, and an input nobody classified still gets updates instead of silently freezing. `ungrouped` restates the other two memberships in `exclude-patterns` because dependabot has no group-reference syntax; keep them in step.
+
+## Secrets
+
+**`myConfig.secrets` is the only door to `sops.secrets`. Never write
+`sops.secrets` by hand.**
+
+Every secret has a **scope**, which picks the file it is read from:
+`global` -> `secrets/common.yaml` (every host), `host` -> `secrets/hosts/<hostname>.yaml`
+(only hosts that declare it). Names are bare: `figma-token`, never
+`figma-token-macos-work`. The file already says which host it belongs to.
+
+`modules/secrets.nix` holds the registry, the age key path and the expansion
+into `sops.secrets`. A host declares what it provides in one line
+(`myConfig.secrets.figma-token = { };`) and says nothing at all about secrets it
+does not have. `scope` is explicit rather than inferred because the module
+system merges all definitions and erases where each came from.
+
+**A declaration is a promise, and absence is a feature.** Declaring a secret
+asserts the value exists in the matching file; a missing file is a build error.
+Not declaring one is how a host opts out, so anything depending on a secret must
+key off its availability and disable itself where it is absent - never assume
+every host has every secret, and never add a placeholder value to make a build
+pass. That placeholder is exactly what this design removed.
+
+Home Manager receives `secretsConfig` (`name -> path`, declared secrets only)
+through `extraSpecialArgs`, alongside `userConfig` and `themeConfig`.
+`programs/` takes it as a plain parameter and stays host-agnostic: it gates on
+what it was handed, it never looks a host up. `programs/claude-code` is the
+worked example - catalog entries name a `secret`, unavailable entries are
+dropped before any flavor sees them, and names are validated against the full
+catalog so a typo still aborts while an unavailable server stays silent.
+
+**Paths only, never values.** `sops.secrets.<n>.path` is a build-time string and
+producing it decrypts nothing. `builtins.readFile` on a decrypted path would
+bake plaintext into a world-readable store path: do not do it. Secrets are read
+at runtime by the process that needs them.
+
+All hosts share one age key today, so the per-host split is organisational, not
+a trust boundary. See `docs/adr/0005-host-scoped-secrets.md` for the upgrade
+path, and `docs/SOPS.md` for the day-to-day recipes.
 
 ## Agent Configuration
 

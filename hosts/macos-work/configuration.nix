@@ -1,4 +1,4 @@
-{ config, ... }: {
+_: {
   networking.hostName = "macos-work";
 
   # Determinate Nix manages its own daemon — disable nix-darwin's Nix management to avoid conflict.
@@ -10,10 +10,9 @@
     email = "iliyan@coinlist.co";
   };
 
-  sops.secrets.figma-token = {
-    key = "figma-token-macos-work";
-    owner = config.myConfig.user.name;
-  };
+  # Work-only: macos-main deliberately does not provide this, so the Figma MCP
+  # server is absent there rather than fed a placeholder token.
+  myConfig.secrets.figma-token = { };
 
   system.stateVersion = 6;
 }

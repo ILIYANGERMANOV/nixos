@@ -9,7 +9,11 @@
 let
 
   # Constructs a typed MCP server entry for the catalog.
-  # token = { path, envVar } is optional; omit for servers without secrets.
+  #
+  # token = { secret, envVar } is optional; omit for servers without secrets.
+  # `secret` is a NAME from the myConfig.secrets registry, not a path: the
+  # caller resolves it against the set of secrets the host actually provides,
+  # and drops the entry entirely when there is no match.
   mkMcpServer =
     {
       command,
@@ -30,7 +34,9 @@ let
   # Options:
   #   name              - binary name (required)
   #   extraSettings     - Nix attrset deep-merged onto baseSettings
-  #   mcpServers        - list of server names from mcpCatalog to activate
+  #   mcpCatalog        - servers AVAILABLE on this host, tokens resolved to paths
+  #   knownMcpServers   - every name the catalog defines, available or not
+  #   mcpServers        - list of server names from knownMcpServers to activate
   #   baseSkills        - skill names every flavor gets (passed in from default.nix)
   #   extraSkills       - skill names this flavor adds on top
   #   baseInstructions  - the agent-agnostic AGENTS.md (passed in from default.nix)
@@ -49,6 +55,7 @@ let
       name,
       baseSettings,
       mcpCatalog,
+      knownMcpServers ? lib.attrNames mcpCatalog,
       baseInstructions,
       extraSettings ? { },
       mcpServers ? [ ],
@@ -57,7 +64,18 @@ let
       extraInstructions ? [ ],
     }:
     let
-      servers = lib.filterAttrs (n: _: builtins.elem n mcpServers) mcpCatalog;
+      # Validated against every DEFINED name, then read from the AVAILABLE ones.
+      # A typo aborts evaluation, the way an unknown skill name already does; a
+      # server this host has no secret for is simply absent, which is the point.
+      unknownMcp = lib.subtractLists knownMcpServers mcpServers;
+      servers =
+        if unknownMcp != [ ] then
+          throw ''
+            claude flavor "${name}": unknown MCP server(s): ${lib.concatStringsSep ", " unknownMcp}.
+            Defined in mcpCatalog: ${lib.concatStringsSep ", " knownMcpServers}.
+          ''
+        else
+          lib.filterAttrs (n: _: builtins.elem n mcpServers) mcpCatalog;
       serversWithTokens = lib.filterAttrs (_: s: s ? token) servers;
 
       # Deep-merge extra settings onto base so nested keys (e.g. enabledPlugins) combine.
@@ -131,13 +149,19 @@ let
   # Secrets are NOT written to any file. Claude Code's expandVars (confirmed enabled
   # for user scope in source) resolves ${VAR} references in ~/.claude.json from the
   # process environment inherited via exec.
+  #
+  # A missing file is fatal, not a reason to drop the server: this server is only
+  # here because the host DECLARED its secret, so a missing file means the
+  # promise is broken (no age key, or a rebuild that never ran) rather than that
+  # the feature is off. Hosts that genuinely lack the secret never get this far.
   mkReadTokens =
     serversWithTokens:
     lib.concatStrings (
-      lib.mapAttrsToList (_: s: ''
+      lib.mapAttrsToList (n: s: ''
         if [ ! -f "${s.token.path}" ]; then
-          echo "Error: secret not found at ${s.token.path}" >&2
-          echo "Ensure sops-nix has decrypted secrets and darwin-rebuild has run." >&2
+          echo "Error: MCP server '${n}' needs ${s.token.path}, which does not exist." >&2
+          echo "$(hostname -s) declares this secret via myConfig.secrets, so it should be there." >&2
+          echo "Check the age key (just darwin-install-age-key) and re-run darwin-rebuild switch." >&2
           exit 1
         fi
         ${s.token.envVar}=$(cat "${s.token.path}")

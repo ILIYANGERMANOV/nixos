@@ -28,7 +28,7 @@ pkgs.mkShell {
       nil # Nix LSP (inside nvim)
       nixfmt # Nix formatter (inside nvim)
       age # inspect / validate the SOPS age key
-      sops # edit secrets/secrets.yaml
+      sops # edit secrets/ (just edit-secrets)
     ]
     ++ claudeCode.packages;
   shellHook = ''
@@ -46,7 +46,7 @@ pkgs.mkShell {
     echo "Day-to-day:"
     echo "  just darwin-rebuild <host>       — rebuild and switch after config changes"
     echo "  just darwin-rollback             — roll back to the previous generation"
-    echo "  just edit-secrets                — edit encrypted secrets/secrets.yaml"
+    echo "  just edit-secrets [host]         — edit secrets/common.yaml or a host's own"
     echo ""
     echo "Run 'just' to list all available recipes."
   '';
