@@ -72,7 +72,7 @@ into a world-readable store path.
 
 `programs/claude-code` consumes it as a plain parameter and stays
 host-agnostic, as `programs/` is required to be. MCP catalog entries name the
-secret they need (`secret = "figma-token"`) instead of hardcoding
+secret they need (`env.FIGMA_API_KEY = "figma-token"`) instead of hardcoding
 `/run/secrets/figma-token`, and entries whose secret is absent are dropped from
 the catalog before any flavor sees it. `claude-web-ui` still lists
 `mcpServers = [ "figma" ]`; on `macos-main` that resolves to `{}` in

@@ -90,9 +90,10 @@ Home Manager receives `secretsConfig` (`name -> path`, declared secrets only)
 through `extraSpecialArgs`, alongside `userConfig` and `themeConfig`.
 `programs/` takes it as a plain parameter and stays host-agnostic: it gates on
 what it was handed, it never looks a host up. `programs/claude-code` is the
-worked example - catalog entries name a `secret`, unavailable entries are
-dropped before any flavor sees them, and names are validated against the full
-catalog so a typo still aborts while an unavailable server stays silent.
+worked example - catalog entries name the secrets they need
+(`env.FIGMA_API_KEY = "figma-token"`), unavailable entries are dropped before
+any flavor sees them, and names are validated against the full catalog so a typo
+still aborts while an unavailable server stays silent.
 
 **Paths only, never values.** `sops.secrets.<n>.path` is a build-time string and
 producing it decrypts nothing. `builtins.readFile` on a decrypted path would
@@ -122,6 +123,30 @@ a second agent such as Codex.
 - `programs/claude-code/` — installs `instructions` as `~/.claude/CLAUDE.md`,
   the only user-scope memory file Claude Code reads. It does **not** read
   `AGENTS.md` at user scope. A project's own `CLAUDE.md` still stacks on top.
+
+### Claude Code: config in `default.nix`, plumbing in `lib.nix`
+
+**Changing the Claude Code setup means editing `default.nix` and nothing else.**
+
+- `default.nix` — the configuration: `baseSettings`, `baseSkills`,
+  `baseInstructions`, the `mcpCatalog`, and the flavors. Nothing derived lives
+  here.
+- `lib.nix` — `mkFlavorBuilder`, applied once to that configuration and
+  returning the function from an attrset of flavors to their wrapper
+  derivations. The attr key is the binary name, so a flavor's name is written
+  once. Everything derived from the configuration — the available catalog, the
+  list of defined server names, the merged settings — is computed once in that
+  closure rather than per flavor.
+- `mcp.nix` — the pure MCP logic: `mkMcpServer`, availability against this
+  host's secrets, per-flavor selection, and the `~/.claude.json` structure. No
+  derivations, which is what makes it testable.
+- `check.nix` — `checks.claude-code`, running `mcp.nix` against a synthetic
+  catalog and a synthetic `secrets` attrset.
+
+A catalog entry's `env` maps an environment variable to the **name** of the
+secret that fills it. Omitting `env` means the server needs no secrets — an
+empty attrset, not a special case, so availability is simply "every secret this
+server names is declared" and holds vacuously for none.
 
 ### Agent Skills
 
@@ -154,7 +179,8 @@ is empty everywhere today.
 
 `nix flake check` — and therefore `just check` in CI — validates every installed
 skill: frontmatter present, `name` matching the installed directory, and a
-`description` within the 1024-character Agent Skills limit.
+`description` within the 1024-character Agent Skills limit. It also runs
+`checks.claude-code` over the MCP catalog logic.
 
 ### Adding a skill
 

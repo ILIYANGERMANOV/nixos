@@ -180,18 +180,19 @@ A feature that needs a secret must disable itself where the secret is absent,
 rather than assume every host has it. `programs/claude-code` is the worked
 example.
 
-Catalog entries name the **secret**, not a path:
+Catalog entries map an environment variable to the **secret name** that fills
+it, never to a path:
 
 ```nix
 figma = mkMcpServer {
   command = "npx";
   args = [ "-y" "figma-developer-mcp" "--stdio" ];
-  token = {
-    secret = "figma-token";
-    envVar = "FIGMA_API_KEY";
-  };
+  env.FIGMA_API_KEY = "figma-token";
 };
 ```
+
+A server needing no secrets declares no `env`, and one needing two names both.
+Availability is all-or-nothing: every secret a server names must be declared.
 
 `programs/` never learns which host it is building for. It receives the
 `secrets` attrset as a parameter, drops entries whose secret is missing, and

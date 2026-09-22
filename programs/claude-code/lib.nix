@@ -3,24 +3,67 @@
   lib ? pkgs.lib,
   claude-code,
   mkSkillFarm,
+  # name -> decrypted-file path, for the secrets THIS host provides.
+  secrets ? { },
   ...
 }:
 
 let
+  mcp = import ./mcp.nix { inherit lib secrets; };
 
-  # Constructs a typed MCP server entry for the catalog.
+  # Binds one Claude Code configuration - the settings, skills, instructions and
+  # MCP catalog authored in default.nix - and returns the function that turns an
+  # attrset of flavors into their wrapper derivations.
   #
-  # token = { secret, envVar } is optional; omit for servers without secrets.
-  # `secret` is a NAME from the myConfig.secrets registry, not a path: the
-  # caller resolves it against the set of secrets the host actually provides,
-  # and drops the entry entirely when there is no match.
-  mkMcpServer =
+  # Everything derived from that configuration is computed once, here, rather
+  # than per flavor: the catalog is filtered against this host's secrets exactly
+  # once, and the list of defined names never has to be passed alongside it.
+  #
+  # Flavor options, all optional (the attr key is the binary name):
+  #   extraSettings     - Nix attrset deep-merged onto baseSettings
+  #   mcpServers        - names from the catalog to activate for this flavor
+  #   extraSkills       - skill names this flavor adds to baseSkills
+  #   extraInstructions - markdown files appended to baseInstructions
+  mkFlavorBuilder =
     {
-      command,
-      args,
-      token ? null,
+      baseSettings,
+      baseSkills,
+      baseInstructions,
+      mcpCatalog,
     }:
-    { inherit command args; } // lib.optionalAttrs (token != null) { inherit token; };
+    let
+      known = lib.attrNames mcpCatalog;
+      available = mcp.availableServers mcpCatalog;
+    in
+    lib.mapAttrsToList (
+      name:
+      {
+        extraSettings ? { },
+        mcpServers ? [ ],
+        extraSkills ? [ ],
+        extraInstructions ? [ ],
+      }:
+      let
+        servers = mcp.selectServers {
+          flavor = name;
+          inherit known available;
+          requested = mcpServers;
+        };
+      in
+      mkFlavor {
+        inherit name servers;
+        settings = lib.recursiveUpdate baseSettings extraSettings;
+        skills = lib.unique (baseSkills ++ extraSkills);
+        instructions =
+          if extraInstructions == [ ] then
+            # A flavor with nothing to add installs the shared file as-is, so the
+            # common case costs no build and ~/.claude/CLAUDE.md is
+            # byte-identical to programs/agents/AGENTS.md.
+            baseInstructions
+          else
+            pkgs.concatText "${name}-instructions.md" ([ baseInstructions ] ++ extraInstructions);
+      }
+    );
 
   # Builds a named Claude wrapper binary that owns ~/.claude/settings.json,
   # ~/.claude/CLAUDE.md, the mcpServers key in ~/.claude.json, and the
@@ -30,73 +73,23 @@ let
   # Security model: secrets are read from sops-nix at invocation time, exported
   # as process env vars, and inherited by Claude Code via exec. ~/.claude.json
   # stores only ${VAR} references which Claude Code resolves via expandVars.
-  #
-  # Options:
-  #   name              - binary name (required)
-  #   extraSettings     - Nix attrset deep-merged onto baseSettings
-  #   mcpCatalog        - servers AVAILABLE on this host, tokens resolved to paths
-  #   knownMcpServers   - every name the catalog defines, available or not
-  #   mcpServers        - list of server names from knownMcpServers to activate
-  #   baseSkills        - skill names every flavor gets (passed in from default.nix)
-  #   extraSkills       - skill names this flavor adds on top
-  #   baseInstructions  - the agent-agnostic AGENTS.md (passed in from default.nix)
-  #   extraInstructions - markdown files this flavor appends to them
-  #
-  # To add a new flavor:
-  #   myFlavor = makeFlavor {
-  #     name          = "claude-my-flavor";
-  #     extraSettings = { effortLevel = "high"; };
-  #     mcpServers    = [ "figma" ];
-  #     extraSkills   = [ "tdd" ];
-  #   };
-  # Then add it to `packages` below.
-  mkClaudeFlavor =
+  mkFlavor =
     {
       name,
-      baseSettings,
-      mcpCatalog,
-      knownMcpServers ? lib.attrNames mcpCatalog,
-      baseInstructions,
-      extraSettings ? { },
-      mcpServers ? [ ],
-      baseSkills ? [ ],
-      extraSkills ? [ ],
-      extraInstructions ? [ ],
+      settings,
+      skills,
+      instructions,
+      servers,
     }:
     let
-      # Validated against every DEFINED name, then read from the AVAILABLE ones.
-      # A typo aborts evaluation, the way an unknown skill name already does; a
-      # server this host has no secret for is simply absent, which is the point.
-      unknownMcp = lib.subtractLists knownMcpServers mcpServers;
-      servers =
-        if unknownMcp != [ ] then
-          throw ''
-            claude flavor "${name}": unknown MCP server(s): ${lib.concatStringsSep ", " unknownMcp}.
-            Defined in mcpCatalog: ${lib.concatStringsSep ", " knownMcpServers}.
-          ''
-        else
-          lib.filterAttrs (n: _: builtins.elem n mcpServers) mcpCatalog;
-      serversWithTokens = lib.filterAttrs (_: s: s ? token) servers;
-
-      # Deep-merge extra settings onto base so nested keys (e.g. enabledPlugins) combine.
-      flavorSettings = lib.recursiveUpdate baseSettings extraSettings;
-      settingsFile = pkgs.writeText "${name}-settings.json" (builtins.toJSON flavorSettings);
+      settingsFile = pkgs.writeText "${name}-settings.json" (builtins.toJSON settings);
+      skillFarm = if skills == [ ] then null else mkSkillFarm "${name}-skills" skills;
 
       # Nix store file with the MCP structure. Env fields hold ${VAR} references,
       # not secret values — safe to bake into the store.
-      mcpStaticFile = pkgs.writeText "${name}-mcp-static.json" (builtins.toJSON (mkMcpStructure servers));
-
-      skillNames = lib.unique (baseSkills ++ extraSkills);
-      skillFarm = if skillNames == [ ] then null else mkSkillFarm "${name}-skills" skillNames;
-
-      # A flavor with nothing to add installs the shared file as-is, so the common
-      # case costs no build and ~/.claude/CLAUDE.md is byte-identical to
-      # programs/agents/AGENTS.md.
-      instructionsFile =
-        if extraInstructions == [ ] then
-          baseInstructions
-        else
-          pkgs.concatText "${name}-instructions.md" ([ baseInstructions ] ++ extraInstructions);
+      mcpStaticFile = pkgs.writeText "${name}-mcp-static.json" (
+        builtins.toJSON (mcp.mkMcpStructure servers)
+      );
     in
     pkgs.writeShellApplication {
       inherit name;
@@ -104,9 +97,9 @@ let
       text = ''
         mkdir -p "$HOME/.claude"
         ${mkApplySkills skillFarm}
-        ${mkApplyInstructions instructionsFile}
+        ${mkApplyInstructions instructions}
         install -m 600 "${settingsFile}" "$HOME/.claude/settings.json"
-        ${mkApplyMcp { inherit mcpStaticFile serversWithTokens; }}
+        ${mkApplyMcp { inherit mcpStaticFile servers; }}
         exec ${claude-code}/bin/claude "$@"
       '';
     };
@@ -145,6 +138,21 @@ let
     install -m 600 "${instructionsFile}" "$HOME/.claude/CLAUDE.md"
   '';
 
+  # Shell snippet: atomically update ~/.claude.json with this flavor's MCP servers.
+  # mcpStaticFile is a Nix store path with the static JSON (env var references only).
+  # Replaces mcpServers entirely so switching flavors is always clean.
+  mkApplyMcp =
+    { mcpStaticFile, servers }:
+    ''
+      ${mkReadSecrets servers}
+      [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
+      _claude_tmp=$(mktemp "$HOME/.claude.json.XXXXXX")
+      trap 'rm -f "$_claude_tmp"' EXIT
+      jq --slurpfile mcp "${mcpStaticFile}" ".mcpServers = \$mcp[0]" \
+        "$HOME/.claude.json" > "$_claude_tmp"
+      mv "$_claude_tmp" "$HOME/.claude.json"
+    '';
+
   # Shell snippet: validate each secret file exists, then export it as an env var.
   # Secrets are NOT written to any file. Claude Code's expandVars (confirmed enabled
   # for user scope in source) resolves ${VAR} references in ~/.claude.json from the
@@ -154,56 +162,31 @@ let
   # here because the host DECLARED its secret, so a missing file means the
   # promise is broken (no age key, or a rebuild that never ran) rather than that
   # the feature is off. Hosts that genuinely lack the secret never get this far.
-  mkReadTokens =
-    serversWithTokens:
-    lib.concatStrings (
-      lib.mapAttrsToList (n: s: ''
-        if [ ! -f "${s.token.path}" ]; then
-          echo "Error: MCP server '${n}' needs ${s.token.path}, which does not exist." >&2
-          echo "$(hostname -s) declares this secret via myConfig.secrets, so it should be there." >&2
-          echo "Check the age key (just darwin-install-age-key) and re-run darwin-rebuild switch." >&2
-          exit 1
-        fi
-        ${s.token.envVar}=$(cat "${s.token.path}")
-        export ${s.token.envVar}
-      '') serversWithTokens
-    );
-
-  # Builds the static MCP structure for ~/.claude.json.
-  # Env values are ${VAR} REFERENCES — the literal strings "${FIGMA_API_KEY}" etc.
-  # Claude Code's expandVars resolves them from the process environment at startup.
-  # The actual secret values never touch ~/.claude.json.
   #
-  # "$" + "{" + name + "}" produces the literal string "${NAME}" in Nix without
-  # triggering Nix's own string interpolation syntax.
-  mkMcpStructure =
+  # Servers that name no secrets contribute nothing, so the empty case needs no
+  # guard of its own.
+  mkReadSecrets =
     servers:
-    lib.mapAttrs (_: s: {
-      type = "stdio";
-      inherit (s) command args;
-      env = lib.optionalAttrs (s ? token) {
-        ${s.token.envVar} = "$" + "{" + s.token.envVar + "}";
-      };
-    }) servers;
-
-  # Shell snippet: atomically update ~/.claude.json with this flavor's MCP servers.
-  # mcpStaticFile is a Nix store path with the static JSON (env var references only).
-  # Replaces mcpServers entirely so switching flavors is always clean.
-  mkApplyMcp =
-    { mcpStaticFile, serversWithTokens }:
-    let
-      hasTokens = serversWithTokens != { };
-    in
-    ''
-      ${lib.optionalString hasTokens (mkReadTokens serversWithTokens)}
-      [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
-      _claude_tmp=$(mktemp "$HOME/.claude.json.XXXXXX")
-      trap 'rm -f "$_claude_tmp"' EXIT
-      jq --slurpfile mcp "${mcpStaticFile}" ".mcpServers = \$mcp[0]" \
-        "$HOME/.claude.json" > "$_claude_tmp"
-      mv "$_claude_tmp" "$HOME/.claude.json"
-    '';
+    lib.concatStrings (
+      lib.concatLists (
+        lib.mapAttrsToList (
+          serverName:
+          { env, ... }:
+          lib.mapAttrsToList (envVar: path: ''
+            if [ ! -f "${path}" ]; then
+              echo "Error: MCP server '${serverName}' needs ${path}, which does not exist." >&2
+              echo "$(hostname -s) declares this secret via myConfig.secrets, so it should be there." >&2
+              echo "Check the age key (just darwin-install-age-key) and re-run darwin-rebuild switch." >&2
+              exit 1
+            fi
+            ${envVar}=$(cat "${path}")
+            export ${envVar}
+          '') env
+        ) servers
+      )
+    );
 in
 {
-  inherit mkMcpServer mkClaudeFlavor;
+  inherit (mcp) mkMcpServer;
+  inherit mkFlavorBuilder;
 }
