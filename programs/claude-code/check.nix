@@ -21,18 +21,18 @@ let
   mcp = import ./mcp.nix { inherit lib secrets; };
 
   catalog = {
-    figma = mcp.mkMcpServer {
+    figma = mcp.mkStdioServer {
       command = "npx";
       args = [ "figma-developer-mcp" ];
       env.FIGMA_API_KEY = "figma-token";
     };
 
-    secretless = mcp.mkMcpServer {
+    secretless = mcp.mkStdioServer {
       command = "uvx";
       args = [ "mcp-server-time" ];
     };
 
-    twoSecrets = mcp.mkMcpServer {
+    twoSecrets = mcp.mkStdioServer {
       command = "node";
       args = [ "two-secret-server" ];
       env = {
@@ -40,6 +40,8 @@ let
         B_TOKEN = "undeclared-token";
       };
     };
+
+    remote = mcp.mkHttpServer { url = "https://mcp.example.com/mcp"; };
   };
 
   known = lib.attrNames catalog;
@@ -62,6 +64,7 @@ let
       actual = lib.attrNames available;
       expected = [
         "figma"
+        "remote"
         "secretless"
       ];
     }
@@ -126,6 +129,43 @@ let
           env = { };
         };
       };
+    }
+    {
+      # A remote server authenticates out-of-band, so there is nothing for a
+      # host to declare and nothing to gate on. `secrets` above deliberately
+      # holds no key this entry could match.
+      name = "a remote server is available on a host that declares none of its secrets";
+      actual = available ? remote;
+      expected = true;
+    }
+    {
+      name = "a remote server is written as a url, with no env and no command";
+      actual = mcp.mkMcpStructure (select [ "remote" ]);
+      expected = {
+        remote = {
+          type = "http";
+          url = "https://mcp.example.com/mcp";
+        };
+      };
+    }
+    {
+      name = "a flavor mixing transports gets both";
+      actual = lib.attrNames (select [
+        "figma"
+        "remote"
+      ]);
+      expected = [
+        "figma"
+        "remote"
+      ];
+    }
+    {
+      name = "an unavailable local server is still dropped when a remote one is requested alongside";
+      actual = lib.attrNames (select [
+        "remote"
+        "twoSecrets"
+      ]);
+      expected = [ "remote" ];
     }
   ];
 

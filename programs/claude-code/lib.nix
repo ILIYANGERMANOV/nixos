@@ -187,6 +187,6 @@ let
     );
 in
 {
-  inherit (mcp) mkMcpServer;
+  inherit (mcp) mkStdioServer mkHttpServer;
   inherit mkFlavorBuilder;
 }

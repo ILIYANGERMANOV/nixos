@@ -24,7 +24,8 @@ let
       inherit (agents.skills) mkSkillFarm;
     })
     mkFlavorBuilder
-    mkMcpServer
+    mkStdioServer
+    mkHttpServer
     ;
   statusline = import ./statusline.nix { inherit pkgs theme; };
 
@@ -39,12 +40,16 @@ let
     theme = "auto";
   };
 
-  # Catalog entries name the SECRETS they need, never a path. Which hosts
-  # provide them is decided by modules/secrets.nix; a server whose secret this
-  # host does not declare is dropped before any flavor sees it, and a flavor
-  # naming a server that is not in this catalog at all aborts evaluation.
+  # Local servers name the SECRETS they need, never a path. Which hosts provide
+  # them is decided by modules/secrets.nix; a server whose secret this host does
+  # not declare is dropped before any flavor sees it, and a flavor naming a
+  # server that is not in this catalog at all aborts evaluation.
+  #
+  # Remote servers name no secrets and are therefore available everywhere: they
+  # authenticate out-of-band, once per machine, via `/mcp` inside Claude Code.
+  # A host that should not reach one simply does not run a flavor that lists it.
   mcpCatalog = {
-    figma = mkMcpServer {
+    figma = mkStdioServer {
       command = "npx";
       args = [
         "-y"
@@ -53,6 +58,14 @@ let
       ];
       env.FIGMA_API_KEY = "figma-token";
     };
+
+    # Read-write. Linear also serves /mcp/readonly, but the point of claude-pm
+    # is filing and updating issues, not only reading them.
+    linear = mkHttpServer { url = "https://mcp.linear.app/mcp"; };
+
+    # Coda's docs product, renamed after the Superhuman acquisition. The old
+    # coda.io/apis/mcp endpoint still answers but is documented as deprecated.
+    superhuman-docs = mkHttpServer { url = "https://docs.superhuman.com/apis/mcp"; };
   };
 
   # The agent-agnostic instructions, installed the way Claude Code expects them:
@@ -101,6 +114,22 @@ in
     claude-web-ui = {
       extraSkills = [ "ui-coding" ];
       mcpServers = [ "figma" ];
+      extraSettings.enabledPlugins = {
+        "typescript-lsp@claude-plugins-official" = true;
+        "frontend-design@claude-plugins-official" = true;
+      };
+    };
+
+    # claude-web-ui plus the product-work servers. Spelled out rather than
+    # derived from claude-web-ui: flavors are flat by design, and one shared
+    # `let` binding for a single pair would hide which binary gets what.
+    claude-pm = {
+      extraSkills = [ "ui-coding" ];
+      mcpServers = [
+        "figma"
+        "linear"
+        "superhuman-docs"
+      ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
         "frontend-design@claude-plugins-official" = true;
