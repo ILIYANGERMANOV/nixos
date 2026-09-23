@@ -228,7 +228,7 @@ skill: frontmatter present, `name` matching the installed directory, and a
 **Neovim owns LSP client config. Project dev shells own LSP binaries.**
 
 - `programs/nvim/languages/*.nix` — LSP client config only (`package = null` on all servers except `nil_ls`). No `extraPackages` for language tooling.
-- `modules/home/languages/*.nix` — global LSP binaries and dev tools installed via Home Manager (e.g. `hls`, `fourmolu`, `typescript-language-server`).
+- `modules/home/languages/*.nix` — global LSP binaries and dev tools installed via Home Manager (e.g. `hls`, `fourmolu`, `vtsls`).
 - `nil_ls` is the only LSP with its binary baked into Neovim — Nix files have no project dev shell.
 
 **direnv** (enabled in `modules/home/default.nix` via `programs.direnv.nix-direnv`) auto-activates a project's dev shell on `cd`. Project flakes only need a `.envrc` containing `use flake`. This puts project-pinned LSP binaries (e.g. GHC-matched HLS) on PATH, which Neovim's lspconfig picks up automatically.
@@ -236,6 +236,48 @@ skill: frontmatter present, `name` matching the installed directory, and a
 Project flakes have **no dependency on this nixos repo** — they are standalone.
 
 **Context-aware keymaps** (`programs/nvim/core/context-aware-keymaps.nix`) provide a single `<leader>tt` that dispatches to the right test runner at runtime. The registry (`_G.ContextRunners`) is initialized in `extraConfigLuaPre` (runs before all plugin/language Lua) to avoid ordering issues. Each language file registers its runner via `_G.RegisterContextRunner` in `extraConfigLua`.
+
+## TypeScript: two servers, routed by era
+
+**`vtsls` serves TypeScript <= 6, `tsc --lsp` serves TypeScript 7+, and the
+project decides which one attaches.** Two servers by design - see
+`docs/adr/0006-typescript-7-native-lsp.md`.
+
+TypeScript 7 is the Go port and ships no `lib/tsserver.js`. Anything that forks
+that file (`typescript-tools.nvim`, `typescript-language-server`) cannot serve a
+7.x project at all, which is why both are gone. The era probe is the presence of
+that one file under the root: it tests exactly the capability the two servers
+disagree on, so **never replace it with a version comparison**. A project flips
+era on its own when it upgrades, and nothing per-project is configured.
+
+Both servers share one `root_dir` hook in `programs/nvim/languages/typescript.nix`,
+differing only in the era they answer for. A server declines a root by returning
+without calling `on_dir` - that is what keeps two servers from claiming one root
+and doubling every diagnostic and completion.
+
+- `tsc` is declared in full: lspconfig 2.9.0 ships `lsp/vtsls.lua` but no
+  `lsp/tsc.lua`. `vtsls` inherits upstream's `cmd`, `filetypes` and root markers
+  and overrides only `root_dir`, `settings` and `on_attach`.
+- These two use `lsp.servers`, not `plugins.lsp.servers`, because the latter
+  only has options for names lspconfig defines. They are the same thing
+  underneath, so `biome`, `html` and `cssls` stay on the older API.
+- `vtsls` vendors its own TypeScript (5.9.3), so `vtsls.autoUseWorkspaceTsdk`
+  makes it load the project's copy. Without it a TS 6 project is checked as
+  5.9.3. An explicit `typescript.tsdk` alongside it was verified redundant.
+  Confirm with `typescript.tsserverRequest` `status` against a project whose
+  TypeScript is **not** 5.9.3 - `client.settings` does not show it.
+- Both have `documentFormattingProvider` stripped in `on_attach`. **biome owns
+  formatting** for every filetype they claim, through conform-nvim.
+- On 7.x roots there are **no `refactor` code actions** - upstream advertises
+  none yet - and `source.organizeImports` is the only kind both eras share, so
+  that is what `<leader>oi` sends.
+
+`nix flake check` runs `checks.nvim-typescript` (`programs/nvim/check.nix`),
+which builds the real editor and asserts the routing against fixture roots. It
+starts no server. Two traps if you edit it: `vim.fs.root` returns `nil` for any
+buffer whose `buftype` is not `""`, and a Lua error under `-c luafile` leaves
+Neovim's exit code at `0`. Both make a broken config look clean, which is why
+the assertions write a sentinel file the builder checks for.
 
 ## Neovim Search
 
