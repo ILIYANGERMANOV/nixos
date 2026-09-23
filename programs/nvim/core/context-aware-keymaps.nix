@@ -12,7 +12,7 @@ _:
       mode = "n";
       key = "<leader>oi";
       action = "<cmd>lua _G.SmartRun('organize-imports')<CR>";
-      options.desc = "Clean Unused Imports (context-aware)";
+      options.desc = "Organize Imports (context-aware)";
     }
   ];
 

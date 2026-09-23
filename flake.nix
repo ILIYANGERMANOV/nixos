@@ -66,7 +66,8 @@
 
       # `nix flake check` (run by `just check` in CI) validates every installed
       # SKILL.md - frontmatter present, name matches the directory, description
-      # within the Agent Skills limit - and the Claude Code MCP catalog logic.
+      # within the Agent Skills limit - the Claude Code MCP catalog logic, and
+      # the Neovim TypeScript server routing.
       checks = lib.forAllSystems (pkgs: {
         agents =
           (import ./lib/agents.nix {
@@ -77,6 +78,14 @@
         # The MCP catalog logic - availability, secret resolution, and the
         # ~/.claude.json structure - against a synthetic catalog and secrets.
         claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
+
+        # Which TypeScript language server claims a project root - vtsls for
+        # the tsserver era, `tsc --lsp` for TypeScript 7 - against fixture
+        # roots in a real headless Neovim.
+        nvim-typescript = import ./programs/nvim/check.nix {
+          inherit pkgs inputs;
+          root = self;
+        };
 
         # Spell check. Pinned to the locked nixpkgs deliberately: typos' dictionary
         # is its product and grows with every release, so a floating version could
