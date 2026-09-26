@@ -156,11 +156,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1788211360,
-        "narHash": "sha256-8wrp7NLYPRaZ9hL7QiqSDQFRme/1UrVwoEDs278aOUA=",
+        "lastModified": 1790174696,
+        "narHash": "sha256-7/p1QeUBKNt/sgqpjUl59jP+sF9l7q1DvW4/sEzAnIs=",
         "owner": "ogulcancelik",
         "repo": "herdr",
-        "rev": "5158adab10b6dcfea9370782043392f80fa0643c",
+        "rev": "c958833fa81333bf07a255f7d1325e6892daca1e",
         "type": "github"
       },
       "original": {
@@ -239,11 +239,11 @@
     "mattpocock-skills": {
       "flake": false,
       "locked": {
-        "lastModified": 1787581197,
-        "narHash": "sha256-N5tpUIHO2VFeJntBTl6/VLDIVpqoshwFxNJlfXXUwsQ=",
+        "lastModified": 1789726349,
+        "narHash": "sha256-L3CpIT2DeI+fUFl9fcygojtQo2DzEen69rMD1XqR1vM=",
         "owner": "mattpocock",
         "repo": "skills",
-        "rev": "6654f6b60cd9d5be8b54c6fafe44346dabeb3b76",
+        "rev": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
         "type": "github"
       },
       "original": {
