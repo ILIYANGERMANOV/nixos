@@ -37,7 +37,7 @@ updates:
       # The glob means a new skill source is picked up without editing this.
       ai:
         patterns:
-          - "llm-agents"
+          - "*llm-agents*"
           - "herdr"
           - "*skills*"
       # Anything not classified above, so nothing is ever left un-updated. It
@@ -54,7 +54,7 @@ updates:
           - "nix-darwin"
           - "sops-nix"
           - "disko"
-          - "llm-agents"
+          - "*llm-agents*"
           - "herdr"
           - "*skills*"
 
