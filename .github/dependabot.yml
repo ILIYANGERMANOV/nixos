@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: "weekly"
       day: "friday"
+    # Disable the commit cooldown window so llm-agents can update
+    cooldown:
+      default-days: 0
+      semver-major-days: 0
+      semver-minor-days: 0
+      semver-patch-days: 0 
     ignore:
       - dependency-name: "lanzaboote"
     # Three groups, not one. A nixpkgs rev whose darwin closure is not cached
@@ -37,7 +43,7 @@ updates:
       # The glob means a new skill source is picked up without editing this.
       ai:
         patterns:
-          - "*llm-agents*"
+          - "llm-agents"
           - "herdr"
           - "*skills*"
       # Anything not classified above, so nothing is ever left un-updated. It
@@ -54,7 +60,7 @@ updates:
           - "nix-darwin"
           - "sops-nix"
           - "disko"
-          - "*llm-agents*"
+          - "llm-agents"
           - "herdr"
           - "*skills*"
 
