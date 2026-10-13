@@ -121,6 +121,17 @@ in
         };
       };
 
+      # Theme the snacks picker (<leader>fd and the rest of ../search/grep.nix).
+      # catppuccin ships an integration for it but defaults it to `enabled =
+      # false` (catppuccin/init.lua:116), so it has to be asked for. Worth
+      # asking for: it is exactly the work ../search/file.nix has to do by
+      # hand for fff, which catppuccin has no integration for at all - fff
+      # hardcodes dark-tuned hexes that wash out on latte.
+      #
+      # Harmless under the tokyonight branch below: nothing is emitted for a
+      # colorscheme that is not enabled.
+      colorschemes.catppuccin.settings.integrations.snacks.enabled = true;
+
       keymaps = [
         {
           mode = "n";
@@ -214,7 +225,14 @@ in
           return vim.fn.system("gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null"):find("dark") ~= nil
         end
         local _dark = _is_dark_mode()
-        require("catppuccin").setup({ flavour = _dark and "mocha" or "latte" })
+        -- catppuccin's setup() REPLACES its options rather than merging into
+        -- them (`M.options = vim.tbl_deep_extend("keep", user_conf,
+        -- M.default_options)`), so this call discards everything nixvim wrote
+        -- through `settings` and anything still wanted has to be repeated.
+        require("catppuccin").setup({
+          flavour = _dark and "mocha" or "latte",
+          integrations = { snacks = { enabled = true } },
+        })
         vim.cmd("colorscheme catppuccin")
         -- Match notify background to the resolved theme so it looks correct on light
         require("notify").setup({ background_colour = _dark and "#1e1e2e" or "#eff1f5" })
