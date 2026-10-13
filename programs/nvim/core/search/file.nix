@@ -29,7 +29,7 @@ in
   # fff owns <leader>ff and nothing else. It is a file-search specialist: no
   # `vim.ui.select` provider and no "show git-ignored files" mode, so telescope
   # keeps <leader>fa and every non-file picker.
-  # See docs/adr/0003-fff-owns-file-search.md.
+  # See docs/adr/0003-picker-engines.md.
   #
   # Almost every property we want is a fff default, so `settings` stays as
   # small as possible: cwd-scoped indexing, hidden-but-not-ignored files (it
