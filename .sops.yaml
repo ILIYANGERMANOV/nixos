@@ -1,4 +1,13 @@
 creation_rules:
+  # software-factory has an age key of its own, so a compromise of that server
+  # reveals its own secrets and nothing else. sops uses the first rule that
+  # matches, so this one must stay above the catch-all. The factory key is
+  # added by `just factory-generate-age-key`, which replaces the marker line.
+  - path_regex: secrets/hosts/software-factory\.yaml$
+    key_groups:
+      - age:
+          - age1fz8wfwqx8s6ucnsn7l0a32yp6avnaqy6vz8j4xy8ye9udgyy6urq09lfxt
+          # software-factory-age-key: not generated yet
   - path_regex: secrets/.*\.yaml$
     key_groups:
       - age:

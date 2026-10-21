@@ -137,6 +137,26 @@ in
     };
   };
 
+  # The software-factory server's flavor, kept out of `packages` so no other host
+  # installs it. Its settings are only what a flavor may own: policy that must
+  # not be editable by the agents themselves lives in the server's managed
+  # settings (programs/software-factory).
+  #
+  # `unwrapped` is the binary the wrapper execs. The factory launches the wrapper
+  # once under a lock to apply its files, then starts every Remote Control
+  # server from this binary, so concurrent starts cannot race on ~/.claude.
+  factory = {
+    wrapper = builtins.head (mkClaudeFlavors {
+      claude-factory = {
+        extraInstructions = [ ../software-factory/instructions.md ];
+        extraSettings.enabledPlugins = {
+          "typescript-lsp@claude-plugins-official" = true;
+        };
+      };
+    });
+    unwrapped = claude-code;
+  };
+
   # Writes the base settings and instructions on every rebuild so both files
   # exist before the first `claude` invocation. Each wrapper then overwrites
   # them at launch time.

@@ -1,0 +1,31 @@
+# Home Manager profile of the software factory's agent account. It reuses the
+# editor and language tooling every host has, and replaces what is tied to a
+# person at a keyboard: git and SSH use the bot account's plain key instead of
+# a YubiKey, and Claude Code runs as Remote Control servers instead of a CLI.
+{ pkgs, userConfig, ... }:
+{
+  imports = [
+    ../nvim.nix
+    ../typos.nix
+    ../direnv.nix
+    ../languages/typescript.nix
+    ../languages/haskell.nix
+    ../languages/nix.nix
+    ./git.nix
+    ./ssh.nix
+    ./claude-factory.nix
+  ];
+
+  home = {
+    username = userConfig.name;
+    homeDirectory = "/home/${userConfig.name}";
+    stateVersion = "26.05";
+    packages = with pkgs; [
+      wget
+      curl
+      htop
+      jq
+      just
+    ];
+  };
+}

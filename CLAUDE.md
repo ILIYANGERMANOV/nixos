@@ -9,7 +9,7 @@ flake.nix       — outputs: devShells, nixosConfigurations, darwinConfiguration
 lib/            — system builder helpers (NixOS, Darwin, dev shells)
 hosts/          — per-host identity (hostname, user)
 modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix, secrets.nix)
-modules/nixos/  — NixOS-only system configuration
+modules/nixos/  — NixOS-only system configuration (server/ - software-factory only)
 modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
@@ -222,6 +222,30 @@ skill: frontmatter present, `name` matching the installed directory, and a
   `baseSkills` or a flavor's `extraSkills`.
 - **Custom**: create `programs/agents/skills/custom/<name>/SKILL.md`, add `<name>` to
   `custom`, then add it to `baseSkills` or a flavor's `extraSkills`.
+
+## Software factory
+
+**`software-factory` is a headless server whose agents are driven from a phone
+via Claude Code Remote Control. Its configuration must never change another
+host.** See `docs/adr/0007-software-factory.md` (design, trust boundaries,
+accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
+
+- `lib.mkNixosServer` imports `modules/nixos/server/` and no desktop module;
+  nothing else imports that directory. The agent account's Home Manager profile
+  is `modules/home/factory/`, its own import list - `modules/home/default.nix`
+  is untouched by it.
+- `programs/software-factory/` holds the logic: managed settings (billing and
+  permission policy), the `factory-rc` / `factory-add` / `factory-start-all`
+  scripts and the egress nftables rules. `checks.software-factory` tests them.
+- The `claude-factory` flavor is `factory` in `programs/claude-code`, deliberately
+  outside `packages` so no other host installs it.
+- The server has its own sops age key; `secrets/common.yaml` is not encrypted
+  to it.
+- **This repository is public.** Never commit IP addresses, tailnet names,
+  private repository names or anything that maps the server's attack surface
+  beyond what the Nix config itself states. Private repositories are added on
+  the box with `factory-add`.
+- Recipes are in `just/software-factory.just`.
 
 ## Neovim + LSP Architecture
 

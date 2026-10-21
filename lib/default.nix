@@ -30,6 +30,27 @@ let
       ];
     };
 
+  # A headless NixOS server: no desktop, audio, disk encryption or Secure Boot,
+  # which all assume a machine you sit in front of. What a server needs instead
+  # lives in modules/nixos/server, which no other builder imports.
+  mkNixosServer =
+    hostname: system:
+    inputs.nixpkgs.lib.nixosSystem {
+      inherit system;
+      specialArgs = { inherit inputs root; };
+      modules = [
+        inputs.disko.nixosModules.disko
+        inputs.sops-nix.nixosModules.sops
+        inputs.home-manager.nixosModules.home-manager
+        "${root}/modules/theme.nix"
+        "${root}/modules/nix.nix"
+        "${root}/modules/home-manager.nix"
+        "${root}/modules/secrets.nix"
+        "${root}/modules/nixos/server"
+        "${root}/hosts/${hostname}/configuration.nix"
+      ];
+    };
+
   mkDarwinSystem =
     hostname: system:
     {
@@ -65,5 +86,10 @@ let
     );
 in
 {
-  inherit mkNixosSystem mkDarwinSystem forAllSystems;
+  inherit
+    mkNixosSystem
+    mkNixosServer
+    mkDarwinSystem
+    forAllSystems
+    ;
 }

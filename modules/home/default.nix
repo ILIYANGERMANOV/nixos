@@ -8,6 +8,7 @@
     ./git.nix
     ./ssh.nix
     ./typos.nix
+    ./direnv.nix
     ./blockchain.nix
     ./languages/typescript.nix
     ./languages/haskell.nix
@@ -31,13 +32,4 @@
       sops # edit secrets/ (just edit-secrets)
     ];
   };
-
-  programs.direnv = {
-    enable = true;
-    nix-direnv.enable = true;
-    package = pkgs.direnv.overrideAttrs (_: {
-      doCheck = false;
-    });
-  };
-
 }

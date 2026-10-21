@@ -1,4 +1,6 @@
 _: {
+  imports = [ ./tailscale.nix ];
+
   networking.hostName = "macos-main";
 
   myConfig.user = {
