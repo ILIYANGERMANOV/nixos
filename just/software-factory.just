@@ -4,7 +4,7 @@
 #
 # Hosts are reached by their MagicDNS name, so these need Tailscale up on this
 # Mac (`just macos-main-tailscale-up`), except factory-install, which talks to
-# the Hetzner rescue system over the internet.
+# the fresh server's public address over the internet.
 #
 # Parameters are declared as `$name`: just passes them as environment variables
 # instead of splicing them into the script text, so a hostile argument is inert.
@@ -122,12 +122,13 @@ factory-restore-age-key:
 
 # ─── Install and deploy ──────────────────────────────────────────────────────
 
-# Installs NixOS over the Hetzner rescue system with nixos-anywhere. The age key
+# Replaces whatever runs on a fresh Hetzner server (the stock Ubuntu image, or
+# the rescue system) with NixOS, using nixos-anywhere over root SSH. The age key
 # is pasted from Bitwarden into a private temp directory that nixos-anywhere
 # copies to the new root, and the directory is removed on exit. The system is
 # built on the server: this Mac cannot build x86_64-linux.
 #
-# Install NixOS on a fresh Hetzner server booted into rescue mode
+# Install NixOS on a fresh Hetzner server (wipes its disk)
 factory-install $ip:
     #!/usr/bin/env bash
     set -euo pipefail
