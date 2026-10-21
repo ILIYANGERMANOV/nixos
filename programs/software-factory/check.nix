@@ -148,6 +148,8 @@ pkgs.runCommand "software-factory-check"
       || fail "repo was not trusted"
     [ "$(jq '.projects["/elsewhere"].hasTrustDialogAccepted' "$HOME/.claude.json")" = true ] \
       || fail "trusting one repo lost another's trust"
+    [ "$(jq '.remoteDialogSeen' "$HOME/.claude.json")" = true ] \
+      || fail "Remote Control would wait on its first-run prompt"
 
     echo "factory-rc: refuses a directory that is not a clone"
     reset

@@ -103,12 +103,14 @@ let
         }
 
         # Remote Control refuses an untrusted directory when nobody is at a
-        # terminal to confirm it. This is the record the confirmation writes.
+        # terminal to confirm it, and on its first run it waits on stdin for
+        # "Enable Remote Control? (y/n)" - forever, under systemd, while the
+        # unit reports active. These are the records the two answers write.
         trust() {
           local config="$HOME/.claude.json" tmp
           [ -f "$config" ] || echo '{}' >"$config"
           tmp=$(mktemp "$config.XXXXXX")
-          jq --arg dir "$1" '.projects[$dir].hasTrustDialogAccepted = true' "$config" >"$tmp"
+          jq --arg dir "$1" '.projects[$dir].hasTrustDialogAccepted = true | .remoteDialogSeen = true' "$config" >"$tmp"
           mv "$tmp" "$config"
         }
 
