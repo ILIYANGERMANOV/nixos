@@ -7,7 +7,6 @@
   imports = [
     ../nvim.nix
     ../typos.nix
-    ../direnv.nix
     ../languages/typescript.nix
     ../languages/haskell.nix
     ../languages/nix.nix
@@ -20,12 +19,27 @@
     username = userConfig.name;
     homeDirectory = "/home/${userConfig.name}";
     stateVersion = "26.05";
+    # What agents reach for outside a project's dev shell: scripting, search,
+    # archives and inspecting files and processes.
     packages = with pkgs; [
       wget
       curl
       htop
       jq
       just
+      python3
+      ripgrep
+      fd
+      tree
+      file
+      unzip
+      zip
+      gnumake
+      sqlite
+      yq-go
+      xxd
+      bc
+      lsof
     ];
   };
 }

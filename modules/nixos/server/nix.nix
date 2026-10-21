@@ -25,6 +25,20 @@
       # already pass as --option, and the daemon still ignores any substituter
       # a flake names that is not already trusted here.
       accept-flake-config = true;
+
+      # Caches the agent account may use when a flake asks for them. Unlike
+      # extra-substituters they are queried only by builds whose flake names
+      # them, so every other build is spared the lookups. The keys must be
+      # trusted here too: a flake's own extra-trusted-public-keys is ignored for
+      # an untrusted user.
+      trusted-substituters = [
+        "https://nix-community.cachix.org"
+        "https://cache.iog.io"
+      ];
+      extra-trusted-public-keys = [
+        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+        "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
+      ];
     };
 
     gc = {

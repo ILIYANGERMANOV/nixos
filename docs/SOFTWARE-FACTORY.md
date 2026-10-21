@@ -119,7 +119,8 @@ defines.
      **Tokens (classic)** > **Generate new token (classic)**;
    - note `software-factory`, expiration of your choice (you redo step 9 when
      it expires);
-   - scope: **`repo`** only;
+   - scopes: **`repo`**, **`workflow`** and **`read:org`** (`gh pr edit`
+     needs `read:org`);
    - copy the token (`ghp_...`) somewhere temporary for step 9.
 
 The bot's SSH key does not exist yet. It is created on the server in step 14.
