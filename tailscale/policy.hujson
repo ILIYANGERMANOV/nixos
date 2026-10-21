@@ -20,11 +20,14 @@
       "ip":  ["*"],
     },
     {
+      // 22: Tailscale SSH. The grant only lets the connection through; which
+      // user it may log in as is decided by "ssh" below. Without it the
+      // connection is dropped before the "ssh" rules are consulted.
       // 2222: OpenSSH for admin (deploys). 3000-3099: dev servers the agents
-      // start. Port 22 is Tailscale SSH, governed by "ssh" below.
+      // start.
       "src": ["autogroup:member"],
       "dst": ["tag:factory"],
-      "ip":  ["tcp:2222", "tcp:3000-3099"],
+      "ip":  ["tcp:22", "tcp:2222", "tcp:3000-3099"],
     },
   ],
 
