@@ -175,21 +175,32 @@ factory-deploy:
 # visible to that account. The script travels on stdin, so nothing on the
 # server has to be deployed for it to change.
 #
-# Show software-factory's RAM and disk use, Remote Control servers and sessions
-factory-status:
+# Show software-factory's RAM, disk and Remote Control sessions (`detailed` adds branches, errors, top processes)
+factory-status $mode="concise":
     #!/usr/bin/env bash
     set -euo pipefail
+    case "$mode" in
+        concise | detailed) ;;
+        *) echo "ERROR: expected 'concise' or 'detailed', got '$mode'" >&2; exit 1 ;;
+    esac
+
     # The remote side runs without -e or pipefail, so one failing section
-    # still leaves the others printed.
-    ssh -o ConnectTimeout=10 factory@software-factory 'bash -s' <<'EOF' || {
+    # still leaves the others printed. $mode is one of two fixed words by
+    # now, so it is safe in the remote command line.
+    ssh -o ConnectTimeout=10 factory@software-factory "bash -s -- $mode" <<'EOF' || {
     set -u
 
     main() {
       usage
-      section "Remote Control";  remote_control
-      section "Recent branches"; branches
-      section "Problems";        problems
-      section "Top memory";      top_memory
+      section "Remote Control"; remote_control
+      case "$1" in
+        concise) ;;
+        detailed)
+          section "Recent branches"; branches
+          section "Problems";        problems
+          section "Top memory";      top_memory
+          ;;
+      esac
     }
 
     section() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
@@ -249,7 +260,7 @@ factory-status:
       ps -eo rss=,args= --sort=-rss | head -n 8 | awk '{ printf "%7.0fM  %s\n", $1 / 1024, substr($0, index($0, $2), 100) }'
     }
 
-    main
+    main "$1"
     EOF
         status=$?
         [ "$status" -ne 255 ] || echo "ERROR: could not reach software-factory. Is Tailscale up? (just macos-main-tailscale-up)" >&2

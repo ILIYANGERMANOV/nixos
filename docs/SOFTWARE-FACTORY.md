@@ -343,9 +343,10 @@ sentence to the README and open a PR". You should get:
 - **Preview an app [phone or mac]:** agents bind dev servers to ports
   3000-3099 and tell you which one. Open `http://software-factory:<port>`, on
   the Mac with Tailscale up.
-- **Status [mac]:** `just factory-status` prints RAM and disk used, each
-  repository's server and open sessions, recent branches and the last hour's
-  errors. Needs Tailscale up, nothing else.
+- **Status [mac]:** `just factory-status` prints RAM and disk used and each
+  repository's server with its open sessions. `just factory-status detailed`
+  adds recent branches, the last hour's errors and the processes using the
+  most memory. Needs Tailscale up, nothing else.
 - **Status [factory]:**
   - `systemctl --user list-units 'claude-rc@*'`;
   - `journalctl --user -u claude-rc@<repo> -e` for one repository's log.
