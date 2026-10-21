@@ -20,13 +20,13 @@ x86_64-linux closure at a darwin channel head has no guarantee of being in
       `nix build --dry-run .#nixosConfigurations.lenovo-old.config.system.build.toplevel`
       and read the "will be built" list. `--dry-run` only queries substituters,
       so this needs no Linux builder and can run from macOS.
+      `software-factory` (x86_64-linux, headless) was measured with
+      `just factory-cache-check` on the 2026-09-26 pin: the only expensive
+      local build was `nodejs-24.21.0`, from `languages/typescript.nix`.
 - [ ] If the list is small and cheap, close this out and record the number here.
-- [ ] If it is not, add a `nixos-cache-check` recipe next to
-      `just/nix-darwin/cache-check.just`, reusing
-      `just/nix-darwin/expensive-builds.deny`. The denylist is
-      platform-agnostic; only the flake attribute differs. Note that the two
-      recipes would then duplicate the extraction pipeline, so factor it out
-      rather than copying it.
+- [x] The guard is factored out as the private `_cache-check` recipe in
+      `just/nix-darwin/cache-check.just`; `factory-cache-check` uses it. A
+      `nixos-cache-check` for `lenovo-old` is one more line.
 - [ ] Only if the misses are genuinely expensive: split the input. Add
       `nixpkgs-linux.url = "github:NixOS/nixpkgs/nixos-26.05"`, have
       `mkNixosSystem` pass it as `nixpkgs.pkgs`, and repoint the `follows` of

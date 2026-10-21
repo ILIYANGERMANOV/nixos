@@ -8,19 +8,9 @@ let
   cfg = config.myConfig.user;
 in
 {
+  imports = [ "${root}/modules/user-options.nix" ];
+
   options.myConfig.user = {
-    name = lib.mkOption {
-      type = lib.types.str;
-      description = "Primary user's login name";
-    };
-    fullName = lib.mkOption {
-      type = lib.types.str;
-      description = "Primary user's full name";
-    };
-    email = lib.mkOption {
-      type = lib.types.str;
-      description = "Primary user's email address";
-    };
     extraGroups = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [

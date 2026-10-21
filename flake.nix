@@ -88,6 +88,11 @@
           # ~/.claude.json structure - against a synthetic catalog and secrets.
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
+          # The software factory's Claude policy (billing and permission mode),
+          # its repo scripts against a real git, and on Linux its egress rules
+          # through `nft --check`.
+          software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
+
           # Which TypeScript language server claims a project root - vtsls for
           # the tsserver era, `tsc --lsp` for TypeScript 7 - against fixture
           # roots in a real headless Neovim.
@@ -114,6 +119,7 @@
 
       nixosConfigurations = {
         lenovo-old = lib.mkNixosSystem "lenovo-old" "x86_64-linux" { };
+        software-factory = lib.mkNixosServer "software-factory" "x86_64-linux";
         # next-host = lib.mkNixosSystem "next-host" "x86_64-linux" { };
       };
 

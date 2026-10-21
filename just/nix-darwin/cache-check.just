@@ -3,8 +3,19 @@
 # build locally. Run it before pulling a bump; CI runs it on every PR.
 # See docs/adr/0004-darwin-tracks-the-darwin-channel.md for why this exists.
 
+# macos-main and macos-work share every module and differ only in hostname,
+# user and nix.enable, so one host covers both. Evaluating an aarch64-darwin
+# closure needs no darwin builder: --dry-run only queries substituters, so
+# this runs on the Linux CI runner.
+#
 # Fail if rebuilding macos-main would build anything on the expensive-builds denylist.
-darwin-cache-check:
+darwin-cache-check: (_cache-check "darwin-cache-check" ".#darwinConfigurations.macos-main.system")
+
+# The guard itself, for any host: `$label` names the calling recipe in its
+# output, `$installable` is the system to plan. software-factory reuses it -
+# the denylist is platform-agnostic, only the flake attribute differs.
+[private]
+_cache-check $label $installable:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -20,15 +31,12 @@ darwin-cache-check:
         offenders="$(derivations_to_build <<<"$plan" | grep -E "$denylist" || true)"
         [ -z "$offenders" ] || reject "$offenders"
 
-        echo "darwin-cache-check: nothing on the denylist would be built."
+        echo "$label: nothing on the denylist would be built."
     }
 
-    # macos-main and macos-work share every module and differ only in hostname,
-    # user and nix.enable, so one host covers both. Evaluating an aarch64-darwin
-    # closure needs no darwin builder: --dry-run only queries substituters, so
-    # this runs on the Linux CI runner. nix prints the plan to stderr.
+    # nix prints the plan to stderr.
     build_plan() {
-        nix build --dry-run .#darwinConfigurations.macos-main.system 2>&1
+        nix build --dry-run "$installable" 2>&1
     }
 
     # A cold store makes "will be built" mean "substitutable nowhere", which is
@@ -78,19 +86,19 @@ darwin-cache-check:
     }
 
     refuse_to_vouch() {
-        echo "darwin-cache-check: self-test failed - $1." >&2
+        echo "$label: self-test failed - $1." >&2
         echo "The guard cannot be trusted in this state; fix it before relying on a pass." >&2
         exit 1
     }
 
     reject() {
         echo "" >&2
-        echo "darwin-cache-check: these are on the denylist and would be built locally:" >&2
+        echo "$label: these are on the denylist and would be built locally:" >&2
         printf '%s\n' "$1" | sed 's/^/  /' >&2
         echo "" >&2
         echo "That is hours of rebuild, not minutes. Do not merge this bump - wait for a" >&2
-        echo "nixpkgs rev whose darwin closure is in the cache, or add a substituter that" >&2
-        echo "has it. See docs/adr/0004-darwin-tracks-the-darwin-channel.md." >&2
+        echo "nixpkgs rev whose closure for this host is in the cache, or add a substituter" >&2
+        echo "that has it. See docs/adr/0004-darwin-tracks-the-darwin-channel.md." >&2
         exit 1
     }
 

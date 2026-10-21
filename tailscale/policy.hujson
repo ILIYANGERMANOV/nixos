@@ -1,0 +1,51 @@
+// The whole tailnet policy - `just tailscale-apply` REPLACES the policy in the
+// admin console with this file. Tags and autogroups only: this repository is
+// public, so no email addresses, device names or tailnet names.
+//
+// Default deny. What is granted:
+//   - your own devices reach each other, as before;
+//   - your own devices reach software-factory on the admin SSH port and the
+//     app-preview ports;
+//   - nothing FROM tag:factory. A compromised agent cannot open a connection to
+//     any other device on the tailnet.
+{
+  "tagOwners": {
+    "tag:factory": ["autogroup:admin"],
+  },
+
+  "grants": [
+    {
+      "src": ["autogroup:member"],
+      "dst": ["autogroup:member"],
+      "ip":  ["*"],
+    },
+    {
+      // 22: Tailscale SSH. The grant only lets the connection through; which
+      // user it may log in as is decided by "ssh" below. Without it the
+      // connection is dropped before the "ssh" rules are consulted.
+      // 2222: OpenSSH for admin (deploys). 3000-3099: dev servers the agents
+      // start.
+      "src": ["autogroup:member"],
+      "dst": ["tag:factory"],
+      "ip":  ["tcp:22", "tcp:2222", "tcp:3000-3099"],
+    },
+  ],
+
+  "ssh": [
+    {
+      // Your devices, as before: re-authenticate periodically.
+      "action": "check",
+      "src":    ["autogroup:member"],
+      "dst":    ["autogroup:self"],
+      "users":  ["autogroup:nonroot", "root"],
+    },
+    {
+      // The agent account on software-factory, from any of your devices. Never
+      // admin and never root: those need the hardware key over OpenSSH.
+      "action": "accept",
+      "src":    ["autogroup:member"],
+      "dst":    ["tag:factory"],
+      "users":  ["factory"],
+    },
+  ],
+}
