@@ -214,17 +214,20 @@ pkgs.runCommand "software-factory-check"
     echo "factory-pin-shells: rejects names unsafe as a directory"
     if factory-pin-shells ../app >/dev/null 2>&1; then fail "factory-pin-shells accepted '../app'"; fi
 
-    echo "factory-add / factory-start-all: pin shells, and a failed pin fails neither"
+    echo "factory-add: pins an existing clone's shells, and a failed pin does not fail it"
     reset
     with_flake app
-    SHELLS='["broken"]' factory-add "file://$work/origin.git" app >/dev/null 2>&1 \
+    SHELLS='["broken","ci"]' factory-add "file://$work/origin.git" app >/dev/null 2>&1 \
       || fail "factory-add failed on a shell that did not pin"
     called "systemctl --user start claude-rc@app.service"
+    [ -e "$HOME/.gcroots/app/ci" ] || fail "factory-add did not pin app"
+
+    echo "factory-start-all: starts every clone and pins nothing, so the boot unit stays fast"
     reset
     with_flake app
-    SHELLS='["broken","ci"]' ${lib.getExe startNone} >/dev/null 2>&1 || fail "factory-start-all failed on a shell that did not pin"
+    ${lib.getExe startNone} >/dev/null 2>&1 || fail "factory-start-all failed with nothing declared"
     called "systemctl --user start claude-rc@app.service"
-    [ -e "$HOME/.gcroots/app/ci" ] || fail "factory-start-all did not pin app"
+    ! grep -q "^nix " "$CALLS" || fail "factory-start-all evaluated a flake"
 
     ${nftCheck}
 

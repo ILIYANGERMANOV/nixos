@@ -341,7 +341,8 @@ sentence to the README and open a PR". You should get:
   - The new server appears in the app within seconds.
   - It then builds every dev shell of the repository's flake and keeps it in
     `~/.gcroots/<repo>`, so garbage collection never deletes a shell an agent
-    is about to need. Every boot rebuilds them from the clone as checked out.
+    is about to need. Pins survive reboots; run `factory-add` again to re-pin
+    after the repository's flake changes.
   - **Private repositories are only ever added this way, never in Nix.** This
     repository is public.
 - **Preview an app [phone or mac]:** agents bind dev servers to ports
