@@ -22,7 +22,7 @@
     # Public repositories only - private ones are added on the box with
     # factory-add and never named here.
     factory.repos = {
-      nixos = "git@github.com:ILIYANGERMANOV/my-nixvim.git";
+      nixos = "git@github.com:ILIYANGERMANOV/nixos.git";
       deslop = "git@github.com:Ivy-Apps/deslop.git";
       haskell-template = "git@github.com:Ivy-Apps/haskell-template.git";
     };

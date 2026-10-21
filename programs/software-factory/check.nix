@@ -63,7 +63,10 @@ let
     ${factory.mkEgressRules 1000}
     }
     EOF
-    LD_PRELOAD="${pkgs.lklWithFirewall.lib}/lib/liblkl-hijack.so" \
+    # The same invocation NixOS uses for networking.nftables.checkRuleset:
+    # an in-process kernel (lkl), with /etc lookups redirected into the store.
+    export NIX_REDIRECTS=/etc/protocols=${pkgs.iana-etc}/etc/protocols:/etc/services=${pkgs.iana-etc}/etc/services
+    LD_PRELOAD="${pkgs.libredirect}/lib/libredirect.so ${pkgs.lklWithFirewall.lib}/lib/liblkl-hijack.so" \
       ${pkgs.nftables}/bin/nft --check --file ruleset.conf
   '';
 in
