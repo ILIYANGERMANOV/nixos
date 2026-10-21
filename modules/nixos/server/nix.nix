@@ -1,8 +1,6 @@
 # Nix for a machine that runs untrusted builds on behalf of agents.
+# Build parallelism and disk headroom are sized in resources.nix.
 { config, lib, ... }:
-let
-  gib = n: n * 1024 * 1024 * 1024;
-in
 {
   nix = {
     settings = {
@@ -20,15 +18,6 @@ in
         config.myConfig.user.name
       ];
       trusted-users = [ "root" ];
-
-      # Two builds at a time, four cores each: a CX43 has 8 shared vCPUs and the
-      # agents themselves need some.
-      max-jobs = 2;
-      cores = 4;
-
-      # Collect garbage during builds before the disk fills up.
-      min-free = gib 10;
-      max-free = gib 30;
     };
 
     gc = {

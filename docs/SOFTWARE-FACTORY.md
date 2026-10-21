@@ -200,7 +200,10 @@ console.hetzner.com, in the `software-factory` project from step 1.
 3. **Servers** > **Add server**:
    - Location: Falkenstein or Nuremberg.
    - Image: **Ubuntu 24.04**. It is wiped by the install.
-   - Type: **Shared vCPU** > **x86** > **CX43**.
+   - Type: **Shared vCPU** > **x86** > **CX43**. A smaller x86 machine also
+     works: set `myConfig.factory.size` in
+     `hosts/software-factory/configuration.nix` to match it before step 11 -
+     `small` for 2 vCPU / 4 GB (e.g. CPX22), `standard` for 8 vCPU / 16 GB.
    - Networking: **Public IPv4 on**. GitHub has no IPv6, so it is required.
      IPv6 is optional.
    - SSH keys: the key you added above.
