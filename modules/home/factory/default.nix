@@ -7,7 +7,6 @@
   imports = [
     ../nvim.nix
     ../typos.nix
-    ../direnv.nix
     ../languages/typescript.nix
     ../languages/haskell.nix
     ../languages/nix.nix

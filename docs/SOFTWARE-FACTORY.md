@@ -119,7 +119,8 @@ defines.
      **Tokens (classic)** > **Generate new token (classic)**;
    - note `software-factory`, expiration of your choice (you redo step 9 when
      it expires);
-   - scope: **`repo`** only;
+   - scopes: **`repo`**, **`workflow`** and **`read:org`** (`gh pr edit`
+     needs `read:org`);
    - copy the token (`ghp_...`) somewhere temporary for step 9.
 
 The bot's SSH key does not exist yet. It is created on the server in step 14.
@@ -338,6 +339,9 @@ sentence to the README and open a PR". You should get:
   ```
   - Invite the bot to that repository first (step 6.2).
   - The new server appears in the app within seconds.
+  - It then builds every dev shell of the repository's flake and keeps it in
+    `~/.gcroots/<repo>`, so garbage collection never deletes a shell an agent
+    is about to need. Every boot rebuilds them from the clone as checked out.
   - **Private repositories are only ever added this way, never in Nix.** This
     repository is public.
 - **Preview an app [phone or mac]:** agents bind dev servers to ports
@@ -354,6 +358,8 @@ sentence to the README and open a PR". You should get:
   - `systemctl --user stop claude-rc@<repo>`;
   - to drop it for good, also `rm -rf ~/repos/<repo>`. Otherwise it starts
     again at the next boot.
+  - `rm -rf ~/.gcroots/<repo>` frees its pinned dev shells at the next
+    garbage collection.
 
 ## Part 4 - Changing the server (deploy) **[mac]**
 

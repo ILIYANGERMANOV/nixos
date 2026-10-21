@@ -118,11 +118,14 @@ let
       '';
     };
 
-  # Clones a repository into ~/repos/<name> and starts its server. Idempotent:
-  # an existing clone is kept as it is.
+  # Clones a repository into ~/repos/<name>, starts its server and pins its dev
+  # shells. Idempotent: an existing clone is kept as it is.
   factoryAdd = pkgs.writeShellApplication {
     name = "factory-add";
-    runtimeInputs = [ pkgs.git ];
+    runtimeInputs = [
+      pkgs.git
+      pinShells
+    ];
     text = ''
       ${repoNameCheck}
 
@@ -141,6 +144,7 @@ let
 
         systemctl --user start "claude-rc@$name.service"
         echo "factory-add: $name is served over Remote Control."
+        factory-pin-shells "$name" || echo "factory-add: pinning $name's dev shells failed" >&2
       }
 
       # git@github.com:owner/repo.git, https://github.com/owner/repo -> repo
@@ -153,17 +157,68 @@ let
     '';
   };
 
+  # Builds every dev shell of ~/repos/<name>'s flake, as checked out, and keeps
+  # it as a GC root in ~/.gcroots/<name>, replacing the previous pins. Without
+  # this, a shell lives only while a session uses it: the min-free collection
+  # deletes it and the next session rebuilds it. A profile, as nix-direnv makes,
+  # roots the shell's whole environment; `nix build` would root only the
+  # shell's own near-empty output.
+  #
+  # `nix` comes from PATH, like `systemctl` in the other scripts, so the check
+  # can stand in for it.
+  pinShells = pkgs.writeShellApplication {
+    name = "factory-pin-shells";
+    runtimeInputs = [ pkgs.jq ];
+    text = ''
+      ${repoNameCheck}
+
+      main() {
+        local name="''${1:?usage: factory-pin-shells <repo>}"
+        check_repo_name "$name"
+        local dir="$HOME/repos/$name" roots="$HOME/.gcroots/$name"
+        [ -f "$dir/flake.nix" ] || { echo "factory-pin-shells: $name has no flake.nix, nothing to pin."; exit 0; }
+
+        local system shells
+        system=$(nix eval --raw --impure --expr builtins.currentSystem)
+        shells=$(shell_names "$dir" "$system")
+        rm -rf "$roots"
+        mkdir -p "$roots"
+
+        local status=0 shell
+        for shell in $shells; do
+          nix print-dev-env "git+file://$dir#devShells.$system.$shell" --profile "$roots/$shell" >/dev/null \
+            || status=1
+        done
+        exit "$status"
+      }
+
+      # A flake without dev shells for this system has none to pin, not an error.
+      shell_names() {
+        nix eval --json --impure --expr \
+          "builtins.attrNames ((builtins.getFlake \"git+file://$1\").devShells.\"$2\" or { })" \
+          | jq -r '.[]'
+      }
+
+      main "$@"
+    '';
+  };
+
   # Brings every repository up at boot: clones the declared ones that are
   # missing, then starts a server for each clone in ~/repos - which includes
-  # everything added by hand with factory-add. Starts are sequential, and one
-  # repository that fails does not stop the rest.
+  # everything added by hand with factory-add - and pins each clone's dev
+  # shells once every server is up. Starts are sequential, and one repository
+  # that fails does not stop the rest. A shell that fails to pin is only
+  # reported: the unit restarts on failure, and would rebuild it in a loop.
   #
   #   repos - attrset of directory name -> clone URL
   mkStartAll =
     repos:
     pkgs.writeShellApplication {
       name = "factory-start-all";
-      runtimeInputs = [ factoryAdd ];
+      runtimeInputs = [
+        factoryAdd
+        pinShells
+      ];
       text = ''
         status=0
 
@@ -176,6 +231,12 @@ let
         for dir in "$HOME"/repos/*/; do
           [ -d "$dir.git" ] || continue
           systemctl --user start "claude-rc@$(basename "$dir").service" || status=1
+        done
+
+        for dir in "$HOME"/repos/*/; do
+          [ -d "$dir.git" ] || continue
+          name=$(basename "$dir")
+          factory-pin-shells "$name" || echo "factory-start-all: pinning $name's dev shells failed" >&2
         done
 
         exit "$status"
@@ -223,6 +284,7 @@ in
     remoteControlArgs
     mkRemoteControl
     factoryAdd
+    pinShells
     mkStartAll
     mkEgressRules
     ;

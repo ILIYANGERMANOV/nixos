@@ -13,9 +13,13 @@ requests.
   `gh pr create`. `main` is protected and the push would be rejected anyway.
 - Check the pull request's CI with `gh pr checks` and fix what fails before
   reporting the work as done.
-- Use the repository's own tooling: its flake dev shell (`nix develop`, or
-  direnv when `.envrc` exists), its `Justfile`, its test commands. Do not
-  install tools globally.
+- Use the repository's own tooling: its flake dev shell, its `Justfile`, its
+  test commands. Do not install tools globally.
+- Run commands inside the dev shell with `nix develop .#<shell> -c <command>`.
+  direnv is not installed here, so an `.envrc` does nothing.
+- When the repository has a pull request template (such as
+  `.github/pull_request_template.md`), fill in its sections in the pull request
+  body.
 - Dev servers you start for testing must bind to a port in 3000-3099; only
   that range is reachable from the person's devices. Say which port you used.
 

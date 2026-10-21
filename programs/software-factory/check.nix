@@ -40,6 +40,20 @@ let
       echo "${name} $*" >>"$CALLS"
     '';
 
+  # Answers the two evaluations factory-pin-shells makes, and records each
+  # shell it pins as a profile. A shell named `broken` fails to build.
+  fakeNix = pkgs.writeShellScriptBin "nix" ''
+    echo "nix $*" >>"$CALLS"
+    case "$1 $2" in
+      "eval --raw") echo fake-system ;;
+      "eval --json") echo "$SHELLS" ;;
+      print-dev-env*)
+        case "$2" in *.broken) exit 1 ;; esac
+        touch "$4"
+        ;;
+    esac
+  '';
+
   fakeClaude = recorder "claude-factory";
   fakeClaudeUnwrapped = pkgs.writeShellScriptBin "claude" ''
     echo "claude $* GH_TOKEN=$GH_TOKEN PWD=$PWD" >>"$CALLS"
@@ -55,6 +69,9 @@ let
     declared = "file:///tmp/factory-check/origin.git";
     unreachable = "file:///tmp/factory-check/missing.git";
   };
+
+  # Declares nothing, so its exit status reflects only the clones in ~/repos.
+  startNone = factory.mkStartAll { };
 
   nftCheck = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
     echo "nft --check: egress rules"
@@ -79,9 +96,11 @@ pkgs.runCommand "software-factory-check"
       pkgs.git
       pkgs.jq
       factory.factoryAdd
+      factory.pinShells
       remoteControl
       startAll
       (recorder "systemctl")
+      fakeNix
     ];
   }
   ''
@@ -89,11 +108,11 @@ pkgs.runCommand "software-factory-check"
     work=/tmp/factory-check
     rm -rf "$work"
     mkdir -p "$work"
-    export HOME="$work/home" CALLS="$work/calls"
+    export HOME="$work/home" CALLS="$work/calls" SHELLS='["ci","default"]'
     mkdir -p "$HOME"
 
     fail() { echo "FAIL: $*" >&2; exit 1; }
-    reset() { rm -rf "$HOME/repos" "$HOME/.claude" "$HOME/.claude.json"; : >"$CALLS"; }
+    reset() { rm -rf "$HOME/repos" "$HOME/.gcroots" "$HOME/.claude" "$HOME/.claude.json"; : >"$CALLS"; }
     called() { grep -qxF "$1" "$CALLS" || { cat "$CALLS" >&2; fail "expected call: $1"; }; }
 
     git init --quiet --bare "$work/origin.git"
@@ -165,6 +184,47 @@ pkgs.runCommand "software-factory-check"
     called "systemctl --user start claude-rc@declared.service"
     called "systemctl --user start claude-rc@by-hand.service"
     ! grep -q "claude-rc@unreachable" "$CALLS" || fail "started a repo that failed to clone"
+
+    with_flake() { mkdir -p "$HOME/repos/$1/.git"; touch "$HOME/repos/$1/flake.nix"; }
+
+    echo "factory-pin-shells: pins every dev shell of the flake as a profile, replacing old pins"
+    reset
+    with_flake app
+    mkdir -p "$HOME/.gcroots/app"
+    touch "$HOME/.gcroots/app/stale"
+    factory-pin-shells app
+    for shell in ci default; do
+      called "nix print-dev-env git+file://$HOME/repos/app#devShells.fake-system.$shell --profile $HOME/.gcroots/app/$shell"
+      [ -e "$HOME/.gcroots/app/$shell" ] || fail "$shell was not pinned"
+    done
+    [ ! -e "$HOME/.gcroots/app/stale" ] || fail "a previous pin was kept"
+
+    echo "factory-pin-shells: a repository without a flake has nothing to pin"
+    reset
+    mkdir -p "$HOME/repos/plain/.git"
+    factory-pin-shells plain >/dev/null
+    ! grep -q "^nix " "$CALLS" || fail "evaluated a repository without a flake"
+
+    echo "factory-pin-shells: a failing shell is reported, and the others still pinned"
+    reset
+    with_flake app
+    if SHELLS='["broken","ci"]' factory-pin-shells app; then fail "a failed shell was not reported"; fi
+    [ -e "$HOME/.gcroots/app/ci" ] || fail "one failed shell stopped the others"
+
+    echo "factory-pin-shells: rejects names unsafe as a directory"
+    if factory-pin-shells ../app >/dev/null 2>&1; then fail "factory-pin-shells accepted '../app'"; fi
+
+    echo "factory-add / factory-start-all: pin shells, and a failed pin fails neither"
+    reset
+    with_flake app
+    SHELLS='["broken"]' factory-add "file://$work/origin.git" app >/dev/null 2>&1 \
+      || fail "factory-add failed on a shell that did not pin"
+    called "systemctl --user start claude-rc@app.service"
+    reset
+    with_flake app
+    SHELLS='["broken","ci"]' ${lib.getExe startNone} >/dev/null 2>&1 || fail "factory-start-all failed on a shell that did not pin"
+    called "systemctl --user start claude-rc@app.service"
+    [ -e "$HOME/.gcroots/app/ci" ] || fail "factory-start-all did not pin app"
 
     ${nftCheck}
 
