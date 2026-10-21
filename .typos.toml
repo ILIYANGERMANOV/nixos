@@ -5,10 +5,12 @@
 # publish, which is why it lives in git where `nix flake check` can reach it.
 
 [files]
-# SOPS ciphertext. The false positive (`Iy` -> `It`) sits inside base64, and the
-# letters are reshuffled on every re-encrypt, so allowlisting the word would both
-# break at the next rotation and blind us to a real `Iy` in prose.
-extend-exclude = ["secrets/secrets.yaml"]
+# SOPS ciphertext: secrets/common.yaml and every secrets/hosts/<hostname>.yaml.
+# False positives (`Iy` -> `It`, `Fwe` -> `Few`) sit inside base64, and the letters
+# are reshuffled on every re-encrypt, so allowlisting the words would both break at
+# the next rotation and blind us to a real one in prose. A glob rather than a list
+# so a new host's file is covered without touching this.
+extend-exclude = ["/secrets/**/*.yaml"]
 
 [default.extend-words]
 # The nvim-noice plugin. Lowercase covers `Noice` and `NoiceDismiss` too, since
