@@ -118,28 +118,29 @@ let
       '';
     };
 
-  # Clones a repository into ~/repos/<name>, starts its server and pins its dev
-  # shells. Idempotent: an existing clone is kept as it is and its shells are
-  # pinned again, so rerunning it picks up a changed flake.
+  # Clones a repository into ~/repos/<name> and starts its server. Idempotent:
+  # an existing clone is kept as it is.
   factoryAdd = pkgs.writeShellApplication {
     name = "factory-add";
-    runtimeInputs = [
-      pkgs.git
-      pinShells
-    ];
+    runtimeInputs = [ pkgs.git ];
     text = ''
       ${repoNameCheck}
-      ${cloneRepo}
 
       main() {
         local url="''${1:?usage: factory-add <git-url> [name]}"
         local name="''${2:-$(repo_name_from_url "$url")}"
         check_repo_name "$name"
-        clone_repo "$url" "$name"
+        local dir="$HOME/repos/$name"
+
+        if [ -e "$dir" ]; then
+          echo "factory-add: $dir already exists, keeping it."
+        else
+          mkdir -p "$HOME/repos"
+          git clone "$url" "$dir"
+        fi
 
         systemctl --user start "claude-rc@$name.service"
         echo "factory-add: $name is served over Remote Control."
-        factory-pin-shells "$name" || echo "factory-add: pinning $name's dev shells failed" >&2
       }
 
       # git@github.com:owner/repo.git, https://github.com/owner/repo -> repo
@@ -152,81 +153,25 @@ let
     '';
   };
 
-  # Builds every dev shell of ~/repos/<name>'s flake, as checked out, and keeps
-  # it as a GC root in ~/.gcroots/<name>, replacing the previous pins. Without
-  # this, a shell lives only while a session uses it: the min-free collection
-  # deletes it and the next session rebuilds it. A profile, as nix-direnv makes,
-  # roots the shell's whole environment; `nix build` would root only the
-  # shell's own near-empty output.
-  #
-  # `nix` comes from PATH, like `systemctl` in the other scripts, so the check
-  # can stand in for it.
-  pinShells = pkgs.writeShellApplication {
-    name = "factory-pin-shells";
-    runtimeInputs = [ pkgs.jq ];
-    text = ''
-      ${repoNameCheck}
-
-      main() {
-        local name="''${1:?usage: factory-pin-shells <repo>}"
-        check_repo_name "$name"
-        local dir="$HOME/repos/$name" roots="$HOME/.gcroots/$name"
-        [ -f "$dir/flake.nix" ] || { echo "factory-pin-shells: $name has no flake.nix, nothing to pin."; exit 0; }
-
-        local system shells
-        system=$(nix eval --raw --impure --expr builtins.currentSystem)
-        shells=$(shell_names "$dir" "$system")
-        rm -rf "$roots"
-        mkdir -p "$roots"
-
-        local status=0 shell
-        for shell in $shells; do
-          nix print-dev-env "git+file://$dir#devShells.$system.$shell" --profile "$roots/$shell" >/dev/null \
-            || status=1
-        done
-        exit "$status"
-      }
-
-      # A flake without dev shells for this system has none to pin, not an error.
-      shell_names() {
-        nix eval --json --impure --expr \
-          "builtins.attrNames ((builtins.getFlake \"git+file://$1\").devShells.\"$2\" or { })" \
-          | jq -r '.[]'
-      }
-
-      main "$@"
-    '';
-  };
-
   # Brings every repository up at boot: clones the declared ones that are
   # missing, then starts a server for each clone in ~/repos - which includes
   # everything added by hand with factory-add. Starts are sequential, and one
   # repository that fails does not stop the rest.
-  #
-  # It pins no dev shells, so its unit finishes in seconds: Home Manager waits
-  # 120 s for a restarted unit on every deploy, and the unit retries a failed
-  # clone every minute. Pins already in ~/.gcroots survive a reboot.
   #
   #   repos - attrset of directory name -> clone URL
   mkStartAll =
     repos:
     pkgs.writeShellApplication {
       name = "factory-start-all";
-      runtimeInputs = [ pkgs.git ];
+      runtimeInputs = [ factoryAdd ];
       text = ''
-        ${repoNameCheck}
-        ${cloneRepo}
-
         status=0
 
-        declare -A declared=(${
-          lib.concatStrings (
-            lib.mapAttrsToList (name: url: " [${lib.escapeShellArg name}]=${lib.escapeShellArg url}") repos
-          )
-        } )
-        for name in "''${!declared[@]}"; do
-          (check_repo_name "$name" && clone_repo "''${declared[$name]}" "$name") || status=1
-        done
+        ${lib.concatStrings (
+          lib.mapAttrsToList (name: url: ''
+            factory-add ${lib.escapeShellArg url} ${lib.escapeShellArg name} || status=1
+          '') repos
+        )}
 
         for dir in "$HOME"/repos/*/; do
           [ -d "$dir.git" ] || continue
@@ -239,19 +184,6 @@ let
 
   # A repository name becomes a directory and a systemd instance name, so it is
   # held to what is safe as both.
-  # Clones $1 into ~/repos/$2, unless something is already there.
-  cloneRepo = ''
-    clone_repo() {
-      local dir="$HOME/repos/$2"
-      if [ -e "$dir" ]; then
-        echo "$dir already exists, keeping it."
-      else
-        mkdir -p "$HOME/repos"
-        git clone "$1" "$dir"
-      fi
-    }
-  '';
-
   repoNameCheck = ''
     check_repo_name() {
       case "$1" in
@@ -291,7 +223,6 @@ in
     remoteControlArgs
     mkRemoteControl
     factoryAdd
-    pinShells
     mkStartAll
     mkEgressRules
     ;

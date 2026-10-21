@@ -339,10 +339,6 @@ sentence to the README and open a PR". You should get:
   ```
   - Invite the bot to that repository first (step 6.2).
   - The new server appears in the app within seconds.
-  - It then builds every dev shell of the repository's flake and keeps it in
-    `~/.gcroots/<repo>`, so garbage collection never deletes a shell an agent
-    is about to need. Pins survive reboots; run `factory-add` again to re-pin
-    after the repository's flake changes.
   - **Private repositories are only ever added this way, never in Nix.** This
     repository is public.
 - **Preview an app [phone or mac]:** agents bind dev servers to ports
@@ -359,8 +355,6 @@ sentence to the README and open a PR". You should get:
   - `systemctl --user stop claude-rc@<repo>`;
   - to drop it for good, also `rm -rf ~/repos/<repo>`. Otherwise it starts
     again at the next boot.
-  - `rm -rf ~/.gcroots/<repo>` frees its pinned dev shells at the next
-    garbage collection.
 
 ## Part 4 - Changing the server (deploy) **[mac]**
 
