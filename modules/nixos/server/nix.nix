@@ -18,6 +18,13 @@
         config.myConfig.user.name
       ];
       trusted-users = [ "root" ];
+
+      # Agents enter project dev shells whose flakes carry a nixConfig, and
+      # without this every `nix develop` has to be told to accept it. Safe
+      # because the agent account is untrusted: it gains only what it could
+      # already pass as --option, and the daemon still ignores any substituter
+      # a flake names that is not already trusted here.
+      accept-flake-config = true;
     };
 
     gc = {
