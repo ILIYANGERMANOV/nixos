@@ -165,6 +165,18 @@ It asks, in order, for:
    - for the Hetzner web console if the tailnet is ever down.
 3. **The Tailscale auth key** from step 5.
 4. **The bot token** from step 6.
+5. **The deploy token**, a fine-grained token of **your own** account, never
+   the bot's. It is what lets the server read and report this repository's
+   deployments (Part 4):
+   - [browser, as you] github.com > Settings > Developer settings >
+     Fine-grained tokens > **Generate new token**;
+   - name `software-factory-deploy`, expiration up to a year (`factory-ctl
+     status` warns 30 days before it expires);
+   - Repository access: **Only select repositories** > this `nixos` repository;
+   - Permissions: **Deployments: Read and write**. Nothing else; Metadata:
+     Read-only is added by GitHub on its own.
+
+   `just factory-deploy-token` writes or renews this one secret on its own.
 
 Then commit and push, so the flake can see the new file. This is what makes
 the PR's `just check` pass: until this file exists, evaluating the
@@ -201,10 +213,11 @@ console.hetzner.com, in the `software-factory` project from step 1.
 3. **Servers** > **Add server**:
    - Location: Falkenstein or Nuremberg.
    - Image: **Ubuntu 24.04**. It is wiped by the install.
-   - Type: **Shared vCPU** > **x86** > **CX43**. A smaller x86 machine also
-     works: set `myConfig.factory.size` in
-     `hosts/software-factory/configuration.nix` to match it before step 11 -
-     `small` for 2 vCPU / 4 GB (e.g. CPX22), `standard` for 8 vCPU / 16 GB.
+   - Type: **Shared vCPU** > **x86** > **CX33** (4 vCPU / 8 GB, what the host
+     is sized for today) or **CX43** (8 vCPU / 16 GB). Set
+     `myConfig.factory.size` in `hosts/software-factory/configuration.nix` to
+     match before step 11 - `small` for 2 vCPU / 4 GB (e.g. CPX22), `medium`
+     for 4 vCPU / 8 GB, `standard` for 8 vCPU / 16 GB.
    - Networking: **Public IPv4 on**. GitHub has no IPv6, so it is required.
      IPv6 is optional.
    - SSH keys: the key you added above.
@@ -307,8 +320,9 @@ into `~/repos` using the bot's key from step 14.
    asks, enrol the phone (fingerprint or face).
 2. Android Settings > Apps > Claude > Battery: **Unrestricted**, so "needs your
    input" notifications arrive.
-3. You should see one Remote Control server per repository, named after it.
-4. For SSH from the phone (adding repositories, Part 3): install **Termux**
+3. You should see an `admin` server, and one Remote Control server per
+   repository, named after it.
+4. For SSH from the phone (recovery, Part 5): install **Termux**
    from F-Droid, then in Termux:
    ```sh
    pkg install openssh
@@ -332,12 +346,28 @@ sentence to the README and open a PR". You should get:
   new session, e.g. `/grill-me`. Each session works in its own git worktree, so
   two sessions in one repository do not collide. Up to 2 sessions per
   repository.
-- **Add a repository [phone or mac, then factory]:**
-  ```sh
-  ssh factory@software-factory
-  factory-add git@github.com:<owner>/<repo>.git
-  ```
-  - Invite the bot to that repository first (step 6.2).
+- **Run the box [phone]:** open the `admin` server and start a session. It is
+  always on, and its skills cover the day-to-day:
+
+  | Skill | Does |
+  |---|---|
+  | `/start-repo <name or URL>` | clone if needed, start, and start at boot |
+  | `/stop-repo <name>` | stop, and stay stopped across reboots |
+  | `/restart-repo <name>` | restart a wedged server, or apply a deploy to it |
+  | `/terminate-sessions [name]` | end live sessions; servers keep running |
+  | `/status` | servers, sessions, local work, last deploy |
+  | `/stats` | RAM, disk, CPU, the agents' memory cap |
+  | `/free-disk` | plan, confirm, then prune pushed worktrees, caches and garbage |
+  | `/deploy [rollback]` | Part 4 |
+  | `/reboot`, `/gc` | root operations through fixed units |
+
+  The skills drive `factory-ctl`, which works the same in a shell
+  **[factory]** (`factory-ctl help`). Anything that would end live sessions or
+  touches worktrees with local work asks first.
+- **Add a repository [phone]:** `/start-repo <name>` in the admin server.
+  - Invite the bot to that repository first (step 6.2). A bare name is looked
+    up among the repositories the bot can see, and the agent asks you to
+    confirm which one.
   - The new server appears in the app within seconds.
   - **Private repositories are only ever added this way, never in Nix.** This
     repository is public.
@@ -348,30 +378,50 @@ sentence to the README and open a PR". You should get:
   repository's server with its open sessions. `just factory-status detailed`
   adds recent branches, the last hour's errors and the processes using the
   most memory. Needs Tailscale up, nothing else.
-- **Status [factory]:**
-  - `systemctl --user list-units 'claude-rc@*'`;
-  - `journalctl --user -u claude-rc@<repo> -e` for one repository's log.
-- **Stop or remove a repository [factory]:**
-  - `systemctl --user stop claude-rc@<repo>`;
-  - to drop it for good, also `rm -rf ~/repos/<repo>`. Otherwise it starts
-    again at the next boot.
+- **Logs [factory]:**
+  - `journalctl --user -u claude-rc@<repo> -e` for one repository's server;
+  - `journalctl -u factory-deploy -e` for deploys (`factory` can read the
+    system journal).
+- **Remove a repository for good [factory]:** `/stop-repo` it, then
+  `rm -rf ~/repos/<repo>`.
 
-## Part 4 - Changing the server (deploy) **[mac]**
+## Part 4 - Changing the server (deploy)
 
-Edit the configuration in this repository, then:
+Change the configuration with a pull request, merge it, then deploy `main`:
+
+- **[phone]** `/deploy` in the admin server, or
+- **[browser]** Actions > **Deploy software-factory** > Run workflow, on `main`.
+
+What happens:
+
+1. The workflow refuses unless `check` and `cache-guard` passed on main's tip,
+   then creates a GitHub deployment for that commit. GitHub holds no credential
+   to the server.
+2. Within a minute the server sees it, checks the commit is on `main`, and
+   builds it - on the server, with all of its cores.
+3. It activates the new system and checks it can still be reached: Tailscale
+   up, sshd running, GitHub answering. If not, it switches straight back.
+   Only a healthy system becomes the boot default.
+4. The result is posted to the deployment (the repository's Environments page)
+   and shown by `/status`.
+
+- **Live sessions keep running.** Remote Control servers, the admin's
+  included, are not restarted by a deploy. `/restart-repo` applies a new agent
+  setup to a repository; a reboot applies it everywhere.
+- **Roll back:** `/deploy rollback` returns to the previous generation. Only two
+  are kept.
+- **Nothing deploys on merge.** Only the workflow or `/deploy` does.
+
+### Break glass **[mac]**
+
+When GitHub or the deploy path itself is broken, deploy the working tree
+directly, committed or not, any branch:
 
 ```sh
 just macos-main-tailscale-up
 just factory-cache-check   # warns if this nixpkgs rev would compile something expensive
 just factory-deploy        # YubiKey touch, then the admin password for sudo
 ```
-
-- The working tree is deployed as it is: committed or not, any branch.
-- The server builds, then switches.
-- Remote Control servers whose configuration changed restart, and their
-  sessions reconnect.
-- Nothing is ever deployed automatically. Merging to `main` changes nothing on
-  the server until you run this.
 
 ## Part 5 - Recovery
 
@@ -389,6 +439,12 @@ just factory-deploy        # YubiKey touch, then the admin password for sudo
   then `just factory-deploy`.
 - **Bot token expired:** create a new one (step 6.5), run
   `just factory-secrets`, commit, and `just factory-deploy`.
+- **Deploy token expired or expiring:** create a new one (step 9.5), run
+  `just factory-deploy-token`, commit, and `just factory-deploy` - the old
+  token cannot report the deploy that replaces it.
+- **Admin server not answering [factory]:**
+  `systemctl --user restart claude-rc-admin`. It restarts on its own after a
+  crash, so this is for a server that is up but wedged.
 - **Suspected compromise:** do all of these, then reinstall from scratch with a
   new age key, auth key and bot token:
   - [browser, as the bot] delete its SSH keys and token;

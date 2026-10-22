@@ -235,8 +235,20 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   is `modules/home/factory/`, its own import list - `modules/home/default.nix`
   is untouched by it.
 - `programs/software-factory/` holds the logic: managed settings (billing and
-  permission policy), the `factory-rc` / `factory-add` / `factory-start-all`
-  scripts and the egress nftables rules. `checks.software-factory` tests them.
+  permission policy), the Remote Control launchers, `factory-ctl` (`ctl/`), the
+  root deploy and maintenance scripts (`ops/`), the admin agent's project
+  (`admin/`) and the egress nftables rules. `checks.software-factory`
+  (`check.nix`, scenarios in `check.sh`) tests them.
+- **The admin agent runs the box; `factory-ctl` is its only tool.** Add an
+  admin capability as a `factory-ctl` command with a scenario in `check.sh`,
+  then a skill in `admin/skills/` that calls it. Skills there are
+  project-scoped to `~/admin` on purpose - never add them to the shared skill
+  catalog, which every agent of the account loads.
+- **Deploys are pulled, never pushed.** `factory-deploy` (`modules/nixos/server/ops.nix`)
+  polls this repository's GitHub deployments, verifies the commit is on
+  `main`, and switches behind a health gate. Root units it adds must set
+  `restartIfChanged = false`, and Remote Control units keep
+  `X-SwitchMethod = keep-old`, or a deploy kills its own caller.
 - The `claude-factory` flavor is `factory` in `programs/claude-code`, deliberately
   outside `packages` so no other host installs it.
 - The server has its own sops age key; `secrets/common.yaml` is not encrypted
@@ -244,7 +256,7 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
 - **This repository is public.** Never commit IP addresses, tailnet names,
   private repository names or anything that maps the server's attack surface
   beyond what the Nix config itself states. Private repositories are added on
-  the box with `factory-add`.
+  the box with `factory-ctl start` (the admin agent's `/start-repo`).
 - Recipes are in `just/software-factory.just`.
 
 ## Neovim + LSP Architecture

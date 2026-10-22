@@ -98,7 +98,39 @@ factory-secrets:
     set_secret gh-token "Bot GitHub token"
 
     printf '"%s"' "unused" | sops set --value-stdin "$file" '["example-global"]'
+
+    just factory-deploy-token
     echo "Done. Commit .sops.yaml and $file."
+
+# The server pulls deploys from this repository's GitHub deployments and posts
+# the result back, with a fine-grained token of the repository owner: this
+# repository only, Deployments read and write, nothing else. It is root-only on
+# the server, unlike the bot's token. Steps in docs/SOFTWARE-FACTORY.md, step 9.
+#
+# Write or renew software-factory's deploy token in its sops file
+factory-deploy-token:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    file=secrets/hosts/software-factory.yaml
+
+    sudo -v
+    export SOPS_AGE_KEY_CMD="sudo -n cat /var/lib/sops-age/keys.txt"
+
+    if command -v jq >/dev/null 2>&1; then
+        jq_cmd=(jq)
+    else
+        jq_cmd=(nix run --inputs-from . nixpkgs#jq --)
+    fi
+
+    echo "Your account (not the bot's) > Settings > Developer settings > Fine-grained tokens:"
+    echo "only this nixos repository, permission Deployments: Read and write."
+    read -rsp "Deploy token: " value; echo
+    case "$value" in
+        github_pat_*) ;;
+        *) echo "ERROR: expected a fine-grained token (github_pat_...)." >&2; exit 1 ;;
+    esac
+    printf '%s' "$value" | "${jq_cmd[@]}" -R . | sops set --value-stdin "$file" '["factory-deploy-token"]'
+    echo "Wrote factory-deploy-token. Commit $file, then deploy."
 
 # The key is pasted from Bitwarden into a shell variable and goes to the server
 # on stdin. It sits briefly in admin's home (mode 600) because sudo needs the

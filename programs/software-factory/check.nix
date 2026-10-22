@@ -1,9 +1,11 @@
-# checks.software-factory: the factory's policy and scripts, exercised without
-# a server. git is real (clones from a local bare repository); systemctl and
-# Claude Code are doubles that record how they were called, because starting a
-# unit or a Remote Control session is the behaviour under test and neither can
-# run inside the build sandbox. On Linux the egress rules also go through
-# `nft --check`, the same validation NixOS runs when it builds the host.
+# checks.software-factory: the factory's policy, scripts and admin skills,
+# exercised without a server (the scenarios are in check.sh). git, process
+# lookup and the filesystem are real: repositories are cloned from a local bare
+# repository, and sessions are real processes. What cannot run in the build
+# sandbox is a double - an in-memory systemd, GitHub's API and CLI, Nix's
+# build and profile commands, Tailscale - and each records how it was called.
+# On Linux the egress rules also go through `nft --check`, the same validation
+# NixOS runs when it builds the host.
 {
   pkgs,
   lib ? pkgs.lib,
@@ -33,6 +35,8 @@ let
   ];
   failedPolicy = lib.filter (a: !a.ok) policyAssertions;
 
+  work = "/tmp/factory-check";
+
   # Records every call as one line: the program name, then its arguments.
   recorder =
     name:
@@ -48,13 +52,119 @@ let
   remoteControl = factory.mkRemoteControl {
     claude = fakeClaude;
     claudeUnwrapped = fakeClaudeUnwrapped;
-    ghToken = "/tmp/factory-check/gh-token";
+    ghToken = "${work}/gh-token";
   };
 
-  startAll = factory.mkStartAll {
-    declared = "file:///tmp/factory-check/origin.git";
-    unreachable = "file:///tmp/factory-check/missing.git";
+  ctl = factory.mkCtl {
+    opsStateDir = "${work}/ops";
+    deployRepo = "owner/nixos";
+    deployWorkflow = "deploy-factory.yml";
   };
+
+  boot = factory.mkBoot ctl {
+    declared = "file://${work}/origin.git";
+    unreachable = "file://${work}/missing.git";
+  };
+
+  deploy = factory.mkDeploy {
+    repo = "owner/nixos";
+    host = "software-factory";
+    environment = "software-factory";
+    tokenFile = "${work}/deploy-token";
+    stateDir = "${work}/ops";
+    profile = "${work}/profiles/system";
+    currentSystem = "${work}/current-system";
+    healthAttempts = 2;
+  };
+
+  maintenance = factory.mkMaintenance {
+    stateDir = "${work}/ops";
+    profile = "${work}/profiles/system";
+  };
+
+  # An in-memory systemd: a unit is active while a file named after it exists.
+  # Answers `is-active --quiet` for the deploy's health gate from $SSHD_UP.
+  fakeSystemctl = pkgs.writeShellScriptBin "systemctl" ''
+    echo "systemctl $*" >>"$CALLS"
+    [ "$1" != --user ] || shift
+    [ "$1" != --no-block ] || shift
+    mkdir -p "$UNITS"
+    case "$1" in
+      start | restart) touch "$UNITS/$2" ;;
+      stop) rm -f "$UNITS/$2" ;;
+      is-active)
+        if [ "$2" = --quiet ]; then [ "''${SSHD_UP:-1}" = 1 ]; exit; fi
+        if [ -e "$UNITS/$2" ]; then echo active; else echo inactive; exit 3; fi
+        ;;
+    esac
+  '';
+
+  # GitHub's CLI, for `resolve` and `deploy`. Repositories come from
+  # $GH/user-repos.json; a dispatched workflow run gets id 42, and it fails
+  # when $GH/run-fails exists.
+  fakeGh = pkgs.writeShellScriptBin "gh" ''
+    echo "gh $*" >>"$CALLS"
+    case "$1 $2" in
+      "api --paginate") ${lib.getExe pkgs.jq} -r "$5" "$GH/user-repos.json" ;;
+      "workflow run") touch "$GH/dispatched" ;;
+      "run list") if [ -e "$GH/dispatched" ]; then echo 42; fi ;;
+      "run watch") [ ! -e "$GH/run-fails" ] ;;
+      "run view") echo "CI has not passed" ;;
+    esac
+  '';
+
+  # GitHub's REST API for the deploy script. GETs are answered from files in
+  # $GH named after the endpoint; POST bodies are appended to $GH/posted. The
+  # curl config arrives on stdin and is kept in $GH/config, apart from argv.
+  fakeCurl = pkgs.writeShellScriptBin "curl" ''
+    echo "curl $*" >>"$CALLS"
+    method=GET headers=/dev/null body="" url=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -X) method="$2"; shift ;;
+        -D) headers="$2"; shift ;;
+        --data-binary) body="''${2#@}"; shift ;;
+        -K) cat >"$GH/config"; shift ;;
+        -H | -m | -o) shift ;;
+        https://*) url="$1" ;;
+      esac
+      shift
+    done
+    printf 'HTTP/2 200\r\ngithub-authentication-token-expiration: 2027-01-01 00:00:00 UTC\r\n\r\n' >"$headers"
+    case "$method $url" in
+      "GET https://api.github.com/zen") [ ! -e "$GH/github-down" ] ;;
+      "GET "*/deployments\?*) cat "$GH/deployments.json" ;;
+      "GET "*/statuses\?*) cat "$GH/statuses.json" ;;
+      "GET "*/compare/*) cat "$GH/compare.json" ;;
+      "POST "*/statuses) { cat "$body"; echo; } >>"$GH/posted"; echo '{}' ;;
+      *) echo "fake curl: unexpected $method $url" >&2; exit 22 ;;
+    esac
+  '';
+
+  fakeNix = pkgs.writeShellScriptBin "nix" ''
+    echo "nix $*" >>"$CALLS"
+    [ ! -e "$GH/build-fails" ] && echo "${work}/systems/new"
+  '';
+
+  # Profiles are symlinks in ${work}/profiles, as Nix keeps them.
+  fakeNixEnv = pkgs.writeShellScriptBin "nix-env" ''
+    echo "nix-env $*" >>"$CALLS"
+    case "$3" in
+      --set) ln -sfn "$4" "$2" ;;
+      --rollback) ln -sfn "${work}/systems/old" "$2" ;;
+    esac
+  '';
+
+  fakeNixStore = pkgs.writeShellScriptBin "nix-store" ''
+    echo "nix-store $*" >>"$CALLS"
+    [ "$2" != --print-dead ] || echo "$HOME/garbage"
+  '';
+
+  fakeTailscale = pkgs.writeShellScriptBin "tailscale" ''
+    echo '{"BackendState": "Running"}'
+  '';
+
+  skillsCheck = (import ../agents/skills/lib.nix { inherit pkgs lib; }).mkCheck factory.admin.skills;
 
   nftCheck = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
     echo "nft --check: egress rules"
@@ -78,93 +188,32 @@ pkgs.runCommand "software-factory-check"
     nativeBuildInputs = [
       pkgs.git
       pkgs.jq
-      factory.factoryAdd
-      remoteControl
-      startAll
-      (recorder "systemctl")
+      pkgs.procps
+      remoteControl.repo
+      remoteControl.admin
+      ctl
+      boot
+      deploy
+      maintenance
+      fakeSystemctl
+      fakeGh
+      fakeCurl
+      fakeNix
+      fakeNixEnv
+      fakeNixStore
+      fakeTailscale
     ];
+    inherit work;
+    repoArgs = lib.escapeShellArgs factory.remoteControlArgs.repo;
+    adminArgs = lib.escapeShellArgs factory.remoteControlArgs.admin;
+    adminSettings = factory.admin.settings;
   }
   ''
     set -euo pipefail
-    work=/tmp/factory-check
-    rm -rf "$work"
-    mkdir -p "$work"
-    export HOME="$work/home" CALLS="$work/calls"
-    mkdir -p "$HOME"
+    # Admin skills: frontmatter, names and description length.
+    echo "admin skills: ${skillsCheck}"
 
-    fail() { echo "FAIL: $*" >&2; exit 1; }
-    reset() { rm -rf "$HOME/repos" "$HOME/.claude" "$HOME/.claude.json"; : >"$CALLS"; }
-    called() { grep -qxF "$1" "$CALLS" || { cat "$CALLS" >&2; fail "expected call: $1"; }; }
-
-    git init --quiet --bare "$work/origin.git"
-
-    echo "factory-add: clones under the name in an ssh URL and starts its server"
-    reset
-    factory-add "file://$work/origin.git" >/dev/null 2>&1
-    [ -d "$HOME/repos/origin/.git" ] || fail "origin was not cloned"
-    called "systemctl --user start claude-rc@origin.service"
-
-    echo "factory-add: derives the name from ssh and https URLs"
-    reset
-    mkdir -p "$HOME/repos/repo" "$HOME/repos/other"
-    factory-add git@github.com:owner/repo.git >/dev/null
-    factory-add https://github.com/owner/other >/dev/null
-    called "systemctl --user start claude-rc@repo.service"
-    called "systemctl --user start claude-rc@other.service"
-
-    echo "factory-add: an explicit name wins, and an existing clone is kept"
-    reset
-    mkdir -p "$HOME/repos/custom"
-    touch "$HOME/repos/custom/marker"
-    factory-add "file://$work/origin.git" custom >/dev/null
-    [ -e "$HOME/repos/custom/marker" ] || fail "existing clone was replaced"
-    called "systemctl --user start claude-rc@custom.service"
-
-    echo "factory-add / factory-rc: reject names unsafe as a directory or unit"
-    for bad in ".hidden" ".." "a b" "a/b" 'a$b'; do
-      reset
-      if factory-add "file://$work/origin.git" "$bad" >/dev/null 2>&1; then
-        fail "factory-add accepted '$bad'"
-      fi
-      [ ! -s "$CALLS" ] || fail "factory-add started a unit for '$bad'"
-      if factory-rc "$bad" >/dev/null 2>&1; then
-        fail "factory-rc accepted '$bad'"
-      fi
-    done
-    if factory-rc "" >/dev/null 2>&1; then fail "factory-rc accepted an empty name"; fi
-    if factory-add "file://$work/.git" >/dev/null 2>&1; then
-      fail "factory-add accepted a URL whose name starts with '.'"
-    fi
-
-    echo "factory-rc: applies the flavor, trusts the repo, starts Remote Control"
-    reset
-    git clone --quiet "$work/origin.git" "$HOME/repos/origin" 2>/dev/null
-    echo '{"projects":{"/elsewhere":{"hasTrustDialogAccepted":true}}}' >"$HOME/.claude.json"
-    printf 'ghp_check' >"$work/gh-token"
-    factory-rc origin
-    called "claude-factory --version"
-    called "claude remote-control --name origin ${lib.escapeShellArgs factory.remoteControlArgs} GH_TOKEN=ghp_check PWD=$HOME/repos/origin"
-    [ "$(jq '.projects["'"$HOME/repos/origin"'"].hasTrustDialogAccepted' "$HOME/.claude.json")" = true ] \
-      || fail "repo was not trusted"
-    [ "$(jq '.projects["/elsewhere"].hasTrustDialogAccepted' "$HOME/.claude.json")" = true ] \
-      || fail "trusting one repo lost another's trust"
-    [ "$(jq '.remoteDialogSeen' "$HOME/.claude.json")" = true ] \
-      || fail "Remote Control would wait on its first-run prompt"
-
-    echo "factory-rc: refuses a directory that is not a clone"
-    reset
-    mkdir -p "$HOME/repos/plain"
-    if factory-rc plain >/dev/null 2>&1; then fail "factory-rc served a non-repository"; fi
-    [ ! -s "$CALLS" ] || fail "factory-rc ran Claude for a non-repository"
-
-    echo "factory-start-all: clones declared repos, starts every clone, survives a failure"
-    reset
-    git clone --quiet "$work/origin.git" "$HOME/repos/by-hand" 2>/dev/null
-    if factory-start-all >/dev/null 2>&1; then fail "a failed clone was not reported"; fi
-    [ -d "$HOME/repos/declared/.git" ] || fail "declared repo was not cloned"
-    called "systemctl --user start claude-rc@declared.service"
-    called "systemctl --user start claude-rc@by-hand.service"
-    ! grep -q "claude-rc@unreachable" "$CALLS" || fail "started a repo that failed to clone"
+    source ${./check.sh}
 
     ${nftCheck}
 

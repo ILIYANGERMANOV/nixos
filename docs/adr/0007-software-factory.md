@@ -7,8 +7,9 @@ Nothing may cost more than the flat Claude Max subscription and the server.
 
 ## The shape
 
-`software-factory` is a NixOS host on a small cloud VM (Hetzner CX43: x86_64,
-8 shared vCPU, 16 GB, 160 GB). x86_64 rather than ARM because this repo's
+`software-factory` is a NixOS host on a small cloud VM (Hetzner CX33: x86_64,
+4 shared vCPU, 8 GB, 80 GB; `myConfig.factory.size` also has rows for 4 GB and
+16 GB machines). x86_64 rather than ARM because this repo's
 nixpkgs pin is tuned for darwin and aarch64-linux has the thinnest binary cache
 coverage of the platforms involved; Haskell itself is cached on both.
 
@@ -17,8 +18,13 @@ coverage of the platforms involved; Haskell itself is cached on both.
   user unit). A server is bound to one directory, so the phone shows one server
   per repository, and every session it opens gets its own git worktree.
   Remote Control connects outbound to Anthropic and needs no inbound port.
-- **SSH is for administration only**: cloning a new repository
-  (`factory-add`), the one-time `/login`, deploys.
+- **The admin agent runs the box.** An always-on server (`claude-rc-admin`)
+  serves `~/admin`, whose project skills turn repositories on and off, end
+  sessions, free disk and request root operations, all through `factory-ctl`.
+  It changes runtime state only; anything persistent goes through a pull
+  request to this repository and a deploy. See "The admin agent" below.
+- **SSH is for the one-time setup and recovery**: the `/login`, the bot's key,
+  the break-glass deploy.
 - **Built by `lib.mkNixosServer`**, which imports `modules/nixos/server` and none
   of the desktop modules. No other builder imports that directory, and the
   factory's Home Manager profile (`modules/home/factory`) is a separate import
@@ -30,7 +36,8 @@ Two accounts:
 
 - `factory` runs the agents. No sudo. It holds what the agents need to work:
   the Claude login, the bot account's SSH key and token, the repositories.
-- `admin` is in wheel, with sudo behind a password. It exists for deploys.
+- `admin` is in wheel, with sudo behind a password. It exists for the
+  break-glass deploy and recovery.
 
 Access, outermost first:
 
@@ -96,18 +103,77 @@ These are deliberate, and recorded so they are not mistaken for oversights.
 - **The cloud provider controls the hypervisor.** The disk is not encrypted:
   that would need a person to unlock it after every reboot, and it would not
   protect against the hypervisor anyway.
-- **Updates are manual.** The server changes only when `just factory-deploy` is
-  run from a trusted machine. Nothing pulls configuration from GitHub, so
-  merging to `main` never deploys anything.
+- **Any `factory` process can trigger the root operations.** polkit tells
+  callers apart by uid only, and the admin agent and the repository agents
+  share one, so a prompt-injected repository agent could also deploy, roll
+  back, reboot or collect garbage. That costs availability, not secrets: none
+  of these units reveals the Claude login, the SSH key or a token, and a deploy
+  only ever builds a commit already on `main`. Reboots are refused within 10
+  minutes of boot so a loop cannot keep the box down. Each run is recorded
+  for `factory-ctl status` and in the journal.
+- **The server pulls its configuration from GitHub.** Whoever can merge to
+  `main` decides what the server runs - which was already true when deploys
+  were run by hand from `main`. The deploy token can only read and report this
+  repository's deployments, and it is readable by root alone.
 
 ## Consequences
 
-- Repositories are added on the box with `factory-add`, so the phone-first flow
-  needs an SSH client, but no deploy. Public repositories can also be declared
-  in the host so a rebuilt server clones them itself.
+- Repositories are turned on and off from the phone through the admin agent,
+  with no SSH and no deploy. Public repositories can also be declared in the
+  host so a rebuilt server clones them itself; that only bootstraps them, and
+  after the first clone the enabled set in
+  `~/.local/state/factory/enabled` decides what boot starts.
 - The flavor wrapper rewrites shared files under `~/.claude` at launch. The
   launcher runs it once under a lock and starts each server from the unwrapped
   binary, so concurrent starts cannot race.
 - Workspace trust is written into `~/.claude.json` by the launcher, because a
   server without a terminal cannot ask for it.
 - `factory-cache-check` reuses the darwin cache guard against this host.
+
+## The admin agent
+
+The person's main way into the factory is a Remote Control server like the
+others, serving `~/admin` instead of a repository.
+
+- **Same account, on purpose.** A separate user would need its own copy of the
+  Claude login, more secrets on disk, plus privileges to manage `factory`'s
+  units. As `factory` it holds nothing the repository agents do not already
+  hold, and manages their units with `systemctl --user`.
+- **Project-scoped skills.** `~/admin/.claude/skills` and `~/admin/CLAUDE.md`
+  come from `programs/software-factory/admin`. The flavor wrapper relinks
+  `~/.claude/skills` for every agent of the account, so skills placed there
+  would reach the repository agents too.
+- **One tested CLI.** Every skill calls `factory-ctl`, which is idempotent,
+  refuses with exit code 2 whatever would end live sessions or touch worktrees
+  with local work, and is exercised by `checks.software-factory`. The skills
+  add judgement - which repository, whether to force - and phone-sized output.
+- **Always on.** `claude-rc-admin` is outside the enabled set, restarts
+  always, and keeps its memory with `MemoryMin`. A deploy does not restart it
+  or any repository server (`X-SwitchMethod = keep-old`), so the session that
+  asked for a deploy can report on it.
+- **Idle servers are cheap.** An idle Remote Control server was measured at
+  about 70 MB of private memory, sharing the Claude binary with the rest, with
+  negligible CPU and network. A live session costs about 250 MB. Turning
+  repositories off is for keeping the phone's list short and agents quiet, not
+  for saving memory.
+
+### Root operations
+
+The agent account has no sudo. Four root units do what it needs, each fixed
+and taking no input (`modules/nixos/server/ops.nix`):
+
+- `factory-deploy`, on a one-minute timer, deploys the newest GitHub
+  deployment of this host that has no status yet. The workflow that creates
+  them (`.github/workflows/deploy-factory.yml`, manual dispatch on `main`)
+  refuses unless CI passed, but it is a convenience: anyone with write access
+  can create a deployment through the API, so the unit checks the commit is on
+  `main` before building. It activates with `switch-to-configuration test`, so
+  a reboot still boots the old system, and makes the new one the boot default
+  only after a health gate (Tailscale running, sshd active, GitHub reachable).
+  Otherwise it switches back. Pulling rather than pushing keeps every
+  credential to the server out of GitHub.
+- `factory-rollback`, `factory-reboot` and `factory-gc` may be started by
+  `factory` through one polkit rule. GC keeps the current and previous
+  generation of every profile, which is all a rollback reaches. Dev shells are
+  not rooted (#192 chose a bigger disk over pinning them), so a GC can make
+  the next `nix develop` fetch one again from the binary caches.

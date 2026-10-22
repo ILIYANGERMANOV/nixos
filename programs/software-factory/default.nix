@@ -1,5 +1,6 @@
 # The software factory: Claude Code agents serving git repositories over Remote
-# Control, from one unprivileged account. Plain functions and derivations - no
+# Control, from one unprivileged account, plus the admin agent that runs the box
+# and the root units it may start. Plain functions and derivations - no
 # hosts, no users, no systemd units. modules/nixos/server and
 # modules/home/factory wire them in. The agents' workflow instructions
 # (instructions.md) belong to the claude-factory flavor in programs/claude-code.
@@ -13,18 +14,6 @@
 }:
 
 let
-  # Remote Control flags shared by every repository's server. Each session the
-  # phone opens gets its own git worktree, so two sessions in one repository
-  # never edit the same files.
-  remoteControlArgs = [
-    "--spawn"
-    "worktree"
-    "--capacity"
-    "2"
-    "--permission-mode"
-    "auto"
-  ];
-
   # Root-owned policy, installed at /etc/claude-code/managed-settings.json.
   #
   # Billing: only a claude.ai subscription login may be used. forceLoginMethod
@@ -57,8 +46,10 @@ let
     builtins.toJSON managedSettingsValue
   );
 
-  # Runs one repository's Remote Control server. Started by the claude-rc@
-  # systemd user unit with the repository's directory name.
+  # Remote Control launchers. `repo` serves ~/repos/<name>, one git worktree per
+  # session. `admin` serves ~/admin, the admin agent's home: every session runs
+  # in the same directory, because the admin agent changes the box rather than
+  # a checkout.
   #
   #   claude          - the flavor wrapper, which rewrites ~/.claude on launch
   #   claudeUnwrapped - the binary the wrapper execs
@@ -74,127 +65,252 @@ let
       claudeUnwrapped,
       ghToken,
     }:
-    pkgs.writeShellApplication {
-      name = "factory-rc";
-      runtimeInputs = [
-        pkgs.jq
-        pkgs.flock
-      ];
-      text = ''
-        ${repoNameCheck}
+    let
+      launcher =
+        name: text:
+        pkgs.writeShellApplication {
+          inherit name;
+          runtimeInputs = [
+            pkgs.jq
+            pkgs.flock
+          ];
+          text = ''
+            ${text}
+
+            # Applies the flavor, trusts the directory and replaces this process
+            # with a Remote Control server for it.
+            serve() {
+              local dir="$1" name="$2"
+              shift 2
+
+              mkdir -p "$HOME/.claude"
+              exec 9>"$HOME/.claude/.factory.lock"
+              flock 9
+              ${lib.getExe claude} --version >/dev/null
+              trust "$dir"
+              exec 9>&-
+
+              GH_TOKEN=$(cat "${ghToken}")
+              export GH_TOKEN
+              cd "$dir"
+              exec ${lib.getExe claudeUnwrapped} remote-control --name "$name" "$@"
+            }
+
+            # Remote Control refuses an untrusted directory when nobody is at a
+            # terminal to confirm it, and on its first run it waits on stdin for
+            # "Enable Remote Control? (y/n)" - forever, under systemd, while the
+            # unit reports active. These are the records the two answers write.
+            trust() {
+              local config="$HOME/.claude.json" tmp
+              [ -f "$config" ] || echo '{}' >"$config"
+              tmp=$(mktemp "$config.XXXXXX")
+              jq --arg dir "$1" '.projects[$dir].hasTrustDialogAccepted = true | .remoteDialogSeen = true' "$config" >"$tmp"
+              mv "$tmp" "$config"
+            }
+
+            main "$@"
+          '';
+        };
+    in
+    {
+      repo = launcher "factory-rc" ''
+        ${builtins.readFile ./ctl/paths.sh}
 
         main() {
           local name="''${1:?usage: factory-rc <repo>}"
           check_repo_name "$name"
-          local dir="$HOME/repos/$name"
-          [ -d "$dir/.git" ] || { echo "factory-rc: $dir is not a git repository" >&2; exit 1; }
-
-          mkdir -p "$HOME/.claude"
-          exec 9>"$HOME/.claude/.factory.lock"
-          flock 9
-          ${lib.getExe claude} --version >/dev/null
-          trust "$dir"
-          exec 9>&-
-
-          GH_TOKEN=$(cat "${ghToken}")
-          export GH_TOKEN
-          cd "$dir"
-          exec ${lib.getExe claudeUnwrapped} remote-control --name "$name" ${lib.escapeShellArgs remoteControlArgs}
+          is_cloned "$name" || die "$repos_dir/$name is not a git repository"
+          serve "$repos_dir/$name" "$name" ${lib.escapeShellArgs remoteControlArgs.repo}
         }
+      '';
 
-        # Remote Control refuses an untrusted directory when nobody is at a
-        # terminal to confirm it, and on its first run it waits on stdin for
-        # "Enable Remote Control? (y/n)" - forever, under systemd, while the
-        # unit reports active. These are the records the two answers write.
-        trust() {
-          local config="$HOME/.claude.json" tmp
-          [ -f "$config" ] || echo '{}' >"$config"
-          tmp=$(mktemp "$config.XXXXXX")
-          jq --arg dir "$1" '.projects[$dir].hasTrustDialogAccepted = true | .remoteDialogSeen = true' "$config" >"$tmp"
-          mv "$tmp" "$config"
+      admin = launcher "factory-rc-admin" ''
+        main() {
+          local dir="${adminDir}"
+          mkdir -p "$dir"
+          serve "$dir" admin ${lib.escapeShellArgs remoteControlArgs.admin}
         }
-
-        main "$@"
       '';
     };
 
-  # Clones a repository into ~/repos/<name> and starts its server. Idempotent:
-  # an existing clone is kept as it is.
-  factoryAdd = pkgs.writeShellApplication {
-    name = "factory-add";
-    runtimeInputs = [ pkgs.git ];
-    text = ''
-      ${repoNameCheck}
-
-      main() {
-        local url="''${1:?usage: factory-add <git-url> [name]}"
-        local name="''${2:-$(repo_name_from_url "$url")}"
-        check_repo_name "$name"
-        local dir="$HOME/repos/$name"
-
-        if [ -e "$dir" ]; then
-          echo "factory-add: $dir already exists, keeping it."
-        else
-          mkdir -p "$HOME/repos"
-          git clone "$url" "$dir"
-        fi
-
-        systemctl --user start "claude-rc@$name.service"
-        echo "factory-add: $name is served over Remote Control."
-      }
-
-      # git@github.com:owner/repo.git, https://github.com/owner/repo -> repo
-      repo_name_from_url() {
-        local base="''${1##*[/:]}"
-        echo "''${base%.git}"
-      }
-
-      main "$@"
-    '';
+  # Remote Control flags. Both start sessions in auto mode. A repository's
+  # sessions each get their own git worktree, so two sessions in one repository
+  # never edit the same files.
+  remoteControlArgs = {
+    repo = [
+      "--spawn"
+      "worktree"
+      "--capacity"
+      "2"
+      "--permission-mode"
+      "auto"
+    ];
+    admin = [
+      "--spawn"
+      "same-dir"
+      "--capacity"
+      "2"
+      "--permission-mode"
+      "auto"
+    ];
   };
 
-  # Brings every repository up at boot: clones the declared ones that are
-  # missing, then starts a server for each clone in ~/repos - which includes
-  # everything added by hand with factory-add. Starts are sequential, and one
-  # repository that fails does not stop the rest.
+  # Where the admin agent lives, and its server's unit. Shared by the launcher,
+  # factory-ctl and the Home Manager module so they cannot disagree.
+  adminDir = "$HOME/admin";
+  adminUnit = "claude-rc-admin.service";
+
+  # The CLI the admin agent drives the box with, and the only thing its skills
+  # call. Idempotent throughout; see ctl/main.sh for the commands. systemctl,
+  # gh and nix-store come from PATH, like the launchers' systemctl: the unit
+  # and login environments provide them, and the check substitutes doubles.
   #
-  #   repos - attrset of directory name -> clone URL
-  mkStartAll =
-    repos:
+  #   opsStateDir    - where the root units record their results
+  #   deployRepo     - owner/repo of this flake, which deploys are requested on
+  #   deployWorkflow - the workflow file that requests them
+  mkCtl =
+    {
+      opsStateDir,
+      deployRepo,
+      deployWorkflow,
+    }:
     pkgs.writeShellApplication {
-      name = "factory-start-all";
-      runtimeInputs = [ factoryAdd ];
+      name = "factory-ctl";
+      runtimeInputs = with pkgs; [
+        coreutils
+        findutils
+        gawk
+        gnugrep
+        gnused
+        git
+        jq
+        procps
+        util-linux
+      ];
       text = ''
-        status=0
+        ops_state_dir=${lib.escapeShellArg opsStateDir}
+        deploy_repo=${lib.escapeShellArg deployRepo}
+        deploy_workflow=${lib.escapeShellArg deployWorkflow}
 
-        ${lib.concatStrings (
-          lib.mapAttrsToList (name: url: ''
-            factory-add ${lib.escapeShellArg url} ${lib.escapeShellArg name} || status=1
-          '') repos
-        )}
+        admin_dir="${adminDir}"
+        admin_unit=${adminUnit}
 
-        for dir in "$HOME"/repos/*/; do
-          [ -d "$dir.git" ] || continue
-          systemctl --user start "claude-rc@$(basename "$dir").service" || status=1
-        done
-
-        exit "$status"
+        ${lib.concatMapStrings builtins.readFile [
+          ./ctl/paths.sh
+          ./ctl/lib.sh
+          ./ctl/repo.sh
+          ./ctl/sessions.sh
+          ./ctl/status.sh
+          ./ctl/disk.sh
+          ./ctl/ops.sh
+          ./ctl/main.sh
+        ]}
       '';
     };
 
-  # A repository name becomes a directory and a systemd instance name, so it is
-  # held to what is safe as both.
-  repoNameCheck = ''
-    check_repo_name() {
-      case "$1" in
-        "" | .* | *[!A-Za-z0-9._-]*)
-          echo "invalid repository name '$1' (expected [A-Za-z0-9._-], not starting with '.')" >&2
-          exit 1
-          ;;
-      esac
-    }
-  '';
+  # The root side of deploys: polls this host's GitHub deployments, builds the
+  # pending one if its commit is on main, and switches behind a health gate.
+  # curl, nix, nix-env, tailscale and systemctl come from the unit's PATH.
+  #
+  #   repo          - owner/repo of this flake
+  #   host          - the nixosConfigurations attribute to build
+  #   environment   - the GitHub environment deployments are created for
+  #   tokenFile     - a token that may read and write this repo's deployments
+  #   stateDir      - where results are recorded, readable by the agent account
+  #   profile       - the system profile
+  #   currentSystem - the running system
+  #   healthAttempts - health checks, 5s apart, before rolling back
+  mkDeploy =
+    {
+      repo,
+      host,
+      environment,
+      tokenFile,
+      stateDir,
+      profile ? "/nix/var/nix/profiles/system",
+      currentSystem ? "/run/current-system",
+      healthAttempts ? 18,
+    }:
+    rootScript "factory-deploy" ./ops/deploy.sh ''
+      repo=${lib.escapeShellArg repo}
+      host=${lib.escapeShellArg host}
+      environment=${lib.escapeShellArg environment}
+      token_file=${lib.escapeShellArg tokenFile}
+      state_dir=${lib.escapeShellArg stateDir}
+      profile=${lib.escapeShellArg profile}
+      current_system=${lib.escapeShellArg currentSystem}
+      health_attempts=${toString healthAttempts}
+    '';
 
+  # rollback | reboot | gc, run as root by fixed units.
+  mkMaintenance =
+    {
+      stateDir,
+      profile ? "/nix/var/nix/profiles/system",
+    }:
+    rootScript "factory-maintenance" ./ops/maintenance.sh ''
+      state_dir=${lib.escapeShellArg stateDir}
+      profile=${lib.escapeShellArg profile}
+    '';
+
+  rootScript =
+    name: script: settings:
+    pkgs.writeShellApplication {
+      inherit name;
+      runtimeInputs = with pkgs; [
+        coreutils
+        findutils
+        gnused
+        jq
+        util-linux
+      ];
+      text = ''
+        ${settings}
+        ${builtins.readFile ./ops/state.sh}
+        ${builtins.readFile script}
+      '';
+    };
+
+  # The admin agent's project: instructions, permissions and skills, rendered
+  # into ~/admin by modules/home/factory/admin.nix. Project-scoped on purpose:
+  # the flavor wrapper relinks ~/.claude/skills for every agent of this
+  # account, so skills there would reach the repository agents too.
+  admin = {
+    instructions = ./admin/CLAUDE.md;
+    settings = pkgs.writeText "admin-settings.json" (
+      builtins.toJSON {
+        permissions.allow = [
+          "Bash(factory-ctl)"
+          "Bash(factory-ctl *)"
+        ];
+      }
+    );
+    skills = lib.mapAttrs (name: _: ./admin/skills + "/${name}") (
+      lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./admin/skills)
+    );
+  };
+
+  # Boot: clones the declared repositories that are missing and starts every
+  # enabled one.
+  #
+  #   repos - attrset of directory name -> clone URL
+  mkBoot =
+    ctl: repos:
+    pkgs.writeShellApplication {
+      name = "factory-boot";
+      text = ''
+        exec ${lib.getExe ctl} boot ${
+          lib.escapeShellArgs (
+            lib.concatLists (
+              lib.mapAttrsToList (name: url: [
+                name
+                url
+              ]) repos
+            )
+          )
+        }
+      '';
+    };
   # nftables table that keeps the agent account (`uid`) away from everything
   # private while leaving the internet open: the tailnet, private networks and
   # the cloud metadata service. Matching the uid covers every process the
@@ -222,8 +338,11 @@ in
     managedSettingsValue
     remoteControlArgs
     mkRemoteControl
-    factoryAdd
-    mkStartAll
+    mkCtl
+    mkBoot
+    mkDeploy
+    mkMaintenance
+    admin
     mkEgressRules
     ;
 }
