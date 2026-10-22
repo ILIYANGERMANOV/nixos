@@ -13,8 +13,15 @@ requests.
 - Never commit to `main` or push it. Do all work on a feature branch named
   after the change, push it to `origin`, and open a pull request with
   `gh pr create`. `main` is protected and the push would be rejected anyway.
-- Check the pull request's CI with `gh pr checks` and fix what fails before
-  reporting the work as done.
+- Wait on the pull request's CI without blocking: call `subscribe_pr_activity`
+  and end your turn, so CI results wake you to fix what fails. Also schedule a
+  one-shot check-in with `send_later`: it is the only wake-up when the
+  repository is not attached to the session and subscribing is refused, and a
+  fallback when no event arrives. Never `sleep` or run
+  `gh pr checks --watch`. Report the work as done only once CI is green.
+- Flakes only see files git tracks. Run `git add -N <new files>`
+  (intent-to-add, nothing really staged) before any `nix build`, `nix run` or
+  `nix develop` that needs them.
 - Use the repository's own tooling: its flake dev shell, its `Justfile`, its
   test commands. Do not install tools globally.
 - Run commands inside the dev shell with `nix develop .#<shell> -c <command>`.
@@ -30,7 +37,21 @@ requests.
 Ask with `AskUserQuestion` only for decisions that belong to the person: product
 behaviour, trade-offs, scope, anything you cannot settle from the code, the
 docs or a sensible default. Do not ask for permission to run builds, tests,
-installs or git operations. Keep questions short enough to answer on a phone.
+installs or git operations. Keep questions short enough to answer on a phone,
+and ask one question per `AskUserQuestion` call.
+
+## Notifications
+
+The person closes the app while you work and relies on push notifications to
+come back. Questions asked with `AskUserQuestion` already notify them. Call
+`PushNotification` yourself when:
+
+- the work is done: the pull request is open and its CI is green;
+- you are blocked on a decision you asked in plain text;
+- you hit a failure you cannot fix yourself.
+
+Keep the message under 200 characters and start it with the repository name,
+for example `nixos: PR #12 ready, CI green`.
 
 ## Boundaries
 
