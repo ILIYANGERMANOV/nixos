@@ -318,8 +318,22 @@ into `~/repos` using the bot's key from step 14.
 
 1. Open the **Claude** app, sign in, and go to **Code**. If Trusted Devices
    asks, enrol the phone (fingerprint or face).
-2. Android Settings > Apps > Claude > Battery: **Unrestricted**, so "needs your
-   input" notifications arrive.
+2. Android Settings > Apps > Claude > Battery: **Unrestricted**, so
+   notifications arrive. Two kinds reach the phone, both through the Claude app:
+   - **needs your input**: sent by the app itself when an agent asks a
+     question or waits on a permission prompt;
+   - **agent-sent**: the factory instructions tell agents to call
+     `PushNotification` when the work is done (PR open, CI green), when they are
+     blocked on a plain-text question, or when they hit a failure they cannot
+     fix.
+
+   These are the **Push when actions required** and **Push when Claude
+   decides** toggles in `/config` of any interactive `claude` signed in to the
+   same account. They are account-wide preferences on the server, so if
+   agent-sent pushes never arrive, check the second one is on. Android delivery has an open bug
+   ([claude-code#87003](https://github.com/anthropics/claude-code/issues/87003)):
+   if pushes stop arriving, the fallback is Claude Code hooks posting to ntfy.sh
+   (#194).
 3. You should see an `admin` server, and one Remote Control server per
    repository, named after it.
 4. For SSH from the phone (recovery, Part 5): install **Termux**
@@ -336,7 +350,8 @@ Open the `deslop` server, start a session, and ask for something small: "add a
 sentence to the README and open a PR". You should get:
 
 - a branch pushed and a pull request opened by the bot, with Verified commits;
-- a notification on the phone if the agent asks you anything.
+- a notification on the phone if the agent asks you anything, and another
+  when the pull request is open and CI is green.
 
 ---
 
