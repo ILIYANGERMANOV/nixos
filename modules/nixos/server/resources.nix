@@ -28,6 +28,26 @@ let
       };
     };
 
+    # 4 vCPU, 8 GB, 80 GB disk (e.g. Hetzner CX33). One build at a time on all
+    # four cores; the agents get most of the memory, since idle Remote Control
+    # servers cost about 70 MB each and a live session about 250 MB.
+    medium = {
+      agents = {
+        high = "5G";
+        max = "5632M";
+      };
+      builds = {
+        high = "4G";
+        max = "5G";
+        jobs = 1;
+        cores = 4;
+      };
+      disk = {
+        minFree = 8;
+        maxFree = 20;
+      };
+    };
+
     # 8 vCPU, 16 GB, 160 GB disk (e.g. Hetzner CX43). Two builds at a time,
     # four cores each, leaving the agents themselves some.
     standard = {
@@ -55,7 +75,8 @@ in
     type = lib.types.enum (lib.attrNames sizes);
     description = ''
       The machine the server runs on, which sets its memory, build and disk
-      limits. `small` is 2 vCPU / 4 GB, `standard` is 8 vCPU / 16 GB.
+      limits. `small` is 2 vCPU / 4 GB, `medium` 4 vCPU / 8 GB, `standard` 8 vCPU /
+      16 GB.
     '';
   };
 

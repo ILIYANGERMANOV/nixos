@@ -19,16 +19,21 @@
       "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIKrxuyp7hrI5IKNj7wltctEH6L7EUqqbgr/ePF/OYjy7AAAADnNzaDptYWNvcy1tYWlu"
     ];
 
-    # Hetzner CPX22 (2 vCPU, 4 GB) while experimenting. Switch to "standard"
-    # on an 8 vCPU / 16 GB machine.
-    factory.size = "small";
+    factory = {
+      # Hetzner CX33 (4 vCPU, 8 GB). Switch to "standard" on an 8 vCPU / 16 GB
+      # machine.
+      size = "medium";
 
-    # Public repositories only - private ones are added on the box with
-    # factory-add and never named here.
-    factory.repos = {
-      nixos = "git@github.com:ILIYANGERMANOV/nixos.git";
-      deslop = "git@github.com:Ivy-Apps/deslop.git";
-      haskell-template = "git@github.com:Ivy-Apps/haskell-template.git";
+      # Deploys are pulled from this repository (modules/nixos/server/ops.nix).
+      deploy.repo = "ILIYANGERMANOV/nixos";
+
+      # Public repositories only - private ones are added on the box with
+      # `factory-ctl start` and never named here.
+      repos = {
+        nixos = "git@github.com:ILIYANGERMANOV/nixos.git";
+        deslop = "git@github.com:Ivy-Apps/deslop.git";
+        haskell-template = "git@github.com:Ivy-Apps/haskell-template.git";
+      };
     };
 
     secrets = {

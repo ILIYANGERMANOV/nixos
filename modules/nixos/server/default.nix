@@ -21,6 +21,7 @@
     ./resources.nix
     ./nix-ld.nix
     ./claude-policy.nix
+    ./ops.nix
   ];
 
   options.myConfig.factory.repos = lib.mkOption {
@@ -32,7 +33,9 @@
     description = ''
       Repositories cloned into ~/repos/<name> and served over Remote Control,
       keyed by directory name. Public repositories only: this list is committed
-      to a public repo. Anything private is added on the box with factory-add.
+      to a public repo. Anything private is added on the box with
+      `factory-ctl start`. Declared repositories are only bootstrapped: once
+      cloned, whether one runs is up to `factory-ctl start` and `stop`.
     '';
   };
 }

@@ -41,10 +41,11 @@
       ];
     };
 
-    gc = {
-      automatic = true;
-      dates = "weekly";
-      options = "--delete-older-than 14d";
-    };
+    # Garbage is collected by factory-gc (ops.nix), which keeps exactly the two
+    # generations a rollback can reach instead of an age cut-off.
+    gc.automatic = false;
   };
+
+  # The boot menu offers the same two generations.
+  boot.loader.grub.configurationLimit = 2;
 }

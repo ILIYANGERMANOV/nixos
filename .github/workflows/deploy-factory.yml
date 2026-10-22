@@ -1,0 +1,48 @@
+name: Deploy software-factory
+
+# Requests a deploy of main's tip to the software-factory server, from the
+# Actions tab or with `factory-ctl deploy` on the server. The server polls for
+# the deployment this creates and builds it itself, so GitHub holds no
+# credential to the server.
+#
+# The `if:` below is a convenience, not the boundary: a branch can carry its own
+# copy of this file, and anyone with write access can create a deployment
+# through the API. The server checks that the commit is main's tip before it
+# builds anything. See docs/adr/0007-software-factory.md.
+
+on: workflow_dispatch
+
+permissions:
+  checks: read
+  deployments: write
+
+concurrency:
+  group: deploy-factory
+  cancel-in-progress: false
+
+jobs:
+  request:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # The jobs of check.yml, which runs on every push to main.
+      - name: Require green CI on this commit
+        run: |
+          conclusions=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name == "check" or .name == "cache-guard") | "\(.name)=\(.conclusion)"] | sort | join(" ")')
+          echo "CI on $GITHUB_SHA: ${conclusions:-none}"
+          [ "$conclusions" = "cache-guard=success check=success" ] || {
+            echo "::error::CI has not passed on $GITHUB_SHA yet. Wait for it, or fix main."
+            exit 1
+          }
+
+      # required_contexts is empty because the step above already checked CI,
+      # and GitHub would otherwise demand every status on the commit.
+      - name: Create the deployment
+        run: |
+          jq -n --arg ref "$GITHUB_SHA" --arg actor "$GITHUB_ACTOR" \
+            '{ref: $ref, environment: "software-factory", description: "Requested by \($actor)", auto_merge: false, required_contexts: []}' |
+            gh api "repos/$GITHUB_REPOSITORY/deployments" --input -
+          echo "Requested a deploy of $GITHUB_SHA. The server picks it up within a minute."
