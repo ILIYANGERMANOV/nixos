@@ -397,8 +397,8 @@ What happens:
 1. The workflow refuses unless `check` and `cache-guard` passed on main's tip,
    then creates a GitHub deployment for that commit. GitHub holds no credential
    to the server.
-2. Within a minute the server sees it, checks the commit is on `main`, and
-   builds it - on the server, with all of its cores.
+2. Within a minute the server sees it, checks the commit is still the tip of
+   `main`, and builds it - on the server, with all of its cores.
 3. It activates the new system and checks it can still be reached: Tailscale
    up, sshd running, GitHub answering. If not, it switches straight back.
    Only a healthy system becomes the boot default.

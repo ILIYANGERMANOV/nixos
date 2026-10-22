@@ -7,7 +7,7 @@ name: Deploy software-factory
 #
 # The `if:` below is a convenience, not the boundary: a branch can carry its own
 # copy of this file, and anyone with write access can create a deployment
-# through the API. The server checks that the commit is on main before it
+# through the API. The server checks that the commit is main's tip before it
 # builds anything. See docs/adr/0007-software-factory.md.
 
 on: workflow_dispatch

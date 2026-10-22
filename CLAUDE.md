@@ -245,8 +245,8 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   project-scoped to `~/admin` on purpose - never add them to the shared skill
   catalog, which every agent of the account loads.
 - **Deploys are pulled, never pushed.** `factory-deploy` (`modules/nixos/server/ops.nix`)
-  polls this repository's GitHub deployments, verifies the commit is on
-  `main`, and switches behind a health gate. Root units it adds must set
+  polls this repository's GitHub deployments, verifies the commit is the tip
+  of `main`, and switches behind a health gate. Root units it adds must set
   `restartIfChanged = false`, and Remote Control units keep
   `X-SwitchMethod = keep-old`, or a deploy kills its own caller.
 - The `claude-factory` flavor is `factory` in `programs/claude-code`, deliberately

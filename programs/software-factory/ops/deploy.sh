@@ -3,7 +3,9 @@
 # Run every minute by a timer. The workflow that creates deployments
 # (.github/workflows/deploy-factory.yml) is a convenience, not the boundary:
 # anyone with write access can create a deployment through the API, so the
-# commit is checked here to be on main before anything is built.
+# commit is checked here to be main's tip before anything is built. An older
+# commit of main is refused too, or a deployment could roll the server back to
+# a configuration that predates a fix.
 #
 # The new system is activated with `test` first, so a reboot still boots the
 # old one. Only once the health gate passes does it become the boot default.
@@ -29,7 +31,7 @@ main() {
 
 deploy() {
   local new old
-  on_main "$sha" || fail "$sha is not on main"
+  is_main_tip "$sha" || fail "$sha is not the tip of main"
   new=$(nix build --no-link --print-out-paths \
     "github:$repo/$sha#nixosConfigurations.$host.config.system.build.toplevel") ||
     fail "Build failed, nothing changed"
@@ -52,14 +54,8 @@ fail() {
   report failure "$1"
   exit 1
 }
-# The compare API answers "identical" or "behind" when main contains the commit.
-on_main() {
-  local status
-  status=$(api GET "/repos/$repo/compare/main...$1" | jq -r .status)
-  case "$status" in
-    identical | behind) return 0 ;;
-    *) return 1 ;;
-  esac
+is_main_tip() {
+  [ "$(api GET "/repos/$repo/commits/main" | jq -r .sha)" = "$1" ]
 }
 
 # Reachable again the way it was reached before: tailscale up, sshd running,

@@ -108,9 +108,9 @@ These are deliberate, and recorded so they are not mistaken for oversights.
   share one, so a prompt-injected repository agent could also deploy, roll
   back, reboot or collect garbage. That costs availability, not secrets: none
   of these units reveals the Claude login, the SSH key or a token, and a deploy
-  only ever builds a commit already on `main`. Reboots are refused within 10
-  minutes of boot so a loop cannot keep the box down. Each run is recorded
-  for `factory-ctl status` and in the journal.
+  only ever builds the current tip of `main`, never an older commit of it.
+  Reboots are refused within 10 minutes of boot so a loop cannot keep the box
+  down. Each run is recorded for `factory-ctl status` and in the journal.
 - **The server pulls its configuration from GitHub.** Whoever can merge to
   `main` decides what the server runs - which was already true when deploys
   were run by hand from `main`. The deploy token can only read and report this

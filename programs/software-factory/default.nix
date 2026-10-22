@@ -209,7 +209,8 @@ let
     };
 
   # The root side of deploys: polls this host's GitHub deployments, builds the
-  # pending one if its commit is on main, and switches behind a health gate.
+  # pending one if its commit is the tip of main, and switches behind a health
+  # gate.
   # curl, nix, nix-env, tailscale and systemctl come from the unit's PATH.
   #
   #   repo          - owner/repo of this flake

@@ -313,7 +313,7 @@ deploy_reset() {
   printf 'github_pat_secret' >"$work/deploy-token"
   echo '[{"id": 7, "sha": "abc123"}]' >"$GH/deployments.json"
   echo '[]' >"$GH/statuses.json"
-  echo '{"status": "behind"}' >"$GH/compare.json"
+  echo '{"sha": "abc123"}' >"$GH/main.json"
 }
 posted() { jq -s -r 'map(.state) | join(" ")' "$GH/posted"; }
 
@@ -327,7 +327,7 @@ echo '[{"state": "success"}]' >"$GH/statuses.json"
 factory-deploy
 not_called "nix "
 
-echo "factory-deploy: builds a commit on main, tests it, then makes it the boot default"
+echo "factory-deploy: builds the tip of main, tests it, then makes it the boot default"
 deploy_reset
 factory-deploy >/dev/null
 called "nix build --no-link --print-out-paths github:owner/nixos/abc123#nixosConfigurations.software-factory.config.system.build.toplevel"
@@ -342,14 +342,12 @@ echo "factory-deploy: the token travels in curl's config, never in argv"
 grep -q 'github_pat_secret' "$GH/config" || fail "the token was not sent"
 grep -q 'github_pat_secret' "$CALLS" && fail "the token appeared in argv"
 
-echo "factory-deploy: refuses a commit that is not on main"
-for status in ahead diverged; do
-  deploy_reset
-  echo "{\"status\": \"$status\"}" >"$GH/compare.json"
-  exits 1 factory-deploy
-  not_called "nix build"
-  [ "$(posted)" = "in_progress failure" ] || fail "posted $(posted) for $status"
-done
+echo "factory-deploy: refuses anything but the tip of main, so an older commit of it cannot be deployed"
+deploy_reset
+echo '{"sha": "def456"}' >"$GH/main.json"
+exits 1 factory-deploy
+not_called "nix build"
+[ "$(posted)" = "in_progress failure" ] || fail "posted $(posted)"
 
 echo "factory-deploy: a failed build changes nothing"
 deploy_reset

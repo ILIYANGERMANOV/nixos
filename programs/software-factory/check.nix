@@ -135,7 +135,7 @@ let
       "GET https://api.github.com/zen") [ ! -e "$GH/github-down" ] ;;
       "GET "*/deployments\?*) cat "$GH/deployments.json" ;;
       "GET "*/statuses\?*) cat "$GH/statuses.json" ;;
-      "GET "*/compare/*) cat "$GH/compare.json" ;;
+      "GET "*/commits/main) cat "$GH/main.json" ;;
       "POST "*/statuses) { cat "$body"; echo; } >>"$GH/posted"; echo '{}' ;;
       *) echo "fake curl: unexpected $method $url" >&2; exit 22 ;;
     esac
