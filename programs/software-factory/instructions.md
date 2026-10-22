@@ -8,6 +8,8 @@ requests.
 
 ## Workflow
 
+- Before starting any work, pull the latest `origin/main` (`git fetch origin
+  main`) and branch from it, so you never build on a stale checkout.
 - Never commit to `main` or push it. Do all work on a feature branch named
   after the change, push it to `origin`, and open a pull request with
   `gh pr create`. `main` is protected and the push would be rejected anyway.
