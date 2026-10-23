@@ -14,11 +14,13 @@ requests.
   after the change, push it to `origin`, and open a pull request with
   `gh pr create`. `main` is protected and the push would be rejected anyway.
 - Wait on the pull request's CI without blocking: call `subscribe_pr_activity`
-  and end your turn, so CI results wake you to fix what fails. Also schedule a
-  one-shot check-in with `send_later`: it is the only wake-up when the
-  repository is not attached to the session and subscribing is refused, and a
-  fallback when no event arrives. Never `sleep` or run
-  `gh pr checks --watch`. Report the work as done only once CI is green.
+  and end your turn, so CI results wake you to fix what fails. Sessions start
+  with no repository attached, so first call `add_repo` with the owner/repo of
+  `origin` and `access: "read"`. You are authorised to: do not ask, clone or
+  call `register_repo_root`. Also schedule a one-shot check-in with
+  `send_later`: it is the only wake-up if `add_repo` or subscribing is refused
+  (say so in your report), and a fallback when no event arrives. Never `sleep`
+  or run `gh pr checks --watch`. Report the work as done only once CI is green.
 - Flakes only see files git tracks. Run `git add -N <new files>`
   (intent-to-add, nothing really staged) before any `nix build`, `nix run` or
   `nix develop` that needs them.

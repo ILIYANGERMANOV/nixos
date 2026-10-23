@@ -134,6 +134,12 @@ claude.ai > **Settings**, signed in with the Max account:
 - **Account** > **Trusted devices** > **Require trusted devices**: **on**.
   Every browser or phone that steers a Remote Control session has to enrol.
   The server enrols itself when it logs in, in step 15.
+- **Connectors** > **GitHub**: **connect** your own GitHub account, and install
+  the Claude GitHub App on every owner the factory works on (your account and
+  `Ivy-Apps`). This is not the bot's token: it is how a session attaches its
+  repository (`add_repo`) and gets woken by CI results and reviews
+  (`subscribe_pr_activity`). Without it agents fall back to one guessed
+  check-in per pull request.
 
 ### 8. The server's age key **[mac]**
 
@@ -351,7 +357,8 @@ sentence to the README and open a PR". You should get:
 
 - a branch pushed and a pull request opened by the bot, with Verified commits;
 - a notification on the phone if the agent asks you anything, and another
-  when the pull request is open and CI is green.
+  when the pull request is open and CI is green;
+- the agent woken by the CI result, not only by its `send_later` check-in.
 
 ---
 
@@ -481,6 +488,11 @@ just factory-deploy        # YubiKey touch, then the admin password for sudo
   - **not logged in:** repeat step 15;
   - **"Workspace not trusted":** restart the unit, which re-writes the trust
     record.
+- **Agents say `add_repo` or `subscribe_pr_activity` was refused:**
+  - "link your GitHub account": redo the GitHub connector in step 7;
+  - "not configured for this session" on a repository `list_repos` does not
+    show: the Claude GitHub App is not installed on that owner, or not granted
+    that repository.
 - **Clones fail [factory]:**
   - test the bot's access with `ssh -T git@github.com`. It should greet the bot
     by name;
