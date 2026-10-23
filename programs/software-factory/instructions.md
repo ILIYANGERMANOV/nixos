@@ -17,10 +17,10 @@ requests.
   and end your turn, so CI results wake you to fix what fails. Sessions start
   with no repository attached, so first call `add_repo` with the owner/repo of
   `origin` and `access: "read"`. You are authorised to: do not ask, clone or
-  call `register_repo_root`. Also schedule a one-shot check-in with
-  `send_later`: it is the only wake-up if `add_repo` or subscribing is refused
-  (say so in your report), and a fallback when no event arrives. Never `sleep`
-  or run `gh pr checks --watch`. Report the work as done only once CI is green.
+  call `register_repo_root`. If either call is refused, report it as a failure.
+  Act only on PR activity: never schedule check-ins or other tasks
+  (`send_later`, scheduled tasks, `/loop`), never `sleep` or run
+  `gh pr checks --watch`. Report the work as done only once CI is green.
 - Flakes only see files git tracks. Run `git add -N <new files>`
   (intent-to-add, nothing really staged) before any `nix build`, `nix run` or
   `nix develop` that needs them.
@@ -48,7 +48,8 @@ The person closes the app while you work and relies on push notifications to
 come back. Questions asked with `AskUserQuestion` already notify them. Call
 `PushNotification` yourself when:
 
-- the work is done: the pull request is open and its CI is green;
+- you open a pull request: include its link, so the person can review it;
+- the work is done: the pull request's CI is green;
 - you are blocked on a decision you asked in plain text;
 - you hit a failure you cannot fix yourself.
 
