@@ -134,6 +134,12 @@ claude.ai > **Settings**, signed in with the Max account:
 - **Account** > **Trusted devices** > **Require trusted devices**: **on**.
   Every browser or phone that steers a Remote Control session has to enrol.
   The server enrols itself when it logs in, in step 15.
+- **Connectors** > **GitHub**: **connect** your own GitHub account, and install
+  the Claude GitHub App on every owner the factory works on (your account and
+  `Ivy-Apps`). This is not the bot's token: it is how a session attaches its
+  repository (`add_repo`) and gets woken by CI results and reviews
+  (`subscribe_pr_activity`). Without it agents are never woken by their pull
+  requests.
 
 ### 8. The server's age key **[mac]**
 
@@ -323,9 +329,9 @@ into `~/repos` using the bot's key from step 14.
    - **needs your input**: sent by the app itself when an agent asks a
      question or waits on a permission prompt;
    - **agent-sent**: the factory instructions tell agents to call
-     `PushNotification` when the work is done (PR open, CI green), when they are
-     blocked on a plain-text question, or when they hit a failure they cannot
-     fix.
+     `PushNotification` when they open a PR (with its link), when the work is
+     done (CI green), when they are blocked on a plain-text question, or when
+     they hit a failure they cannot fix.
 
    These are the **Push when actions required** and **Push when Claude
    decides** toggles in `/config` of any interactive `claude` signed in to the
@@ -350,8 +356,9 @@ Open the `deslop` server, start a session, and ask for something small: "add a
 sentence to the README and open a PR". You should get:
 
 - a branch pushed and a pull request opened by the bot, with Verified commits;
-- a notification on the phone if the agent asks you anything, and another
-  when the pull request is open and CI is green.
+- a notification on the phone if the agent asks you anything, one with the
+  link when the pull request is opened, and another when CI is green, sent
+  after the CI result woke the agent.
 
 ---
 
@@ -481,6 +488,11 @@ just factory-deploy        # YubiKey touch, then the admin password for sudo
   - **not logged in:** repeat step 15;
   - **"Workspace not trusted":** restart the unit, which re-writes the trust
     record.
+- **Agents say `add_repo` or `subscribe_pr_activity` was refused:**
+  - "link your GitHub account": redo the GitHub connector in step 7;
+  - "not configured for this session" on a repository `list_repos` does not
+    show: the Claude GitHub App is not installed on that owner, or not granted
+    that repository.
 - **Clones fail [factory]:**
   - test the bot's access with `ssh -T git@github.com`. It should greet the bot
     by name;
