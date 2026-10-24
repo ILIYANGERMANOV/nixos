@@ -52,6 +52,7 @@ let
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
     "engineer" # /engineer - deliver a feature end to end, explicit invocation only
     "engineering" # coding style and engineering principles, model-invoked on any code work
+    "give-feedback" # /give-feedback - apply quick bulleted feedback to a PR in rounds, explicit invocation only
     "grilling" # fork of mattpocock's grilling, one picker question at a time; grill-me and grill-with-docs delegate to it
     "pr-description" # PR body from the repo template or a default format, model-invoked before gh pr create
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
