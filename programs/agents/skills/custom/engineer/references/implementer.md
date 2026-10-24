@@ -5,7 +5,8 @@ the `engineering` skill. The orchestrator refactors and reviews the whole
 branch afterwards, so do not run the `refactor` or `pragmatic-review` skill.
 
 Build the simplest thing that meets the slice. Skip a rare edge case whose fix
-is complex or flaky, and list each one you skipped in your report.
+is complex or flaky, unless a miss corrupts data or opens a security hole, and
+list each one you skipped in your report.
 
 ## Small slice: do it yourself
 

@@ -19,7 +19,7 @@ it; an N+1 or O(n^2) over unbounded data on a hot path; global mutable state
 holding per-request data; catching every error and carrying on; a blocking call
 on an async path; a dependency pulled in for a five-line helper; an existing
 layer bypassed or a boundary reached through; an option, layer or abstraction
-nobody asked for; a complex or flaky fix for a rare edge case.
+nobody asked for; a complex or flaky fix for a rare, harmless edge case.
 
 A scream is **minor**, unless it is broken today - the heap exhausted, the
 error swallowed with the data - and then **major**. Name the concrete
