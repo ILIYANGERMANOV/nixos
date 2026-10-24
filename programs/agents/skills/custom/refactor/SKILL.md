@@ -34,6 +34,10 @@ directory, and a `..` path does not resolve between installed skills.
 Fail fast if the ref does not resolve or the diff is empty. Scope notes narrow
 or widen what the plan covers; follow them.
 
+Read lean and aim to finish under about 100k of context: the diff hunks, not
+whole modules. Read past a hunk only for the range it needs, and find
+duplicates and existing helpers with `grep -rn`, not by reading files.
+
 ## 3. Plan
 
 Look at the diff, in this order:
@@ -101,12 +105,14 @@ item's cost in the option descriptions. Wait for each answer.
 
 ## 5. Apply
 
-- Apply the approved items, one at a time.
+- Apply the approved items in batches of related edits, as few calls as each
+  batch allows.
 - Keep behaviour identical: same inputs, same outputs, same errors, same side
   effects. Do not fix a bug you find on the way; note it for the report.
-- Run the repo's own checks and tests for what you changed - its `Justfile`,
-  its flake checks, its test command. A failure means the refactor changed
-  behaviour or broke something: fix or revert that item.
+- After each batch run the quickest check that covers it; at the end run the
+  repo's full checks and tests once - its `Justfile`, its flake checks, its
+  test command. A failure means the refactor changed behaviour or broke
+  something: fix or revert that item.
 - Commit with a message naming what was refactored, and push the branch. Never
   force-push, never push `main`.
 

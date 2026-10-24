@@ -21,9 +21,9 @@ CI. You own the outcome; the user owns the decisions.
 - **Facts are yours, decisions are theirs.** Research facts with subagents;
   never ask the user something the code, the docs or a tool can answer.
 - **You answer the skills you invoke.** `refactor` asks which big items are in
-  scope; `pragmatic-review` asks which findings survive and what to do with
-  them. Answer those pickers yourself - unless the answer is a product, scope
-  or design decision, which goes to the user.
+  scope; you choose which review findings get fixed. Answer those yourself -
+  unless the answer is a product, scope or design decision, which goes to the
+  user.
 - **Protect your context window.** Delegate reading, implementing, verification
   and log triage to subagents and keep only their conclusions. Run them in the
   background by default.
@@ -50,12 +50,13 @@ goals, decisions, out of scope. The plan is now visible from the phone.
 
 ### 3. Implement
 
-Delegate to subagents. One subagent explores and implements a self-contained
-slice, because splitting exploring from implementing makes the implementer
-re-read everything. Run slices in parallel only when they are independent - no
-shared files, no ordering between them. Give each subagent the plan, its slice,
-the `engineering` skill to follow and the checks to run, and have it commit and
-report back what it did and what it proved.
+Delegate to implementer subagents. One implementer explores and implements a
+self-contained slice, because splitting exploring from implementing makes it
+re-read everything. A very large task gets several implementers, one after
+another, or in parallel only when they are independent - no shared files, no
+ordering between them. Give each the plan, its slice, the checks to run and the
+path `${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
+small slice itself and splits a large one across fresh sub-implementers.
 
 ### 4. Refactor
 
@@ -63,18 +64,22 @@ Run the `refactor` skill on the branch.
 
 ### 5. Review
 
-Run `pragmatic-review`, with requirements stating what must hold where you are
-least sure of the implementation. Fix what it finds: keep the findings worth fixing and choose
-**Fix + commit & push**.
+Run each review pass in a fresh review subagent. It invokes `pragmatic-review`,
+answers none of its pickers and hands back only the findings table, in about
+400 words or fewer. You choose the findings worth fixing and hand them to a
+fixer subagent that commits and pushes.
+
+Pass 1 is a first review, with requirements stating what must hold where you
+are least sure of the implementation. Note the head sha it reviewed.
 
 ### 6. Review again, for the last time
 
-Run `pragmatic-review` a second and final time, on the fixed branch. No more
-reviews after this one, whatever it finds.
+Pass 2 is a re-review of the fixes since the pass-1 sha. No more reviews after
+this one, whatever it finds.
 
 ### 7. Final fix
 
-Fix only what is safe and small. Anything bigger goes in the PR body as known
+Through a fixer, fix only what is safe and small. Anything bigger goes in the PR body as known
 follow-up work, or to the user as a question if it blocks the feature.
 
 ### 8. Hand over

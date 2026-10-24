@@ -29,13 +29,25 @@ Base instructions for every agent.
 - Trust a subagent's verified report and the CI results. After a follow-up
   edit, re-run only the checks that edit affects, and never re-fetch package
   indexes.
+- Hand back in 300 words or fewer. Detail goes in commits, the PR or a file.
+  Relay a hand-back to the user only when it changes what they need to know.
 
-## Reading files
+## Context budget
 
-- Read one file per command, or `grep -n` first and then read just that range
-  with `sed -n`. Do not `cat` several large files in one command: output over
-  the inline limit is spilled to a file, and reading that back pays for it
-  twice.
+Every call re-sends the whole context, so a large agent pays for it on every
+step.
+
+- Stay under about 220k tokens of context. Past it, commit, push if the branch
+  is pushed, hand back a short note - files touched, decisions, what remains,
+  how to verify - and stop. The orchestrator continues with a fresh agent
+  briefed from that note.
+- Never send new scope to a large agent: start a fresh one.
+- The prompt cache expires after about 5 minutes idle. Never resume a large
+  agent after a gap; spawn a fresh one from a summary.
+- Subagents never wait on CI or long builds: they hand back, and the parent
+  waits.
+- Fanning out in parallel, launch one agent first and the rest after it, so
+  they share its cached prefix.
 
 ## Writing style
 
