@@ -31,7 +31,9 @@ yours.
 One further override: the `engineering` and `ui-coding` skills are this user's
 decided rules, not opinions. If your brief is `scream.md`, a plain violation of
 a rule written there - DRY included - is a finding even though it would
-otherwise read as taste - the house settled that argument in advance.
+otherwise read as taste - the house settled that argument in advance. If your
+brief is `tests.md`, the same holds for the test rules in the `engineering`
+skill's `references/tests.md`.
 
 ## Severity
 
@@ -40,10 +42,11 @@ Every finding you return carries exactly one severity:
 - **major** - blocks the merge. Security, irreversible damage, broken behaviour
   (the change fails at what it set out to do, or breaks something that worked),
   obviously broken code, and accidental TEMP, WIP or debug commits or leftover
-  debug code.
+  debug code. And a **fake proof**: a test that contradicts the change's intent,
+  a test that can never fail, or a bug fix with no test that was red before it.
 - **minor** - should be fixed, does not block. A plain violation of a written
-  `engineering` or `ui-coding` rule, DRY included, or an approach no competent
-  engineer would choose that still works today.
+  `engineering` or `ui-coding` rule, DRY included, the test rules among them, or
+  an approach no competent engineer would choose that still works today.
 - **nit** - only when it is nearly free to fix and plainly right: a typo in a
   user-facing string, an unused import the diff itself added. Drop every other
   nit.
@@ -55,7 +58,7 @@ major to get it noticed, and do not soften a broken path to minor.
 
 The user may give **requirements**: statements that must hold, such as "no
 behaviour changes" or "the export still works". Every one goes to a dedicated
-**requirement agent**; the three standard agents never carry one.
+**requirement agent**; the standard agents never carry one.
 
 If you are a **requirement agent**, your requirements are your whole job. Verify
 each one **in depth**: read the callers, follow the data, probe the behaviour,
@@ -95,7 +98,10 @@ refactors of code the diff did not touch, and every nit that is not nearly free
 to fix.
 
 A rule written in `engineering` or `ui-coding` is not style, and this list does
-not cover it - see `scream.md`, which owns those.
+not cover it - see `scream.md`, which owns those. Nor does it cover the test
+agent's ground in `tests.md`: new or changed public behaviour with no test at
+any layer is a finding, but asking for another layer, more cases or more
+coverage stays a coverage wish.
 
 ## Scope
 

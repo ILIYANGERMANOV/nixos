@@ -16,7 +16,10 @@ agent answers the questions below in place of the user.
 ## 1. Load the rules
 
 Invoke the `engineering` skill, and `ui-coding` when the diff touches UI, with
-the Skill tool. They are the yardstick; nothing else is.
+the Skill tool. They are the yardstick; nothing else is. When the diff touches
+tests, also read `references/tests.md` from the base directory the Skill tool
+reports for `engineering` - the detailed test rules. It is not in this skill's
+directory, and a `..` path does not resolve between installed skills.
 
 ## 2. Read the diff
 
@@ -52,11 +55,36 @@ Look at the diff, in this order:
    (`// increment i`, a docstring repeating the signature), is stale, or is
    commented-out code. Shorten a useful one to the part the code cannot say:
    the why, an invariant, a trap. Keep every comment that explains why.
-7. **Meaningful tests** - a test the diff adds or changes must fail if the
-   behaviour it names broke. Flag tests that assert nothing, assert only that a
-   mock was called, re-implement the code under test to compute the expected
-   value, or duplicate another test. Fix by asserting the observable outcome,
-   or delete the test. Never weaken an assertion to make it pass.
+7. **Good tests** - bring every test the diff adds or changes up to
+   `engineering/references/tests.md`, at every layer: unit, property-based,
+   differential, end-to-end and goldens. Refactor the tests, not the
+   behaviour they prove:
+   - **Through the public interface** - rewrite a test that pokes a private
+     helper, internal state, call order or a dump of an internal structure to
+     drive the interface and assert what a caller observes.
+   - **Fakes over mocks** - replace a mock of our own code with the real code,
+     and a mock of a boundary with a realistic fake; assert the resulting state
+     instead of the calls.
+   - **Short setup** - extract repeated setup into builders, fixtures or
+     doubles, and reuse the shared ones that already exist. A helper moves to
+     the shared test utilities when a second test file needs it.
+   - **One behaviour per test** - split a test that checks several, name each
+     after the behaviour it pins, and restructure it as Given-When-Then.
+   - **Real properties** - replace a property that re-implements the code with
+     one that states a law, widen a generator that misses the edge cases, and
+     add `cover` / `classify` where a property could pass vacuously.
+   - **Delete meaningless tests** - ones that assert nothing, can never fail,
+     duplicate another or test trivial code, constants or the framework.
+   - **Never weaken an assertion**, and keep every behaviour previously
+     asserted covered by some test: a rewrite that drops a check is a deletion
+     in disguise.
+   - **Run the tests before and after.** Green before, green after, the same
+     behaviours asserted. A test that was red before is not a refactor item;
+     note it for the report.
+
+   Tests the diff touches are **small** items. Rewriting tests across the
+   suite, adding shared fixtures or doubles outside the diff, or deleting tests
+   the diff did not touch are **big** items.
 
 Write the plan as a short numbered list, one line per item: what changes, why
 (the rule it serves), and its size - **small** (inside the diff, a few files) or

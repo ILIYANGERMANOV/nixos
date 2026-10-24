@@ -78,8 +78,9 @@ most:
 
 **Not violations, ever:** anything the rules leave to judgement (`ui-coding`
 says spacing, radius and typography are judgement calls), formatting, naming
-style, import order, missing tests or docs, your own preferences that are not
-written in those skills, and code the diff did not touch.
+style, import order, missing docs, anything about tests - the test agent owns
+those, against `tests.md` - your own preferences that are not written in those
+skills, and code the diff did not touch.
 
 ## Output
 

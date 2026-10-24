@@ -47,6 +47,12 @@ they resolve through the Nix store symlink:
 Read `${CLAUDE_SKILL_DIR}/checklist.md` before starting.
 ```
 
+To read another skill's file, invoke that skill with the Skill tool and read the
+file from the base directory it reports. Never reach for a sibling through
+`${CLAUDE_SKILL_DIR}/..`: every skill is its own store path, so `..` resolves to
+`/nix/store`, not to `~/.claude/skills`. `refactor` and `pragmatic-review` load
+`engineering/references/tests.md` this way.
+
 ## Editing
 
 Skills are symlinked from the Nix store, so they are read-only and a change
