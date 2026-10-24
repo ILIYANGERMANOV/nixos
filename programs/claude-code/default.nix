@@ -28,6 +28,7 @@ let
     mkHttpServer
     ;
   statusline = import ./statusline.nix { inherit pkgs theme; };
+  readGuard = import ./read-guard.nix { inherit pkgs; };
 
   baseSettings = {
     statusLine = {
@@ -153,8 +154,12 @@ in
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
         extraInstructions = [ ../software-factory/instructions.md ];
-        extraSettings.enabledPlugins = {
-          "typescript-lsp@claude-plugins-official" = true;
+        # Unattended agents dumped whole files with one multi-file `cat`;
+        # the hook makes them read ranges instead.
+        extraSettings = readGuard.settings // {
+          enabledPlugins = {
+            "typescript-lsp@claude-plugins-official" = true;
+          };
         };
       };
     });

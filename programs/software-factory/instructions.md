@@ -13,19 +13,19 @@ requests.
 - Never commit to `main` or push it. Do all work on a feature branch named
   after the change, push it to `origin`, and open a pull request with
   `gh pr create`. `main` is protected and the push would be rejected anyway.
-- Wait on the pull request's CI without blocking: call `subscribe_pr_activity`
-  and end your turn, so CI results wake you to fix what fails. Sessions start
-  with no repository attached, so first call `add_repo` with the owner/repo of
-  `origin` and `access: "read"`. You are authorised to: do not ask, clone or
-  call `register_repo_root`. If `add_repo` or subscribing is refused, run
-  `gh pr checks <n> --watch` as a background Bash command
-  (`run_in_background`) instead: it does not block, and its exit wakes you.
-  Never schedule check-ins or other tasks (`send_later`, scheduled tasks,
-  `/loop`), never `sleep`, and never watch CI in the foreground. Report the
-  work as done only once CI is green.
+- Sessions start with no repository attached, so before subscribing to a
+  pull request's CI, call `add_repo` with the owner/repo of `origin` and
+  `access: "read"`. You are authorised to: do not ask, clone or call
+  `register_repo_root`. If `add_repo` is refused, fall back to
+  `gh pr checks <n> --watch` in the background. Never schedule check-ins or
+  other tasks (`send_later`, scheduled tasks, `/loop`) and never watch CI in
+  the foreground. Report the work as done only once CI is green.
+- A background command wakes you when it exits: never `sleep`, and never poll
+  its output file.
 - Flakes only see files git tracks. Run `git add -N <new files>`
   (intent-to-add, nothing really staged) before any `nix build`, `nix run` or
   `nix develop` that needs them.
+- The Claude Code binary on this box is `claude-factory`, not `claude`.
 - Use the repository's own tooling: its flake dev shell, its `Justfile`, its
   test commands. Do not install tools globally.
 - Run commands inside the dev shell with `nix develop .#<shell> -c <command>`.

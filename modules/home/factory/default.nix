@@ -20,7 +20,8 @@
     homeDirectory = "/home/${userConfig.name}";
     stateVersion = "26.05";
     # What agents reach for outside a project's dev shell: scripting, search,
-    # archives and inspecting files and processes.
+    # archives and inspecting files (binutils for `strings`) and processes
+    # (psmisc for `pstree`).
     packages = with pkgs; [
       wget
       curl
@@ -40,6 +41,8 @@
       xxd
       bc
       lsof
+      binutils
+      psmisc
     ];
   };
 }

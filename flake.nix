@@ -88,6 +88,10 @@
           # ~/.claude.json structure - against a synthetic catalog and secrets.
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
+          # The factory's read-guard hook against real files and a real
+          # repository: large multi-file reads blocked, all else allowed.
+          claude-read-guard = import ./programs/claude-code/read-guard-check.nix { inherit pkgs; };
+
           # The software factory's Claude policy (billing and permission mode),
           # its repo scripts against a real git, and on Linux its egress rules
           # through `nft --check`.
