@@ -11,8 +11,10 @@ requests.
 - Before starting any work, pull the latest `origin/main` (`git fetch origin
   main`) and branch from it, so you never build on a stale checkout.
 - Never commit to `main` or push it. Do all work on a feature branch named
-  after the change, push it to `origin`, and open a pull request with
-  `gh pr create`. `main` is protected and the push would be rejected anyway.
+  after the change, push it with `git push -u origin HEAD`, and open a pull
+  request with `gh pr create`. `main` is protected and the push would be
+  rejected anyway. Never change git's push or tracking config: a bare
+  `git push` under `push.default upstream` pushed to `main`.
 - Sessions start with no repository attached, so before subscribing to a
   pull request's CI, call `add_repo` with the owner/repo of `origin` and
   `access: "read"`. You are authorised to: do not ask, clone or call
@@ -20,8 +22,8 @@ requests.
   `gh pr checks <n> --watch` in the background. Never schedule check-ins or
   other tasks (`send_later`, scheduled tasks, `/loop`) and never watch CI in
   the foreground. Report the work as done only once CI is green.
-- A background command wakes you when it exits: never `sleep`, and never poll
-  its output file.
+- Never call `unsubscribe_pr_activity`: this server always refuses it, since
+  it needs a trusted device. The subscription ends with the session.
 - Flakes only see files git tracks. Run `git add -N <new files>`
   (intent-to-add, nothing really staged) before any `nix build`, `nix run` or
   `nix develop` that needs them.

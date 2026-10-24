@@ -26,12 +26,30 @@ Base instructions for every agent.
 - Run subagents in the background by default. Use the foreground only when your
   very next step needs the result and nothing else can usefully happen
   meanwhile, so you stay free to do other work and the person can steer.
-- Trust a subagent's verified report and the CI results. After a follow-up
-  edit, re-run only the checks that edit affects, and never re-fetch package
-  indexes.
+- Trust a subagent's verified report and the CI results, and never re-fetch
+  package indexes.
+- A subagent works with `git -C <path>` or on its own branch. It never checks
+  out the branch the orchestrator's worktree holds: git refuses a branch
+  another worktree has checked out.
 - Hand back in 300 words or fewer, unless the invoked skill sets its own
   return format. Detail goes in commits, the PR or a file.
   Relay a hand-back to the user only when it changes what they need to know.
+
+## Checks
+
+A full check (`just check`, the whole test suite) takes minutes. Spend it once.
+
+- While iterating, run the narrowest check that covers the edit: one test, a
+  typecheck, a single `nix build .#checks.<system>.<name>`.
+- Run the full check exactly once, before you hand back or push. Never rerun
+  it without an edit since the last run, and never after an edit that touched
+  only docs.
+- Never chain steps the full check already runs: no build, test or lint in
+  front of a `just check` that runs them.
+- Run anything expected to take over a minute with `run_in_background`. It
+  wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
+- Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
+  as `.{0,250}` as too complex.
 
 ## Context budget
 
