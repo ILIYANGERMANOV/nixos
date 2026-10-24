@@ -63,8 +63,8 @@ Run the `refactor` skill on the branch.
 
 ### 5. Review
 
-Run `pragmatic-review`, with tips naming where you are least sure of the
-implementation. Fix what it finds: keep the findings worth fixing and choose
+Run `pragmatic-review`, with requirements stating what must hold where you are
+least sure of the implementation. Fix what it finds: keep the findings worth fixing and choose
 **Fix + commit & push**.
 
 ### 6. Review again, for the last time

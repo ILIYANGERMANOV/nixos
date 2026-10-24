@@ -4,10 +4,10 @@ Read `bar.md` first for the output schema, the severity scale, the sanity
 check and the refutation rule. Your default is the reluctant one described
 there: when unsure, drop it.
 
-Outside a tip this is a **fast sanity check**, not an investigation. Work from
-the patch, and recognise what is visibly broken in it. A finding here is
-**major** when the change does not work or breaks something that worked, which
-is nearly every finding this brief produces.
+This is a **fast sanity check**, not an investigation. Work from the patch, and
+recognise what is visibly broken in it. A finding here is **major** when the
+change does not work or breaks something that worked, which is nearly every
+finding this brief produces.
 
 You answer two questions and nothing else. Security and destructive statements
 belong to another agent; leave them alone.
@@ -53,5 +53,6 @@ single-file type check, a grep for the callers - run it. Never a full build or
 test suite.
 
 Do not trace data flow across the codebase or hunt for every consumer on your
-own initiative. That depth belongs to the tips: when the author is worried about
-an area, they say so, and that tip gets the investigation.
+own initiative. That depth belongs to the requirement agents: when the author is
+worried about an area, they name it as a requirement, and a dedicated agent
+investigates it.

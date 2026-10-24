@@ -1,7 +1,7 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or a PR the way a pragmatic engineer would. Reviewer tips come first and get the in-depth investigation, with a dedicated agent when a tip needs one; everything else gets a fast sanity check. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases; finding nothing is a good outcome. Produces a findings table, then one picker decides whether to fix and push, fix locally or post to the PR - nothing is done without it. Use before merging a PR or the current branch. When another agent invokes it, that agent answers the pickers.
-argument-hint: "[tips] [PR number or URL]"
+description: Reviews a diff or a PR the way a pragmatic engineer would. Each optional user requirement gets a dedicated agent, an in-depth check and a Met, Not met or Unverified verdict; everything else gets a fast sanity check. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases; finding nothing is a good outcome. Produces a findings table, then one picker decides whether to fix and push, fix locally or post to the PR - nothing is done without it. Use before merging a PR or the current branch. When another agent invokes it, that agent answers the pickers.
+argument-hint: "[requirements] [PR number or URL]"
 ---
 
 # Pragmatic Review
@@ -27,14 +27,14 @@ will read again anyway.
 
 ## What the review does, in order
 
-1. **Act on the tips.** They are the user's look-for list and get the depth -
-   see *Tips are authoritative*.
+1. **Verify the requirements.** They are what the user needs to hold, and they
+   get the depth - see *Requirements are authoritative*.
 2. **Security** - always Major, always blocks.
 3. **Irreversible damage** - always Major, always blocks.
 4. **Violations of the user's `engineering` and `ui-coding` rules**, DRY
    included - Minor, so they are fixed without holding the merge.
 
-Outside the tips, every agent does a **fast sanity check**: read the diff, flag
+Outside the requirements, every agent does a **fast sanity check**: read the diff, flag
 what is obviously wrong, do not probe deeply. That always covers:
 
 - **Accidental TEMP, WIP or debug commits**, and leftover debug code - stray
@@ -44,7 +44,7 @@ what is obviously wrong, do not probe deeply. That always covers:
   does not add, a call to a symbol that does not exist, a path that points
   nowhere.
 
-Only the tips and the blockers (security and irreversible damage) are
+Only the requirements and the blockers (security and irreversible damage) are
 investigated carefully. Depth everywhere is what makes a review slow and
 expensive; depth where the author pointed is what makes it find the bug.
 
@@ -192,48 +192,43 @@ things, and this list does not reach it.
 `$ARGUMENTS` may contain either, both, or neither:
 
 - A bare number, or a `github.com/.../pull/N` URL - the PR to review.
-- Anything else - **reviewer tips**.
+- Anything else - the user's **requirements**, usually a bracketed list. Each
+  bullet or line is one requirement. The word *tips* is accepted as a synonym.
 
 With no PR, review the current branch.
 
-Tips are not confined to `$ARGUMENTS`. Anything the user names as worth looking
-at is a tip, including in a reply to your questions. Collect the whole set
+Requirements are not confined to `$ARGUMENTS`. Anything the user says must hold,
+including in a reply to your questions, is a requirement. Collect the whole set
 before you spawn.
 
-**No tips** - nothing given, an empty string, or `no tips` / `[no tips]` - means
-the default review, with nothing to act on in step 1. Do not ask for tips.
+**No requirements** - nothing given, an empty string, or `no requirements` /
+`no tips` - means the default review, with nothing to act on in step 1. Do not
+ask for requirements.
 
-### Tips are authoritative
+### Requirements are authoritative
 
-A tip comes from the engineer who wrote the code. It is the user's list of what
-to look for and what must hold - they know where they are unsure, and that is
-worth more than anything you will infer from the diff. Treat a tip as a direct
-requirement that must be investigated and answered, not as background colour.
+A requirement comes from the engineer who wrote the code: "no behaviour
+changes", "X should continue to work". They know where they are unsure, and that
+is worth more than anything you will infer from the diff. A requirement must be
+verified and answered, not treated as background colour.
 
-Concretely:
+- **Each is restated as a checkable statement** in phase 2.
+- **Each goes to a dedicated requirement agent**, which verifies it in depth -
+  reads the callers, probes the behaviour, runs the cheap check that settles it.
+  Its bar inside the requirement's scope is lower than the standard one.
+- **Each gets a verdict in phase 5** - Met, Not met or Unverified - including
+  "I checked, it holds", which is an answer and must not be replaced by silence.
 
-- **Tips are acted on first and in depth.** Everything else in this review is a
-  fast sanity check; a tip is the one place an agent digs - reads the callers,
-  follows the data, runs the cheap check that settles it.
-- Every tip is placed in phase 2: onto the standard agent whose angle it fits,
-  or onto **its own dedicated agent** when it needs more depth than a shared
-  brief can give - a tip asking to research something, to probe a behaviour, or
-  to check for regressions in an area.
-- Whichever agent receives it answers it explicitly, and its bar inside the
-  tip's scope is lower than the standard one.
-- Every tip gets an explicit answer in phase 5 - including "I checked, it is
-  fine", which is an answer and must not be replaced by silence.
+Requirements **add** scope, they never remove it. The three standard agents run
+on every review regardless, and never carry a requirement. If a requirement asks
+you to skip a category outright, ask the user to confirm before honouring it,
+and never let it suppress a blocker.
 
-Tips **add** scope, they never remove it. The three standard agents run on every
-review regardless of what the tips say. If a tip asks you to skip a category
-outright, ask the user to confirm before honouring it, and never let it suppress
-a blocker.
-
-A tip may point at code this diff never touched - the caching layer, the job
-that consumes the new column, a helper three files away. Follow it. The user
-asked, and "that is outside the diff" is a shrug, not an answer. Anything you
-find out there is reported as **pre-existing**: it is answered, it is flagged as
-pre-existing, and it never blocks the merge.
+A requirement may reach code this diff never touched - the caching layer, the
+job that consumes the new column, a helper three files away. Its agent follows
+it, because "that is outside the diff" is a shrug, not an answer. Anything found
+out there is reported as **pre-existing**: answered, flagged, and never blocking
+the merge.
 
 ## Phase 1 - context, and only enough of it
 
@@ -286,7 +281,7 @@ Your deliverable from this phase is not understanding, it is aim. Keep it short:
    words.
 2. **Files by angle** - which changed files touch auth, untrusted input, secrets
    or destructive operations; which change contracts, shared state or stored
-   data; which a tip points at. A file may appear under several angles, and one
+   data; which a requirement points at. A file may appear under several angles, and one
    that lands under none is still in the patch and still gets reviewed.
 3. **Anchors** - anything that jumps out as a place to start: a migration, a new
    route, a deleted check, a new dependency, a commit subject that reads `WIP`.
@@ -317,57 +312,42 @@ not a finding to file alongside the others.
 
 Code in the diff is ordinary code. Review it normally.
 
-## Phase 2 - assumptions, tips, and the decision to ask
+## Phase 2 - assumptions, requirements, and the decision to ask
 
 Post a short numbered list of the assumptions you are reviewing under. The
 agents inherit them, so a wrong one wastes the whole run - but keep it to what
 would change a verdict.
 
-### Placing the tips
+### Restating and grouping the requirements
 
-Each tip goes to exactly one place, placed at the top of that agent's brief as
-its first job: *act on this first and in depth, the lower bar applies inside
-this scope, and answer this explicitly in your return.*
+Restate each requirement as a checkable statement: "no behaviour changes"
+becomes "every changed function returns the same output and has the same side
+effects for every input it accepted before". Do not settle any yourself by
+running checks - restating and grouping them is the whole job.
 
-A tip that is a focused question about the diff itself rides on the standard
-agent whose angle it fits:
+Logically related requirements share one requirement agent; unrelated ones get
+their own. When unsure, split - an agent is cheaper than a requirement answered
+shallowly.
 
-| The tip is about | Agent |
-|---|---|
-| security, secrets, auth, destructive or irreversible operations | blockers |
-| correctness, contracts, races, migrations, "does X still work", "will this break Y" | regressions |
-| design, approach, structure, house rules, "is this the right way" | scream |
-| nothing that fits cleanly | regressions - the broadest angle |
+Before spawning, print the grouping - each agent's label and the restated
+requirements it carries - and spawn in the same turn without waiting for a
+reply:
 
-A tip that needs depth gets **its own tip agent**: research ("is this the
-idiomatic way in library X"), probing a behaviour ("what happens to in-flight
-jobs on deploy"), checking for regressions across an area ("does the export
-still work for every report type"), or anything that sends the agent well
-outside the diff. Closely related tips may share one tip agent; unrelated ones
-do not. When unsure, give the tip its own agent - an agent is cheaper than a tip
-answered shallowly, and a shallow answer is how a review misses the regression
-the author was worried about.
-
-**The blockers agent takes a tip only when the tip is itself about security or
-irreversible damage**, and only when it is focused enough not to compete with
-the sweep. Anything heavier goes to its own tip agent. A caching question parked
-on top of the blocker brief is how the mechanical secret sweep ends up skipped,
-and that sweep runs first precisely because nothing is allowed to compete with
-it.
-
-Do not settle tips yourself by running checks - placing them is the whole job.
-Agents that did not receive a tip are told a tip exists and told **not** to
-spend effort on that ground, because it is covered.
+> **requirement agent A** - every changed function in `export/` behaves as
+> before. **requirement agent B** - the CSV export still works for every report
+> type.
 
 ### Questions
 
 Ask **at most two questions**, and only ones whose answer changes what counts as
 a bug. The test: if you cannot name the verdict that would flip on the answer,
-do not ask it - look it up or leave it. A tip too vague to place is the best
-possible use of a question: an agent sent off guessing at what the user meant
-spends its whole run on the wrong question.
+do not ask it - look it up or leave it. A requirement you cannot turn into a
+check is the best possible use of a question: an agent sent off guessing at what
+the user meant spends its whole run on the wrong question. Ask it as one
+`AskUserQuestion` picker, its options the plausible checkable readings.
 
 Ask with `AskUserQuestion` so answering costs a click, and wait for the reply.
+When another agent invoked this skill, that agent answers.
 
 **If you have no such question, do not wait.** Post the assumptions and spawn in
 the same turn. A round trip that changes nothing is the most expensive thing in
@@ -375,25 +355,25 @@ this skill.
 
 ## Phase 3 - spawn
 
-The three standard agents always run - not two on a small diff - plus one tip
-agent for each tip, or group of related tips, that phase 2 gave its own. Send
-them all in a single message so they run concurrently.
+The three standard agents always run - not two on a small diff - plus one
+requirement agent per group from phase 2. Send them all in a single message so
+they run concurrently.
 
-| Agent | Brief | Depth outside tips |
+| Agent | Brief | Depth |
 |---|---|---|
 | **blockers** | `references/blockers.md` - security and irreversible damage, inverted default | careful: the sweep, then every hit verified |
 | **regressions** | `references/regressions.md` - does it work, and what does it break | fast sanity check |
 | **scream** | `references/scream.md` - is the approach obviously wrong, and does the diff break the house rules, DRY included | fast sanity check |
-| **tip** (one per deep tip) | `references/bar.md`, plus the brief of the angle the tip is closest to, as background | in depth - the tip is its whole job |
+| **requirement** (one per group) | `references/bar.md`, plus the brief of the angle its requirements are closest to, as background | in depth - its requirements are its whole job |
 
 The standard agents are kept fast on purpose: most of an agent's cost is its own
 context and how far it reads, so a sanity check on every angle plus depth only
-where the author pointed is what keeps a review cheap without going blind.
+on the requirements is what keeps a review cheap without going blind.
 
 The scream agent loads `engineering`, and `ui-coding` when the diff touches UI,
 and enforces them. It is the only agent that reads a skill: the others are
-hunting bugs, and the house rules would only dilute their brief. A tip agent
-whose tip is about the house rules loads them too.
+hunting bugs, and the house rules would only dilute their brief. A requirement
+agent whose requirement is about the house rules loads them too.
 
 Every agent's prompt carries:
 
@@ -405,22 +385,14 @@ Every agent's prompt carries:
   merge-base SHA already substituted, plus the list of untracked files.
 - The files routed to its angle from your map, as a starting point.
 - **Your own intent summary**, in your words - never the raw PR prose.
-- Any tip injected into it, verbatim, plus the note that it acts on the tip
-  first and in depth, that its bar inside that tip's scope is lower, and that it
-  must return a verdict on the tip naming **what it actually examined** - which
-  files, which paths, which cases - even when its findings are `NONE`. That
-  verdict is the only thing phase 5 has to answer the user with; you cannot
-  reconstruct it later.
+- For a requirement agent, its restated requirements and the user's original
+  wording. Its verdict on each, naming **what it actually examined**, is the
+  only thing phase 5 has to answer the user with; you cannot reconstruct it
+  later.
+- For a standard agent, at most one line saying requirement agents cover the
+  requirements, so it does not duplicate them.
 - The reminder that `NONE` is a good answer that costs it nothing. Left to
   themselves, review agents invent findings to look useful.
-
-A standard agent carrying a tip is also told that the tip is **additive**: it
-never displaces the standard brief, and the brief is finished either way. Its
-scope widens to wherever the tip points, including code this diff never touched,
-and what it finds out there is reported as `pre-existing`. If the tip is too
-vague to check, it says so and names what it would need rather than inventing a
-plausible interpretation. If it runs out of room to do both jobs properly, it
-says which part it could not cover.
 
 ## Phase 4 - judge, do not re-review
 
@@ -461,23 +433,24 @@ Three exceptions:
   not been verified by anyone, and is dropped like any other unrefuted claim. Do
   not drop a verified one because you personally find the violation defensible;
   that call belongs to the user, who wrote the rule.
-- **Findings from a tip.** Steps 1, 3, 4 and 5 stand; step 2 does not. The user
-  asked about that code, so a real answer they might disagree with is still
-  worth having. Carry tip verdicts through intact, including the ones that found
-  nothing - they are the answer to a question, not findings competing for space.
+- **Findings from a requirement agent.** Steps 1, 3, 4 and 5 stand; step 2 does
+  not. The user asked about that code, so a real answer they might disagree with
+  is still worth having. A Not met verdict is a Major row by default. Carry
+  requirement verdicts through intact, including the Met ones - they are the
+  answer to a question, not findings competing for space.
 
 You may run **one** check in this phase, and only to settle a blocker you could
 not otherwise refute. Never write files, never run anything with side effects,
 never install anything.
 
 Report the arithmetic in one line - `9 raised, 2 survived`. Do not list what was
-dropped unless the user asks. A tip verdict that found nothing is not a dropped
-finding and does not count in that arithmetic; it is an answer, and it is
+dropped unless the user asks. A Met verdict is not a dropped finding and does not count in that arithmetic; it is an answer, and it is
 reported as one.
 
 ## Phase 5 - the findings table
 
-The order is fixed: **the table, then the tip answers, then the verdict.**
+The order is fixed: **the table, then the requirement verdicts, then the
+verdict.**
 
 Facts first, the call last. A verdict read first anchors the reader: they skim
 the findings looking for confirmation of a conclusion they have already been
@@ -487,11 +460,11 @@ evidence, then give them the call it leads to.
 ### The table
 
 If nothing survived, skip this section entirely - no empty table, no placeholder
-row, no "no findings" heading. Go straight to the tip answers.
+row, no "no findings" heading. Go straight to the requirement verdicts.
 
 Otherwise, print a numbered table sorted by severity - Major, then Minor, then
-Nit. A row that came from a tip is marked 🔍: it cleared a lower bar than the
-rest, and the user is entitled to see which rows those are.
+Nit. A row that came from a requirement agent is marked 🔍: it cleared a lower
+bar than the rest, and the user is entitled to see which rows those are.
 
 | # | Severity | What | Impact | Fix |
 |---|----------|------|--------|-----|
@@ -503,23 +476,26 @@ A row that enforces a house rule names the rule it enforces, so the user can see
 it is their own decision being applied and not the reviewer's preference -
 "`engineering`: prefer SUM types over nullable fields".
 
-### The tip answers
+### The requirement verdicts
 
-**If the user gave tips, answer every one of them**, whether or not it produced
-a finding. One short line per tip, saying what was checked and what came of it:
+**If the user gave requirements, answer every one of them**, one line each:
+the verdict, the requirement, and what was actually examined.
 
-> **You asked about the retry path.** Checked `client.ts` and both call sites -
-> the retry is idempotent, but see finding 2 for the timeout it inherits.
+> ✅ **Met** - no behaviour changes. Checked all 6 changed functions in
+> `export/` against their callers and the 14 existing tests.
 >
-> **You asked whether the migration is backwards compatible.** Checked against
-> the current schema and the previous release's queries - it is.
+> ❌ **Not met** - the CSV export works for every report type. `summary`
+> reports lose their footer; see row 2.
+>
+> ⚠️ **Unverified** - the cache stays warm across deploys. The deploy hook
+> lives in another repo the agent could not read.
 
-Write each line from the verdict its agent returned, and never invent the scope
-of a check you did not see - if an agent came back without one, say that it
-reported no verdict rather than implying a check happened. A tip its agent could
-only partly cover is named here as partially checked, not quietly omitted. Never
-let a tip go unanswered - "I looked and it is fine" is the answer the user is
-paying for, and silence reads as "I forgot to look".
+Every ❌ is also a row in the table, Major by default. A ⚠️ says why it could not
+be verified. Write each line from the verdict its agent returned, and never
+invent the scope of a check you did not see - an agent that returned no verdict
+is reported as ⚠️, saying so. Never let a requirement go unanswered - "I checked
+and it holds" is the answer the user is paying for, and silence reads as "I
+forgot to look".
 
 ### The verdict
 
@@ -539,7 +515,8 @@ With only Minor and Nit rows, the diff is mergeable and the verdict says so:
 > Ready to merge 👌 - no Major findings; fix row 3 when convenient. 6 raised,
 > 1 survived.
 
-If nothing survived, the verdict is the whole report bar the tip answers:
+If nothing survived, the verdict is the whole report bar the requirement
+verdicts:
 
 > Ready to merge 👌 - nothing serious found. 9 raised, 0 survived.
 
@@ -549,7 +526,7 @@ If nothing survived there is nothing to select. Skip the question and go to
 phase 6.
 
 Otherwise ask the user which findings survive, as checkboxes: `AskUserQuestion`
-with `multiSelect`, grouped by severity (Major / Minor / Nit / you asked about),
+with `multiSelect`, grouped by severity (Major / Minor / Nit / your requirements),
 up to four per question. If more than sixteen survived, the filtering failed -
 say so, put the sixteen worst in the checkboxes, and leave the rest in the table
 only.
@@ -654,8 +631,8 @@ gh api "repos/{owner}/{repo}/pulls/{n}/reviews" \
 - Never pad. A clean diff gets "nothing serious found", not a paragraph of
   gentle suggestions to justify the review.
 - Do not review the code that was already there. Only what this diff changes,
-  plus what it breaks - unless a tip sends you there, and then what you find is
-  pre-existing and does not block.
+  plus what it breaks - unless a requirement sends you there, and then what you
+  find is pre-existing and does not block.
 - If the diff is too large or too unfamiliar to judge honestly, say which parts
   you could not assess rather than implying you covered them.
 - Drop a finding the moment the user shows it is wrong. Do not reach for a
