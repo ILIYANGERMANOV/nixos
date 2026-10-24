@@ -82,6 +82,7 @@ let
     "address-pr-feedback"
     "engineer"
     "engineering"
+    "explain"
     "give-feedback"
     "grill-with-docs"
     "grilling"
