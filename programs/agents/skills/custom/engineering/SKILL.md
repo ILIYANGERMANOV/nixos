@@ -10,7 +10,7 @@ Apply to all code you write, modify or review, in any language.
 ## Simplicity
 
 The most important principle. Complexity is the main cost of software; avoid
-it. Simple is not naive: it is the fewest moving parts that still meet the
+it at any cost. Simple is not naive: it is the fewest moving parts that still meet the
 objective correctly and sanely.
 
 - Solve the stated problem. Keep sound architecture and reuse what exists, but
