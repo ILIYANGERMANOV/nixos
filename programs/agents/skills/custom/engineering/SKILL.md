@@ -1,21 +1,42 @@
 ---
 name: engineering
-description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers domain modeling with ADTs and DDD, SUM types over nullable fields, nominal typing, pattern-matching over early guards, top-down function order, minimal function parameters, small and deep modules, language-idiomatic FP, simplicity, DRY and reuse, avoiding premature optimization, strict type-safety, bounded file reads, and when to stop and ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, black-box tests through the public interface, realistic fakes over mocks, Given-When-Then structure, and what makes a test meaningless or wrong, detailed in references/tests.md. Takes precedence over the domain-modeling skill for how to model a domain.
+description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers domain modeling with ADTs and DDD, SUM types over nullable fields, nominal typing, pattern-matching over early guards, top-down function order, minimal function parameters, small and deep modules, language-idiomatic FP, simplicity and edge-case ROI, DRY and reuse, avoiding premature optimization, strict type-safety, bounded file reads, and when to stop and ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, black-box tests through the public interface, realistic fakes over mocks, Given-When-Then structure, and what makes a test meaningless or wrong, detailed in references/tests.md. Takes precedence over the domain-modeling skill for how to model a domain.
 ---
 
 # Engineering
 
 Apply to all code you write, modify or review, in any language.
 
+## Simplicity
+
+The most important principle. Complexity is the main cost of software; avoid
+it. Simple is not naive: it is the fewest moving parts that still meet the
+objective correctly and sanely.
+
+- Solve the stated problem. Keep sound architecture and reuse what exists, but
+  add no flags, options, hooks, layers or generality for needs nobody has named
+  (see Seams).
+- Edge-case ROI: make the common cases correct and reliable. When a rare edge
+  case needs a complex, fragile or flaky fix, skip it and say so in the code,
+  the PR or the hand-back - never drop one silently. Still fix it when the fix
+  is cheap, or when a miss corrupts data or opens a security hole.
+- Not naive: no hacks, no swallowed errors, nothing wrong on the main path. A
+  design you can see is correct beats a clever one.
+- Trust your invariants: validate at the boundary; add no defensive checks,
+  retries or fallbacks for states the types or callers rule out.
+- Boring code: the standard library and existing helpers over a new
+  dependency, a direct expression over a clever one.
+- Prefer duplication over the wrong abstraction (see DRY).
+- Grow from a working simple version; a complex system built from scratch
+  rarely works (Gall's law).
+- Before finishing, ask what you can delete and still meet the goal.
+
 ## Engineering principles
 
-- Simplicity: complexity is the root of all evil. Prefer simplicity over bloated
-  and complicated solutions. Simplicity does not mean ignoring architecture and
-  abstraction best practices - the code should be re-usable and scalable.
-- DRY: do not repeat yourself. When developing systems, think about how you can
-  make them re-usable. Prefer small functions that compose together into
-  bigger functions. Abstract the same concept, never merely the same shape; when
-  unsure whether it is the same concept, ask.
+- Simplicity: see the section above.
+- DRY: do not repeat yourself. Prefer small functions that compose together
+  into bigger functions. Abstract the same concept, never merely the same
+  shape; when unsure whether it is the same concept, ask.
 - Reuse before writing: search the codebase for an existing helper, type or
   module that already expresses the concept, and use or extend it. A second
   copy of the same concept is the moment to extract it - do not wait for a

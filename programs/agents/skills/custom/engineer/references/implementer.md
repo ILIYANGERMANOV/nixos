@@ -4,6 +4,9 @@ You implement one slice of a plan that an `engineer` orchestrator owns. Follow
 the `engineering` skill. The orchestrator refactors and reviews the whole
 branch afterwards, so do not run the `refactor` or `pragmatic-review` skill.
 
+Build the simplest thing that meets the slice. Skip a rare edge case whose fix
+is complex or flaky, and list each one you skipped in your report.
+
 ## Small slice: do it yourself
 
 A slice you can finish well inside the context budget: implement it, run its

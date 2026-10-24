@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then rule violations, deep modules, minimal parameters and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
+description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
 argument-hint: "[scope notes] [PR number or base ref]"
 ---
 
@@ -51,15 +51,18 @@ Look at the diff, in this order:
    behind a smaller interface.
 4. **Minimal parameters** - a function handed a whole record, context or config
    when it uses one field.
-5. **Top-down order** - a file reads like a newspaper: the entry point or
+5. **Needless complexity** - speculative options or generality, defensive code
+   for impossible states, single-use layers, complex or flaky handling of rare
+   edge cases. Simplify or delete them.
+6. **Top-down order** - a file reads like a newspaper: the entry point or
    public function first, then the helpers it calls, each defined below its
    first caller, in the order they are called. Move definitions, never change
    them.
-6. **Comments** - delete a comment that restates what the code already says
+7. **Comments** - delete a comment that restates what the code already says
    (`// increment i`, a docstring repeating the signature), is stale, or is
    commented-out code. Shorten a useful one to the part the code cannot say:
    the why, an invariant, a trap. Keep every comment that explains why.
-7. **Good tests** - bring every test the diff adds or changes up to
+8. **Good tests** - bring every test the diff adds or changes up to
    `engineering/references/tests.md`, at every layer: unit, property-based,
    differential, end-to-end and goldens. Refactor the tests, not the
    behaviour they prove:

@@ -25,6 +25,9 @@ CI. You own the outcome; the user owns the decisions.
   with them, and its open questions what a test is meant to prove. Answer those
   yourself - unless the answer is a product, scope or design decision, which
   goes to the user.
+- **Simplicity over completeness.** Prefer the simplest design that meets the
+  goal (see `engineering`). A rare edge case that would cost a complex or flaky
+  fix is skipped and recorded as out of scope in the PR body.
 - **Protect your context window.** Delegate reading, implementing, verification
   and log triage to subagents and keep only their conclusions. Run them in the
   background by default.
