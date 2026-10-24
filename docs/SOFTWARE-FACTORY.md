@@ -366,7 +366,7 @@ sentence to the README and open a PR". You should get:
 
 - **Start work [phone]:** Claude app > Code > pick the repository's server >
   new session, e.g. `/grill-me`. Each session works in its own git worktree, so
-  two sessions in one repository do not collide. Up to 2 sessions per
+  two sessions in one repository do not collide. Up to 3 sessions per
   repository.
 - **Run the box [phone]:** open the `admin` server and start a session. It is
   always on, and its skills cover the day-to-day:

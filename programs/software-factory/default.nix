@@ -134,14 +134,14 @@ let
     };
 
   # Remote Control flags. Both start sessions in auto mode. A repository's
-  # sessions each get their own git worktree, so two sessions in one repository
+  # sessions each get their own git worktree, so sessions in one repository
   # never edit the same files.
   remoteControlArgs = {
     repo = [
       "--spawn"
       "worktree"
       "--capacity"
-      "2"
+      "3"
       "--permission-mode"
       "auto"
     ];
