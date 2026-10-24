@@ -6,7 +6,6 @@
 
 let
   playwright = import ./. { inherit pkgs; };
-  inherit (pkgs) lib;
 
   script = pkgs.writeText "playwright-check.js" ''
     const fs = require('fs');
