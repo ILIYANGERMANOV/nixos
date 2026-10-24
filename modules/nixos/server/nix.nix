@@ -26,6 +26,10 @@
       # a flake names that is not already trusted here.
       accept-flake-config = true;
 
+      # Agents build from worktrees that are dirty by nature, so every nix
+      # command would warn about it and the warning only costs them context.
+      warn-dirty = false;
+
       # Caches the agent account may use when a flake asks for them. Unlike
       # extra-substituters they are queried only by builds whose flake names
       # them, so every other build is spared the lookups. The keys must be
