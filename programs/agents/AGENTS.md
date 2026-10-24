@@ -51,6 +51,9 @@ step.
   `subscribe_pr_activity` and end your turn, so CI results wake you. An event
   for a commit that is not the branch head, or for your own action (your
   push, `ready_for_review`), needs nothing: end the turn without a tool call.
+  Where subscribing is unavailable or refused, run `gh pr checks <n> --watch`
+  as a background Bash command (`run_in_background`) instead; it exits 8 while
+  checks are pending, which is not a failure.
 - Fanning out in parallel, launch one agent first and the rest after it, so
   they share its cached prefix.
 

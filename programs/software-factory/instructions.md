@@ -16,10 +16,8 @@ requests.
 - Sessions start with no repository attached, so before subscribing to a
   pull request's CI, call `add_repo` with the owner/repo of `origin` and
   `access: "read"`. You are authorised to: do not ask, clone or call
-  `register_repo_root`. If
-  `add_repo` or subscribing is refused, run `gh pr checks <n> --watch` as a
-  background Bash command (`run_in_background`) instead; it exits 8 while
-  checks are pending, which is not a failure. Never schedule check-ins or
+  `register_repo_root`. If `add_repo` is refused, fall back to
+  `gh pr checks <n> --watch` in the background. Never schedule check-ins or
   other tasks (`send_later`, scheduled tasks, `/loop`) and never watch CI in
   the foreground. Report the work as done only once CI is green.
 - A background command wakes you when it exits: never `sleep`, and never poll
