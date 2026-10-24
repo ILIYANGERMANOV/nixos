@@ -1,6 +1,6 @@
 ---
 name: engineering
-description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers domain modeling with ADTs and DDD, SUM types over nullable fields, nominal typing, pattern-matching over early guards, top-down function order, language-idiomatic FP, simplicity, DRY, avoiding premature optimization, strict type-safety, and when to stop and ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, test doubles over mocks, and Given-When-Then structure. Takes precedence over the domain-modeling skill for how to model a domain.
+description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers domain modeling with ADTs and DDD, SUM types over nullable fields, nominal typing, pattern-matching over early guards, top-down function order, minimal function parameters, small and deep modules, language-idiomatic FP, simplicity, DRY and reuse, avoiding premature optimization, strict type-safety, and when to stop and ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, test doubles over mocks, and Given-When-Then structure. Takes precedence over the domain-modeling skill for how to model a domain.
 ---
 
 # Engineering
@@ -16,6 +16,13 @@ Apply to all code you write, modify or review, in any language.
   make them re-usable. Prefer small functions that compose together into
   bigger functions. Abstract the same concept, never merely the same shape; when
   unsure whether it is the same concept, ask.
+- Reuse before writing: search the codebase for an existing helper, type or
+  module that already expresses the concept, and use or extend it. A second
+  copy of the same concept is the moment to extract it - do not wait for a
+  third.
+- Single source of knowledge: never duplicate knowledge - constants, business
+  rules, schemas, validation, lists of names. Derive every consumer from one
+  definition, so a change lands in one place and cannot drift.
 - Premature optimization: avoid micro-optimization until the user explicitly
   asks for performance. Prefer correctness and maintainability over performance
   and complexity.
@@ -56,6 +63,11 @@ This skill governs how to model a domain.
   from top to bottom, with the larger public functions at the top and the
   functions they use below them. This applies to code you write - do not reorder
   existing functions unless asked.
+- Minimal parameters: a function takes only what it uses - pass the field, not
+  the whole record, context or config it lives in. Smaller inputs make the
+  dependency visible, the function reusable and the test trivial. The exception
+  is a fixed signature: implementing an interface, abstraction or type class
+  whose shape is set elsewhere.
 
 ## Structuring code
 
@@ -64,6 +76,19 @@ This skill governs how to model a domain.
   place it in a shared directory. When unsure whether a given piece of code is
   feature-specific or feature-agnostic, ask. Shared code must be
   feature-agnostic. Feature-specific code must never be shared.
+- Small and deep modules: a module hides a lot of behavior behind a small
+  interface. The interface is everything a caller must know - signatures,
+  invariants, error modes - so depth is a property of the interface, not of
+  the line count behind it. Prefer few, deep modules over many shallow
+  pass-throughs.
+- Deletion test: imagine deleting a module. If its complexity vanishes, it was
+  a pass-through - inline it. If the complexity reappears across its callers, it
+  earned its keep.
+- The interface is the test surface: test a module through its interface, so
+  internals can change without rewriting tests.
+- Seams: one adapter behind an abstraction is a hypothetical seam, two is a real
+  one. Do not introduce an abstraction for a single implementation unless a
+  second is concretely planned.
 
 ## Testing
 

@@ -19,6 +19,11 @@ The line is reversibility. A bug that ships and gets fixed next week is a bug. A
 bug that deletes rows, leaks a secret or emails every customer cannot be fixed
 next week, because by then it has already happened.
 
+Every blocker you return is **major**. This brief is the one place outside the
+requirement agents where the review is careful rather than fast: run the sweep
+in full, and verify every hit and every destructive statement against the real
+code. The sanity check from `bar.md` still applies on top.
+
 ## Step 1 - the mechanical sweep, before you reason about anything
 
 Cheapest, highest-value check in the review. Run it first, on the **added lines

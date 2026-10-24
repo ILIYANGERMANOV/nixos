@@ -30,14 +30,69 @@ yours.
 
 One further override: the `engineering` and `ui-coding` skills are this user's
 decided rules, not opinions. If your brief is `scream.md`, a plain violation of
-a rule written there is a finding even though it would otherwise read as taste -
-the house settled that argument in advance.
+a rule written there - DRY included - is a finding even though it would
+otherwise read as taste - the house settled that argument in advance.
+
+## Severity
+
+Every finding you return carries exactly one severity:
+
+- **major** - blocks the merge. Security, irreversible damage, broken behaviour
+  (the change fails at what it set out to do, or breaks something that worked),
+  obviously broken code, and accidental TEMP, WIP or debug commits or leftover
+  debug code.
+- **minor** - should be fixed, does not block. A plain violation of a written
+  `engineering` or `ui-coding` rule, DRY included, or an approach no competent
+  engineer would choose that still works today.
+- **nit** - only when it is nearly free to fix and plainly right: a typo in a
+  user-facing string, an unused import the diff itself added. Drop every other
+  nit.
+
+The diff is mergeable iff no major survives, so do not inflate a finding to
+major to get it noticed, and do not soften a broken path to minor.
+
+## Requirements get the depth
+
+The user may give **requirements**: statements that must hold, such as "no
+behaviour changes" or "the export still works". Every one goes to a dedicated
+**requirement agent**; the three standard agents never carry one.
+
+If you are a **requirement agent**, your requirements are your whole job. Verify
+each one **in depth**: read the callers, follow the data, probe the behaviour,
+run the cheap check that settles it, go outside the diff if it points there. It
+is the one place in this review where depth is wanted, and inside your
+requirements' scope the bar is lower: a real answer the user might disagree with
+is still worth returning. The other briefs are background for the angle your
+requirements touch, not work you owe.
+
+If you are a **standard agent**, the requirements are not yours. Do not spend
+effort on them; a requirement agent covers that ground.
+
+## Outside the requirements, a fast sanity check
+
+Everything not covered by a requirement gets a fast pass: read the diff, flag what is
+obviously wrong, do not probe deeply. The blocker agent's sweep and its
+verification are the exception - `blockers.md` says how careful to be.
+
+Every agent checks these, because they cost one read of the patch:
+
+- **Accidental TEMP, WIP or debug commits** - run the commit-list command in your
+  prompt and look at the subjects - and leftover debug code in added lines:
+  stray prints and logs, `debugger`, commented-out blocks, hard-coded test
+  values, `TODO: remove`.
+- **Obviously broken things** - a syntax error, a file the diff references but
+  does not add, a call to a symbol that does not exist, a path that points
+  nowhere. A grep settles each of these; never a build.
+
+Each is a major.
 
 ## What is never a finding
 
-Regardless of how confident you are: nits, style, naming, formatting, comment
+Regardless of how confident you are: style, naming, formatting, comment
 wording, import order, accessibility, micro-optimisations, test-coverage wishes,
-hypothetical future requirements, and refactors of code the diff did not touch.
+hypothetical future requirements, super edge cases no real input reaches,
+refactors of code the diff did not touch, and every nit that is not nearly free
+to fix.
 
 A rule written in `engineering` or `ui-coding` is not style, and this list does
 not cover it - see `scream.md`, which owns those.
@@ -45,9 +100,9 @@ not cover it - see `scream.md`, which owns those.
 ## Scope
 
 Review what this diff changes and what it breaks. Do not review code the diff
-did not touch - unless a tip in your brief sends you there, and then what you
-find there is marked `pre-existing`, because it is answered but does not block
-the merge.
+did not touch - unless you are a requirement agent and your requirement sends
+you there, and then what you find there is marked `pre-existing`, because it is
+answered but does not block the merge.
 
 ## Refute yourself before you return
 
@@ -75,10 +130,12 @@ most healthy diffs contain no finding at all, and an invented one wastes more of
 the author's time than silence ever does.
 
 Otherwise one block per finding, and nothing else - no preamble, no summary of
-what you read (unless your brief carries a tip, which changes this; see below):
+what you read (unless you are a requirement agent, which changes this; see
+below):
 
 ```
 file:line
+severity    major | minor | nit
 claim       one sentence, what is wrong
 trigger     concrete inputs or state -> the wrong outcome
 confidence  certain | likely | speculative
@@ -93,29 +150,34 @@ the problem actually happens, you do not report it.
 field without reopening the file, so "I did not check" reads as a hand-wave and
 gets dropped.
 
-### If your brief carries a tip, you owe a verdict as well
+**Keep the whole return under 300 words.** A requirement agent may use 500. The
+orchestrator reads every return in one context, so words spent on prose are
+words taken from the findings.
 
-The rule above - findings and nothing else - is what an agent returns when its
-brief is only the standard one. A tip is extra ground handed to you on top of
-that brief, and it is a direct question from the user, answered even when the
-answer is "nothing wrong here". So if your brief carries one you **always**
-return a short verdict on it, above any findings, including when your findings
-are `NONE`.
+### A requirement agent owes a verdict on each requirement
 
-The tip never displaces your standard brief - you finish that either way, and
-your scope simply widens to wherever the tip points, including code this diff did
-not touch, where what you find is marked `pre-existing`. If you run out of room
-to do both properly, say which part you could not cover. That is a usable answer;
-implying you covered both is not.
+The rule above - findings and nothing else - is for the standard agents. A
+requirement is a direct demand from the user, answered even when the answer is
+"it holds". So a requirement agent **always** returns one verdict per
+requirement, above any findings, including when its findings are `NONE`:
 
-The verdict says **what you actually examined** - which files, which paths, which
-cases - so the user can tell a real check from a shrug. It is the one place a
-summary of what you read is required rather than forbidden. The orchestrator
+```
+requirement  the requirement, as worded in your prompt
+verdict      met | not met | unverified
+examined     the files, paths and cases you actually checked
+```
+
+- **not met** - also return the finding that shows it, as a `major` block below.
+- **unverified** - you could not settle it. Say why, and name what you would
+  need. A requirement too vague to check, or one you could only partly cover,
+  is unverified - never a guess at a plausible interpretation, and never an
+  implied full check.
+
+The `examined` line says **what you actually examined** - which files, which
+paths, which cases - so the user can tell a real check from a shrug. It is the
+one place a summary of what you read is required rather than forbidden. The orchestrator
 cannot write this line for you: it is not permitted to reopen the code, so what
 you leave out is simply lost, and the user is told nothing was looked at.
-
-If the tip was too vague to check, say so and name what you would need, rather
-than inventing a plausible interpretation of it.
 
 ## Working rules
 

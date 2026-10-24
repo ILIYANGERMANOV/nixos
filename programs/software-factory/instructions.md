@@ -17,10 +17,12 @@ requests.
   and end your turn, so CI results wake you to fix what fails. Sessions start
   with no repository attached, so first call `add_repo` with the owner/repo of
   `origin` and `access: "read"`. You are authorised to: do not ask, clone or
-  call `register_repo_root`. If either call is refused, report it as a failure.
-  Act only on PR activity: never schedule check-ins or other tasks
-  (`send_later`, scheduled tasks, `/loop`), never `sleep` or run
-  `gh pr checks --watch`. Report the work as done only once CI is green.
+  call `register_repo_root`. If `add_repo` or subscribing is refused, run
+  `gh pr checks <n> --watch` as a background Bash command
+  (`run_in_background`) instead: it does not block, and its exit wakes you.
+  Never schedule check-ins or other tasks (`send_later`, scheduled tasks,
+  `/loop`), never `sleep`, and never watch CI in the foreground. Report the
+  work as done only once CI is green.
 - Flakes only see files git tracks. Run `git add -N <new files>`
   (intent-to-add, nothing really staged) before any `nix build`, `nix run` or
   `nix develop` that needs them.

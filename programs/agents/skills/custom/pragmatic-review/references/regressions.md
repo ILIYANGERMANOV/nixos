@@ -1,7 +1,13 @@
 # Regressions agent - does it work, and what does it break
 
-Read `bar.md` first for the output schema and the refutation rule. Your default
-is the reluctant one described there: when unsure, drop it.
+Read `bar.md` first for the output schema, the severity scale, the sanity
+check and the refutation rule. Your default is the reluctant one described
+there: when unsure, drop it.
+
+This is a **fast sanity check**, not an investigation. Work from the patch, and
+recognise what is visibly broken in it. A finding here is **major** when the
+change does not work or breaks something that worked, which is nearly every
+finding this brief produces.
 
 You answer two questions and nothing else. Security and destructive statements
 belong to another agent; leave them alone.
@@ -21,7 +27,8 @@ of failure count, and the second is the one reviewers miss:
   under its old callers can be plainly broken under this one: an assumption that
   the input was already trimmed, that the caller held a lock, that it ran once
   per request rather than in a loop, that it was never called with an empty
-  list. Read the function the diff calls, not just the call site.
+  list. When the patch visibly changes how an existing function is driven, read
+  that one function, not just the call site - one hop, no further.
 
 ## Half 2 - what does it break?
 
@@ -44,3 +51,8 @@ from an input to a wrong outcome is a finding; a category of risk is not.
 If a cheap, targeted check would settle a specific claim - one test file, a
 single-file type check, a grep for the callers - run it. Never a full build or
 test suite.
+
+Do not trace data flow across the codebase or hunt for every consumer on your
+own initiative. That depth belongs to the requirement agents: when the author is
+worried about an area, they name it as a requirement, and a dedicated agent
+investigates it.

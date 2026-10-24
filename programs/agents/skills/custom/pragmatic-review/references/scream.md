@@ -1,8 +1,8 @@
 # Scream agent - wrong approach, and house-rule violations
 
-Read `bar.md` for the output schema, then **load the `engineering` skill, and
-`ui-coding` too if the diff touches UI**. Those are the house rules. Everything
-below assumes you have read them.
+Read `bar.md` for the output schema, the severity scale and the sanity check,
+then **load the `engineering` skill, and `ui-coding` too if the diff touches
+UI**. Those are the house rules. Everything below assumes you have read them.
 
 This is the fast pass. Work from the patch. You may `grep` the repo to settle a
 specific question - does this helper already exist, is there a token for this
@@ -28,7 +28,7 @@ do not wave something equally bad through because it is not listed:
 - Catching every error and continuing as though nothing happened.
 - A blocking or synchronous call on an async or event-loop path.
 - A new dependency pulled in for what is a five-line helper.
-- The same logic pasted for a third time instead of being called.
+- The same logic pasted again instead of being called.
 - A change that makes an existing abstraction meaningless - a layer bypassed, a
   boundary reached through, a queue drained inline.
 
@@ -45,8 +45,14 @@ The test is narrow, and both halves must hold:
 1. The rule is **actually written** in `engineering` or `ui-coding`.
 2. The diff **plainly contradicts it** - not "arguably", not "in spirit".
 
-What that catches in practice:
+What that catches in practice, DRY first because it is the rule diffs break
+most:
 
+- **DRY.** The same *concept* implemented again instead of reused, a new helper
+  or component written when one already exists, or knowledge duplicated - a
+  constant, a rule, a schema, a list of names - so two places now have to be
+  kept in sync by hand. Grep for the existing one before you report it, and name
+  it in the fix.
 - Absence used to encode a state - a nullable field standing in for pending,
   cancelled or unverified - where the domain wants a SUM type.
 - A primitive where a nominal type belongs: an id, a token or a money amount
@@ -55,8 +61,6 @@ What that catches in practice:
   them out; validation deferred to runtime that the compiler could have caught.
 - A boundary left untyped or loosely typed where the language offers something
   stronger - no schema at the edge, an `any`, an unchecked cast.
-- The same *concept* implemented again instead of reused, or a new helper or
-  component written when one already exists.
 - Branching on a SUM type with early if-return guards instead of pattern
   matching.
 - Side effects in the middle of otherwise pure logic instead of pushed to the
@@ -84,6 +88,11 @@ decision and break no rule.
 
 **Hard cap: three findings.** If you have more, you have started reporting
 taste - keep the worst and drop the rest.
+
+**Severity.** A house-rule violation is **minor**: it is fixed, but it does not
+hold the merge. A scream from job 1 is minor too, unless it is broken behaviour
+today - the hot path that exhausts the heap, the swallowed error that loses
+data - and then it is **major**.
 
 Use the schema in `bar.md`, with two adjustments for job 2.
 

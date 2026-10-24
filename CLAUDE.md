@@ -205,9 +205,11 @@ stale skill behind — the same pattern `mkClaudeFlavor` already uses for
 destroyed on the next launch; prototype in a project's `.claude/skills/` instead.
 
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
-`programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Instructions
-work the same way: `baseInstructions` plus per-flavor `extraInstructions`, which
-is empty everywhere today.
+`programs/claude-code/default.nix`) plus per-flavor `extraSkills`, which no
+flavor uses today: every flavor gets every skill, `ui-coding` included, because
+a model-invoked skill costs only its description until a task needs it.
+Instructions work the same way: `baseInstructions` plus per-flavor
+`extraInstructions`, which only `claude-factory` uses.
 
 `nix flake check` — and therefore `just check` in CI — validates every installed
 skill: frontmatter present, `name` matching the installed directory, and a

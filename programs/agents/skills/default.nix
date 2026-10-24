@@ -31,7 +31,8 @@ let
       roots = [ "skills" ];
       skills = [
         "grill-with-docs" # the entry point
-        "grilling" # delegated to by grill-with-docs
+        # "grilling" is forked into ./custom (one question at a time through the
+        # picker), because grill-me and grill-with-docs both delegate to it.
         "domain-modeling" # delegated to by grill-with-docs
         "grill-me" # non-code variant of grill-with-docs
         "setup-matt-pocock-skills" # per-repo setup, run once via /setup-matt-pocock-skills
@@ -49,10 +50,16 @@ let
   # any other directory stays committed as a draft. See ./custom/README.md.
   custom = [
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
+    "engineer" # /engineer - deliver a feature end to end, explicit invocation only
     "engineering" # coding style and engineering principles, model-invoked on any code work
-    "pragmatic-review" # /pragmatic-review - diff and PR review, explicit invocation only
+    "explain" # /explain - plain-words explanation of a PR, diff or concept, read-only, explicit invocation only
+    "give-feedback" # /give-feedback - apply quick bulleted feedback to a PR in rounds, explicit invocation only
+    "grilling" # fork of mattpocock's grilling, one picker question at a time; grill-me and grill-with-docs delegate to it
+    "pr-description" # PR body from the repo template or a default format, model-invoked before gh pr create
+    "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
+    "refactor" # /refactor - behaviour-preserving cleanup of a diff; also invoked by engineer
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
-    "ui-coding" # UI-specific rules on top of engineering, web flavor only
+    "ui-coding" # UI-specific rules on top of engineering, model-invoked on UI work
   ];
 
   # Custom skills go through the same resolution as external sources so they get
