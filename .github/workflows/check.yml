@@ -21,7 +21,7 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: Run checks
-        run: nix shell nixpkgs#just nixpkgs#statix nixpkgs#deadnix --command just check
+        run: nix develop .#default --command just check
 
   # Refuses a dependency bump that would make the next darwin-rebuild take
   # hours. Runs on Linux on purpose: `nix build --dry-run` only queries

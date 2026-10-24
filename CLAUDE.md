@@ -14,7 +14,7 @@ modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
-shells/         — dev shells (web, haskell, nixos-install)
+shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
 secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 ```
 
