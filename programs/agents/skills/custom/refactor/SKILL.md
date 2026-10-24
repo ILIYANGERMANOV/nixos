@@ -44,6 +44,19 @@ Look at the diff, in this order:
    behind a smaller interface.
 4. **Minimal parameters** - a function handed a whole record, context or config
    when it uses one field.
+5. **Top-down order** - a file reads like a newspaper: the entry point or
+   public function first, then the helpers it calls, each defined below its
+   first caller, in the order they are called. Move definitions, never change
+   them.
+6. **Comments** - delete a comment that restates what the code already says
+   (`// increment i`, a docstring repeating the signature), is stale, or is
+   commented-out code. Shorten a useful one to the part the code cannot say:
+   the why, an invariant, a trap. Keep every comment that explains why.
+7. **Meaningful tests** - a test the diff adds or changes must fail if the
+   behaviour it names broke. Flag tests that assert nothing, assert only that a
+   mock was called, re-implement the code under test to compute the expected
+   value, or duplicate another test. Fix by asserting the observable outcome,
+   or delete the test. Never weaken an assertion to make it pass.
 
 Write the plan as a short numbered list, one line per item: what changes, why
 (the rule it serves), and its size - **small** (inside the diff, a few files) or
