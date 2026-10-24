@@ -7,6 +7,8 @@ Base instructions for every agent.
 - When writing, modifying, refactoring, reviewing or designing code, invoke the
   `engineering` skill and follow it. It carries the coding style and engineering
   principles for all code work, in any language.
+- Before opening a pull request, or when writing or updating a PR description,
+  invoke the `pr-description` skill and follow it.
 
 ## Subagents
 
