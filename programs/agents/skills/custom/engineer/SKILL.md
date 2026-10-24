@@ -93,10 +93,7 @@ feature.
 
 - Rewrite the PR body with the `pr-description` skill, keeping any decisions
   you made on the user's behalf.
-- Wait for CI without blocking: call `subscribe_pr_activity` and end your turn,
-  so CI results wake you. If subscribing is refused, run
-  `gh pr checks <n> --watch` as a background Bash command (`run_in_background`),
-  so its exit wakes you. Never `sleep`, never `send_later`.
-- Fix CI failures through a subagent, and wait again.
+- Wait for CI the non-blocking way your instructions describe. Fix CI
+  failures through a subagent, and wait again.
 - When CI is green, mark the PR ready with `gh pr ready <n>` and notify the
   user.

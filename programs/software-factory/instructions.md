@@ -13,13 +13,10 @@ requests.
 - Never commit to `main` or push it. Do all work on a feature branch named
   after the change, push it to `origin`, and open a pull request with
   `gh pr create`. `main` is protected and the push would be rejected anyway.
-- Wait on the pull request's CI without blocking: after your final push, call
-  `subscribe_pr_activity` and end your turn, so CI results wake you to fix
-  what fails. An event for a commit that is not the branch head, or for your
-  own action (your push, `ready_for_review`), needs nothing: end the turn
-  without a tool call. Sessions start with no repository attached, so first
-  call `add_repo` with the owner/repo of `origin` and `access: "read"`. You
-  are authorised to: do not ask, clone or call `register_repo_root`. If
+- Sessions start with no repository attached, so before subscribing to a
+  pull request's CI, call `add_repo` with the owner/repo of `origin` and
+  `access: "read"`. You are authorised to: do not ask, clone or call
+  `register_repo_root`. If
   `add_repo` or subscribing is refused, run `gh pr checks <n> --watch` as a
   background Bash command (`run_in_background`) instead; it exits 8 while
   checks are pending, which is not a failure. Never schedule check-ins or

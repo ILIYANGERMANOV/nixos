@@ -29,7 +29,8 @@ Base instructions for every agent.
 - Trust a subagent's verified report and the CI results. After a follow-up
   edit, re-run only the checks that edit affects, and never re-fetch package
   indexes.
-- Hand back in 300 words or fewer. Detail goes in commits, the PR or a file.
+- Hand back in 300 words or fewer, unless the invoked skill sets its own
+  return format. Detail goes in commits, the PR or a file.
   Relay a hand-back to the user only when it changes what they need to know.
 
 ## Context budget
@@ -46,6 +47,10 @@ step.
   agent after a gap; spawn a fresh one from a summary.
 - Subagents never wait on CI or long builds: they hand back, and the parent
   waits.
+- Wait on a pull request's CI without blocking: after your final push, call
+  `subscribe_pr_activity` and end your turn, so CI results wake you. An event
+  for a commit that is not the branch head, or for your own action (your
+  push, `ready_for_review`), needs nothing: end the turn without a tool call.
 - Fanning out in parallel, launch one agent first and the rest after it, so
   they share its cached prefix.
 

@@ -59,7 +59,7 @@ pkgs.runCommand "claude-read-guard-check"
     expect 2 "large files read together are blocked" "cat big-a big-b"
     grep -q "grep -n first" "$TMPDIR/err" || { echo "  ✗ the block carries the hint" >&2; status=1; }
     expect 2 "a glob naming large files is blocked" "cat big-*"
-    expect 2 "large files across chained cats are blocked" "cat big-a && cat -n big-b | head"
+    expect 2 "large files across chained cats are blocked" "cat big-a && cat -n big-b"
     expect 2 "a large blob shown with another file is blocked" "git show HEAD:big-a; cat big-b"
     expect 2 "git -C sizes blobs in that repository" "cd / && git -C $dir show HEAD:big-a HEAD:big-a"
     expect 2 "cd to an absolute path moves later reads" "cd $dir/sub && cat big-c big-d"
@@ -72,6 +72,20 @@ pkgs.runCommand "claude-read-guard-check"
     expect 0 "a heredoc write is allowed" "cat > out <<'EOF'
     big-a big-b
     EOF"
+    expect 0 "large files redirected to a file are allowed" "cat big-a big-b > combined"
+    expect 0 "large files appended to a file are allowed" "cat big-a big-b 2>/dev/null >> combined"
+    expect 2 "a stderr redirect still shows stdout" "cat big-a big-b 2>/dev/null"
+    expect 0 "a heredoc body naming large reads is allowed" "cat <<EOF > notes
+    cat big-a big-b
+    git show HEAD:big-a HEAD:big-a
+    EOF
+    echo done"
+    expect 2 "reads after a heredoc body are still sized" "cat <<-EOF > notes
+    body
+    EOF
+    cat big-a big-b"
+    expect 0 "large files piped into a filter are allowed" "cat big-a big-b | grep -c x"
+    expect 0 "a blob piped into a filter is allowed" "git show HEAD:big-a HEAD:big-a | head"
 
     expect_raw 0 "malformed input is allowed" 'not json'
     expect_raw 0 "input without a command is allowed" '{"tool_input": {}}'

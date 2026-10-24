@@ -2,19 +2,24 @@
 
 Reads the hook input from stdin. A command whose `cat` and `git show rev:path`
 operands name two or more files totalling over MAX_BYTES exits 2, which makes
-Claude Code block the call and show stderr to the model. Relative operands
-resolve against the directory the last `cd` in the chain moved to. Everything
-else exits 0, including any input this script does not understand: the guard
-fails open.
+Claude Code block the call and show stderr to the model. Only reads whose
+output reaches the screen count: one redirected to a file or piped into
+another command dumps nothing into context, and heredoc bodies are data, not
+commands. Relative operands resolve against the directory the last `cd` in
+the chain moved to. Everything else exits 0, including any input this script
+does not understand: the guard fails open.
 """
 
 import glob
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
 from collections.abc import Iterator
+from dataclasses import dataclass
+from enum import Enum, auto
 
 MAX_BYTES = 8 * 1024
 HINT = (
@@ -23,6 +28,23 @@ HINT = (
     "read one large file per command."
 )
 OPERATORS = set(";&|()<>")
+PIPES = {"|", "|&"}
+# `<<` or `<<-`, then the delimiter, bare or quoted. `<<<` is a here-string.
+HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+class Sink(Enum):
+    """Where a simple command's stdout goes."""
+
+    SCREEN = auto()
+    FILE = auto()
+    PIPE = auto()
+
+
+@dataclass(frozen=True)
+class SimpleCommand:
+    words: list[str]
+    sink: Sink
 
 
 def main() -> None:
@@ -50,41 +72,80 @@ def read_sizes(command: str, cwd: str) -> Iterator[int | None]:
     joins them. A `cd` that would fail leaves a directory that does not exist,
     so nothing after it is found or counted: the guard fails open.
     """
-    for words in simple_commands(command):
-        match words:
-            case ["cd"]:
+    for simple in simple_commands(command):
+        match (simple.words, simple.sink):
+            case (["cd"], _):
                 cwd = os.path.expanduser("~")
-            case ["cd", target]:
+            case (["cd", target], _):
                 cwd = os.path.join(cwd, os.path.expanduser(target))
-            case ["cat", *args]:
+            case (["cat", *args], Sink.SCREEN):
                 for pattern in operands(args):
                     yield from file_sizes(cwd, pattern)
-            case ["git", "-C", repo, "show", *args]:
+            case (["git", "-C", repo, "show", *args], Sink.SCREEN):
                 yield from blob_sizes(os.path.join(cwd, repo), operands(args))
-            case ["git", "show", *args]:
+            case (["git", "show", *args], Sink.SCREEN):
                 yield from blob_sizes(cwd, operands(args))
             case _:
                 pass
 
 
-def simple_commands(command: str) -> Iterator[list[str]]:
-    """The words of each simple command, split at shell operators.
+def simple_commands(command: str) -> Iterator[SimpleCommand]:
+    """Each simple command, split at shell operators, with its stdout sink.
 
-    A redirection target starts a command of its own, which is harmless: only
-    a command starting with cat or git is ever sized.
+    Redirection operators and their targets are not words. A digit word
+    before `>` is the fd it redirects, so `2>/dev/null` leaves stdout alone.
     """
     lexer = shlex.shlex(
-        command.replace("\n", " ; "), posix=True, punctuation_chars=True
+        strip_heredoc_bodies(command).replace("\n", " ; "),
+        posix=True,
+        punctuation_chars=True,
     )
     lexer.whitespace_split = True
-    words = []
-    for token in lexer:
-        if set(token) <= OPERATORS:
-            yield words
-            words = []
-        else:
-            words.append(token)
-    yield words
+    tokens = iter(lexer)
+    words: list[str] = []
+    sink = Sink.SCREEN
+    for token in tokens:
+        match token:
+            case _ if not set(token) <= OPERATORS:
+                words.append(token)
+            case _ if token in PIPES:
+                yield SimpleCommand(words, Sink.PIPE)
+                words, sink = [], Sink.SCREEN
+            case _ if ">" in token:
+                fd = words.pop() if words and words[-1].isdigit() else "1"
+                target = next(tokens, "")
+                if redirects_stdout_to_file(fd, token, target):
+                    sink = Sink.FILE
+            case _ if "<" in token:
+                next(tokens, "")
+            case _:
+                yield SimpleCommand(words, sink)
+                words, sink = [], Sink.SCREEN
+    yield SimpleCommand(words, sink)
+
+
+def strip_heredoc_bodies(command: str) -> str:
+    """The command without the body lines of its heredocs."""
+    lines = iter(command.split("\n"))
+    kept = []
+    for line in lines:
+        kept.append(line)
+        for heredoc in HEREDOC.finditer(line):
+            delimiter = heredoc.group(2)
+            for body in lines:
+                if body.strip() == delimiter:
+                    break
+    return "\n".join(kept)
+
+
+def redirects_stdout_to_file(fd: str, operator: str, target: str) -> bool:
+    match (fd, operator, target.isdigit()):
+        case ("1", ">&", True):
+            return False
+        case ("1", _, _):
+            return True
+        case _:
+            return False
 
 
 def operands(args: list[str]) -> list[str]:

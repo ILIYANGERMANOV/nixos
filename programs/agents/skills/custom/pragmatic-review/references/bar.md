@@ -1,7 +1,7 @@
 # The bar
 
-The orchestrator pastes this file verbatim into every review agent's prompt, and
-judges what comes back at the same bar. It is the only statement of the bar:
+The orchestrator pastes everything below the `---` line verbatim into every
+review agent's prompt, and judges what comes back at the same bar. It is the only statement of the bar:
 change it here, nowhere else.
 
 ---
