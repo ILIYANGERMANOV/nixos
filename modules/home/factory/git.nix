@@ -16,6 +16,9 @@
       };
       init.defaultBranch = "main";
       core.autocrlf = "input";
+      # A branch cut from origin/main tracks nothing, so its first push
+      # creates a branch of the same name instead of targeting main.
+      branch.autoSetupMerge = "simple";
       push.autoSetupRemote = true;
 
       gpg.format = "ssh";
