@@ -1,11 +1,8 @@
 # Blocker agent - security and irreversible damage
 
-You own both classes of blocker. Read `bar.md` first for the output schema and
-the refutation rule, then this file, which overrides the reluctant default in it.
-
-> **This file is the canonical statement of what a blocker is.** `SKILL.md`
-> carries a summary so the orchestrator can aim, and points back here for phase
-> 4. Change the definition here first, then check the summary still matches.
+You own both classes of blocker. The bar in your prompt applies, except where
+this brief overrides its reluctant default. This file is the canonical
+statement of what a blocker is; `SKILL.md` carries only a summary for aiming.
 
 **Your default is inverted.** For everything else in this review the rule when
 unsure is to drop it. For a blocker the rule when unsure is to **report it** and
@@ -22,24 +19,24 @@ next week, because by then it has already happened.
 Every blocker you return is **major**. This brief is the one place outside the
 requirement agents where the review is careful rather than fast: run the sweep
 in full, and verify every hit and every destructive statement against the real
-code. The sanity check from `bar.md` still applies on top.
+code, in about 8 turns. The bar's always-check list still applies on top.
 
 ## Step 1 - the mechanical sweep, before you reason about anything
 
 Cheapest, highest-value check in the review. Run it first, on the **added lines
-only**. `<diff>` below is the diff command pinned in your prompt.
+only**. `$D` below is the review directory named in your prompt.
 
 ```sh
-<diff> | grep -E '^\+' | grep -E -i \
+grep -E '^\+' "$D/diff" | grep -E -i \
   'sk-[A-Za-z0-9_-]{16}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20}|xox[baprs]-|-----BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|secret|password|passwd|token|credential|private[_-]?key|client[_-]?secret)[[:space:]]*[:=][[:space:]]*.{8}|Bearer [A-Za-z0-9._~+/-]{20}|[a-z][a-z0-9+.-]*://[^/[:space:]:@]+:[^@[:space:]]+@'
 ```
 
 Then the same pass for high-entropy literals that carry no keyword - quoted
 runs of 40+ base64 characters, or 32+ hex characters - and then the file paths,
-both the ones the diff carries and the untracked ones your prompt lists:
+both the ones the diff carries and the untracked ones in `$D/status`:
 
 ```sh
-<diff> | grep -E '^\+\+\+ b/'                  # every file the diff adds or edits
+grep -E '^\+\+\+ b/' "$D/diff"                 # every file the diff adds or edits
 git check-ignore --no-index -v <each path>     # would this path be gitignored?
 ```
 
@@ -127,7 +124,7 @@ assumed correct.
 
 ## Refutation, for you
 
-`bar.md` tells you to refute yourself, and that still holds - but a blocker is
+The bar tells you to refute yourself, and that still holds - but a blocker is
 dropped only when you can show it is **wrong**: the input is parameterised after
 all, the route is unreachable, the guard lives upstream, the `WHERE` clause
 provably matches only the intended rows, the file is gitignored. Never drop one
