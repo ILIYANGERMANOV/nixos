@@ -52,7 +52,7 @@ let
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
     "engineering" # coding style and engineering principles, model-invoked on any code work
     "grilling" # fork of mattpocock's grilling, one picker question at a time; grill-me and grill-with-docs delegate to it
-    "pragmatic-review" # /pragmatic-review - diff and PR review, explicit invocation only
+    "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
     "ui-coding" # UI-specific rules on top of engineering, web flavor only
   ];

@@ -30,14 +30,63 @@ yours.
 
 One further override: the `engineering` and `ui-coding` skills are this user's
 decided rules, not opinions. If your brief is `scream.md`, a plain violation of
-a rule written there is a finding even though it would otherwise read as taste -
-the house settled that argument in advance.
+a rule written there - DRY included - is a finding even though it would
+otherwise read as taste - the house settled that argument in advance.
+
+## Severity
+
+Every finding you return carries exactly one severity:
+
+- **major** - blocks the merge. Security, irreversible damage, broken behaviour
+  (the change fails at what it set out to do, or breaks something that worked),
+  obviously broken code, and accidental TEMP, WIP or debug commits or leftover
+  debug code.
+- **minor** - should be fixed, does not block. A plain violation of a written
+  `engineering` or `ui-coding` rule, DRY included, or an approach no competent
+  engineer would choose that still works today.
+- **nit** - only when it is nearly free to fix and plainly right: a typo in a
+  user-facing string, an unused import the diff itself added. Drop every other
+  nit.
+
+The diff is mergeable iff no major survives, so do not inflate a finding to
+major to get it noticed, and do not soften a broken path to minor.
+
+## Tips come first
+
+If your brief carries a tip, it is the user's list of what to look for and what
+must hold. Act on it **first and in depth**: read the callers, follow the data,
+run the cheap check that settles it, go outside the diff if it points there. It
+is the one place in this review where depth is wanted. Your standard brief
+follows, and is still finished.
+
+If you are a **tip agent**, the tip is your whole job. The other briefs are
+background for the angle it touches, not work you owe.
+
+## Outside the tips, a fast sanity check
+
+Everything not covered by a tip gets a fast pass: read the diff, flag what is
+obviously wrong, do not probe deeply. The blocker agent's sweep and its
+verification are the exception - `blockers.md` says how careful to be.
+
+Every agent checks these, because they cost one read of the patch:
+
+- **Accidental TEMP, WIP or debug commits** - run the commit-list command in your
+  prompt and look at the subjects - and leftover debug code in added lines:
+  stray prints and logs, `debugger`, commented-out blocks, hard-coded test
+  values, `TODO: remove`.
+- **Obviously broken things** - a syntax error, a file the diff references but
+  does not add, a call to a symbol that does not exist, a path that points
+  nowhere. A grep settles each of these; never a build.
+
+Each is a major.
 
 ## What is never a finding
 
-Regardless of how confident you are: nits, style, naming, formatting, comment
+Regardless of how confident you are: style, naming, formatting, comment
 wording, import order, accessibility, micro-optimisations, test-coverage wishes,
-hypothetical future requirements, and refactors of code the diff did not touch.
+hypothetical future requirements, super edge cases no real input reaches,
+refactors of code the diff did not touch, and every nit that is not nearly free
+to fix.
 
 A rule written in `engineering` or `ui-coding` is not style, and this list does
 not cover it - see `scream.md`, which owns those.
@@ -79,6 +128,7 @@ what you read (unless your brief carries a tip, which changes this; see below):
 
 ```
 file:line
+severity    major | minor | nit
 claim       one sentence, what is wrong
 trigger     concrete inputs or state -> the wrong outcome
 confidence  certain | likely | speculative
@@ -93,20 +143,23 @@ the problem actually happens, you do not report it.
 field without reopening the file, so "I did not check" reads as a hand-wave and
 gets dropped.
 
+**Keep the whole return under 300 words**, plus up to 200 for a tip verdict. A
+tip agent may use 500 in total. The orchestrator reads every return in one
+context, so words spent on prose are words taken from the findings.
+
 ### If your brief carries a tip, you owe a verdict as well
 
 The rule above - findings and nothing else - is what an agent returns when its
-brief is only the standard one. A tip is extra ground handed to you on top of
-that brief, and it is a direct question from the user, answered even when the
-answer is "nothing wrong here". So if your brief carries one you **always**
-return a short verdict on it, above any findings, including when your findings
-are `NONE`.
+brief is only the standard one. A tip is a direct requirement from the user,
+answered even when the answer is "nothing wrong here". So if your brief carries
+one you **always** return a short verdict on it, above any findings, including
+when your findings are `NONE`.
 
-The tip never displaces your standard brief - you finish that either way, and
-your scope simply widens to wherever the tip points, including code this diff did
-not touch, where what you find is marked `pre-existing`. If you run out of room
-to do both properly, say which part you could not cover. That is a usable answer;
-implying you covered both is not.
+On a standard agent the tip never displaces your standard brief - you finish
+that either way, and your scope simply widens to wherever the tip points,
+including code this diff did not touch, where what you find is marked
+`pre-existing`. If you run out of room to do both properly, say which part you
+could not cover. That is a usable answer; implying you covered both is not.
 
 The verdict says **what you actually examined** - which files, which paths, which
 cases - so the user can tell a real check from a shrug. It is the one place a
