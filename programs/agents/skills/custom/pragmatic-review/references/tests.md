@@ -85,7 +85,10 @@ every reading is judged directly.
 change, and test it well enough.
 
 **Hard cap: four findings and two intent-unclear blocks.** If you have more,
-keep the majors and the worst minors, and drop the rest.
+keep the majors and the worst minors, and drop the rest. Past two
+intent-unclear blocks, keep the two whose answer could make a test Major, and
+add one line naming the other unclear tests, so the orchestrator lists them
+under the table instead of dropping them silently.
 
 Use the schema in `bar.md`, with two adjustments.
 

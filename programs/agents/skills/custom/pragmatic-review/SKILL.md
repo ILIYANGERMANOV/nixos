@@ -479,7 +479,8 @@ implies. These do not count against the two questions of phase 2. Wait for each
 answer, then rate the test at the severity the chosen reading implies: a
 reading under which it proves the intended behaviour drops it, one under which
 it contradicts the intent makes it a Major row, and add it to the arithmetic.
-When another agent invoked this skill, that agent answers.
+When another agent invoked this skill, that agent answers. Unclear tests the
+agent named past its cap are not asked: list them in one line under the table.
 
 ## Phase 5 - the findings table
 
