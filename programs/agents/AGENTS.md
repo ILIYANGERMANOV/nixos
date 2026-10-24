@@ -41,9 +41,9 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 
 - While iterating, run the narrowest check that covers the edit: one test, a
   typecheck, a single `nix build .#checks.<system>.<name>`.
-- Run the full check exactly once, before you hand back or push. Never rerun
-  it without an edit since the last run, and never after an edit that touched
-  only docs.
+- Run the full check on the final state of the code, before you hand back or
+  push. Rerun it only after a code edit, such as fixing what it found, never
+  after an edit that touched only docs.
 - Never chain steps the full check already runs: no build, test or lint in
   front of a `just check` that runs them.
 - Run anything expected to take over a minute with `run_in_background`. It
@@ -63,8 +63,8 @@ step.
 - Never send new scope to a large agent: start a fresh one.
 - The prompt cache expires after about 5 minutes idle. Never resume a large
   agent after a gap; spawn a fresh one from a summary.
-- Subagents never wait on CI or long builds: they hand back, and the parent
-  waits.
+- Subagents never wait on CI or deploys: they hand back, and the parent
+  waits. The full check is still theirs to run and wait for.
 - Wait on a pull request's CI without blocking: after your final push, call
   `subscribe_pr_activity` and end your turn, so CI results wake you. An event
   for a commit that is not the branch head, or for your own action (your
