@@ -2,7 +2,8 @@
 
 Reads the hook input from stdin. A command whose `cat` and `git show rev:path`
 operands name two or more files totalling over MAX_BYTES exits 2, which makes
-Claude Code block the call and show stderr to the model. Everything else exits
+Claude Code block the call and show stderr to the model. Relative operands
+resolve against the directory the last `cd` in the chain moved to. Everything else exits
 0, including any input this script does not understand: the guard fails open.
 """
 
@@ -41,9 +42,18 @@ def main():
 
 
 def read_sizes(command, cwd):
-    """The size of every file the command reads, None where it is unknown."""
+    """The size of every file the command reads, None where it is unknown.
+
+    A `cd` moves the directory for every later command, whatever operator
+    joins them. A `cd` that would fail leaves a directory that does not exist,
+    so nothing after it is found or counted: the guard fails open.
+    """
     for words in simple_commands(command):
         match words:
+            case ["cd"]:
+                cwd = os.path.expanduser("~")
+            case ["cd", target]:
+                cwd = os.path.join(cwd, os.path.expanduser(target))
             case ["cat", *args]:
                 for pattern in operands(args):
                     yield from file_sizes(cwd, pattern)

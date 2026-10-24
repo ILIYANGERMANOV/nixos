@@ -21,9 +21,10 @@ CI. You own the outcome; the user owns the decisions.
 - **Facts are yours, decisions are theirs.** Research facts with subagents;
   never ask the user something the code, the docs or a tool can answer.
 - **You answer the skills you invoke.** `refactor` asks which big items are in
-  scope; you choose which review findings get fixed. Answer those yourself -
-  unless the answer is a product, scope or design decision, which goes to the
-  user.
+  scope; `pragmatic-review`'s pickers ask which findings survive and what to do
+  with them, and its open questions what a test is meant to prove. Answer those
+  yourself - unless the answer is a product, scope or design decision, which
+  goes to the user.
 - **Protect your context window.** Delegate reading, implementing, verification
   and log triage to subagents and keep only their conclusions. Run them in the
   background by default.
@@ -64,23 +65,30 @@ Run the `refactor` skill on the branch.
 
 ### 5. Review
 
-Run each review pass in a fresh review subagent. It invokes `pragmatic-review`,
-answers none of its pickers and hands back only the findings table, in about
-400 words or fewer. You choose the findings worth fixing and hand them to a
-fixer subagent that commits and pushes.
+Run each review pass as a fresh review agent whose prompt is "invoke
+`pragmatic-review` with: <arguments>"; never load that skill yourself. It
+returns the findings table and requirement verdicts, in about 400 words or
+fewer, and ends with `Reviewed head: <sha>`. You answer its pickers by acting on
+the table yourself: choose the rows worth fixing and hand them to a fixer
+subagent that commits and pushes. Never reply to the review agent with an
+action.
 
 Pass 1 is a first review, with requirements stating what must hold where you
-are least sure of the implementation. Note the head sha it reviewed.
+are least sure of the implementation. Record its `Reviewed head` and its
+requirement verdicts.
 
 ### 6. Review again, for the last time
 
-Pass 2 is a re-review of the fixes since the pass-1 sha. No more reviews after
-this one, whatever it finds.
+Pass 2 is a re-review: invoke `pragmatic-review` with `--fixes <the pass-1
+Reviewed head>`, the pass-1 requirements again, and "finding N is fixed" for
+each row you had fixed. A requirement it answers "unchanged" keeps its pass-1
+verdict. No more reviews after this one, whatever it finds.
 
 ### 7. Final fix
 
-Through a fixer, fix only what is safe and small. Anything bigger goes in the PR body as known
-follow-up work, or to the user as a question if it blocks the feature.
+Through a fixer, fix only what is safe and small. Anything bigger goes in the
+PR body as known follow-up work, or to the user as a question if it blocks the
+feature.
 
 ### 8. Hand over
 

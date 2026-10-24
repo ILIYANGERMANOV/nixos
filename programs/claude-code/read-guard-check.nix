@@ -24,6 +24,11 @@ pkgs.runCommand "claude-read-guard-check"
     head -c 20000 /dev/zero >huge
     echo small >small-a
     echo small >small-b
+    mkdir sub
+    head -c 6000 /dev/zero >sub/big-c
+    head -c 6000 /dev/zero >sub/big-d
+    echo small >sub/small-c
+    echo small >sub/small-d
 
     export HOME=$TMPDIR GIT_AUTHOR_NAME=check GIT_AUTHOR_EMAIL=check@example.com
     export GIT_COMMITTER_NAME=check GIT_COMMITTER_EMAIL=check@example.com
@@ -56,6 +61,10 @@ pkgs.runCommand "claude-read-guard-check"
     expect 2 "large files across chained cats are blocked" "cat big-a && cat -n big-b | head"
     expect 2 "a large blob shown with another file is blocked" "git show HEAD:big-a; cat big-b"
     expect 2 "git -C sizes blobs in that repository" "cd / && git -C $dir show HEAD:big-a HEAD:big-a"
+    expect 2 "cd to an absolute path moves later reads" "cd $dir/sub && cat big-c big-d"
+    expect 2 "cd to a relative path moves later reads" "cd sub && cat -n big-c; cat big-d"
+    expect 0 "small files after a relative cd are allowed" "cd sub && cat small-c small-d"
+    expect 0 "a cd to a missing directory is allowed" "cd nowhere && cat big-a big-b"
     expect 0 "a commit without a path is not sized" "git show HEAD; cat big-b"
     expect 0 "missing files are not counted" "cat nope-a nope-b huge"
     expect 0 "other commands are allowed" "grep -n x big-a big-b huge"

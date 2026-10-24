@@ -85,9 +85,10 @@ an assumption. With no such question, do not wait.
 | **blockers** | `references/blockers.md`, which it reads | careful, about 8 turns |
 | **regressions** | inline, below | fast, about 6 turns |
 | **house rules** | `references/house-rules.md`, which it reads | fast, about 8 turns |
+| **tests** | `references/tests.md`, which it reads | fast, about 6 turns |
 | **requirement** (one per group) | inline, below | STANDARD about 8 turns, DEEP about 15 |
 
-The three standard agents run on every review and never carry a requirement.
+The four standard agents run on every review and never carry a requirement.
 
 **At most five agents run at once.** Past that, launch the remaining
 requirement agents as earlier ones return.

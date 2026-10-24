@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or PR like a pragmatic engineer, in a fresh subagent per pass. A first review runs blockers, regressions and house-rules agents plus one agent per optional requirement, each answered Met, Not met or Unverified; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included, and fake or weak tests. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases. Returns a findings table and requirement verdicts; nothing is fixed or posted until a picker says so. Use before merging a PR or branch. When another agent invokes it, that agent answers the pickers.
+description: Reviews a diff or PR like a pragmatic engineer, in a fresh subagent per pass. A first review runs blockers, regressions, house-rules and tests agents plus one agent per optional requirement, each answered Met, Not met or Unverified; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included, and fake or weak tests. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases. Returns a findings table and requirement verdicts; nothing is fixed or posted until a picker says so. Use before merging a PR or branch. When another agent invokes it, that agent answers the pickers.
 argument-hint: "[requirements] [PR number or URL] [--fixes <first-review head sha>]"
 ---
 
@@ -24,8 +24,9 @@ leaks data, and burying one real bug under twelve opinions.
   load it - their prompts carry what they need.
 - **Read a reference only in the step that names it.** References live in
   `references/` under the base directory the Skill tool reported.
-- **Delegated** means another agent invoked you. You cannot ask anyone: the
-  pickers are answered by your caller from your return.
+- **Delegated** means another agent invoked you. You cannot ask anyone: your
+  caller answers the pickers from your return, by replying to you or by acting
+  on the table itself.
 
 ## Input
 
@@ -97,7 +98,8 @@ Both end in the report below, then the pickers.
 Facts first, the call last: a verdict read first anchors the reader. The order
 is fixed - answered or open intent-unclear test questions, the table, the
 requirement verdicts, the verdict line. Delegated, the whole return is at most
-about 400 words, and ends with `Reviewed head: <full sha>`.
+about 400 words, and its last line is `Reviewed head: <full sha>` - the sha a
+re-review takes as `--fixes <sha>`.
 
 **The table.** Skip it entirely when nothing survived - no empty table, no
 placeholder. Otherwise number the rows and sort by severity, Major then Minor
@@ -149,9 +151,10 @@ counted. Past three Major rows, name the two worst and count the rest.
    push**, **Fix locally**, **Post to PR**. Then stop until it is answered, and
    act by `references/handover.md`.
 
-Delegated, you cannot ask: end the return with "Reply with the rows to keep and
-an action - fix + commit & push, fix locally, post to PR - or act on the table
-yourself." Your caller answers by messaging you, or acts itself.
+Delegated, you cannot ask: after the verdict line, write "Reply with the rows to
+keep and an action - fix + commit & push, fix locally, post to PR - or act on
+the table yourself.", then the `Reviewed head` line. Your caller answers by
+replying to you, or acts on the table itself.
 
 ## Rules of engagement
 
