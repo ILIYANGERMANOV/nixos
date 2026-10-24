@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or a PR like a pragmatic engineer. Each optional requirement gets a dedicated agent, an in-depth check and a Met, Not met or Unverified verdict; everything else gets a fast sanity check. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included, and tests that prove nothing. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases; finding nothing is a good outcome. A findings table, then one picker decides whether to fix and push, fix locally or post to the PR - nothing is done without it. Use before merging a PR or the current branch. When another agent invokes it, that agent answers the pickers.
+description: Reviews a diff or a PR like a pragmatic engineer. Each optional requirement gets a dedicated agent, an in-depth check and a Met, Not met or Unverified verdict; everything else gets a fast sanity check. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included, and fake or weak tests. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases; finding nothing is a good outcome. A findings table, then one picker decides whether to fix and push, fix locally or post to the PR - nothing is done without it. Use before merging a PR or the current branch. When another agent invokes it, that agent answers the pickers.
 argument-hint: "[requirements] [PR number or URL]"
 ---
 
@@ -35,8 +35,8 @@ will read again anyway.
    included - Minor, so they are fixed without holding the merge.
 5. **Tests are real proof** - every test the diff touches, at every layer,
    judged against the `engineering` test rules and the change's intent. A fake
-   proof is Major; a test that pins internals, mocks our own code or proves
-   nothing, and new public behaviour with no test at all, are Minor.
+   proof is Major; a test that pins internals, mocks our own code or is
+   meaningless, and new public behaviour with no test at all, are Minor.
 
 Outside the requirements, every agent does a **fast sanity check**: read the diff, flag
 what is obviously wrong, do not probe deeply. That always covers:

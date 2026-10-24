@@ -120,7 +120,7 @@ a test - it is the detailed statement of every rule below, with examples.
   the call itself is the behavior, such as sending an email.
 - Simple and concise: Given-When-Then, one behavior per test, named after the
   behavior it pins. Builders, fixtures and shared test utilities keep setup
-  short; a helper moves to the shared ones when a second test needs it.
+  short; a helper moves to the shared ones when a second test file needs it.
 - Deterministic: no real time, no unseeded randomness, no order dependence, no
   real network.
 - Every test must be able to fail: delete or rewrite a test that asserts
@@ -130,11 +130,8 @@ a test - it is the detailed statement of every rule below, with examples.
 - Test placement: the code placement rule above applies to tests. Follow the
   layout the project already uses for test files.
 - Reviewing tests: judge tests against the reference and against what the
-  change is meant to do. A test that contradicts the intent, a test that can
-  never fail and a bug fixed with no test that was red first are fake proofs
-  and block the merge. A missing layer is never a review finding, because
-  whether the project supports it is not visible in a diff; new public
-  behavior with no test at any layer is.
+  change is meant to do. How severe each problem is belongs to the
+  `pragmatic-review` skill.
 
 ## Ask, do not guess
 
