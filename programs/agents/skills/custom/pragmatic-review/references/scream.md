@@ -78,8 +78,9 @@ most:
 
 **Not violations, ever:** anything the rules leave to judgement (`ui-coding`
 says spacing, radius and typography are judgement calls), formatting, naming
-style, import order, missing tests or docs, your own preferences that are not
-written in those skills, and code the diff did not touch.
+style, import order, missing docs, anything about tests - the test agent owns
+those, against `tests.md` - your own preferences that are not written in those
+skills, and code the diff did not touch.
 
 ## Output
 
@@ -102,11 +103,11 @@ bug the compiler can no longer catch, the code that now has to be kept in sync b
 hand.
 
 Its `evidence` field carries **the rule quoted verbatim, with the file and line
-it came from**, alongside the offending lines of the diff. You are the only agent
-that reads `engineering` and `ui-coding`; the orchestrator does not, and will not
-load them to check you. It judges the violation on your quote alone, so a
-paraphrase leaves the claim verified by nobody and it will be dropped. Quote the
-words, not your reading of them:
+it came from**, alongside the offending lines of the diff. The orchestrator
+reads neither `engineering` nor `ui-coding`, and will not load them to check
+you. It judges the violation on your quote alone, so a paraphrase leaves the
+claim verified by nobody and it will be dropped. Quote the words, not your
+reading of them:
 
 ```
 evidence    engineering/SKILL.md:15 "DRY: do not repeat yourself. When developing

@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or a PR the way a pragmatic engineer would. Each optional user requirement gets a dedicated agent, an in-depth check and a Met, Not met or Unverified verdict; everything else gets a fast sanity check. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases; finding nothing is a good outcome. Produces a findings table, then one picker decides whether to fix and push, fix locally or post to the PR - nothing is done without it. Use before merging a PR or the current branch. When another agent invokes it, that agent answers the pickers.
+description: Reviews a diff or a PR like a pragmatic engineer. Each optional requirement gets a dedicated agent, an in-depth check and a Met, Not met or Unverified verdict; everything else gets a fast sanity check. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour, obviously broken code and accidental TEMP, WIP or debug commits. Flags violations of the engineering and ui-coding rules, DRY included, and fake or weak tests. Every finding is Major, Minor or Nit, and the diff is mergeable iff no Major survives. Drops taste and super edge cases; finding nothing is a good outcome. A findings table, then one picker decides whether to fix and push, fix locally or post to the PR - nothing is done without it. Use before merging a PR or the current branch. When another agent invokes it, that agent answers the pickers.
 argument-hint: "[requirements] [PR number or URL]"
 ---
 
@@ -33,6 +33,10 @@ will read again anyway.
 3. **Irreversible damage** - always Major, always blocks.
 4. **Violations of the user's `engineering` and `ui-coding` rules**, DRY
    included - Minor, so they are fixed without holding the merge.
+5. **Tests are real proof** - every test the diff touches, at every layer,
+   judged against the `engineering` test rules and the change's intent. A fake
+   proof is Major; a test that pins internals, mocks our own code or is
+   meaningless, and new public behaviour with no test at all, are Minor.
 
 Outside the requirements, every agent does a **fast sanity check**: read the diff, flag
 what is obviously wrong, do not probe deeply. That always covers:
@@ -101,10 +105,11 @@ Every finding that survives carries exactly one severity:
 - **Major** - blocks the merge. Security, irreversible damage, broken behaviour
   (the change fails at what it set out to do, or breaks something that worked),
   obviously broken code, and accidental TEMP, WIP or debug commits or leftover
-  debug code.
+  debug code. And a **fake proof**: a test that contradicts the change's intent,
+  a test that can never fail, or a bug fix with no test that was red before it.
 - **Minor** - should be fixed, does not block. A plain violation of a written
-  `engineering` or `ui-coding` rule, DRY included, or an approach no competent
-  engineer would choose that still works today.
+  `engineering` or `ui-coding` rule, DRY included, the test rules among them, or
+  an approach no competent engineer would choose that still works today.
 - **Nit** - reported only when it is nearly free to fix and plainly right: a
   typo in a user-facing string, an unused import the diff itself added.
   Most nits are still dropped.
@@ -118,7 +123,8 @@ UI, are the user's decided rules for this code. A diff that plainly contradicts
 a rule written in them is a finding, however arguable the same point would be in
 the abstract - the argument was settled when the rule was written down, and
 "reasonable engineers disagree" is not a defence against a decision the house
-already made. The scream agent owns this and quotes the rule it is enforcing.
+already made. The scream agent owns this and quotes the rule it is enforcing;
+the test agent does the same for the test rules.
 DRY is one of those rules: the same concept implemented again, or a helper
 written where one already exists, is a finding.
 
@@ -185,7 +191,9 @@ super edge cases no real input reaches, refactors of code the diff did not
 touch, and every nit that is not nearly free to fix.
 
 A violation of a rule written in `engineering` or `ui-coding` is none of those
-things, and this list does not reach it.
+things, and this list does not reach it. Nor does the test agent's ground: new
+or changed public behaviour with no test at any layer is a finding, but asking
+for another layer, more cases or more coverage stays a coverage wish.
 
 ## Input
 
@@ -219,8 +227,8 @@ verified and answered, not treated as background colour.
 - **Each gets a verdict in phase 5** - Met, Not met or Unverified - including
   "I checked, it holds", which is an answer and must not be replaced by silence.
 
-Requirements **add** scope, they never remove it. The three standard agents run
-on every review regardless, and never carry a requirement. If a requirement asks
+Requirements **add** scope, they never remove it. The standard agents run on
+every review regardless, and never carry a requirement. If a requirement asks
 you to skip a category outright, ask the user to confirm before honouring it,
 and never let it suppress a blocker.
 
@@ -245,7 +253,7 @@ git status --short                    # untracked files the diff does not show
 
 **Fail fast.** If the base does not resolve, the PR does not exist, or the diff
 and the untracked list are both empty, stop here and say so. A bad ref or an
-empty diff must fail now, not inside three parallel agents.
+empty diff must fail now, not inside the parallel agents.
 
 Pin the **literal merge-base SHA** and hand every agent the exact commands to
 run. Each one derives the diff itself: that is a single tool call, the diff costs
@@ -281,8 +289,9 @@ Your deliverable from this phase is not understanding, it is aim. Keep it short:
    words.
 2. **Files by angle** - which changed files touch auth, untrusted input, secrets
    or destructive operations; which change contracts, shared state or stored
-   data; which a requirement points at. A file may appear under several angles, and one
-   that lands under none is still in the patch and still gets reviewed.
+   data; which are tests, and the code they exercise; which a requirement
+   points at. A file may appear under several angles, and one that lands
+   under none is still in the patch and still gets reviewed.
 3. **Anchors** - anything that jumps out as a place to start: a migration, a new
    route, a deleted check, a new dependency, a commit subject that reads `WIP`.
 
@@ -355,15 +364,18 @@ this skill.
 
 ## Phase 3 - spawn
 
-The three standard agents always run - not two on a small diff - plus one
-requirement agent per group from phase 2. Send them all in a single message so
-they run concurrently.
+The standard agents always run - blockers, regressions and scream on every diff,
+not two on a small one, and the test agent whenever the diff touches code or
+tests - plus one requirement agent per group from phase 2. Send them all in a
+single message so they run concurrently. A diff that changes only docs, prose or
+comments skips the test agent; say so in one line under the assumptions.
 
 | Agent | Brief | Depth |
 |---|---|---|
 | **blockers** | `references/blockers.md` - security and irreversible damage, inverted default | careful: the sweep, then every hit verified |
 | **regressions** | `references/regressions.md` - does it work, and what does it break | fast sanity check |
 | **scream** | `references/scream.md` - is the approach obviously wrong, and does the diff break the house rules, DRY included | fast sanity check |
+| **tests** | `references/tests.md` - is every test the diff touches real proof, against the `engineering` test rules and the intent | fast sanity check |
 | **requirement** (one per group) | `references/bar.md`, plus the brief of the angle its requirements are closest to, as background | in depth - its requirements are its whole job |
 
 The standard agents are kept fast on purpose: most of an agent's cost is its own
@@ -371,9 +383,11 @@ context and how far it reads, so a sanity check on every angle plus depth only
 on the requirements is what keeps a review cheap without going blind.
 
 The scream agent loads `engineering`, and `ui-coding` when the diff touches UI,
-and enforces them. It is the only agent that reads a skill: the others are
-hunting bugs, and the house rules would only dilute their brief. A requirement
-agent whose requirement is about the house rules loads them too.
+and enforces them. The test agent loads `engineering` too, for its
+`references/tests.md`, which it reads from the base directory the Skill tool
+reports for `engineering`. Those two are the only agents that read a skill: the
+others are hunting bugs, and the house rules would only dilute their brief. A
+requirement agent whose requirement is about the house rules loads them too.
 
 Every agent's prompt carries:
 
@@ -411,11 +425,11 @@ For each finding:
 3. **Drop everything `speculative`**, and every nit that is not nearly free to
    fix.
 4. **Deduplicate** anything two agents raised - the sanity check runs in every
-   agent, so the same TEMP commit may come back three times.
+   agent, so the same TEMP commit may come back several times.
 5. **Check the severity** against the scale. An agent that calls a house-rule
    violation Major, or a broken code path Minor, is corrected here.
 
-Three exceptions:
+Four exceptions:
 
 - **Blockers.** Read the real code for each one yourself, and refute it or keep
   it - those are the only two exits. Never dropped for being merely uncertain,
@@ -433,6 +447,14 @@ Three exceptions:
   not been verified by anyone, and is dropped like any other unrefuted claim. Do
   not drop a verified one because you personally find the violation defensible;
   that call belongs to the user, who wrote the rule.
+- **Test findings.** Judged like house-rule violations, on the quote: the rule
+  from `engineering/references/tests.md` verbatim, or for an intent
+  contradiction the source of the intent next to the assertion. A Major also
+  needs its `trigger` to name the break the test misses, the intended behaviour
+  it rejects or the old code it passes on; without one it is not a fake proof,
+  so correct it to Minor if a quoted rule still backs it, or drop it. Never
+  raise a coverage wish to a finding: only new public behaviour with no test at
+  any layer counts.
 - **Findings from a requirement agent.** Steps 1, 3, 4 and 5 stand; step 2 does
   not. The user asked about that code, so a real answer they might disagree with
   is still worth having. A Not met verdict is a Major row by default. Carry
@@ -447,10 +469,24 @@ Report the arithmetic in one line - `9 raised, 2 survived`. Do not list what was
 dropped unless the user asks. A Met verdict is not a dropped finding and does not count in that arithmetic; it is an answer, and it is
 reported as one.
 
+### Ask about intent-unclear tests
+
+The test agent returns an **intent-unclear** block for a test whose verdict
+hangs on what it is meant to prove. Ask about every one before the table, with
+no limit, each in its own `AskUserQuestion` - one test per call, the question naming the test and
+what it asserts, the options the agent's readings with the severity each
+implies. These do not count against the two questions of phase 2. Wait for each
+answer, then rate the test at the severity the chosen reading implies: a
+reading under which it proves the intended behaviour drops it, one under which
+it contradicts the intent makes it a Major row, and add it to the arithmetic.
+When another agent invoked this skill, that agent answers.
+
 ## Phase 5 - the findings table
 
-The order is fixed: **the table, then the requirement verdicts, then the
-verdict.**
+The order is fixed: **the intent-unclear questions of phase 4 already
+answered, then the table, then the requirement verdicts, then the verdict.**
+Test rows sort into the severity order like every other row, and a row rated
+from the user's answer to an intent question says so in its *What*.
 
 Facts first, the call last. A verdict read first anchors the reader: they skim
 the findings looking for confirmation of a conclusion they have already been
