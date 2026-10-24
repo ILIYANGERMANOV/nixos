@@ -84,11 +84,9 @@ every reading is judged directly.
 `NONE` is a normal answer and costs you nothing. Most diffs test what they
 change, and test it well enough.
 
-**Hard cap: four findings and two intent-unclear blocks.** If you have more,
-keep the majors and the worst minors, and drop the rest. Past two
-intent-unclear blocks, keep the two whose answer could make a test Major, and
-add one line naming the other unclear tests, so the orchestrator lists them
-under the table instead of dropping them silently.
+**Hard cap: four findings.** If you have more, keep the majors and the worst
+minors, and drop the rest. Intent-unclear blocks have no cap: return every
+one, because each becomes a question to the user.
 
 Use the schema in `bar.md`, with two adjustments.
 

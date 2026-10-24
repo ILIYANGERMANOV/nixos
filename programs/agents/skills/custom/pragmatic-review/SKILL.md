@@ -472,15 +472,14 @@ reported as one.
 ### Ask about intent-unclear tests
 
 The test agent returns an **intent-unclear** block for a test whose verdict
-hangs on what it is meant to prove. Ask about each one before the table, in its
-own `AskUserQuestion` - one test per call, the question naming the test and
+hangs on what it is meant to prove. Ask about every one before the table, with
+no limit, each in its own `AskUserQuestion` - one test per call, the question naming the test and
 what it asserts, the options the agent's readings with the severity each
 implies. These do not count against the two questions of phase 2. Wait for each
 answer, then rate the test at the severity the chosen reading implies: a
 reading under which it proves the intended behaviour drops it, one under which
 it contradicts the intent makes it a Major row, and add it to the arithmetic.
-When another agent invoked this skill, that agent answers. Unclear tests the
-agent named past its cap are not asked: list them in one line under the table.
+When another agent invoked this skill, that agent answers.
 
 ## Phase 5 - the findings table
 
