@@ -25,6 +25,7 @@ let
     secrets = secretsConfig;
   };
   factory = import "${root}/programs/software-factory" { inherit pkgs lib; };
+  playwright = import "${root}/programs/playwright" { inherit pkgs; };
 
   remoteControl = factory.mkRemoteControl {
     claude = claude.factory.wrapper;
@@ -48,8 +49,10 @@ let
     "/run/current-system/sw/bin"
   ];
 
+  # Agents drive a browser from any directory, as the Remote Control harness
+  # promises them, so Playwright comes with the session rather than a project.
   serverService = {
-    Environment = [ "PATH=${path}" ];
+    Environment = [ "PATH=${path}" ] ++ lib.mapAttrsToList (name: value: "${name}=${value}") playwright.env;
     # Belt and braces with forceLoginMethod in the managed settings: nothing
     # may steer a session towards API billing or another endpoint.
     UnsetEnvironment = [
