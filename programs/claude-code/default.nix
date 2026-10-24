@@ -80,14 +80,18 @@ let
   # that flavor's `extraSkills`.
   baseSkills = [
     "address-pr-feedback"
+    "engineer"
     "engineering"
     "grill-with-docs"
     "grilling"
     "domain-modeling"
     "grill-me"
+    "pr-description"
     "pragmatic-review"
+    "refactor"
     "setup-matt-pocock-skills"
     "skeptic"
+    "ui-coding"
   ];
 
   mkClaudeFlavors = mkFlavorBuilder {
@@ -112,7 +116,6 @@ in
     };
 
     claude-web-ui = {
-      extraSkills = [ "ui-coding" ];
       mcpServers = [ "figma" ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
@@ -124,7 +127,6 @@ in
     # derived from claude-web-ui: flavors are flat by design, and one shared
     # `let` binding for a single pair would hide which binary gets what.
     claude-pm = {
-      extraSkills = [ "ui-coding" ];
       mcpServers = [
         "figma"
         "linear"
