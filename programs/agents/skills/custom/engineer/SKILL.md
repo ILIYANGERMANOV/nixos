@@ -67,11 +67,10 @@ Run the `refactor` skill on the branch.
 
 Run each review pass as a fresh review agent whose prompt is "invoke
 `pragmatic-review` with: <arguments>"; never load that skill yourself. It
-returns the findings table and requirement verdicts, in about 400 words or
-fewer, and ends with `Reviewed head: <sha>`. You answer its pickers by acting on
-the table yourself: choose the rows worth fixing and hand them to a fixer
-subagent that commits and pushes. Never reply to the review agent with an
-action.
+returns the findings table and requirement verdicts, ending with
+`Reviewed head: <sha>`. You answer its pickers by acting on the table
+yourself: choose the rows worth fixing and hand them to a fixer subagent that
+commits and pushes. Never reply to the review agent with an action.
 
 Pass 1 is a first review, with requirements stating what must hold where you
 are least sure of the implementation. Record its `Reviewed head` and its

@@ -3,8 +3,9 @@
 Reads the hook input from stdin. A command whose `cat` and `git show rev:path`
 operands name two or more files totalling over MAX_BYTES exits 2, which makes
 Claude Code block the call and show stderr to the model. Relative operands
-resolve against the directory the last `cd` in the chain moved to. Everything else exits
-0, including any input this script does not understand: the guard fails open.
+resolve against the directory the last `cd` in the chain moved to. Everything
+else exits 0, including any input this script does not understand: the guard
+fails open.
 """
 
 import glob
@@ -13,6 +14,7 @@ import os
 import shlex
 import subprocess
 import sys
+from collections.abc import Iterator
 
 MAX_BYTES = 8 * 1024
 HINT = (
@@ -23,7 +25,7 @@ HINT = (
 OPERATORS = set(";&|()<>")
 
 
-def main():
+def main() -> None:
     try:
         event = json.load(sys.stdin)
         command = event["tool_input"]["command"]
@@ -41,7 +43,7 @@ def main():
             sys.exit(0)
 
 
-def read_sizes(command, cwd):
+def read_sizes(command: str, cwd: str) -> Iterator[int | None]:
     """The size of every file the command reads, None where it is unknown.
 
     A `cd` moves the directory for every later command, whatever operator
@@ -65,7 +67,7 @@ def read_sizes(command, cwd):
                 pass
 
 
-def simple_commands(command):
+def simple_commands(command: str) -> Iterator[list[str]]:
     """The words of each simple command, split at shell operators.
 
     A redirection target starts a command of its own, which is harmless: only
@@ -85,18 +87,18 @@ def simple_commands(command):
     yield words
 
 
-def operands(args):
+def operands(args: list[str]) -> list[str]:
     return [a for a in args if not a.startswith("-")]
 
 
-def file_sizes(cwd, pattern):
+def file_sizes(cwd: str, pattern: str) -> Iterator[int | None]:
     """One size per file the operand names: a glob may name several."""
     path = os.path.join(cwd, pattern)
     for found in glob.glob(path) or [path]:
         yield os.path.getsize(found) if os.path.isfile(found) else None
 
 
-def blob_sizes(repo, args):
+def blob_sizes(repo: str, args: list[str]) -> Iterator[int | None]:
     for arg in args:
         match arg.partition(":"):
             case (rev, ":", path) if path:
@@ -105,7 +107,7 @@ def blob_sizes(repo, args):
                 pass
 
 
-def object_size(repo, spec):
+def object_size(repo: str, spec: str) -> int | None:
     result = subprocess.run(
         ["@git@", "-C", repo, "cat-file", "-s", spec],
         capture_output=True,

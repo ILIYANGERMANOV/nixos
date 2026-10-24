@@ -129,14 +129,9 @@ agents cover the user's requirements; leave them alone."
 > You are requirement agent <label>, at <STANDARD | DEEP> depth. Your
 > requirements, restated: <list>. The user's words: <quote>. They are your whole
 > job, and inside their scope the bar is lower: a real answer the user might
-> dispute is still worth returning. Settle each mechanically first - grep,
-> `git diff --stat`, a byte-identical `diff <(git show A:f) <(git show B:f)` -
-> and read further only for what that leaves open. Work smart, not hard.
-> STANDARD: about 8 turns. DEEP: about 15, with cheap probes - inputs crafted in
-> `/tmp`, a REPL, a targeted test subset - never the full suite. Follow a
-> requirement outside the diff if it leads there; what you find there is
-> `pre-existing`. A requirement about the house rules: load `engineering`, and
-> `ui-coding` for UI.
+> dispute is still worth returning. Follow a requirement outside the diff if
+> it leads there; what you find there is `pre-existing`. A requirement about
+> the house rules: load `engineering`, and `ui-coding` for UI.
 
 ## Phase 4 - judge, do not re-review
 

@@ -1,7 +1,6 @@
-# A PreToolUse hook for Bash: blocks a command that `cat`s or `git show`s
-# several files totalling over 8KB, and tells the model to grep first and read
-# ranges instead. Fails open. The logic and its limits are in read-guard.py; the
-# scenarios are in read-guard-check.nix.
+# A PreToolUse hook for Bash that blocks a large multi-file read. What it
+# blocks, and its limit, are in read-guard.py; the scenarios are in
+# read-guard-check.nix.
 { pkgs }:
 
 let

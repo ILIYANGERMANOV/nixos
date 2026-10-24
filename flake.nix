@@ -89,7 +89,7 @@
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
           # The factory's read-guard hook against real files and a real
-          # repository: multi-file reads over 8KB blocked, all else allowed.
+          # repository: large multi-file reads blocked, all else allowed.
           claude-read-guard = import ./programs/claude-code/read-guard-check.nix { inherit pkgs; };
 
           # The software factory's Claude policy (billing and permission mode),

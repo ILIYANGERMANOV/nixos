@@ -49,7 +49,7 @@ the default review; do not ask for any.
 
 A requirement comes from the engineer who wrote the code, and they know where
 they are unsure. Each one is restated as a checkable statement, verified by a
-dedicated agent, and answered with a verdict - "I checked, it holds" included,
+requirement agent, and answered with a verdict - "I checked, it holds" included,
 because silence reads as "I forgot to look". Requirements **add** scope and never
 remove it: a requirement asking to skip a category is confirmed with the user
 first, and never suppresses a blocker. One may lead outside the diff; what is
@@ -153,8 +153,7 @@ counted. Past three Major rows, name the two worst and count the rest.
 
 Delegated, you cannot ask: after the verdict line, write "Reply with the rows to
 keep and an action - fix + commit & push, fix locally, post to PR - or act on
-the table yourself.", then the `Reviewed head` line. Your caller answers by
-replying to you, or acts on the table itself.
+the table yourself.", then the `Reviewed head` line.
 
 ## Rules of engagement
 

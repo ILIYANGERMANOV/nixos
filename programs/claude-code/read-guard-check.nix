@@ -38,17 +38,18 @@ pkgs.runCommand "claude-read-guard-check"
 
     # Runs the hook on a Bash command and checks its exit code.
     expect() {
-      local want="$1" name="$2" command="$3" got=0
-      jq -n --arg c "$command" --arg d "$dir" \
-        '{hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' |
-        claude-read-guard 2>"$TMPDIR/err" || got=$?
-      report "$want" "$got" "$name"
+      local want="$1" name="$2" command="$3"
+      expect_raw "$want" "$name" "$(jq -n --arg c "$command" --arg d "$dir" \
+        '{hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {command: $c}, cwd: $d}')"
     }
-    report() {
-      if [ "$1" -eq "$2" ]; then
-        printf '  ✓ %s\n' "$3"
+    # Runs the hook on raw input and checks its exit code.
+    expect_raw() {
+      local want="$1" name="$2" input="$3" got=0
+      printf '%s' "$input" | claude-read-guard 2>"$TMPDIR/err" || got=$?
+      if [ "$want" -eq "$got" ]; then
+        printf '  ✓ %s\n' "$name"
       else
-        printf '  ✗ %s: exited %s, expected %s\n' "$3" "$2" "$1" >&2
+        printf '  ✗ %s: exited %s, expected %s\n' "$name" "$got" "$want" >&2
         status=1
       fi
     }
@@ -72,15 +73,10 @@ pkgs.runCommand "claude-read-guard-check"
     big-a big-b
     EOF"
 
-    got=0
-    echo 'not json' | claude-read-guard || got=$?
-    report 0 "$got" "malformed input is allowed"
-    got=0
-    echo '{"tool_input": {}}' | claude-read-guard || got=$?
-    report 0 "$got" "input without a command is allowed"
-    got=0
-    echo '{"tool_input": {"command": "cat \"unterminated"}}' | claude-read-guard || got=$?
-    report 0 "$got" "an unterminated quote is allowed"
+    expect_raw 0 "malformed input is allowed" 'not json'
+    expect_raw 0 "input without a command is allowed" '{"tool_input": {}}'
+    expect_raw 0 "an unterminated quote is allowed" \
+      '{"tool_input": {"command": "cat \"unterminated"}}'
 
     if [ "$status" -ne 0 ]; then
       echo "claude-read-guard: the hook decides wrongly" >&2
