@@ -18,7 +18,8 @@ hand-rolling what the codebase or the standard library provides right next to
 it; an N+1 or O(n^2) over unbounded data on a hot path; global mutable state
 holding per-request data; catching every error and carrying on; a blocking call
 on an async path; a dependency pulled in for a five-line helper; an existing
-layer bypassed or a boundary reached through.
+layer bypassed or a boundary reached through; an option, layer or abstraction
+nobody asked for; a complex or flaky fix for a rare, harmless edge case.
 
 A scream is **minor**, unless it is broken today - the heap exhausted, the
 error swallowed with the data - and then **major**. Name the concrete
@@ -46,7 +47,7 @@ offending lines. The orchestrator never loads the rules: it judges on your
 quote alone and drops a paraphrase.
 
 ```
-evidence    engineering/SKILL.md:15 "DRY: do not repeat yourself."
+evidence    engineering/SKILL.md:34 "DRY: do not repeat yourself."
             vs src/report.ts:40-58, the third copy of the same formatter.
 ```
 

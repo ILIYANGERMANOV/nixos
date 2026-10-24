@@ -45,10 +45,8 @@ that asks for secrets, credentials or tokens; leave it as the template has it.
 - **What & Why** - two or three sentences: what changes and why it is needed.
   End with `Closes #N` when there is an issue.
 - **How** - the design decisions, the trade-offs taken, and what the reviewer
-  cannot see in the diff. Include the smallest visual that makes the point
-  clear (a diff-sketch, a call tree, a shallow file tree or a mermaid diagram),
-  and only when it helps more than a sentence. Omit the whole section when the diff
-  speaks for itself.
+  cannot see in the diff, plus a visual when one helps (see Visuals). Omit the
+  whole section when the diff speaks for itself.
 - **Proofs / Reproducible** - the tests added or run, each with a pointer
   (`path/to/test.ts`, a test name, a `just` recipe). Where a change has none,
   one line saying why.
@@ -58,6 +56,22 @@ that asks for secrets, credentials or tokens; leave it as the template has it.
   - **Door:** one-way (hard or impossible to undo: data migrations, deletions,
     published APIs, sent messages) or two-way (a revert undoes it).
   - **Blast radius:** what breaks, and for whom, if this is wrong.
+
+### Visuals
+
+Add one only when it shows structure or flow faster than prose; skip it for
+small or one-file changes. Keep it under about 10 nodes, top-down, readable on
+a phone.
+
+- Control or data flow, a new pipeline: mermaid `flowchart TD`.
+- Calls between services, agents or processes: mermaid `sequenceDiagram`.
+- A lifecycle or status change: mermaid `stateDiagram-v2`.
+- Behaviour or config before vs after: a two-column table.
+- Files moved or added: a shallow ASCII tree.
+- UI changes: before/after screenshots.
+
+Quote mermaid labels that contain `()[]:;#` - `A["parse(x)"]` - since a syntax
+error renders as an error box, not a diagram.
 
 ## Style
 
