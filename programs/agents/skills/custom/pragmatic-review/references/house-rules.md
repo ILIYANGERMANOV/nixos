@@ -47,7 +47,7 @@ offending lines. The orchestrator never loads the rules: it judges on your
 quote alone and drops a paraphrase.
 
 ```
-evidence    engineering/SKILL.md:37 "DRY: do not repeat yourself."
+evidence    engineering/SKILL.md:34 "DRY: do not repeat yourself."
             vs src/report.ts:40-58, the third copy of the same formatter.
 ```
 

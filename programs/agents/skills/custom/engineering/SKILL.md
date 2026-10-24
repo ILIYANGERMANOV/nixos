@@ -10,8 +10,8 @@ Apply to all code you write, modify or review, in any language.
 ## Simplicity
 
 The most important principle. Complexity is the main cost of software; avoid
-it at any cost. Simple is not naive: it is the fewest moving parts that still meet the
-objective correctly and sanely.
+it at any cost. Simple is not naive: it is the fewest moving parts that still
+meet the objective correctly and sanely.
 
 - Solve the stated problem. Keep sound architecture and reuse what exists, but
   add no flags, options, hooks, layers or generality for needs nobody has named
@@ -20,20 +20,17 @@ objective correctly and sanely.
   case needs a complex, fragile or flaky fix, skip it and say so in the code,
   the PR or the hand-back - never drop one silently. Still fix it when the fix
   is cheap, or when a miss corrupts data or opens a security hole.
-- Not naive: no hacks, no swallowed errors, nothing wrong on the main path. A
-  design you can see is correct beats a clever one.
+- Not naive: no hacks, no swallowed errors, nothing wrong on the main path.
 - Trust your invariants: validate at the boundary; add no defensive checks,
   retries or fallbacks for states the types or callers rule out.
-- Boring code: the standard library and existing helpers over a new
-  dependency, a direct expression over a clever one.
-- Prefer duplication over the wrong abstraction (see DRY).
+- Boring code: the standard library over a new dependency, a direct
+  expression over a clever one.
 - Grow from a working simple version; a complex system built from scratch
   rarely works (Gall's law).
 - Before finishing, ask what you can delete and still meet the goal.
 
 ## Engineering principles
 
-- Simplicity: see the section above.
 - DRY: do not repeat yourself. Prefer small functions that compose together
   into bigger functions. Abstract the same concept, never merely the same
   shape; when unsure whether it is the same concept, ask.

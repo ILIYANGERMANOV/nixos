@@ -52,8 +52,8 @@ Look at the diff, in this order:
 4. **Minimal parameters** - a function handed a whole record, context or config
    when it uses one field.
 5. **Needless complexity** - speculative options or generality, defensive code
-   for impossible states, single-use layers, complex or flaky handling of rare
-   edge cases. Simplify or delete them.
+   for impossible states, single-use layers. Simplify or delete them. Dropping
+   a rare edge case's handling changes behaviour: note it for the report.
 6. **Top-down order** - a file reads like a newspaper: the entry point or
    public function first, then the helpers it calls, each defined below its
    first caller, in the order they are called. Move definitions, never change
