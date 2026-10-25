@@ -124,7 +124,11 @@ pkgs.runCommand "claude-bash-guards-check"
     do
       sleep 1
     done"
+    expect 2 "a sleep as a while condition is blocked" "while sleep 5; do curl x && break; done"
+    expect 2 "a sleep as an until condition is blocked" "until sleep 3; do :; done"
+    expect 2 "a long sleep as an if condition is blocked" "if sleep 30; then ls; fi"
     expect 0 "a short sleep is allowed" "sleep 2"
+    expect 0 "a short sleep as an if condition is allowed" "if sleep 2; then ls; fi"
     expect 0 "a loop without a sleep is allowed" "while read l; do echo \"\$l\"; done < f"
     expect 0 "a sleep named in a string is allowed" "echo 'sleep 30' && git commit -m 'until done, sleep 60'"
     expect 0 "a heredoc body naming a sleep is allowed" "cat > s.sh <<'EOF'

@@ -21,9 +21,9 @@ HINT = (
     "run_in_background and wait for its task notification, never polling its "
     "output; to wait for a condition, use the Monitor tool."
 )
-# Words that may precede a command in a compound statement.
-PREFIXES = {"do", "then", "else", "{", "!", "time"}
 LOOPS = {"until", "while"}
+# Words that may precede a command in a compound statement.
+KEYWORDS = {"do", "then", "else", "elif", "if", "{", "!", "time"} | LOOPS
 # GNU sleep: a number with an optional unit suffix.
 DURATION = re.compile(r"(\d+(?:\.\d*)?|\.\d+)([smhd]?)")
 UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -47,19 +47,20 @@ def main() -> None:
 
 
 def is_wait(command: str) -> bool:
-    commands = [words for words in leading_words(command) if words]
-    sleeps = [seconds(args) for name, *args in commands if name == "sleep"]
-    loops = any(name in LOOPS for name, *_ in commands)
+    commands = list(split_keywords(command))
+    loops = any(LOOPS & set(keywords) for keywords, _ in commands)
+    sleeps = [seconds(words[1:]) for _, words in commands if words[:1] == ["sleep"]]
     return any(s >= MIN_SLEEP for s in sleeps) or (loops and bool(sleeps))
 
 
-def leading_words(command: str) -> Iterator[list[str]]:
-    """Each simple command's words, with the compound keywords before it dropped."""
+def split_keywords(command: str) -> Iterator[tuple[list[str], list[str]]]:
+    """Each simple command as the compound keywords before it and its own words."""
     for simple in simple_commands(command):
         words = simple.words
-        while words and words[0] in PREFIXES:
-            words = words[1:]
-        yield words
+        count = next(
+            (i for i, word in enumerate(words) if word not in KEYWORDS), len(words)
+        )
+        yield words[:count], words[count:]
 
 
 def seconds(args: list[str]) -> float:
