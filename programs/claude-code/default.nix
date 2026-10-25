@@ -29,6 +29,7 @@ let
     ;
   statusline = import ./statusline.nix { inherit pkgs theme; };
   readGuard = import ./read-guard.nix { inherit pkgs; };
+  waitGuard = import ./wait-guard.nix { inherit pkgs; };
 
   baseSettings = {
     statusLine = {
@@ -156,9 +157,20 @@ in
         extraInstructions = [ ../software-factory/instructions.md ];
         # Measures this box's own transcripts, so only the factory has the data.
         extraSkills = [ "self-improve" ];
-        # Unattended agents dumped whole files with one multi-file `cat`;
-        # the hook makes them read ranges instead.
-        extraSettings = readGuard.settings // {
+        # Unattended agents dumped whole files with one multi-file `cat`, and
+        # subagents blocked on foreground sleeps and polling loops despite
+        # the instructions; the hooks make them read ranges and background
+        # long commands instead.
+        extraSettings = {
+          hooks.PreToolUse = [
+            {
+              matcher = "Bash";
+              hooks = [
+                readGuard.hook
+                waitGuard.hook
+              ];
+            }
+          ];
           enabledPlugins = {
             "typescript-lsp@claude-plugins-official" = true;
           };
