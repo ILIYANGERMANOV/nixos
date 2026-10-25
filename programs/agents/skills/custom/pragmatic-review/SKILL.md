@@ -59,7 +59,7 @@ found there is **pre-existing** - answered, flagged, not blocking.
 
 Before the action picker is answered, never post a review or comment, approve or
 request changes, or edit, commit, push or amend anything. Every GitHub call
-until then is read-only (`gh pr view`, `gh pr diff`). Being asked to review is
+until then is read-only (`gh pr view`, `git fetch`). Being asked to review is
 not permission to act. When another agent invoked this skill, it stands in for
 the user and its answer is the instruction.
 

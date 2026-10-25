@@ -17,7 +17,11 @@ git diff --stat "$P" > "$D/stat"
 git diff --shortstat "$P"
 git log --oneline "$P..$HEAD_SHA" > "$D/log"
 git status --short > "$D/status"
+grep -n '^diff --git' "$D/diff" > "$D/index"   # each file's first line in diff
 ```
+
+These files are the fix diff for the rest of the re-review: read them in
+ranges, `index` then `sed -n`, and never run `git diff` or `gh pr diff` again.
 
 For a PR, diff `"$P" "$HEAD_SHA"` instead of the working tree. An empty fix diff
 ends the review: report "no changes since `<pass1-head>`".
