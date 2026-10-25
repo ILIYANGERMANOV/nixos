@@ -22,7 +22,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Union
+from typing import Iterable, Iterator, Union
 
 TOP = 10
 
@@ -32,6 +32,14 @@ def main() -> None:
     sessions = load_sessions(args.root)
     window = select_window(sessions, args.since, args.project)
     print(render(window, describe_window(window.since, args.project)))
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--since", type=lambda v: parse_iso(v).astimezone(timezone.utc), help="ISO date or time; default: the previous /self-improve run")
+    parser.add_argument("--project", help="only sessions whose working directory contains this")
+    parser.add_argument("--root", type=Path, default=Path.home() / ".claude" / "projects", help=argparse.SUPPRESS)
+    return parser.parse_args()
 
 
 # --- Domain ------------------------------------------------------------------
@@ -56,6 +64,10 @@ class Usage:
             self.cache_creation + other.cache_creation,
             self.output + other.output,
         )
+
+
+def total(usages: Iterable[Usage]) -> Usage:
+    return sum(usages, Usage())
 
 
 @dataclass(frozen=True)
@@ -135,7 +147,7 @@ class Agent:
 
     @property
     def usage(self) -> Usage:
-        return sum((r.usage for r in self.responses), Usage())
+        return total(r.usage for r in self.responses)
 
     @property
     def peak_context(self) -> int:
@@ -279,7 +291,11 @@ def read_jsonl(path: Path) -> Iterator[dict]:
 def parse_time(value: object) -> float | None:
     if not isinstance(value, str):
         return None
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    return parse_iso(value).timestamp()
+
+
+def parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def to_usage(raw: dict) -> Usage:
@@ -311,7 +327,7 @@ def record_result(call: ToolCall, block: dict, extra: object, ts: float) -> None
     background = isinstance(extra, dict) and bool(extra.get("backgroundTaskId") or extra.get("isAsync"))
     call.timing = Background(None) if background else Foreground(ts)
     if block.get("is_error"):
-        call.outcome = Failed(first_int(EXIT_CODE.search(text)), signature(text))
+        call.outcome = Failed(exit_code(text), signature(text))
     elif "command not found" in text:
         call.outcome = Failed(None, signature(text))
 
@@ -333,7 +349,7 @@ def record_notifications(calls: dict[str, ToolCall], text: str, ts: float) -> No
         call.timing = Background(ts)
         if tag(body, "status") == "failed":
             summary = tag(body, "summary")
-            call.outcome = Failed(first_int(EXIT_CODE.search(summary)), clip(summary, 100))
+            call.outcome = Failed(exit_code(summary), clip(summary, 100))
 
 
 def tag(body: str, name: str) -> str:
@@ -341,8 +357,9 @@ def tag(body: str, name: str) -> str:
     return found.group(1) if found else ""
 
 
-def first_int(match: re.Match[str] | None) -> int | None:
-    return int(match.group(1)) if match else None
+def exit_code(text: str) -> int | None:
+    found = EXIT_CODE.search(text)
+    return int(found.group(1)) if found else None
 
 
 ERROR_LINE = re.compile(r"error|not found|no such file|fatal|denied|failed|traceback|timed out|blocked|refused", re.I)
@@ -390,7 +407,7 @@ class Step:
 
 SUBCOMMANDS = {"just": 1, "nix": 2, "git": 1, "gh": 2, "cabal": 1, "npm": 2, "pnpm": 2, "cargo": 1, "systemctl": 1}
 WRAPPERS = {"env", "time", "nice", "timeout", "sudo", "exec", "command"}
-NOT_A_COMMAND = {"cd", "export", "set", "source", ".", "(", "{", ")", "}"}
+NOT_A_COMMAND = {"cd", "export", "set", "source", "."}
 PLUMBING = {
     "echo", "printf", "tail", "head", "grep", "rg", "sort", "uniq", "wc", "cut", "tr", "jq", "awk", "sed", "tee",
     "xargs", "true", "false", "sleep", "for", "while", "until", "do", "done", "if", "then", "else", "fi",
@@ -438,7 +455,9 @@ def step(tokens: list[str]) -> Step | None:
     while tokens and (is_assignment(tokens[0]) or tokens[0] in WRAPPERS or tokens[0].isdigit()):
         tokens = tokens[1:]
     match tokens:
-        case [] | [("cd" | "export" | "set" | "source" | "."), *_]:
+        case []:
+            return None
+        case [head, *_] if head in NOT_A_COMMAND:
             return None
         case ["nix", "develop", *rest] if {"-c", "--command"} & set(rest):
             flag = next(i for i, t in enumerate(rest) if t in {"-c", "--command"})
@@ -574,8 +593,8 @@ def render(window: Window, scope: str) -> str:
 def summary(sessions: list[Session]) -> str:
     wall = sum(s.wall for s in sessions)
     wait = sum(s.human_wait for s in sessions)
-    main = sum((s.main.usage for s in sessions), Usage())
-    subs = sum((a.usage for s in sessions for a in s.subagents), Usage())
+    main = total(s.main.usage for s in sessions)
+    subs = total(a.usage for s in sessions for a in s.subagents)
     calls = sum(len(a.responses) for s in sessions for a in s.agents)
     return "\n".join(
         [
@@ -598,7 +617,7 @@ def sessions_table(sessions: list[Session]) -> str:
             " ".join(f"/{c}" for c in dict.fromkeys(s.commands)) or "-",
             tokens(s.main.usage),
             kilo(s.main.peak_context),
-            tokens(sum((a.usage for a in s.subagents), Usage())),
+            tokens(total(a.usage for a in s.subagents)),
             str(len(s.subagents)),
         ]
         for s in ranked[:12]
@@ -613,7 +632,7 @@ def agent_types(agents: list[tuple[Session, Agent]]) -> str:
         groups[agent.kind].append(agent)
     ranked = sorted(groups.items(), key=lambda kv: -sum(a.usage.context for a in kv[1]))
     rows = [
-        [kind, str(len(group)), str(sum(len(a.responses) for a in group)), tokens(sum((a.usage for a in group), Usage())), kilo(max(a.peak_context for a in group))]
+        [kind, str(len(group)), str(sum(len(a.responses) for a in group)), tokens(total(a.usage for a in group)), kilo(max(a.peak_context for a in group))]
         for kind, group in ranked
     ]
     return section("Tokens by agent type", ["type", "agents", "API calls", "tokens", "peak context"], rows, len(rows))
@@ -634,7 +653,7 @@ def skills(agents: list[tuple[Session, Agent]]) -> str:
         for r in agent.responses:
             groups[r.skill or "(none)"].append(r)
     ranked = sorted(groups.items(), key=lambda kv: -sum(r.usage.context for r in kv[1]))
-    rows = [[skill, str(len(rs)), tokens(sum((r.usage for r in rs), Usage()))] for skill, rs in ranked[:TOP]]
+    rows = [[skill, str(len(rs)), tokens(total(r.usage for r in rs))] for skill, rs in ranked[:TOP]]
     return section("Tokens by skill (attributionSkill)", ["skill", "API calls", "tokens"], rows, len(ranked))
 
 
@@ -785,14 +804,6 @@ def fmt_time(ts: float) -> str:
 def clip(text: str, n: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= n else text[: n - 1] + "…"
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--since", type=lambda v: datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(timezone.utc), help="ISO date or time; default: the previous /self-improve run")
-    parser.add_argument("--project", help="only sessions whose working directory contains this")
-    parser.add_argument("--root", type=Path, default=Path.home() / ".claude" / "projects", help=argparse.SUPPRESS)
-    return parser.parse_args()
 
 
 if __name__ == "__main__":

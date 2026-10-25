@@ -190,8 +190,8 @@ class RedundantChecks(Case):
         report = self.home.report()
         # Then
         self.assertIn("Reruns with nothing changed since the same check: 2, 2m.", report)
-        self.assertIn("no edit", report)
-        self.assertIn("doc-only edit", report)
+        self.assertIn("| just check | no edit |", report)
+        self.assertIn("| just check | doc-only edit |", report)
 
     def test_an_edit_by_another_agent_of_the_session_counts_as_a_change(self) -> None:
         # Given: the orchestrator checks, its implementer edits, the orchestrator checks again
