@@ -205,9 +205,13 @@ stale skill behind — the same pattern `mkClaudeFlavor` already uses for
 destroyed on the next launch; prototype in a project's `.claude/skills/` instead.
 
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
-`programs/claude-code/default.nix`) plus per-flavor `extraSkills`, which no
-flavor uses today: every flavor gets every skill, `ui-coding` included, because
-a model-invoked skill costs only its description until a task needs it.
+`programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Every flavor
+gets every shared skill, `ui-coding` included, because a model-invoked skill
+costs only its description until a task needs it. The one exception is
+`self-improve`, in `claude-factory`'s `extraSkills` only: it measures the
+factory's own transcripts, so no other host has its data. Its analyzer
+(`scripts/analyze.py`) is tested by `checks.self-improve` against synthetic
+transcripts, never real ones, because this repository is public.
 Instructions work the same way: `baseInstructions` plus per-flavor
 `extraInstructions`, which only `claude-factory` uses.
 

@@ -89,6 +89,10 @@
           # ~/.claude.json structure - against a synthetic catalog and secrets.
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
+          # The /self-improve transcript analyzer against synthetic transcripts:
+          # token dedupe, tool timing, redundant checks, failures and the window.
+          self-improve = import ./programs/agents/skills/checks/self-improve.nix { inherit pkgs; };
+
           # The factory's read-guard hook against real files and a real
           # repository: large multi-file reads blocked, all else allowed.
           claude-read-guard = import ./programs/claude-code/read-guard-check.nix { inherit pkgs; };
