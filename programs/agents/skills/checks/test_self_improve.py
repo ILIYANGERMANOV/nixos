@@ -179,7 +179,7 @@ class RedundantChecks(Case):
     def test_reruns_are_flagged_only_when_nothing_but_docs_changed(self) -> None:
         # Given: a rerun with no edit, one after a doc edit, one after a code edit
         main = Transcript().human(0, "go")
-        main.bash(10, "just check", 70)
+        main.bash(10, "just check 2> /tmp/err.log", 70)
         main.bash(80, "cd /repo && just check > /tmp/a.log", 140)
         main.tool(150, "Edit", 151, file_path="/repo/README.md")
         main.bash(160, "just check", 220)

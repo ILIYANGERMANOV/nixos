@@ -461,7 +461,7 @@ def without_redirects(args: list[str]) -> list[str]:
         if skip:
             skip = False
         elif REDIRECT.match(arg):
-            skip = arg.rstrip("&0123456789") in {">", ">>", "<"} and not arg.endswith("&1")
+            skip = re.sub(r"^\d+", "", arg) in {">", ">>", "<"}  # the target is the next token
         else:
             kept.append(arg)
     return kept
