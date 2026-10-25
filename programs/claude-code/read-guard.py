@@ -7,8 +7,9 @@ output reaches the screen count: one redirected to a file or piped into
 another command dumps nothing into context, and heredoc bodies are data, not
 commands. Files under the installed skills directory never count: agents are
 told to read a skill and its references in full. Relative operands resolve
-against the directory the last `cd` in the chain moved to. Everything else exits 0, including any input this script
-does not understand: the guard fails open.
+against the directory the last `cd` in the chain moved to. Everything else
+exits 0, including any input this script does not understand: the guard fails
+open.
 """
 
 import glob

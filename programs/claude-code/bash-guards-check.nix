@@ -14,13 +14,6 @@ pkgs.runCommand "claude-bash-guards-check"
   }
   ''
     status=0
-    # Input either guard does not understand: both fail open.
-    shared_failopen() {
-      expect_raw 0 "malformed input is allowed" 'not json'
-      expect_raw 0 "input without a command is allowed" '{"tool_input": {}}'
-      expect_raw 0 "an unterminated quote is allowed" \
-        '{"tool_input": {"command": "cat \"unterminated; sleep 30"}}'
-    }
     dir=$TMPDIR/work
     mkdir -p "$dir"
     cd "$dir"
@@ -61,6 +54,13 @@ pkgs.runCommand "claude-bash-guards-check"
         printf '  ✗ %s: exited %s, expected %s\n' "$name" "$got" "$want" >&2
         status=1
       fi
+    }
+    # Input either guard does not understand: both fail open.
+    shared_failopen() {
+      expect_raw 0 "malformed input is allowed" 'not json'
+      expect_raw 0 "input without a command is allowed" '{"tool_input": {}}'
+      expect_raw 0 "an unterminated quote is allowed" \
+        '{"tool_input": {"command": "cat \"unterminated; sleep 30"}}'
     }
 
     guard=claude-read-guard
