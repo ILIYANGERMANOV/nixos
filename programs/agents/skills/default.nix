@@ -58,6 +58,7 @@ let
     "pr-description" # PR body from the repo template or a default format, model-invoked before gh pr create
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
     "refactor" # /refactor - behaviour-preserving cleanup of a diff; also invoked by engineer
+    "self-improve" # /self-improve - measure past sessions and fix the agent setup's bottlenecks, factory only
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
     "ui-coding" # UI-specific rules on top of engineering, model-invoked on UI work
   ];
