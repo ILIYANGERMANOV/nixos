@@ -49,15 +49,18 @@ outcome. A refuted finding is dropped silently.
 
 **How you work.**
 
-- The diff, `stat`, commit `log` and `status` are already written to the
-  directory in your prompt, which also names your hunks as line ranges of
-  `diff`. Read those with `sed -n`; never derive the diff again or widen it.
+- The diff, `stat`, commit `log`, `status` and `index` are already written to
+  the directory in your prompt, which also names your hunks as line ranges of
+  `diff`. Read them in ranges: `index` gives each file's first line, then
+  `sed -n` that range of `diff`. Never run `git diff`, `git log` or
+  `gh pr diff` to get the diff again or widen it - these files are the diff,
+  and this overrides the `engineering` skill's advice on reading diffs.
 - Batch: put every independent command of a step in one turn - several tool
   calls in one message, or one chained Bash. Read ranges (`grep -n`, then
   `sed -n`), never whole large files.
 - Budget: about 6-8 turns; a DEEP requirement agent about 15. Out of budget,
   return what you have and name what you did not check.
-- Mechanical checks first: a grep, `git diff --stat`, a byte-identical
+- Mechanical checks first: a grep, the `stat` file, a byte-identical
   `diff <(git show A:f) <(git show B:f)`. Then, only to settle one claim, a cheap
   probe: one test file, a REPL line, the CLI on a tiny input crafted in `/tmp`.
   Never the full test suite, a full build or a lint sweep - the implementer's

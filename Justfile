@@ -47,6 +47,18 @@ typos-edit:
     fi
     nvim "$allowlist"
 
+# `nix flake check` spends most of its time evaluating every host; this builds
+# only the `checks` derivations, `typos` among them, so it is the mid-work gate
+# and `check` stays the final one.
+#
+# Run the fast checks (lint + format + every flake check, no host evaluation)
+quick-check: lint (format "--ci")
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    names=$(nix eval --raw ".#checks.$system" --apply 'cs: toString (builtins.attrNames cs)')
+    nix build --no-link $(printf ".#checks.$system.%s " $names)
+
 # Run all checks (lint + format + spell + flake check)
 check:
     just lint

@@ -93,9 +93,9 @@
           # token dedupe, tool timing, redundant checks, failures and the window.
           self-improve = import ./programs/agents/skills/checks/self-improve.nix { inherit pkgs; };
 
-          # The factory's read-guard hook against real files and a real
-          # repository: large multi-file reads blocked, all else allowed.
-          claude-read-guard = import ./programs/claude-code/read-guard-check.nix { inherit pkgs; };
+          # The factory's PreToolUse Bash guards: large multi-file reads outside
+          # the skills directory and foreground waits blocked, all else allowed.
+          claude-bash-guards = import ./programs/claude-code/bash-guards-check.nix { inherit pkgs; };
 
           # The software factory's Claude policy (billing and permission mode),
           # its repo scripts against a real git, and on Linux its egress rules
