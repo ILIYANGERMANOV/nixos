@@ -67,7 +67,8 @@
       # `nix flake check` (run by `just check` in CI) validates every installed
       # SKILL.md - frontmatter present, name matches the directory, description
       # within the Agent Skills limit - the Claude Code MCP catalog logic, the
-      # Neovim TypeScript server routing, and the Neovim search config.
+      # Neovim TypeScript server routing, the Neovim search config, and the
+      # Playwright environment.
       checks = lib.forAllSystems (
         pkgs:
         let
@@ -97,6 +98,11 @@
           # through `nft --check`.
           software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
 
+          # That the Playwright environment given to agent sessions resolves
+          # `require('playwright')` from an empty directory and finds Chromium,
+          # which on Linux it also launches headless.
+          playwright = import ./programs/playwright/check.nix { inherit pkgs; };
+
           # Which TypeScript language server claims a project root - vtsls for
           # the tsserver era, `tsc --lsp` for TypeScript 7 - against fixture
           # roots in a real headless Neovim.
@@ -117,6 +123,7 @@
       );
 
       devShells = lib.forAllSystems (pkgs: {
+        default = import ./shells/default.nix { inherit pkgs; };
         nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
         darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };
       });

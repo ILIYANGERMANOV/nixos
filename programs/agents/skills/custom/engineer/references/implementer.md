@@ -11,7 +11,7 @@ list each one you skipped in your report.
 ## Small slice: do it yourself
 
 A slice you can finish well inside the context budget: implement it, run its
-checks, commit.
+narrowest checks while iterating and the full check once at the end, commit.
 
 ## Large slice: be a mini-engineer
 
