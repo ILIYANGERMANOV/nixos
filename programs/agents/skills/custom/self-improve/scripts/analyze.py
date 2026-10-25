@@ -6,9 +6,9 @@ report for an agent to read. Standard library only.
 
 Usage: analyze.py [--since ISO] [--project SUBSTR] [--root DIR]
 
-Without --since the window starts at the most recent previous session that
-invoked /self-improve, or covers everything when there is none. The latest
-/self-improve session is the one running this script and is never reported.
+Without --since the window starts at the previous /self-improve invocation,
+or covers everything when there is none. The latest invocation is the run
+calling this script: its session is reported only up to that invocation.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ import argparse
 import json
 import re
 import statistics
-import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -157,11 +156,13 @@ class Agent:
 @dataclass
 class Session:
     id: str
+    path: Path
     project: str
     cwd: str
     start: float
     end: float
     commands: list[str]
+    invocations: list[float]  # when the main agent was handed /self-improve
     human_wait: float  # seconds the session sat waiting on the person
     main: Agent
     subagents: list[Agent]
@@ -189,10 +190,12 @@ class Transcript:
     agent: Agent
     times: list[float] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
+    invocations: list[float] = field(default_factory=list)
     human_wait: float = 0.0
     cwd: str = ""
 
 
+SELF = "self-improve"
 COMMAND_NAME = re.compile(r"<command-name>/?([\w:-]+)</command-name>")
 NOTIFICATION = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 EXIT_CODE = re.compile(r"exit code (\d+)", re.I)
@@ -203,29 +206,32 @@ def load_sessions(root: Path) -> list[Session]:
     return [s for s in sessions if s is not None]
 
 
-def load_session(path: Path) -> Session | None:
-    main = parse_transcript(path, "main", "")
-    subs = [parse_subagent(p) for p in sorted(path.with_suffix("").glob("subagents/agent-*.jsonl"))]
+def load_session(path: Path, until: float | None = None) -> Session | None:
+    """The session at `path`, keeping only events before `until` when given."""
+    main = parse_transcript(path, "main", "", until)
+    subs = [parse_subagent(p, until) for p in sorted(path.with_suffix("").glob("subagents/agent-*.jsonl"))]
     times = main.times + [t for s in subs for t in s.times]
     if not times:
         return None
     return Session(
         id=path.stem,
+        path=path,
         project=project_name(main.cwd),
         cwd=main.cwd,
         start=min(times),
         end=max(times),
         commands=main.commands,
+        invocations=main.invocations,
         human_wait=main.human_wait + sum(ask_seconds(main.agent)),
         main=main.agent,
         subagents=[s.agent for s in subs],
     )
 
 
-def parse_subagent(path: Path) -> Transcript:
+def parse_subagent(path: Path, until: float | None) -> Transcript:
     meta_path = path.with_name(path.stem + ".meta.json")
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    return parse_transcript(path, meta.get("agentType", "unknown"), meta.get("description", ""))
+    return parse_transcript(path, meta.get("agentType", "unknown"), meta.get("description", ""), until)
 
 
 def project_name(cwd: str) -> str:
@@ -239,14 +245,14 @@ def ask_seconds(agent: Agent) -> Iterator[float]:
             yield call.seconds
 
 
-def parse_transcript(path: Path, kind: str, description: str) -> Transcript:
+def parse_transcript(path: Path, kind: str, description: str, until: float | None) -> Transcript:
     out = Transcript(Agent(kind, description, [], []))
     responses: dict[str, Response] = {}
     calls: dict[str, ToolCall] = {}
     previous: float | None = None
     for event in read_jsonl(path):
         ts = parse_time(event.get("timestamp"))
-        if ts is None:
+        if ts is None or (until is not None and ts >= until):
             continue
         out.cwd = out.cwd or event.get("cwd", "")
         message = event.get("message") or {}
@@ -264,7 +270,9 @@ def parse_transcript(path: Path, kind: str, description: str) -> Transcript:
                         record_result(calls[block["tool_use_id"]], block, event.get("toolUseResult"), ts)
             case "user":
                 text = plain_text(content)
-                out.commands += COMMAND_NAME.findall(text)
+                names = COMMAND_NAME.findall(text)
+                out.commands += names
+                out.invocations += [ts] if SELF in names else []
                 if (event.get("origin") or {}).get("kind") == "human" and previous is not None:
                     out.human_wait += ts - previous
                 record_notifications(calls, text, ts)
@@ -378,15 +386,26 @@ def signature(text: str) -> str:
 
 
 def select_window(sessions: list[Session], since: datetime | None, project: str | None) -> Window:
-    runs = sorted((s for s in sessions if "self-improve" in s.commands), key=lambda s: s.start)
-    current = runs[-1].id if runs else None
-    start = since.timestamp() if since else (runs[-2].start if len(runs) > 1 else None)
+    """Sessions starting at or after the window start, the current run cut off at its invocation."""
+    runs = sorted(((ts, s) for s in sessions for ts in s.invocations), key=lambda run: run[0])
+    start = since.timestamp() if since else (runs[-2][0] if len(runs) > 1 else None)
     chosen = [
         s
-        for s in sessions
-        if s.id != current and (start is None or s.start >= start) and (project is None or project in s.cwd)
+        for s in without_current_run(sessions, runs[-1] if runs else None)
+        if (start is None or s.start >= start) and (project is None or project in s.cwd)
     ]
     return Window(start, sorted(chosen, key=lambda s: s.start))
+
+
+def without_current_run(sessions: list[Session], current: tuple[float, Session] | None) -> list[Session]:
+    """Every session, the one running this script reloaded without its events from the invocation on."""
+    match current:
+        case None:
+            return sessions
+        case (invoked, run):
+            others = [s for s in sessions if s.id != run.id]
+            truncated = load_session(run.path, until=invoked)
+            return others if truncated is None else [*others, truncated]
 
 
 def describe_window(since: float | None, project: str | None) -> str:

@@ -291,6 +291,25 @@ class Window(Case):
         # When / Then
         self.assertEqual(self.sessions(self.home.report()), {"old"})
 
+    def test_a_long_lived_current_session_is_ordered_by_its_invocation_not_its_start(self) -> None:
+        # Given a session that started first but invoked /self-improve last
+        self.home.session("current", Transcript().human(0, "work").reply(60).command(3000, "self-improve").reply(3060))
+        self.session_at("prev", 1000, "self-improve")
+        self.session_at("work", 2000)
+        # When / Then
+        self.assertEqual(self.sessions(self.home.report()), {"prev", "work"})
+
+    def test_two_runs_in_one_session_report_the_work_between_them(self) -> None:
+        # Given
+        self.session_at("old", 0)
+        self.home.session("current", Transcript().command(1000, "self-improve").reply(1060)
+                          .human(2000, "work").reply(2060).command(3000, "self-improve").reply(3060))
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(self.sessions(report), {"current"})
+        self.assertEqual(row(report, "Sessions", "current")[3], "18m")
+
     def test_since_and_project_narrow_the_window(self) -> None:
         # Given
         self.session_at("old", 0)

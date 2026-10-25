@@ -32,8 +32,9 @@ Run the analyzer and read its report (a few KB):
 python3 -I ${CLAUDE_SKILL_DIR}/scripts/analyze.py [--since ISO] [--project SUBSTR]
 ```
 
-By default it covers every session since the start of the previous
-`/self-improve` run, or everything when there was none, and skips this session.
+By default it covers every session started since the previous `/self-improve`
+invocation, or everything when there was none. This session counts only up to
+the current invocation.
 Read `${CLAUDE_SKILL_DIR}/references/metrics.md` for what each section measures
 and where it is blind.
 
@@ -68,8 +69,9 @@ that worked before.
 
 ## 4. Fix
 
-Deliver each approved fix through the full `/engineer` lifecycle, one PR per
-affected repository. Repositories live under `~/repos/<name>`; follow the
+Bundle all approved fixes for one repository into a single `/engineer` run,
+which opens one PR for that repository; a fix spanning repositories gets one
+run per repository. Repositories live under `~/repos/<name>`; follow the
 global worktree and branch rules. Each PR body states the before numbers from
 this analysis and, where the fix is measurable locally, the after numbers.
 
