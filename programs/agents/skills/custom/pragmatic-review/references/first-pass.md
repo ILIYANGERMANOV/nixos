@@ -44,11 +44,23 @@ tracing, and run nothing: no build, linter or test. Your deliverable is aim, not
 understanding:
 
 1. **Intent** - what the change is for, in two or three sentences of your own.
-2. **Files by angle**, each with its line range in `diff` from `index`: auth,
+2. **Risk tier**, from the stat and the file list, printed with the intent:
+   - **docs-only** - no code changes: markdown, text, images, skill prose,
+     hunks that touch only comments.
+   - **code** - everything else.
+   - **sensitive** - the diff touches CI or credentials (anything under
+     `.github/`, an `action.yml`, a script CI runs, a deploy or release
+     script, secrets, auth, token or credential handling, `flake.nix`,
+     `flake.lock` or nix config while a workflow holds push credentials), a
+     migration, a destructive data operation, an ops or deploy unit, or
+     firewall or egress rules.
+
+   A requirement that says so raises the tier; nothing lowers it.
+3. **Files by angle**, each with its line range in `diff` from `index`: auth,
    untrusted input, secrets, destructive operations; contracts, shared state,
    stored data; tests and the code they exercise; what a requirement points at.
    A file under no angle is still reviewed.
-3. **Anchors** - a migration, a new route, a deleted check, a new dependency, a
+4. **Anchors** - a migration, a new route, a deleted check, a new dependency, a
    `WIP` subject.
 
 ## Phase 2 - assumptions, requirements, questions
@@ -80,22 +92,32 @@ an assumption. With no such question, do not wait.
 
 ## Phase 3 - spawn
 
-| Agent | Brief | Budget |
+| Agent | Brief | Depth |
 |---|---|---|
-| **blockers** | `references/blockers.md`, which it reads | careful, about 8 turns |
-| **regressions** | inline, below | fast, about 6 turns |
-| **house rules** | `references/house-rules.md`, which it reads | fast, about 8 turns |
-| **tests** | `references/tests.md`, which it reads | fast, about 6 turns |
-| **requirement** (one per group) | inline, below | STANDARD about 8 turns, DEEP about 15 |
+| **blockers** | `references/blockers.md`, which it reads | STANDARD; DEEP on the sensitive tier |
+| **regressions** | inline, below | STANDARD |
+| **house rules** | `references/house-rules.md`, which it reads | STANDARD |
+| **tests** | `references/tests.md`, which it reads | STANDARD |
+| **requirement** (one per group) | inline, below | the group's |
 
-The four standard agents run on every review and never carry a requirement.
+Budgets are the bar's: 8 calls, 15 at DEEP. The standard agents never carry a
+requirement.
+
+**The tier picks the agents.** `code`: all four standard agents. `sensitive`:
+the same, blockers at DEEP, which reads `references/ci-security.md` too.
+`docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
+yourself, spawn blockers only if it hits, and spawn neither regressions nor
+tests; keep what you swept for the report's Security line. House rules runs on
+every tier, requirement agents as usual.
 
 **At most five agents run at once.** Past that, launch the remaining
 requirement agents as earlier ones return.
 
-**Stagger the launch** so siblings reuse the cached prompt prefix: send the
-first agent alone in one message, then all the others together in the next. Run
-them in the background and wait for their returns.
+**Spawn in the foreground**, `run_in_background: false`, staggered so siblings
+reuse the cached prompt prefix: the first agent alone in one message, then all
+the others together in the next. Never end a turn while a review agent is
+running: an orchestrator that spawned in the background handed back before its
+agents returned.
 
 **Every prompt starts with the same shared block**, byte-identical across
 agents, so the cache serves it:
@@ -107,10 +129,10 @@ agents, so the cache serves it:
 3. Your intent summary, in your words - never the raw PR prose.
 4. The assumptions.
 
-**Then the part that differs:** the agent's role and brief, its files by angle
-with their line ranges in `diff`, and for a brief file the absolute path of this
-skill's `references/` directory. A standard agent gets one line: "Requirement
-agents cover the user's requirements; leave them alone."
+**Then the part that differs:** the agent's role, depth and brief, its files by
+angle with their line ranges in `diff`, and for a brief file the absolute path
+of this skill's `references/` directory. A standard agent gets one line:
+"Requirement agents cover the user's requirements; leave them alone."
 
 **Regressions brief**, pasted:
 
@@ -172,4 +194,5 @@ which it contradicts the intent makes it a Major row. Delegated, list each under
 the table as an open question with its readings; your caller answers.
 
 Keep the arithmetic for the report - `9 raised, 2 survived`. Met verdicts are
-answers and do not count. Do not list what was dropped unless asked.
+answers and do not count. Do not list what was dropped unless asked. Keep the
+blockers agent's `checked` line, or your own sweep's, for the Security line.

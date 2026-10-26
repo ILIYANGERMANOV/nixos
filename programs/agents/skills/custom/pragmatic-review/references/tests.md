@@ -6,16 +6,14 @@ through a `..` path, which does not resolve between installed skills. That file
 is the canonical statement of what a good test is; this brief does not restate
 it.
 
-This is a fast pass from the patch, in about 6 turns. Read your hunks from the
-diff file; open the code a test exercises only to see what it calls and
+This is a fast pass from the patch, inside the bar's budget. Read your hunks
+from the diff file; open the code a test exercises only to see what it calls and
 asserts, and `grep` to settle one question - does another test already cover
 this, is there a shared builder or fake. Do not hunt bugs in the production
 code: other agents own that. Never run the suite; one test file at most, to
 settle one finding.
 
 ## What you review
-
-A diff that changes only docs, prose or comments: return `NONE` at once.
 
 Every test the diff adds, changes or deletes, at every layer: unit,
 property-based, differential, end-to-end, goldens and recorded corpora. Of the

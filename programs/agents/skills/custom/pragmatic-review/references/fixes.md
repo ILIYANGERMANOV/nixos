@@ -51,7 +51,10 @@ Then, over the fix diff only:
 - **"Finding N is fixed"** requirements: met iff the fix removes the finding's
   trigger, checked on the code.
 - **A fast blockers check**: the step 1 sweep of `blockers.md` on the fix diff,
-  then any security hole or irreversible damage the fixes introduce.
+  then any security hole or irreversible damage the fixes introduce. If the
+  fix diff touches a sensitive-tier file (`first-pass.md` Phase 1), run the
+  greps of `references/ci-security.md` on it too. Keep what you checked for
+  the report's Security line.
 - **Obvious mistakes and negligence**: the bar's always-check list, and whether
   a fix broke what it touched - its callers one hop out.
 

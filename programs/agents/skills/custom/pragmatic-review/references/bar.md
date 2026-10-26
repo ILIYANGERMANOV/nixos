@@ -58,8 +58,10 @@ outcome. A refuted finding is dropped silently.
 - Batch: put every independent command of a step in one turn - several tool
   calls in one message, or one chained Bash. Read ranges (`grep -n`, then
   `sed -n`), never whole large files.
-- Budget: about 6-8 turns; a DEEP requirement agent about 15. Out of budget,
-  return what you have and name what you did not check.
+- Budget, hard: your 8th tool call is your hand-back; at DEEP depth, your
+  15th. Out of budget, return what you have and name what you did not check.
+- The bar is in your prompt: never reread it, and never read any reference
+  twice.
 - Mechanical checks first: a grep, the `stat` file, a byte-identical
   `diff <(git show A:f) <(git show B:f)`. Then, only to settle one claim, a cheap
   probe: one test file, a REPL line, the CLI on a tiny input crafted in `/tmp`.
@@ -67,7 +69,8 @@ outcome. A refuted finding is dropped silently.
   gates and CI run those. Write only under `/tmp`, install nothing, run nothing
   with side effects.
 
-**Return under 300 words**, no preamble: `NONE`, or one block per finding.
+**Return under 300 words**, no preamble: `NONE`, or one block per finding, at
+most 60 words each.
 
 ```
 file:line
@@ -90,3 +93,11 @@ examined     the files, paths and cases you actually checked
 
 `not met` comes with its major finding. `unverified` says why, and what would
 settle it - never a guess at a plausible reading.
+
+The blockers agent returns one `checked` line first, even when its findings are
+`NONE`: what it swept and verified - the sweep, the files walked, and at DEEP
+the checklist themes - so the report can say what was looked at.
+
+```
+checked      sweep clean; 2 workflows walked for triggers, injection, permissions, secrets, pins
+```

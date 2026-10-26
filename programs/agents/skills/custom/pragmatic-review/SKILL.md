@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review runs blockers, regressions, house-rules and tests agents plus one per optional requirement, answered Met, Not met or Unverified; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked user data, broken auth, committed secrets and .env files) and irreversible damage (destructive migrations with an unproven WHERE clause, unbounded deletes, irreversible side effects), plus broken behaviour or code and accidental TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Findings are Major, Minor or Nit; the diff is mergeable iff no Major survives. Drops taste and super edge cases. Returns findings and verdicts; nothing is fixed or posted until a picker says so. Use before merging a PR or branch. An invoking agent answers the pickers.
+description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier (docs-only, code, sensitive) and runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, secrets, auth, migrations, deploy) gets a DEEP security review with a CI checklist; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes, irreversible side effects), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Findings are Major, Minor or Nit; mergeable iff no Major survives; every report says what security was checked. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
 argument-hint: "[requirements] [PR number or URL] [--fixes <first-review head sha>]"
 ---
 
@@ -20,8 +20,8 @@ leaks data, and burying one real bug under twelve opinions.
   agent whose prompt is "invoke `pragmatic-review` with: <arguments>", and does
   not load this skill itself. Invoked by the user, it runs in their session.
 - **Load it once.** If this text is already in your context, never invoke the
-  skill again; reread a reference instead. The review agents you spawn never
-  load it - their prompts carry what they need.
+  skill again, and never read a reference twice: what you read, you hold. The
+  review agents you spawn never load it - their prompts carry what they need.
 - **Read a reference only in the step that names it.** References live in
   `references/` under the base directory the Skill tool reported.
 - **Delegated** means another agent invoked you. You cannot ask anyone: your
@@ -78,7 +78,9 @@ database, irreversible external effects) are always Major, and **when unsure,
 reported** - the line is reversibility. A blocker must still be reachable (name
 the attacker, entry point and gain, or the rows destroyed) and belong to this
 diff; a pre-existing one gets one line under the table and does not block.
-`references/blockers.md` is the canonical list.
+`references/blockers.md` is the canonical list. The risk tier picked in
+`first-pass.md` sets how deep it digs: a sensitive diff - CI, secrets, auth,
+migrations, deploy - gets a DEEP blockers agent with `references/ci-security.md`.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
 `engineering` or `ui-coding`, DRY included, is a Minor finding, judged on the
@@ -87,7 +89,7 @@ rule quoted verbatim.
 ## The flow
 
 - **First review:** follow `references/first-pass.md` - write the diff once,
-  route, group the requirements, spawn, judge.
+  pick the tier, route, group the requirements, spawn, judge.
 - **Re-review (`--fixes`):** follow `references/fixes.md` - one agent on the fix
   diff, unless the fixes are large.
 
@@ -97,9 +99,9 @@ Both end in the report below, then the pickers.
 
 Facts first, the call last: a verdict read first anchors the reader. The order
 is fixed - answered or open intent-unclear test questions, the table, the
-requirement verdicts, the verdict line. Delegated, the whole return is at most
-about 400 words, and its last line is `Reviewed head: <full sha>` - the sha a
-re-review takes as `--fixes <sha>`.
+requirement verdicts, the security line, the verdict line. Delegated, the
+whole return is at most about 400 words, and its last line is
+`Reviewed head: <full sha>` - the sha a re-review takes as `--fixes <sha>`.
 
 **The table.** Skip it entirely when nothing survived - no empty table, no
 placeholder. Otherwise number the rows and sort by severity, Major then Minor
@@ -128,6 +130,15 @@ Major by default.
 >
 > ⚠️ **Unverified** - the cache stays warm across deploys. The deploy hook
 > lives in another repo the agent could not read.
+
+**The security line**, one line, from the blockers agent's `checked` line or
+your own sweep: `Security: <tier> - <what was checked>`.
+
+> Security: sensitive (DEEP) - sweep clean; 2 workflows checked for pwn
+> requests, expression injection, permissions, secrets, pins; cache not
+> restored in release job
+>
+> Security: docs-only - sweep clean on 4 files
 
 **The verdict**, one line, last. It names the rows that drive it and what each
 is, and carries the arithmetic - raised versus survived, Met verdicts not

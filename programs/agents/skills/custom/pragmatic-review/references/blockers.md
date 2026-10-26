@@ -19,7 +19,16 @@ next week, because by then it has already happened.
 Every blocker you return is **major**. This brief is the one place outside the
 requirement agents where the review is careful rather than fast: run the sweep
 in full, and verify every hit and every destructive statement against the real
-code, in about 8 turns. The bar's always-check list still applies on top.
+code, in the bar's 8 calls. The bar's always-check list still applies on top.
+
+**At DEEP depth** - your prompt says so; the orchestrator chose it because the
+diff touches CI, secrets, auth or deploy - you have 15 calls and one more step:
+after the sweep, read `references/ci-security.md` from the directory in your
+prompt and run its greps and checklist over every workflow, action, CI-run
+script and credential path the diff touches.
+
+Your return opens with the `checked` line the bar asks for, findings or `NONE`:
+what you swept, which files you walked, and at DEEP which checklist themes.
 
 ## Step 1 - the mechanical sweep, before you reason about anything
 
