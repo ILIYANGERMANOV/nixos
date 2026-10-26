@@ -100,12 +100,10 @@ an assumption. With no such question, do not wait.
 | **tests** | `references/tests.md`, which it reads | STANDARD |
 | **requirement** (one per group) | inline, below | the group's |
 
-Budgets are the bar's: 8 calls, 15 at DEEP. The standard agents never carry a
-requirement.
+Budgets are the bar's. The standard agents never carry a requirement.
 
 **The tier picks the agents.** `code`: all four standard agents. `sensitive`:
-the same, blockers at DEEP, which reads `references/ci-security.md` too.
-`docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
+the same, blockers at DEEP. `docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
 yourself, spawn blockers only if it hits, and spawn neither regressions nor
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.
@@ -194,5 +192,4 @@ which it contradicts the intent makes it a Major row. Delegated, list each under
 the table as an open question with its readings; your caller answers.
 
 Keep the arithmetic for the report - `9 raised, 2 survived`. Met verdicts are
-answers and do not count. Do not list what was dropped unless asked. Keep the
-blockers agent's `checked` line, or your own sweep's, for the Security line.
+answers and do not count. Do not list what was dropped unless asked.

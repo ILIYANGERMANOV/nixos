@@ -8,13 +8,11 @@ entry point and the gain, as `blockers.md` says.
 
 ## Trigger
 
-You are here because the orchestrator chose the **sensitive** tier: the diff
-touches anything under `.github/`, an `action.yml`, a script CI runs (`run:`
-targets, just or Make recipes, deploy or release scripts), secrets, auth, token
-or credential handling, or `flake.nix`, `flake.lock` or `nixConfig` while a
-workflow holds push credentials. This checklist covers those files; migrations,
-destructive operations, ops units and firewall rules, which also make a diff
-sensitive, are covered by the irreversible-damage section of `blockers.md`.
+You are here because the orchestrator chose the **sensitive** tier, defined
+in `first-pass.md` Phase 1. This checklist covers its CI and credential files;
+migrations, destructive operations, ops units and firewall rules, which also
+make a diff sensitive, are covered by the irreversible-damage section of
+`blockers.md`.
 
 ## Checklist
 

@@ -15,9 +15,8 @@ CI. You own the outcome; the user owns the decisions.
 
 - **Ask, do not guess.** Whenever product behaviour, scope or design is unclear,
   stop and ask the user with `AskUserQuestion`, one question per call. That is
-  the default. Verify every fact in the repo before asking, and never re-ask a
-  question the user already decided. Wording, naming and other taste calls are
-  yours. Only when the user has said to use your own judgment do you decide
+  the default. Never re-ask a question the user already decided. Wording,
+  naming and other taste calls are yours. Only when the user has said to use your own judgment do you decide
   the rest yourself - and then record each such decision, with its reason, in
   the PR body.
 - **Facts are yours, decisions are theirs.** Research facts with subagents;
@@ -35,9 +34,8 @@ CI. You own the outcome; the user owns the decisions.
   and log triage to subagents and keep only their conclusions. Run them in the
   background by default. Every brief ends with "hand back under 200 words:
   commit, proof, what remains". After launching an agent, or on a wake that
-  needs nothing (a CI event for a commit that is not the head, your own push),
-  end the turn without a tool call and at most one short line. A CI wake
-  carries its result: never poll `gh pr checks` after one.
+  needs nothing, end the turn without a tool call and at most one short line.
+  A CI wake carries its result: never poll `gh pr checks` after one.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
 

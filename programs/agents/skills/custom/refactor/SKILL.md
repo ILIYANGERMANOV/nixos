@@ -10,8 +10,8 @@ Make the code this diff touches simpler and closer to the house rules, without
 changing what it does. Behaviour-preserving only: a refactor that changes
 behaviour is a bug hiding in a cleanup commit.
 
-When another agent invoked this skill - an orchestrator such as `engineer` -
-there is nobody to ask: big items are out of scope and go in the report.
+**Delegated** means another agent - an orchestrator such as `engineer` -
+invoked this skill, so there is nobody to ask.
 
 ## 1. Load the rules
 

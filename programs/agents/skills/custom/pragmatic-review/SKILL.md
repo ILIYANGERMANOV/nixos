@@ -79,8 +79,8 @@ reported** - the line is reversibility. A blocker must still be reachable (name
 the attacker, entry point and gain, or the rows destroyed) and belong to this
 diff; a pre-existing one gets one line under the table and does not block.
 `references/blockers.md` is the canonical list. The risk tier picked in
-`first-pass.md` sets how deep it digs: a sensitive diff - CI, secrets, auth,
-migrations, deploy - gets a DEEP blockers agent with `references/ci-security.md`.
+`first-pass.md` sets how deep it digs: the sensitive tier gets a DEEP blockers
+agent with `references/ci-security.md`.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
 `engineering` or `ui-coding`, DRY included, is a Minor finding, judged on the
