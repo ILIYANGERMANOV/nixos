@@ -85,6 +85,7 @@ let
     "engineer"
     "engineering"
     "explain"
+    "final-review"
     "give-feedback"
     "grill-with-docs"
     "grilling"
