@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
+description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item when run by the user (delegated, big items are reported as out of scope), then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
 argument-hint: "[scope notes] [PR number or base ref]"
 ---
 
@@ -10,8 +10,8 @@ Make the code this diff touches simpler and closer to the house rules, without
 changing what it does. Behaviour-preserving only: a refactor that changes
 behaviour is a bug hiding in a cleanup commit.
 
-When another agent invoked this skill - an orchestrator such as `engineer` - that
-agent answers the questions below in place of the user.
+When another agent invoked this skill - an orchestrator such as `engineer` -
+there is nobody to ask: big items are out of scope and go in the report.
 
 ## 1. Load the rules
 
@@ -34,9 +34,10 @@ directory, and a `..` path does not resolve between installed skills.
 Fail fast if the ref does not resolve or the diff is empty. Scope notes narrow
 or widen what the plan covers; follow them.
 
-Read lean and aim to finish under about 100k of context: the diff hunks, not
-whole modules. Read past a hunk only for the range it needs, and find
-duplicates and existing helpers with `grep -rn`, not by reading files.
+Read lean: the diff hunks, not whole modules. Read past a hunk only for the
+range it needs, and find duplicates and existing helpers with `grep -rn`, not
+by reading files. At about 100k of context, stop reading: apply what is
+planned, commit, and report the rest as out of scope.
 
 ## 3. Plan
 
@@ -102,10 +103,11 @@ plan. An empty plan is a good outcome; say so and stop.
 
 ## 4. Ask about the big items
 
-Small items are in scope. Ask about each **big** item on its own with
-`AskUserQuestion` - one question per call, options "In scope" and "Out of
-scope", your recommendation first with `(Recommended)` in its label, and the
-item's cost in the option descriptions. Wait for each answer.
+Small items are in scope. Delegated, every big item is out of scope: do not
+ask, list them in the report. Invoked by the user, ask about each **big** item
+on its own with `AskUserQuestion` - one question per call, options "In scope"
+and "Out of scope", your recommendation first with `(Recommended)` in its
+label, and the item's cost in the option descriptions. Wait for each answer.
 
 ## 5. Apply
 
@@ -113,10 +115,14 @@ item's cost in the option descriptions. Wait for each answer.
   batch allows.
 - Keep behaviour identical: same inputs, same outputs, same errors, same side
   effects. Do not fix a bug you find on the way; note it for the report.
-- After each batch run the quickest check that covers it; at the end run the
-  repo's full checks and tests once - its `Justfile`, its flake checks, its
-  test command. A failure means the refactor changed behaviour or broke
-  something: fix or revert that item.
+- After each batch run the quickest check that covers it. Then sweep the
+  branch once for what the review always checks - `grep` the commit subjects
+  for TEMP, WIP or debug, and the diff for stray prints, `debugger`,
+  commented-out blocks and `TODO: remove` - and fix the hits, so the review
+  does not spend a fixer round on them. At the end run the repo's full checks
+  and tests once - its `Justfile`, its flake checks, its test command. A
+  failure means the refactor changed behaviour or broke something: fix or
+  revert that item.
 - Commit with a message naming what was refactored, and push the branch. Never
   force-push, never push `main`.
 
