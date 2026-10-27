@@ -40,8 +40,13 @@ daemons running lint at once have run it out of memory.
 - No device and no emulator: `connectedAndroidTest` and anything needing
   `adb devices` cannot run. Use JVM unit tests, Robolectric and screenshot
   tests (Paparazzi, Roborazzi) instead.
-- No iOS: Apple targets of a KMP project need macOS. Build the Android, JVM
-  and Linux targets only.
+- No iOS: Apple targets of a KMP project need macOS. Build the Android and
+  JVM targets.
+- Linux native targets are unreliable: the Kotlin/Native compiler compiles
+  and links, then can crash its JVM (SIGSEGV in `ffiFreeClosure0`) while
+  shutting down, failing the task or killing the daemon. Prefer `jvmTest`
+  and the Android unit tests; report a native failure as this known gap
+  rather than debugging it.
 
 ## A missing SDK component
 
