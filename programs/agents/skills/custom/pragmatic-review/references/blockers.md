@@ -19,7 +19,14 @@ next week, because by then it has already happened.
 Every blocker you return is **major**. This brief is the one place outside the
 requirement agents where the review is careful rather than fast: run the sweep
 in full, and verify every hit and every destructive statement against the real
-code, in about 8 turns. The bar's always-check list still applies on top.
+code, inside the bar's budget. The bar's always-check list still applies on
+top.
+
+**At DEEP depth** - your prompt says so - you have the bar's DEEP budget and one
+more step: after the sweep, read the references your prompt names,
+`common-attacks.md` first, and follow each: its greps, then its checklist.
+
+Your return opens with the bar's `checked` line, findings or `NONE`.
 
 ## Step 1 - the mechanical sweep, before you reason about anything
 

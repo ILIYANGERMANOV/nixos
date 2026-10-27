@@ -11,7 +11,9 @@ list each one you skipped in your report.
 ## Small slice: do it yourself
 
 A slice you can finish well inside the context budget: implement it, run its
-narrowest checks while iterating and the full check once at the end, commit.
+narrowest checks while iterating, commit, then run the full check **once**
+after the last commit. Rerun it only after fixing what it found, never after a
+clean run or an edit that touched only docs.
 
 ## Large slice: be a mini-engineer
 
@@ -26,4 +28,6 @@ narrowest checks while iterating and the full check once at the end, commit.
 4. Brief the next part from what the last one handed back, not from re-reading
    its files.
 
-Report what you did and what you proved.
+Hand back under 200 words: the commit, the proof, what remains, and any
+auth, session, authorization, database, secrets or CI work your brief did not
+flag as security-sensitive.

@@ -23,8 +23,10 @@ that was not run.
 Look for a PR template: `.github/pull_request_template.md`,
 `.github/PULL_REQUEST_TEMPLATE.md`, the same names at the repository root or in
 `docs/`, or a `PULL_REQUEST_TEMPLATE/` directory. If one exists, fill in its
-sections in its order and ignore the default format below. Never fill a section
-that asks for secrets, credentials or tokens; leave it as the template has it.
+sections in its order and ignore the default format below, except that the
+Approach TL;DR (see How) opens the template's "how" section if it has one.
+Never fill a section that asks for secrets, credentials or tokens; leave it as
+the template has it.
 
 ## Otherwise, the default format
 
@@ -32,6 +34,8 @@ that asks for secrets, credentials or tokens; leave it as the template has it.
 ## What & Why
 
 ## How
+
+### Approach TL;DR
 
 ## Proofs
 
@@ -44,9 +48,12 @@ that asks for secrets, credentials or tokens; leave it as the template has it.
 
 - **What & Why** - two or three sentences: what changes and why it is needed.
   End with `Closes #N` when there is an issue.
-- **How** - the design decisions, the trade-offs taken, and what the reviewer
-  cannot see in the diff, plus a visual when one helps (see Visuals). Omit the
-  whole section when the diff speaks for itself.
+- **How** - opens with **Approach TL;DR**, above any visual: 2-3 bullets, one
+  sentence each, naming the key technical decision, pattern or idea, so a
+  reader who reads only that understands what is going on. Then the design
+  decisions, the trade-offs taken, and what the reviewer cannot see in the
+  diff, plus a visual when one helps (see Visuals). Omit the whole section
+  only for a trivial diff.
 - **Proofs / Reproducible** - the tests added or run, each with a pointer
   (`path/to/test.ts`, a test name, a `just` recipe). Where a change has none,
   one line saying why.
@@ -85,5 +92,6 @@ error renders as an error box, not a diagram.
 
 Pass the body through a file or a heredoc so the shell does not mangle it:
 `gh pr create --body-file <file>` for a new PR, `gh pr edit <n> --body-file
-<file>` to rewrite one. Write the file outside the repository, so it is never
-committed.
+<file>` to rewrite one. A rewrite keeps any `Security-sensitive:` line and
+`## Feedback log` section verbatim. Write the file outside the repository, so
+it is never committed.

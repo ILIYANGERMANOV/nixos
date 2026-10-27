@@ -15,23 +15,28 @@ CI. You own the outcome; the user owns the decisions.
 
 - **Ask, do not guess.** Whenever product behaviour, scope or design is unclear,
   stop and ask the user with `AskUserQuestion`, one question per call. That is
-  the default. Only when the user has said to use your own judgment do you
-  decide yourself - and then record each such decision, with its reason, in the
-  PR body.
+  the default, and it covers user-facing wording and naming you are unsure of
+  (slash commands, labels, text the user reads); mechanical internal names are
+  yours. Never re-ask a question the user already decided. Only when the user
+  has said to use your own judgment do you decide the rest yourself - and then
+  record each such decision, with its reason, in the PR body.
 - **Facts are yours, decisions are theirs.** Research facts with subagents;
   never ask the user something the code, the docs or a tool can answer.
-- **You answer the skills you invoke.** `refactor` asks which big items are in
-  scope; `pragmatic-review`'s pickers ask which findings survive and what to do
-  with them, and its open questions what a test is meant to prove. Answer those
-  yourself - unless the answer is a product, scope or design decision, which
-  goes to the user.
+- **You answer the skills you invoke.** `pragmatic-review`'s pickers ask which
+  findings survive and what to do with them, and its open questions what a
+  test is meant to prove. Answer those yourself - unless the answer is a
+  product, scope or design decision, which goes to the user. `refactor` asks
+  nothing when delegated: its big items come back as out of scope.
 - **Simplicity over completeness.** Prefer the simplest design that meets the
   goal (see `engineering`). A rare edge case that would cost a complex or flaky
   fix is skipped, unless a miss corrupts data or opens a security hole, and
   recorded as out of scope in the PR body.
 - **Protect your context window.** Delegate reading, implementing, verification
   and log triage to subagents and keep only their conclusions. Run them in the
-  background by default.
+  background by default. Every brief ends with "hand back under 200 words:
+  commit, proof, what remains". After launching an agent, or on a wake that
+  needs nothing, end the turn without a tool call and at most one short line.
+  A CI wake carries its result: never poll `gh pr checks` after one.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
 
@@ -51,7 +56,11 @@ Done when the user confirms a shared understanding.
 
 Fetch and branch from the latest `origin/main`, commit the first change (or an
 empty commit), push, and open a **draft** PR whose body is the agreed plan:
-goals, decisions, out of scope. The plan is now visible from the phone.
+goals, decisions, out of scope, and the **acceptance criteria** - each goal as
+a checkable statement, input to observable outcome. When the plan touches
+auth, sessions, authorization, databases, secrets or CI, it also states
+`Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
+plan is now visible from the phone.
 
 ### 3. Implement
 
@@ -61,7 +70,8 @@ re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
 ordering between them. Give each the plan, its slice, the checks to run and the
 path `${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
-small slice itself and splits a large one across fresh sub-implementers.
+small slice itself and splits a large one across fresh sub-implementers. Add
+any security-sensitive topic an implementer reports to the plan's line.
 
 ### 4. Refactor
 
@@ -76,9 +86,12 @@ returns the findings table and requirement verdicts, ending with
 yourself: choose the rows worth fixing and hand them to a fixer subagent that
 commits and pushes. Never reply to the review agent with an action.
 
-Pass 1 is a first review, with requirements stating what must hold where you
-are least sure of the implementation. Record its `Reviewed head` and its
-requirement verdicts.
+Pass 1 is a first review. Its requirements are the acceptance criteria plus
+what must hold where you are least sure of the implementation; the plan's
+decisions and out-of-scope list go with them as assumptions, in your words, so
+a deliberately skipped edge case is not raised. With a `Security-sensitive:`
+line, every pass also gets the requirement `security-sensitive: <topics>`.
+Record its `Reviewed head`, its requirement verdicts and its `Security:` line.
 
 ### 6. Review again, for the last time
 
@@ -91,7 +104,8 @@ verdict. No more reviews after this one, whatever it finds.
 
 Through a fixer, fix only what is safe and small. Anything bigger goes in the
 PR body as known follow-up work, or to the user as a question if it blocks the
-feature.
+feature. Every Major row or Not met verdict you chose not to fix is recorded
+there, under the merge-danger or follow-up section, with the reason.
 
 ### 8. Hand over
 
@@ -100,4 +114,5 @@ feature.
 - Wait for CI the non-blocking way your instructions describe. Fix CI
   failures through a subagent, and wait again.
 - When CI is green, mark the PR ready with `gh pr ready <n>` and notify the
-  user.
+  user, mentioning that `/final-review [requirements]` on the ready PR gives
+  an independent check. You do not run it.
