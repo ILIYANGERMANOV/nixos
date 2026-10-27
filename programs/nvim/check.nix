@@ -33,7 +33,7 @@ let
   inherit (pkgs) lib;
   inherit (pkgs.stdenv.hostPlatform) system;
 
-  kotlinLsp = import "${root}/programs/kotlin/lsp.nix" { inherit pkgs; };
+  kotlinLsp = (import "${root}/programs/kotlin" { inherit pkgs; }).lsp;
 
   nvim = inputs.nixvim.legacyPackages.${system}.makeNixvimWithModule {
     inherit pkgs;

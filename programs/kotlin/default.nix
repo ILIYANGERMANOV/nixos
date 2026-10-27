@@ -15,6 +15,8 @@ let
   # `org.gradle.java.installations.paths`.
   inherit (pkgs) jdk21;
 
+  lsp = import ./lsp.nix { inherit pkgs; };
+
   # Accepted here rather than in nixpkgs' config, so only what uses this SDK
   # accepts its licence.
   sdk = (pkgs.androidenv.override { licenseAccepted = true; }).composeAndroidPackages {
@@ -38,10 +40,13 @@ let
   };
 in
 {
+  # The language server alone, for what checks the editor's use of it.
+  inherit lsp;
+
   workstation = {
     packages = [
       jdk
-      (import ./lsp.nix { inherit pkgs; })
+      lsp
       pkgs.ktlint
       pkgs.android-tools
     ];
