@@ -26,6 +26,7 @@ let
   };
   factory = import "${root}/programs/software-factory" { inherit pkgs lib; };
   playwright = import "${root}/programs/playwright" { inherit pkgs; };
+  kotlin = import "${root}/programs/kotlin" { inherit pkgs; };
 
   remoteControl = factory.mkRemoteControl {
     claude = claude.factory.wrapper;
@@ -59,13 +60,16 @@ let
     GIT_CONFIG_VALUE_0 = "simple";
   };
 
-  # Agents drive a browser from any directory, as the Remote Control harness
-  # promises them, so Playwright comes with the session rather than a project.
+  # Agents drive a browser and build Android apps from any directory, as the
+  # Remote Control harness promises them, so Playwright and the Android SDK
+  # come with the session rather than a project.
   serverService = {
     Environment = [
       "PATH=${path}"
     ]
-    ++ lib.mapAttrsToList (name: value: "${name}=${value}") (playwright.env // gitOverrides);
+    ++ lib.mapAttrsToList (name: value: "${name}=${value}") (
+      playwright.env // kotlin.android.env // gitOverrides
+    );
     # Belt and braces with forceLoginMethod in the managed settings: nothing
     # may steer a session towards API billing or another endpoint.
     UnsetEnvironment = [

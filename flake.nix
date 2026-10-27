@@ -124,6 +124,11 @@
           # `.typos.toml`, never the private global allowlist.
           typos = (import ./programs/typos { inherit pkgs; }).mkCheck self;
         }
+        # That a .kt file gets kotlin_lsp running the binary programs/kotlin
+        # packages, ktlint as its formatter, and that <leader>tt runs
+        # `./gradlew test` in a Gradle project. Only where a kotlin-lsp release
+        # is pinned.
+        // pkgs.lib.optionalAttrs (nvimChecks ? kotlin) { nvim-kotlin = nvimChecks.kotlin; }
       );
 
       devShells = lib.forAllSystems (pkgs: {

@@ -12,6 +12,7 @@
     ./blockchain.nix
     ./languages/typescript.nix
     ./languages/haskell.nix
+    ./languages/kotlin.nix
     ./languages/nix.nix
     ./languages/yaml.nix
     ./languages/d2.nix

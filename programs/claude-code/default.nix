@@ -156,8 +156,12 @@ in
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
         extraInstructions = [ ./factory-instructions.md ];
-        # Measures this box's own transcripts, so only the factory has the data.
-        extraSkills = [ "self-improve" ];
+        # self-improve measures this box's own transcripts, so only the factory
+        # has the data; android describes the toolchain only the factory has.
+        extraSkills = [
+          "self-improve"
+          "android"
+        ];
         # Unattended agents dumped whole files with one multi-file `cat`, and
         # subagents blocked on foreground sleeps and polling loops despite
         # the instructions; the hooks make them read ranges and background

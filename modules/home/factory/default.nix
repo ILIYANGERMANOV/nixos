@@ -9,10 +9,12 @@
     ../typos.nix
     ../languages/typescript.nix
     ../languages/haskell.nix
+    ../languages/kotlin.nix
     ../languages/nix.nix
     ./git.nix
     ./ssh.nix
     ./claude-factory.nix
+    ./android.nix
   ];
 
   home = {

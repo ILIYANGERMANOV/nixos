@@ -76,9 +76,10 @@ wrong tool for iterating.
 1. A skill or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`,
    plus `self-improve` when the analyzer under its skill changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code` and
-   `claude-bash-guards` for `programs/claude-code`, `nvim-search` and
-   `nvim-typescript` for `programs/nvim`, `software-factory`, `playwright`,
-   `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
+   `claude-bash-guards` for `programs/claude-code`, `nvim-search`,
+   `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
+   a `software-factory` host eval for `programs/kotlin`, `software-factory`,
+   `playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old`, `software-factory`) or
@@ -294,6 +295,12 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   of `main`, and switches behind a health gate. Root units it adds must set
   `restartIfChanged = false`, and Remote Control units keep
   `X-SwitchMethod = keep-old`, or a deploy kills its own caller.
+- **The Android toolchain is global, never per repository.** `programs/kotlin`
+  holds it: `workstation` (JDK 17, kotlin-lsp, ktlint, adb) for every host,
+  `android` (store SDK, Gradle memory settings, konan's nix-ld libraries) for
+  the factory only, wired by `modules/home/factory/android.nix`, the Remote
+  Control units' environment and `nix-ld.nix`. The SDK licence is accepted
+  there, not in nixpkgs' config. A missing SDK component is added to that SDK.
 - The `claude-factory` flavor is `factory` in `programs/claude-code`, deliberately
   outside `packages` so no other host installs it.
 - The server has its own sops age key; `secrets/common.yaml` is not encrypted
@@ -354,7 +361,7 @@ and doubling every diagnostic and completion.
   that is what `<leader>oi` sends.
 
 `nix flake check` runs `checks.nvim-typescript` (`programs/nvim/check.nix`,
-which returns both Neovim checks over one shared editor build). It builds the
+which returns every Neovim check over one shared editor build). It builds the
 real editor and asserts the routing against fixture roots, and starts no
 server. Two traps if you edit it: `vim.fs.root` returns `nil` for any
 buffer whose `buftype` is not `""`, and a Lua error under `-c luafile` leaves
