@@ -28,4 +28,6 @@ clean run or an edit that touched only docs.
 4. Brief the next part from what the last one handed back, not from re-reading
    its files.
 
-Hand back under 200 words: the commit, the proof, what remains.
+Hand back under 200 words: the commit, the proof, what remains, and any
+auth, session, authorization, database, secrets or CI work your brief did not
+flag as security-sensitive.

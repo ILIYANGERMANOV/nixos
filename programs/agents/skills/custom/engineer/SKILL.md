@@ -15,10 +15,11 @@ CI. You own the outcome; the user owns the decisions.
 
 - **Ask, do not guess.** Whenever product behaviour, scope or design is unclear,
   stop and ask the user with `AskUserQuestion`, one question per call. That is
-  the default. Never re-ask a question the user already decided. Wording,
-  naming and other taste calls are yours. Only when the user has said to use your own judgment do you decide
-  the rest yourself - and then record each such decision, with its reason, in
-  the PR body.
+  the default, and it covers user-facing wording and naming you are unsure of
+  (slash commands, labels, text the user reads); mechanical internal names are
+  yours. Never re-ask a question the user already decided. Only when the user
+  has said to use your own judgment do you decide the rest yourself - and then
+  record each such decision, with its reason, in the PR body.
 - **Facts are yours, decisions are theirs.** Research facts with subagents;
   never ask the user something the code, the docs or a tool can answer.
 - **You answer the skills you invoke.** `pragmatic-review`'s pickers ask which
@@ -56,8 +57,10 @@ Done when the user confirms a shared understanding.
 Fetch and branch from the latest `origin/main`, commit the first change (or an
 empty commit), push, and open a **draft** PR whose body is the agreed plan:
 goals, decisions, out of scope, and the **acceptance criteria** - each goal as
-a checkable statement, input to observable outcome. The plan is now visible
-from the phone.
+a checkable statement, input to observable outcome. When the plan touches
+auth, sessions, authorization, databases, secrets or CI, it also states
+`Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
+plan is now visible from the phone.
 
 ### 3. Implement
 
@@ -67,7 +70,8 @@ re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
 ordering between them. Give each the plan, its slice, the checks to run and the
 path `${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
-small slice itself and splits a large one across fresh sub-implementers.
+small slice itself and splits a large one across fresh sub-implementers. Add
+any security-sensitive topic an implementer reports to the plan's line.
 
 ### 4. Refactor
 
@@ -85,8 +89,9 @@ commits and pushes. Never reply to the review agent with an action.
 Pass 1 is a first review. Its requirements are the acceptance criteria plus
 what must hold where you are least sure of the implementation; the plan's
 decisions and out-of-scope list go with them as assumptions, in your words, so
-a deliberately skipped edge case is not raised. Record its `Reviewed head`,
-its requirement verdicts and its `Security:` line.
+a deliberately skipped edge case is not raised. With a `Security-sensitive:`
+line, every pass also gets the requirement `security-sensitive: <topics>`.
+Record its `Reviewed head`, its requirement verdicts and its `Security:` line.
 
 ### 6. Review again, for the last time
 

@@ -27,7 +27,9 @@ passed through unchanged.
 - No PR - stop and say so; this skill reviews PRs only.
 
 Everything else in `$ARGUMENTS` is the requirements. Empty is fine: the default
-review.
+review. A `Security-sensitive: <topics>` line in the PR body (the plan or its
+Feedback log) adds the requirement `security-sensitive: <topics>`; it can only
+deepen the review, never skip a check, so taking it from the PR body is safe.
 
 ### 2. Review
 
