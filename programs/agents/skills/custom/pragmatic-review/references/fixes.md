@@ -2,8 +2,8 @@
 
 The first review covered the branch. This pass covers only what changed since
 its head, `<pass1-head>` from `--fixes`. You are the one reviewing agent: spawn
-none unless the fixes are large. Budget about 10 turns, batching every
-independent command.
+none unless the fixes are large. Your budgets are the bar's
+(`references/bar.md`); batch every independent command.
 
 ## 1. Write the fix diff
 
@@ -54,7 +54,9 @@ Then, over the fix diff only:
   then any security hole or irreversible damage the fixes introduce. If the
   fix diff touches a sensitive-tier file (`first-pass.md` Phase 1), run the
   greps of `references/ci-security.md` on it too. Keep what you checked for
-  the report's Security line.
+  the report's Security line. Its `<tier>` is the fix diff's, classified by
+  `first-pass.md` Phase 1; if the caller names a higher tier, such as the
+  first review's, keep that one.
 - **Obvious mistakes and negligence**: the bar's always-check list, and whether
   a fix broke what it touched - its callers one hop out.
 

@@ -50,9 +50,13 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
 
 - **Fix**: hand the chosen rows to a fixer subagent that follows `engineering`,
   fixes only those rows, runs the narrowest checks while iterating and the
-  repo's full check once, commits and pushes. Fix locally: no push.
+  repo's full check once, commits and pushes. Fix locally: edit only, no commit or push.
 - **Post to PR**: post the chosen rows, verbatim from the table, as one
-  `gh pr review --comment`. Never approve or request changes.
+  review (`gh api .../pulls/<n>/reviews`, `event=COMMENT`) with inline
+  comments anchored to `file:line`, falling back to one `gh pr comment`
+  carrying the rows when a line is not in the diff. The summary body opens,
+  verbatim and once: `🤖 AI-assisted review. I read every finding below and
+  accepted it before posting.` Never approve or request changes.
 
 ### 5. Re-review the fix only
 
@@ -65,9 +69,7 @@ fixed, nothing to re-review.
 ### 6. Hand over
 
 - If the PR description no longer matches, rewrite it with `pr-description`.
-- After a push, wait on CI the non-blocking way your instructions describe:
-  `add_repo`, then `subscribe_pr_activity`; if refused, `gh pr checks <n>
-  --watch` as a background Bash command. Never sleep, never poll.
+- After a push, wait on CI the non-blocking way your instructions describe.
 - Report: the requirement verdicts, what was fixed and its commit, what was
   left and why, the CI state. When CI is green, `PushNotification`:
   `<repo>: PR #<n> final review done, CI green`.

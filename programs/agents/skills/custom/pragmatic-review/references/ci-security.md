@@ -121,15 +121,16 @@ The attacker is a fork PR author unless stated; the gain is in brackets.
 
 ## Grep, on the diff
 
-Run all five in one turn. A hit from the second counts only inside `run:` or
-`script:`.
+Run all five in one turn. Each matches added lines only (`^\+`), so line
+numbers stay those of `diff`. A hit from the second counts only inside `run:`
+or `script:`.
 
 ```sh
-rg -n 'pull_request_target|workflow_run|issue_comment|self-hosted|secrets:\s*inherit' "$D/diff"
-rg -n '\$\{\{[^}]*(github\.event\.(issue|pull_request|comment|review|commits|head_commit|pages)|github\.head_ref|inputs\.|steps\.[^}]*\.outputs)' "$D/diff"
-rg -n 'uses:\s*\S+@' "$D/diff" | rg -v '@[0-9a-f]{40}'
-rg -n 'write-all|(id-token|contents|pull-requests|packages|actions):\s*write|toJSON\(secrets|persist-credentials:\s*true' "$D/diff"
-rg -n 'curl[^|]*\|\s*(bash|zsh|sh)|GITHUB_(ENV|PATH)|set-(output|env)|ACTIONS_(ALLOW_UNSECURE|STEP_DEBUG|RUNNER_DEBUG)|continue-on-error:\s*true|restore-keys|download-artifact|docker login|authToken|signingKey|accept-flake-config|--impure|sandbox\s*=\s*false' "$D/diff"
+rg -n '^\+.*(pull_request_target|workflow_run|issue_comment|self-hosted|secrets:\s*inherit)' "$D/diff"
+rg -n '^\+.*\$\{\{[^}]*(github\.event\.(issue|pull_request|comment|review|commits|head_commit|pages)|github\.head_ref|inputs\.|steps\.[^}]*\.outputs)' "$D/diff"
+rg -n '^\+.*uses:\s*\S+@' "$D/diff" | rg -v '@[0-9a-f]{40}'
+rg -n '^\+.*(write-all|(id-token|contents|pull-requests|packages|actions):\s*write|toJSON\(secrets|persist-credentials:\s*true)' "$D/diff"
+rg -n '^\+.*(curl[^|]*\|\s*(bash|zsh|sh)|GITHUB_(ENV|PATH)|set-(output|env)|ACTIONS_(ALLOW_UNSECURE|STEP_DEBUG|RUNNER_DEBUG)|continue-on-error:\s*true|restore-keys|download-artifact|docker login|authToken|signingKey|accept-flake-config|--impure|sandbox\s*=\s*false)' "$D/diff"
 ```
 
 ## Sources

@@ -55,6 +55,7 @@ understanding:
      migration, a destructive data operation, an ops or deploy unit, or
      firewall or egress rules.
 
+   The highest tier that matches wins: sensitive, then code, then docs-only.
    A requirement that says so raises the tier; nothing lowers it.
 3. **Files by angle**, each with its line range in `diff` from `index`: auth,
    untrusted input, secrets, destructive operations; contracts, shared state,
