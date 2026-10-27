@@ -7,6 +7,7 @@ Mono-repo for NixOS, nix-darwin, and dev-shell configs. Entry point: `flake.nix`
 ```
 flake.nix       — outputs: devShells, nixosConfigurations, darwinConfigurations
 lib/            — system builder helpers (NixOS, Darwin, dev shells)
+adapters/       - bind flake inputs to host-agnostic programs (agents.nix, claude-code.nix)
 hosts/          — per-host identity (hostname, user)
 modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix, secrets.nix)
 modules/nixos/  — NixOS-only system configuration (server/ - software-factory only)
@@ -16,9 +17,15 @@ programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
 shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
 secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
+deslop/         - the architecture rules `deslop check .` enforces, and their baseline
 ```
 
 ## Architecture
+
+Imports flow one way: `flake.nix` -> `lib/` -> `modules/` and `shells/` ->
+`adapters/` -> `programs/`. `just check` enforces it with
+[Deslop](https://github.com/Ivy-Apps/deslop) against `deslop/rules/architecture.yaml`;
+see `docs/adr/0008-deslop-enforces-the-architecture.md`.
 
 ### `programs/` — program logic lives here
 
@@ -43,6 +50,15 @@ Hosts declare only their hostname and user identity. All real configuration live
 ### `lib/` — system assembly
 
 Helpers that compose inputs, modules, and hosts into complete NixOS/Darwin system configurations.
+Only `flake.nix` imports `lib/`; everything else is handed what it needs.
+
+### `adapters/` - flake inputs into programs
+
+A program never sees `inputs`, so an adapter does the binding: it takes
+`inputs`, picks the packages and `flake = false` sources a program needs, and
+calls that program's `default.nix`. Nothing else - no logic, no other imports.
+`modules/` and `shells/` import an adapter instead of the program when the
+program needs a flake input.
 
 ## Adding a New Program
 
@@ -67,7 +83,9 @@ wrong tool for iterating.
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old`, `software-factory`) or
    `nix eval --raw .#darwinConfigurations.<host>.system.drvPath` (`macos-main`, `macos-work`).
-4. `just quick-check` before handing back mid-work: lint, format and every
+   An added, moved or re-pointed import: `nix develop -c just architecture`
+   (Deslop, under a second).
+4. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system, no host evaluation, a few seconds warm.
 5. `just check` once on the final state, in the background. Never after a
    docs-only edit, and never with a build, lint or test chained in front of it.
@@ -139,7 +157,7 @@ a second agent such as Codex.
 - `programs/agents/AGENTS.md` — the shared instructions, plain committed
   markdown. Exposed as `instructions`.
 - `programs/agents/default.nix` — the shared surface: `instructions`, `skills`
-  and `check`. `lib/agents.nix` is the only adapter; it injects `flake = false`
+  and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
   inputs as `externalSrcs`.
 - `programs/claude-code/` — installs `instructions` as `~/.claude/CLAUDE.md`,
   the only user-scope memory file Claude Code reads. It does **not** read
@@ -244,7 +262,7 @@ skill: frontmatter present, `name` matching the installed directory, and a
 ### Adding a skill
 
 - **Third-party**: add the repo as a `flake = false` input in `flake.nix`,
-  forward it through `lib/agents.nix` as `externalSrcs.<name>`, add a source
+  forward it through `adapters/agents.nix` as `externalSrcs.<name>`, add a source
   entry in `programs/agents/skills/default.nix`, then add the skill name to
   `baseSkills` or a flavor's `extraSkills`.
 - **Custom**: create `programs/agents/skills/custom/<name>/SKILL.md`, add `<name>` to

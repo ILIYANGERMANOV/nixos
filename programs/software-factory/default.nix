@@ -2,8 +2,8 @@
 # Control, from one unprivileged account, plus the admin agent that runs the box
 # and the root units it may start. Plain functions and derivations - no
 # hosts, no users, no systemd units. modules/nixos/server and
-# modules/home/factory wire them in. The agents' workflow instructions
-# (instructions.md) belong to the claude-factory flavor in programs/claude-code.
+# modules/home/factory wire them in. The agents' workflow instructions belong
+# to the claude-factory flavor, in programs/claude-code/factory-instructions.md.
 #
 # The scripts call `systemctl` from PATH rather than bundling systemd: the
 # server's units put the system profile on PATH, and it keeps them buildable -
