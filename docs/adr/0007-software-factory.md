@@ -100,6 +100,8 @@ These are deliberate, and recorded so they are not mistaken for oversights.
   of branch-triggered workflows is each repository's job.
 - **Tailscale SSH to `factory` depends on the tailnet identity alone.** Losing
   that identity hands out the agent account, but not `admin` or root.
+  Tailscale SSH forwarding is disabled (`TS_SSH_DISABLE_FORWARDING`) because
+  the October 2026 flaws turned it into a path from `factory` to root.
 - **The cloud provider controls the hypervisor.** The disk is not encrypted:
   that would need a person to unlock it after every reboot, and it would not
   protect against the hypervisor anyway.
