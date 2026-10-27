@@ -6,7 +6,9 @@ let
   kotlin = import "${root}/programs/kotlin" { inherit pkgs; };
 in
 {
-  home.packages = kotlin.android.packages;
-  home.sessionVariables = kotlin.android.env;
-  home.file.".gradle/gradle.properties".source = kotlin.android.gradleProperties;
+  home = {
+    inherit (kotlin.android) packages;
+    sessionVariables = kotlin.android.env;
+    file.".gradle/gradle.properties".source = kotlin.android.gradleProperties;
+  };
 }

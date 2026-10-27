@@ -13,7 +13,7 @@ let
   # For projects whose Gradle toolchain asks for 21. Never on PATH, where its
   # `java` would collide with the default's: Gradle finds it through
   # `org.gradle.java.installations.paths`.
-  jdk21 = pkgs.jdk21;
+  inherit (pkgs) jdk21;
 
   # Accepted here rather than in nixpkgs' config, so only what uses this SDK
   # accepts its licence.
