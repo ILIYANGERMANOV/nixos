@@ -56,7 +56,9 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
   comments anchored to `file:line`, falling back to one `gh pr comment`
   carrying the rows when a line is not in the diff. The summary body opens,
   verbatim and once: `🤖 AI-assisted review. I read every finding below and
-  accepted it before posting.` Never approve or request changes.
+  accepted it before posting.` With no rows, post one `gh pr comment` opening
+  `🤖 AI-assisted review. I read it and accepted it before posting.` Never
+  approve or request changes.
 
 ### 5. Re-review the fix only
 
