@@ -9,7 +9,7 @@
 }:
 
 let
-  claude = import "${root}/lib/claude-code.nix" {
+  claude = import "${root}/adapters/claude-code.nix" {
     inherit
       root
       pkgs

@@ -80,7 +80,7 @@
         in
         {
           agents =
-            (import ./lib/agents.nix {
+            (import ./adapters/agents.nix {
               inherit inputs pkgs;
               root = self;
             }).check;

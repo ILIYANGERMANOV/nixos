@@ -88,8 +88,9 @@ Nothing in `programs/agents/` changes. Using Codex as the worked example:
    }
    ```
 
-3. Create `lib/codex.nix` mirroring `lib/claude-code.nix`: import
-   `programs/codex` and pass it `agents = import "${root}/lib/agents.nix" { ... }`.
+3. Create `adapters/codex.nix` mirroring `adapters/claude-code.nix`: import
+   `programs/codex` and pass it `agents = import "${root}/adapters/agents.nix" { ... }`.
+   (The adapters lived in `lib/` when this was written; see ADR 0008.)
 4. Create `modules/home/codex.nix` wiring the packages and any activation script
    into Home Manager, and register it in `modules/home/default.nix`.
 
