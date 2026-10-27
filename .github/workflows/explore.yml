@@ -1,0 +1,225 @@
+name: Explore
+
+# Publishes `deslop explore`'s module graph to GitHub Pages: `main` at the site
+# root, a same-repository PR at `pr/<n>/`, each with a GitHub Deployment whose
+# URL opens it. Informational only: no branch protection requires it, so a page
+# that fails to draw or publish never blocks a merge. Adapted from Deslop's own
+# quality.yaml; `explore-cleanup.yml` takes a PR's page down when it closes.
+# See docs/adr/0008-deslop-enforces-the-architecture.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions: {}
+
+jobs:
+  # Runs the PR's code (its flake and dev shell), so it holds a read-only token
+  # and nothing else. A fork's PR draws its page too, as an artifact only.
+  explore:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Read-only, for deslop's `gh pr view`.
+      pull-requests: read
+    # Whether the page was drawn, so `deploy-preview` runs only when there is
+    # one to publish.
+    outputs:
+      preview: ${{ steps.preview.outcome }}
+    steps:
+      # The PR head, not the merge commit, with full history: that is what
+      # source links and the Diff view read. On main, the pushed commit.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # On a branch named after the PR's, as deslop reads it, measured from its
+      # base; main from its parent. A page that fails to draw never fails this
+      # job: it only skips the upload and `deploy-preview`.
+      - name: Draw the module graph
+        id: preview
+        continue-on-error: true
+        env:
+          # Read-only: deslop asks `gh pr view <branch>` for the PR its Diff
+          # view opens in. Not set on main, where a fork's PR from its own
+          # `main` branch would be found instead.
+          GH_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git checkout -q -B "$HEAD_REF"
+            base="$BASE_REF"
+          else
+            base='HEAD^'
+          fi
+          nix develop .#default --command deslop explore . --ci --diff-base "$base"
+
+      - name: Upload the page
+        if: steps.preview.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: explorer-preview
+          path: deslop/diagram/index.html
+          if-no-files-found: error
+
+  # The only job with write access, so it never checks out or runs repository
+  # code: it takes the page artifact and commits it to `gh-pages`. A job here
+  # rather than a `workflow_run` workflow because `workflow_run` runs the copy
+  # on `main`, so a PR could never prove a change to it. `explore-cleanup.yml`
+  # shares a PR's concurrency group, so it waits for a deploy still running.
+  deploy-preview:
+    needs: explore
+    # Forks' pages are an artifact only: their token cannot publish.
+    if: >-
+      needs.explore.outputs.preview == 'success'
+      && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+    concurrency:
+      group: explore-preview-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      deployments: write
+      pages: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      # A PR closed while explore ran is already cleaned up: publishing now
+      # would bring its folder and Deployment back. A close after this check
+      # queues the cleanup behind this job in the shared group, so it still
+      # runs last. Pushes to main always publish.
+      - name: Still open
+        id: open
+        run: |
+          state=open
+          if [ -n "$PR_NUMBER" ]; then
+            state="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .state)"
+          fi
+          if [ "$state" != open ]; then
+            echo "::notice::PR #$PR_NUMBER is $state; not publishing its preview."
+          fi
+          echo "open=$([ "$state" = open ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # The first run creates `gh-pages` as an orphan branch holding only
+      # `.nojekyll`, so the site needs no manual setup beyond enabling Pages.
+      # Through the API, so no repository code is checked out. Another run may
+      # create it first, which is fine as long as it exists afterwards.
+      - name: Create gh-pages
+        if: steps.open.outputs.open == 'true'
+        run: |
+          repo="repos/$GITHUB_REPOSITORY"
+          if gh api "$repo/git/ref/heads/gh-pages" --silent 2>/dev/null; then
+            exit 0
+          fi
+          tree="$(jq -n '{tree: [{path: ".nojekyll", mode: "100644", type: "blob", content: ""}]}' \
+            | gh api "$repo/git/trees" --input - --jq .sha)"
+          commit="$(gh api "$repo/git/commits" -f message='Start the explorer site' -f tree="$tree" --jq .sha)"
+          gh api "$repo/git/refs" -f ref=refs/heads/gh-pages -f sha="$commit" --silent ||
+            gh api "$repo/git/ref/heads/gh-pages" --silent
+
+      # Static pages, never run. `.nojekyll` and other PRs' folders stay as
+      # they are.
+      - if: steps.open.outputs.open == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          path: site
+
+      - if: steps.open.outputs.open == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: explorer-preview
+          path: ${{ runner.temp }}/preview
+
+      - name: Where it goes
+        if: steps.open.outputs.open == 'true'
+        id: target
+        run: |
+          # The site's own URL, so a custom domain needs no edit here; https
+          # once Pages serves it. Before Pages is enabled, the default URL.
+          if ! site="$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq 'if .https_enforced then (.html_url | sub("^http:"; "https:")) else .html_url end' 2>/dev/null)"; then
+            echo "::warning::GitHub Pages is not enabled; enable it on the gh-pages branch to serve this preview."
+            owner="${GITHUB_REPOSITORY_OWNER,,}"
+            site="https://$owner.github.io/${GITHUB_REPOSITORY#*/}/"
+          fi
+          site="${site%/}/"
+          if [ -n "$PR_NUMBER" ]; then
+            dir="pr/$PR_NUMBER" url="${site}pr/$PR_NUMBER/" environment="explore-pr-$PR_NUMBER" production=false
+          else
+            dir=. url="$site" environment=explore production=true
+          fi
+          {
+            echo "dir=$dir"
+            echo "url=$url"
+            echo "environment=$environment"
+            echo "production=$production"
+          } >> "$GITHUB_OUTPUT"
+
+      # Several PRs can publish at once, and one group across them would cancel
+      # all but one: on a rejected push, start again from the new tip.
+      - name: Publish to gh-pages
+        if: steps.open.outputs.open == 'true'
+        env:
+          DIR: ${{ steps.target.outputs.dir }}
+        run: |
+          cd site
+          subject="${PR_NUMBER:+PR #$PR_NUMBER}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4 5; do
+            git fetch --depth 1 origin +gh-pages:refs/remotes/origin/gh-pages
+            git reset --hard origin/gh-pages
+            mkdir -p "$DIR"
+            cp "$RUNNER_TEMP/preview/index.html" "$DIR/index.html"
+            git add "$DIR/index.html"
+            if git diff --cached --quiet; then
+              echo 'The published page is already this one.'
+              exit 0
+            fi
+            git commit -q -m "Explorer preview of ${subject:-main} at $SHA"
+            if git push origin HEAD:gh-pages; then
+              exit 0
+            fi
+            echo "Push $attempt rejected; retrying from the new tip."
+            sleep $((attempt * 3))
+          done
+          exit 1
+
+      # A Deployment per PR environment, so every open PR keeps its own "View
+      # deployment" button: in a shared one, each new deployment would mark the
+      # others inactive. The factory's deploy timer polls only the
+      # `software-factory` environment, so these never trigger a deploy.
+      - name: Record the deployment
+        if: steps.open.outputs.open == 'true'
+        env:
+          ENVIRONMENT: ${{ steps.target.outputs.environment }}
+          PRODUCTION: ${{ steps.target.outputs.production }}
+          URL: ${{ steps.target.outputs.url }}
+          LOG_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          id="$(jq -n --arg ref "$SHA" --arg environment "$ENVIRONMENT" --argjson production "$PRODUCTION" \
+            '{ref: $ref, environment: $environment, production_environment: $production,
+              transient_environment: ($production | not), required_contexts: [], auto_merge: false,
+              description: "deslop explore preview"}' \
+            | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)"
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=success -f environment_url="$URL" -f log_url="$LOG_URL" -F auto_inactive=true >/dev/null
+          echo "Preview: $URL"

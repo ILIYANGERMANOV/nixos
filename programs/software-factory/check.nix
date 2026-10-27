@@ -164,7 +164,7 @@ let
     echo '{"BackendState": "Running"}'
   '';
 
-  skillsCheck = (import ../agents/skills/lib.nix { inherit pkgs lib; }).mkCheck factory.admin.skills;
+  skillsCheck = (import ../agents { inherit pkgs lib; }).skills.mkCheck factory.admin.skills;
 
   nftCheck = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
     echo "nft --check: egress rules"

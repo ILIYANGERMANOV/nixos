@@ -155,7 +155,7 @@ in
   factory = {
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
-        extraInstructions = [ ../software-factory/instructions.md ];
+        extraInstructions = [ ./factory-instructions.md ];
         # Measures this box's own transcripts, so only the factory has the data.
         extraSkills = [ "self-improve" ];
         # Unattended agents dumped whole files with one multi-file `cat`, and

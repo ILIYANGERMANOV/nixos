@@ -18,6 +18,13 @@ lint:
     statix check .
     deadnix .
 
+# The rules live in deslop/rules/; `deslop explore .` draws the graph into
+# deslop/diagram/index.html. See docs/adr/0008-deslop-enforces-the-architecture.md.
+#
+# Check the module graph against the architecture rules
+architecture:
+    deslop check .
+
 # Format all Nix files (nixfmt); pass --ci to check without writing
 format *ARGS:
     nix fmt -- {{ ARGS }}
@@ -52,16 +59,17 @@ typos-edit:
 # and `check` stays the final one.
 #
 # Run the fast checks (lint + format + every flake check, no host evaluation)
-quick-check: lint (format "--ci")
+quick-check: lint architecture (format "--ci")
     #!/usr/bin/env bash
     set -euo pipefail
     system=$(nix eval --impure --raw --expr builtins.currentSystem)
     names=$(nix eval --raw ".#checks.$system" --apply 'cs: toString (builtins.attrNames cs)')
     nix build --no-link $(printf ".#checks.$system.%s " $names)
 
-# Run all checks (lint + format + spell + flake check)
+# Run all checks (lint + architecture + format + spell + flake check)
 check:
     just lint
+    just architecture
     just format --ci
     just typos
     nix flake check

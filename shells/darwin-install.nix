@@ -13,7 +13,7 @@ let
       root = self;
     };
   };
-  claudeCode = import "${self}/lib/claude-code.nix" {
+  claudeCode = import "${self}/adapters/claude-code.nix" {
     root = self;
     inherit pkgs inputs;
   };

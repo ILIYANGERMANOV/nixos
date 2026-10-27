@@ -17,7 +17,7 @@ import "${root}/programs/claude-code" {
     secrets
     ;
   claude-code = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
-  agents = import "${root}/lib/agents.nix" {
+  agents = import "${root}/adapters/agents.nix" {
     inherit
       root
       pkgs
