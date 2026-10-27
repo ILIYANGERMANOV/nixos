@@ -24,6 +24,14 @@
     ];
   };
 
+  # Every root path in the October 2026 Tailscale SSH flaws (Unix-socket -L,
+  # -R socket replacement, the check/use race on bind and dial) goes through
+  # SSH forwarding: https://tailscale.com/ssh-investigation-update
+  # This turns off TCP and Unix-socket -L/-R and agent forwarding (-A); shells,
+  # scp and sftp still work. It stays after the fix: nothing here forwards, and
+  # previews are reached directly on the ports below.
+  systemd.services.tailscaled.environment.TS_SSH_DISABLE_FORWARDING = "1";
+
   # One-off, pre-approved, tagged key. Once the node has joined, its identity
   # lives in /var/lib/tailscale and the key can be revoked in the admin console.
   myConfig.secrets.tailscale-authkey.owner = "root";
