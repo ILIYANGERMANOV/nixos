@@ -1,18 +1,15 @@
 # CI security - the DEEP blockers checklist
 
-Read by the blockers agent at DEEP depth only, after the step-1 sweep of
-`blockers.md`. Run the greps at the bottom on `$D/diff` first, then walk the
-checklist against every workflow, action, CI-run script and credential path the
-diff touches. A hit you cannot refute is a blocker: name the attacker, the
-entry point and the gain, as `blockers.md` says.
+Read by the blockers agent at DEEP depth when its prompt names this file,
+after the step-1 sweep of `blockers.md`. Run the greps at the bottom on
+`$D/diff` first, then walk the checklist against every workflow, action, CI-run
+script and credential path the diff touches. A hit you cannot refute is a
+blocker: name the attacker, the entry point and the gain, as `blockers.md`
+says.
 
 ## Trigger
 
-You are here because the orchestrator chose the **sensitive** tier, defined
-in `first-pass.md` Phase 1. This checklist covers its CI and credential files;
-migrations, destructive operations, ops units and firewall rules, which also
-make a diff sensitive, are covered by the irreversible-damage section of
-`blockers.md`.
+The `ci-security.md` row of the routing table in `first-pass.md` Phase 1.
 
 ## Checklist
 

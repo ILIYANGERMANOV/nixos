@@ -23,8 +23,8 @@ code, inside the bar's budget. The bar's always-check list still applies on
 top.
 
 **At DEEP depth** - your prompt says so - you have the bar's DEEP budget and one
-more step: after the sweep, read `references/ci-security.md` from the directory
-in your prompt and follow it.
+more step: after the sweep, read the references your prompt names,
+`common-attacks.md` first, and follow each: its greps, then its checklist.
 
 Your return opens with the bar's `checked` line, findings or `NONE`.
 

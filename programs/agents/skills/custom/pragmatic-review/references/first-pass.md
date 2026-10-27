@@ -48,15 +48,25 @@ understanding:
    - **docs-only** - no code changes: markdown, text, images, skill prose,
      hunks that touch only comments.
    - **code** - everything else.
-   - **sensitive** - the diff touches CI or credentials (anything under
-     `.github/`, an `action.yml`, a script CI runs, a deploy or release
-     script, secrets, auth, token or credential handling, `flake.nix`,
-     `flake.lock` or nix config while a workflow holds push credentials), a
-     migration, a destructive data operation, an ops or deploy unit, or
-     firewall or egress rules.
+   - **sensitive** - a row of the routing table below matches; or the diff
+     touches a destructive data operation, a deploy or release script, an ops
+     unit, or firewall or egress rules.
 
    The highest tier that matches wins: sensitive, then code, then docs-only.
-   A requirement that says so raises the tier; nothing lowers it.
+   A requirement raises the tier, never lowers it: `security-sensitive:
+   <topics>` (any of `ci`, `auth`, `database`, `secrets`) forces sensitive.
+
+   **Routing, at the sensitive tier.** Name the references the blockers agent
+   reads, as absolute paths in its prompt: `common-attacks.md` always, plus
+   every row that matches by path in `stat`, signal on an added line of
+   `diff`, or a requirement topic.
+
+   | Reference | Paths in `stat` | Signals on added lines |
+   |---|---|---|
+   | `ci-security.md` | `.github/`, `action.yml`, `.gitlab-ci.yml`, a script CI runs, `flake.nix` or `flake.lock` while a workflow holds push credentials | `uses:`, `secrets.`, `permissions:`, `runs-on:` |
+   | `auth.md` | `auth`, `login`, `session`, `oauth`, `oidc`, `sso`, `jwt`, `token`, `permission`, `policy`, `guard`, `middleware`, `routes`, `cors` | `jwt`, `bcrypt`, `argon2`, `Set-Cookie`, `redirect_uri`, `role`, `isAdmin`, a new route |
+   | `database.md` | `migrations/`, `schema.*`, `models/`, `*.sql`, `prisma/`, `seeds/`, `backup` | `SELECT`, `ALTER TABLE`, `CREATE INDEX`, `POLICY`, `.raw(`, `$where`, `create(req.body` |
+   | `secrets.md` | `secrets/`, `.sops.yaml`, `.env*`, `Dockerfile`, `docker-compose*`, `modules/secrets.nix` | `sops.secrets`, `myConfig.secrets`, `process.env`, `NEXT_PUBLIC_`, `EnvironmentFile`, `ENV` or `ARG` |
 3. **Files by angle**, each with its line range in `diff` from `index`: auth,
    untrusted input, secrets, destructive operations; contracts, shared state,
    stored data; tests and the code they exercise; what a requirement points at.
@@ -104,7 +114,7 @@ an assumption. With no such question, do not wait.
 Budgets are the bar's. The standard agents never carry a requirement.
 
 **The tier picks the agents.** `code`: all four standard agents. `sensitive`:
-the same, blockers at DEEP. `docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
+the same, blockers at DEEP with the routed references. `docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
 yourself, spawn blockers only if it hits, and spawn neither regressions nor
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.

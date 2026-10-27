@@ -52,11 +52,12 @@ Then, over the fix diff only:
   trigger, checked on the code.
 - **A fast blockers check**: the step 1 sweep of `blockers.md` on the fix diff,
   then any security hole or irreversible damage the fixes introduce. If the
-  fix diff touches a sensitive-tier file (`first-pass.md` Phase 1), run the
-  greps of `references/ci-security.md` on it too. Keep what you checked for
-  the report's Security line. Its `<tier>` is the fix diff's, classified by
-  `first-pass.md` Phase 1; if the caller names a higher tier, such as the
-  first review's, keep that one.
+  fix diff is in the sensitive tier, run on it the greps of
+  `references/common-attacks.md` and of each reference the routing table in
+  `first-pass.md` Phase 1 matches for it or a `security-sensitive`
+  requirement names. Keep what you checked for the report's Security line.
+  Its `<tier>` is the fix diff's, classified by `first-pass.md` Phase 1; if
+  the caller names a higher tier, such as the first review's, keep that one.
 - **Obvious mistakes and negligence**: the bar's always-check list, and whether
   a fix broke what it touched - its callers one hop out.
 
