@@ -17,6 +17,11 @@ let
 
   lsp = import ./lsp.nix { inherit pkgs; };
 
+  buildToolsVersions = [
+    "35.0.0"
+    "36.0.0"
+  ];
+
   # Accepted here rather than in nixpkgs' config, so only what uses this SDK
   # accepts its licence.
   sdk = (pkgs.androidenv.override { licenseAccepted = true; }).composeAndroidPackages {
@@ -24,10 +29,7 @@ let
       "35"
       "36"
     ];
-    buildToolsVersions = [
-      "35.0.0"
-      "36.0.0"
-    ];
+    inherit buildToolsVersions;
     includeEmulator = false;
     includeSystemImages = false;
     includeNDK = false;
@@ -64,7 +66,7 @@ in
       ANDROID_SDK_ROOT = sdkRoot;
       # AGP runs the aapt2 it downloads from Maven, a dynamically linked binary
       # built for a standard distribution. The SDK's own is patched for Nix.
-      GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdkRoot}/build-tools/36.0.0/aapt2";
+      GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdkRoot}/build-tools/${pkgs.lib.last buildToolsVersions}/aapt2";
     };
 
     # One Gradle JVM doing everything: the Kotlin compiler runs inside it
