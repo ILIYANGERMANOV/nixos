@@ -127,7 +127,7 @@
       );
 
       devShells = lib.forAllSystems (pkgs: {
-        default = import ./shells/default.nix { inherit pkgs; };
+        default = import ./shells/default.nix { inherit pkgs self; };
         nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
         darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };
       });
