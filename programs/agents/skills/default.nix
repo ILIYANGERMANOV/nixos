@@ -49,6 +49,7 @@ let
   # Custom skills committed under ./custom. Only names listed here are installed;
   # any other directory stays committed as a draft. See ./custom/README.md.
   custom = [
+    "android" # Android and Kotlin Multiplatform builds on the factory's global toolchain, factory only
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
     "engineer" # /engineer - deliver a feature end to end, explicit invocation only
     "engineering" # coding style and engineering principles, model-invoked on any code work

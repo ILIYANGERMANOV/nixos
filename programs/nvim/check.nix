@@ -30,7 +30,10 @@
 }:
 
 let
+  inherit (pkgs) lib;
   inherit (pkgs.stdenv.hostPlatform) system;
+
+  kotlinLsp = (import "${root}/programs/kotlin" { inherit pkgs; }).lsp;
 
   nvim = inputs.nixvim.legacyPackages.${system}.makeNixvimWithModule {
     inherit pkgs;
@@ -357,6 +360,44 @@ in
 
       -- Start once startup has settled, so <leader>ss is mapped and snacks is up.
       vim.defer_fn(function() run(1) end, 200)
+    '';
+  };
+}
+# kotlin_lsp runs a binary this repository packages, under the name lspconfig
+# picks, so a rename on either side breaks it with no error until a .kt file
+# is opened.
+// lib.optionalAttrs (lib.meta.availableOn pkgs.stdenv.hostPlatform kotlinLsp) {
+  kotlin = mkCheck {
+    name = "kotlin";
+
+    fixtures = ''
+      export PATH="${lib.getBin kotlinLsp}/bin:$PATH"
+      mkdir -p gradle-project
+      touch gradle-project/settings.gradle.kts
+    '';
+
+    body = ''
+      -- Then: the server is on, runs the packaged binary, and serves Kotlin.
+      local config = vim.lsp.config.kotlin_lsp
+      expect("kotlin_lsp enabled", vim.lsp.is_enabled("kotlin_lsp"), true)
+      expect("kotlin_lsp cmd", config.cmd, { "intellij-server", "--stdio" })
+      expect("kotlin_lsp binary on PATH", vim.fn.executable(config.cmd[1]), 1)
+      expect("kotlin_lsp filetypes", config.filetypes, { "kotlin" })
+
+      -- Then: ktlint formats Kotlin.
+      expect("kotlin formatters", require("conform").formatters_by_ft.kotlin, { "ktlint" })
+
+      -- Given: a Gradle project. When: <leader>tt's runner is asked to test.
+      -- Then: it runs the project's wrapper, in the test terminal.
+      local ran = {}
+      require("toggleterm").exec = function(cmd, term)
+        table.insert(ran, { cmd, term })
+      end
+      vim.cmd.cd("gradle-project")
+      _G.SmartRun("test")
+      expect("gradle test command", ran, { { "./gradlew test", 1 } })
+
+      finish()
     '';
   };
 }
