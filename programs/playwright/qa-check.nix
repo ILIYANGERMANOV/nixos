@@ -6,17 +6,25 @@
 # transcoded to H.264. Then the evidence tools and the shared session
 # (`qa-check-tools.js`): the static lead-in trim, the contact sheet, one
 # browser shared by separate probe processes, `expectState` and redaction.
-# Linux only: the Darwin sandbox cannot launch Chromium.
+# Linux only: the Darwin sandbox cannot launch Chromium. The sandbox has no
+# /etc/fonts, and Chromium without a font gives an element holding only text
+# an empty box, which Playwright reports as hidden; the check gets DejaVu, as
+# a host has its own fonts.
 { pkgs }:
 
 let
   playwright = import ./. { inherit pkgs; };
 in
-pkgs.runCommand "qa-check" { nativeBuildInputs = [ playwright.qa ]; } ''
-  export HOME="$TMPDIR/home"
-  mkdir -p "$HOME" "$TMPDIR/work"
-  cd "$TMPDIR/work"
-  qa-node ${./qa-check.js} "$TMPDIR/work"
-  qa-node ${./qa-check-tools.js} "$TMPDIR/work"
-  touch "$out"
-''
+pkgs.runCommand "qa-check"
+  {
+    nativeBuildInputs = [ playwright.qa ];
+    FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts.minimal ]; };
+  }
+  ''
+    export HOME="$TMPDIR/home"
+    mkdir -p "$HOME" "$TMPDIR/work"
+    cd "$TMPDIR/work"
+    qa-node ${./qa-check.js} "$TMPDIR/work"
+    qa-node ${./qa-check-tools.js} "$TMPDIR/work"
+    touch "$out"
+  ''
