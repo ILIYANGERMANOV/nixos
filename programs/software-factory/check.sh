@@ -333,6 +333,30 @@ kept_what_must_stay
 [ -d "$HOME/.cache/nix" ] && [ -d "$HOME/.cache/cabal/packages" ] || fail "a cache that keeps builds fast was removed"
 called "nix-store --gc"
 
+echo "free-disk: deletes /qa runs untouched for a day, never login state or scripts"
+reset
+clone_repo origin
+qa="$HOME/.cache/qa/owner/origin"
+mkdir -p "$qa/runs/12-old" "$qa/runs/13-live" "$qa/auth" "$qa/scripts"
+echo video >"$qa/runs/12-old/happy-path.mp4"
+# A QA worktree with a change, so worktree remove leaves it to the run.
+git -C "$HOME/repos/origin" worktree add --quiet --detach "$qa/runs/12-old/worktree" 2>/dev/null
+touch "$qa/runs/12-old/worktree/new-file"
+find "$qa/runs/12-old" -exec touch -d '2 days ago' {} +
+echo video >"$qa/runs/13-live/happy-path.mp4"
+echo '{}' >"$qa/auth/user.json"
+echo '// lib' >"$qa/scripts/lib.cjs"
+touch -d '2 days ago' "$qa/auth/user.json" "$qa/scripts/lib.cjs"
+factory-ctl free-disk plan >"$work/out"
+grep -q "owner/origin/runs/12-old" "$work/out" || fail "plan misses a finished QA run"
+grep -Eq "runs/13-live|/auth|/scripts" "$work/out" && fail "plan lists a live QA run, login state or scripts"
+factory-ctl free-disk apply >"$work/out"
+grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' "$work/out" || fail "apply does not report the space freed in GB"
+[ ! -e "$qa/runs/12-old" ] || fail "a finished QA run was kept"
+git -C "$HOME/repos/origin" worktree list | grep -q 12-old && fail "a deleted run's worktree is still registered"
+[ -e "$qa/runs/13-live/happy-path.mp4" ] || fail "a live QA run was removed"
+[ -e "$qa/auth/user.json" ] && [ -e "$qa/scripts/lib.cjs" ] || fail "QA login state or scripts were removed"
+
 # ─── factory-ctl deploy / rollback / reboot / gc ─────────────────────────────
 
 echo "deploy: dispatches the workflow on main and waits for it"

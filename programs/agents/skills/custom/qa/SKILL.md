@@ -124,10 +124,11 @@ when a host needs it.
 - `QA.md` at the repo root: how to QA this repo. Its expected shape is in
   `${CLAUDE_SKILL_DIR}/references/qa-md.md`.
 - `~/.cache/qa/<owner>/<repo>/`: saved login state (`auth/<name>.json`,
-  Playwright `storageState`), run artifacts (`runs/<pr>-<timestamp>/`) and
-  the scripts earlier runs left working (`scripts/`: a shared `lib.cjs`
-  that opens the app and reaches each flow's screens, plus one file per
-  scenario). Outside any checkout, so nothing is committed by accident.
+  Playwright `storageState`), run artifacts (`runs/<pr>-<timestamp>/`,
+  deleted once their proof is on the PR) and the scripts earlier runs left
+  working (`scripts/`: a shared `lib.cjs` that opens the app and reaches each
+  flow's screens, plus one file per scenario). Outside any checkout, so
+  nothing is committed by accident.
 
 ## Lifecycle
 
@@ -246,6 +247,12 @@ body flag, which appends it.
   dev server's background job.
 - Remove the QA worktree, if step 1 made one: `git worktree remove --force
   <run>/worktree`.
+- Once step 8's edit succeeded and the body read back holds a
+  `https://github.com/user-attachments/` URL for every file attached, the
+  proof lives on the PR: `rm -rf <run>`. Anything else - a failed upload, a
+  `./` reference left, no PR edit at all - keeps the run, and you tell the
+  user its path. Never delete `auth/` or `scripts/`: a rerun needs only
+  those, and the previous run's findings, which you brief it from.
 - Tell the user the overall verdict, each Fail in one line, and the PR link.
 
 ## The `## QA` section
