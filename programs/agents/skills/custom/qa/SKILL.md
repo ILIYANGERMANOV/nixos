@@ -78,8 +78,16 @@ never a failed run.
 ### 1. Resolve the PR
 
 A PR number or URL in `$ARGUMENTS`, else the current branch's PR
-(`gh pr view --json number,title,body,headRefName,url`). No PR: ask for one.
-Everything else in `$ARGUMENTS` is the instructions. Create the run directory.
+(`gh pr view --json number,title,body,headRefName,headRefOid,url`). No PR: ask
+for one. Everything else in `$ARGUMENTS` is the instructions. Create the run
+directory.
+
+QA runs against the PR's head commit, `headRefOid`, and nothing else. When
+`git rev-parse HEAD` already equals it and `git status --porcelain` is empty,
+the current checkout is the repo path. Otherwise `git fetch origin
+<headRefOid>` and `git worktree add --detach <run>/worktree <headRefOid>`; that
+worktree is the repo path every later step and subagent uses. A fork's PR
+fetches `pull/<n>/head` instead.
 
 ### 2. Plan
 
@@ -118,8 +126,8 @@ without a display, ask the user how to proceed.
 
 Spawn a fresh executor subagent. Brief: read
 `${CLAUDE_SKILL_DIR}/references/executor.md` and follow it; the approved plan
-verbatim; the repo path and how to run the app from `QA.md`; the run
-directory; the auth file paths; whether the wallet is available. It returns a
+verbatim; the repo path, the head sha it must be at, and how to run the app
+from `QA.md`; the run directory; the auth file paths; whether the wallet is available. It returns a
 verdict per item (Pass, Fail or Unverified), each with its artifacts, repro
 steps for every Fail, and knowledge worth adding to `QA.md`.
 
@@ -153,6 +161,10 @@ body flag, which appends it.
 
 - Proposed `QA.md` changes: from the executor's knowledge, write a diff, show
   it, and ask before committing it to the PR branch. Never commit it unasked.
+  A commit to the PR branch is made on that branch, never in the detached QA
+  worktree.
+- Remove the QA worktree, if step 1 made one: `git worktree remove --force
+  <run>/worktree`.
 - Tell the user the overall verdict, each Fail in one line, and the PR link.
 
 ## The `## QA` section
@@ -181,4 +193,6 @@ body flag, which appends it.
 ```
 
 The overall verdict is Fail if any item fails, else Unverified if any item is
-Unverified, else Pass. Omit an empty subsection.
+Unverified, else Pass. Omit an empty subsection. `<head sha>` is the
+`headRefOid` from step 1, which the executor confirmed the repo path was at; a
+run whose sha check failed publishes nothing.

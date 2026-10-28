@@ -1,6 +1,7 @@
-# A PreToolUse hook for Bash that blocks naming a protected secret file or
-# expanding the variable that holds its path. What it blocks is in
-# secret-guard.py; the scenarios are in bash-guards-check.nix.
+# A PreToolUse hook for Bash that blocks the obvious shell routes to a
+# protected secret file: protection against accidental reads, not a security
+# boundary. What it blocks is in secret-guard.py; the scenarios are in
+# bash-guards-check.nix.
 { pkgs }:
 
 let

@@ -233,9 +233,14 @@ Control units run the unwrapped binary, so its profile installs `qa` too.
 the file itself: the wrapper exports the decrypted file's **path**, never its
 value (`QA_EVM_KEY_FILE` -> `qa-sepolia-key`, declared on `macos-work` only).
 A host without the secret gets no variable. Where one is exported,
-`withSecretFileGuard` in `lib.nix` adds a `Read` deny rule for the path and the
-`claude-secret-guard` Bash hook, which blocks any command naming the path or
-expanding the variable. `checks.qa` tests the wallet helper and the video
+`withSecretFileGuard` in `lib.nix` adds `Read` deny rules over the secrets
+directory (`/run/secrets` and the `/run/secrets.d` it resolves to) and the
+`claude-secret-guard` Bash hook, which blocks a command naming that directory
+or the file's basename, expanding the variable, or running `printenv`/`env`
+inside a command substitution. **This is protection against accidental reads,
+not a security boundary**: every `qa-node` script must read the variable, so a
+script (or a determined session) can read the file, and no filter over command
+text can close that. `checks.qa` tests the wallet helper and the video
 pipeline headless against a generated key; `checks.claude-bash-guards` the
 guard.
 

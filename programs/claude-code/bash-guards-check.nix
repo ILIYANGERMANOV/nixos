@@ -151,9 +151,20 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "a heredoc script naming the path is blocked" "python3 - <<'EOF'
     print(open('/run/secrets/qa-key').read())
     EOF"
+    expect 2 "the variable printed into a substitution is blocked" 'cat $(printenv QA_KEY_FILE)'
+    expect 2 "the variable printed into backticks is blocked" 'xxd `printenv QA_KEY_FILE`'
+    expect 2 "an env dump in a substitution is blocked" 'cat $(env | sed -n s/QA_KEY_FILE=//p)'
+    expect 2 "a glob over the secrets directory is blocked" "cat /run/secrets/qa-*"
+    expect 2 "changing into the secrets directory is blocked" "cd /run/secrets && ls"
+    expect 2 "the resolved secrets.d path is blocked" "cat /run/secrets.d/5/qa-key"
+    expect 2 "the basename alone is blocked" "cd /tmp/x && cat qa-key"
     expect 0 "naming the variable without expanding it is allowed" "printenv QA_KEY_FILE"
+    expect 0 "the availability check is allowed" "printenv QA_KEY_FILE >/dev/null"
     expect 0 "a longer variable name is allowed" 'echo "$QA_KEY_FILE_HINT"'
+    expect 0 "a longer basename is allowed" "cat qa-key-notes.md"
+    expect 0 "a substitution running another command is allowed" 'echo $(environment-check) `git rev-parse HEAD`'
     expect 0 "running a script that reads the variable itself is allowed" "qa-node wallet.cjs"
+    expect 0 "running a qa-node script by file is allowed" "qa-node script.cjs"
     shared_failopen
 
     if [ "$status" -ne 0 ]; then

@@ -127,20 +127,20 @@ let
       '';
     };
 
-  # Settings that keep a session from reading the secret files it is handed as
-  # paths: a Read deny rule per file, and a Bash hook blocking any command that
-  # names the file or expands its variable. The program that needs the secret
-  # reads the variable itself. Appended to whatever the flavor sets, so a
-  # flavor's own deny rules and Bash hooks stay. No files, no change.
+  # Settings that keep a session from accidentally reading the secret files it
+  # is handed as paths: Read deny rules over their directory, and a Bash hook
+  # blocking the obvious shell routes to them (secret-guard.py). This is
+  # protection against accidental reads, not a security boundary: the program
+  # that needs the secret reads the variable itself, and so can any script the
+  # session runs. Appended to whatever the flavor sets, so a flavor's own deny
+  # rules and Bash hooks stay. No files, no change.
   withSecretFileGuard =
     files: settings:
     if files == { } then
       settings
     else
       lib.recursiveUpdate settings {
-        # `//` makes the rule's path absolute rather than project-relative.
-        permissions.deny =
-          settings.permissions.deny or [ ] ++ map (path: "Read(/${path})") (lib.attrValues files);
+        permissions.deny = settings.permissions.deny or [ ] ++ secretDirDenyRules files;
         hooks.PreToolUse = settings.hooks.PreToolUse or [ ] ++ [
           {
             matcher = "Bash";
@@ -148,6 +148,17 @@ let
           }
         ];
       };
+
+  # Read deny rules for every directory holding a secret file, and for the
+  # `<dir>.d` that sops-nix points it at (`/run/secrets -> /run/secrets.d/<n>`),
+  # so neither the symlinked nor the resolved path is readable. `//` makes a
+  # rule's path absolute rather than project-relative.
+  secretDirDenyRules =
+    files:
+    lib.concatMap (dir: [
+      "Read(/${dir}/**)"
+      "Read(/${dir}.d/**)"
+    ]) (lib.unique (map dirOf (lib.attrValues files)));
 
   # Shell snippet: rebuild ~/.claude/skills from this flavor's farm.
   #

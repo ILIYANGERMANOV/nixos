@@ -7,6 +7,9 @@ hook blocks it); `qa-wallet` reads it.
 
 ## Setup
 
+- First, `git -C <repo path> rev-parse HEAD` must equal the head sha you were
+  given. If it does not, run nothing and hand back "wrong commit: at <sha>,
+  expected <sha>". Report the sha in your hand-back.
 - Start the app the way `QA.md` says, in the background, or use its URL.
 - Write each scenario as a CommonJS Playwright script (`<run>/scripts/*.cjs`)
   and run it with `qa-node`. Chromium is headless; never pass
@@ -40,6 +43,6 @@ the artifact and timestamp), **Unverified** when it could not be run, with
 why. A script error is not a Fail of the product: fix your script and rerun,
 or mark the item Unverified.
 
-Hand back under 300 words: per item the verdict, artifact paths with
+Hand back under 300 words: the head sha you ran on, per item the verdict, artifact paths with
 timestamps, repro for each Fail, and knowledge this run discovered that
 `QA.md` lacks (setup steps, selectors, quirks), as proposed lines.
