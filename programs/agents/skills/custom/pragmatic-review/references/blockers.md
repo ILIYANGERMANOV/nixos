@@ -34,7 +34,7 @@ Cheapest, highest-value check in the review. Run it first, on the **added lines
 only**. `$D` below is the review directory named in your prompt.
 
 ```sh
-grep -E '^\+' "$D/diff" | grep -E -i \
+rg '^\+' "$D/diff" | rg -i \
   'sk-[A-Za-z0-9_-]{16}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20}|xox[baprs]-|-----BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|secret|password|passwd|token|credential|private[_-]?key|client[_-]?secret)[[:space:]]*[:=][[:space:]]*.{8}|Bearer [A-Za-z0-9._~+/-]{20}|[a-z][a-z0-9+.-]*://[^/[:space:]:@]+:[^@[:space:]]+@'
 ```
 
@@ -43,7 +43,7 @@ runs of 40+ base64 characters, or 32+ hex characters - and then the file paths,
 both the ones the diff carries and the untracked ones in `$D/status`:
 
 ```sh
-grep -E '^\+\+\+ b/' "$D/diff"                 # every file the diff adds or edits
+rg '^\+\+\+ b/' "$D/diff"                       # every file the diff adds or edits
 git check-ignore --no-index -v <each path>     # would this path be gitignored?
 ```
 

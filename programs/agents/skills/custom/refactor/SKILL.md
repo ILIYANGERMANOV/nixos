@@ -35,9 +35,10 @@ Fail fast if the ref does not resolve or the diff is empty. Scope notes narrow
 or widen what the plan covers; follow them.
 
 Read lean: the diff hunks, not whole modules. Read past a hunk only for the
-range it needs, and find duplicates and existing helpers with `grep -rn`, not
-by reading files. At about 100k of context, stop reading: apply what is
-planned, commit, and report the rest as out of scope.
+range it needs, and find duplicates and existing helpers with `rg -n`, not
+by reading files. Your reading budget is about 100k tokens, well under the
+context budget in your instructions, so applying still fits: past it, stop
+reading, apply what is planned, commit, and report the rest as out of scope.
 
 ## 3. Plan
 
@@ -105,9 +106,9 @@ plan. An empty plan is a good outcome; say so and stop.
 
 Small items are in scope. Delegated, every big item is out of scope: do not
 ask, list them in the report. Invoked by the user, ask about each **big** item
-on its own with `AskUserQuestion` - one question per call, options "In scope"
-and "Out of scope", your recommendation first with `(Recommended)` in its
-label, and the item's cost in the option descriptions. Wait for each answer.
+on its own, the way your instructions say to ask: options "In scope" and
+"Out of scope", and the item's cost in the option descriptions. Wait for each
+answer.
 
 ## 5. Apply
 
@@ -116,13 +117,13 @@ label, and the item's cost in the option descriptions. Wait for each answer.
 - Keep behaviour identical: same inputs, same outputs, same errors, same side
   effects. Do not fix a bug you find on the way; note it for the report.
 - After each batch run the quickest check that covers it. Then sweep the
-  branch once for what the review always checks - `grep` the commit subjects
+  branch once for what the review always checks - `rg` the commit subjects
   for TEMP, WIP or debug, and the diff for stray prints, `debugger`,
   commented-out blocks and `TODO: remove` - and fix the hits, so the review
-  does not spend a fixer round on them. At the end run the repo's full checks
-  and tests once - its `Justfile`, its flake checks, its test command. A
-  failure means the refactor changed behaviour or broke something: fix or
-  revert that item.
+  does not spend a fixer round on them. At the end run the targeted checks
+  that cover the whole refactor - lint, format and the tests of the code it
+  touched - never the full check; CI has the final say. A failure means the
+  refactor changed behaviour or broke something: fix or revert that item.
 - Commit with a message naming what was refactored, and push the branch. Never
   force-push, never push `main`.
 

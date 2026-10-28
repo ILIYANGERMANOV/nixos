@@ -34,7 +34,7 @@ The diff is mergeable iff no major survives: never inflate, never soften.
 **Always check**, from one read of the patch: TEMP, WIP or debug commit subjects
 (the `log` file), stray prints, `debugger`, commented-out blocks, hard-coded test
 values, `TODO: remove`; and the obviously broken - a syntax error, a file
-referenced but not added, a missing symbol, a path to nowhere. A grep settles
+referenced but not added, a missing symbol, a path to nowhere. An `rg` settles
 each; never a build.
 
 **Never a finding:** style, naming, formatting, comment wording, import order,
@@ -56,13 +56,13 @@ outcome. A refuted finding is dropped silently.
   `gh pr diff` to get the diff again or widen it - these files are the diff,
   and this overrides the `engineering` skill's advice on reading diffs.
 - Batch: put every independent command of a step in one turn - several tool
-  calls in one message, or one chained Bash. Read ranges (`grep -n`, then
+  calls in one message, or one chained Bash. Read ranges (`rg -n`, then
   `sed -n`), never whole large files.
 - Budget, hard: your 8th tool call is your hand-back; at DEEP depth, your
   15th. Out of budget, return what you have and name what you did not check.
 - The bar is in your prompt: never reread it, and never read any reference
   twice.
-- Mechanical checks first: a grep, the `stat` file, a byte-identical
+- Mechanical checks first: an `rg`, the `stat` file, a byte-identical
   `diff <(git show A:f) <(git show B:f)`. Then, only to settle one claim, a cheap
   probe: one test file, a REPL line, the CLI on a tiny input crafted in `/tmp`.
   Never the full test suite, a full build or a lint sweep - the implementer's

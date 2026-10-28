@@ -30,6 +30,7 @@ class Transcript:
     """Builds one agent's JSONL transcript; times are seconds after BASE."""
 
     cwd: str = "/home/dev/repos/demo"
+    parent: str | None = None  # a subagent's spawning Agent call, as its meta.json names it
     lines: list[dict] = field(default_factory=list)
     calls: int = 0
 
@@ -87,7 +88,8 @@ class Home:
         for agent_id, (kind, description, transcript) in (subagents or {}).items():
             base = project / sid / "subagents" / f"agent-{agent_id}"
             write(base.with_suffix(".jsonl"), transcript)
-            base.with_suffix(".meta.json").write_text(json.dumps({"agentType": kind, "description": description}))
+            meta = {"agentType": kind, "description": description, "toolUseId": transcript.parent}
+            base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
     def report(self, *args: str) -> str:
         run = subprocess.run([sys.executable, "-I", ANALYZER, "--root", str(self.root), *args],
@@ -100,10 +102,14 @@ def write(path: Path, transcript: Transcript) -> None:
     path.write_text("".join(json.dumps(line) + "\n" for line in transcript.lines))
 
 
-def row(report: str, section: str, first_cell: str) -> list[str]:
-    """The cells of the row whose first cell is `first_cell`, in the section titled `section`."""
-    body = report.split(f"## {section}", 1)[-1].split("\n## ", 1)[0]
-    for line in body.splitlines():
+def section(report: str, title: str) -> str:
+    """The body of the report section titled `title`."""
+    return report.split(f"## {title}", 1)[-1].split("\n## ", 1)[0]
+
+
+def row(report: str, title: str, first_cell: str) -> list[str]:
+    """The cells of the row whose first cell is `first_cell`, in the section titled `title`."""
+    for line in section(report, title).splitlines():
         cells = [c.strip() for c in line.strip("|").split("|")]
         if line.startswith("|") and cells[0] == first_cell:
             return cells
@@ -173,6 +179,22 @@ class WallTime(Case):
         # Then: 12 of the 60 minutes are waiting
         self.assertIn("Wall clock: 1.0h = work 0.8h + waiting on the person 0.2h", report)
         self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "12m"])
+        # And: the question is not ranked as a tool bottleneck
+        self.assertNotIn("| AskUserQuestion |", section(report, "Wall time per tool"))
+
+    def test_a_human_gap_with_background_work_running_is_work(self) -> None:
+        # Given: a background agent works 20 min into a 30 min silence in the main transcript,
+        # and its notification is not in it, so only the subagent's own calls show the work
+        main = Transcript().human(0, "go")
+        spawn = main.tool(60, "Agent", 61, background=True, description="Review")
+        main.human(1860, "next").reply(3600)
+        sub = Transcript(parent=spawn)
+        sub.bash(61, "just check", 1260)
+        self.home.session("s1", main, {"a1": ("general-purpose", "Review", sub)})
+        # When
+        report = self.home.report()
+        # Then: only the 10 idle minutes after the subagent's work are waiting
+        self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "10m"])
 
 
 class RedundantChecks(Case):

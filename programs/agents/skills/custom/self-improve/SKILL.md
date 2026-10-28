@@ -1,6 +1,6 @@
 ---
 name: self-improve
-description: Finds where past agent sessions on this machine lost tokens and wall time - bloated contexts, redundant or chained checks, slow builds, sleep loops, failing commands and missing tools - confirms each bottleneck with numbers from the transcripts, asks the user which fixes to make, and delivers each approved fix as a PR through /engineer. Takes optional suspected bottlenecks to confirm or refute.
+description: Finds where past agent sessions on this machine lost tokens and wall time - bloated contexts, redundant or chained checks, slow builds, sleep loops, failing commands and missing tools, never time waiting on the user - audits the skills and shared instructions and past /qa runs, confirms each bottleneck with numbers from the transcripts, asks the user which fixes to make, and delivers each approved fix as a PR through /engineer. Takes optional suspected bottlenecks to confirm or refute.
 disable-model-invocation: true
 argument-hint: "[suspected bottlenecks]"
 ---
@@ -16,8 +16,11 @@ bottlenecks from the user: `$ARGUMENTS` (may be empty).
 - **Numbers, never guesses.** A bottleneck is real only once the transcripts
   show its cost in tokens or minutes. A suspicion the data refutes is reported
   as refuted, with the numbers.
-- **Rank by measured cost**, tokens and wall time. Time spent waiting on the
-  person is not work time: report it apart and never count it as a saving.
+- **Rank by measured cost**, tokens and wall time.
+- **Waiting on the person is never a bottleneck.** Time waiting on a prompt or
+  an `AskUserQuestion` is not work time and never a saving
+  target: it can be a second or a day. Asking is cheap and important; never
+  propose fewer questions.
 - **Keep coverage.** CI keeps its full checks. Gains come from faster local
   check ladders, warm daemons, parallel builds, missing tools and leaner agent
   instructions. A stronger machine is out of scope.
@@ -51,6 +54,15 @@ They may write their own `jq` or Python over `~/.claude/projects`.
 - **One tooling hunt**: failing and `command not found` calls, workarounds,
   tools installed ad hoc (`nix shell`, `pip install`, `npx`), slow cold builds,
   and the commands each repository's agents run most.
+- **One `/qa` review** of the sessions that ran `/qa`: failed and retried
+  steps, the slowest steps, and what the repository's `QA.md` notes were
+  missing. It proposes edits to the `qa` skill or a `QA.md`.
+- **One skill audit** of the installed skills and shared instructions
+  (`programs/agents/AGENTS.md`, `programs/claude-code/factory-instructions.md`,
+  `programs/agents/skills/custom/*`): unclear or ambiguous wording, token cost
+  (lines, description length, text repeated across files) and rules that
+  contradict each other. Each finding quotes the lines and, where it can,
+  points at a session the wording misled.
 
 ## 3. Report and ask
 
@@ -63,9 +75,11 @@ the sessions they came from, grouped as:
    `CLAUDE.md`, test commands.
 4. **Other ideas.**
 
-Then ask one `AskUserQuestion` per bottleneck, with suggested fixes as options,
-recommended first. `${CLAUDE_SKILL_DIR}/references/playbook.md` holds the fixes
-that worked before.
+Then ask one `AskUserQuestion` per bottleneck, and per audit finding whose fix
+is a real choice, with suggested fixes as options, recommended first. Base each
+fix on the data or the quoted text, never a guess.
+`${CLAUDE_SKILL_DIR}/references/playbook.md` holds the fixes that worked
+before.
 
 ## 4. Fix
 

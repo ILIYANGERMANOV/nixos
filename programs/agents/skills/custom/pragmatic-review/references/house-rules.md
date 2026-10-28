@@ -5,7 +5,7 @@ tool, and `ui-coding` too if the diff touches UI. Those are the house rules;
 this brief does not restate them. Tests belong to the tests agent: leave them
 alone.
 
-This is a fast pass from the patch, inside the bar's budget. `grep` to settle
+This is a fast pass from the patch, inside the bar's budget. `rg` to settle
 one question - does this helper already exist, is there a token for this colour -
 but do not trace data flow, hunt callers or look for bugs: other agents own
 those. Never run the suite.

@@ -9,7 +9,7 @@ let
   # Recursively walks `dir`, returning every subdirectory that directly contains
   # a SKILL.md as { name; relative; path; }.
   #
-  # `dir` must be a plain store path — a flake input declared with `flake = false`,
+  # `dir` must be a plain store path - a flake input declared with `flake = false`,
   # or a path inside this repo. It must never be a derivation output: readDir on
   # one is import-from-derivation, which modules/nix.nix disables.
   collect =
@@ -54,7 +54,7 @@ let
 
   # A renamed skill cannot be a bare symlink. Claude Code takes the command name
   # from the directory name, so a rename must also rewrite the frontmatter `name`
-  # — inserting one if absent — or the skill's listed name and its command would
+  # - inserting one if absent - or the skill's listed name and its command would
   # disagree. Skills that are not renamed stay pure symlinks into the source and
   # cost nothing to build.
   renameSkill =

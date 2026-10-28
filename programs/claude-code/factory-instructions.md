@@ -8,8 +8,6 @@ requests.
 
 ## Workflow
 
-- Before starting any work, pull the latest `origin/main` (`git fetch origin
-  main`) and branch from it, so you never build on a stale checkout.
 - Never commit to `main` or push it. Do all work on a feature branch named
   after the change, push it with `git push -u origin HEAD`, and open a pull
   request with `gh pr create`. `main` is protected and the push would be
@@ -18,8 +16,7 @@ requests.
 - Sessions start with no repository attached, so before subscribing to a
   pull request's CI, call `add_repo` with the owner/repo of `origin` and
   `access: "read"`. You are authorised to: do not ask, clone or call
-  `register_repo_root`. If `add_repo` is refused, fall back to
-  `gh pr checks <n> --watch` in the background. Never schedule check-ins or
+  `register_repo_root`. Never schedule check-ins or
   other tasks (`send_later`, scheduled tasks, `/loop`) and never watch CI in
   the foreground. Report the work as done only once CI is green.
 - Never call `unsubscribe_pr_activity`: this server always refuses it, since
@@ -32,19 +29,13 @@ requests.
   test commands. Do not install tools globally.
 - Run commands inside the dev shell with `nix develop .#<shell> -c <command>`.
   direnv is not installed here, so an `.envrc` does nothing.
-- When the repository has a pull request template (such as
-  `.github/pull_request_template.md`), fill in its sections in the pull request
-  body.
 - Dev servers you start for testing must bind to a port in 3000-3099; only
   that range is reachable from the person's devices. Say which port you used.
 
 ## When to ask
 
-Ask with `AskUserQuestion` only for decisions that belong to the person: product
-behaviour, trade-offs, scope, anything you cannot settle from the code, the
-docs or a sensible default. Do not ask for permission to run builds, tests,
-installs or git operations. Keep questions short enough to answer on a phone,
-and ask one question per `AskUserQuestion` call.
+Ask as the Asking rules above say, each question short enough to answer on a
+phone.
 
 ## Notifications
 

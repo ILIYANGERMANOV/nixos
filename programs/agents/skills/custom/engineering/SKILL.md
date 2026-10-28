@@ -1,6 +1,6 @@
 ---
 name: engineering
-description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers domain modeling with ADTs and DDD, SUM types over nullable fields, nominal typing, pattern-matching over early guards, top-down function order, minimal function parameters, small and deep modules, language-idiomatic FP, simplicity and edge-case ROI, DRY and reuse, avoiding premature optimization, strict type-safety, bounded file reads, and when to stop and ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, black-box tests through the public interface, realistic fakes over mocks, Given-When-Then structure, and what makes a test meaningless or wrong, detailed in references/tests.md. Takes precedence over the domain-modeling skill for how to model a domain.
+description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers ADT and DDD domain modeling, SUM types over nullable fields, nominal typing, pattern-matching over early guards, top-down function order, minimal function parameters, small and deep modules, language-idiomatic FP, simplicity and edge-case ROI, DRY and reuse, avoiding premature optimization, strict type-safety, bounded file reads, and when to stop and ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, black-box tests through the public interface, realistic fakes over mocks, Given-When-Then structure, and what makes a test meaningless or wrong. Takes precedence over the domain-modeling skill for how to model a domain.
 ---
 
 # Engineering
@@ -155,18 +155,19 @@ a test - it is the detailed statement of every rule below, with examples.
 
 The user chooses the trade-offs and stays in control of them. If a software
 design decision is not obvious, stop and ask - never guess. Ask before writing
-the code, not after.
+the code, not after. A subagent, which cannot ask, hands the decision back to
+its caller instead.
 
 ## Reading code
 
 Every line you read is carried, and paid for, on every later call.
 
-- Find, then read: `grep -n`, then only that range with `sed -n`. Never `cat`
+- Find, then read: `rg -n`, then only that range with `sed -n`. Never `cat`
   several large files or `git show <ref>:<file>` in full. Small files together
   are fine up to 8KB combined.
 - Diffs: `git diff --stat` first, then file by file. When rebasing or comparing
   refs, read `git diff <ref> -- <file>`, never both versions.
-- Never read back output that was spilled to a file: `grep` it, or rerun the
+- Never read back output that was spilled to a file: `rg` it, or rerun the
   command narrower.
 
 ## Before you finish

@@ -12,7 +12,7 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
   479k context and 73M tokens.
 - **Mini-engineer implementers.** A large slice is planned into parts, each
   run by a fresh sub-implementer, instead of one agent growing for hours.
-- **Bounded reads.** `grep -n`, then a `sed -n` range; a hook blocks multi-file
+- **Bounded reads.** `rg -n`, then a `sed -n` range; a hook blocks multi-file
   reads over 8KB. File reads were 38% of implementer cost.
 - **Lean reviews.** One fresh subagent per review pass, fewer and cheaper
   agents, mechanical checks first; the second pass reviews only the fix diff.
@@ -25,14 +25,17 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
 From nixos#215, where foreground Bash took 5.2h over 10 runs.
 
 - **A check ladder** in the repository's `CLAUDE.md`: the narrowest check
-  while iterating, one full check per agent at the end, none after doc-only
-  edits, never build/test/lint chained in front of the full check. Redundant
-  and chained checks cost about 40 min.
+  while iterating, targeted checks only for implementers, fixers and
+  refactor passes, one full check by the last agent to push and only for a
+  large change, none after doc-only edits, never build/test/lint chained in
+  front of the full check. Redundant and chained checks cost about 40 min.
 - **Background long commands** with `run_in_background`, never a foreground
   `sleep` or `until` loop (15 min lost, 7 calls hit the timeout).
 - **Missing tooling fixed at the source**: a `default` dev shell when agents
   ran `nix develop -c` without one, a package for a tool the harness claimed
-  was installed, git config that stops a bare push going to the wrong branch.
+  was installed. A bare push that went to the wrong branch is fixed by the
+  owner in this repository's Nix config, never by an agent changing the push
+  or tracking config.
 
 ## Slow builds in a repository
 
@@ -48,6 +51,8 @@ suite itself ran in 8s.
 
 ## Not fixes
 
+- Fewer questions or prompts to the person. Waiting on the person is never a
+  bottleneck, and asking is cheap and important.
 - Dropping a check from CI, or skipping tests to go faster.
 - A stronger machine.
 - A warning that cannot be silenced without a security cost, such as making

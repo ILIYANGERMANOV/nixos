@@ -76,49 +76,11 @@ The runtime is on PATH as a store path fixed when the session started, so a
 the runtime must change mid-run, ask the user to restart the session; a
 rebuild alone leaves `qa-node` and `QA_WALLET_MODULE` on the old build.
 
-The wallet helper, opt-in from `QA.md`:
-
-```js
-const { installWallet } = require('qa-wallet');
-// Before the dApp's first navigation. Context: every page; Page: that page.
-const { address, rejectNext, waitForReceipt } = await installWallet(context, {
-  keyFile: process.env.QA_EVM_KEY_FILE,
-  rpcUrl: 'https://...',   // reads and eth_sendTransaction; omit for signing only
-  chainId: 11155111,       // a number
-  forwardRpc: [/^https:\/\/rpc\.example\//], // optional, from QA.md
-});
-rejectNext('eth_sendTransaction'); // the user declines the next one
-rejectNext('eth_sendTransaction', { afterMs: 2000 }); // after a 2s look
-await waitForReceipt(); // the last transaction it sent, once mined
-```
-
-It announces an EIP-1193 provider named "QA Wallet" (rdns `dev.qa.wallet`)
-through EIP-6963 and sets `window.ethereum` when nothing else has. It answers
-accounts, chain, `personal_sign`, `eth_signTypedData_v4`,
-`wallet_switchEthereumChain` (to its own chain only) and
-`eth_sendTransaction`, signing in Node; anything else goes to `rpcUrl`. The
-key never enters the page. Without `QA_EVM_KEY_FILE` (every host but one),
-the wallet is **unavailable**: wallet items are Unverified with that reason,
-never a failed run.
-
-`rejectNext(method)` makes the next request of that method fail as a user's
-decline (`{ code: 4001, message: 'User rejected the request.' }`), once; call
-it mid-run, e.g. after the approval and before the swap. It takes the
-requests a user approves: `eth_requestAccounts`, `wallet_requestPermissions`,
-`wallet_switchEthereumChain`, `personal_sign`, `eth_sign`,
-`eth_signTypedData_v4`, `eth_sendTransaction`. A decline answered at once
-can leave the dApp's pending state on screen for under a frame; `afterMs`
-holds it long enough to record.
-
-`waitForReceipt(hash?, { timeout })` resolves with `{ transactionHash,
-status, blockNumber }` once the transaction is mined (`status` is `success`
-or `reverted`), so a script waits on the chain, not on a guessed delay.
-Without a hash it is the last one the wallet sent. In a session, the same two
-controls are on the object `connect` returns.
-
-`forwardRpc` answers the dApp's own JSON-RPC POSTs to matching URLs from
-`rpcUrl`, for a dApp whose default RPC refuses headless traffic. `QA.md` says
-when a host needs it.
+The wallet helper (`require('qa-wallet')`) is documented in
+`${CLAUDE_SKILL_DIR}/references/wallet.md`. Read it, and name it in the
+planner's and executor's briefs, only when `QA_EVM_KEY_FILE` is set. Without
+it (every host but one) the wallet is **unavailable**: wallet items are
+Unverified with that reason, never a failed run.
 
 ## Where things live
 
@@ -160,7 +122,9 @@ a lookup for their paths and the default host, never a reason to add one. A
 sibling missing from disk is a question to the user, never a clone. Record
 each in `<run>/repos.md`: path, `owner/repo`, role (subject, host or
 dependency), its `QA.md` path or none, and the commit QA runs at. Read the
-`QA.md` of every repo in the set. When two disagree, the repo that owns the
+`QA.md` of every repo in the set before any question or probe: how to launch
+the app, log in, which steps are flaky and what worked last time, which an
+earlier run already paid for. When two disagree, the repo that owns the
 fact wins: the host on how to run it, log in, connect a wallet and navigate
 it; the subject on what the change should look like and its own flows and
 quirks. The plan names each conflict and close-out proposes the fix to the
@@ -198,9 +162,11 @@ and, for each repo in the set without a `QA.md`, a draft at
 
 ### 3. Unblock
 
-For each blocker, first try to resolve it yourself (start the app, read the
-code, check a URL). Ask the rest one per `AskUserQuestion`, with concrete
-options. A missing `QA.md`, the PR repo's or a host's, is a blocker: show the
+Research before you ask, as your instructions say: plan the open questions
+yourself, group them, and launch one research agent per group (start the
+app, read the code, check a URL) before your first question. When the
+instructions only name what to QA, the topics are yours to plan. Ask the rest
+one per `AskUserQuestion`, with concrete options. A missing `QA.md`, the PR repo's or a host's, is a blocker: show the
 draft, ask about each gap it lists one at a time, then ask whether to commit
 it (close-out says where). Fold the answers into the plan.
 
@@ -236,9 +202,9 @@ Spawn a fresh executor subagent. Brief: read
 verbatim; `<run>/repos.md` (each repo's path and the commit it must be at),
 `<run>/pr.diff` and the `QA.md` sections it needs; the URL the app is
 already running at (it must not start a second one); the run directory; the
-auth file paths; whether the wallet is available and its balances from step
-1; the scripts directory `~/.cache/qa/<owner>/<repo>/scripts/<host>/` and an
-index of it, so it reads only the files it needs - each file's name and
+auth file paths; whether the wallet is available, its balances from step 1
+and, if available, `${CLAUDE_SKILL_DIR}/references/wallet.md`; the scripts
+directory `~/.cache/qa/<owner>/<repo>/scripts/<host>/` and an index of it, so it reads only the files it needs - each file's name and
 exported functions, from `rg -n --no-heading '^(async )?function |module\.exports|^exports\.' <scripts>`.
 It returns a verdict per item (Pass, Fail or Unverified), each with its
 artifacts, repro steps for every Fail, and knowledge worth adding to each
@@ -282,14 +248,19 @@ never `#<n>` (that resolves to this repo) or shorthand.
 
 ### 9. Close out
 
-- Proposed `QA.md` changes, from the executor's knowledge and the conflicts
-  the plan named: first list the improvements and ask the user which to make
-  and which not. Sort the approved ones by the repo whose code each is
+- Update `QA.md` after every run, so the next run starts where this one
+  ended: what launched the app, how login worked, flaky steps, what worked
+  and what did not, from the executor's knowledge and the conflicts the plan
+  named. First list the improvements and ask the user which to make and
+  which not. Sort the approved ones by the repo whose code each is
   about, one diff per repo, and scan each for secrets and sensitive data
-  (`qa-md.md` lists what never goes in) before showing it. Commit each in
-  its repo on the branch already in use there: the PR branch for the
-  subject, the draft host PR's branch for a host. Unsure where: ask. Never
-  commit unasked, and never in the detached QA worktree.
+  (`qa-md.md` lists what never goes in) before showing it. Then ask with
+  `AskUserQuestion` whether to commit each diff: it may hold sensitive or
+  non-engineering details, or a wrong assumption about the product, that
+  only the user can spot. Commit each approved diff in its repo on the
+  branch already in use there: the PR branch for the subject, the draft
+  host PR's branch for a host. Unsure where: ask. Never commit unasked, and
+  never in the detached QA worktree.
 - Stop what step 1 and the executor started: the dev server with `TaskStop`
   and the job id in `<run>/app.job`, the browser with `qa-session stop
   <run>`. Never `pkill`, `killall` or a pattern kill. Then check the app's

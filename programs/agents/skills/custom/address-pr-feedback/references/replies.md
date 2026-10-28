@@ -3,13 +3,12 @@
 Read this in phase 6, when every thread is settled and the fixes are pushed.
 Nothing here is loaded earlier, because nothing here is needed earlier.
 
-Every reply posts from the user's own GitHub account, and **there is no AI
-disclosure line anywhere**. The user reads and approves each one before it
-posts, so these are their words. Do not add a banner, do not hedge about what a
-model did or did not check, and do not write in a voice the user would not use.
+Every reply posts from the user's own GitHub account, after the user approves
+the drafts in the phase 6 picker. So these are their words: write in a voice
+they would use, and add no AI disclosure line.
 
-Draft all of them, show them verbatim, and post nothing until the user
-approves.
+Use simple words and short sentences. A reviewer should get each reply on one
+read.
 
 ## The shape of a good reply
 
@@ -92,15 +91,16 @@ the deferral.
 > separately rather than widening the diff here.
 
 Do not promise a ticket number in the reply. Where deferrals live is decided in
-phase 7, after these have already posted, so a reply that names an issue that
-does not exist yet is a broken promise in writing.
+phase 7, after the phase 6 picker: with options 1 and 2 the reply has already
+posted, and with "Don't comment" it never posts. Either way, an issue named in
+it would not exist yet.
 
 ## The summary comment
 
-One `gh pr comment` at the end, after every thread reply has posted. It does
-two jobs: it gives the reviewer a single place to see the shape of the
-response, and it is the **only** way top-level comments get answered, since
-they have no thread to reply into.
+One `gh pr comment`, posted only when the user picks option 1 in phase 6, after
+every thread reply has posted. It does two jobs: it gives the reviewer a single
+place to see the shape of the response, and it is the **only** way top-level
+comments get answered, since they have no thread to reply into.
 
 Keep it to counts plus the things that need a sentence. Do not restate every
 thread - the threads are right there.
@@ -122,10 +122,3 @@ thread - the threads are right there.
 The last paragraph is where a top-level comment gets its answer. Answer every
 one of them. A top-level comment that goes unanswered looks ignored, and unlike
 a thread there is nothing to resolve that would show otherwise.
-
-## Failures
-
-If a reply posts but the resolve call fails, say so and name the thread. Do not
-retry silently, and never report a thread as resolved when it is not.
-
-If the user edits a drafted reply, post what they wrote, not what you drafted.

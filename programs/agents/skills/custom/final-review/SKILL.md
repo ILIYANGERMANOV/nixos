@@ -51,16 +51,16 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
 ### 4. Act
 
 - **Fix**: hand the chosen rows to a fixer subagent that follows `engineering`,
-  fixes only those rows, runs the narrowest checks while iterating and the
-  repo's full check once, commits and pushes. Fix locally: edit only, no commit or push.
+  fixes only those rows, runs targeted checks (the full check only when the
+  fix is large; it is the last to push), commits and pushes. Fix locally:
+  edit only, no commit or push.
 - **Post to PR**: post the chosen rows, verbatim from the table, as one
   review (`gh api .../pulls/<n>/reviews`, `event=COMMENT`) with inline
   comments anchored to `file:line`, falling back to one `gh pr comment`
-  carrying the rows when a line is not in the diff. The summary body opens,
-  verbatim and once: `🤖 AI-assisted review. I read every finding below and
-  accepted it before posting.` With no rows, post one `gh pr comment` opening
-  `🤖 AI-assisted review. I read it and accepted it before posting.` Never
-  approve or request changes.
+  carrying the rows when a line is not in the diff. With no rows, post one
+  `gh pr comment` saying nothing serious was found. The user picked what is
+  posted, so it carries no AI disclosure (your instructions say when one is
+  due). Never approve or request changes.
 
 ### 5. Re-review the fix only
 
@@ -75,8 +75,8 @@ fixed, nothing to re-review.
 - If the PR description no longer matches, rewrite it with `pr-description`.
 - After a push, wait on CI the non-blocking way your instructions describe.
 - Report: the requirement verdicts, what was fixed and its commit, what was
-  left and why, the CI state. When CI is green, `PushNotification`:
-  `<repo>: PR #<n> final review done, CI green`.
+  left and why, the CI state. When CI is green, notify the user the way your
+  instructions describe.
 
 ## Next round
 

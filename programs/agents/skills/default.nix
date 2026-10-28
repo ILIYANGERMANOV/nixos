@@ -14,7 +14,7 @@ let
     ;
 
   # Third-party skill sets. Each source says where to search and exactly which
-  # skills to install — nothing is taken implicitly, so an upstream repo growing
+  # skills to install - nothing is taken implicitly, so an upstream repo growing
   # new skills never silently changes what lands in ~/.claude/skills.
   #
   # Names are bare: `roots` is walked recursively for SKILL.md directories, so
@@ -38,7 +38,7 @@ let
         "setup-matt-pocock-skills" # per-repo setup, run once via /setup-matt-pocock-skills
       ];
 
-      # Resolves a collision deliberately — e.g. upstream ships `code-review`,
+      # Resolves a collision deliberately - e.g. upstream ships `code-review`,
       # which as a personal skill would shadow Claude Code's bundled
       # /code-review. A rename also rewrites the frontmatter `name`, keeping it
       # in step with the directory that supplies the command name.
@@ -94,7 +94,7 @@ in
 
   names = lib.attrNames all;
 
-  # mkSkillFarm <farm-name> <names> — a store directory of symlinks for one
+  # mkSkillFarm <farm-name> <names> - a store directory of symlinks for one
   # Claude flavor to link into ~/.claude/skills.
   mkSkillFarm = mkSkillFarm all;
 
