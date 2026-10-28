@@ -184,5 +184,5 @@ and taking no input (`modules/nixos/server/ops.nix`):
   forgotten ones once pinned 18 GB that no GC could free. Worktree roots in
   `~/.gcroots` are left alone. `factory-ctl free-disk` deletes the agent's own
   such links without root, systemd-tmpfiles ages `/tmp` out after three days,
-  and an hourly check starts `factory-gc` whenever less than 15% of `/` is
+  and an hourly check starts `factory-gc` whenever less than 10% of `/` is
   free.

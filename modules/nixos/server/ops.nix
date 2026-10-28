@@ -26,7 +26,7 @@ let
 
   # Below this share of free space on / the hourly check starts factory-gc,
   # long before the weekly timer would.
-  gcBelowFreePercent = 15;
+  gcBelowFreePercent = 10;
   gcOnPressure = pkgs.writeShellScript "factory-gc-on-pressure" ''
     read -r avail size < <(df -B1 --output=avail,size / | tail -n 1)
     if [ $((avail * 100)) -lt $((size * ${toString gcBelowFreePercent})) ]; then
