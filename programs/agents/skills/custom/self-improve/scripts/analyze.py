@@ -121,7 +121,6 @@ class ToolCall:
     outcome: Outcome = Ok()
     result_chars: int = 0
     images: int = 0
-    asked: float = 0.0  # seconds the subagent it spawned spent on AskUserQuestion
 
     @property
     def command(self) -> str:
@@ -134,11 +133,6 @@ class ToolCall:
                 return end - self.start
             case _:
                 return None
-
-    @property
-    def working_seconds(self) -> float | None:
-        """Wall time minus what a subagent it spawned spent waiting on the person."""
-        return None if self.seconds is None else self.seconds - self.asked
 
     @property
     def mode(self) -> str:
@@ -201,7 +195,6 @@ class Transcript:
     invocations: list[float] = field(default_factory=list)
     human_gaps: list[Interval] = field(default_factory=list)  # before each human prompt
     cwd: str = ""
-    parent_call: str | None = None  # the tool_use id of the Agent call that spawned a subagent
 
 
 SELF = "self-improve"
@@ -222,7 +215,6 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
     times = main.times + [t for s in subs for t in s.times]
     if not times:
         return None
-    charge_questions_to_parents([main, *subs])
     return Session(
         id=path.stem,
         path=path,
@@ -232,7 +224,7 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
         end=max(times),
         commands=main.commands,
         invocations=main.invocations,
-        human_wait=waiting_seconds(main.human_gaps, [main.agent, *(s.agent for s in subs)]),
+        human_wait=waiting_seconds(main.human_gaps, main.agent, [main.agent, *(s.agent for s in subs)]),
         main=main.agent,
         subagents=[s.agent for s in subs],
     )
@@ -241,17 +233,7 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
 def parse_subagent(path: Path, until: float | None) -> Transcript:
     meta_path = path.with_name(path.stem + ".meta.json")
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    out = parse_transcript(path, meta.get("agentType", "unknown"), meta.get("description", ""), until)
-    out.parent_call = meta.get("toolUseId")
-    return out
-
-
-def charge_questions_to_parents(transcripts: list[Transcript]) -> None:
-    """Record on each Agent call how long the subagent it spawned waited on the person."""
-    calls = {c.id: c for t in transcripts for c in t.agent.calls}
-    for t in transcripts:
-        if t.parent_call in calls:
-            calls[t.parent_call].asked += sum(end - start for start, end in merge(question_intervals(t.agent)))
+    return parse_transcript(path, meta.get("agentType", "unknown"), meta.get("description", ""), until)
 
 
 def question_intervals(agent: Agent) -> list[Interval]:
@@ -263,10 +245,11 @@ def project_name(cwd: str) -> str:
     return Path(cwd.split("/.claude/worktrees/")[0]).name or "?"
 
 
-def waiting_seconds(human_gaps: list[Interval], agents: list[Agent]) -> float:
-    """Time spent waiting on the person: every open question, by any agent,
-    plus each gap before a human prompt in which no tool call was running."""
-    asks = [interval for agent in agents for interval in question_intervals(agent)]
+def waiting_seconds(human_gaps: list[Interval], main: Agent, agents: list[Agent]) -> float:
+    """Time spent waiting on the person: every question the main agent left open
+    (a subagent cannot ask), plus each gap before a human prompt in which no
+    tool call of any agent was running."""
+    asks = question_intervals(main)
     busy = [(c.start, c.start + c.seconds) for a in agents for c in a.calls if c.name != ASK and c.seconds is not None]
     idle = [part for gap in human_gaps for part in subtract(gap, merge(busy))]
     return sum(end - start for start, end in merge(asks + idle))
@@ -747,8 +730,8 @@ def what(call: ToolCall) -> str:
 def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
     groups: dict[tuple[str, str], list[float]] = defaultdict(list)
     for _, _, c in calls:
-        if c.working_seconds is not None and c.name != ASK:  # waiting on the person is never a bottleneck
-            groups[(c.name, c.mode)].append(c.working_seconds)
+        if c.seconds is not None and c.name != ASK:  # waiting on the person is never a bottleneck
+            groups[(c.name, c.mode)].append(c.seconds)
     ranked = sorted(groups.items(), key=lambda kv: -sum(kv[1]))
     rows = [
         [name, mode, str(len(ts)), minutes(sum(ts)), f"{statistics.median(ts):.0f}s", f"{max(ts):.0f}s"]

@@ -18,8 +18,9 @@ Base instructions for every agent.
 Asking is cheap; the user's understanding is the bottleneck. A wrong guess
 costs rework, tech debt and bugs.
 
-- Before building, propose a plan and ask whether it matches the user's
-  understanding.
+- These rules bind the agent talking to the user. Before building a
+  non-trivial change, propose a plan and ask whether it matches the user's
+  understanding. A one-line, unambiguous edit needs no plan round-trip.
 - Ask about every technical, architecture, design, production and approach
   decision until nothing is unclear, and always when something is ambiguous.
 - Research before you ask. Never ask what the code, the docs or a tool can
@@ -30,7 +31,9 @@ costs rework, tech debt and bugs.
   your recommendation first with `(Recommended)` in its label, context in the
   option descriptions. Never ask permission to run builds, tests, installs or
   git operations.
-- A subagent cannot ask the user: it hands the question back to its caller.
+- A subagent cannot ask the user. It builds what it was briefed and hands
+  any open decision back to its caller in its report, finishing the work the
+  decision does not block rather than stopping or guessing.
 
 ## Subagents
 
@@ -65,9 +68,14 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
   typecheck, a single `nix build .#checks.<system>.<name>`.
 - Implementers, fixers and refactor passes run targeted checks only: the
   lint, format and tests that cover their diff.
-- Only the last agent to push runs the full check, once, on the final state,
-  and only when the change is large. Rerun it only after a code edit, never
-  after a docs-only edit. CI has the final say.
+- A large change gets one full check on its final state: one that touches
+  build or evaluation logic, many modules, or code with tests beyond the
+  targeted ones. The orchestrator owns that: it hands the duty to the last
+  agent to push, or runs it in a fresh agent when the last pass changed
+  nothing. Rerun it only after a code edit, never after a docs-only edit.
+  CI has the final say.
+- A project's own instructions win where they are stricter, such as one
+  that runs its full check on the final state of every change.
 - Never chain steps the full check already runs: no build, test or lint in
   front of a `just check` that runs them.
 - Run anything expected to take over a minute with `run_in_background`. It

@@ -182,23 +182,6 @@ class WallTime(Case):
         # And: the question is not ranked as a tool bottleneck
         self.assertNotIn("| AskUserQuestion |", section(report, "Wall time per tool"))
 
-    def test_a_subagents_question_is_waiting_on_the_person(self) -> None:
-        # Given: an implementer that waits 20 min on a question inside a 60 min session
-        main = Transcript().human(0, "go")
-        spawn = main.tool(10, "Agent", 3000, description="Implement parser")
-        main.reply(3600)
-        sub = Transcript(parent=spawn).reply(20)
-        sub.tool(100, "AskUserQuestion", 1300)
-        sub.reply(2900)
-        self.home.session("s1", main, {"a1": ("general-purpose", "Implement parser", sub)})
-        # When
-        report = self.home.report()
-        # Then: the 20 minutes are waiting, and no tool row ranks the question
-        self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "20m"])
-        self.assertNotIn("| AskUserQuestion |", section(report, "Wall time per tool"))
-        # And: the Agent call that spawned it is timed without the question
-        self.assertEqual(row(report, "Wall time per tool", "Agent")[1:], ["fg", "1", "30m", "1790s", "1790s"])
-
     def test_a_human_gap_with_background_work_running_is_work(self) -> None:
         # Given: a background agent works 20 min into a 30 min silence in the main transcript,
         # and its notification is not in it, so only the subagent's own calls show the work

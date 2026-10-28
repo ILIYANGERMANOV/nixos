@@ -18,7 +18,7 @@ bottlenecks from the user: `$ARGUMENTS` (may be empty).
   as refuted, with the numbers.
 - **Rank by measured cost**, tokens and wall time.
 - **Waiting on the person is never a bottleneck.** Time waiting on a prompt or
-  an `AskUserQuestion`, from any agent, is not work time and never a saving
+  an `AskUserQuestion` is not work time and never a saving
   target: it can be a second or a day. Asking is cheap and important; never
   propose fewer questions.
 - **Keep coverage.** CI keeps its full checks. Gains come from faster local

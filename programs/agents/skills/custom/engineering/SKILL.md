@@ -155,7 +155,8 @@ a test - it is the detailed statement of every rule below, with examples.
 
 The user chooses the trade-offs and stays in control of them. If a software
 design decision is not obvious, stop and ask - never guess. Ask before writing
-the code, not after.
+the code, not after. A subagent, which cannot ask, hands the decision back to
+its caller instead.
 
 ## Reading code
 

@@ -30,12 +30,11 @@ agree with the report.
   (`backgroundTaskId` or `isAsync` in `toolUseResult`) ends at the first
   `<task-notification>` naming its `<tool-use-id>`, delivered as a
   `queue-operation` line or a user line; its `<status>` and summary give
-  failure and exit code. An `Agent` call is timed without the
-  `AskUserQuestion` time of the subagent it spawned, matched by the
-  `toolUseId` in that subagent's `.meta.json`.
-- **Waiting on the person.** The time any agent's `AskUserQuestion` stayed
-  open, plus each gap before a human prompt in which no tool call (background
-  ones included) was running; overlaps count once. Work time is wall clock
+  failure and exit code.
+- **Waiting on the person.** The time the main agent's `AskUserQuestion`
+  stayed open (a subagent cannot ask), plus each gap before a human prompt in
+  which no tool call of any agent (background ones included) was running;
+  overlaps count once. Work time is wall clock
   minus that. Waiting is never a bottleneck, so `AskUserQuestion` is left out
   of the tool-time ranking.
 - **Failures.** `is_error` results (non-zero exit, blocked or invalid calls),

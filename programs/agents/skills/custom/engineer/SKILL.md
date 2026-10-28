@@ -122,8 +122,10 @@ there, under the merge-danger or follow-up section, with the reason.
 
 - Rewrite the PR body with the `pr-description` skill, keeping any decisions
   you made on the user's behalf.
-- When the change is large, the last fixer runs the full check once before
-  its push. Otherwise CI is the full check.
+- Make sure the final state got one full check when your instructions'
+  Checks rules call for it (a large change, or a project that always wants
+  one): brief the last fixer to run it before its push, or run it in a fresh
+  agent when the final fix changed nothing. Otherwise CI is the full check.
 - Wait for CI the non-blocking way your instructions describe. Fix CI
   failures through a subagent, and wait again.
 - When CI is green, mark the PR ready with `gh pr ready <n>` and notify the

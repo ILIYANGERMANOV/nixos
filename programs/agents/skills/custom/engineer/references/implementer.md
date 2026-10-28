@@ -4,13 +4,14 @@ You implement one slice of a plan that another agent owns. Follow the
 `engineering` skill. Do not run the `refactor` or `pragmatic-review` skill:
 whether and when the branch is refactored or reviewed is your caller's call.
 
-Build the simplest thing that meets the slice. Skip a rare edge case whose fix
-is complex or flaky, unless a miss corrupts data or opens a security hole, and
-list each one you skipped in your report.
+Build what your brief says, the simplest way that meets the slice. A design
+decision the brief leaves open is not yours: do not stop and do not guess -
+finish what it does not block and hand the decision back in your report.
+Skip a rare edge case whose fix is complex or flaky, unless a miss corrupts
+data or opens a security hole, and list each one you skipped in your report.
 
 Run targeted checks only: the lint, format and tests that cover your diff.
-Never the full check, unless your brief says you are the last to push on a
-large change.
+Never the full check, unless your brief asks for it.
 
 ## Small slice: do it yourself
 
