@@ -59,6 +59,7 @@ let
     "grilling" # fork of mattpocock's grilling, one picker question at a time; grill-me and grill-with-docs delegate to it
     "pr-description" # PR body from the repo template or a default format, model-invoked before gh pr create
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
+    "qa" # /qa - plan, run and record QA proof on a PR, report-only on bugs, explicit invocation only
     "refactor" # /refactor - behaviour-preserving cleanup of a diff; also invoked by engineer
     "self-improve" # /self-improve - measure past sessions and fix the agent setup's bottlenecks, factory only
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only

@@ -19,6 +19,7 @@
     ./egress.nix
     ./nix.nix
     ./resources.nix
+    ./fonts.nix
     ./nix-ld.nix
     ./claude-policy.nix
     ./ops.nix

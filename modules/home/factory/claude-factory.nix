@@ -87,9 +87,12 @@ in
 {
   imports = [ ./admin.nix ];
 
+  # The flavor wrapper puts /qa's runtime on PATH, but Remote Control sessions
+  # run the unwrapped binary, so the factory installs it in the profile.
   home.packages = [
     claude.factory.wrapper
     ctl
+    playwright.qa
   ];
 
   systemd.user.services = {

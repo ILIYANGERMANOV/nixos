@@ -1,9 +1,10 @@
-# Build-time tests for the MCP catalog logic, wired into `nix flake check` (and
+# Build-time tests for the MCP catalog logic and the secret file guard, wired into `nix flake check` (and
 # therefore `just check` in CI) as `checks.claude-code`.
 #
 # mcp.nix is pure - no derivations, no wrappers, no hosts - so every case here
 # runs against a synthetic catalog and a synthetic `secrets` attrset rather than
-# against whatever the machine running CI happens to provide.
+# against whatever the machine running CI happens to provide. The guard is
+# lib.nix's `withSecretFileGuard`, the settings a flavor gets per secret file.
 {
   pkgs,
   lib ? pkgs.lib,
@@ -54,6 +55,33 @@ let
       flavor = "test-flavor";
       inherit known available requested;
     };
+
+  # Given: a flavor's own settings, already holding a deny rule and a Bash hook.
+  inherit
+    (import ./lib.nix {
+      inherit pkgs lib secrets;
+      claude-code = throw "the secret file guard builds no wrapper";
+      mkSkillFarm = throw "the secret file guard builds no skills";
+    })
+    withSecretFileGuard
+    ;
+  flavorSettings = {
+    model = "opus";
+    permissions.deny = [ "Read(./.env)" ];
+    hooks.PreToolUse = [
+      {
+        matcher = "Bash";
+        hooks = [
+          {
+            type = "command";
+            command = "own-hook";
+          }
+        ];
+      }
+    ];
+  };
+  # When: the flavor is handed the secret file this host declares.
+  guarded = withSecretFileGuard { FIGMA_TOKEN_FILE = secrets.figma-token; } flavorSettings;
 
   # `throw` is lazy, so the value has to be forced inside tryEval to be caught.
   evalFails = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
@@ -167,6 +195,44 @@ let
       ]);
       expected = [ "remote" ];
     }
+    {
+      name = "a secret file's directory, its sops-nix .d and their macOS spellings are denied after the flavor's own rules";
+      actual = guarded.permissions.deny;
+      expected = [
+        "Read(./.env)"
+        "Read(//run/secrets/**)"
+        "Read(//run/secrets.d/**)"
+        "Read(//private/var/run/secrets/**)"
+        "Read(//private/var/run/secrets.d/**)"
+      ];
+    }
+    {
+      name = "a secret file adds a Bash guard hook after the flavor's own hooks";
+      actual = map (entry: {
+        inherit (entry) matcher;
+        commands = map (hook: lib.head (lib.splitString " " hook.command)) entry.hooks;
+      }) guarded.hooks.PreToolUse;
+      expected = [
+        {
+          matcher = "Bash";
+          commands = [ "own-hook" ];
+        }
+        {
+          matcher = "Bash";
+          commands = [ "${(import ./secret-guard.nix { inherit pkgs; }).bin}/bin/claude-secret-guard" ];
+        }
+      ];
+    }
+    {
+      name = "a secret file leaves the flavor's other settings as they are";
+      actual = guarded.model;
+      expected = "opus";
+    }
+    {
+      name = "a flavor with no secret file available keeps its settings unchanged";
+      actual = withSecretFileGuard { } flavorSettings;
+      expected = flavorSettings;
+    }
   ];
 
   # Then: every case is reported, so one failure does not hide the rest.
@@ -192,7 +258,7 @@ pkgs.runCommand "claude-code-check" { } ''
   ${lib.concatMapStringsSep "\n" report cases}
 
   if [ "$status" -ne 0 ]; then
-    echo "claude-code: MCP catalog logic is wrong" >&2
+    echo "claude-code: MCP catalog or secret file guard logic is wrong" >&2
     exit 1
   fi
 

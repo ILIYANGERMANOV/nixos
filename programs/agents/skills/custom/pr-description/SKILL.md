@@ -87,6 +87,9 @@ error renders as an error box, not a diagram.
 - The user's domain language - the terms in the code and in `GLOSSARY.md` if the
   repository has one - not generic words.
 - No proof means say so. An empty claim is worse than an honest "not run".
+- A PR or issue in another repository is its full URL,
+  `https://github.com/<owner>/<repo>/pull/<n>`, never `#<n>` (that resolves to
+  this repository) or `owner/repo#<n>` shorthand.
 
 ## Write it
 

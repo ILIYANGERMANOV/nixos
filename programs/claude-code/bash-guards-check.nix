@@ -8,6 +8,7 @@ pkgs.runCommand "claude-bash-guards-check"
     nativeBuildInputs = [
       (import ./read-guard.nix { inherit pkgs; }).bin
       (import ./wait-guard.nix { inherit pkgs; }).bin
+      (import ./secret-guard.nix { inherit pkgs; }).bin
       pkgs.git
       pkgs.jq
     ];
@@ -136,6 +137,34 @@ pkgs.runCommand "claude-bash-guards-check"
     EOF"
     expect_call 0 "a backgrounded long sleep is allowed" "sleep 30" true
     expect_call 0 "a backgrounded poll is allowed" "until [ -f x ]; do sleep 5; done" true
+    shared_failopen
+
+    guard=$TMPDIR/secret-guard
+    echo "claude-secret-guard:"
+    printf '#!${pkgs.runtimeShell}\nexec claude-secret-guard %s\n' \
+      "'{\"paths\": [\"/run/secrets/qa-key\"], \"vars\": [\"QA_KEY_FILE\"]}'" >"$guard"
+    chmod +x "$guard"
+    expect 2 "reading the path is blocked" "cat /run/secrets/qa-key"
+    grep -q "Never read it from a shell" "$TMPDIR/err" || { echo "  ✗ the block carries the hint" >&2; status=1; }
+    expect 2 "expanding the variable is blocked" 'cat "$QA_KEY_FILE"'
+    expect 2 "a braced expansion is blocked" 'xxd ''${QA_KEY_FILE:-x}'
+    expect 2 "a heredoc script naming the path is blocked" "python3 - <<'EOF'
+    print(open('/run/secrets/qa-key').read())
+    EOF"
+    expect 2 "the variable printed into a substitution is blocked" 'cat $(printenv QA_KEY_FILE)'
+    expect 2 "the variable printed into backticks is blocked" 'xxd `printenv QA_KEY_FILE`'
+    expect 2 "an env dump in a substitution is blocked" 'cat $(env | sed -n s/QA_KEY_FILE=//p)'
+    expect 2 "a glob over the secrets directory is blocked" "cat /run/secrets/qa-*"
+    expect 2 "changing into the secrets directory is blocked" "cd /run/secrets && ls"
+    expect 2 "the resolved secrets.d path is blocked" "cat /run/secrets.d/5/qa-key"
+    expect 2 "the basename alone is blocked" "cd /tmp/x && cat qa-key"
+    expect 0 "naming the variable without expanding it is allowed" "printenv QA_KEY_FILE"
+    expect 0 "the availability check is allowed" "printenv QA_KEY_FILE >/dev/null"
+    expect 0 "a longer variable name is allowed" 'echo "$QA_KEY_FILE_HINT"'
+    expect 0 "a longer basename is allowed" "cat qa-key-notes.md"
+    expect 0 "a substitution running another command is allowed" 'echo $(environment-check) `git rev-parse HEAD`'
+    expect 0 "running a script that reads the variable itself is allowed" "qa-node wallet.cjs"
+    expect 0 "running a qa-node script by file is allowed" "qa-node script.cjs"
     shared_failopen
 
     if [ "$status" -ne 0 ]; then

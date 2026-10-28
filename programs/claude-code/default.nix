@@ -30,6 +30,7 @@ let
   statusline = import ./statusline.nix { inherit pkgs theme; };
   readGuard = import ./read-guard.nix { inherit pkgs; };
   waitGuard = import ./wait-guard.nix { inherit pkgs; };
+  playwright = import ../playwright { inherit pkgs; };
 
   baseSettings = {
     statusLine = {
@@ -70,6 +71,19 @@ let
     superhuman-docs = mkHttpServer { url = "https://docs.superhuman.com/apis/mcp"; };
   };
 
+  # On PATH in every session, whatever the project: /qa's `qa-node` (Playwright,
+  # Chromium, viem and the qa-wallet helper) and `qa-mp4` (ffmpeg).
+  runtime = [ playwright.qa ];
+
+  # Secrets a session gets as a file PATH in an env var, never as a value, for
+  # a program that reads the file itself. Like the MCP catalog, an entry whose
+  # secret this host does not declare is dropped: the variable is then absent.
+  # The session is blocked from reading the file (see withSecretFileGuard).
+  secretFiles = {
+    # /qa's wallet key, read by qa-wallet in Node.
+    QA_EVM_KEY_FILE = "qa-sepolia-key";
+  };
+
   # The agent-agnostic instructions, installed the way Claude Code expects them:
   # as user-scope memory at ~/.claude/CLAUDE.md. Claude Code does not read
   # AGENTS.md at user scope, so the file is copied under the name it does read.
@@ -93,6 +107,7 @@ let
     "grill-me"
     "pr-description"
     "pragmatic-review"
+    "qa"
     "refactor"
     "setup-matt-pocock-skills"
     "skeptic"
@@ -105,6 +120,8 @@ let
       baseSkills
       baseInstructions
       mcpCatalog
+      runtime
+      secretFiles
       ;
   };
 

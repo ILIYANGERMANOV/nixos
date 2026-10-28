@@ -1,12 +1,17 @@
 # Freeing disk without losing work or making the repositories slow again.
 #
 # Reclaimed: worktrees with no local work and no live session (everything in
-# them is on GitHub), throwaway caches, result links of builds left in /tmp or
+# them is on GitHub), throwaway caches, /qa run directories untouched for a
+# day (their proof is on the PR), result links of builds left in /tmp or
 # ~/.cache for two days, and Nix store paths nothing refers to.
 # Kept: the Hackage index and cabal store and Nix's evaluation cache, so the
-# next build in a repository stays fast. Dev shells are not rooted, so the
-# store garbage includes any nobody is in; they come back from the binary
-# caches.
+# next build in a repository stays fast, and /qa's login state and scripts,
+# so the next QA run needs no login and no rewrite. Dev shells are not
+# rooted, so the store garbage includes any nobody is in; they come back from
+# the binary caches.
+
+# Where the /qa skill keeps its login state, scripts and runs, per repository.
+qa_dir="$HOME/.cache/qa"
 
 # free-disk plan | apply: list what would go with sizes, or delete it.
 cmd_free_disk() {
@@ -27,6 +32,10 @@ plan_disk() {
   while read -r path; do
     printf '  %-8s %s\n' "$(size_of "$path")" "${path#"$HOME"/}"
   done < <(caches)
+  echo "QA runs:"
+  while read -r path; do
+    printf '  %-8s %s\n' "$(size_of "$path")" "${path#"$qa_dir"/}"
+  done < <(qa_runs)
   echo "Stale GC roots (store path size):"
   while read -r path; do
     printf '  %-8s %s\n' "$(size_of "$(readlink -f "$path")")" "$path"
@@ -52,6 +61,15 @@ apply_disk() {
     echo "removed ${path#"$HOME"/}"
   done < <(caches)
   while read -r path; do
+    rm -rf "$path"
+    echo "removed ${path#"$HOME"/}"
+  done < <(qa_runs)
+  # A run's worktree that had changes outside .gitignore was deleted with its
+  # run rather than by worktree remove: drop its registration.
+  for repo in $(cloned_repos); do
+    git -C "$repos_dir/$repo" worktree prune
+  done
+  while read -r path; do
     rm -f "$path"
     echo "removed $path"
   done < <(own_stale_roots)
@@ -69,6 +87,8 @@ prunable_worktrees() {
   for repo in $(cloned_repos); do
     while read -r wt; do
       [ "$wt" != "$repos_dir/$repo" ] || continue
+      # A /qa run's worktree is clean while the run is live: qa_runs decides.
+      case "$wt" in "$qa_dir"/*) continue ;; esac
       [ -z "$(sessions_under "$wt")" ] || continue
       [ -z "$(local_work "$wt")" ] || continue
       echo "$wt"
@@ -80,11 +100,23 @@ caches() {
   local path
   for path in "$HOME"/.cache/* "$HOME/.cache/cabal/logs" "$HOME/.npm/_cacache"; do
     case "$path" in
-      "$HOME/.cache/nix" | "$HOME/.cache/cabal") ;;
+      "$HOME/.cache/nix" | "$HOME/.cache/cabal" | "$qa_dir") ;;
       # A symlink here is a dev shell's profile or a build's result link, a GC
       # root rather than a cache: stale_roots decides about those.
       *) [ -e "$path" ] && [ ! -L "$path" ] && echo "$path" ;;
     esac
+  done
+  return 0
+}
+
+# /qa's run directories (~/.cache/qa/<owner>/<repo>/runs/<run>) with nothing
+# written for a day, so a run in progress keeps its videos. Never auth/ or
+# scripts/, which sit beside runs/.
+qa_runs() {
+  local run
+  for run in "$qa_dir"/*/*/runs/*/; do
+    run="${run%/}"
+    [ -d "$run" ] && [ -z "$(find "$run" -newermt '1 day ago' -print -quit)" ] && echo "$run"
   done
   return 0
 }

@@ -10,6 +10,7 @@
 
 let
   mcp = import ./mcp.nix { inherit lib secrets; };
+  secretGuard = import ./secret-guard.nix { inherit pkgs; };
 
   # Binds one Claude Code configuration - the settings, skills, instructions and
   # MCP catalog authored in default.nix - and returns the function that turns an
@@ -24,16 +25,27 @@ let
   #   mcpServers        - names from the catalog to activate for this flavor
   #   extraSkills       - skill names this flavor adds to baseSkills
   #   extraInstructions - markdown files appended to baseInstructions
+  #
+  # Every flavor also gets `runtime` on PATH and, of `secretFiles` (env var ->
+  # secret name), each one this host declares exported as its decrypted
+  # file's PATH, guarded against being read from the session.
   mkFlavorBuilder =
     {
       baseSettings,
       baseSkills,
       baseInstructions,
       mcpCatalog,
+      runtime,
+      secretFiles,
     }:
     let
       known = lib.attrNames mcpCatalog;
       available = mcp.availableServers mcpCatalog;
+      # env var -> decrypted-file path, for the secret files this host provides.
+      files = lib.mapAttrs (_: secret: secrets.${secret}) (
+        lib.filterAttrs (_: secret: secrets ? ${secret}) secretFiles
+      );
+      guardSecretFiles = withSecretFileGuard files;
     in
     lib.mapAttrsToList (
       name:
@@ -51,8 +63,13 @@ let
         };
       in
       mkFlavor {
-        inherit name servers;
-        settings = lib.recursiveUpdate baseSettings extraSettings;
+        inherit
+          name
+          servers
+          runtime
+          files
+          ;
+        settings = guardSecretFiles (lib.recursiveUpdate baseSettings extraSettings);
         skills = lib.unique (baseSkills ++ extraSkills);
         instructions =
           if extraInstructions == [ ] then
@@ -80,6 +97,8 @@ let
       skills,
       instructions,
       servers,
+      runtime,
+      files,
     }:
     let
       settingsFile = pkgs.writeText "${name}-settings.json" (builtins.toJSON settings);
@@ -100,9 +119,55 @@ let
         ${mkApplyInstructions instructions}
         install -m 600 "${settingsFile}" "$HOME/.claude/settings.json"
         ${mkApplyMcp { inherit mcpStaticFile servers; }}
+        export PATH="${lib.makeBinPath runtime}:$PATH"
+        ${lib.concatStrings (
+          lib.mapAttrsToList (var: path: "export ${var}=${lib.escapeShellArg path}\n") files
+        )}
         exec ${claude-code}/bin/claude "$@"
       '';
     };
+
+  # Settings that keep a session from accidentally reading the secret files it
+  # is handed as paths: Read deny rules over their directory, and a Bash hook
+  # blocking the obvious shell routes to them (secret-guard.py). This is
+  # protection against accidental reads, not a security boundary: the program
+  # that needs the secret reads the variable itself, and so can any script the
+  # session runs. Appended to whatever the flavor sets, so a flavor's own deny
+  # rules and Bash hooks stay. No files, no change.
+  withSecretFileGuard =
+    files: settings:
+    if files == { } then
+      settings
+    else
+      lib.recursiveUpdate settings {
+        permissions.deny = settings.permissions.deny or [ ] ++ secretDirDenyRules files;
+        hooks.PreToolUse = settings.hooks.PreToolUse or [ ] ++ [
+          {
+            matcher = "Bash";
+            hooks = [ (secretGuard.hookFor files) ];
+          }
+        ];
+      };
+
+  # Read deny rules for every directory holding a secret file, and for the
+  # `<dir>.d` that sops-nix points it at (`/run/secrets -> /run/secrets.d/<n>`),
+  # so neither the symlinked nor the resolved path is readable. macOS resolves
+  # `/run` itself to `/private/var/run`, so that spelling is denied too. `//`
+  # makes a rule's path absolute rather than project-relative.
+  secretDirDenyRules =
+    files:
+    lib.concatMap (
+      dir:
+      lib.concatMap
+        (root: [
+          "Read(/${root}${dir}/**)"
+          "Read(/${root}${dir}.d/**)"
+        ])
+        [
+          ""
+          "/private/var"
+        ]
+    ) (lib.unique (map dirOf (lib.attrValues files)));
 
   # Shell snippet: rebuild ~/.claude/skills from this flavor's farm.
   #
@@ -188,5 +253,5 @@ let
 in
 {
   inherit (mcp) mkStdioServer mkHttpServer;
-  inherit mkFlavorBuilder;
+  inherit mkFlavorBuilder withSecretFileGuard;
 }
