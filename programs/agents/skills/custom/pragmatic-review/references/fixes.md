@@ -17,7 +17,7 @@ git diff --stat "$P" > "$D/stat"
 git diff --shortstat "$P"
 git log --oneline "$P..$HEAD_SHA" > "$D/log"
 git status --short > "$D/status"
-grep -n '^diff --git' "$D/diff" > "$D/index"   # each file's first line in diff
+rg -n '^diff --git' "$D/diff" > "$D/index"     # each file's first line in diff
 ```
 
 These files are the fix diff for the rest of the re-review: read them in

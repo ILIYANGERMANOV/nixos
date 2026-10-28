@@ -54,11 +54,11 @@ the change should look like and its own flows and quirks.
 
 ## New public API
 
-When the PR adds a public API (an exported symbol, a field, an option), grep
-the host for it. If the host does not use it, the change is invisible there:
-that is a blocker with two options - QA the host as is, recording the change
-as invisible there, as expected; or open a draft host PR that wires it in,
-and QA on that.
+When the PR adds a public API (an exported symbol, a field, an option),
+search the host for it with `rg`. If the host does not use it, the change is
+invisible there: that is a blocker with two options - QA the host as is,
+recording the change as invisible there, as expected; or open a draft host PR
+that wires it in, and QA on that.
 
 ## No QA.md
 

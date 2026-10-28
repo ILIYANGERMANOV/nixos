@@ -56,9 +56,9 @@ directions:
    other two.
 
 You may run a check only if it would settle a specific thread and is cheap and
-narrow: a grep, one test file, a single-file type check. Never a full build,
-test suite or lint sweep. Never write files, never install anything, never run
-anything with side effects.
+narrow: an `rg` search, one test file, a single-file type check. Never a full
+build, test suite or lint sweep. Never write files, never install anything,
+never run anything with side effects.
 
 A bot author changes nothing about this bar. The bar already assumes the
 reviewer may be wrong.

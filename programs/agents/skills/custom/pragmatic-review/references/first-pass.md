@@ -18,7 +18,7 @@ git diff "$MB" > "$D/diff"            # committed, staged and unstaged
 git diff --stat "$MB" > "$D/stat"
 git log --oneline "$MB..$HEAD_SHA" > "$D/log"
 git status --short > "$D/status"      # untracked files never appear in a diff
-grep -n '^diff --git' "$D/diff" > "$D/index"   # each file's first line in diff
+rg -n '^diff --git' "$D/diff" > "$D/index"     # each file's first line in diff
 wc -l "$D"/*
 ```
 
