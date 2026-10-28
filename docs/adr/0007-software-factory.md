@@ -179,3 +179,13 @@ and taking no input (`modules/nixos/server/ops.nix`):
   generation of every profile, which is all a rollback reaches. Dev shells are
   not rooted (#192 chose a bigger disk over pinning them), so a GC can make
   the next `nix develop` fetch one again from the binary caches.
+  Before collecting it unregisters the result links builds left in `/tmp` or
+  a `~/.cache` for two days: Nix registers each as an indirect GC root, and
+  forgotten ones once pinned 18 GB that no GC could free. Root removes only
+  the registration in `/nix/var/nix/gcroots/auto`, never the link itself,
+  since an agent chooses that path and could point it anywhere. Worktree
+  roots in `~/.gcroots` and `nix develop --profile` generations are left
+  alone. `factory-ctl free-disk` deletes the agent's own such links without
+  root, systemd-tmpfiles ages `/tmp` out after three days,
+  and an hourly check starts `factory-gc` whenever less than 10% of `/` is
+  free.

@@ -36,6 +36,8 @@ let
   failedPolicy = lib.filter (a: !a.ok) policyAssertions;
 
   work = "/tmp/factory-check";
+  gcrootsAuto = "${work}/gcroots/auto";
+  tmpDir = "${work}/tmp";
 
   # Records every call as one line: the program name, then its arguments.
   recorder =
@@ -59,6 +61,7 @@ let
     opsStateDir = "${work}/ops";
     deployRepo = "owner/nixos";
     deployWorkflow = "deploy-factory.yml";
+    inherit gcrootsAuto tmpDir;
   };
 
   boot = factory.mkBoot ctl {
@@ -80,6 +83,9 @@ let
   maintenance = factory.mkMaintenance {
     stateDir = "${work}/ops";
     profile = "${work}/profiles/system";
+    inherit gcrootsAuto tmpDir;
+    # $HOME is ${work}/home.
+    homesDir = work;
   };
 
   # An in-memory systemd: a unit is active while a file named after it exists.

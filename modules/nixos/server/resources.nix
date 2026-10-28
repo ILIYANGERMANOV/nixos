@@ -105,6 +105,12 @@ in
     };
 
     systemd = {
+      # Agents leave build output in /tmp, `nix build` result links among it,
+      # each an indirect GC root pinning its closure. Anything untouched for
+      # three days goes, instead of systemd's default ten. tmpfiles applies the
+      # first line for a path, and NixOS's 00-nixos.conf sorts before tmp.conf.
+      tmpfiles.rules = [ "q /tmp 1777 root root 3d" ];
+
       # Under sustained memory pressure, oomd kills the heaviest process in a
       # user slice - in practice a compiler - instead of letting the kernel
       # choose.
