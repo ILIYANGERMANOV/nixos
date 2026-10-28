@@ -98,9 +98,9 @@ it would not exist yet.
 ## The summary comment
 
 One `gh pr comment`, posted only when the user picks option 1 in phase 6, after
-every thread reply has posted. It does two jobs: it gives the reviewer a single place to see the shape of the
-response, and it is the **only** way top-level comments get answered, since
-they have no thread to reply into.
+every thread reply has posted. It does two jobs: it gives the reviewer a single
+place to see the shape of the response, and it is the **only** way top-level
+comments get answered, since they have no thread to reply into.
 
 Keep it to counts plus the things that need a sentence. Do not restate every
 thread - the threads are right there.
