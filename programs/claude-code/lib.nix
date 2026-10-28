@@ -253,5 +253,5 @@ let
 in
 {
   inherit (mcp) mkStdioServer mkHttpServer;
-  inherit mkFlavorBuilder;
+  inherit mkFlavorBuilder withSecretFileGuard;
 }

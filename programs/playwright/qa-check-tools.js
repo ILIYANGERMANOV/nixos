@@ -128,8 +128,10 @@ async function checkExpectState() {
   await browser.close();
 }
 
-// Given a session on an app page, when one probe process sets page state and
-// a second attaches, then the second sees it, in the same browser process;
+// Given a session started on an app whose first response outlasts the 10 s
+// step timeout, as a dev server's first compile does, then it starts; when
+// one probe process sets page state and a second attaches, then the second
+// sees it, in the same browser process;
 // the wallet in the session declines when a probe says so; and what the page
 // logs reaches the console log with its credentials redacted.
 async function checkSession() {
@@ -139,7 +141,7 @@ async function checkSession() {
     window.found = [];
     window.addEventListener('eip6963:announceProvider', (e) => window.found.push(e.detail));
     window.dispatchEvent(new Event('eip6963:requestProvider'));
-  </script>`);
+  </script>`, { firstResponseDelayMs: 12_000 });
   const runDir = path.join(work, 'session-run');
   const keyFile = path.join(work, 'session-key');
   fs.writeFileSync(keyFile, `${generatePrivateKey()}\n`, { mode: 0o600 });
@@ -197,8 +199,13 @@ async function checkSession() {
   app.close();
 }
 
-async function serve(html) {
-  const server = http.createServer((_req, res) => res.end(html));
+// Serves `html` on loopback; the first response waits `firstResponseDelayMs`.
+async function serve(html, { firstResponseDelayMs = 0 } = {}) {
+  let delayMs = firstResponseDelayMs;
+  const server = http.createServer((_req, res) => {
+    setTimeout(() => res.end(html), delayMs);
+    delayMs = 0;
+  });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() };
 }
