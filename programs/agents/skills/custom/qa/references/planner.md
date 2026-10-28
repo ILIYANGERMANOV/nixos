@@ -36,6 +36,8 @@ whether `QA.md` or the code answers it. Anything neither answers is a
 **blocker**: one question each, with two to four concrete options, so the
 orchestrator can ask it as-is. A wallet item when the wallet is unavailable is
 not a blocker; mark it "Unverified: wallet unavailable on this host".
+Declining a wallet request is not a blocker either: the helper's
+`rejectNext(method)` declines the next one as a user would.
 
 ## No QA.md
 

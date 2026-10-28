@@ -4,7 +4,7 @@
 // account, and never serialised into the page, an error or a log line.
 //
 //   const { installWallet } = require('qa-wallet');
-//   const { address } = await installWallet(context, {
+//   const { address, rejectNext } = await installWallet(context, {
 //     keyFile: process.env.QA_EVM_KEY_FILE,
 //     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
 //     chainId: 11155111,
@@ -12,6 +12,9 @@
 //
 // Call it before the dApp's first navigation: the provider is an init script,
 // so pages loaded earlier never see it.
+//
+// `rejectNext('eth_sendTransaction')` makes the wallet decline the next request
+// of that method as a user would (EIP-1193 4001); later ones are answered.
 'use strict';
 
 const crypto = require('crypto');
@@ -27,7 +30,20 @@ const WALLET_INFO = {
   icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiIGZpbGw9IiM4ODgiLz48L3N2Zz4=',
 };
 
+// The requests a real wallet asks its user to approve, so the only ones a user
+// can decline.
+const APPROVABLE = [
+  'eth_requestAccounts',
+  'wallet_requestPermissions',
+  'wallet_switchEthereumChain',
+  'personal_sign',
+  'eth_sign',
+  'eth_signTypedData_v4',
+  'eth_sendTransaction',
+];
+
 // EIP-1193 error codes the provider answers with.
+const USER_REJECTED = 4001;
 const UNSUPPORTED = 4200;
 const UNRECOGNISED_CHAIN = 4902;
 
@@ -39,13 +55,17 @@ const UNRECOGNISED_CHAIN = 4902;
  * @param options.chainId  the chain the wallet is on, as a number
  * @param options.rpcUrl   JSON-RPC endpoint for reads and transactions; without
  *                         it only accounts, chain and signing requests work
- * @returns {Promise<{ address: string }>}
+ * @returns {Promise<{ address: string, rejectNext: (method: string) => void }>}
+ *   `rejectNext(method)` declines the next request of `method`, one of
+ *   APPROVABLE, with 4001 "User rejected the request."; one-shot per method
  */
 async function installWallet(target, { keyFile, rpcUrl, chainId }) {
   const account = privateKeyToAccount(readKey(keyFile));
   const handle = requestHandler({ account, rpcUrl, chainId });
+  const toReject = new Set();
   await target.exposeFunction(BINDING, async (method, params) => {
     try {
+      if (toReject.delete(method)) throw rpcError(USER_REJECTED, 'User rejected the request.');
       return { result: await handle(method, params ?? []) };
     } catch (error) {
       return { error: toRpcError(error) };
@@ -55,7 +75,13 @@ async function installWallet(target, { keyFile, rpcUrl, chainId }) {
     binding: BINDING,
     info: { uuid: crypto.randomUUID(), ...WALLET_INFO },
   });
-  return { address: account.address };
+  const rejectNext = (method) => {
+    if (!APPROVABLE.includes(method)) {
+      throw new Error(`qa-wallet: a user cannot decline ${method}; one of ${APPROVABLE.join(', ')}`);
+    }
+    toReject.add(method);
+  };
+  return { address: account.address, rejectNext };
 }
 
 function readKey(keyFile) {

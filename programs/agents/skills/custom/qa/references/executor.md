@@ -19,7 +19,8 @@ hook blocks it); `qa-wallet` reads it.
   state expired: stop that item as Unverified, "login state expired".
 - A wallet scenario calls `installWallet(context, { keyFile:
   process.env.QA_EVM_KEY_FILE, rpcUrl, chainId })` before the first `goto`,
-  with the chain and RPC from `QA.md`.
+  with the chain and RPC from `QA.md`. A declined signature or transaction
+  calls the returned `rejectNext(method)` just before the click that asks.
 
 ## Recording
 

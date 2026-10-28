@@ -42,7 +42,7 @@ async function main() {
   const logs = [];
   context.on('console', (message) => logs.push(message.text()));
   await context.route(DAPP, (route) => route.fulfill({ contentType: 'text/html', body: DAPP_HTML }));
-  const { address } = await installWallet(context, { keyFile, chainId: SEPOLIA });
+  const { address, rejectNext } = await installWallet(context, { keyFile, chainId: SEPOLIA });
 
   const page = await context.newPage();
   page.on('pageerror', (error) => logs.push(String(error)));
@@ -78,6 +78,21 @@ async function main() {
 
   const typed = (await call('eth_signTypedData_v4', [address, JSON.stringify(TYPED_DATA)])).result;
   assert.ok(await verifyTypedData({ address, signature: typed, ...TYPED_DATA }), 'typed data does not verify');
+
+  // Given the user will decline the next signature, when the dApp asks twice,
+  // then the first is rejected as a user would and the second is signed.
+  rejectNext('personal_sign');
+  const declined = await call('personal_sign', [`0x${Buffer.from(message).toString('hex')}`, address]);
+  assert.deepStrictEqual(declined.error, { code: 4001, message: 'User rejected the request.' });
+  const signedAfter = (await call('personal_sign', [`0x${Buffer.from(message).toString('hex')}`, address])).result;
+  assert.ok(await verifyMessage({ address, message, signature: signedAfter }), 'the request after a decline is not signed');
+
+  // A decline is per method, and reaches a transaction before any network.
+  rejectNext('eth_sendTransaction');
+  assert.strictEqual((await call('eth_signTypedData_v4', [address, JSON.stringify(TYPED_DATA)])).result, typed);
+  assert.strictEqual((await call('eth_sendTransaction', [{ to: address }])).error.code, 4001);
+  assert.strictEqual((await call('eth_sendTransaction', [{ to: address }])).error.code, 4200);
+  assert.throws(() => rejectNext('eth_blockNumber'), /cannot decline/);
 
   // Without an rpcUrl, reads fail as unsupported instead of reaching a network.
   assert.strictEqual((await call('eth_blockNumber')).error.code, 4200);

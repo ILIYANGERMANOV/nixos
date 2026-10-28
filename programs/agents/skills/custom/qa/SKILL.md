@@ -49,11 +49,12 @@ The wallet helper, opt-in from `QA.md`:
 ```js
 const { installWallet } = require('qa-wallet');
 // Before the dApp's first navigation. Context: every page; Page: that page.
-const { address } = await installWallet(context, {
+const { address, rejectNext } = await installWallet(context, {
   keyFile: process.env.QA_EVM_KEY_FILE,
   rpcUrl: 'https://...',   // reads and eth_sendTransaction; omit for signing only
   chainId: 11155111,       // a number
 });
+rejectNext('eth_sendTransaction'); // the user declines the next one
 ```
 
 It announces an EIP-1193 provider named "QA Wallet" (rdns `dev.qa.wallet`)
@@ -64,6 +65,13 @@ accounts, chain, `personal_sign`, `eth_signTypedData_v4`,
 key never enters the page. Without `QA_EVM_KEY_FILE` (every host but one),
 the wallet is **unavailable**: wallet items are Unverified with that reason,
 never a failed run.
+
+`rejectNext(method)` makes the next request of that method fail as a user's
+decline (`{ code: 4001, message: 'User rejected the request.' }`), once; call
+it mid-run, e.g. after the approval and before the swap. It takes the
+requests a user approves: `eth_requestAccounts`, `wallet_requestPermissions`,
+`wallet_switchEthereumChain`, `personal_sign`, `eth_sign`,
+`eth_signTypedData_v4`, `eth_sendTransaction`.
 
 ## Where things live
 
