@@ -20,14 +20,18 @@ Never passwords.
 
 ## Wallet
 Only for dApps. Whether QA uses the qa-wallet helper, the chain id, the RPC
-URL, the connector the app shows (injected, EIP-6963, AppKit, RainbowKit)
-and how to reach the connect button. Funds the flows need.
+URL, any `forwardRpc` patterns the host needs headless, the connector the
+app shows (injected, EIP-6963, AppKit, RainbowKit) and how to reach the
+connect button. Funds the flows need, as token addresses `qa-wallet balance`
+can check. Never a wallet address: each engineer's differs.
 
 ## Test data
 Fixtures, sample inputs and how to reset state between runs.
 
 ## Key flows
-The flows every QA run should smoke test, whatever the PR changes.
+The flows every QA run should smoke test, whatever the PR changes, with the
+test data that works for each (which offer, which option) and the framing a
+recording needs.
 
 ## Quirks
 Known flakiness, slow screens, stable selectors, things that look like bugs

@@ -43,6 +43,15 @@ Every Claude session has these on PATH, whatever the project:
   `qa-node`) gives the wallet helper.
 - `qa-mp4 <in.webm> <out.mp4>` - H.264 mp4 that GitHub plays inline.
 - `ffmpeg`, `ffprobe` - for frames and trims.
+- `qa-wallet address` - the QA Wallet's address, derived from the key; and
+  `qa-wallet balance --rpc <url> [--erc20 <token address>]...` - its native
+  and ERC-20 balances. Each engineer's wallet differs, so the address is
+  never stored: derive it. Exits 1 when the wallet is unavailable.
+
+The runtime is on PATH as a store path fixed when the session started, so a
+`darwin-rebuild` that changes it reaches only sessions started after it. If
+the runtime must change mid-run, ask the user to restart the session; a
+rebuild alone leaves `qa-node` and `QA_WALLET_MODULE` on the old build.
 
 The wallet helper, opt-in from `QA.md`:
 
@@ -53,8 +62,10 @@ const { address, rejectNext } = await installWallet(context, {
   keyFile: process.env.QA_EVM_KEY_FILE,
   rpcUrl: 'https://...',   // reads and eth_sendTransaction; omit for signing only
   chainId: 11155111,       // a number
+  forwardRpc: [/^https:\/\/rpc\.example\//], // optional, from QA.md
 });
 rejectNext('eth_sendTransaction'); // the user declines the next one
+rejectNext('eth_sendTransaction', { afterMs: 2000 }); // after a 2s look
 ```
 
 It announces an EIP-1193 provider named "QA Wallet" (rdns `dev.qa.wallet`)
@@ -71,15 +82,23 @@ decline (`{ code: 4001, message: 'User rejected the request.' }`), once; call
 it mid-run, e.g. after the approval and before the swap. It takes the
 requests a user approves: `eth_requestAccounts`, `wallet_requestPermissions`,
 `wallet_switchEthereumChain`, `personal_sign`, `eth_sign`,
-`eth_signTypedData_v4`, `eth_sendTransaction`.
+`eth_signTypedData_v4`, `eth_sendTransaction`. A decline answered at once
+can leave the dApp's pending state on screen for under a frame; `afterMs`
+holds it long enough to record.
+
+`forwardRpc` answers the dApp's own JSON-RPC POSTs to matching URLs from
+`rpcUrl`, for a dApp whose default RPC refuses headless traffic. `QA.md` says
+when a host needs it.
 
 ## Where things live
 
 - `QA.md` at the repo root: how to QA this repo. Its expected shape is in
   `${CLAUDE_SKILL_DIR}/references/qa-md.md`.
 - `~/.cache/qa/<owner>/<repo>/`: saved login state (`auth/<name>.json`,
-  Playwright `storageState`) and run artifacts (`runs/<pr>-<timestamp>/`).
-  Outside any checkout, so nothing is committed by accident.
+  Playwright `storageState`), run artifacts (`runs/<pr>-<timestamp>/`) and
+  the scripts earlier runs left working (`scripts/`: a shared `lib.cjs`
+  that opens the app and reaches each flow's screens, plus one file per
+  scenario). Outside any checkout, so nothing is committed by accident.
 
 ## Lifecycle
 
@@ -96,6 +115,11 @@ the current checkout is the repo path. Otherwise `git fetch origin
 <headRefOid>` and `git worktree add --detach <run>/worktree <headRefOid>`; that
 worktree is the repo path every later step and subagent uses. A fork's PR
 fetches `pull/<n>/head` instead.
+
+When the wallet is available and `QA.md` lists the funds its flows need, run
+`qa-wallet balance` with the RPC and token addresses `QA.md` gives, now,
+before planning. If a balance is short, ask the user to top up the printed
+address while planning and setup carry on; check again before step 6.
 
 ### 2. Plan
 
@@ -127,17 +151,24 @@ When a plan item needs a logged-in session, use
 or expired (the app lands on its login page), on a Mac run a `qa-node` script
 that opens Chromium **headed** on the login URL, waits for the user to log in
 and close the tab (`page.waitForEvent('close', { timeout: 0 })`), then saves
-`context.storageState({ path })`. Ask the user before opening it. On a host
-without a display, ask the user how to proceed.
+`context.storageState({ path })`. Ask the user before opening it. First
+follow the login link headless as far as the identity provider's page and
+screenshot it: an error there (a bad redirect URL) is a Fail to report, not
+something to send the user into. On a host without a display, ask the user
+how to proceed.
 
 ### 6. Execute
 
 Spawn a fresh executor subagent. Brief: read
 `${CLAUDE_SKILL_DIR}/references/executor.md` and follow it; the approved plan
 verbatim; the repo path, the head sha it must be at, and how to run the app
-from `QA.md`; the run directory; the auth file paths; whether the wallet is available. It returns a
+from `QA.md`; the run directory; the auth file paths; whether the wallet is
+available and its balances from step 1; the scripts directory
+`~/.cache/qa/<owner>/<repo>/scripts/`. It returns a
 verdict per item (Pass, Fail or Unverified), each with its artifacts, repro
-steps for every Fail, and knowledge worth adding to `QA.md`.
+steps for every Fail, and knowledge worth adding to `QA.md`. Brief a rerun
+with the previous run's findings and tell it to start from the scripts
+directory.
 
 ### 7. Check the evidence
 

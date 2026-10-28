@@ -4,6 +4,7 @@
   "private": true,
   "description": "An EIP-1193 wallet for Playwright that signs in Node, so the key never enters the page.",
   "main": "index.js",
+  "bin": { "qa-wallet": "cli.js" },
   "license": "MIT",
   "dependencies": {
     "viem": "2.57.4"

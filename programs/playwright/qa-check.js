@@ -1,21 +1,25 @@
 // checks.qa, run by `qa-node`: the wallet helper against a synthetic dApp
 // served from a Playwright route, with a key generated for this run, and a
-// recorded video through `qa-mp4`. No network: the dApp origin never resolves
-// and the wallet gets no rpcUrl.
+// recorded video through `qa-mp4`, and the `qa-wallet` command. No network:
+// the dApp origin never resolves, and the RPC is a fake JSON-RPC node on
+// loopback.
 'use strict';
 
 const assert = require('assert');
-const { execFileSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const { chromium } = require('playwright');
-const { verifyMessage, verifyTypedData } = require('viem');
+const { decodeFunctionData, encodeFunctionResult, erc20Abi, verifyMessage, verifyTypedData } = require('viem');
 const { generatePrivateKey } = require('viem/accounts');
 const { installWallet } = require('qa-wallet');
 
 const work = process.argv[2];
 const SEPOLIA = 11155111;
 const DAPP = 'http://dapp.test/';
+const RPC = 'http://rpc.test/v1/';
+const TOKEN = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
 
 // The page a wagmi or AppKit dApp would be, reduced to EIP-6963 discovery.
 const DAPP_HTML = `<!doctype html><title>dApp</title><p>dApp</p><script>
@@ -120,6 +124,14 @@ async function main() {
 
   const video = page.video();
   await context.close();
+
+  const rpc = await fakeRpc();
+  try {
+    await checkCommand({ keyFile, address, rpcUrl: rpc.url, work });
+    await checkForwardingAndDelayedDecline(browser, { keyFile, rpcUrl: rpc.url });
+  } finally {
+    rpc.close();
+  }
   await browser.close();
 
   // The recording transcodes to an H.264 mp4 GitHub plays inline.
@@ -132,6 +144,132 @@ async function main() {
   assert.strictEqual(codec, 'h264');
 
   console.log('qa: wallet and video pipeline ok');
+}
+
+// `qa-wallet` derives the address, reads the balances from the RPC, and never
+// names the key file, not even when the file is unreadable. Asynchronous, so
+// the fake RPC in this process can answer it.
+async function checkCommand({ keyFile, address, rpcUrl, work }) {
+  const run = (args, env) =>
+    new Promise((resolve) => {
+      const options = { env: { ...process.env, QA_EVM_KEY_FILE: '', ...env } };
+      execFile('qa-wallet', args, options, (error, stdout, stderr) =>
+        resolve({ status: error ? error.code : 0, stdout, stderr }),
+      );
+    });
+
+  assert.strictEqual((await run(['address'], { QA_EVM_KEY_FILE: keyFile })).stdout.trim(), address);
+
+  const balance = await run(['balance', '--rpc', rpcUrl, '--erc20', TOKEN], { QA_EVM_KEY_FILE: keyFile });
+  assert.strictEqual(balance.status, 0, balance.stderr);
+  assert.deepStrictEqual(balance.stdout.trim().split('\n'), [
+    `address ${address}`,
+    'native 1.5',
+    `USDC 12.25 (${TOKEN})`,
+  ]);
+
+  const unset = await run(['address'], {});
+  assert.strictEqual(unset.status, 1);
+  assert.match(unset.stderr, /unavailable/);
+
+  const missing = path.join(work, 'no-such-key');
+  const unreadable = await run(['address'], { QA_EVM_KEY_FILE: missing });
+  assert.strictEqual(unreadable.status, 1);
+  assert.match(unreadable.stderr, /\$QA_EVM_KEY_FILE/);
+  assert.ok(!unreadable.stderr.includes(missing), 'qa-wallet named the key file');
+}
+
+// `forwardRpc` answers the page's own POSTs for this chain from `rpcUrl`, and
+// lets GETs and other chains go out untouched (here: to a host that never
+// resolves). `rejectNext(m, { afterMs })` declines only after the pause.
+async function checkForwardingAndDelayedDecline(browser, { keyFile, rpcUrl }) {
+  const context = await browser.newContext();
+  await context.route(DAPP, (route) => route.fulfill({ contentType: 'text/html', body: DAPP_HTML }));
+  const { address, rejectNext } = await installWallet(context, {
+    keyFile,
+    rpcUrl,
+    chainId: SEPOLIA,
+    forwardRpc: [/^http:\/\/rpc\.test\//],
+  });
+  const page = await context.newPage();
+  await page.goto(DAPP);
+
+  const post = (url) =>
+    page.evaluate(async (url) => {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
+        });
+        return { body: await response.json() };
+      } catch (error) {
+        return { failed: String(error) };
+      }
+    }, url);
+
+  assert.deepStrictEqual(await post(`${RPC}?chainId=eip155:${SEPOLIA}`), {
+    body: { jsonrpc: '2.0', id: 1, result: '0x2a' },
+  });
+  assert.deepStrictEqual(await post(RPC), { body: { jsonrpc: '2.0', id: 1, result: '0x2a' } });
+  assert.ok((await post(`${RPC}?chainId=eip155:1`)).failed, 'another chain was forwarded');
+  const get = await page.evaluate((url) => fetch(url).then(() => 'answered', () => 'failed'), RPC);
+  assert.strictEqual(get, 'failed', 'a GET was forwarded');
+
+  const call = (method, params) =>
+    page.evaluate(
+      async ([method, params]) => {
+        try {
+          return { result: await window.found[0].provider.request({ method, params }) };
+        } catch (error) {
+          return { error: { code: error.code } };
+        }
+      },
+      [method, params],
+    );
+  const hex = `0x${Buffer.from('hello').toString('hex')}`;
+  const afterMs = 400;
+  rejectNext('personal_sign', { afterMs });
+  const started = Date.now();
+  assert.deepStrictEqual(await call('personal_sign', [hex, address]), { error: { code: 4001 } });
+  assert.ok(Date.now() - started >= afterMs, 'the decline did not wait afterMs');
+  assert.ok((await call('personal_sign', [hex, address])).result, 'the request after a delayed decline is not signed');
+
+  await context.close();
+}
+
+// A JSON-RPC node on loopback: block 42, 1.5 ETH, and one ERC-20 (USDC, 6
+// decimals) holding 12.25 for anyone.
+async function fakeRpc() {
+  const answer = ({ method, params }) => {
+    switch (method) {
+      case 'eth_chainId':
+        return `0x${SEPOLIA.toString(16)}`;
+      case 'eth_blockNumber':
+        return '0x2a';
+      case 'eth_getBalance':
+        return `0x${(15n * 10n ** 17n).toString(16)}`;
+      case 'eth_call': {
+        const { functionName } = decodeFunctionData({ abi: erc20Abi, data: params[0].data ?? params[0].input });
+        const values = { symbol: 'USDC', decimals: 6, balanceOf: 12_250_000n };
+        return encodeFunctionResult({ abi: erc20Abi, functionName, result: values[functionName] });
+      }
+      default:
+        throw new Error(`fake rpc: unexpected ${method}`);
+    }
+  };
+  const respond = (request) =>
+    Array.isArray(request) ? request.map(respond) : { jsonrpc: '2.0', id: request.id, result: answer(request) };
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(respond(JSON.parse(body))));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() };
 }
 
 main().catch((error) => {

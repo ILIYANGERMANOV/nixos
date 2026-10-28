@@ -15,6 +15,16 @@
 //
 // `rejectNext('eth_sendTransaction')` makes the wallet decline the next request
 // of that method as a user would (EIP-1193 4001); later ones are answered.
+// `rejectNext(method, { afterMs: 2000 })` declines after a pause, as a user
+// reading the prompt would, so the dApp's pending state lasts long enough to
+// be recorded.
+//
+// `forwardRpc: [/^https:\/\/rpc\.walletconnect\.org\//]` answers the dApp's own
+// JSON-RPC POSTs to matching URLs from `rpcUrl`, for a dApp whose default RPC
+// refuses headless or localhost traffic (its receipt waits then never end).
+//
+// `walletAddress(keyFile)` derives the address without installing anything;
+// the `qa-wallet` command prints it and the balances a run needs.
 'use strict';
 
 const crypto = require('crypto');
@@ -55,17 +65,26 @@ const UNRECOGNISED_CHAIN = 4902;
  * @param options.chainId  the chain the wallet is on, as a number
  * @param options.rpcUrl   JSON-RPC endpoint for reads and transactions; without
  *                         it only accounts, chain and signing requests work
- * @returns {Promise<{ address: string, rejectNext: (method: string) => void }>}
- *   `rejectNext(method)` declines the next request of `method`, one of
- *   APPROVABLE, with 4001 "User rejected the request."; one-shot per method
+ * @param options.forwardRpc  URL patterns (RegExp) whose JSON-RPC POSTs are
+ *                         answered from `rpcUrl` instead; needs a BrowserContext
+ * @returns {Promise<{ address: string, rejectNext: (method: string, options?: { afterMs?: number }) => void }>}
+ *   `rejectNext(method, { afterMs })` declines the next request of `method`,
+ *   one of APPROVABLE, with 4001 "User rejected the request.", after `afterMs`
+ *   (default 0); one-shot per method
  */
-async function installWallet(target, { keyFile, rpcUrl, chainId }) {
+async function installWallet(target, { keyFile, rpcUrl, chainId, forwardRpc = [] }) {
   const account = privateKeyToAccount(readKey(keyFile));
   const handle = requestHandler({ account, rpcUrl, chainId });
-  const toReject = new Set();
+  const toReject = new Map();
+  if (forwardRpc.length > 0) await forwardTo(target, { patterns: forwardRpc, rpcUrl, chainId });
   await target.exposeFunction(BINDING, async (method, params) => {
     try {
-      if (toReject.delete(method)) throw rpcError(USER_REJECTED, 'User rejected the request.');
+      if (toReject.has(method)) {
+        const afterMs = toReject.get(method);
+        toReject.delete(method);
+        await new Promise((resolve) => setTimeout(resolve, afterMs));
+        throw rpcError(USER_REJECTED, 'User rejected the request.');
+      }
       return { result: await handle(method, params ?? []) };
     } catch (error) {
       return { error: toRpcError(error) };
@@ -75,13 +94,49 @@ async function installWallet(target, { keyFile, rpcUrl, chainId }) {
     binding: BINDING,
     info: { uuid: crypto.randomUUID(), ...WALLET_INFO },
   });
-  const rejectNext = (method) => {
+  const rejectNext = (method, { afterMs = 0 } = {}) => {
     if (!APPROVABLE.includes(method)) {
       throw new Error(`qa-wallet: a user cannot decline ${method}; one of ${APPROVABLE.join(', ')}`);
     }
-    toReject.add(method);
+    toReject.set(method, afterMs);
   };
   return { address: account.address, rejectNext };
+}
+
+/** The wallet's address, derived from the key; the key itself never leaves. */
+function walletAddress(keyFile) {
+  return privateKeyToAccount(readKey(keyFile)).address;
+}
+
+// Answers the page's JSON-RPC POSTs to `patterns` from `rpcUrl`. Anything
+// else goes out untouched: GETs, other hosts, and a URL whose `chainId` query
+// parameter (AppKit's `eip155:<id>`) names another chain.
+async function forwardTo(context, { patterns, rpcUrl, chainId }) {
+  if (!rpcUrl) throw new Error('qa-wallet: forwardRpc needs an rpcUrl');
+  if (typeof context.route !== 'function') throw new Error('qa-wallet: forwardRpc needs a BrowserContext or Page');
+  for (const pattern of patterns) {
+    await context.route(pattern, async (route) => {
+      const request = route.request();
+      const wanted = new URL(request.url()).searchParams.get('chainId');
+      const otherChain = wanted !== null && wanted.split(':').pop() !== String(chainId);
+      if (request.method() !== 'POST' || otherChain) return route.continue();
+      try {
+        const response = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: request.postData(),
+        });
+        await route.fulfill({
+          status: response.status,
+          contentType: 'application/json',
+          headers: { 'access-control-allow-origin': '*' },
+          body: await response.text(),
+        });
+      } catch {
+        await route.abort();
+      }
+    });
+  }
 }
 
 function readKey(keyFile) {
@@ -185,4 +240,4 @@ function pageProvider({ binding, info }) {
   if (!window.ethereum) window.ethereum = provider;
 }
 
-module.exports = { installWallet };
+module.exports = { installWallet, walletAddress };

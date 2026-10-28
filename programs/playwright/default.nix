@@ -4,8 +4,9 @@
 # package and the browsers come from the same nixpkgs, so their revisions match.
 #
 # `qa` is the /qa skill's runtime: `qa-node`, a node that resolves
-# `playwright`, `viem` and the `qa-wallet` helper from any directory, plus
-# ffmpeg for webm -> mp4. The environment lives in `qa-node` rather than the
+# `playwright`, `viem` and the `qa-wallet` helper from any directory, the
+# `qa-wallet` command (the wallet's address and balances, derived from the
+# key), plus ffmpeg for webm -> mp4. The environment lives in `qa-node` rather than the
 # session, because an exported PLAYWRIGHT_BROWSERS_PATH would point a
 # project's own, differently versioned Playwright at the wrong browsers.
 { pkgs }:
@@ -32,6 +33,7 @@ let
         ./wallet/package.json
         ./wallet/package-lock.json
         ./wallet/index.js
+        ./wallet/cli.js
       ];
     };
     npmDepsHash = "sha256-52Ye5hQDGtMYcXxPic8agTIEfVyCm9Hl4FkBC+9Pr7M=";
@@ -75,6 +77,7 @@ in
     paths = [
       qaNode
       qaMp4
+      wallet
       pkgs.ffmpeg-headless
     ];
   };

@@ -13,6 +13,9 @@ For every item marked **Pass**:
    the plan states. Otherwise change it to **Unverified** with one line saying
    what is missing ("success toast not visible", "video ends before submit").
 
+A Pass whose only evidence is Storybook or another component preview is
+**Unverified**: "shown in a story, not in the app".
+
 Leave Fail and Unverified items as they are. Check that every artifact a
 verdict cites exists. Never rerun the scenario and never edit an artifact.
 

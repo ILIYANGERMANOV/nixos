@@ -14,6 +14,11 @@ Read the PR (`gh pr view <n>`, `gh pr diff <n>`) and the repo's `QA.md`.
 Cover only what is in scope. A rare edge case that needs elaborate setup is
 listed under "Skipped", not planned.
 
+Plan against the running app only. Never plan a Storybook or other
+component-preview item, and never cite one as evidence: a story renders a
+state someone wrote by hand, which the PR's tests and review already cover,
+and QA is about what a user reaches.
+
 ## The plan
 
 Item 1 is always the **happy path**: one continuous end-to-end run through
