@@ -30,7 +30,9 @@ agree with the report.
   (`backgroundTaskId` or `isAsync` in `toolUseResult`) ends at the first
   `<task-notification>` naming its `<tool-use-id>`, delivered as a
   `queue-operation` line or a user line; its `<status>` and summary give
-  failure and exit code.
+  failure and exit code. An `Agent` call is timed without the
+  `AskUserQuestion` time of the subagent it spawned, matched by the
+  `toolUseId` in that subagent's `.meta.json`.
 - **Waiting on the person.** The time any agent's `AskUserQuestion` stayed
   open, plus each gap before a human prompt in which no tool call (background
   ones included) was running; overlaps count once. Work time is wall clock
@@ -57,9 +59,6 @@ agree with the report.
   subcommand (`nix run .#test`), so different filters share a row.
 - Wall clock per session overlaps across parallel sessions; do not add
   sessions up to claim machine time.
-- A foreground `Agent` call's wall time includes any question its subagent
-  asked: subtract that subagent's `AskUserQuestion` time before calling the
-  call slow.
 - A background call that never sent a notification has no end, so a gap it
   overlapped counts as waiting.
 - The report caps every table; ask a subagent for the omitted rows.

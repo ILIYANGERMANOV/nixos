@@ -25,9 +25,10 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
 From nixos#215, where foreground Bash took 5.2h over 10 runs.
 
 - **A check ladder** in the repository's `CLAUDE.md`: the narrowest check
-  while iterating, one full check per agent at the end, none after doc-only
-  edits, never build/test/lint chained in front of the full check. Redundant
-  and chained checks cost about 40 min.
+  while iterating, targeted checks only for implementers, fixers and
+  refactor passes, one full check by the last agent to push and only for a
+  large change, none after doc-only edits, never build/test/lint chained in
+  front of the full check. Redundant and chained checks cost about 40 min.
 - **Background long commands** with `run_in_background`, never a foreground
   `sleep` or `until` loop (15 min lost, 7 calls hit the timeout).
 - **Missing tooling fixed at the source**: a `default` dev shell when agents

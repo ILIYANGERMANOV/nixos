@@ -8,7 +8,7 @@ it.
 
 This is a fast pass from the patch, inside the bar's budget. Read your hunks
 from the diff file; open the code a test exercises only to see what it calls and
-asserts, and `grep` to settle one question - does another test already cover
+asserts, and `rg` to settle one question - does another test already cover
 this, is there a shared builder or fake. Do not hunt bugs in the production
 code: other agents own that. Never run the suite; one test file at most, to
 settle one finding.

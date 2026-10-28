@@ -30,6 +30,7 @@ class Transcript:
     """Builds one agent's JSONL transcript; times are seconds after BASE."""
 
     cwd: str = "/home/dev/repos/demo"
+    parent: str | None = None  # a subagent's spawning Agent call, as its meta.json names it
     lines: list[dict] = field(default_factory=list)
     calls: int = 0
 
@@ -87,7 +88,8 @@ class Home:
         for agent_id, (kind, description, transcript) in (subagents or {}).items():
             base = project / sid / "subagents" / f"agent-{agent_id}"
             write(base.with_suffix(".jsonl"), transcript)
-            base.with_suffix(".meta.json").write_text(json.dumps({"agentType": kind, "description": description}))
+            meta = {"agentType": kind, "description": description, "toolUseId": transcript.parent}
+            base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
     def report(self, *args: str) -> str:
         run = subprocess.run([sys.executable, "-I", ANALYZER, "--root", str(self.root), *args],
@@ -183,9 +185,9 @@ class WallTime(Case):
     def test_a_subagents_question_is_waiting_on_the_person(self) -> None:
         # Given: an implementer that waits 20 min on a question inside a 60 min session
         main = Transcript().human(0, "go")
-        main.tool(10, "Agent", 3000, description="Implement parser")
+        spawn = main.tool(10, "Agent", 3000, description="Implement parser")
         main.reply(3600)
-        sub = Transcript().reply(20)
+        sub = Transcript(parent=spawn).reply(20)
         sub.tool(100, "AskUserQuestion", 1300)
         sub.reply(2900)
         self.home.session("s1", main, {"a1": ("general-purpose", "Implement parser", sub)})
@@ -194,17 +196,21 @@ class WallTime(Case):
         # Then: the 20 minutes are waiting, and no tool row ranks the question
         self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "20m"])
         self.assertNotIn("| AskUserQuestion |", section(report, "Wall time per tool"))
+        # And: the Agent call that spawned it is timed without the question
+        self.assertEqual(row(report, "Wall time per tool", "Agent")[1:], ["fg", "1", "30m", "1790s", "1790s"])
 
     def test_a_human_gap_with_background_work_running_is_work(self) -> None:
-        # Given: a background agent runs 20 min into a 30 min gap before the next prompt
+        # Given: a background agent works 20 min into a 30 min silence in the main transcript,
+        # and its notification is not in it, so only the subagent's own calls show the work
         main = Transcript().human(0, "go")
-        bg = main.tool(60, "Agent", 61, background=True, description="Review")
-        main.notify(1260, bg, "completed", "done")
+        spawn = main.tool(60, "Agent", 61, background=True, description="Review")
         main.human(1860, "next").reply(3600)
-        self.home.session("s1", main)
+        sub = Transcript(parent=spawn)
+        sub.bash(61, "just check", 1260)
+        self.home.session("s1", main, {"a1": ("general-purpose", "Review", sub)})
         # When
         report = self.home.report()
-        # Then: only the 10 idle minutes after the agent finished are waiting
+        # Then: only the 10 idle minutes after the subagent's work are waiting
         self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "10m"])
 
 
