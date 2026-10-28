@@ -93,6 +93,8 @@ class Unanswered:
 
 
 Timing = Union[Foreground, Background, Unanswered]
+Interval = tuple[float, float]
+ASK = "AskUserQuestion"
 
 
 @dataclass(frozen=True)
@@ -191,7 +193,7 @@ class Transcript:
     times: list[float] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
     invocations: list[float] = field(default_factory=list)
-    human_wait: float = 0.0
+    human_gaps: list[Interval] = field(default_factory=list)  # before each human prompt
     cwd: str = ""
 
 
@@ -222,7 +224,7 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
         end=max(times),
         commands=main.commands,
         invocations=main.invocations,
-        human_wait=main.human_wait + sum(ask_seconds(main.agent)),
+        human_wait=waiting_seconds(main.human_gaps, [main.agent, *(s.agent for s in subs)]),
         main=main.agent,
         subagents=[s.agent for s in subs],
     )
@@ -239,10 +241,41 @@ def project_name(cwd: str) -> str:
     return Path(cwd.split("/.claude/worktrees/")[0]).name or "?"
 
 
-def ask_seconds(agent: Agent) -> Iterator[float]:
-    for call in agent.calls:
-        if call.name == "AskUserQuestion" and call.seconds is not None:
-            yield call.seconds
+def waiting_seconds(human_gaps: list[Interval], agents: list[Agent]) -> float:
+    """Time spent waiting on the person: every open question, by any agent,
+    plus each gap before a human prompt in which no tool call was running."""
+    asks, busy = [], []
+    for agent in agents:
+        for call in agent.calls:
+            if call.seconds is not None:
+                (asks if call.name == ASK else busy).append((call.start, call.start + call.seconds))
+    idle = [part for gap in human_gaps for part in subtract(gap, merge(busy))]
+    return sum(end - start for start, end in merge(asks + idle))
+
+
+def merge(intervals: list[Interval]) -> list[Interval]:
+    """Sorted, non-overlapping intervals covering the same time."""
+    out: list[Interval] = []
+    for start, end in sorted(intervals):
+        if out and start <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], end))
+        else:
+            out.append((start, end))
+    return out
+
+
+def subtract(interval: Interval, merged: list[Interval]) -> Iterator[Interval]:
+    """The parts of `interval` outside the sorted, non-overlapping `merged`."""
+    start, end = interval
+    for cut_start, cut_end in merged:
+        if cut_start >= end:
+            break
+        if cut_end > start:
+            if cut_start > start:
+                yield start, cut_start
+            start = max(start, cut_end)
+    if start < end:
+        yield start, end
 
 
 def parse_transcript(path: Path, kind: str, description: str, until: float | None) -> Transcript:
@@ -274,7 +307,7 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
                 out.commands += names
                 out.invocations += [ts] if SELF in names else []
                 if (event.get("origin") or {}).get("kind") == "human" and previous is not None:
-                    out.human_wait += ts - previous
+                    out.human_gaps.append((previous, ts))
                 record_notifications(calls, text, ts)
             case "queue-operation":
                 record_notifications(calls, str(event.get("content") or ""), ts)
@@ -695,7 +728,7 @@ def what(call: ToolCall) -> str:
 def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
     groups: dict[tuple[str, str], list[float]] = defaultdict(list)
     for _, _, c in calls:
-        if c.seconds is not None:
+        if c.seconds is not None and c.name != ASK:  # waiting on the person is never a bottleneck
             groups[(c.name, c.mode)].append(c.seconds)
     ranked = sorted(groups.items(), key=lambda kv: -sum(kv[1]))
     rows = [

@@ -100,10 +100,14 @@ def write(path: Path, transcript: Transcript) -> None:
     path.write_text("".join(json.dumps(line) + "\n" for line in transcript.lines))
 
 
-def row(report: str, section: str, first_cell: str) -> list[str]:
-    """The cells of the row whose first cell is `first_cell`, in the section titled `section`."""
-    body = report.split(f"## {section}", 1)[-1].split("\n## ", 1)[0]
-    for line in body.splitlines():
+def section(report: str, title: str) -> str:
+    """The body of the report section titled `title`."""
+    return report.split(f"## {title}", 1)[-1].split("\n## ", 1)[0]
+
+
+def row(report: str, title: str, first_cell: str) -> list[str]:
+    """The cells of the row whose first cell is `first_cell`, in the section titled `title`."""
+    for line in section(report, title).splitlines():
         cells = [c.strip() for c in line.strip("|").split("|")]
         if line.startswith("|") and cells[0] == first_cell:
             return cells
@@ -173,6 +177,35 @@ class WallTime(Case):
         # Then: 12 of the 60 minutes are waiting
         self.assertIn("Wall clock: 1.0h = work 0.8h + waiting on the person 0.2h", report)
         self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "12m"])
+        # And: the question is not ranked as a tool bottleneck
+        self.assertNotIn("| AskUserQuestion |", section(report, "Wall time per tool"))
+
+    def test_a_subagents_question_is_waiting_on_the_person(self) -> None:
+        # Given: an implementer that waits 20 min on a question inside a 60 min session
+        main = Transcript().human(0, "go")
+        main.tool(10, "Agent", 3000, description="Implement parser")
+        main.reply(3600)
+        sub = Transcript().reply(20)
+        sub.tool(100, "AskUserQuestion", 1300)
+        sub.reply(2900)
+        self.home.session("s1", main, {"a1": ("general-purpose", "Implement parser", sub)})
+        # When
+        report = self.home.report()
+        # Then: the 20 minutes are waiting, and no tool row ranks the question
+        self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "20m"])
+        self.assertNotIn("| AskUserQuestion |", section(report, "Wall time per tool"))
+
+    def test_a_human_gap_with_background_work_running_is_work(self) -> None:
+        # Given: a background agent runs 20 min into a 30 min gap before the next prompt
+        main = Transcript().human(0, "go")
+        bg = main.tool(60, "Agent", 61, background=True, description="Review")
+        main.notify(1260, bg, "completed", "done")
+        main.human(1860, "next").reply(3600)
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then: only the 10 idle minutes after the agent finished are waiting
+        self.assertEqual(row(report, "Sessions", "s1")[3:5], ["60m", "10m"])
 
 
 class RedundantChecks(Case):

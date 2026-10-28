@@ -31,8 +31,11 @@ agree with the report.
   `<task-notification>` naming its `<tool-use-id>`, delivered as a
   `queue-operation` line or a user line; its `<status>` and summary give
   failure and exit code.
-- **Waiting on the person.** The gap before each human prompt, plus the time
-  `AskUserQuestion` calls stayed open. Work time is wall clock minus that.
+- **Waiting on the person.** The time any agent's `AskUserQuestion` stayed
+  open, plus each gap before a human prompt in which no tool call (background
+  ones included) was running; overlaps count once. Work time is wall clock
+  minus that. Waiting is never a bottleneck, so `AskUserQuestion` is left out
+  of the tool-time ranking.
 - **Failures.** `is_error` results (non-zero exit, blocked or invalid calls),
   results containing `command not found`, and failed background
   notifications, grouped by command and their first error line with numbers
@@ -54,6 +57,9 @@ agree with the report.
   subcommand (`nix run .#test`), so different filters share a row.
 - Wall clock per session overlaps across parallel sessions; do not add
   sessions up to claim machine time.
-- A gap before a human prompt counts as waiting even when background work was
-  still running in it.
+- A foreground `Agent` call's wall time includes any question its subagent
+  asked: subtract that subagent's `AskUserQuestion` time before calling the
+  call slow.
+- A background call that never sent a notification has no end, so a gap it
+  overlapped counts as waiting.
 - The report caps every table; ask a subagent for the omitted rows.
