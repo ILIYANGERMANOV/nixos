@@ -79,7 +79,7 @@ wrong tool for iterating.
    `claude-bash-guards` for `programs/claude-code`, `nvim-search`,
    `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
-   `playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
+   `playwright` and `qa` (Linux only) for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old`, `software-factory`) or
@@ -219,6 +219,25 @@ logging out of the Claude account, which wipes every MCP grant at once
 that ever wants a static bearer token - both Linear and Superhuman Docs accept
 one - is a small addition here rather than a redesign. Nothing needs it yet,
 and a static token is what would let a remote server be host-gated after all.
+
+#### Session runtime and secret files
+
+`runtime` in `default.nix` is put on PATH by every flavor wrapper: today
+`programs/playwright`'s `qa` - `qa-node` (Node resolving `playwright` with
+nixpkgs' Chromium, `viem` and the `qa-wallet` helper from any directory) and
+`qa-mp4` (ffmpeg). The environment lives inside `qa-node`, never the session,
+so a project's own Playwright keeps its own browsers. The factory's Remote
+Control units run the unwrapped binary, so its profile installs `qa` too.
+
+`secretFiles` maps an env var to a secret **name**, for a program that reads
+the file itself: the wrapper exports the decrypted file's **path**, never its
+value (`QA_EVM_KEY_FILE` -> `qa-sepolia-key`, declared on `macos-work` only).
+A host without the secret gets no variable. Where one is exported,
+`withSecretFileGuard` in `lib.nix` adds a `Read` deny rule for the path and the
+`claude-secret-guard` Bash hook, which blocks any command naming the path or
+expanding the variable. `checks.qa` tests the wallet helper and the video
+pipeline headless against a generated key; `checks.claude-bash-guards` the
+guard.
 
 ### Agent Skills
 

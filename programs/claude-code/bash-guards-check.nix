@@ -8,6 +8,7 @@ pkgs.runCommand "claude-bash-guards-check"
     nativeBuildInputs = [
       (import ./read-guard.nix { inherit pkgs; }).bin
       (import ./wait-guard.nix { inherit pkgs; }).bin
+      (import ./secret-guard.nix { inherit pkgs; }).bin
       pkgs.git
       pkgs.jq
     ];
@@ -136,6 +137,23 @@ pkgs.runCommand "claude-bash-guards-check"
     EOF"
     expect_call 0 "a backgrounded long sleep is allowed" "sleep 30" true
     expect_call 0 "a backgrounded poll is allowed" "until [ -f x ]; do sleep 5; done" true
+    shared_failopen
+
+    guard=$TMPDIR/secret-guard
+    echo "claude-secret-guard:"
+    printf '#!${pkgs.runtimeShell}\nexec claude-secret-guard %s\n' \
+      "'{\"paths\": [\"/run/secrets/qa-key\"], \"vars\": [\"QA_KEY_FILE\"]}'" >"$guard"
+    chmod +x "$guard"
+    expect 2 "reading the path is blocked" "cat /run/secrets/qa-key"
+    grep -q "Never read it from a shell" "$TMPDIR/err" || { echo "  ✗ the block carries the hint" >&2; status=1; }
+    expect 2 "expanding the variable is blocked" 'cat "$QA_KEY_FILE"'
+    expect 2 "a braced expansion is blocked" 'xxd ''${QA_KEY_FILE:-x}'
+    expect 2 "a heredoc script naming the path is blocked" "python3 - <<'EOF'
+    print(open('/run/secrets/qa-key').read())
+    EOF"
+    expect 0 "naming the variable without expanding it is allowed" "printenv QA_KEY_FILE"
+    expect 0 "a longer variable name is allowed" 'echo "$QA_KEY_FILE_HINT"'
+    expect 0 "running a script that reads the variable itself is allowed" "qa-node wallet.cjs"
     shared_failopen
 
     if [ "$status" -ne 0 ]; then

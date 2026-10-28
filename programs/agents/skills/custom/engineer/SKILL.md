@@ -115,4 +115,5 @@ there, under the merge-danger or follow-up section, with the reason.
   failures through a subagent, and wait again.
 - When CI is green, mark the PR ready with `gh pr ready <n>` and notify the
   user, mentioning that `/final-review [requirements]` on the ready PR gives
-  an independent check. You do not run it.
+  an independent check, and `/qa [instructions]` records QA proof of the
+  feature running. You run neither.

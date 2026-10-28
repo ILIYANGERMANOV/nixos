@@ -10,6 +10,7 @@
 
 let
   mcp = import ./mcp.nix { inherit lib secrets; };
+  secretGuard = import ./secret-guard.nix { inherit pkgs; };
 
   # Binds one Claude Code configuration - the settings, skills, instructions and
   # MCP catalog authored in default.nix - and returns the function that turns an
@@ -24,16 +25,27 @@ let
   #   mcpServers        - names from the catalog to activate for this flavor
   #   extraSkills       - skill names this flavor adds to baseSkills
   #   extraInstructions - markdown files appended to baseInstructions
+  #
+  # Every flavor also gets `runtime` on PATH and, of `secretFiles` (env var ->
+  # secret name), each one this host declares exported as its decrypted
+  # file's PATH, guarded against being read from the session.
   mkFlavorBuilder =
     {
       baseSettings,
       baseSkills,
       baseInstructions,
       mcpCatalog,
+      runtime,
+      secretFiles,
     }:
     let
       known = lib.attrNames mcpCatalog;
       available = mcp.availableServers mcpCatalog;
+      # env var -> decrypted-file path, for the secret files this host provides.
+      files = lib.mapAttrs (_: secret: secrets.${secret}) (
+        lib.filterAttrs (_: secret: secrets ? ${secret}) secretFiles
+      );
+      guardSecretFiles = withSecretFileGuard files;
     in
     lib.mapAttrsToList (
       name:
@@ -51,8 +63,13 @@ let
         };
       in
       mkFlavor {
-        inherit name servers;
-        settings = lib.recursiveUpdate baseSettings extraSettings;
+        inherit
+          name
+          servers
+          runtime
+          files
+          ;
+        settings = guardSecretFiles (lib.recursiveUpdate baseSettings extraSettings);
         skills = lib.unique (baseSkills ++ extraSkills);
         instructions =
           if extraInstructions == [ ] then
@@ -80,6 +97,8 @@ let
       skills,
       instructions,
       servers,
+      runtime,
+      files,
     }:
     let
       settingsFile = pkgs.writeText "${name}-settings.json" (builtins.toJSON settings);
@@ -100,9 +119,35 @@ let
         ${mkApplyInstructions instructions}
         install -m 600 "${settingsFile}" "$HOME/.claude/settings.json"
         ${mkApplyMcp { inherit mcpStaticFile servers; }}
+        export PATH="${lib.makeBinPath runtime}:$PATH"
+        ${lib.concatStrings (
+          lib.mapAttrsToList (var: path: "export ${var}=${lib.escapeShellArg path}\n") files
+        )}
         exec ${claude-code}/bin/claude "$@"
       '';
     };
+
+  # Settings that keep a session from reading the secret files it is handed as
+  # paths: a Read deny rule per file, and a Bash hook blocking any command that
+  # names the file or expands its variable. The program that needs the secret
+  # reads the variable itself. Appended to whatever the flavor sets, so a
+  # flavor's own deny rules and Bash hooks stay. No files, no change.
+  withSecretFileGuard =
+    files: settings:
+    if files == { } then
+      settings
+    else
+      lib.recursiveUpdate settings {
+        # `//` makes the rule's path absolute rather than project-relative.
+        permissions.deny =
+          settings.permissions.deny or [ ] ++ map (path: "Read(/${path})") (lib.attrValues files);
+        hooks.PreToolUse = settings.hooks.PreToolUse or [ ] ++ [
+          {
+            matcher = "Bash";
+            hooks = [ (secretGuard.hookFor files) ];
+          }
+        ];
+      };
 
   # Shell snippet: rebuild ~/.claude/skills from this flavor's farm.
   #

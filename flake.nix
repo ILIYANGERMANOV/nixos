@@ -136,6 +136,13 @@
         # `./gradlew test` in a Gradle project. Only where a kotlin-lsp release
         # is pinned.
         // pkgs.lib.optionalAttrs (nvimChecks ? kotlin) { nvim-kotlin = nvimChecks.kotlin; }
+        # The /qa runtime: the wallet helper against a synthetic dApp with a
+        # generated key (EIP-6963 discovery, connect, signatures that verify,
+        # the key absent from the page) and a recording transcoded to mp4.
+        # Linux only, as the Darwin sandbox cannot launch Chromium.
+        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
+        }
       );
 
       devShells = lib.forAllSystems (pkgs: {
