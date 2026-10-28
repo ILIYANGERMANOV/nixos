@@ -1,6 +1,6 @@
 ---
 name: gc
-description: Run system-wide Nix garbage collection on the software factory - keep the current and previous generation of every profile, drop result links left in /tmp or ~/.cache for two days, and delete everything unreferenced. Dev shells are not rooted, so the next nix develop fetches them again from the binary caches. Use when the disk is still tight after free-disk, or the person asks for a GC.
+description: Run system-wide Nix garbage collection on the software factory - keep the current and previous generation of every profile, unregister result links left in /tmp or ~/.cache for two days, and delete everything unreferenced. Dev shells are not rooted, so the next nix develop fetches them again from the binary caches. Use when the disk is still tight after free-disk, or the person asks for a GC.
 ---
 
 # System GC

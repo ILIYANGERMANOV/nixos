@@ -59,18 +59,33 @@ add_worktree() {
   git -C "$wt" push --quiet origin "$2" 2>/dev/null
   echo "$wt"
 }
-# Result links of builds, registered as indirect GC roots the way Nix does:
-# one in /tmp and one in a kept cache made three days ago, one in /tmp made
-# now, and a worktree's root in ~/.gcroots made three days ago.
+# Result links of builds, registered as indirect GC roots the way Nix does.
+# Stale: one in /tmp, one in a kept cache and one whose path has a space, all
+# made three days ago. Kept: one in /tmp made now, a worktree's root in
+# ~/.gcroots and a `nix develop --profile` generation link in ~/.cache, both
+# made three days ago. Swapped: registered under /tmp, then its parent turned
+# into a symlink to a directory outside, as an attacker would.
 old_tmp_root="$work/tmp/build/result" new_tmp_root="$work/tmp/fresh/result"
+spaced_root="$work/tmp/a b/result" spaced_prefix="$work/tmp/a"
 old_cache_root="$HOME/.cache/nix/result" worktree_root="$HOME/.gcroots/origin/wt"
+shell_root="$HOME/.cache/shell-1-link"
+swapped_root="$work/tmp/swap/victim" outside_link="$work/outside/victim"
 add_roots() {
-  rm -rf "$work/tmp" "$work/gcroots"
+  rm -rf "$work/tmp" "$work/gcroots" "$work/outside"
   mkdir -p "$work/store/pinned"
   add_root "$old_tmp_root" '3 days ago'
   add_root "$new_tmp_root" now
+  add_root "$spaced_root" '3 days ago'
+  touch "$spaced_prefix"
   add_root "$old_cache_root" '3 days ago'
   add_root "$worktree_root" '3 days ago'
+  add_root "$shell_root" '3 days ago'
+  add_root "$swapped_root" '3 days ago'
+  rm -rf "$work/tmp/swap"
+  mkdir -p "$work/outside"
+  ln -sfn "$work/store/pinned" "$outside_link"
+  touch -h -d '3 days ago' "$outside_link"
+  ln -sfn "$work/outside" "$work/tmp/swap"
 }
 add_root() {
   mkdir -p "$(dirname "$1")" "$work/gcroots/auto"
@@ -78,11 +93,23 @@ add_root() {
   touch -h -d "$2" "$1"
   ln -sfn "$1" "$work/gcroots/auto/$(echo "$1" | sha1sum | cut -c 1-32)"
 }
-# Only the roots in a temporary place that are two days old are gone.
-only_stale_roots_removed() {
-  [ ! -e "$old_tmp_root" ] && [ ! -e "$old_cache_root" ] || fail "a stale GC root was kept"
+# Whether Nix still counts the link $1 as a GC root.
+registered() {
+  local link
+  for link in "$work/gcroots/auto"/*; do
+    [ "$(readlink "$link")" != "$1" ] || return 0
+  done
+  return 1
+}
+# Nothing outside the stale result links is touched: not a fresh root, a
+# worktree's or a dev shell's, nor what a path with a space or a swapped
+# parent leads to.
+kept_what_must_stay() {
   [ -L "$new_tmp_root" ] || fail "a fresh GC root was removed"
   [ -L "$worktree_root" ] || fail "a worktree's GC root was removed"
+  [ -L "$shell_root" ] || fail "a dev shell's GC root was removed"
+  [ -e "$spaced_prefix" ] || fail "a path with a space was split into another path"
+  [ -L "$outside_link" ] || fail "a symlinked parent led the delete outside"
 }
 
 # ─── Launchers ───────────────────────────────────────────────────────────────
@@ -292,13 +319,14 @@ add_roots
 factory-ctl free-disk plan >"$work/out"
 grep -q "origin/.claude/worktrees/pushed" "$work/out" || fail "plan misses the pushed worktree"
 grep -qF "$old_tmp_root" "$work/out" && grep -qF "$old_cache_root" "$work/out" || fail "plan misses a stale GC root"
-grep -qF -e "$new_tmp_root" -e "$worktree_root" "$work/out" && fail "plan lists a GC root that must stay"
+grep -qF -e "$new_tmp_root" -e "$worktree_root" -e "$shell_root" "$work/out" && fail "plan lists a GC root that must stay"
 grep -Eq "worktrees/(dirty|unpushed|busy)" "$work/out" && fail "plan lists a worktree with work"
 grep -q ".cache/npm" "$work/out" || fail "plan misses a cache"
 grep -Eq '\.cache/nix$|\.cache/cabal/packages$' "$work/out" && fail "plan lists a cache that keeps builds fast"
 factory-ctl free-disk apply >"$work/out"
 grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' "$work/out" || fail "apply does not report the space freed in GB"
-only_stale_roots_removed
+[ ! -e "$old_tmp_root" ] && [ ! -e "$old_cache_root" ] && [ ! -e "$spaced_root" ] || fail "a stale GC root was kept"
+kept_what_must_stay
 [ ! -e "$pushed" ] || fail "the pushed worktree was kept"
 [ -e "$dirty/new-file" ] && [ -d "$unpushed" ] && [ -d "$busy" ] || fail "a worktree with work was removed"
 [ ! -e "$HOME/.cache/npm" ] && [ ! -e "$HOME/.cache/cabal/logs" ] || fail "a cache was kept"
@@ -424,7 +452,9 @@ add_roots
 factory-maintenance gc >/dev/null
 called "nix-env -p $work/profiles/system --delete-generations +2"
 called "nix-store --gc"
-only_stale_roots_removed
+kept_what_must_stay
+! registered "$old_tmp_root" && ! registered "$old_cache_root" && ! registered "$spaced_root" || fail "a stale GC root is still registered"
+registered "$new_tmp_root" && registered "$worktree_root" && registered "$shell_root" || fail "a GC root that must stay was unregistered"
 jq -r .message "$work/ops/last.json" | grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' || fail "gc does not report the space freed in GB"
 
 echo "factory-maintenance reboot: refused within 10 minutes of boot"

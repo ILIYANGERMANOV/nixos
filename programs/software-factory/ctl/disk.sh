@@ -33,11 +33,11 @@ plan_disk() {
   done < <(own_stale_roots)
   dead=$(nix-store --gc --print-dead 2>/dev/null | xargs -r du -sbc 2>/dev/null | tail -n 1 | cut -f 1) || true
   printf 'Nix store garbage: %s\n' "$(human "${dead:-0}")"
-  awk -v a="$(free_bytes)" 'BEGIN { printf "Free now: %.1f GB\n", a / 1e9 }'
+  echo "Free now: $(gb "$(free_bytes)")"
 }
 
 apply_disk() {
-  local wt path repo before
+  local wt path repo before after
   before=$(free_bytes)
   while read -r wt; do
     repo="${wt#"$repos_dir"/}"
@@ -56,7 +56,9 @@ apply_disk() {
     echo "removed $path"
   done < <(own_stale_roots)
   nix-store --gc >/dev/null 2>&1
-  awk -v b="$before" -v a="$(free_bytes)" 'BEGIN { printf "Freed %.1f GB\nFree now: %.1f GB\n", (a - b) / 1e9, a / 1e9 }'
+  after=$(free_bytes)
+  echo "Freed $(gb $((after - before)))"
+  echo "Free now: $(gb "$after")"
 }
 
 free_bytes() { df -B1 --output=avail / | tail -n 1; }
@@ -79,18 +81,21 @@ caches() {
   for path in "$HOME"/.cache/* "$HOME/.cache/cabal/logs" "$HOME/.npm/_cacache"; do
     case "$path" in
       "$HOME/.cache/nix" | "$HOME/.cache/cabal") ;;
-      *) [ -e "$path" ] && echo "$path" ;;
+      # A symlink here is a dev shell's profile or a build's result link, a GC
+      # root rather than a cache: stale_roots decides about those.
+      *) [ -e "$path" ] && [ ! -L "$path" ] && echo "$path" ;;
     esac
   done
   return 0
 }
 
-# The stale roots this account made, the only ones it may delete from the
-# sticky /tmp.
+# The result links of the stale roots this account made, the only ones it may
+# delete from the sticky /tmp. Deleting one leaves its registration dangling,
+# which the next GC drops.
 own_stale_roots() {
-  local root
-  while read -r root; do
-    find "$root" -maxdepth 0 -user "$(id -u)"
+  local link
+  while read -r link; do
+    find "$(readlink "$link")" -maxdepth 0 -user "$(id -u)" 2>/dev/null || true
   done < <(stale_roots "$tmp_dir" "$HOME/.cache")
 }
 

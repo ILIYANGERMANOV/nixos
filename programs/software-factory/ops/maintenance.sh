@@ -35,21 +35,25 @@ reboot_box() {
 }
 
 # Keeps the current generation of every profile and the one before it, which
-# is all a rollback goes back to, drops the result links builds left in
+# is all a rollback goes back to, unregisters the result links builds left in
 # temporary directories, then collects everything unreferenced. Worktree roots
 # in ~/.gcroots, profiles and home-manager's roots are never temporary, so
 # they stay.
 gc() {
-  local before after p
+  local before after p link
   before=$(df -B1 --output=avail /nix/store | tail -n 1)
   for p in "$profile" $(profiles); do
     nix-env -p "$p" --delete-generations +2
   done
+  # Only the registration in $gcroots_auto goes: root never deletes a path an
+  # agent chose. The orphaned link dangles until tmpfiles or its owner drops it.
   # shellcheck disable=SC2046 # one directory per home
-  stale_roots "$tmp_dir" $(home_caches) | xargs -r rm -f --
+  while read -r link; do
+    rm -f -- "$link"
+  done < <(stale_roots "$tmp_dir" $(home_caches))
   nix-store --gc
   after=$(df -B1 --output=avail /nix/store | tail -n 1)
-  record gc success "" "Freed $(printf '%.1f' "$(jq -n "($after - $before) / 1e9")") GB"
+  record gc success "" "Freed $(gb $((after - before)))"
 }
 
 # Every user's profiles, by their unnumbered name: the numbered *-N-link

@@ -204,7 +204,7 @@ let
           ./ctl/lib.sh
           ./ctl/repo.sh
           ./ctl/sessions.sh
-          ./stale-roots.sh
+          ./space.sh
           ./ctl/status.sh
           ./ctl/disk.sh
           ./ctl/ops.sh
@@ -263,7 +263,7 @@ let
       gcroots_auto=${lib.escapeShellArg gcrootsAuto}
       tmp_dir=${lib.escapeShellArg tmpDir}
       homes_dir=${lib.escapeShellArg homesDir}
-      ${builtins.readFile ./stale-roots.sh}
+      ${builtins.readFile ./space.sh}
     '';
 
   rootScript =
