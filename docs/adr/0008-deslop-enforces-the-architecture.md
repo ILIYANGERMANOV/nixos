@@ -29,12 +29,19 @@ adapters and a program's `default.nix`. Narrowing the lib rule to
 `lib/default` instead was rejected: it would have kept the loop and given the
 glue no rule of its own.
 
-## Packaged from the npm platform tarball
+## Packaged by Deslop's own flake
 
-Upstream ships no Nix package. Its npm package is a wrapper that dispatches to
-`@ivy-apps/deslop-<platform>`, which holds one static binary, so
-`programs/deslop` fetches that tarball directly with a pinned hash per system.
-Bumping it means changing `version` and the three hashes.
+Deslop's flake exposes `packages.<system>.deslop`, built from the prebuilt
+GitHub Release binaries for x86_64-linux, aarch64-linux and aarch64-darwin, so
+it is a flake input here (following our `nixpkgs`) and the default dev shell
+takes the package straight from it. Bumping it is `nix flake update deslop`.
+
+This supersedes the original choice, a local `programs/deslop` that fetched the
+static binary from the `@ivy-apps/deslop-<platform>` npm tarball with a pinned
+version and three hashes. That existed only because upstream shipped no Nix
+package. Owning the package upstream keeps the version, the hashes and the
+choice of prebuilt binaries over a source build with the project that releases
+them, and every consumer gets the same derivation.
 
 ## Consequences
 
