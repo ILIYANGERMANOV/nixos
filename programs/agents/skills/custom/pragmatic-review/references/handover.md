@@ -21,7 +21,8 @@ Fix only the findings that were kept. Fixes land on the branch under review:
 for a PR that is not checked out, `gh pr checkout <n>` first. Push as an
 ordinary push - never force-push, never push `main`. Run the repo's own checks
 for what you changed before committing, and say if one fails rather than
-pushing over it.
+pushing over it. Run targeted checks only; the full check only when the fix
+is large, since you are the last to push.
 
 A clean review can only be posted, as a single `gh pr comment` saying nothing
 serious was found.
@@ -32,16 +33,11 @@ One review with inline comments anchored to `file:line`, plus a short summary
 body. If a comment cannot be anchored - the line is not in the diff - fall back
 to a single `gh pr comment` carrying the table.
 
-**Disclose the AI review.** The summary body, or the fallback comment, opens with
-one of these lines, verbatim, once - never on the inline comments:
-
-- With findings: `🤖 AI-assisted review. I read every finding below and accepted it before posting.`
-- Clean: `🤖 AI-assisted review. I read it and accepted it before posting.`
-- When another agent answered the pickers, no human accepted anything:
-  `🤖 AI review, posted by an agent. No human has read it yet.`
-
-The sentence is a claim about the user, theirs to make. Post it as written, with
-no hedging about what the model did or did not check.
+**Disclosure** follows your instructions: only text the user did not approve
+carries it. When the user answered the pickers, post no disclosure. When
+another agent answered them, no human approved anything: the summary body, or
+the fallback comment, opens with the disclosure line from your instructions,
+once - never on the inline comments.
 
 **The event type.** Never `APPROVE`: approving is a human's sign-off.
 `COMMENT` is the default, and the only choice when no Major survived unfixed.
@@ -50,7 +46,7 @@ and ask; it is the user's call.
 
 ```sh
 gh api "repos/{owner}/{repo}/pulls/{n}/reviews" \
-  -f event=COMMENT -f body='<disclosure + summary>' \
+  -f event=COMMENT -f body='<summary, with any disclosure>' \
   -F 'comments[][path]=src/auth.ts' -F 'comments[][line]=41' \
   -F 'comments[][body]=<finding>'
 ```

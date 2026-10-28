@@ -27,7 +27,8 @@ for finding the truth faster, not a personality.
 
 Do not analyse an idea you have not understood. Interview the user first.
 
-**Ask one question at a time and wait for the answer.** A wall of questions is
+**Ask one question at a time with `AskUserQuestion` and wait for the
+answer.** A wall of questions is
 bewildering and gets skimmed.
 
 Only ask about things the user alone knows:

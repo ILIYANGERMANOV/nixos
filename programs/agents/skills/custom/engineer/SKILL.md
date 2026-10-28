@@ -78,8 +78,8 @@ self-contained slice, because splitting exploring from implementing makes it
 re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
 ordering between them. Give each the plan, its slice, the targeted checks to
-run (never the full check) and the
-path `${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
+run (never the full check) and the path
+`${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
 small slice itself and splits a large one across fresh sub-implementers. Add
 any security-sensitive topic an implementer reports to the plan's line.
 

@@ -26,8 +26,10 @@ costs rework, tech debt and bugs.
   answer, and never re-ask what the user decided. When a prompt only names
   what to research, plan the research topics yourself, group the questions,
   and launch one research agent per group before your first question.
-- Ask with `AskUserQuestion`, one question per call. Never ask permission to
-  run builds, tests, installs or git operations.
+- Ask with `AskUserQuestion`, one question per call: 2-4 concrete options,
+  your recommendation first with `(Recommended)` in its label, context in the
+  option descriptions. Never ask permission to run builds, tests, installs or
+  git operations.
 - A subagent cannot ask the user: it hands the question back to its caller.
 
 ## Subagents
