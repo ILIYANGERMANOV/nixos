@@ -46,7 +46,7 @@
     # the prebuilt release binaries. See
     # docs/adr/0008-deslop-enforces-the-architecture.md.
     deslop = {
-      url = "github:Ivy-Apps/deslop/nix-package";
+      url = "github:Ivy-Apps/deslop";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Not a flake — a plain repo of SKILL.md directories. `flake = false` keeps it

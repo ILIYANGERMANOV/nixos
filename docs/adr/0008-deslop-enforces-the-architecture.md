@@ -33,7 +33,8 @@ glue no rule of its own.
 
 Deslop's flake exposes `packages.<system>.deslop`, built from the prebuilt
 GitHub Release binaries for x86_64-linux, aarch64-linux and aarch64-darwin, so
-it is a flake input here (following our `nixpkgs`) and the default dev shell
+it is a flake input here (`github:Ivy-Apps/deslop`, its `main`, following our
+`nixpkgs`) and the default dev shell
 takes the package straight from it. Bumping it is `nix flake update deslop`.
 
 This supersedes the original choice, a local `programs/deslop` that fetched the
