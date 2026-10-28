@@ -59,6 +59,31 @@ add_worktree() {
   git -C "$wt" push --quiet origin "$2" 2>/dev/null
   echo "$wt"
 }
+# Result links of builds, registered as indirect GC roots the way Nix does:
+# one in /tmp and one in a kept cache made three days ago, one in /tmp made
+# now, and a worktree's root in ~/.gcroots made three days ago.
+old_tmp_root="$work/tmp/build/result" new_tmp_root="$work/tmp/fresh/result"
+old_cache_root="$HOME/.cache/nix/result" worktree_root="$HOME/.gcroots/origin/wt"
+add_roots() {
+  rm -rf "$work/tmp" "$work/gcroots"
+  mkdir -p "$work/store/pinned"
+  add_root "$old_tmp_root" '3 days ago'
+  add_root "$new_tmp_root" now
+  add_root "$old_cache_root" '3 days ago'
+  add_root "$worktree_root" '3 days ago'
+}
+add_root() {
+  mkdir -p "$(dirname "$1")" "$work/gcroots/auto"
+  ln -sfn "$work/store/pinned" "$1"
+  touch -h -d "$2" "$1"
+  ln -sfn "$1" "$work/gcroots/auto/$(echo "$1" | sha1sum | cut -c 1-32)"
+}
+# Only the roots in a temporary place that are two days old are gone.
+only_stale_roots_removed() {
+  [ ! -e "$old_tmp_root" ] && [ ! -e "$old_cache_root" ] || fail "a stale GC root was kept"
+  [ -L "$new_tmp_root" ] || fail "a fresh GC root was removed"
+  [ -L "$worktree_root" ] || fail "a worktree's GC root was removed"
+}
 
 # ─── Launchers ───────────────────────────────────────────────────────────────
 
@@ -252,7 +277,7 @@ factory-ctl stats >"$work/out"
 grep -q '^RAM ' "$work/out" && grep -q '^Disk ' "$work/out" && grep -q '^CPU ' "$work/out" && grep -Eq '^Up +[0-9]+d' "$work/out" ||
   { cat "$work/out" >&2; fail "stats is missing a line"; }
 
-echo "free-disk: prunes only worktrees that lose nothing, and throwaway caches"
+echo "free-disk: prunes only worktrees that lose nothing, throwaway caches and stale GC roots"
 reset
 clone_repo origin
 pushed=$(add_worktree origin pushed)
@@ -263,12 +288,17 @@ git -C "$unpushed" commit --quiet --allow-empty -m local
 busy=$(add_worktree origin busy)
 start_session "$busy"
 mkdir -p "$HOME/.cache/npm" "$HOME/.cache/nix" "$HOME/.cache/cabal/logs" "$HOME/.cache/cabal/packages"
+add_roots
 factory-ctl free-disk plan >"$work/out"
 grep -q "origin/.claude/worktrees/pushed" "$work/out" || fail "plan misses the pushed worktree"
+grep -qF "$old_tmp_root" "$work/out" && grep -qF "$old_cache_root" "$work/out" || fail "plan misses a stale GC root"
+grep -qF -e "$new_tmp_root" -e "$worktree_root" "$work/out" && fail "plan lists a GC root that must stay"
 grep -Eq "worktrees/(dirty|unpushed|busy)" "$work/out" && fail "plan lists a worktree with work"
 grep -q ".cache/npm" "$work/out" || fail "plan misses a cache"
-grep -Eq '\.cache/nix|\.cache/cabal/packages' "$work/out" && fail "plan lists a cache that keeps builds fast"
-factory-ctl free-disk apply >/dev/null
+grep -Eq '\.cache/nix$|\.cache/cabal/packages$' "$work/out" && fail "plan lists a cache that keeps builds fast"
+factory-ctl free-disk apply >"$work/out"
+grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' "$work/out" || fail "apply does not report the space freed in GB"
+only_stale_roots_removed
 [ ! -e "$pushed" ] || fail "the pushed worktree was kept"
 [ -e "$dirty/new-file" ] && [ -d "$unpushed" ] && [ -d "$busy" ] || fail "a worktree with work was removed"
 [ ! -e "$HOME/.cache/npm" ] && [ ! -e "$HOME/.cache/cabal/logs" ] || fail "a cache was kept"
@@ -388,11 +418,14 @@ factory-maintenance rollback >/dev/null
 called "old switch"
 [ "$(jq -r '.op + " " + .state' "$work/ops/last.json")" = "rollback success" ] || fail "rollback not recorded"
 
-echo "factory-maintenance gc: keeps two generations of the system profile"
+echo "factory-maintenance gc: keeps two generations of the system profile, drops stale GC roots"
 deploy_reset
+add_roots
 factory-maintenance gc >/dev/null
 called "nix-env -p $work/profiles/system --delete-generations +2"
 called "nix-store --gc"
+only_stale_roots_removed
+jq -r .message "$work/ops/last.json" | grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' || fail "gc does not report the space freed in GB"
 
 echo "factory-maintenance reboot: refused within 10 minutes of boot"
 deploy_reset

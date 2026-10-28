@@ -35,16 +35,21 @@ reboot_box() {
 }
 
 # Keeps the current generation of every profile and the one before it, which
-# is all a rollback goes back to, then collects everything unreferenced.
+# is all a rollback goes back to, drops the result links builds left in
+# temporary directories, then collects everything unreferenced. Worktree roots
+# in ~/.gcroots, profiles and home-manager's roots are never temporary, so
+# they stay.
 gc() {
   local before after p
   before=$(df -B1 --output=avail /nix/store | tail -n 1)
   for p in "$profile" $(profiles); do
     nix-env -p "$p" --delete-generations +2
   done
+  # shellcheck disable=SC2046 # one directory per home
+  stale_roots "$tmp_dir" $(home_caches) | xargs -r rm -f --
   nix-store --gc
   after=$(df -B1 --output=avail /nix/store | tail -n 1)
-  record gc success "" "Freed $(((after - before) / 1000000000)) GB"
+  record gc success "" "Freed $(printf '%.1f' "$(jq -n "($after - $before) / 1e9")") GB"
 }
 
 # Every user's profiles, by their unnumbered name: the numbered *-N-link
@@ -52,6 +57,11 @@ gc() {
 profiles() {
   find /nix/var/nix/profiles/per-user /root/.local/state/nix/profiles /home/*/.local/state/nix/profiles \
     -maxdepth 2 -type l ! -name '*-link' 2>/dev/null || true
+}
+
+# Every user's ~/.cache.
+home_caches() {
+  find "$homes_dir" -mindepth 2 -maxdepth 2 -name .cache -type d 2>/dev/null || true
 }
 
 main "$@"

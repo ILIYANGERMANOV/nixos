@@ -173,6 +173,8 @@ let
       opsStateDir,
       deployRepo,
       deployWorkflow,
+      gcrootsAuto ? "/nix/var/nix/gcroots/auto",
+      tmpDir ? "/tmp",
     }:
     pkgs.writeShellApplication {
       name = "factory-ctl";
@@ -191,6 +193,8 @@ let
         ops_state_dir=${lib.escapeShellArg opsStateDir}
         deploy_repo=${lib.escapeShellArg deployRepo}
         deploy_workflow=${lib.escapeShellArg deployWorkflow}
+        gcroots_auto=${lib.escapeShellArg gcrootsAuto}
+        tmp_dir=${lib.escapeShellArg tmpDir}
 
         admin_dir="${adminDir}"
         admin_unit=${adminUnit}
@@ -200,6 +204,7 @@ let
           ./ctl/lib.sh
           ./ctl/repo.sh
           ./ctl/sessions.sh
+          ./stale-roots.sh
           ./ctl/status.sh
           ./ctl/disk.sh
           ./ctl/ops.sh
@@ -248,10 +253,17 @@ let
     {
       stateDir,
       profile ? "/nix/var/nix/profiles/system",
+      gcrootsAuto ? "/nix/var/nix/gcroots/auto",
+      tmpDir ? "/tmp",
+      homesDir ? "/home",
     }:
     rootScript "factory-maintenance" ./ops/maintenance.sh ''
       state_dir=${lib.escapeShellArg stateDir}
       profile=${lib.escapeShellArg profile}
+      gcroots_auto=${lib.escapeShellArg gcrootsAuto}
+      tmp_dir=${lib.escapeShellArg tmpDir}
+      homes_dir=${lib.escapeShellArg homesDir}
+      ${builtins.readFile ./stale-roots.sh}
     '';
 
   rootScript =

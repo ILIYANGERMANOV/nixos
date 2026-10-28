@@ -24,6 +24,16 @@ let
   };
   maintenance = factory.mkMaintenance { inherit stateDir; };
 
+  # Below this share of free space on / the hourly check starts factory-gc,
+  # long before the weekly timer would.
+  gcBelowFreePercent = 15;
+  gcOnPressure = pkgs.writeShellScript "factory-gc-on-pressure" ''
+    read -r avail size < <(df -B1 --output=avail,size / | tail -n 1)
+    if [ $((avail * 100)) -lt $((size * ${toString gcBelowFreePercent})) ]; then
+      systemctl start --no-block factory-gc.service
+    fi
+  '';
+
   # The units the agent account may start.
   agentUnits = [
     "factory-rollback.service"
@@ -76,6 +86,7 @@ in
       factory-rollback = oneshot "Roll back to the previous system generation" "${lib.getExe maintenance} rollback";
       factory-reboot = oneshot "Reboot, unless booted less than 10 minutes ago" "${lib.getExe maintenance} reboot";
       factory-gc = oneshot "Keep two generations per profile and collect garbage" "${lib.getExe maintenance} gc";
+      factory-gc-pressure = oneshot "Collect garbage when less than ${toString gcBelowFreePercent}% of / is free" gcOnPressure;
     };
 
     systemd.timers = {
@@ -91,6 +102,13 @@ in
         timerConfig = {
           OnCalendar = "weekly";
           Persistent = true;
+        };
+      };
+      factory-gc-pressure = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "15min";
+          OnUnitActiveSec = "1h";
         };
       };
     };
