@@ -19,6 +19,10 @@ For every item marked **Pass**:
 A Pass whose only evidence is Storybook or another component preview is
 **Unverified**: "shown in a story, not in the app".
 
+You are given every repo's commit. Check that the executor ran against
+those: each sha it reports must match. On a mismatch, every Pass becomes
+Unverified, "ran on <sha>, expected <sha>".
+
 Leave Fail and Unverified items as they are. Check that every artifact a
 verdict cites exists. Never rerun the scenario and never edit an artifact.
 

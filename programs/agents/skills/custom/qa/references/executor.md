@@ -11,22 +11,27 @@ wait for must end, and one that fails must fail at once.
 
 ## Setup
 
-- First, `git -C <repo path> rev-parse HEAD` must equal the head sha you were
-  given. If it does not, run nothing and hand back "wrong commit: at <sha>,
-  expected <sha>". Report the sha in your hand-back.
+- First, for every repo in `<run>/repos.md`, `git -C <path> rev-parse HEAD`
+  must equal the commit it lists. If one does not, run nothing and hand back
+  "wrong commit in <repo>: at <sha>, expected <sha>". Report each sha in your
+  hand-back.
+- Read the PR's diff from `<run>/pr.diff` and only the `QA.md` sections you
+  were given; never re-fetch the PR or read a whole `QA.md`.
 - The app is already running at the URL you were given. Never start another
   dev server or any other Node server beside it. If it does not answer,
   hand back with the tail of `<run>/app.log`.
 - A wallet run checks funds first (`qa-wallet balance`, with the RPC and
   tokens `QA.md` names). A precondition that blocks every wallet item - short
-  funds, an expired login, no offer on the chain - ends the run: hand back
+  funds, an expired login, no test data on the chain - ends the run: hand back
   at once with what is missing, and do not explore around it.
 - You were given an index of the scripts directory
-  (`~/.cache/qa/<owner>/<repo>/scripts/`): file names and their exported
-  functions. Read only the files your items need, never all of them. Copy
-  what you use, with `lib.cjs`, into `<run>/scripts/`, adapt it there, and
-  write from scratch only what is missing. Each script is CommonJS run with
-  `qa-node`. Chromium is headless; never pass `headless: false`.
+  (`~/.cache/qa/<owner>/<repo>/scripts/<host>/`): file names and their
+  exported functions. Read only the files your items need, never all of them.
+  Copy what you use, with `lib.cjs`, into `<run>/scripts/`, adapt it there,
+  and write from scratch only what is missing. Edit a script with the Edit
+  tool or a short python, never `sed -i` (GNU and BSD differ). Each script is
+  CommonJS run with `qa-node`. Chromium is headless; never pass
+  `headless: false`.
 - Before handing back, copy every script that worked, with `lib.cjs`, back to
   the scripts directory, so the next run starts where this one ended. Keep
   run-specific values (the run directory, the PR) in arguments, not in them.
@@ -74,8 +79,11 @@ await session.close(); // detaches; the browser and page stay
 ## Waiting
 
 - `context.setDefaultTimeout(10000)` in every context you create (`connect`
-  already does), so a missing element fails in 10 s, not 30.
-- Never `page.waitForTimeout`. Wait for a state: `await locator.waitFor()`,
+  already does), so a missing element fails in 10 s, not 30. Probe waits
+  keep that default; a longer one carries a comment naming what is slow (a
+  transaction mining, a first compile).
+- Never `page.waitForTimeout`, and never `networkidle`. Wait for a state on a
+  specific locator: `await locator.waitFor()`,
   or, when the screen can end in success or an error, `expectState(expected, { name: errorLocator, ... }, { timeout })`,
   which returns the first that shows. An error screen is then a Fail with its
   text, found in seconds.
@@ -134,7 +142,8 @@ look at it: everything the expected result names must be on screen in the
 cited frames. If not, fix the framing and record again; the evidence checker
 applies the same test to the same sheet.
 
-Hand back under 300 words: the head sha you ran on, per item the verdict,
+Hand back under 300 words: each repo's sha you ran on, per item the verdict,
 artifact paths with timestamps and its contact sheet, repro for each Fail,
-and knowledge this run discovered that `QA.md` lacks (setup steps,
-selectors, quirks), as proposed lines.
+and knowledge this run discovered that a `QA.md` lacks (setup steps,
+selectors, quirks), as proposed lines sorted by the repo whose code each is
+about: "for <repo> QA.md: ...".
