@@ -42,6 +42,13 @@
       url = "github:ogulcancelik/herdr";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Deslop, the architecture linter `just check` runs. Its own flake packages
+    # the prebuilt release binaries. See
+    # docs/adr/0008-deslop-enforces-the-architecture.md.
+    deslop = {
+      url = "github:Ivy-Apps/deslop";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Not a flake — a plain repo of SKILL.md directories. `flake = false` keeps it
     # a regular store path, so skills can be discovered with builtins.readDir at
     # eval time. A fetchFromGitHub result could not: modules/nix.nix sets
@@ -132,7 +139,7 @@
       );
 
       devShells = lib.forAllSystems (pkgs: {
-        default = import ./shells/default.nix { inherit pkgs self; };
+        default = import ./shells/default.nix { inherit pkgs inputs; };
         nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
         darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };
       });
