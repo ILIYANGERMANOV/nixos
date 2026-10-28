@@ -138,7 +138,9 @@
         // pkgs.lib.optionalAttrs (nvimChecks ? kotlin) { nvim-kotlin = nvimChecks.kotlin; }
         # The /qa runtime: the wallet helper against a synthetic dApp with a
         # generated key (EIP-6963 discovery, connect, signatures that verify,
-        # the key absent from the page) and a recording transcoded to mp4.
+        # the key absent from the page, a receipt wait), a recording transcoded
+        # to mp4 with its static lead-in trimmed, the contact sheet, and one
+        # session browser shared by probe processes with redacted capture.
         # Linux only, as the Darwin sandbox cannot launch Chromium.
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };

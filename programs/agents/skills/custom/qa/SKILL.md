@@ -31,6 +31,10 @@ owns the decisions.
 - **Protect your context.** Planning, running and evidence checks happen in
   subagents; keep their conclusions, not their output. Each brief ends with
   "hand back under 300 words".
+- **Light on the machine.** The host may be a medium server: one dev server,
+  one browser at a time, no second Node server beside the app. Waiting on the
+  user is fine; waiting on a tool is waste, so nothing sleeps, polls or waits
+  out a timeout.
 
 ## Runtime
 
@@ -41,8 +45,26 @@ Every Claude session has these on PATH, whatever the project:
   resolvable from any directory. Scripts are CommonJS: name them `.cjs`. For
   an ES module, `await import(process.env.QA_WALLET_MODULE)` (set by
   `qa-node`) gives the wallet helper.
-- `qa-mp4 <in.webm> <out.mp4>` - H.264 mp4 that GitHub plays inline.
-- `ffmpeg`, `ffprobe` - for frames and trims.
+- `require('qa-kit')` - what every script shares: `connect(runDir)` attaches
+  to the `qa-session` browser; `expectState(expected, { name: locator })`
+  waits for the expected locator or the first error locator, whichever shows;
+  `capture(context, file)` logs console, page errors and failed requests with
+  credentials redacted; `VIEWPORT` is the 960x540 every page and video uses.
+- `qa-session start <run> [--url <url>] [--storage-state <auth.json>]
+  [--chain-id <n> [--rpc <url>] [--forward-rpc <regex>]...]` - one headless
+  Chromium that outlives the scripts driving it, logged in and on the page,
+  with the wallet when `--chain-id` is given. It returns once the page is
+  open and writes its console, redacted, to `<run>/qa-session-console.log`.
+  `qa-session stop <run>` ends it. Unrecorded: probes run here.
+- `qa-mp4 <in.webm> <out.mp4>` - H.264 mp4 that GitHub plays inline. It
+  trims a static lead-in (a still screen from the first 1.5 s, cut to its
+  last 0.5 s, never a later one) and prints the offset: cite timestamps from
+  the mp4, never the webm.
+- `qa-frames <video> <t1,t2,...> <out.png>` - one contact sheet of the
+  frames at those seconds, each labelled with its time. One image read
+  checks a whole item.
+- `timeout <s> <command>` - present on every host, macOS included.
+- `ffmpeg`, `ffprobe` - anything the commands above do not cover.
 - `qa-wallet address` - the QA Wallet's address, derived from the key; and
   `qa-wallet balance --rpc <url> [--erc20 <token address>]...` - its native
   and ERC-20 balances. Each engineer's wallet differs, so the address is
@@ -58,7 +80,7 @@ The wallet helper, opt-in from `QA.md`:
 ```js
 const { installWallet } = require('qa-wallet');
 // Before the dApp's first navigation. Context: every page; Page: that page.
-const { address, rejectNext } = await installWallet(context, {
+const { address, rejectNext, waitForReceipt } = await installWallet(context, {
   keyFile: process.env.QA_EVM_KEY_FILE,
   rpcUrl: 'https://...',   // reads and eth_sendTransaction; omit for signing only
   chainId: 11155111,       // a number
@@ -66,6 +88,7 @@ const { address, rejectNext } = await installWallet(context, {
 });
 rejectNext('eth_sendTransaction'); // the user declines the next one
 rejectNext('eth_sendTransaction', { afterMs: 2000 }); // after a 2s look
+await waitForReceipt(); // the last transaction it sent, once mined
 ```
 
 It announces an EIP-1193 provider named "QA Wallet" (rdns `dev.qa.wallet`)
@@ -85,6 +108,12 @@ requests a user approves: `eth_requestAccounts`, `wallet_requestPermissions`,
 `eth_signTypedData_v4`, `eth_sendTransaction`. A decline answered at once
 can leave the dApp's pending state on screen for under a frame; `afterMs`
 holds it long enough to record.
+
+`waitForReceipt(hash?, { timeout })` resolves with `{ transactionHash,
+status, blockNumber }` once the transaction is mined (`status` is `success`
+or `reverted`), so a script waits on the chain, not on a guessed delay.
+Without a hash it is the last one the wallet sent. In a session, the same two
+controls are on the object `connect` returns.
 
 `forwardRpc` answers the dApp's own JSON-RPC POSTs to matching URLs from
 `rpcUrl`, for a dApp whose default RPC refuses headless traffic. `QA.md` says
@@ -115,6 +144,14 @@ the current checkout is the repo path. Otherwise `git fetch origin
 <headRefOid>` and `git worktree add --detach <run>/worktree <headRefOid>`; that
 worktree is the repo path every later step and subagent uses. A fork's PR
 fetches `pull/<n>/head` instead.
+
+Then start the app in the background (`run_in_background`), now, so the
+install and the first compile overlap planning and approval: the install and
+start commands `QA.md` gives, in the repo path, output to `<run>/app.log`.
+Cap a Node dev server's heap, e.g. `NODE_OPTIONS=--max-old-space-size=2048`
+for Next. Use a preview URL instead when `QA.md` gives one. Without `QA.md`,
+start it once step 3 has the answer. The background job wakes you if it
+exits; otherwise check it is up (one `curl`) when you brief the executor.
 
 When the wallet is available and `QA.md` lists the funds its flows need, run
 `qa-wallet balance` with the RPC and token addresses `QA.md` gives, now,
@@ -161,10 +198,13 @@ how to proceed.
 
 Spawn a fresh executor subagent. Brief: read
 `${CLAUDE_SKILL_DIR}/references/executor.md` and follow it; the approved plan
-verbatim; the repo path, the head sha it must be at, and how to run the app
-from `QA.md`; the run directory; the auth file paths; whether the wallet is
-available and its balances from step 1; the scripts directory
-`~/.cache/qa/<owner>/<repo>/scripts/`. It returns a
+verbatim; the repo path, the head sha it must be at, the URL the app is
+already running at (it must not start a second one); the run directory; the
+auth file paths; whether the wallet is available and its balances from step
+1; the scripts directory `~/.cache/qa/<owner>/<repo>/scripts/` and an index of
+it, so it reads only the files it needs - each file's name and exported
+functions, from `rg -n --no-heading '^(async )?function |module\.exports|^exports\.' <scripts>`.
+It returns a
 verdict per item (Pass, Fail or Unverified), each with its artifacts, repro
 steps for every Fail, and knowledge worth adding to `QA.md`. Brief a rerun
 with the previous run's findings and tell it to start from the scripts
@@ -202,6 +242,8 @@ body flag, which appends it.
   it, and ask before committing it to the PR branch. Never commit it unasked.
   A commit to the PR branch is made on that branch, never in the detached QA
   worktree.
+- Stop what step 1 and the executor started: `qa-session stop <run>` and the
+  dev server's background job.
 - Remove the QA worktree, if step 1 made one: `git worktree remove --force
   <run>/worktree`.
 - Tell the user the overall verdict, each Fail in one line, and the PR link.

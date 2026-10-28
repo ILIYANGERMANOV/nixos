@@ -1,6 +1,7 @@
 // checks.qa, run by `qa-node`: the wallet helper against a synthetic dApp
 // served from a Playwright route, with a key generated for this run, and a
-// recorded video through `qa-mp4`, and the `qa-wallet` command. No network:
+// recorded video through `qa-mp4`, `waitForReceipt`, and the `qa-wallet`
+// command. No network:
 // the dApp origin never resolves, and the RPC is a fake JSON-RPC node on
 // loopback.
 'use strict';
@@ -11,7 +12,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { chromium } = require('playwright');
-const { decodeFunctionData, encodeFunctionResult, erc20Abi, verifyMessage, verifyTypedData } = require('viem');
+const { decodeFunctionData, encodeFunctionResult, erc20Abi, keccak256, verifyMessage, verifyTypedData } = require('viem');
 const { generatePrivateKey } = require('viem/accounts');
 const { installWallet } = require('qa-wallet');
 
@@ -129,6 +130,7 @@ async function main() {
   try {
     await checkCommand({ keyFile, address, rpcUrl: rpc.url, work });
     await checkForwardingAndDelayedDecline(browser, { keyFile, rpcUrl: rpc.url });
+    await checkReceipt(browser, { keyFile, rpcUrl: rpc.url });
   } finally {
     rpc.close();
   }
@@ -238,15 +240,71 @@ async function checkForwardingAndDelayedDecline(browser, { keyFile, rpcUrl }) {
   await context.close();
 }
 
-// A JSON-RPC node on loopback: block 42, 1.5 ETH, and one ERC-20 (USDC, 6
-// decimals) holding 12.25 for anyone.
+// Given the dApp sent a transaction through the wallet, when the script waits
+// for its receipt, then it resolves once the node mines it, a few blocks on,
+// with the outcome; with nothing sent and no hash, it says so.
+async function checkReceipt(browser, { keyFile, rpcUrl }) {
+  const context = await browser.newContext();
+  await context.route(DAPP, (route) => route.fulfill({ contentType: 'text/html', body: DAPP_HTML }));
+  const { address, waitForReceipt } = await installWallet(context, { keyFile, rpcUrl, chainId: SEPOLIA });
+  const page = await context.newPage();
+  await page.goto(DAPP);
+  assert.throws(() => waitForReceipt(), /has sent nothing/);
+
+  const hash = await page.evaluate(
+    (to) => window.found[0].provider.request({ method: 'eth_sendTransaction', params: [{ to, value: '0x1' }] }),
+    address,
+  );
+  assert.deepStrictEqual(await waitForReceipt(undefined, { timeout: 20_000 }), {
+    transactionHash: hash,
+    status: 'success',
+    blockNumber: 44,
+  });
+  assert.deepStrictEqual((await waitForReceipt(hash)).transactionHash, hash);
+  await context.close();
+}
+
+// A JSON-RPC node on loopback: 1.5 ETH and one ERC-20 (USDC, 6 decimals)
+// holding 12.25 for anyone, at block 42. A sent transaction is mined two
+// blocks later; the chain advances a block per eth_blockNumber only while
+// one is pending.
 async function fakeRpc() {
+  let block = 42;
+  const pending = [];
+  const mined = new Map();
   const answer = ({ method, params }) => {
     switch (method) {
       case 'eth_chainId':
         return `0x${SEPOLIA.toString(16)}`;
       case 'eth_blockNumber':
-        return '0x2a';
+        if (pending.length > 0) {
+          block += 1;
+          while (pending.length > 0 && pending[0].at <= block) mined.set(pending[0].hash, block), pending.shift();
+        }
+        return `0x${block.toString(16)}`;
+      case 'eth_getTransactionCount':
+        return '0x0';
+      case 'eth_estimateGas':
+        return '0x5208';
+      case 'eth_gasPrice':
+      case 'eth_maxPriorityFeePerGas':
+        return '0x1';
+      case 'eth_getBlockByNumber':
+        return { number: `0x${block.toString(16)}`, hash: `0x${'ab'.repeat(32)}`, baseFeePerGas: '0x1', timestamp: '0x0', gasLimit: '0x1c9c380', gasUsed: '0x0', transactions: [] };
+      case 'eth_sendRawTransaction': {
+        const hash = keccak256(params[0]);
+        pending.push({ hash, at: block + 2 });
+        return hash;
+      }
+      case 'eth_getTransactionReceipt': {
+        const at = mined.get(params[0]);
+        if (at === undefined) return null;
+        return {
+          transactionHash: params[0], blockHash: `0x${'cd'.repeat(32)}`, blockNumber: `0x${at.toString(16)}`,
+          status: '0x1', logs: [], logsBloom: `0x${'00'.repeat(256)}`, gasUsed: '0x5208', cumulativeGasUsed: '0x5208',
+          effectiveGasPrice: '0x1', transactionIndex: '0x0', type: '0x2', contractAddress: null, from: `0x${'00'.repeat(20)}`, to: `0x${'00'.repeat(20)}`,
+        };
+      }
       case 'eth_getBalance':
         return `0x${(15n * 10n ** 17n).toString(16)}`;
       case 'eth_call': {
@@ -255,11 +313,19 @@ async function fakeRpc() {
         return encodeFunctionResult({ abi: erc20Abi, functionName, result: values[functionName] });
       }
       default:
-        throw new Error(`fake rpc: unexpected ${method}`);
+        return METHOD_NOT_FOUND;
     }
   };
-  const respond = (request) =>
-    Array.isArray(request) ? request.map(respond) : { jsonrpc: '2.0', id: request.id, result: answer(request) };
+  // As a real node answers a method it does not serve (viem probes
+  // eth_fillTransaction before filling a transaction itself).
+  const METHOD_NOT_FOUND = Symbol('method not found');
+  const respond = (request) => {
+    if (Array.isArray(request)) return request.map(respond);
+    const result = answer(request);
+    return result === METHOD_NOT_FOUND
+      ? { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: `the method ${request.method} does not exist` } }
+      : { jsonrpc: '2.0', id: request.id, result };
+  };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => (body += chunk));

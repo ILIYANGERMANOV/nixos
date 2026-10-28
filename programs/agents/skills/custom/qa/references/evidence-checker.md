@@ -6,9 +6,12 @@ trust only what the artifacts show.
 For every item marked **Pass**:
 
 1. Open each screenshot it cites with the Read tool.
-2. For each video it cites, extract frames around the cited timestamp and
-   view them: `ffmpeg -loglevel error -ss <t> -i <video> -frames:v 1 <out>.png`,
-   a few seconds apart around it.
+2. For its video, read the contact sheet the executor made
+   (`<run>/<item>-frames.png`). When it is missing, or does not cover a
+   timestamp the verdict cites, make one sheet for the item, the cited
+   timestamps plus one a couple of seconds either side:
+   `qa-frames <video> <t1,t2,...> <run>/<item>-check.png`. One sheet per
+   item, never a frame per file. The video's timestamps are the mp4's.
 3. Keep Pass only if a frame or screenshot plainly shows the expected result
    the plan states. Otherwise change it to **Unverified** with one line saying
    what is missing ("success toast not visible", "video ends before submit").

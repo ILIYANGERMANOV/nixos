@@ -19,6 +19,11 @@
 // reading the prompt would, so the dApp's pending state lasts long enough to
 // be recorded.
 //
+// `waitForReceipt(hash)` waits for a transaction's receipt on `rpcUrl`;
+// without a hash, for the last one the wallet sent. It resolves when mined,
+// reverted included, so a script asserts the outcome instead of guessing a
+// wait.
+//
 // `forwardRpc: [/^https:\/\/rpc\.walletconnect\.org\//]` answers the dApp's own
 // JSON-RPC POSTs to matching URLs from `rpcUrl`, for a dApp whose default RPC
 // refuses headless or localhost traffic (its receipt waits then never end).
@@ -29,7 +34,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
-const { createWalletClient, http, toHex } = require('viem');
+const { createPublicClient, createWalletClient, http, toHex } = require('viem');
 const { privateKeyToAccount } = require('viem/accounts');
 
 const BINDING = '__qaWalletRequest';
@@ -67,15 +72,19 @@ const UNRECOGNISED_CHAIN = 4902;
  *                         it only accounts, chain and signing requests work
  * @param options.forwardRpc  URL patterns (RegExp) whose JSON-RPC POSTs are
  *                         answered from `rpcUrl` instead; needs a BrowserContext
- * @returns {Promise<{ address: string, rejectNext: (method: string, options?: { afterMs?: number }) => void }>}
+ * @returns {Promise<{ address: string, rejectNext: (method: string, options?: { afterMs?: number }) => void,
+ *   waitForReceipt: (hash?: string, options?: { timeout?: number }) => Promise<Receipt> }>}
  *   `rejectNext(method, { afterMs })` declines the next request of `method`,
  *   one of APPROVABLE, with 4001 "User rejected the request.", after `afterMs`
- *   (default 0); one-shot per method
+ *   (default 0); one-shot per method. `waitForReceipt` resolves with
+ *   `{ transactionHash, status: 'success' | 'reverted', blockNumber }` once
+ *   the transaction is mined, and throws after `timeout` (default 120 s).
  */
 async function installWallet(target, { keyFile, rpcUrl, chainId, forwardRpc = [] }) {
   const account = privateKeyToAccount(readKey(keyFile));
   const handle = requestHandler({ account, rpcUrl, chainId });
   const toReject = new Map();
+  const sent = [];
   if (forwardRpc.length > 0) await forwardTo(target, { patterns: forwardRpc, rpcUrl, chainId });
   await target.exposeFunction(BINDING, async (method, params) => {
     try {
@@ -85,7 +94,9 @@ async function installWallet(target, { keyFile, rpcUrl, chainId, forwardRpc = []
         await new Promise((resolve) => setTimeout(resolve, afterMs));
         throw rpcError(USER_REJECTED, 'User rejected the request.');
       }
-      return { result: await handle(method, params ?? []) };
+      const result = await handle(method, params ?? []);
+      if (method === 'eth_sendTransaction') sent.push(result);
+      return { result };
     } catch (error) {
       return { error: toRpcError(error) };
     }
@@ -100,7 +111,21 @@ async function installWallet(target, { keyFile, rpcUrl, chainId, forwardRpc = []
     }
     toReject.set(method, afterMs);
   };
-  return { address: account.address, rejectNext };
+  const waitForReceipt = (hash = sent.at(-1), { timeout = 120_000 } = {}) => {
+    if (!rpcUrl) throw new Error('qa-wallet: waitForReceipt needs an rpcUrl');
+    if (!hash) throw new Error('qa-wallet: waitForReceipt has no hash, and the wallet has sent nothing');
+    return receiptOf({ rpcUrl, hash, timeout });
+  };
+  return { address: account.address, rejectNext, waitForReceipt };
+}
+
+// A receipt reduced to what a QA verdict reads, as plain JSON so it crosses
+// into a page and back.
+async function receiptOf({ rpcUrl, hash, timeout }) {
+  const client = createPublicClient({ transport: http(rpcUrl), pollingInterval: 1_000 });
+  // The QA wallet is the transaction's only sender and never replaces one.
+  const receipt = await client.waitForTransactionReceipt({ hash, timeout, checkReplacement: false });
+  return { transactionHash: receipt.transactionHash, status: receipt.status, blockNumber: Number(receipt.blockNumber) };
 }
 
 /** The wallet's address, derived from the key; the key itself never leaves. */

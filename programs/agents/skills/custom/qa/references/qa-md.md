@@ -11,7 +11,9 @@ whatever a plan needs that `QA.md` does not say.
 ## Run the app
 How to get a running build of the PR: install and start commands, the URL
 and port, env vars and where their values come from, seed data. Or a preview
-URL pattern per PR. How to know it is ready.
+URL pattern per PR. How to know it is ready. The app as a user reaches it,
+never Storybook or a component preview. A memory cap the dev server runs
+under, e.g. `NODE_OPTIONS=--max-old-space-size=2048` for Next.
 
 ## Accounts and login
 Which accounts or roles exist, the login URL, and the auth state names /qa
