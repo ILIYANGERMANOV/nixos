@@ -8,7 +8,27 @@ Base instructions for every agent.
   `engineering` skill and follow it. It carries the coding style and engineering
   principles for all code work, in any language.
 - Before opening a pull request, or when writing or updating a PR description,
-  invoke the `pr-description` skill and follow it.
+  invoke the `pr-description` skill and follow it. A draft PR whose body is
+  the plan may skip it until hand-over.
+- Start every task with `git fetch origin main`. Branch from `origin/main` and
+  diff against it, so you never build on or compare with a stale checkout.
+
+## Asking
+
+Asking is cheap; the user's understanding is the bottleneck. A wrong guess
+costs rework, tech debt and bugs.
+
+- Before building, propose a plan and ask whether it matches the user's
+  understanding.
+- Ask about every technical, architecture, design, production and approach
+  decision until nothing is unclear, and always when something is ambiguous.
+- Research before you ask. Never ask what the code, the docs or a tool can
+  answer, and never re-ask what the user decided. When a prompt only names
+  what to research, plan the research topics yourself, group the questions,
+  and launch one research agent per group before your first question.
+- Ask with `AskUserQuestion`, one question per call. Never ask permission to
+  run builds, tests, installs or git operations.
+- A subagent cannot ask the user: it hands the question back to its caller.
 
 ## Subagents
 
@@ -41,9 +61,11 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 
 - While iterating, run the narrowest check that covers the edit: one test, a
   typecheck, a single `nix build .#checks.<system>.<name>`.
-- Run the full check on the final state of the code, before you hand back or
-  push. Rerun it only after a code edit, such as fixing what it found, never
-  after an edit that touched only docs.
+- Implementers, fixers and refactor passes run targeted checks only: the
+  lint, format and tests that cover their diff.
+- Only the last agent to push runs the full check, once, on the final state,
+  and only when the change is large. Rerun it only after a code edit, never
+  after a docs-only edit. CI has the final say.
 - Never chain steps the full check already runs: no build, test or lint in
   front of a `just check` that runs them.
 - Run anything expected to take over a minute with `run_in_background`. It
@@ -64,7 +86,7 @@ step.
 - The prompt cache expires after about 5 minutes idle. Never resume a large
   agent after a gap; spawn a fresh one from a summary.
 - Subagents never wait on CI or deploys: they hand back, and the parent
-  waits. The full check is still theirs to run and wait for.
+  waits. A check they run is still theirs to wait for.
 - Wait on a pull request's CI without blocking: after your final push, call
   `subscribe_pr_activity` and end your turn, so CI results wake you. An event
   for a commit that is not the branch head, or for your own action (your
@@ -74,6 +96,17 @@ step.
   checks are pending, which is not a failure.
 - Fanning out in parallel, launch one agent first and the rest after it, so
   they share its cached prefix.
+
+## Writing for people
+
+PR bodies, explanations, replies and reports a person reads:
+
+- Simple words, short sentences. No walls of text: little prose, bullets
+  over paragraphs.
+- One or more visuals where they help: a diagram, a table, pseudo-code.
+- Text you post (PR comments, reviews, replies) without the user approving
+  it opens with `🤖 Posted by an AI agent. No human has read it yet.` Text
+  the user approved carries no disclosure.
 
 ## Writing style
 

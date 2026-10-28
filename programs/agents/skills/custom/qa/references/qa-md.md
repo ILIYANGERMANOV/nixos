@@ -46,7 +46,7 @@ never adds a repo to a run by itself.
 
 ## Quirks
 Known flakiness, slow screens, stable selectors, things that look like bugs
-but are not.
+but are not, and what worked when an obvious approach did not.
 
 ## Out of scope
 What QA never covers here and why.
