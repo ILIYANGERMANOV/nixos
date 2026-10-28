@@ -19,10 +19,10 @@ are picked, **Fix + commit & push** wins.
 
 Fix only the findings that were kept. Fixes land on the branch under review:
 for a PR that is not checked out, `gh pr checkout <n>` first. Push as an
-ordinary push - never force-push, never push `main`. Run the repo's own checks
-for what you changed before committing, and say if one fails rather than
-pushing over it. Run targeted checks only; the full check only when the fix
-is large, since you are the last to push.
+ordinary push - never force-push, never push `main`. Before committing, run
+the repo's targeted checks for what you changed - the full check only when the
+fix is large, since you are the last to push - and say if one fails rather
+than pushing over it.
 
 A clean review can only be posted, as a single `gh pr comment` saying nothing
 serious was found.

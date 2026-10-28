@@ -70,8 +70,8 @@ For each bullet, find out what it takes: where the code is, what changing it
 involves, what it would break, and whether any external system it relies on
 (GitHub, browsers, CLIs) can actually do it. Dispatch subagents in the
 background, one per bullet or per related cluster, fanned out as your
-instructions say, reading only the code
-the bullets touch. Never ask the user a fact you can look up.
+instructions say, reading only the code the bullets touch. Never ask the user
+a fact you can look up.
 
 ### 3. Classify and grill
 
@@ -84,8 +84,8 @@ Sort every bullet into one of three:
   something. Push back.
 
 Ask one `AskUserQuestion` per unclear bullet, the way your instructions say,
-with no "Other" option of your own. For a push back, the question states the problem in
-one line and the options are the alternatives.
+with no "Other" option of your own. For a push back, the question states the
+problem in one line and the options are the alternatives.
 
 ### 4. Plan
 

@@ -106,8 +106,9 @@ plan. An empty plan is a good outcome; say so and stop.
 
 Small items are in scope. Delegated, every big item is out of scope: do not
 ask, list them in the report. Invoked by the user, ask about each **big** item
-on its own, the way your instructions say to ask: options "In scope" and "Out of scope",
-and the item's cost in the option descriptions. Wait for each answer.
+on its own, the way your instructions say to ask: options "In scope" and
+"Out of scope", and the item's cost in the option descriptions. Wait for each
+answer.
 
 ## 5. Apply
 

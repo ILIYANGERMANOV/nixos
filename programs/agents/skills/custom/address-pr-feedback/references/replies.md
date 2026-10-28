@@ -91,14 +91,14 @@ the deferral.
 > separately rather than widening the diff here.
 
 Do not promise a ticket number in the reply. Where deferrals live is decided in
-phase 7, after these have already posted, so a reply that names an issue that
-does not exist yet is a broken promise in writing.
+phase 7, after the phase 6 picker: with options 1 and 2 the reply has already
+posted, and with "Don't comment" it never posts. Either way, an issue named in
+it would not exist yet.
 
 ## The summary comment
 
 One `gh pr comment`, posted only when the user picks option 1 in phase 6, after
-every thread reply has posted. It does
-two jobs: it gives the reviewer a single place to see the shape of the
+every thread reply has posted. It does two jobs: it gives the reviewer a single place to see the shape of the
 response, and it is the **only** way top-level comments get answered, since
 they have no thread to reply into.
 

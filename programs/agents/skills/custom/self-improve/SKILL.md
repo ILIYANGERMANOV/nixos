@@ -77,8 +77,9 @@ the sessions they came from, grouped as:
 
 Then ask one `AskUserQuestion` per bottleneck, and per audit finding whose fix
 is a real choice, with suggested fixes as options, recommended first. Base each
-fix on the data or the quoted text, never a guess. `${CLAUDE_SKILL_DIR}/references/playbook.md` holds the fixes
-that worked before.
+fix on the data or the quoted text, never a guess.
+`${CLAUDE_SKILL_DIR}/references/playbook.md` holds the fixes that worked
+before.
 
 ## 4. Fix
 

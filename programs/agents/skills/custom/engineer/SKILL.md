@@ -127,6 +127,7 @@ there, under the merge-danger or follow-up section, with the reason.
 - Wait for CI the non-blocking way your instructions describe. Fix CI
   failures through a subagent, and wait again.
 - When CI is green, mark the PR ready with `gh pr ready <n>` and notify the
-  user the way your instructions describe, mentioning that `/final-review [requirements]` on the ready PR gives
-  an independent check, and `/qa [instructions]` records QA proof of the
-  feature running. You run neither.
+  user the way your instructions describe, mentioning that
+  `/final-review [requirements]` on the ready PR gives an independent check,
+  and `/qa [instructions]` records QA proof of the feature running. You run
+  neither.

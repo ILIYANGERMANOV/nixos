@@ -34,8 +34,8 @@ requests.
 
 ## When to ask
 
-Ask as the Asking rules above say. Keep each question short enough to answer
-on a phone, one question per `AskUserQuestion` call.
+Ask as the Asking rules above say, each question short enough to answer on a
+phone.
 
 ## Notifications
 

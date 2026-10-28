@@ -101,10 +101,6 @@ All outside any checkout, so nothing is committed by accident.
 
 ### 1. Resolve the PR and its repos
 
-First, read `QA.md` at the PR repo's root if it exists: how to launch the
-app, log in, which steps are flaky and what worked last time. It saves the
-questions and probes an earlier run already paid for.
-
 A PR number or URL in `$ARGUMENTS`, else the current branch's PR
 (`gh pr view --json number,title,body,headRefName,headRefOid,url`). No PR: ask
 for one. Everything else in `$ARGUMENTS` is the instructions. Create the run
@@ -126,7 +122,9 @@ a lookup for their paths and the default host, never a reason to add one. A
 sibling missing from disk is a question to the user, never a clone. Record
 each in `<run>/repos.md`: path, `owner/repo`, role (subject, host or
 dependency), its `QA.md` path or none, and the commit QA runs at. Read the
-`QA.md` of every repo in the set. When two disagree, the repo that owns the
+`QA.md` of every repo in the set before any question or probe: how to launch
+the app, log in, which steps are flaky and what worked last time, which an
+earlier run already paid for. When two disagree, the repo that owns the
 fact wins: the host on how to run it, log in, connect a wallet and navigate
 it; the subject on what the change should look like and its own flows and
 quirks. The plan names each conflict and close-out proposes the fix to the
@@ -167,8 +165,8 @@ and, for each repo in the set without a `QA.md`, a draft at
 Research before you ask, as your instructions say: plan the open questions
 yourself, group them, and launch one research agent per group (start the
 app, read the code, check a URL) before your first question. When the
-instructions only name what to QA, the topics are yours to plan. Ask the rest one per `AskUserQuestion`, with concrete
-options. A missing `QA.md`, the PR repo's or a host's, is a blocker: show the
+instructions only name what to QA, the topics are yours to plan. Ask the rest
+one per `AskUserQuestion`, with concrete options. A missing `QA.md`, the PR repo's or a host's, is a blocker: show the
 draft, ask about each gap it lists one at a time, then ask whether to commit
 it (close-out says where). Fold the answers into the plan.
 
@@ -205,8 +203,8 @@ verbatim; `<run>/repos.md` (each repo's path and the commit it must be at),
 `<run>/pr.diff` and the `QA.md` sections it needs; the URL the app is
 already running at (it must not start a second one); the run directory; the
 auth file paths; whether the wallet is available, its balances from step 1
-and, if available, `${CLAUDE_SKILL_DIR}/references/wallet.md`; the scripts directory `~/.cache/qa/<owner>/<repo>/scripts/<host>/` and an
-index of it, so it reads only the files it needs - each file's name and
+and, if available, `${CLAUDE_SKILL_DIR}/references/wallet.md`; the scripts
+directory `~/.cache/qa/<owner>/<repo>/scripts/<host>/` and an index of it, so it reads only the files it needs - each file's name and
 exported functions, from `rg -n --no-heading '^(async )?function |module\.exports|^exports\.' <scripts>`.
 It returns a verdict per item (Pass, Fail or Unverified), each with its
 artifacts, repro steps for every Fail, and knowledge worth adding to each
@@ -256,10 +254,13 @@ never `#<n>` (that resolves to this repo) or shorthand.
   named. First list the improvements and ask the user which to make and
   which not. Sort the approved ones by the repo whose code each is
   about, one diff per repo, and scan each for secrets and sensitive data
-  (`qa-md.md` lists what never goes in) before showing it. Commit each in
-  its repo on the branch already in use there: the PR branch for the
-  subject, the draft host PR's branch for a host. Unsure where: ask. Never
-  commit unasked, and never in the detached QA worktree.
+  (`qa-md.md` lists what never goes in) before showing it. Then ask with
+  `AskUserQuestion` whether to commit each diff: it may hold sensitive or
+  non-engineering details, or a wrong assumption about the product, that
+  only the user can spot. Commit each approved diff in its repo on the
+  branch already in use there: the PR branch for the subject, the draft
+  host PR's branch for a host. Unsure where: ask. Never commit unasked, and
+  never in the detached QA worktree.
 - Stop what step 1 and the executor started: the dev server with `TaskStop`
   and the job id in `<run>/app.job`, the browser with `qa-session stop
   <run>`. Never `pkill`, `killall` or a pattern kill. Then check the app's

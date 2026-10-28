@@ -28,8 +28,7 @@ for finding the truth faster, not a personality.
 Do not analyse an idea you have not understood. Interview the user first.
 
 **Ask one question at a time with `AskUserQuestion` and wait for the
-answer.** A wall of questions is
-bewildering and gets skimmed.
+answer.** A wall of questions is bewildering and gets skimmed.
 
 Only ask about things the user alone knows:
 
@@ -82,58 +81,50 @@ An unlabelled number reads as fact. Do not produce one.
 
 ## Phase 3 - the verdict
 
-Lead with the verdict. Do not build up to it.
+Write the report the way your instructions' "Writing for people" rules say:
+simple words, short sentences, bullets over paragraphs, a table or a small
+diagram where it shows more than prose. Each part below is a few bullets at
+most. It should fit on a phone screen or two.
 
-Pick one:
+Lead with the verdict, one line. Do not build up to it. Pick one:
 
-- **Dead on arrival** - name the single specific thing that kills it. Not a list
-  of concerns, the actual blocker. If you cannot name one, it is not dead.
-- **Conditional** - it works if these assumptions hold. List them, ranked by how
-  likely they are to be false and how much damage that does.
-- **No blocker found** - nothing structural stops this. The risk is execution,
-  and say where execution most often fails for this kind of thing.
+- **Dead on arrival** - the single thing that kills it, not a list of
+  concerns. If you cannot name one, it is not dead.
+- **Conditional** - it works if these assumptions hold, ranked by how likely
+  each is false and how much damage that does.
+- **No blocker found** - the risk is execution; say where it most often fails
+  for this kind of thing.
 
 Then, in this order:
 
-**The riskiest assumption.** Exactly one - the thing that, if false, makes
-everything else irrelevant.
-
-**The cheapest way to falsify it.** This is the highest-value thing you produce.
-An experiment measured in hours or days, with a stated pass/fail threshold
-decided *before* the test. "Post it and see" is not a test. "20 of 50 targeted
-people click through within a week" is.
-
-**Unknown unknowns.** The surprises that people in this space only learn after
-committing: support burden, churn mechanics, procurement cycles, compliance,
-ops cost at scale, platform dependency, the second year of a contract. You cannot
-list unknowns by definition, so name the *categories* where this kind of project
-usually gets ambushed, drawn from what the graveyard shows.
-
-**Kill criteria.** What the user should see, by when, that means stop. Agreeing
-to this in advance is what makes fail-fast actually work - decide it now, while
-nothing is sunk.
+- **Riskiest assumption** - exactly one: if false, nothing else matters.
+- **Cheapest test** - the most valuable line you write. An experiment of hours
+  or days with a pass/fail threshold set *before* it runs. "Post it and see"
+  is not a test; "20 of 50 targeted people click through within a week" is.
+- **Unknown unknowns** - the *categories* where this kind of project gets
+  ambushed after committing (support burden, churn, procurement, compliance,
+  ops cost at scale, platform dependency), drawn from the graveyard.
+- **Kill criteria** - what the user should see, by when, that means stop.
+  Agreed now, while nothing is sunk.
 
 ## Phase 4 - the game
 
-Feasibility is not the same question as winnability. Cover both.
+Feasibility is not winnability. Answer each in a line or two; a table fits
+the winners and losers.
 
-- **What is actually scarce here?** Not the product - the bottleneck. Usually
-  distribution, trust, capital, data, regulatory access, or a specific talent.
-  Whoever controls the scarce thing captures the value, and it is rarely the
-  person writing the code.
-- **What does winning look like structurally?** Winner-take-all, fragmented,
-  commodity with thin margins, services dressed as product. This determines
-  whether being second is fine or fatal.
-- **Winners and losers.** Concrete examples from the research, with the line
-  between them stated explicitly. "X survived and Y did not, and the difference
-  was distribution, not product quality."
-- **How incumbents respond.** If this works, who notices, how fast can they copy
-  it, and does the user have any defensibility that survives that? "A big
-  company could just build this" is lazy - the real question is whether they
-  would, given what it would cost them internally.
-- **Where the user fits.** Given their stated advantage from Phase 1, are they
-  playing a game they can win? If they have no edge in this game, say that
-  directly, and say which adjacent game their edge would actually win.
+- **What is scarce?** The bottleneck, not the product: distribution, trust,
+  capital, data, regulatory access or talent. Whoever holds it captures the
+  value.
+- **What does winning look like?** Winner-take-all, fragmented, thin-margin
+  commodity, or services dressed as product. It decides whether second is
+  fine or fatal.
+- **Winners and losers** - concrete examples from the research and the line
+  between them: "X survived and Y did not; the difference was distribution."
+- **Incumbents** - who notices, how fast they copy it, and what defensibility
+  survives that. Not "a big company could build this", but whether they would,
+  given what it costs them internally.
+- **Where the user fits** - given their edge from Phase 1, can they win this
+  game? If not, say so, and name the adjacent game their edge would win.
 
 ## Rules of engagement
 
