@@ -344,6 +344,8 @@ git -C "$HOME/repos/origin" worktree add --quiet --detach "$qa/runs/12-old/workt
 touch "$qa/runs/12-old/worktree/new-file"
 find "$qa/runs/12-old" -exec touch -d '2 days ago' {} +
 echo video >"$qa/runs/13-live/happy-path.mp4"
+# A live run's clean worktree, which a pushed-and-clean check alone would take.
+git -C "$HOME/repos/origin" worktree add --quiet --detach "$qa/runs/13-live/worktree"
 echo '{}' >"$qa/auth/user.json"
 echo '// lib' >"$qa/scripts/lib.cjs"
 touch -d '2 days ago' "$qa/auth/user.json" "$qa/scripts/lib.cjs"
@@ -355,6 +357,7 @@ grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' "$work/out" || fail "apply does not report
 [ ! -e "$qa/runs/12-old" ] || fail "a finished QA run was kept"
 git -C "$HOME/repos/origin" worktree list | grep -q 12-old && fail "a deleted run's worktree is still registered"
 [ -e "$qa/runs/13-live/happy-path.mp4" ] || fail "a live QA run was removed"
+[ -d "$qa/runs/13-live/worktree" ] || fail "a live QA run's clean worktree was removed"
 [ -e "$qa/auth/user.json" ] && [ -e "$qa/scripts/lib.cjs" ] || fail "QA login state or scripts were removed"
 
 # ─── factory-ctl deploy / rollback / reboot / gc ─────────────────────────────

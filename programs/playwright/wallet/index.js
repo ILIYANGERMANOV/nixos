@@ -204,8 +204,7 @@ function requestHandler({ account, rpcUrl, chainId }) {
     },
     personal_sign: ([message]) => account.signMessage({ message: { raw: message } }),
     eth_sign: ([, message]) => account.signMessage({ message: { raw: message } }),
-    eth_signTypedData_v4: ([, typedData]) =>
-      account.signTypedData(typeof typedData === 'string' ? JSON.parse(typedData) : typedData),
+    eth_signTypedData_v4: ([, typedData]) => signTypedData(typeof typedData === 'string' ? JSON.parse(typedData) : typedData),
     eth_sendTransaction: ([tx]) =>
       needRpc('eth_sendTransaction').sendTransaction({
         chain: null,
@@ -215,6 +214,16 @@ function requestHandler({ account, rpcUrl, chainId }) {
         gas: tx.gas === undefined ? undefined : BigInt(tx.gas),
       }),
   };
+
+  // A typed-data domain names the chain the signature is valid on: one for
+  // another chain (a mainnet Permit, say) is refused, as for a chain switch.
+  function signTypedData(typedData) {
+    const wanted = typedData.domain?.chainId;
+    if (wanted !== undefined && Number(wanted) !== chainId) {
+      throw rpcError(UNRECOGNISED_CHAIN, `qa-wallet: only chain ${chainId} is available`);
+    }
+    return account.signTypedData(typedData);
+  }
 
   return async (method, params) => {
     const local = methods[method];

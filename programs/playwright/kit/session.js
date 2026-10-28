@@ -89,7 +89,9 @@ async function serve(dir, { url, storageState, chainId, rpcUrl, forwardRpc }) {
   capture(context, path.join(dir, 'qa-session-console.log'));
   if (chainId !== null) await exposeWallet(context, { chainId, rpcUrl, forwardRpc });
   const page = await context.newPage();
-  if (url) await page.goto(url);
+  // A dev server compiles a route on its first hit, which outlasts the 10 s
+  // step timeout; the load gets the whole start budget instead.
+  if (url) await page.goto(url, { timeout: START_TIMEOUT_MS });
 
   const sessionFile = path.join(dir, SESSION_FILE);
   const endpoint = `http://127.0.0.1:${port}`;

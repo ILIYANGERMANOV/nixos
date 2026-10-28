@@ -102,6 +102,8 @@ async function main() {
   // Without an rpcUrl, reads fail as unsupported instead of reaching a network.
   assert.strictEqual((await call('eth_blockNumber')).error.code, 4200);
   assert.strictEqual((await call('wallet_switchEthereumChain', [{ chainId: '0x1' }])).error.code, 4902);
+  const mainnetTyped = { ...TYPED_DATA, domain: { ...TYPED_DATA.domain, chainId: 1 } };
+  assert.strictEqual((await call('eth_signTypedData_v4', [address, JSON.stringify(mainnetTyped)])).error.code, 4902);
 
   // The key is nowhere the page can reach: not the DOM, not any global, not
   // the provider's source, not a console line.

@@ -151,14 +151,23 @@ let
 
   # Read deny rules for every directory holding a secret file, and for the
   # `<dir>.d` that sops-nix points it at (`/run/secrets -> /run/secrets.d/<n>`),
-  # so neither the symlinked nor the resolved path is readable. `//` makes a
-  # rule's path absolute rather than project-relative.
+  # so neither the symlinked nor the resolved path is readable. macOS resolves
+  # `/run` itself to `/private/var/run`, so that spelling is denied too. `//`
+  # makes a rule's path absolute rather than project-relative.
   secretDirDenyRules =
     files:
-    lib.concatMap (dir: [
-      "Read(/${dir}/**)"
-      "Read(/${dir}.d/**)"
-    ]) (lib.unique (map dirOf (lib.attrValues files)));
+    lib.concatMap (
+      dir:
+      lib.concatMap
+        (root: [
+          "Read(/${root}${dir}/**)"
+          "Read(/${root}${dir}.d/**)"
+        ])
+        [
+          ""
+          "/private/var"
+        ]
+    ) (lib.unique (map dirOf (lib.attrValues files)));
 
   # Shell snippet: rebuild ~/.claude/skills from this flavor's farm.
   #

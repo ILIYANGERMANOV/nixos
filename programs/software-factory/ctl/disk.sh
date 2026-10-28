@@ -87,6 +87,8 @@ prunable_worktrees() {
   for repo in $(cloned_repos); do
     while read -r wt; do
       [ "$wt" != "$repos_dir/$repo" ] || continue
+      # A /qa run's worktree is clean while the run is live: qa_runs decides.
+      case "$wt" in "$qa_dir"/*) continue ;; esac
       [ -z "$(sessions_under "$wt")" ] || continue
       [ -z "$(local_work "$wt")" ] || continue
       echo "$wt"
