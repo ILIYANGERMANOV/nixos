@@ -13,7 +13,7 @@ any input this script does not understand: the guard fails open.
 import json
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import dropwhile
 
 from bash_commands import simple_commands
@@ -93,8 +93,8 @@ def unwrap(words: list[str]) -> list[str]:
                     return unwrap(inner)
                 case _:
                     return []
-        case ["nix", "develop", *rest] if "-c" in rest:
-            return unwrap(rest[rest.index("-c") + 1:])
+        case ["nix", "develop", *rest]:
+            return unwrap(after(lambda arg: arg == "-c", rest))
         case _:
             return words
 
@@ -102,10 +102,18 @@ def unwrap(words: list[str]) -> list[str]:
 def shell_script(words: list[str]) -> str | None:
     match words:
         case [shell, *args] if shell in SHELLS:
-            flag = next((i for i, arg in enumerate(args) if SHELL_COMMAND_FLAG.fullmatch(arg)), None)
-            return None if flag is None or flag + 1 == len(args) else args[flag + 1]
+            match after(SHELL_COMMAND_FLAG.fullmatch, args):
+                case [script, *_]:
+                    return script
+                case []:
+                    return None
         case _:
             return None
+
+
+def after(is_flag: Callable[[str], object], args: list[str]) -> list[str]:
+    """What follows the first flag, nothing without one."""
+    return list(dropwhile(lambda arg: not is_flag(arg), args))[1:]
 
 
 def is_tail_follow(words: list[str]) -> bool:

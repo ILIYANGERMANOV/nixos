@@ -59,6 +59,12 @@ let
   # shared files, so concurrent starts would race. The wrapper therefore runs
   # once under a lock with --version, and the server is started from the
   # unwrapped binary the wrapper would have exec'd.
+  # The launchers and the skill relink serialise on this lock, held on fd 9.
+  openFactoryLock = ''
+    mkdir -p "$HOME/.claude"
+    exec 9>"$HOME/.claude/.factory.lock"
+  '';
+
   mkRemoteControl =
     {
       claude,
@@ -83,8 +89,7 @@ let
               local dir="$1" name="$2"
               shift 2
 
-              mkdir -p "$HOME/.claude"
-              exec 9>"$HOME/.claude/.factory.lock"
+              ${openFactoryLock}
               flock 9
               ${lib.getExe claude} --version >/dev/null
               trust "$dir"
@@ -149,8 +154,7 @@ let
         (import ../skills-link { inherit pkgs; })
       ];
       text = ''
-        mkdir -p "$HOME/.claude"
-        exec 9>"$HOME/.claude/.factory.lock"
+        ${openFactoryLock}
         if ! { flock --wait ${toString lockSeconds} 9 && factory-link-skills "$1"; }; then
           echo "factory-relink-skills: left ~/.claude/skills as it was" >&2
         fi

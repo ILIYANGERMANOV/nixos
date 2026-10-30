@@ -500,18 +500,21 @@ skills_reset() {
   mkdir -p "$skills" "$work/farm-a/alpha" "$work/farm-a/beta" "$work/farm-b/alpha"
 }
 
+status_reports() {
+  factory-ctl status >"$work/out"
+  grep -qxF "$1" "$work/out" || { cat "$work/out" >&2; fail "status does not report: $1"; }
+}
+
 echo "factory-relink-skills: replaces links a GC left dangling; status counts them, then none"
 skills_reset
 ln -s "$work/collected/alpha" "$skills/alpha"
 ln -s "$work/collected/gamma" "$skills/gamma"
 ln -s "$work/farm-a/beta" "$skills/beta"
-factory-ctl status >"$work/out"
-grep -qxF "Skills: 2 dangling link(s): alpha gamma" "$work/out" || { cat "$work/out" >&2; fail "dangling links are not reported"; }
+status_reports "Skills: 2 dangling link(s): alpha gamma"
 factory-relink-skills "$work/farm-a"
 [ "$(readlink "$skills/alpha")" = "$work/farm-a/alpha" ] || fail "alpha was not relinked"
 [ ! -L "$skills/gamma" ] || fail "a link of the old farm survived"
-factory-ctl status >"$work/out"
-grep -qxF "Skills: 0 dangling links" "$work/out" || { cat "$work/out" >&2; fail "a clean farm is reported as dangling"; }
+status_reports "Skills: 0 dangling links"
 
 echo "factory-relink-skills: works on a first run with no ~/.claude"
 skills_reset

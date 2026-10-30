@@ -113,23 +113,19 @@ pkgs.runCommand "claude-bash-guards-check"
       "cat ~/.claude/skills/../../$(basename "$dir")/big-a big-b"
 
     mkdir -p repo-docs/skills/custom/foo/references repo-docs/skills/bar/references/deep
-    for name in AGENTS.md CLAUDE.md SKILL.md factory-instructions.md; do
-      head -c 6000 /dev/zero >"$name"
-      head -c 6000 /dev/zero >"repo-docs/$name"
+    for file in {,repo-docs/}{AGENTS,CLAUDE,SKILL,factory-instructions}.md NOTCLAUDE.md \
+      repo-docs/skills/custom/foo/references/a.md \
+      repo-docs/skills/bar/references/{b.md,source.py,deep/nested.md}; do
+      head -c 6000 /dev/zero >"$file"
     done
-    head -c 6000 /dev/zero >repo-docs/skills/custom/foo/references/a.md
-    head -c 6000 /dev/zero >repo-docs/skills/bar/references/b.md
-    head -c 6000 /dev/zero >repo-docs/skills/bar/references/source.py
-    head -c 6000 /dev/zero >repo-docs/skills/bar/references/deep/nested.md
     head -c 20000 /dev/zero >huge.md
     git add huge repo-docs
     git commit --quiet -m docs
     review=$(mktemp -d /tmp/review-XXXXXX)
     mkdir "$review/sub"
-    for name in stat log index diff diff.txt; do
-      head -c 6000 /dev/zero >"$review/$name"
+    for file in "$review"/{stat,log,index,diff,diff.txt,sub/stat}; do
+      head -c 6000 /dev/zero >"$file"
     done
-    head -c 6000 /dev/zero >"$review/sub/stat"
 
     expect 0 "instruction files read together are allowed" \
       "cat AGENTS.md CLAUDE.md SKILL.md factory-instructions.md"
@@ -156,7 +152,6 @@ pkgs.runCommand "claude-bash-guards-check"
       "cat repo-docs/skills/bar/references/../../../../huge.md CLAUDE.md"
     expect 2 "a non-markdown file under references is counted" "cat repo-docs/skills/bar/references/source.py big-a"
     expect 2 "a nested file under references is counted" "cat repo-docs/skills/bar/references/deep/nested.md big-a"
-    head -c 6000 /dev/zero >NOTCLAUDE.md
     expect 2 "a name that only ends like an instruction file is counted" "cat NOTCLAUDE.md big-a"
     shared_failopen
 

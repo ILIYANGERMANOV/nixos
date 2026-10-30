@@ -68,14 +68,21 @@ class Transcript:
         """A tool call and its result. Returns the tool_use id."""
         self.calls += 1
         use_id = f"toolu_{self.calls}"
-        self.event(t, "assistant", message={"id": f"msg_{self.calls}", "role": "assistant", "usage": {},
+        self.tool_use(t, f"msg_{self.calls}", use_id, name, tool_input)
+        extra = {"backgroundTaskId": f"bg{self.calls}"} if background else {}
+        self.tool_result(done, use_id, result, error, extra)
+        return use_id
+
+    def tool_use(self, t: float, response: str, use_id: str, name: str, tool_input: dict) -> None:
+        self.event(t, "assistant", message={"id": response, "role": "assistant", "usage": {},
                                             "content": [{"type": "tool_use", "id": use_id, "name": name,
                                                          "input": tool_input}]})
-        extra = {"backgroundTaskId": f"bg{self.calls}"} if background else {}
-        self.event(done, "user", toolUseResult=extra,
+
+    def tool_result(self, t: float, use_id: str, result: str | list[dict] = "ok", error: bool = False,
+                    extra: dict | None = None) -> None:
+        self.event(t, "user", toolUseResult=extra or {},
                    message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": use_id,
                                                          "content": result, "is_error": error}]})
-        return use_id
 
     def bash(self, t: float, command: str, done: float, **kw: object) -> str:
         return self.tool(t, "Bash", done, command=command, **kw)
@@ -89,12 +96,9 @@ class Transcript:
         for t, name, tool_input in calls:
             self.calls += 1
             ids.append(f"toolu_{self.calls}")
-            self.event(t, "assistant", message={"id": response, "role": "assistant", "usage": {},
-                                                "content": [{"type": "tool_use", "id": ids[-1], "name": name,
-                                                             "input": tool_input}]})
+            self.tool_use(t, response, ids[-1], name, tool_input)
         for use_id in ids:
-            self.event(done, "user", message={"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": use_id, "content": "ok", "is_error": False}]})
+            self.tool_result(done, use_id)
 
     def notify(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
         return self.event(t, "queue-operation", operation="enqueue", content=notification(use_id, status, summary))
@@ -221,12 +225,10 @@ class WallTime(Case):
     def test_a_subagent_background_start_is_timed_to_its_notification(self) -> None:
         # Given: a subagent whose transcript has only the result text and an attached notification
         start = "Command running in background with ID: b1. Output is being written to: /tmp/b1.output"
-        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        sub = awaited_subagent()
         bg = sub.bash(10, "just check", 11, result=start)
         sub.attach_notification(310, bg, "completed", 'Background command "check" completed (exit code 0)')
-        main = Transcript().human(0, "go")
-        main.tool(1, "Agent", 400, description="Implement")
-        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        self.home.session("s1", awaiting_subagent(400), {"s": worker("Implement", sub)})
         # When
         report = self.home.report()
         # Then: one background call of 300s, not a 1s foreground one
@@ -235,12 +237,10 @@ class WallTime(Case):
     def test_a_subagent_timeout_moved_to_the_background_is_timed_to_its_notification(self) -> None:
         # Given: a foreground call the harness moved to the background at its timeout
         moved = "Command did not complete within its 600s timeout and was moved to the background with ID: b1."
-        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        sub = awaited_subagent()
         bg = sub.bash(10, "just check", 610, result=moved)
         sub.attach_notification(910, bg, "completed", 'Background command "check" completed (exit code 0)')
-        main = Transcript().human(0, "go")
-        main.tool(1, "Agent", 1000, description="Implement")
-        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        self.home.session("s1", awaiting_subagent(1000), {"s": worker("Implement", sub)})
         # When
         report = self.home.report()
         # Then
@@ -249,12 +249,10 @@ class WallTime(Case):
     def test_a_subagent_background_agent_is_timed_to_its_notification(self) -> None:
         # Given: a subagent spawning a background agent, with the result as a text block
         launched = [{"type": "text", "text": "Async agent launched successfully."}]
-        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        sub = awaited_subagent()
         child = sub.tool(10, "Agent", 11, result=launched, description="Research")
         sub.attach_notification(130, child, "completed", "Agent finished")
-        main = Transcript().human(0, "go")
-        main.tool(1, "Agent", 50, description="Implement")
-        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        self.home.session("s1", awaiting_subagent(50), {"s": worker("Implement", sub)})
         # When
         report = self.home.report()
         # Then
@@ -263,12 +261,10 @@ class WallTime(Case):
 
     def test_a_subagent_background_failure_is_a_failure(self) -> None:
         # Given: a background command failing in a subagent's attached notification
-        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        sub = awaited_subagent()
         bg = sub.bash(10, "just check", 11, result="Command running in background with ID: b1.")
         sub.attach_notification(100, bg, "failed", 'Background command "check" failed with exit code 2')
-        main = Transcript().human(0, "go")
-        main.tool(1, "Agent", 200, description="Implement")
-        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        self.home.session("s1", awaiting_subagent(200), {"s": worker("Implement", sub)})
         # When
         report = self.home.report()
         # Then
@@ -454,6 +450,17 @@ def subagent(brief: str, usage: dict | None = None, parent_agent: str | None = N
 
 def idle_main() -> Transcript:
     return Transcript().human(0, "go").reply(1)
+
+
+def awaiting_subagent(done: float) -> Transcript:
+    """A session whose first tool call runs `awaited_subagent` in the foreground until `done`."""
+    main = Transcript().human(0, "go")
+    main.tool(1, "Agent", done, description="Implement")
+    return main
+
+
+def awaited_subagent() -> Transcript:
+    return Transcript(parent="toolu_1").brief(0, "Implement")
 
 
 def spawning_implementer() -> Transcript:
