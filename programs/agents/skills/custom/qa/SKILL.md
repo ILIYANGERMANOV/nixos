@@ -1,7 +1,6 @@
 ---
 name: qa
-description: QAs a pull request in any repo and publishes the proof to it. Reads the QA.md of every repo in the test, the PR's and the hosts it runs in (drafting one when absent), plans with a subagent from the instructions or the PR's acceptance criteria and diff, asks the user to unblock it one question at a time, always gets the plan approved, drives the app in a headless browser with Playwright (an EVM wallet helper included), records a happy-path video first, then unhappy-path videos and key screenshots, has a fresh subagent downgrade any Pass its evidence does not show, and replaces a `## QA` section in the PR body. Reports bugs, never fixes them. Proposes QA.md updates and asks before committing them.
-disable-model-invocation: true
+description: QAs a pull request in any repo and publishes the proof to it. Reads the QA.md of every repo in the test, the PR's and the hosts it runs in (drafting one when absent), plans with a subagent from the instructions or the PR's acceptance criteria and diff, asks the user to unblock it one question at a time, always gets the plan approved, drives the app in a headless browser with Playwright (an EVM wallet helper included), records a happy-path video first, then unhappy-path videos and key screenshots, has a fresh subagent downgrade any Pass its evidence does not show, and replaces a `## QA` section in the PR body. Reports bugs, never fixes them. Proposes QA.md updates and asks before committing them. Use only when the user asks to QA a PR or feature, never on your own initiative, and run it in the session that can ask the user, never in a delegated subagent.
 argument-hint: "[instructions] [PR]"
 ---
 
@@ -20,7 +19,8 @@ owns the decisions.
 - **One question per `AskUserQuestion`.** Never batch blockers. Never ask what
   a tool, the code or `QA.md` can answer.
 - **The user always approves the plan** before anything runs, even when
-  nothing is blocked.
+  nothing is blocked. That approval goes through `AskUserQuestion`, so QA runs
+  in the session that can ask, never in a delegated subagent.
 - **Headless always.** The one exception is a manual login on a Mac, which the
   user does in a headed window (see Login state).
 - **Evidence or it did not happen.** A verdict without an artifact that shows

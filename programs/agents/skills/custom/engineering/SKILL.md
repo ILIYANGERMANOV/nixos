@@ -1,6 +1,6 @@
 ---
 name: engineering
-description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers ADT and DDD domain modeling, SUM types over nullable fields, nominal typing, pattern-matching over early guards, top-down function order, minimal function parameters, small and deep modules, language-idiomatic FP, simplicity and edge-case ROI, DRY and reuse, avoiding premature optimization, strict type-safety, bounded file reads, and when to stop and ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, black-box tests through the public interface, realistic fakes over mocks, Given-When-Then structure, and what makes a test meaningless or wrong. Takes precedence over the domain-modeling skill for how to model a domain.
+description: The engineering principles and coding style to follow for all code work - writing, modifying, refactoring, reviewing or designing code, in any language and at any size, including small changes. Covers ADT and DDD domain modeling, minimal state, idempotence, data evolution, parsing into narrower types, errors as values, SUM types over nullable fields, nominal typing, pattern-matching, top-down function order, minimal parameters, small and deep modules, comments, a pure core with a thin effect shell, task lifetimes, simplicity and edge-case ROI, DRY and reuse, strict type-safety, bounded file reads, and when to ask the user instead of guessing. Also covers testing across four layers - unit, property-based, differential and end-to-end tests - reproducing a bug at every layer before fixing it, black-box tests through the public interface, realistic fakes over mocks, Given-When-Then structure, and what makes a test meaningless or wrong. Takes precedence over the domain-modeling skill for how to model a domain.
 ---
 
 # Engineering
@@ -21,35 +21,54 @@ meet the objective correctly and sanely.
   the PR or the hand-back - never drop one silently. Still fix it when the fix
   is cheap, or when a miss corrupts data or opens a security hole.
 - Not naive: no hacks, no swallowed errors, nothing wrong on the main path.
-- Trust your invariants: validate at the boundary; add no defensive checks,
-  retries or fallbacks for states the types or callers rule out.
+- Trust your invariants: parse at the boundary into a narrower type (`Email`, a
+  non-empty list) and take that type inside; validation returns a new type,
+  never a bool. Parse all input before the first side effect. Add no defensive
+  checks, retries or fallbacks for states the types or callers rule out.
 - Boring code: the standard library over a new dependency, a direct
   expression over a clever one.
 - Grow from a working simple version; a complex system built from scratch
   rarely works (Gall's law).
-- Before finishing, ask what you can delete and still meet the goal.
+- Before finishing, ask what you can delete and still meet the goal: freely
+  what you wrote, existing code only once you know why it exists and who relies
+  on it (`git log -L`, `rg`, its tests). No reason found: keep it or ask.
 
 ## Engineering principles
 
 - DRY: do not repeat yourself. Prefer small functions that compose together
   into bigger functions. Abstract the same concept, never merely the same
-  shape; when unsure whether it is the same concept, ask.
+  shape; when unsure whether it is the same concept, ask. Extract only what
+  stands alone, so a top-down file reads without jumping: its name and signature
+  explain it, without its body or caller.
 - Reuse before writing: search the codebase for an existing helper, type or
   module that already expresses the concept, and use or extend it. A second
   copy of the same concept is the moment to extract it - do not wait for a
   third.
 - Single source of knowledge: never duplicate knowledge - constants, business
   rules, schemas, validation, lists of names. Derive every consumer from one
-  definition, so a change lands in one place and cannot drift.
+  definition, so a change lands in one place and cannot drift. Mutable runtime
+  state likewise has one owner: only it writes, others read an immutable view.
+- Minimal state: store the facts with the most information and derive the rest,
+  in the database, UI and memory alike: `createdAt`, never `isExpired`. A state
+  computable from facts is a SUM a function returns, not a field. When the rule
+  changes, should old records change? Yes derive, no store: a value that must
+  survive a rule change (invoice total) is a fact. Exception: a named
+  performance need, such as an indexed `expiresAt`. A derived store (cache,
+  index, denormalized copy) is disposable, rebuildable and takes no own writes.
+- Idempotence: a webhook, consumer, cron or retry can run twice. Key the effect
+  on a stable id with a unique constraint or upsert, not check-then-write.
+- Data outlives code: old rows meet new code, and mid-deploy old code meets new
+  data. Change a stored or wire format in steps: add, migrate, remove.
+- Task lifetimes: every spawned task has an owner that awaits it, gets its
+  failure and cancels it. Catch-alls rethrow cancellation.
 - Premature optimization: avoid micro-optimization until the user explicitly
   asks for performance. Prefer correctness and maintainability over performance
   and complexity.
-- Type-safety: prefer explicit and strict typing. The compiler is your friend
-  and it should catch bugs before the program even runs. Define strictly input
-  and output types for each function. In dynamic languages use the strongest
-  available equivalent - type hints with a checker, schema validation at the
-  boundary. Where no type system exists, validate once at the edge and keep the
-  core total.
+- Type-safety: prefer explicit and strict typing, so the compiler catches bugs
+  before the program runs. Define strictly input and output types for each
+  function. In dynamic languages use the strongest available equivalent - type
+  hints with a checker, schema validation at the boundary. Where no type system
+  exists, validate once at the edge and keep the core total.
 
 ## Domain modeling
 
@@ -63,8 +82,12 @@ This skill governs how to model a domain.
   cancelled, unverified), model the states as a SUM type.
 - Use nominal typing: prefer an `OrderId` type over a `String`.
 - Impossible cases in the domain must be unrepresentable by your type-safe and
-  strict domain model. Errors should be caught at compile time rather than
-  validated at runtime.
+  strict domain model. Count to check: `{status: 3 cases, data?, error?}` admits
+  12 values where 3 states exist, so make it a SUM. Storage too: constraints for
+  uniqueness, references and required fields, atomic updates over
+  read-modify-write.
+- Typed transitions: take the exact state and return the next,
+  `ship(PaidOrder): ShippedOrder`, not `ship(Order)` with a status check.
 - If you are unsure about the real-world domain model, ask questions and
   interview the user until everything about the domain is crystal-clear. Do this
   before writing code.
@@ -73,10 +96,21 @@ This skill governs how to model a domain.
 
 - Conditional logic: prefer pattern-matching over early if-return guards. Early
   guards are acceptable only for validation and intentional early termination.
-  To run logic based on a SUM type (e.g. `orderType`), pattern-match.
+  To run logic based on a SUM type (e.g. `orderType`), pattern-match, and
+  exhaustively on your own SUM types: no `default` or `_`, so a new case breaks
+  the build at every site. Never check then force (`x!!`, `has` then `get`, a
+  cast): match once and use the bound value.
+- Errors: a failure the caller can act on (not found, rejected) is a SUM value
+  in the return type; a bug or outage throws. A goal that already holds
+  (deleting what is absent) succeeds. Handle a failure once, where it can be
+  decided: no log-and-rethrow, no catch returning null or a default.
+- Comments: state what the code cannot - why, invariants, units, a trap. Never
+  restate the line below or narrate the change; that belongs in the commit.
 - Programming style: language-idiomatic - write what a senior engineer in that
   language would write. Within that idiom, prefer Haskell-style FP principles:
-  immutability, pure functions and side effects pushed to the edges.
+  immutability, pure functions and a thin effect shell: read, decide in a pure
+  function over plain values, write. Pass time, ids and randomness in. If
+  testing a decision needs a fake, the decision is in the shell.
 - Function order: follow Clean Code top-down ordering. The file reads like a book
   from top to bottom, with the larger public functions at the top and the
   functions they use below them. This applies to code you write - do not reorder
@@ -98,7 +132,8 @@ This skill governs how to model a domain.
   interface. The interface is everything a caller must know - signatures,
   invariants, error modes - so depth is a property of the interface, not of
   the line count behind it. Prefer few, deep modules over many shallow
-  pass-throughs.
+  pass-throughs. Split by the knowledge hidden, never by execution order: if one
+  format or rule change touches two modules, merge them or move the knowledge.
 - Deletion test: imagine deleting a module. If its complexity vanishes, it was
   a pass-through - inline it. If the complexity reappears across its callers, it
   earned its keep.
@@ -143,8 +178,9 @@ a test - it is the detailed statement of every rule below, with examples.
   real network.
 - Every test must be able to fail: delete or rewrite a test that asserts
   nothing, cannot fail, re-implements the code to compute its expectation,
-  duplicates another or pins internals. Never weaken an assertion to make a
-  test pass.
+  duplicates another or pins internals. Break the code a new test covers once,
+  see it go red, restore. Never weaken an assertion to make a test pass. A test
+  you cannot pass honestly is reported, never special-cased.
 - Test placement: the code placement rule above applies to tests. Follow the
   layout the project already uses for test files.
 - Reviewing tests: judge tests against the reference and against what the
@@ -172,4 +208,7 @@ Every line you read is carried, and paid for, on every later call.
 
 ## Before you finish
 
-Re-read your diff against these rules and fix what violates them.
+Passing tests is not done. Re-read your diff against the request and these
+rules and fix what violates them: a behaviour change beyond the request gets a
+reason or goes. Every claim in a hand-back or PR matches the diff or a command
+you ran.

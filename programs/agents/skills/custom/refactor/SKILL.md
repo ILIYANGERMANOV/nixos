@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item when run by the user (delegated, big items are reported as out of scope), then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
+description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then derivable state and data modeling, rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, a schema or stored-data change included, when run by the user (delegated, big items are reported as out of scope), then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
 argument-hint: "[scope notes] [PR number or base ref]"
 ---
 
@@ -47,25 +47,31 @@ Look at the diff, in this order:
 1. **DRY** - a concept implemented twice, inside the diff or against code that
    already exists. Search for the existing helper, type or constant before
    writing a new one, and reuse it.
-2. **Rule violations** - anything in the diff that plainly contradicts a rule
-   written in `engineering` or `ui-coding`.
-3. **Deep modules** - shallow pass-throughs to inline, behaviour that belongs
+2. **Derivable state and data modeling** - a stored value computable from
+   facts, a copy of state another owner holds, an illegal state the model can
+   represent. Removing a stored field or changing a schema changes persisted
+   data, so it is a **big** item whatever its size: delegated, it is reported as
+   out of scope, never applied.
+3. **Rule violations** - anything in the diff that plainly contradicts a rule
+   written in `engineering` or `ui-coding`. Check the diff against all of those
+   rules, not only the ones this list names.
+4. **Deep modules** - shallow pass-throughs to inline, behaviour that belongs
    behind a smaller interface.
-4. **Minimal parameters** - a function handed a whole record, context or config
+5. **Minimal parameters** - a function handed a whole record, context or config
    when it uses one field.
-5. **Needless complexity** - speculative options or generality, defensive code
+6. **Needless complexity** - speculative options or generality, defensive code
    for impossible states, single-use layers. Simplify or delete them. Never
    drop a rare edge case's handling here - that changes behaviour; note it for
    the report.
-6. **Top-down order** - a file reads like a newspaper: the entry point or
+7. **Top-down order** - a file reads like a newspaper: the entry point or
    public function first, then the helpers it calls, each defined below its
    first caller, in the order they are called. Move definitions, never change
    them.
-7. **Comments** - delete a comment that restates what the code already says
+8. **Comments** - delete a comment that restates what the code already says
    (`// increment i`, a docstring repeating the signature), is stale, or is
    commented-out code. Shorten a useful one to the part the code cannot say:
    the why, an invariant, a trap. Keep every comment that explains why.
-8. **Good tests** - bring every test the diff adds or changes up to
+9. **Good tests** - bring every test the diff adds or changes up to
    `engineering/references/tests.md`, at every layer: unit, property-based,
    differential, end-to-end and goldens. Refactor the tests, not the
    behaviour they prove:
@@ -99,7 +105,7 @@ Look at the diff, in this order:
 Write the plan as a short numbered list, one line per item: what changes, why
 (the rule it serves), and its size - **small** (inside the diff, a few files) or
 **big** (touches code outside the diff, restructures across many files, or
-changes a public interface). Skip taste: an item no rule backs is not in the
+changes a public interface or persisted data). Skip taste: an item no rule backs is not in the
 plan. An empty plan is a good outcome; say so and stop.
 
 ## 4. Ask about the big items

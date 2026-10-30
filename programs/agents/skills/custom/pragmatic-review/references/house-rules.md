@@ -31,10 +31,23 @@ A finding only when both hold: the rule is **written** in `engineering` or
 `ui-coding`, and the diff **plainly** contradicts it. DRY is the rule diffs break
 most: the same concept implemented again, a helper written where one exists, or
 knowledge duplicated so two places must be kept in sync by hand. Grep for the
-existing one and name it in the fix. A house-rule violation is **minor**.
+existing one and name it in the fix. A house-rule violation is **minor**,
+unless Job 3 makes it major.
 
 Never a violation: anything the rules leave to judgement, formatting, naming,
 missing docs, your own preferences, and code the diff did not touch.
+
+## Job 3 - the data model
+
+Check every table, column, field and piece of state the diff adds or changes,
+schemas and migrations first. Is it derivable from facts already stored? Does it
+copy state another owner holds? Does it admit states the domain does not have?
+Job 2's two conditions still hold: the rule is written, and the diff plainly
+contradicts it. Then it is **major**, because it is expensive to fix once data
+exists. Its `trigger` names the contradictory state a record can now hold.
+
+Never a violation: a copy under a named performance need, a value that must
+survive a rule change, or a nullable column the domain maps to a SUM type.
 
 ## Evidence
 
@@ -51,4 +64,5 @@ evidence    engineering/SKILL.md:34 "DRY: do not repeat yourself."
             vs src/report.ts:40-58, the third copy of the same formatter.
 ```
 
-At most five findings, majors first: past that you are reporting taste.
+At most five findings, majors first, and the cap only ever drops a minor: past
+that you are reporting taste.

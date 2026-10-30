@@ -23,9 +23,13 @@ skill is a finding, quoted verbatim - the house settled that argument.
   (fails at what it set out to do, or breaks what worked), obviously broken
   code, accidental TEMP, WIP or debug commits and leftover debug code, and a
   **fake proof**: a test that contradicts the intent, can never fail, or a bug
-  fix with no test that was red before it.
-- **minor** - a plain violation of a written house rule, DRY and the test rules
-  included, or an approach no competent engineer would choose that still works.
+  fix with no test that was red before it. Also a **data-model violation**: a
+  plain contradiction of a written `engineering` rule by stored derivable state,
+  a representable illegal state or bad data modeling, DB schemas above all,
+  because it is expensive to fix later.
+- **minor** - any other plain violation of a written house rule, DRY and the
+  test rules included, or an approach no competent engineer would choose that
+  still works.
 - **nit** - only nearly free and plainly right: a user-facing typo, an unused
   import the diff added. Drop every other nit.
 
