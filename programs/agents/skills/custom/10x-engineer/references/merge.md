@@ -25,10 +25,10 @@ only: they do not require CI, and they keep an approval across later pushes.
 
 | Gate | Holds when | Otherwise |
 |---|---|---|
-| Open | `state` is `OPEN`, `isDraft` false | Stop, re-read the ledger |
-| Approved | the user's latest non-`COMMENTED` review is `APPROVED`, on this SHA or on one the ledger's merge-safe heads chain to it | Back to `review`: ask for approval |
-| Green | `gh pr checks` exits 0 with at least one check, or the PR has no check and the user's recorded answer accepts that | Pending: end the turn. Red or none: section 7 |
-| Base | `failed` is 0, or this PR is the base fix | Held: section 7's base path, as for a red PR, then end the turn |
+| Open | `state` is `OPEN`, `isDraft` false | Merged or closed: Wakes. Draft: open a decision |
+| Approved | the user's latest non-`COMMENTED` review is `APPROVED`, on this SHA or on one the ledger's merge-safe heads chain to it | Ask for approval |
+| Green | `gh pr checks` exits 0 with at least one check, or the PR has no check and the user's recorded answer accepts that | State `ci`, section 7 |
+| Base | `failed` is 0, or this PR is the base fix | Section 7's base path, as for a red PR, then take the next PR |
 | Current | `behind_by` is 0 and `mergeable` is not `CONFLICTING` | Rebase |
 
 Only the user's review counts, read from `reviews`, never a comment. A CI fix or
@@ -42,7 +42,8 @@ gh pr merge <n> --repo <owner>/<repo> --squash --match-head-commit <sha>
 ```
 
 `mergeable` may read `UNKNOWN`: read it once more before acting. Still
-`UNKNOWN`: merge anyway, GitHub refuses a conflict. A refused merge: read again from the top. Refused twice: tell the user.
+`UNKNOWN`: merge anyway, GitHub refuses a conflict. A refused merge: read again
+from the top. Refused twice: open a decision.
 
 ## Rebase
 
@@ -51,15 +52,18 @@ given the live `headRefOid` and counted against both caps. On its hand-back,
 with `<new head>` read live, compare yourself:
 
 ```sh
-git -C <worktree> fetch origin <base>
+git -C <worktree> fetch origin <base> <branch>
 git -C <worktree> range-diff origin/<base>..<old head> origin/<base>..<new head>
+git -C <worktree> rev-list --merges origin/<base>..<new head>
 ```
 
-- Every line `=`: clean. Add `<old head> -> <new head>` to the merge-safe heads
-  and end the turn. On the green wake run the gates again: Approved passes
+- Every range-diff line `=` and no merge commit, which range-diff skips: clean.
+  Add `<old head> -> <new head>` to the merge-safe heads. Approved then passes
   without a new approval only if the chain reaches an approved commit.
-- Anything else: code changed. Back to `review`, and once green ask for a new
-  approval, saying what changed. An epic child needs none.
+- Anything else: code changed, so no chain. The Approved gate asks for a new
+  approval: say what changed. An epic child needs none.
+
+Either way, state `ci` and section 7 from step 1, whose end reruns the gates.
 
 ## After each merge
 
@@ -73,17 +77,20 @@ yourself:
 3. After a base fix, merge the default branch into each live epic of that repo,
    never a rebase, since children branch from it:
    `gh api repos/<owner>/<repo>/merges -f base=epic/<name> -f head=<default>`.
-   A 409 is a conflict: escalate it.
-4. Read `mergeable` for each remaining open PR of the run in that repo. A
+   A 409 is a conflict: escalate it. An epic whose final PR is `running` is
+   skipped: the Current gate catches it.
+4. Read `mergeable` for each other open PR of a live task in that repo. A
    `CONFLICTING` PR gets a rebase, and after a base fix so does each PR red on
    the base: in a slot free under both caps, else `queued`. A `running` task is
-   left alone, since its worktree has a writer: the Current gate catches it. One
-   merely behind rebases when its turn comes, so CI does not run for nothing.
+   skipped: the Current gate catches it. One merely behind rebases when its turn
+   comes, so CI does not run for nothing.
 5. Dispatch what the merge unblocked, then take the next approved PR.
 
-## Review wakes
+## Wakes
 
-- `APPROVED`: this loop. Another merge in flight: it waits its turn.
+- `APPROVED`: this loop for a `review` task. From `ci` or `qa`, section 7 gets
+  here.
 - `CHANGES_REQUESTED` or a comment from the user: triage it like a hand-back.
-  What it needs goes to a fresh fixer, back to `review` on green, with a new
-  approval.
+  What it needs goes to a fresh fixer, then `ci`, then a new approval.
+- PR merged by hand: After each merge. Closed unmerged: `parked closed unmerged`,
+  notify.

@@ -8,7 +8,7 @@ stored, you read them live.
 ~/.10x/<run>/
   ledger.md
   briefs/<task>.md
-  reports/<task>.md     the worker's pass-1 requirements and long notes
+  reports/<task>.md     the worker's: requirements, last step, head, `Security:`
   worktrees/<task>/
 ```
 
@@ -27,8 +27,8 @@ Breakdown confirmed: <yes, when>
 
 ## Tasks
 
-| Task | Repo | Wave | Deps | Base | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Worker | Last step | Security | Merge-safe heads |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Task | Repo | Wave | Deps | Base | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Merge-safe heads |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 ## Pre-flight
 
@@ -43,32 +43,32 @@ Breakdown confirmed: <yes, when>
 ## Rulings
 
 - <task>: Ruling: <what> - <why> - <what it costs if wrong>
+
+## Held
+
+- <task>: <a wake for a live agent's task: the review or comment URL>
 ```
 
 ## States
 
-One `State` per task:
+One `State` per task. The skill's steps name the moves; GitHub wins over them.
 
-| State | Means | Next |
-|---|---|---|
-| `queued` | waits for a slot, a dependency or an answer; with a PR, for a fixer | `running`, `parked` |
-| `running` | an engineer or fixer is live | `queued`, `ci`, `parked` |
-| `ci` | waits for green on the head | `qa`, `review`, `running`, `queued` |
-| `qa` | waits for the user's QA result | `review`, `running`, `queued` |
-| `review` | ready, in the queue, waits for approval | `merging`, `running`, `queued` |
-| `merging` | approved, in the merge loop | `merged`, `review`, `running`, `queued` |
-| `merged` | terminal | |
-| `parked <reason>` | terminal unless the user picks retry, which clears `Tries`; the reason is required | `queued` |
+| State | Means |
+|---|---|
+| `queued <job>` | waits for a slot, a dependency or an answer |
+| `running <job>` | that job's one agent is live |
+| `ci` | waits for green on the head |
+| `qa` | waits for the user's QA result |
+| `review` | in the queue, or held by the Base gate |
+| `merged` | terminal |
+| `parked <reason>` | terminal unless the user picks retry, which clears `Tries`; the reason is required |
+
+`<job>` is `engineer`, `final-review`, or `fixer <what> <head>`: `rebase` or what
+it fixes, and the live head at dispatch, so resume can tell whether it pushed.
 
 An `[open]` line naming a task holds it, in whatever state it is: that is read
 from Decisions, never stored. A worker that hands one back has left its slot, so
 its task goes `queued`, and the answer starts it only in a free slot.
-
-`Worker` is the job: `engineer`, or `fixer <job>` while one runs or waits
-`queued`, a rebase with its `<old head>`, so resume knows what died.
-
-`Last step` and `Security` come from each hand-back: the last finished /engineer
-step and pass 1's `Security:` line. A fresh agent continues from them.
 
 `Merge-safe heads` lists `<old sha> -> <new sha>` for each clean rebase, so the
 merge loop can tie the head back to the commit the user approved.

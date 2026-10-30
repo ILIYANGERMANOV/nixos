@@ -188,7 +188,8 @@ rest of this skill.
   fixer's, carries the worktree path, for every command, the base branch and
   the first line of your spawn prompt. Diffs are against `origin/<base>`, so an
   epic child never sweeps in a sibling's work: step 6 passes `refactor` that
-  base ref, step 10 passes it to `pr-description`.
+  base ref, steps 7 and 8 pass `pragmatic-review` the PR URL, and step 10 passes
+  the base ref to `pr-description`.
 - From step 10 do only the PR-body rewrite and any full check, the way your
   instructions tell a subagent to run a long command. Then stop, before the CI
   wait. QA, the app offer, the gates, `gh pr ready`, notifications and

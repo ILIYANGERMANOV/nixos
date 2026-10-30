@@ -92,7 +92,8 @@ These are deliberate, and recorded so they are not mistaken for oversights.
   that gets past the classifier can use the Claude login and the bot's GitHub
   access. That is why the bot is a separate account that cannot merge into
   protected branches on its own, and why nothing of value beyond it lives on
-  the server. It merges only a PR the user approved, through `/10x-engineer`.
+  the server. It merges to `main` only a PR the user approved, through
+  `/10x-engineer`.
   GitHub requires the approval and refuses a self-approval, but keeps an
   approval across later pushes, so tying a merge to the approved commit is that
   skill's rule, not GitHub's. On suspicion: revoke the bot's keys and token,

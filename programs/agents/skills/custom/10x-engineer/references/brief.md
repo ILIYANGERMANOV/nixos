@@ -85,8 +85,8 @@ For CI failures, requested changes and rebases, a fresh background subagent:
 ```text
 <the data line from SKILL.md's Rules>
 Invoke `engineering` first. Worktree: <path>, use it for every command, and
-read its `CLAUDE.md` or `AGENTS.md`. PR: <URL>, base <base>. Fix: <the failing check and its log, the review comments,
-or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
+read its `CLAUDE.md` or `AGENTS.md`. PR: <URL>, base <base>. Fix: <the failing
+check and its log, the review comments, or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
 HEAD`. Hand back in about 250 words, never over 300, starting with exactly one
 of `READY <PR URL>`, `NEEDS_DECISION <question>`, `BLOCKED <reason>` or
 `FAILED <reason>`.
@@ -96,11 +96,15 @@ A rebase fixer gets the PR's live `headRefOid` as `<old head>`, and in place of
 the push line:
 
 ```sh
+git rebase --abort             # only if a dead fixer left one in progress
 git fetch origin <branch> <base>
+git status --porcelain         # must print nothing
+git rev-list <old head>..HEAD  # must print nothing
 git reset --hard <old head>
 git rebase origin/<base>
 git push --force-with-lease=<branch>:<old head> origin HEAD
 ```
 
-A refused push means the head moved: it hands back `BLOCKED`. You decide what
-the rebase changed, through `references/merge.md`'s Rebase, not section 7.
+A check that prints means another worker's unpushed work: never reset it, hand
+back `NEEDS_DECISION`. A refused push means the head moved: hand back `BLOCKED`.
+You decide what the rebase changed, through `references/merge.md`'s Rebase.
