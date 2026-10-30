@@ -26,12 +26,16 @@ agree with the report.
   Usage splits into input, cache read, cache write and output. Context at a
   call is input + cache read + cache write; **peak context** is its maximum
   over an agent's calls. `attributionSkill` names the skill a call ran under.
-- **Wall time of a tool call.** No duration field exists: it is the
-  `tool_use` timestamp to the `tool_result` timestamp. A background call
-  (`backgroundTaskId` or `isAsync` in `toolUseResult`) ends at the first
-  `<task-notification>` naming its `<tool-use-id>`, delivered as a
-  `queue-operation` line or a user line; its `<status>` and summary give
-  failure and exit code.
+- **Wall time of a tool call.** No duration field exists: it runs from the
+  last line of the call's response to the `tool_result` timestamp. A line is
+  stamped when its block finished streaming and tools start once the response
+  has ended, so a call is not charged the streaming of its siblings. A
+  background call (`backgroundTaskId` or `isAsync` in `toolUseResult`; in a
+  subagent, which has no `toolUseResult`, the result text saying it started or
+  moved to the background) ends at the first `<task-notification>` naming its
+  `<tool-use-id>`, delivered as a `queue-operation` line, a user line or a
+  `queued_command` attachment; its `<status>` and summary give failure and
+  exit code.
 - **Waiting on the person.** The time the main agent's `AskUserQuestion`
   stayed open (a subagent cannot ask), plus each gap before a human prompt in
   which no tool call of any agent (background ones included) was running;

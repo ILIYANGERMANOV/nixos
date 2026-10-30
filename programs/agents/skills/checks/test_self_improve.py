@@ -63,7 +63,7 @@ class Transcript:
             self.event(t, "assistant", message=message, attributionSkill=skill)
         return self
 
-    def tool(self, t: float, name: str, done: float, *, result: str = "ok", error: bool = False,
+    def tool(self, t: float, name: str, done: float, *, result: str | list[dict] = "ok", error: bool = False,
              background: bool = False, **tool_input: object) -> str:
         """A tool call and its result. Returns the tool_use id."""
         self.calls += 1
@@ -80,10 +80,35 @@ class Transcript:
     def bash(self, t: float, command: str, done: float, **kw: object) -> str:
         return self.tool(t, "Bash", done, command=command, **kw)
 
+    def siblings(self, done: float, *calls: tuple[float, str, dict]) -> None:
+        """One response of several (streamed at, tool, input) calls, written as Claude Code does:
+        one line per block, stamped when that block finished streaming. All results land at `done`."""
+        self.calls += 1
+        response = f"msg_{self.calls}"
+        ids = []
+        for t, name, tool_input in calls:
+            self.calls += 1
+            ids.append(f"toolu_{self.calls}")
+            self.event(t, "assistant", message={"id": response, "role": "assistant", "usage": {},
+                                                "content": [{"type": "tool_use", "id": ids[-1], "name": name,
+                                                             "input": tool_input}]})
+        for use_id in ids:
+            self.event(done, "user", message={"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": use_id, "content": "ok", "is_error": False}]})
+
     def notify(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
-        content = (f"<task-notification>\n<task-id>x</task-id>\n<tool-use-id>{use_id}</tool-use-id>\n"
-                   f"<status>{status}</status>\n<summary>{summary}</summary>\n</task-notification>")
-        return self.event(t, "queue-operation", operation="enqueue", content=content)
+        return self.event(t, "queue-operation", operation="enqueue", content=notification(use_id, status, summary))
+
+    def attach_notification(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
+        """How a subagent's transcript carries a task notification."""
+        attachment = {"type": "queued_command", "commandMode": "task-notification",
+                      "prompt": notification(use_id, status, summary)}
+        return self.event(t, "attachment", attachment=attachment)
+
+
+def notification(use_id: str, status: str, summary: str) -> str:
+    return (f"<task-notification>\n<task-id>x</task-id>\n<tool-use-id>{use_id}</tool-use-id>\n"
+            f"<status>{status}</status>\n<summary>{summary}</summary>\n</task-notification>")
 
 
 @dataclass
@@ -181,6 +206,83 @@ class WallTime(Case):
         report = self.home.report()
         # Then
         self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:6], ["1", "2m", "1", "5m", "300s"])
+
+    def test_sibling_calls_are_timed_from_the_end_of_their_response(self) -> None:
+        # Given: a quick mkdir streamed before a Write whose block took 60s to stream
+        main = Transcript().human(0, "go")
+        main.siblings(102, (40, "Bash", {"command": "mkdir -p /tmp/x"}), (100, "Write", {"file_path": "/tmp/x/a"}))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then: neither call is charged the 60s of streaming
+        self.assertEqual(row(report, "Wall time per Bash command", "mkdir")[5], "2s")
+        self.assertEqual(row(report, "Wall time per tool", "Write")[5], "2s")
+
+    def test_a_subagent_background_start_is_timed_to_its_notification(self) -> None:
+        # Given: a subagent whose transcript has only the result text and an attached notification
+        start = "Command running in background with ID: b1. Output is being written to: /tmp/b1.output"
+        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        bg = sub.bash(10, "just check", 11, result=start)
+        sub.attach_notification(310, bg, "completed", 'Background command "check" completed (exit code 0)')
+        main = Transcript().human(0, "go")
+        main.tool(1, "Agent", 400, description="Implement")
+        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then: one background call of 300s, not a 1s foreground one
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:6], ["0", "0m", "1", "5m", "300s"])
+
+    def test_a_subagent_timeout_moved_to_the_background_is_timed_to_its_notification(self) -> None:
+        # Given: a foreground call the harness moved to the background at its timeout
+        moved = "Command did not complete within its 600s timeout and was moved to the background with ID: b1."
+        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        bg = sub.bash(10, "just check", 610, result=moved)
+        sub.attach_notification(910, bg, "completed", 'Background command "check" completed (exit code 0)')
+        main = Transcript().human(0, "go")
+        main.tool(1, "Agent", 1000, description="Implement")
+        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:6], ["0", "0m", "1", "15m", "900s"])
+
+    def test_a_subagent_background_agent_is_timed_to_its_notification(self) -> None:
+        # Given: a subagent spawning a background agent, with the result as a text block
+        launched = [{"type": "text", "text": "Async agent launched successfully."}]
+        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        child = sub.tool(10, "Agent", 11, result=launched, description="Research")
+        sub.attach_notification(130, child, "completed", "Agent finished")
+        main = Transcript().human(0, "go")
+        main.tool(1, "Agent", 50, description="Implement")
+        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per tool", "Agent")[1:3], ["bg", "1"])
+        self.assertEqual(row(report, "Wall time per tool", "Agent")[4:], ["120s", "120s"])
+
+    def test_a_subagent_background_failure_is_a_failure(self) -> None:
+        # Given: a background command failing in a subagent's attached notification
+        sub = Transcript(parent="toolu_1").brief(0, "Implement")
+        bg = sub.bash(10, "just check", 11, result="Command running in background with ID: b1.")
+        sub.attach_notification(100, bg, "failed", 'Background command "check" failed with exit code 2')
+        main = Transcript().human(0, "go")
+        main.tool(1, "Agent", 200, description="Implement")
+        self.home.session("s1", main, {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[6], "1")
+
+    def test_output_quoting_a_background_start_stays_a_foreground_call(self) -> None:
+        # Given: a foreground command that prints the words mid-output
+        main = Transcript().human(0, "go")
+        main.bash(10, "just check", 20, result="note: Command running in background with ID: b1.")
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:3], ["1", "0m"])
 
     def test_waiting_on_the_person_is_split_from_work(self) -> None:
         # Given: a 10 min gap before the person's second prompt and a 2 min question

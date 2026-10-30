@@ -319,6 +319,12 @@ COMMAND_NAME = re.compile(r"<command-name>/?([\w:-]+)</command-name>")
 NOTIFICATION = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 EXIT_CODE = re.compile(r"exit code (\d+)", re.I)
 HANDBACK = "SubagentHandback"
+# A subagent's transcript has no `toolUseResult`: only the result text tells.
+BACKGROUND_START = re.compile(
+    r"Command running in background with ID|"
+    r"Command did not complete within its \S+ timeout and was moved to the background|"
+    r"Async agent launched"
+)
 
 
 def load_sessions(root: Path) -> list[Session]:
@@ -405,6 +411,7 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
     out = Transcript(Agent(path.stem.removeprefix("agent-"), kind, description, [], []))
     responses: dict[str, Response] = {}
     calls: dict[str, ToolCall] = {}
+    response_calls: dict[str, list[ToolCall]] = defaultdict(list)
     previous: float | None = None
     for event in read_jsonl(path):
         ts = parse_time(event.get("timestamp"))
@@ -421,8 +428,12 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
                     if block.get("type") == "tool_use":
                         call = ToolCall(block["id"], block.get("name", "?"), block.get("input") or {}, ts)
                         calls[call.id] = call
+                        response_calls[key].append(call)
                     elif block.get("type") == "text":
                         out.agent.texts.append(str(block.get("text", "")))
+                # A line is stamped when its block finished streaming; tools start once the response has ended.
+                for call in response_calls[key]:
+                    call.start = ts
             case "user" if is_tool_results(content):
                 for block in blocks(content):
                     if block.get("type") == "tool_result" and block.get("tool_use_id") in calls:
@@ -439,6 +450,8 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
                 record_notifications(calls, text, ts)
             case "queue-operation":
                 record_notifications(calls, str(event.get("content") or ""), ts)
+            case "attachment":
+                record_notifications(calls, str((event.get("attachment") or {}).get("prompt") or ""), ts)
         out.times.append(ts)
         previous = ts
     out.agent.responses = list(responses.values())
@@ -494,8 +507,8 @@ def plain_text(content: object) -> str:
 def record_result(call: ToolCall, block: dict, extra: object, ts: float) -> None:
     text, images = result_text(block.get("content"))
     call.result_chars, call.images = len(text), images
-    background = isinstance(extra, dict) and bool(extra.get("backgroundTaskId") or extra.get("isAsync"))
-    call.timing = Background(None) if background else Foreground(ts)
+    started = isinstance(extra, dict) and bool(extra.get("backgroundTaskId") or extra.get("isAsync"))
+    call.timing = Background(None) if started or BACKGROUND_START.match(text) else Foreground(ts)
     if block.get("is_error"):
         call.outcome = Failed(exit_code(text), signature(text))
     elif "command not found" in text:
