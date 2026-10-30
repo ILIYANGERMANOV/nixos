@@ -29,11 +29,14 @@ CI. You own the outcome; the user owns the decisions.
   recorded as out of scope in the PR body.
 - **Protect your context window.** Delegate reading, implementing, verification
   and log triage to subagents and keep only their conclusions. Run them in the
-  background by default. Every brief ends with "hand back under 300 words:
-  commit, proof, what remains". After launching an agent, or on a wake that
-  needs nothing, end the turn without a tool call and at most one short line.
-  After a CI wake on the head commit, run `gh pr checks <n>` once to verify the
-  PR's overall state, then act or end the turn. Never in a loop.
+  background by default. Every brief ends with "hand back in about 250 words,
+  never over 300: commit, proof, what remains; anything longer goes in a notes
+  file outside the repo, and you hand back its path". A review agent's brief
+  sets no limit: `pragmatic-review` has its own report format. After launching
+  an agent, or on a wake that needs nothing, end the turn without a tool call
+  and at most one short line. After a CI wake on the head commit, run
+  `gh pr checks <n>` once to verify the PR's overall state, then act or end the
+  turn. Never in a loop.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
 
@@ -45,10 +48,9 @@ Before the first question, list what you need to know and group it into
 research topics: the code the task touches, how similar things work today,
 the external systems involved. You plan the topics yourself, also when the
 prompt only names what to research. Launch one research agent per group, in
-the background, one first and the rest after it. Each returns facts with
-`file:line` pointers. An agent whose findings exceed its hand-back limit writes
-full notes to a file outside the repository and hands back the path plus a
-ranked index.
+the background, one first and the rest after it. Each brief ends with "write
+full notes to `/tmp/<unique-dir>/research-<topic>.md`, then hand back in about
+250 words a ranked index of facts with `file:line` pointers, plus that path".
 
 ### 2. Interview
 
@@ -80,8 +82,9 @@ Delegate to implementer subagents. One implementer explores and implements a
 self-contained slice, because splitting exploring from implementing makes it
 re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
-ordering between them. Give each the plan, its slice, the targeted checks to
-run (never the full check) and the path
+ordering between them. Give each the plan, its slice, "invoke `engineering`
+first", the targeted checks to run (never the full check), the research notes
+paths, and the path
 `${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
 small slice itself and splits a large one across fresh sub-implementers. Add
 any security-sensitive topic an implementer reports to the plan's line.
@@ -119,7 +122,9 @@ Record its `Reviewed head`, its requirement verdicts and its `Security:` line.
 Pass 2 is a re-review: invoke `pragmatic-review` with `--fixes <the pass-1
 Reviewed head>`, the pass-1 requirements again, and "finding N is fixed" for
 each row you had fixed. A requirement it answers "unchanged" keeps its pass-1
-verdict. No more reviews after this one, whatever it finds.
+verdict. A fix that changed an interface, a data model or an auth flow gets a
+first review of the whole branch instead, as in step 7. No more reviews after
+this one, whatever it finds, except step 10's final review.
 
 ### 9. Final fix
 
@@ -145,10 +150,22 @@ reason.
   host such as a preview deploy. Give them the URL. A problem they hit goes
   through a fixer, and you wait for CI again.
 - When CI is green and the change touches UI or runtime behaviour, offer QA
-  with one `AskUserQuestion` before `gh pr ready`. On yes, or whenever the user
-  asks for it, invoke `qa` yourself in this session, never in a subagent: its
-  plan approval and blockers are the user's to answer. A Fail holds the PR back
-  from ready until the user decides.
+  with one `AskUserQuestion` before `gh pr ready`, recommending `/qa <PR URL>`
+  in a fresh session, the line ready to paste: this one's context would ride
+  along on every QA call. If the user wants it here, invoke `qa` yourself,
+  never in a subagent: its plan approval and blockers are the user's to
+  answer. A Fail holds the PR back from ready until the user decides. After a
+  fresh-session pick, end the turn and mark the PR ready only once the user
+  reports the result.
+- Before `gh pr ready`: every review comment on the PR has a reply or a
+  triage, and when the diff touches a workflow, every `secrets.*` it
+  references, `GITHUB_TOKEN` aside, is in `gh secret list`, or in
+  `gh secret list --org <owner>` for an org repository. A missing secret goes
+  to the user.
 - Mark the PR ready with `gh pr ready <n>` and notify the user the way your
-  instructions describe, mentioning that `/final-review [requirements]` on the
-  ready PR gives an independent check. That one the user runs, never you.
+  instructions describe.
+- On the sensitive tier (pass 1's `Security:` line says `sensitive`), invoke
+  `final-review` yourself once the PR is ready, with pass 1's requirements; the
+  user answers its pickers. Otherwise mention to the user that
+  `/final-review [requirements]` on the ready PR gives an independent check;
+  that one the user runs, never you.

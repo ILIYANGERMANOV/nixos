@@ -26,5 +26,5 @@ Unverified, "ran on <sha>, expected <sha>".
 Leave Fail and Unverified items as they are. Check that every artifact a
 verdict cites exists. Never rerun the scenario and never edit an artifact.
 
-Hand back under 300 words: each item's final verdict, and for every change,
-the reason.
+Hand back in about 250 words, never over 300: each item's final verdict, and
+for every change, the reason.

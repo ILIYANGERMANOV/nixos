@@ -113,8 +113,10 @@ an assumption. With no such question, do not wait.
 
 Budgets are the bar's. The standard agents never carry a requirement.
 
-**The tier picks the agents.** `code`: all four standard agents. `sensitive`:
-the same, blockers at DEEP with the routed references. `docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
+**The tier picks the agents.** At `code` and `sensitive` you always spawn them:
+a small diff is never a reason to review inline. `code`: all four standard
+agents. `sensitive`: the same, blockers at DEEP with the routed references.
+`docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
 yourself, spawn blockers only if it hits, and spawn neither regressions nor
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.
@@ -136,8 +138,11 @@ agents returned.
 
 **Then the part that differs:** the agent's role, depth and brief, its files by
 angle with their line ranges in `diff`, and for a brief file the absolute path
-of this skill's `references/` directory. A standard agent gets one line:
-"Requirement agents cover the user's requirements; leave them alone."
+of this skill's `references/` directory. The tests agent also gets the
+absolute path of `engineering`'s `references/tests.md`: this skill's base
+directory with `pragmatic-review` replaced by `engineering`, never a `..`
+path, which does not resolve between installed skills. A standard agent gets
+one line: "Requirement agents cover the user's requirements; leave them alone."
 
 **Regressions brief**, pasted:
 

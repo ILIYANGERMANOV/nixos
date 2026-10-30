@@ -50,14 +50,20 @@ let
     cp -r ${./kit} "$out/lib/node_modules/qa-kit"
   '';
 
+  # A script that hangs still ends: QA_NODE_TIMEOUT (default 300 s, any
+  # `timeout` duration, 0 for none) sends it SIGTERM, which lets qa-kit save
+  # the login, then SIGKILL 10 s later; the exit status is 124.
   qaNode = pkgs.writeShellApplication {
     name = "qa-node";
-    runtimeInputs = [ pkgs.nodejs ];
+    runtimeInputs = [
+      pkgs.nodejs
+      timeout
+    ];
     text = ''
       export NODE_PATH="${env.NODE_PATH}:${walletModules}:${walletModules}/qa-wallet/node_modules:${kitModules}/lib/node_modules"
       export PLAYWRIGHT_BROWSERS_PATH="${env.PLAYWRIGHT_BROWSERS_PATH}"
       export QA_WALLET_MODULE="${walletModules}/qa-wallet/index.js"
-      exec node "$@"
+      exec timeout --kill-after=10 "''${QA_NODE_TIMEOUT:-300}" node "$@"
     '';
   };
 
@@ -95,6 +101,8 @@ let
   # One contact sheet of labelled frames, three to a row at 480 px wide, so
   # checking a video costs one image read instead of one per timestamp.
   # Timestamps must be plain seconds: they are also the labels drawtext prints.
+  # A time past the last frame is clamped to the last frame, labelled with
+  # the video's length, so a timestamp cited a little long still gets a tile.
   qaFrames = pkgs.writeShellApplication {
     name = "qa-frames";
     runtimeInputs = [ pkgs.ffmpeg-headless ];
@@ -105,6 +113,9 @@ let
       fi
       video=$1 out=$3
       IFS=, read -ra times <<< "$2"
+      label() {
+        echo "drawtext=fontfile=${font}:text='$1':x=8:y=8:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=6"
+      }
       tmp=$(mktemp -d)
       trap 'rm -rf "$tmp"' EXIT
       n=0
@@ -114,9 +125,16 @@ let
           exit 2
         fi
         frame=$(printf '%s/%03d.png' "$tmp" "$n")
-        ffmpeg -y -loglevel error -ss "$t" -i "$video" -frames:v 1 -vf "scale=480:-2,drawtext=fontfile=${font}:text='$t s':x=8:y=8:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=6" "$frame"
+        ffmpeg -y -loglevel error -ss "$t" -i "$video" -frames:v 1 -vf "scale=480:-2,$(label "$t s")" "$frame"
         if [ ! -s "$frame" ]; then
-          echo "qa-frames: no frame at $t s in $video" >&2
+          end=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$video")
+          end=$(printf '%.2f' "$end")
+          echo "qa-frames: $t s is past the end of $video; using its last frame ($end s)" >&2
+          # -update keeps overwriting one image, so what is left is the last frame.
+          ffmpeg -y -loglevel error -sseof -1 -i "$video" -update 1 -vf "scale=480:-2,$(label "$end s (end)")" "$frame"
+        fi
+        if [ ! -s "$frame" ]; then
+          echo "qa-frames: no frame in $video" >&2
           exit 1
         fi
         n=$((n + 1))

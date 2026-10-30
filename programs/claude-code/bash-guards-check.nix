@@ -18,14 +18,14 @@ pkgs.runCommand "claude-bash-guards-check"
     dir=$TMPDIR/work
     mkdir -p "$dir"
     cd "$dir"
-    head -c 6000 /dev/zero >big-a
-    head -c 6000 /dev/zero >big-b
+    head -c 9000 /dev/zero >big-a
+    head -c 9000 /dev/zero >big-b
     head -c 20000 /dev/zero >huge
     echo small >small-a
     echo small >small-b
     mkdir sub
-    head -c 6000 /dev/zero >sub/big-c
-    head -c 6000 /dev/zero >sub/big-d
+    head -c 9000 /dev/zero >sub/big-c
+    head -c 9000 /dev/zero >sub/big-d
     echo small >sub/small-c
     echo small >sub/small-d
 
@@ -67,12 +67,14 @@ pkgs.runCommand "claude-bash-guards-check"
     guard=claude-read-guard
     echo "$guard:"
     mkdir -p skills-store/big-skill/{references,scripts} "$HOME/.claude/skills"
-    head -c 6000 /dev/zero >skills-store/big-skill/SKILL.md
-    head -c 6000 /dev/zero >skills-store/big-skill/references/ref.md
-    head -c 6000 /dev/zero >skills-store/big-skill/scripts/run.py
+    head -c 9000 /dev/zero >skills-store/big-skill/SKILL.md
+    head -c 9000 /dev/zero >skills-store/big-skill/references/ref.md
+    head -c 20000 /dev/zero >skills-store/big-skill/references/huge-ref.md
+    head -c 9000 /dev/zero >skills-store/big-skill/scripts/run.py
     ln -s "$dir/skills-store/big-skill" "$HOME/.claude/skills/big-skill"
 
-    expect 0 "a single large file is allowed" "cat huge"
+    expect 2 "a single large file is blocked" "cat huge"
+    expect 0 "a file under the limit is allowed" "cat big-a"
     expect 0 "small files read together are allowed" "cat small-a small-b"
     expect 2 "large files read together are blocked" "cat big-a big-b"
     grep -q "grep -n first" "$TMPDIR/err" || { echo "  ✗ the block carries the hint" >&2; status=1; }
@@ -85,7 +87,8 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "small files after a relative cd are allowed" "cd sub && cat small-c small-d"
     expect 0 "a cd to a missing directory is allowed" "cd nowhere && cat big-a big-b"
     expect 0 "a commit without a path is not sized" "git show HEAD; cat big-b"
-    expect 0 "missing files are not counted" "cat nope-a nope-b huge"
+    expect 0 "missing files are not counted" "cat nope-a nope-b big-a"
+    expect 0 "a large file piped into a filter is allowed" "cat huge | grep -c x"
     expect 0 "other commands are allowed" "grep -n x big-a big-b huge"
     expect 0 "a heredoc write is allowed" "cat > out <<'EOF'
     big-a big-b
@@ -107,6 +110,7 @@ pkgs.runCommand "claude-bash-guards-check"
 
     expect 0 "large skill files read together are allowed" \
       "cat ~/.claude/skills/big-skill/SKILL.md ~/.claude/skills/big-skill/references/ref.md"
+    expect 0 "a large skill reference is allowed" "cat ~/.claude/skills/big-skill/references/huge-ref.md"
     expect 0 "a skill glob is allowed" "cd ~/.claude/skills/big-skill && cat SKILL.md references/*"
     expect 0 "an installed skill's script is allowed" "cat ~/.claude/skills/big-skill/scripts/run.py big-a"
     expect 2 "a skill file does not exempt another large file" \
@@ -119,17 +123,12 @@ pkgs.runCommand "claude-bash-guards-check"
       repo-docs/skills/custom/foo/references/a.md \
       repo-docs/skills/default.nix repo-docs/notskills/bar/lib.py \
       repo-docs/skills/bar/{lib.py,references/{b.md,deep/nested.md}}; do
-      head -c 6000 /dev/zero >"$file"
+      head -c 9000 /dev/zero >"$file"
     done
     head -c 20000 /dev/zero >huge.md
     head -c 20000 /dev/zero >repo-docs/huge-b
     git add huge repo-docs
     git commit --quiet -m docs
-    review=$(mktemp -d /tmp/review-XXXXXX)
-    mkdir "$review/sub"
-    for file in "$review"/{stat,log,index,diff,diff.txt,sub/stat}; do
-      head -c 6000 /dev/zero >"$file"
-    done
 
     expect 0 "instruction files read together are allowed" \
       "cat AGENTS.md CLAUDE.md SKILL.md factory-instructions.md"
@@ -138,32 +137,50 @@ pkgs.runCommand "claude-bash-guards-check"
       "cat repo-docs/skills/custom/foo/references/a.md repo-docs/skills/bar/references/*.md"
     expect 0 "a skill's source is allowed" "cat repo-docs/skills/bar/lib.py big-a"
     expect 0 "a nested skill file is allowed" "cat repo-docs/skills/bar/references/deep/nested.md big-a"
-    expect 0 "review files read together are allowed" "cat $review/stat $review/log $review/index"
     expect 0 "instruction blobs read together are allowed" "git show HEAD:repo-docs/CLAUDE.md HEAD:repo-docs/SKILL.md"
     expect 0 "reference blobs read together are allowed" \
       "git -C $dir show HEAD:repo-docs/skills/custom/foo/references/a.md HEAD:repo-docs/skills/bar/references/b.md"
     expect 0 "an exempt file leaves a small sibling allowed" "cat CLAUDE.md big-a"
     mkdir admin
-    head -c 6000 /dev/zero >admin/hm_CLAUDE.md
+    head -c 9000 /dev/zero >admin/hm_CLAUDE.md
     ln -s hm_CLAUDE.md admin/CLAUDE.md
     expect 0 "an instruction file is exempt by the name it was read under" "cat admin/CLAUDE.md big-a"
 
     expect 2 "an exempt file does not exempt a source file over the limit" "cat CLAUDE.md huge"
+    expect 2 "a single large blob is blocked" "git show HEAD:huge"
     expect 2 "an exempt blob does not exempt a blob over the limit" "git show HEAD:repo-docs/CLAUDE.md HEAD:huge"
     expect 2 "a skill file does not exempt one file over the limit" "cat ~/.claude/skills/big-skill/SKILL.md huge"
-    expect 2 "the review diff stays counted" "cat $review/stat $review/diff $review/log big-a"
-    expect 2 "a dotted path to the review diff stays counted" "cat $review/sub/../diff big-a"
-    expect 2 "a suffixed review diff stays counted" "cat $review/diff.txt big-a"
-    expect 2 "a glob over a review directory counts its diff" "cat $review/* big-a"
-    expect 2 "a nested review file stays counted" "cat $review/sub/stat big-a"
-    expect 2 "a path that leaves the review directory is counted" "cat $review/../..$dir/huge CLAUDE.md"
-    expect 2 "a relative path that leaves the review directory is counted" "cd $review && cat ../..$dir/huge $dir/CLAUDE.md"
     expect 2 "a path that leaves a skill is counted" \
       "cat repo-docs/skills/bar/references/../../../../huge.md CLAUDE.md"
     expect 2 "a skill file does not exempt a source file over the limit" "cat repo-docs/skills/bar/lib.py huge"
     expect 2 "a file directly under skills is counted" "cat repo-docs/skills/default.nix big-a"
     expect 2 "a directory that only ends in skills is counted" "cat repo-docs/notskills/bar/lib.py big-a"
     expect 2 "a name that only ends like an instruction file is counted" "cat NOTCLAUDE.md big-a"
+
+    # Runs $guard on a Read of $3 with the extra tool input in $4.
+    expect_read() {
+      expect_raw "$1" "$2" "$(jq -n --arg p "$3" --arg d "$dir" --argjson i "''${4:-null}" \
+        '{hook_event_name: "PreToolUse", tool_name: "Read", tool_input: ({file_path: $p} + $i), cwd: $d}')"
+    }
+    head -c 20000 /dev/zero >huge.png
+    head -c 20000 /dev/zero >huge.PDF
+    mkdir instructions
+    head -c 20000 /dev/zero >instructions/CLAUDE.md
+
+    expect_read 2 "a whole Read of a large file is blocked" "$dir/huge"
+    grep -q "offset and limit" "$TMPDIR/err" || { echo "  ✗ the Read block carries the hint" >&2; status=1; }
+    expect_read 2 "a relative Read resolves against cwd" huge
+    expect_read 2 "an offset alone does not bound a Read" huge '{"offset": 100}'
+    expect_read 2 "a Read that leaves a skill is sized" "$dir/repo-docs/skills/bar/../../../huge"
+    expect_read 0 "a limited Read of a large file is allowed" "$dir/huge" '{"limit": 100}'
+    expect_read 0 "a whole Read of a small file is allowed" "$dir/big-a"
+    expect_read 0 "a Read of a large skill reference is allowed" \
+      "$HOME/.claude/skills/big-skill/references/huge-ref.md"
+    expect_read 0 "a Read of a large instruction file is allowed" "$dir/instructions/CLAUDE.md"
+    expect_read 0 "a Read of an image is allowed" "$dir/huge.png"
+    expect_read 0 "a Read of a PDF is allowed, in any case" "$dir/huge.PDF"
+    expect_read 0 "a Read of a missing file is allowed" "$dir/nope"
+    expect_raw 0 "a Read without a path is allowed" '{"tool_name": "Read", "tool_input": {}}'
     shared_failopen
 
     guard=claude-wait-guard

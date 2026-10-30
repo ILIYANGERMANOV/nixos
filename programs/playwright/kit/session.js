@@ -9,7 +9,9 @@
 // `start` returns once the page is open, having written the CDP endpoint to
 // <run-dir>/qa-session.json; scripts attach with `require('qa-kit').connect`.
 // `--chain-id` installs the QA Wallet (QA_EVM_KEY_FILE) in the session, which
-// must be the process holding it: its signing lives in this process. Console
+// must be the process holding it: its signing lives in this process.
+// `--storage-state` is the saved login, written back by every probe's
+// `close()` and by `stop` (see qa-kit's saveState). Console
 // output, page errors and failed requests go, redacted, to
 // <run-dir>/qa-session-console.log. Unrecorded: the evidence run records its
 // own context.
@@ -20,7 +22,7 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const { chromium } = require('playwright');
-const { capture, VIEWPORT, SESSION_FILE, SESSION_BINDING } = require('./index.js');
+const { capture, saveState, VIEWPORT, SESSION_FILE, SESSION_BINDING } = require('./index.js');
 
 const USAGE = `usage: qa-session start <run-dir> [--url <url>] [--storage-state <file>]
                   [--chain-id <n> [--rpc <url>] [--forward-rpc <regex>]...]
@@ -81,13 +83,20 @@ function parseOptions(args) {
 }
 
 // The detached process: owns the browser until SIGTERM or the browser exits.
-async function serve(dir, { url, storageState, chainId, rpcUrl, forwardRpc }) {
+async function serve(dir, { url, storageState: stateArg, chainId, rpcUrl, forwardRpc }) {
+  const storageState = stateArg && path.resolve(stateArg);
   const port = await freePort();
-  const browser = await chromium.launch({ args: [`--remote-debugging-port=${port}`] });
+  // Playwright's own SIGTERM handler would close the browser before shutdown
+  // could save the login.
+  const browser = await chromium.launch({ args: [`--remote-debugging-port=${port}`], handleSIGTERM: false });
   const context = await browser.newContext({ viewport: VIEWPORT, storageState });
   context.setDefaultTimeout(10_000);
   capture(context, path.join(dir, 'qa-session-console.log'));
-  if (chainId !== null) await exposeWallet(context, { chainId, rpcUrl, forwardRpc });
+  // The session saves the login, not the probe: over CDP the probe's view of
+  // this context reads no cookies.
+  const save = async () => (storageState ? saveState(context, storageState) : { kind: 'no-login' });
+  const wallet = chainId !== null ? await walletControls(context, { chainId, rpcUrl, forwardRpc }) : {};
+  await exposeControls(context, { saveState: save, ...wallet });
   const page = await context.newPage();
   // A dev server compiles a route on its first hit, which outlasts the 10 s
   // step timeout; the load gets the whole start budget instead.
@@ -98,6 +107,7 @@ async function serve(dir, { url, storageState, chainId, rpcUrl, forwardRpc }) {
   fs.writeFileSync(sessionFile, `${JSON.stringify({ endpoint, pid: process.pid })}\n`);
   const shutdown = async () => {
     fs.rmSync(sessionFile, { force: true });
+    await save().catch((error) => console.error(`qa-session: could not save ${storageState}: ${error.message}`));
     await browser.close();
     process.exit(0);
   };
@@ -107,20 +117,24 @@ async function serve(dir, { url, storageState, chainId, rpcUrl, forwardRpc }) {
   process.disconnect();
 }
 
-// The wallet's controls, callable from a probe's page through the binding.
-async function exposeWallet(context, { chainId, rpcUrl, forwardRpc }) {
-  const keyFile = process.env.QA_EVM_KEY_FILE;
-  if (!keyFile) fail('qa-session: --chain-id needs the wallet, and QA_EVM_KEY_FILE is not set');
-  const { installWallet } = require('qa-wallet');
-  const wallet = await installWallet(context, { keyFile, rpcUrl, chainId, forwardRpc });
-  const controls = {
-    rejectNext: (method, options) => wallet.rejectNext(method, options),
-    waitForReceipt: (hash, options) => wallet.waitForReceipt(hash, options),
-  };
+// The controls a probe calls from its page through the binding.
+async function exposeControls(context, controls) {
   await context.exposeBinding(SESSION_BINDING, (_source, op, args) => {
     if (!Object.hasOwn(controls, op)) throw new Error(`qa-session: unknown control ${op}`);
     return controls[op](...args);
   });
+}
+
+// The wallet's controls; signing stays in this process.
+async function walletControls(context, { chainId, rpcUrl, forwardRpc }) {
+  const keyFile = process.env.QA_EVM_KEY_FILE;
+  if (!keyFile) fail('qa-session: --chain-id needs the wallet, and QA_EVM_KEY_FILE is not set');
+  const { installWallet } = require('qa-wallet');
+  const wallet = await installWallet(context, { keyFile, rpcUrl, chainId, forwardRpc });
+  return {
+    rejectNext: (method, options) => wallet.rejectNext(method, options),
+    waitForReceipt: (hash, options) => wallet.waitForReceipt(hash, options),
+  };
 }
 
 async function stop(dir) {

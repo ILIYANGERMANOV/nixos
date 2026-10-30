@@ -127,9 +127,10 @@ let
   };
 
   # The skill listing goes out on every call, and most of it was skills an
-  # unattended agent has no use for. name-only keeps a skill invocable; off
-  # hides it from the model and from /name. Claude.ai's synced skills are keyed
-  # with their anthropic-skills: prefix, bundled ones without.
+  # unattended agent has no use for. name-only drops the description, and the
+  # model can still invoke the skill; user-invocable-only hides it from the
+  # model and keeps /name. Claude.ai's synced skills are keyed with their
+  # anthropic-skills: prefix, bundled ones without.
   skillOverrides =
     let
       synced = map (name: "anthropic-skills:${name}");
@@ -154,7 +155,7 @@ let
         "loop"
         "schedule"
       ]
-    ) (_: "off");
+    ) (_: "user-invocable-only");
 
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
@@ -216,7 +217,7 @@ in
           "self-improve"
           "android"
         ];
-        # Unattended agents dumped whole files with one multi-file `cat`, and
+        # Unattended agents dumped whole files with `cat` and Read, and
         # subagents blocked on foreground sleeps and polling loops despite
         # the instructions; the hooks make them read ranges and background
         # long commands instead.
@@ -229,6 +230,10 @@ in
                 readGuard.hook
                 waitGuard.hook
               ];
+            }
+            {
+              matcher = "Read";
+              hooks = [ readGuard.hook ];
             }
           ];
           enabledPlugins = {
