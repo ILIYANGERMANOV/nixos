@@ -1,6 +1,8 @@
 // checks.qa, part two, run by `qa-node`: the evidence tools and the shared
 // session. `qa-mp4` trims a static lead-in and nothing later, `qa-frames`
-// lays N labelled frames out as one sheet, `qa-session` keeps one browser
+// lays N labelled frames out as one sheet, `qa-node` ends a hung script at
+// its deadline, a saved login survives a run that rotates it, whether the
+// run closes, stops or is killed, `qa-session` keeps one browser
 // whose page state survives between separate probe processes, with the
 // wallet's decline reachable from a probe and credentials redacted in its
 // console log, and `expectState` returns at the first error screen. No
@@ -15,18 +17,24 @@ const path = require('path');
 const { promisify } = require('util');
 const { chromium } = require('playwright');
 const { generatePrivateKey } = require('viem/accounts');
-const { expectState, redact } = require('qa-kit');
+const { expectState, redact, MAX_WAIT_MS } = require('qa-kit');
 
 const run = promisify(execFile);
 const work = process.argv[2];
 const SEPOLIA = 11155111;
 
 async function main() {
+  // A minute of waiting, so it runs alongside the rest.
+  const waitCap = checkWaitCap();
   await checkLeadInTrim();
   await checkContactSheet();
   checkRedact();
   await checkExpectState();
+  await checkDeadline();
+  await checkLoginSaved();
   await checkSession();
+  await checkSessionSavesLogin();
+  await waitCap;
   console.log('qa: evidence tools and session ok');
 }
 
@@ -60,7 +68,7 @@ async function leadingFreeze(video) {
 }
 
 // Given 4 timestamps, the sheet is 3 tiles by 2 at 480 px a tile; given 2,
-// it is 2 by 1. A timestamp past the end is an error, not a short sheet.
+// it is 2 by 1. A timestamp past the end gets the last frame, not an error.
 async function checkContactSheet() {
   const video = path.join(work, 'lead-in.mp4');
   const sheet = (times) => run('qa-frames', [video, times, path.join(work, `sheet-${times}.png`)]);
@@ -68,7 +76,9 @@ async function checkContactSheet() {
   assert.deepStrictEqual(await sizeOf(path.join(work, 'sheet-0.2,1,2,3.png')), [3 * 480 + 2 * 4, 2 * 360 + 4]);
   await sheet('0.2,1');
   assert.deepStrictEqual(await sizeOf(path.join(work, 'sheet-0.2,1.png')), [2 * 480 + 4, 360]);
-  await assert.rejects(sheet('99'), /no frame at 99/);
+  const { stderr } = await sheet('0.2,99');
+  assert.match(stderr, /99 s is past the end .*; using its last frame \(5\.\d\d s\)/);
+  assert.deepStrictEqual(await sizeOf(path.join(work, 'sheet-0.2,99.png')), [2 * 480 + 4, 360]);
   await assert.rejects(sheet('1;rm'), /not a time in seconds/);
 }
 
@@ -126,6 +136,128 @@ async function checkExpectState() {
   await page.setContent('<body></body>');
   await assert.rejects(expectState(page.locator('#done'), { error: page.locator('#error') }, { timeout: 300 }), /Timeout/);
   await browser.close();
+}
+
+// Given an expectState asked to wait two minutes, or forever, with no
+// reason, it gives up at the cap; given a reason, the long wait stands.
+async function checkWaitCap() {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  await page.setContent(`<body><script>setTimeout(() => { const p = document.createElement('p'); p.id = 'late'; document.body.append(p); p.textContent = 'late'; }, ${MAX_WAIT_MS + 3_000});</script></body>`);
+  const capped = async (timeout) => {
+    const started = Date.now();
+    await assert.rejects(expectState(page.locator('#never'), {}, { timeout }), new RegExp(`Timeout ${MAX_WAIT_MS}ms`));
+    assert.ok(Date.now() - started < MAX_WAIT_MS + 2_000, `a ${timeout} ms wait ran past the cap`);
+  };
+  const [, , reasoned] = await Promise.all([
+    capped(120_000),
+    capped(0),
+    expectState(page.locator('#late'), {}, { timeout: 120_000, reason: 'the test page shows it after the cap' }),
+  ]);
+  assert.deepStrictEqual(reasoned, { kind: 'expected' });
+  await browser.close();
+}
+
+// Given a script that hangs, qa-node ends it at QA_NODE_TIMEOUT with 124.
+async function checkDeadline() {
+  const started = Date.now();
+  await assert.rejects(
+    run('qa-node', ['-e', 'setTimeout(() => {}, 60_000)'], { env: { ...process.env, QA_NODE_TIMEOUT: '1' } }),
+    (error) => error.code === 124,
+  );
+  assert.ok(Date.now() - started < 10_000, 'qa-node outlived its deadline');
+}
+
+// Given a saved login the app rotates on every visit, when a script on
+// openContext closes, or hangs and meets qa-node's deadline, then the file
+// holds the rotated login and `.bak` the one before; when the app logs out,
+// then the empty state is refused and the last login stays.
+async function checkLoginSaved() {
+  const app = await loginApp();
+  const auth = path.join(work, 'auth.json');
+  fs.writeFileSync(auth, JSON.stringify(loginState(app, 'v0')));
+  const script = (name, route, tail) => {
+    const file = path.join(work, `${name}.cjs`);
+    fs.writeFileSync(file, `const { openContext } = require('qa-kit');
+(async () => {
+  const { context, close } = await openContext({ auth: process.argv[2] });
+  const page = await context.newPage();
+  await page.goto(${JSON.stringify(`${app.url}${route}`)});
+  ${tail}
+})().catch((error) => { console.error(error); process.exit(1); });
+`);
+    return run('qa-node', [file, auth], { env: { ...process.env, QA_NODE_TIMEOUT: '5' } });
+  };
+
+  await script('login-close', 'rotate', 'await close();');
+  assert.strictEqual(sid(auth), 'v1');
+  assert.strictEqual(sid(`${auth}.bak`), 'v0');
+
+  await assert.rejects(script('login-hang', 'rotate', 'await new Promise(() => {});'), (error) => error.code === 124);
+  assert.strictEqual(sid(auth), 'v2', 'the deadline lost the rotated login');
+  assert.strictEqual(sid(`${auth}.bak`), 'v1');
+
+  const { stderr } = await script('login-out', 'logout', 'await close();');
+  assert.match(stderr, /not saving .*auth\.json: the state has no cookies; kept the previous one/);
+  assert.strictEqual(sid(auth), 'v2');
+  app.close();
+}
+
+// Given a session started on a saved login, when a probe rotates it and
+// closes, then the file holds the rotated login; when a later probe rotates
+// it again and the session stops, then stop saves that one too.
+async function checkSessionSavesLogin() {
+  const app = await loginApp();
+  const auth = path.join(work, 'session-auth.json');
+  fs.writeFileSync(auth, JSON.stringify(loginState(app, 'v0')));
+  const runDir = path.join(work, 'session-login-run');
+  await run('qa-session', ['start', runDir, '--url', app.url, '--storage-state', auth]);
+  const probe = (body) => {
+    const file = path.join(work, 'probe-login.cjs');
+    fs.writeFileSync(file, `const { connect } = require('qa-kit');
+(async () => {
+  const session = await connect(process.argv[2]);
+  ${body}
+})().catch((error) => { console.error(error); process.exit(1); });
+`);
+    return run('qa-node', [file, runDir]);
+  };
+
+  await probe(`await session.page.goto(${JSON.stringify(`${app.url}rotate`)}); await session.close();`);
+  assert.strictEqual(sid(auth), 'v1');
+  assert.strictEqual(sid(`${auth}.bak`), 'v0');
+
+  await probe(`await session.page.goto(${JSON.stringify(`${app.url}rotate`)}); process.exit(0);`);
+  assert.strictEqual(sid(auth), 'v1');
+  await run('qa-session', ['stop', runDir]);
+  assert.strictEqual(sid(auth), 'v2', 'stop lost the rotated login');
+  app.close();
+}
+
+// An app on loopback whose `/rotate` replaces the `sid` cookie with the next
+// version, as a refresh-token rotation does, and whose `/logout` clears it.
+async function loginApp() {
+  let version = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/rotate') {
+      version += 1;
+      res.setHeader('Set-Cookie', `sid=v${version}; Path=/; HttpOnly`);
+    } else if (req.url === '/logout') {
+      res.setHeader('Set-Cookie', 'sid=; Path=/; Max-Age=0');
+    }
+    res.end('<!doctype html><p>app</p>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() };
+}
+
+function loginState(app, version) {
+  const cookie = { name: 'sid', value: version, domain: new URL(app.url).hostname, path: '/', expires: -1, httpOnly: true, secure: false, sameSite: 'Lax' };
+  return { cookies: [cookie], origins: [] };
+}
+
+function sid(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8')).cookies.find((c) => c.name === 'sid')?.value;
 }
 
 // Given a session started on an app whose first response outlasts the 10 s
