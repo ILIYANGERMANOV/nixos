@@ -57,6 +57,8 @@ let
     ghToken = "${work}/gh-token";
   };
 
+  relinkSkills = factory.mkRelinkSkills { lockSeconds = 1; };
+
   ctl = factory.mkCtl {
     opsStateDir = "${work}/ops";
     deployRepo = "owner/nixos";
@@ -149,6 +151,11 @@ let
 
   fakeNix = pkgs.writeShellScriptBin "nix" ''
     echo "nix $*" >>"$CALLS"
+    case "$1 $2" in
+      "flake archive") cat "$GH/flake-archive.json"; exit ;;
+      print-dev-env*broken*) exit 1 ;;
+      develop*) touch "$GH/shell-hook-ran" ;;
+    esac
     [ ! -e "$GH/build-fails" ] && echo "${work}/systems/new"
   '';
 
@@ -164,6 +171,7 @@ let
   fakeNixStore = pkgs.writeShellScriptBin "nix-store" ''
     echo "nix-store $*" >>"$CALLS"
     [ "$2" != --print-dead ] || echo "$HOME/garbage"
+    [ "$1" != --realise ] || ln -sfn "$4" "$3"
   '';
 
   fakeTailscale = pkgs.writeShellScriptBin "tailscale" ''
@@ -195,8 +203,11 @@ pkgs.runCommand "software-factory-check"
       pkgs.git
       pkgs.jq
       pkgs.procps
+      pkgs.flock
       remoteControl.repo
       remoteControl.admin
+      relinkSkills
+      (import ../skills-link { inherit pkgs; })
       ctl
       boot
       deploy

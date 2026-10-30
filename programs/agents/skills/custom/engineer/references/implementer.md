@@ -22,15 +22,18 @@ targeted checks, and commit.
 
 1. Plan the slice into parts that each fit a fresh agent, in the order they
    build on each other.
-2. Run each part as a fresh sub-implementer, one after the other. Brief it
-   short: the goal, its part, the files to start from, the checks to run, and
-   that it follows `engineering` and commits.
+2. Run each part as a fresh sub-implementer, one after the other, in the
+   foreground (`run_in_background: false`): a background one outlives your turn
+   and leaves two writers in one worktree. Brief it short: the goal, its part,
+   the files to start from, the checks to run, and that it follows
+   `engineering` and commits.
 3. After each part, review its diff yourself (`git diff <sha before>..HEAD`):
    does it do the part, and does it break an `engineering` rule or repeat
    something that exists? Fix that in one quick pass and commit.
 4. Brief the next part from what the last one handed back, not from re-reading
    its files.
 
-Hand back under 300 words: the commit, the proof, what remains, any question
-for the user you could not settle, and any auth, session, authorization,
-database, secrets or CI work your brief did not flag as security-sensitive.
+Hand back in about 250 words, never over 300: the commit, the proof, what
+remains, any question for the user you could not settle, and any auth, session,
+authorization, database, secrets or CI work your brief did not flag as
+security-sensitive.

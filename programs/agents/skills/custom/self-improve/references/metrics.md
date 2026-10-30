@@ -26,12 +26,18 @@ agree with the report.
   Usage splits into input, cache read, cache write and output. Context at a
   call is input + cache read + cache write; **peak context** is its maximum
   over an agent's calls. `attributionSkill` names the skill a call ran under.
-- **Wall time of a tool call.** No duration field exists: it is the
-  `tool_use` timestamp to the `tool_result` timestamp. A background call
-  (`backgroundTaskId` or `isAsync` in `toolUseResult`) ends at the first
-  `<task-notification>` naming its `<tool-use-id>`, delivered as a
-  `queue-operation` line or a user line; its `<status>` and summary give
-  failure and exit code.
+- **Wall time of a tool call.** No duration field exists: it runs from the
+  last line of the call's response before its result to the `tool_result`
+  timestamp. A line is stamped when its block finished streaming and most tools
+  start once the response has ended, so a call is not charged the streaming of
+  its siblings. Some tools answer while the response still streams; those stop
+  at the last line before their result, so no duration is negative. A
+  background call (`backgroundTaskId` or `isAsync` in `toolUseResult`; in a
+  subagent, which has no `toolUseResult`, the result text saying it started or
+  moved to the background) ends at the first `<task-notification>` naming its
+  `<tool-use-id>`, delivered as a `queue-operation` line, a user line or a
+  `queued_command` attachment; its `<status>` and summary give failure and
+  exit code.
 - **Waiting on the person.** The time the main agent's `AskUserQuestion`
   stayed open (a subagent cannot ask), plus each gap before a human prompt in
   which no tool call of any agent (background ones included) was running;
@@ -45,7 +51,9 @@ agree with the report.
 - **Redundant check.** A check rerun with the same arguments when no agent of
   the session edited anything since, or edited only `.md` files. Edits are
   `Edit`, `Write`, `NotebookEdit`, and Bash `sed -i`, `tee`, `cat >`,
-  branch-changing git commands and Python heredocs that write a file.
+  branch-changing git commands and Python heredocs that write a file. Edits
+  and checks are ordered by start, then stream position, so an `Edit` sent
+  beside a check in one response counts on the side of it where it was written.
 - **Chain.** A build, test or lint step run in front of `just check` or
   `nix flake check` - in the same command or earlier with no edit between -
   which the full check already runs.

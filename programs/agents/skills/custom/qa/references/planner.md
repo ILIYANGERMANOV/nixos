@@ -34,6 +34,8 @@ own short video. For every item:
 - steps, as a user would take them
 - expected result, observable on screen
 - evidence: the video, and which key screens to screenshot
+- for an item that spends: each token, its chain, the minimum it needs and
+  which wallet pays (the QA wallet or the app's own), from the code
 
 ## Prerequisites and blockers
 
@@ -67,5 +69,7 @@ shape of `qa-md.md` (beside this file), filled from the README, package
 scripts, env examples and CI config. Mark every gap `TODO(qa): <question>`
 and add each gap as a blocker.
 
-Hand back under 300 words: the plan, prerequisites, blockers, conflicts,
-skipped items, and the path of each draft you wrote.
+Write the plan, prerequisites, conflicts and skipped items to
+`<run>/plan.md`. Hand back in about 250 words, never over 300: that path,
+the blockers, the conflicts, each spending item's funds, and the path of
+each draft you wrote.

@@ -77,8 +77,8 @@ outcome. A refuted finding is dropped silently.
   gates and CI run those. Write only under `/tmp`, install nothing, run nothing
   with side effects.
 
-**Return under 300 words**, no preamble: `NONE`, or one block per finding, at
-most 60 words each.
+**Return in about 250 words, never over 300**, no preamble: `NONE`, or one
+block per finding, at most 60 words each.
 
 ```
 file:line

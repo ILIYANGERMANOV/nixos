@@ -1,17 +1,22 @@
 """PreToolUse hook: block a foreground Bash call that waits.
 
 Reads the hook input from stdin. A call not sent with run_in_background whose
-command sleeps MIN_SLEEP seconds or more in one go, or loops with `until` or
-`while` around a `sleep`, exits 2, which makes Claude Code block the call and
-show stderr to the model. Only commands count, so `echo "sleep 30"` and a
-heredoc body naming one are allowed. Everything else exits 0, including any
-input this script does not understand: the guard fails open.
+command sleeps MIN_SLEEP seconds or more in one go, loops with `until` or
+`while` around a `sleep`, or follows a file with `tail -f`, exits 2, which makes
+Claude Code block the call and show stderr to the model. A wait counts behind
+`bash -c`, `sh -c`, `timeout`, `nix develop -c` and an assignment prefix, unless
+a `timeout` under MIN_SLEEP bounds it. A `tail -f` sent to the background with
+`&` follows beside the call instead of holding it. Only commands count, so
+`echo "sleep 30"` and a heredoc body naming one are allowed. Everything else
+exits 0, including any input this script does not understand: the guard fails
+open.
 """
 
 import json
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from itertools import dropwhile
 
 from bash_commands import simple_commands
 
@@ -19,7 +24,9 @@ MIN_SLEEP = 10
 HINT = (
     "Blocked: this command waits in the foreground. Run a long command with "
     "run_in_background and wait for its task notification, never polling its "
-    "output; to wait for a condition, use the Monitor tool."
+    "output; to wait for a condition, use the Monitor tool. A subagent's "
+    "background task dies at its hand-back, so a subagent runs the long command "
+    "itself in the foreground with timeout 600000."
 )
 LOOPS = {"until", "while"}
 # Words that may precede a command in a compound statement.
@@ -27,6 +34,11 @@ KEYWORDS = {"do", "then", "else", "elif", "if", "{", "!", "time"} | LOOPS
 # GNU sleep: a number with an optional unit suffix.
 DURATION = re.compile(r"(\d+(?:\.\d*)?|\.\d+)([smhd]?)")
 UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=.*")
+SHELLS = {"bash", "sh"}
+SHELL_COMMAND_FLAG = re.compile(r"-[a-z]*c[a-z]*")
+# GNU tail: `-f` or `-F`, alone or after flags that take no value.
+TAIL_FOLLOW = re.compile(r"-[\dqvz]*[fF]\w*|--follow(=.*)?")
 
 
 def main() -> None:
@@ -50,17 +62,77 @@ def is_wait(command: str) -> bool:
     commands = list(split_keywords(command))
     loops = any(LOOPS & set(keywords) for keywords, _ in commands)
     sleeps = [seconds(words[1:]) for _, words in commands if words[:1] == ["sleep"]]
-    return any(s >= MIN_SLEEP for s in sleeps) or (loops and bool(sleeps))
+    follows = any(is_tail_follow(words) for _, words in commands)
+    return any(s >= MIN_SLEEP for s in sleeps) or (loops and bool(sleeps)) or follows
 
 
 def split_keywords(command: str) -> Iterator[tuple[list[str], list[str]]]:
-    """Each simple command as the compound keywords before it and its own words."""
+    """Each simple command as the compound keywords before it and its own words.
+
+    The script of a `bash -c` stands in for the shell, so what it runs counts,
+    under the keywords before that shell: `until bash -c ...` is still a loop.
+    A script that does not parse stands as the shell itself, so it cannot hide
+    what the commands around it do.
+    """
     for simple in simple_commands(command):
         words = simple.words
         count = next(
             (i for i, word in enumerate(words) if word not in KEYWORDS), len(words)
         )
-        yield words[:count], words[count:]
+        keywords, inner = words[:count], unwrap(words[count:])
+        if simple.background and is_tail_follow(inner):
+            continue
+        match shell_script(inner):
+            case None:
+                yield keywords, inner
+            case script:
+                for script_keywords, script_words in script_commands(script, inner):
+                    yield keywords + script_keywords, script_words
+
+
+def script_commands(script: str, shell: list[str]) -> list[tuple[list[str], list[str]]]:
+    try:
+        return list(split_keywords(script))
+    except ValueError:
+        return [([], shell)]
+
+
+def unwrap(words: list[str]) -> list[str]:
+    """The command a wrapper runs. A timeout under MIN_SLEEP hides no wait."""
+    match words:
+        case [word, *rest] if ASSIGNMENT.fullmatch(word):
+            return unwrap(rest)
+        case ["timeout", *rest]:
+            match list(dropwhile(lambda arg: arg.startswith("-"), rest)):
+                case [limit, *inner] if duration(limit) >= MIN_SLEEP:
+                    return unwrap(inner)
+                case _:
+                    return []
+        case ["nix", "develop", *rest]:
+            return unwrap(after(lambda arg: arg == "-c", rest))
+        case _:
+            return words
+
+
+def shell_script(words: list[str]) -> str | None:
+    match words:
+        case [shell, *args] if shell in SHELLS:
+            match after(SHELL_COMMAND_FLAG.fullmatch, args):
+                case [script, *_]:
+                    return script
+                case []:
+                    return None
+        case _:
+            return None
+
+
+def after(is_flag: Callable[[str], object], args: list[str]) -> list[str]:
+    """What follows the first flag, nothing without one."""
+    return list(dropwhile(lambda arg: not is_flag(arg), args))[1:]
+
+
+def is_tail_follow(words: list[str]) -> bool:
+    return words[:1] == ["tail"] and any(TAIL_FOLLOW.fullmatch(arg) for arg in words[1:])
 
 
 def seconds(args: list[str]) -> float:

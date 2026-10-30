@@ -464,6 +464,117 @@ factory-deploy >/dev/null
 not_called "new test"
 [ "$(posted)" = "in_progress success" ] || fail "posted $(posted)"
 
+# ─── Dev shell roots ─────────────────────────────────────────────────────────
+
+echo "root-shells: roots main's shell and locked inputs without its hook, replaced each run, never a flake-less repo"
+reset
+git init --quiet --bare --initial-branch main "$work/flaked.git"
+git clone --quiet "$work/flaked.git" "$work/flaked" 2>/dev/null
+touch "$work/flaked/flake.nix"
+git -C "$work/flaked" add flake.nix
+git -C "$work/flaked" commit --quiet -m flake
+git -C "$work/flaked" push --quiet origin main
+git clone --quiet "$work/flaked.git" "$HOME/repos/shop"
+git clone --quiet "$work/flaked.git" "$HOME/repos/broken"
+clone_repo plain
+echo '{"path": "/nix/store/a-source", "inputs": {"x": {"path": "/nix/store/b-source", "inputs": {"y": {"path": "/nix/store/a-source"}}}}}' >"$GH/flake-archive.json"
+mkdir -p "$HOME/.gcroots/shop/inputs"
+ln -s /nix/store/old-source "$HOME/.gcroots/shop/inputs/old-source"
+exits 1 factory-ctl root-shells
+grep -q "could not root the dev shell of broken" "$work/out" || fail "the failed repository is not named"
+shop="git+file://$HOME/repos/shop?ref=refs/remotes/origin/main"
+called "nix print-dev-env $shop --profile $HOME/.gcroots/shop/default"
+[ ! -e "$GH/shell-hook-ran" ] || fail "root-shells ran a shellHook"
+called "nix profile wipe-history --profile $HOME/.gcroots/shop/default"
+[ "$(find "$HOME/.gcroots/shop/inputs" -mindepth 1 -printf '%f\n' | sort | paste -sd ' ')" = "a-source b-source" ] || fail "the input roots are not exactly the locked inputs"
+[ -L "$HOME/.gcroots/broken/inputs/a-source" ] || fail "a repository without a shell lost its input roots"
+not_called "repos/plain?"
+
+# ─── Skills ──────────────────────────────────────────────────────────────────
+
+# Two farms holding the same skill, as two generations do.
+skills="$HOME/.claude/skills"
+skills_reset() {
+  reset
+  rm -rf "$work/farm-a" "$work/farm-b"
+  mkdir -p "$skills" "$work/farm-a/alpha" "$work/farm-a/beta" "$work/farm-b/alpha"
+}
+
+status_reports() {
+  factory-ctl status >"$work/out"
+  grep -qxF "$1" "$work/out" || { cat "$work/out" >&2; fail "status does not report: $1"; }
+}
+
+echo "factory-relink-skills: replaces links a GC left dangling; status counts them, then none"
+skills_reset
+ln -s "$work/collected/alpha" "$skills/alpha"
+ln -s "$work/collected/gamma" "$skills/gamma"
+ln -s "$work/farm-a/beta" "$skills/beta"
+status_reports "Skills: 2 dangling link(s): alpha gamma"
+factory-relink-skills "$work/farm-a"
+[ "$(readlink "$skills/alpha")" = "$work/farm-a/alpha" ] || fail "alpha was not relinked"
+[ ! -L "$skills/gamma" ] || fail "a link of the old farm survived"
+status_reports "Skills: 0 dangling links"
+
+echo "factory-relink-skills: works on a first run with no ~/.claude"
+skills_reset
+rm -rf "$HOME/.claude"
+factory-relink-skills "$work/farm-a"
+[ "$(readlink "$skills/beta")" = "$work/farm-a/beta" ] || fail "the first run linked nothing"
+
+echo "factory-relink-skills: a skill never goes missing while it swaps farms"
+skills_reset
+factory-relink-skills "$work/farm-a"
+(
+  while [ ! -e "$work/stop-reading" ]; do
+    [ -e "$skills/alpha" ] || touch "$work/skill-missing"
+  done
+) &
+reader=$!
+for _ in $(seq 40); do
+  factory-relink-skills "$work/farm-b"
+  factory-relink-skills "$work/farm-a"
+done
+touch "$work/stop-reading"
+wait "$reader"
+rm -f "$work/stop-reading"
+[ ! -e "$work/skill-missing" ] || fail "a reader saw the skill missing during a relink"
+
+echo "factory-link-skills: overlapping runs all succeed, and a reader never sees none"
+skills_reset
+factory-link-skills "$work/farm-a"
+(
+  while [ ! -e "$work/stop-reading" ]; do
+    [ -n "$(ls -A "$skills")" ] || touch "$work/skills-empty"
+  done
+) &
+reader=$!
+(
+  for _ in $(seq 200); do
+    { factory-link-skills "$work/farm-a" || touch "$work/link-failed"; } 2>/dev/null &
+    { factory-link-skills "$work/farm-b" || touch "$work/link-failed"; } 2>/dev/null &
+  done
+  wait
+)
+touch "$work/stop-reading"
+wait "$reader"
+rm -f "$work/stop-reading"
+[ ! -e "$work/link-failed" ] || fail "a link run aborted while another ran"
+[ ! -e "$work/skills-empty" ] || fail "a reader saw ~/.claude/skills empty"
+[ -z "$(find "$HOME/.claude" -maxdepth 1 -name '.skills.??????')" ] || fail "a scratch directory was left behind"
+
+echo "factory-relink-skills: waits for the lock, and gives up without failing"
+skills_reset
+factory-relink-skills "$work/farm-a"
+exec 8>"$HOME/.claude/.factory.lock"
+flock 8
+factory-relink-skills "$work/farm-b" 2>"$work/out"
+exec 8>&-
+grep -q "left ~/.claude/skills as it was" "$work/out" || fail "the skipped relink says nothing"
+[ "$(readlink "$skills/alpha")" = "$work/farm-a/alpha" ] || fail "relinked without holding the lock"
+factory-relink-skills "$work/farm-b"
+[ "$(readlink "$skills/alpha")" = "$work/farm-b/alpha" ] || fail "did not relink once the lock was free"
+
 # ─── Root: factory-maintenance ───────────────────────────────────────────────
 
 echo "factory-maintenance rollback: switches to the previous generation"

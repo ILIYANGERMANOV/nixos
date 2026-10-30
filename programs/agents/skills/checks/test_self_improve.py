@@ -13,8 +13,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 
 ANALYZER = ""
@@ -63,27 +65,58 @@ class Transcript:
             self.event(t, "assistant", message=message, attributionSkill=skill)
         return self
 
-    def tool(self, t: float, name: str, done: float, *, result: str = "ok", error: bool = False,
+    def tool(self, t: float, name: str, done: float, *, result: str | list[dict] = "ok", error: bool = False,
              background: bool = False, **tool_input: object) -> str:
         """A tool call and its result. Returns the tool_use id."""
         self.calls += 1
         use_id = f"toolu_{self.calls}"
-        self.event(t, "assistant", message={"id": f"msg_{self.calls}", "role": "assistant", "usage": {},
+        self.tool_use(t, f"msg_{self.calls}", use_id, name, tool_input)
+        extra = {"backgroundTaskId": f"bg{self.calls}"} if background else {}
+        self.tool_result(done, use_id, result, error, extra)
+        return use_id
+
+    def tool_use(self, t: float, response: str, use_id: str, name: str, tool_input: dict) -> None:
+        self.event(t, "assistant", message={"id": response, "role": "assistant", "usage": {},
                                             "content": [{"type": "tool_use", "id": use_id, "name": name,
                                                          "input": tool_input}]})
-        extra = {"backgroundTaskId": f"bg{self.calls}"} if background else {}
-        self.event(done, "user", toolUseResult=extra,
+
+    def tool_result(self, t: float, use_id: str, result: str | list[dict] = "ok", error: bool = False,
+                    extra: dict | None = None) -> None:
+        self.event(t, "user", toolUseResult=extra or {},
                    message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": use_id,
                                                          "content": result, "is_error": error}]})
-        return use_id
 
     def bash(self, t: float, command: str, done: float, **kw: object) -> str:
         return self.tool(t, "Bash", done, command=command, **kw)
 
+    def siblings(self, *calls: tuple[float, str, dict, float]) -> None:
+        """One response of several (streamed at, tool, input, done) calls, written as Claude Code does:
+        one line per block, stamped when that block finished streaming, and each result where it landed,
+        so a tool finishing mid-stream answers between the lines of its own response."""
+        self.calls += 1
+        response = f"msg_{self.calls}"
+        lines: list[tuple[float, Callable[[], None]]] = []
+        for t, name, tool_input, done in calls:
+            self.calls += 1
+            use_id = f"toolu_{self.calls}"
+            lines.append((t, partial(self.tool_use, t, response, use_id, name, tool_input)))
+            lines.append((done, partial(self.tool_result, done, use_id)))
+        for _, write in sorted(lines, key=lambda line: line[0]):
+            write()
+
     def notify(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
-        content = (f"<task-notification>\n<task-id>x</task-id>\n<tool-use-id>{use_id}</tool-use-id>\n"
-                   f"<status>{status}</status>\n<summary>{summary}</summary>\n</task-notification>")
-        return self.event(t, "queue-operation", operation="enqueue", content=content)
+        return self.event(t, "queue-operation", operation="enqueue", content=notification(use_id, status, summary))
+
+    def attach_notification(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
+        """How a subagent's transcript carries a task notification."""
+        attachment = {"type": "queued_command", "commandMode": "task-notification",
+                      "prompt": notification(use_id, status, summary)}
+        return self.event(t, "attachment", attachment=attachment)
+
+
+def notification(use_id: str, status: str, summary: str) -> str:
+    return (f"<task-notification>\n<task-id>x</task-id>\n<tool-use-id>{use_id}</tool-use-id>\n"
+            f"<status>{status}</status>\n<summary>{summary}</summary>\n</task-notification>")
 
 
 @dataclass
@@ -182,6 +215,86 @@ class WallTime(Case):
         # Then
         self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:6], ["1", "2m", "1", "5m", "300s"])
 
+    def test_sibling_calls_are_timed_from_the_end_of_their_response(self) -> None:
+        # Given: a quick mkdir streamed before a Write whose block took 60s to stream
+        main = Transcript().human(0, "go")
+        main.siblings((40, "Bash", {"command": "mkdir -p /tmp/x"}, 102), (100, "Write", {"file_path": "/tmp/x/a"}, 102))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then: neither call is charged the 60s of streaming
+        self.assertEqual(row(report, "Wall time per Bash command", "mkdir")[5], "2s")
+        self.assertEqual(row(report, "Wall time per tool", "Write")[5], "2s")
+
+    def test_a_call_finishing_mid_stream_is_timed_from_its_own_line(self) -> None:
+        # Given: a Read answered at 45 while its response streamed on until 100
+        main = Transcript().human(0, "go")
+        main.siblings((40, "Read", {"file_path": "/a"}, 45), (100, "Write", {"file_path": "/b"}, 102))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then: the Read keeps its 5s and is not moved past its own result
+        self.assertEqual(row(report, "Wall time per tool", "Read")[5], "5s")
+        self.assertEqual(row(report, "Wall time per tool", "Write")[5], "2s")
+
+    def test_a_subagent_background_start_is_timed_to_its_notification(self) -> None:
+        # Given: a subagent whose transcript has only the result text and an attached notification
+        start = "Command running in background with ID: b1. Output is being written to: /tmp/b1.output"
+        sub = awaited_subagent()
+        bg = sub.bash(10, "just check", 11, result=start)
+        sub.attach_notification(310, bg, "completed", 'Background command "check" completed (exit code 0)')
+        self.home.session("s1", awaiting_subagent(400), {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then: one background call of 300s, not a 1s foreground one
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:6], ["0", "0m", "1", "5m", "300s"])
+
+    def test_a_subagent_timeout_moved_to_the_background_is_timed_to_its_notification(self) -> None:
+        # Given: a foreground call the harness moved to the background at its timeout
+        moved = "Command did not complete within its 600s timeout and was moved to the background with ID: b1."
+        sub = awaited_subagent()
+        bg = sub.bash(10, "just check", 610, result=moved)
+        sub.attach_notification(910, bg, "completed", 'Background command "check" completed (exit code 0)')
+        self.home.session("s1", awaiting_subagent(1000), {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:6], ["0", "0m", "1", "15m", "900s"])
+
+    def test_a_subagent_background_agent_is_timed_to_its_notification(self) -> None:
+        # Given: a subagent spawning a background agent, with the result as a text block
+        launched = [{"type": "text", "text": "Async agent launched successfully."}]
+        sub = awaited_subagent()
+        child = sub.tool(10, "Agent", 11, result=launched, description="Research")
+        sub.attach_notification(130, child, "completed", "Agent finished")
+        self.home.session("s1", awaiting_subagent(50), {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per tool", "Agent")[1:3], ["bg", "1"])
+        self.assertEqual(row(report, "Wall time per tool", "Agent")[4:], ["120s", "120s"])
+
+    def test_a_subagent_background_failure_is_a_failure(self) -> None:
+        # Given: a background command failing in a subagent's attached notification
+        sub = awaited_subagent()
+        bg = sub.bash(10, "just check", 11, result="Command running in background with ID: b1.")
+        sub.attach_notification(100, bg, "failed", 'Background command "check" failed with exit code 2')
+        self.home.session("s1", awaiting_subagent(200), {"s": worker("Implement", sub)})
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[6], "1")
+
+    def test_output_quoting_a_background_start_stays_a_foreground_call(self) -> None:
+        # Given: a foreground command that prints the words mid-output
+        main = Transcript().human(0, "go")
+        main.bash(10, "just check", 20, result="note: Command running in background with ID: b1.")
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Wall time per Bash command", "just check")[1:3], ["1", "0m"])
+
     def test_waiting_on_the_person_is_split_from_work(self) -> None:
         # Given: a 10 min gap before the person's second prompt and a 2 min question
         main = Transcript().human(0, "go").reply(60)
@@ -256,6 +369,61 @@ class RedundantChecks(Case):
         # Then
         self.assertIn("Build/test steps run before a full check with no edit between: 2, 1m.", report)
         self.assertIn("| nix run .#test -- -m parser | 60s |", report)
+
+    def test_an_edit_sent_before_a_check_in_one_response_is_a_change(self) -> None:
+        # Given: an Edit and a rerun of a check, sibling calls of one response
+        main = Transcript().human(0, "go")
+        main.bash(10, "just check", 70)
+        main.siblings((80, "Edit", {"file_path": "/repo/src/Main.hs"}, 91), (90, "Bash", {"command": "just check"}, 150))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Reruns with nothing changed since the same check: 0, 0m.", report)
+
+    def test_an_edit_sent_after_a_check_in_one_response_is_a_change_for_the_next_run(self) -> None:
+        # Given: a check and an Edit, sibling calls of one response, then the check again
+        main = Transcript().human(0, "go")
+        main.siblings((80, "Bash", {"command": "just check"}, 150), (90, "Edit", {"file_path": "/repo/src/Main.hs"}, 151))
+        main.bash(160, "just check", 220)
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Reruns with nothing changed since the same check: 0, 0m.", report)
+
+    def test_an_edit_sent_before_a_full_check_in_one_response_keeps_the_test_out_of_the_chain(self) -> None:
+        # Given: a test step, then an Edit and a full check, sibling calls of one response
+        main = Transcript().human(0, "go")
+        main.bash(10, "nix run .#test", 70)
+        main.siblings((80, "Edit", {"file_path": "/repo/src/Main.hs"}, 91), (90, "Bash", {"command": "just check"}, 150))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Build/test steps run before a full check with no edit between: 0, 0m.", report)
+
+    def test_an_edit_sent_after_a_test_in_one_response_keeps_the_test_out_of_the_chain(self) -> None:
+        # Given: a test step and an Edit, sibling calls of one response, then a full check
+        main = Transcript().human(0, "go")
+        main.siblings((80, "Bash", {"command": "nix run .#test"}, 150), (90, "Edit", {"file_path": "/repo/src/Main.hs"}, 151))
+        main.bash(160, "just check", 220)
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Build/test steps run before a full check with no edit between: 0, 0m.", report)
+
+    def test_a_sibling_of_a_check_that_changes_nothing_leaves_it_a_rerun(self) -> None:
+        # Given: a Read beside a rerun of a check
+        main = Transcript().human(0, "go")
+        main.bash(10, "just check", 70)
+        main.siblings((80, "Read", {"file_path": "/repo/src/Main.hs"}, 91), (90, "Bash", {"command": "just check"}, 150))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Reruns with nothing changed since the same check: 1, 1m.", report)
 
     def test_a_python_heredoc_writing_a_file_counts_as_a_change(self) -> None:
         # Given: three edits made by a Python heredoc, each between two runs of a check
@@ -352,6 +520,17 @@ def subagent(brief: str, usage: dict | None = None, parent_agent: str | None = N
 
 def idle_main() -> Transcript:
     return Transcript().human(0, "go").reply(1)
+
+
+def awaiting_subagent(done: float) -> Transcript:
+    """A session whose first tool call runs `awaited_subagent` in the foreground until `done`."""
+    main = Transcript().human(0, "go")
+    main.tool(1, "Agent", done, description="Implement")
+    return main
+
+
+def awaited_subagent() -> Transcript:
+    return Transcript(parent="toolu_1").brief(0, "Implement")
 
 
 def spawning_implementer() -> Transcript:

@@ -1,7 +1,7 @@
 # Read-only reports, sized for a phone screen.
 
 # status: every server, its sessions and local work, then the last root
-# operation and the deploy token's expiry.
+# operation, the deploy token's expiry and any skills a GC took away.
 cmd_status() {
   local repo
   row "admin" "$(systemctl --user is-active "$admin_unit")" "$(sessions_under "$admin_dir" | wc -l)" 0
@@ -10,6 +10,7 @@ cmd_status() {
   done
   echo
   last_op
+  dangling_skills
 }
 
 row() {
@@ -51,6 +52,17 @@ last_op() {
   if [ -r "$expires" ]; then
     days=$(( ($(date -d "$(cat "$expires")" +%s) - $(date +%s)) / 86400 ))
     [ "$days" -ge 30 ] || echo "WARNING: the deploy token expires in $days day(s). Renew it (docs/SOFTWARE-FACTORY.md)."
+  fi
+}
+
+# Links into a farm that was collected: the skills every new session lacks.
+dangling_skills() {
+  local names
+  names=$(find -L "$HOME/.claude/skills" -mindepth 1 -maxdepth 1 -type l -printf '%f\n' 2>/dev/null | sort) || true
+  if [ -z "$names" ]; then
+    echo "Skills: 0 dangling links"
+  else
+    echo "Skills: $(echo "$names" | wc -l) dangling link(s): $(echo "$names" | head -n 5 | paste -sd ' ')"
   fi
 }
 

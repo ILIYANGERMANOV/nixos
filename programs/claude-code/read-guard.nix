@@ -1,4 +1,4 @@
-# A PreToolUse hook for Bash that blocks a large multi-file read. What it
+# A PreToolUse hook for Bash and Read that blocks a large file read. What it
 # blocks, and its limit, are in read-guard.py; the scenarios are in
 # bash-guards-check.nix.
 { pkgs }:

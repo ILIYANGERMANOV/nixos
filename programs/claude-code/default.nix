@@ -31,6 +31,7 @@ let
   readGuard = import ./read-guard.nix { inherit pkgs; };
   waitGuard = import ./wait-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
+  linkSkills = import ../skills-link { inherit pkgs; };
 
   baseSettings = {
     statusLine = {
@@ -125,6 +126,37 @@ let
       ;
   };
 
+  # The skill listing goes out on every call, and most of it was skills an
+  # unattended agent has no use for. name-only drops the description, and the
+  # model can still invoke the skill; user-invocable-only hides it from the
+  # model and keeps /name. Claude.ai's synced skills are keyed with their
+  # anthropic-skills: prefix, bundled ones without.
+  skillOverrides =
+    let
+      synced = map (name: "anthropic-skills:${name}");
+    in
+    lib.genAttrs (synced [
+      "docs"
+      "docx"
+      "pptx"
+      "xlsx"
+    ]) (_: "name-only")
+    // lib.genAttrs (
+      synced [
+        "built-in-browser"
+        "chrome-browser"
+        "computer-use"
+        "google-workspace"
+        "import-memory"
+        "morning"
+      ]
+      ++ [
+        "keybindings-help"
+        "loop"
+        "schedule"
+      ]
+    ) (_: "user-invocable-only");
+
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
 {
@@ -176,17 +208,21 @@ in
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
         extraInstructions = [ ./factory-instructions.md ];
+        # Other sessions keep running while this one starts, and read the
+        # directory the stock rm -rf would empty under them.
+        applySkills = farm: "${lib.getExe linkSkills} ${farm}";
         # self-improve measures this box's own transcripts; android describes
         # the toolchain only the factory has.
         extraSkills = [
           "self-improve"
           "android"
         ];
-        # Unattended agents dumped whole files with one multi-file `cat`, and
+        # Unattended agents dumped whole files with `cat` and Read, and
         # subagents blocked on foreground sleeps and polling loops despite
         # the instructions; the hooks make them read ranges and background
         # long commands instead.
         extraSettings = {
+          inherit skillOverrides;
           hooks.PreToolUse = [
             {
               matcher = "Bash";
@@ -194,6 +230,10 @@ in
                 readGuard.hook
                 waitGuard.hook
               ];
+            }
+            {
+              matcher = "Read";
+              hooks = [ readGuard.hook ];
             }
           ];
           enabledPlugins = {

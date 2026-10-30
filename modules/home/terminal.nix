@@ -91,6 +91,10 @@ in
       };
 
       initContent = ''
+        # A leading `=` is text, so `echo ===` prints instead of failing with
+        # "== not found". Agent Bash shells start from this file too.
+        unsetopt EQUALS
+
         # Jump to a dir with zoxide, then open Neovim there
         # Usage: nvz <query>
         nvz() {

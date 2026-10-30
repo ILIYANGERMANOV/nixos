@@ -125,6 +125,13 @@
           # turn CI red with no change to this repo. Sees only the committed
           # `.typos.toml`, never the private global allowlist.
           typos = (import ./programs/typos { inherit pkgs; }).mkCheck self;
+
+          # Static analysis of .github/: pinned actions, token permissions,
+          # credential persistence. Offline, against `.github/zizmor.yml`.
+          zizmor = import ./programs/zizmor/check.nix {
+            inherit pkgs;
+            src = self;
+          };
         }
         # That a .kt file gets kotlin_lsp running the binary programs/kotlin
         # packages, ktlint as its formatter, and that <leader>tt runs
@@ -143,6 +150,13 @@
           # `nft --check`. Linux only, like the factory: darwin's procps has no
           # pgrep, which factory-ctl needs.
           software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
+          # That the factory's home activation runs the relink: a farm factory-gc
+          # may collect is otherwise never moved off. The one check that
+          # evaluates a host, so `just quick-check` pays for it.
+          software-factory-activation =
+            assert pkgs.lib.hasInfix "factory-relink-skills"
+              self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaudeSkills.data;
+            pkgs.emptyFile;
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }
       );

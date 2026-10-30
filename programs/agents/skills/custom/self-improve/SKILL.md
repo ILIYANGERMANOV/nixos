@@ -62,6 +62,10 @@ A subagent with more than that writes its full notes to
 `/tmp/self-improve/<topic>.md` and hands back a ranked index with the path.
 They may write their own `jq` or Python over `~/.claude/projects`.
 
+- **One last-PR check**: find the last self-improve PR
+  (`gh pr list --state all --search "self-improve in:title"`), read its body and
+  list what was an issue and what was fixed. For each fix, check in this window
+  whether it held or the issue came back. An issue it left open is a lead.
 - **One per suspected bottleneck** from the arguments: confirm or refute it.
 - **One per lead** the report points at that is worth more than a few minutes
   or a few million tokens: what the agents were doing, and why. A quality

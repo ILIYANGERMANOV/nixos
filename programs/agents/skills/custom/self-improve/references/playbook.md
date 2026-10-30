@@ -12,8 +12,8 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
   479k context and 73M tokens.
 - **Mini-engineer implementers.** A large slice is planned into parts, each
   run by a fresh sub-implementer, instead of one agent growing for hours.
-- **Bounded reads.** `rg -n`, then a `sed -n` range; a hook blocks multi-file
-  reads over 8KB. File reads were 38% of implementer cost.
+- **Bounded reads.** `rg -n`, then a `sed -n` range; a hook blocks reads
+  over 16KB. File reads were 38% of implementer cost.
 - **Leaner review passes.** One fresh subagent per review pass, one shared diff
   file, mechanical checks first, and a second pass on the fix diff only.
   Historic passes cost 15-30M tokens; the lean one about 80k context. No review

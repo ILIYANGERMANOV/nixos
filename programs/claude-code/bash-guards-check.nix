@@ -1,4 +1,4 @@
-# checks.claude-bash-guards: the PreToolUse Bash guards fed the same JSON
+# checks.claude-bash-guards: the PreToolUse guards fed the same JSON
 # Claude Code sends a hook, the read guard against real files and a real git
 # repository. Exit 2 blocks the call; exit 0 allows it.
 { pkgs }:
@@ -18,14 +18,14 @@ pkgs.runCommand "claude-bash-guards-check"
     dir=$TMPDIR/work
     mkdir -p "$dir"
     cd "$dir"
-    head -c 6000 /dev/zero >big-a
-    head -c 6000 /dev/zero >big-b
+    head -c 9000 /dev/zero >big-a
+    head -c 9000 /dev/zero >big-b
     head -c 20000 /dev/zero >huge
     echo small >small-a
     echo small >small-b
     mkdir sub
-    head -c 6000 /dev/zero >sub/big-c
-    head -c 6000 /dev/zero >sub/big-d
+    head -c 9000 /dev/zero >sub/big-c
+    head -c 9000 /dev/zero >sub/big-d
     echo small >sub/small-c
     echo small >sub/small-d
 
@@ -67,11 +67,13 @@ pkgs.runCommand "claude-bash-guards-check"
     guard=claude-read-guard
     echo "$guard:"
     mkdir -p skills-store/big-skill/references "$HOME/.claude/skills"
-    head -c 6000 /dev/zero >skills-store/big-skill/SKILL.md
-    head -c 6000 /dev/zero >skills-store/big-skill/references/ref.md
+    head -c 9000 /dev/zero >skills-store/big-skill/SKILL.md
+    head -c 9000 /dev/zero >skills-store/big-skill/references/ref.md
+    head -c 20000 /dev/zero >skills-store/big-skill/references/huge-ref.md
     ln -s "$dir/skills-store/big-skill" "$HOME/.claude/skills/big-skill"
 
-    expect 0 "a single large file is allowed" "cat huge"
+    expect 2 "a single large file is blocked" "cat huge"
+    expect 0 "a file under the limit is allowed" "cat big-a"
     expect 0 "small files read together are allowed" "cat small-a small-b"
     expect 2 "large files read together are blocked" "cat big-a big-b"
     grep -q "grep -n first" "$TMPDIR/err" || { echo "  ✗ the block carries the hint" >&2; status=1; }
@@ -84,7 +86,7 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "small files after a relative cd are allowed" "cd sub && cat small-c small-d"
     expect 0 "a cd to a missing directory is allowed" "cd nowhere && cat big-a big-b"
     expect 0 "a commit without a path is not sized" "git show HEAD; cat big-b"
-    expect 0 "missing files are not counted" "cat nope-a nope-b huge"
+    expect 2 "missing files are skipped, the rest still count" "cat nope big-a big-b"
     expect 0 "other commands are allowed" "grep -n x big-a big-b huge"
     expect 0 "a heredoc write is allowed" "cat > out <<'EOF'
     big-a big-b
@@ -106,11 +108,71 @@ pkgs.runCommand "claude-bash-guards-check"
 
     expect 0 "large skill files read together are allowed" \
       "cat ~/.claude/skills/big-skill/SKILL.md ~/.claude/skills/big-skill/references/ref.md"
+    expect 0 "a large skill reference is allowed" "cat ~/.claude/skills/big-skill/references/huge-ref.md"
     expect 0 "a skill glob is allowed" "cd ~/.claude/skills/big-skill && cat SKILL.md references/*"
     expect 2 "a skill file does not exempt another large file" \
       "cat ~/.claude/skills/big-skill/SKILL.md big-a big-b"
     expect 2 "a path that leaves the skills directory is sized" \
       "cat ~/.claude/skills/../../$(basename "$dir")/big-a big-b"
+
+    mkdir -p repo-docs/skills/custom/foo/references repo-docs/skills/bar/references/deep repo-docs/notskills/bar
+    for file in {,repo-docs/}{AGENTS,CLAUDE,SKILL,factory-instructions}.md NOTCLAUDE.md \
+      repo-docs/skills/custom/foo/references/a.md \
+      repo-docs/skills/default.nix repo-docs/notskills/bar/lib.py \
+      repo-docs/skills/bar/{lib.py,references/{b.md,deep/nested.md}}; do
+      head -c 9000 /dev/zero >"$file"
+    done
+    git add huge repo-docs
+    git commit --quiet -m docs
+
+    expect 0 "instruction files read together are allowed" \
+      "cat AGENTS.md CLAUDE.md SKILL.md factory-instructions.md"
+    expect 0 "instruction files are exempt by basename anywhere" "cat repo-docs/CLAUDE.md repo-docs/SKILL.md"
+    expect 0 "skill references read together are allowed" \
+      "cat repo-docs/skills/custom/foo/references/a.md repo-docs/skills/bar/references/*.md"
+    expect 0 "a skill's source is allowed" "cat repo-docs/skills/bar/lib.py big-a"
+    expect 0 "a nested skill file is allowed" "cat repo-docs/skills/bar/references/deep/nested.md big-a"
+    expect 0 "instruction blobs read together are allowed" "git show HEAD:repo-docs/CLAUDE.md HEAD:repo-docs/SKILL.md"
+    expect 0 "reference blobs read together are allowed" \
+      "git -C $dir show HEAD:repo-docs/skills/custom/foo/references/a.md HEAD:repo-docs/skills/bar/references/b.md"
+    expect 0 "an exempt file leaves a small sibling allowed" "cat CLAUDE.md big-a"
+    mkdir admin
+    head -c 9000 /dev/zero >admin/hm_CLAUDE.md
+    ln -s hm_CLAUDE.md admin/CLAUDE.md
+    expect 0 "an instruction file is exempt by the name it was read under" "cat admin/CLAUDE.md big-a"
+
+    expect 2 "an exempt file does not exempt a source file over the limit" "cat CLAUDE.md huge"
+    expect 2 "a single large blob is blocked" "git show HEAD:huge"
+    expect 2 "an exempt blob does not exempt a blob over the limit" "git show HEAD:repo-docs/CLAUDE.md HEAD:huge"
+    expect 2 "a skill file does not exempt a source file over the limit" "cat repo-docs/skills/bar/lib.py huge"
+    expect 2 "a file directly under skills is counted" "cat repo-docs/skills/default.nix big-a"
+    expect 2 "a directory that only ends in skills is counted" "cat repo-docs/notskills/bar/lib.py big-a"
+    expect 2 "a name that only ends like an instruction file is counted" "cat NOTCLAUDE.md big-a"
+
+    # Runs $guard on a Read of $3 with the extra tool input in $4.
+    expect_read() {
+      expect_raw "$1" "$2" "$(jq -n --arg p "$3" --arg d "$dir" --argjson i "''${4:-null}" \
+        '{hook_event_name: "PreToolUse", tool_name: "Read", tool_input: ({file_path: $p} + $i), cwd: $d}')"
+    }
+    head -c 20000 /dev/zero >huge.png
+    head -c 20000 /dev/zero >huge.PDF
+    mkdir instructions
+    head -c 20000 /dev/zero >instructions/CLAUDE.md
+
+    expect_read 2 "a whole Read of a large file is blocked" "$dir/huge"
+    grep -q "offset and limit" "$TMPDIR/err" || { echo "  ✗ the Read block carries the hint" >&2; status=1; }
+    expect_read 2 "a relative Read resolves against cwd" huge
+    expect_read 2 "an offset alone does not bound a Read" huge '{"offset": 100}'
+    expect_read 2 "a Read that leaves a skill is sized" "$dir/repo-docs/skills/bar/../../../huge"
+    expect_read 0 "a limited Read of a large file is allowed" "$dir/huge" '{"limit": 100}'
+    expect_read 0 "a whole Read of a small file is allowed" "$dir/big-a"
+    expect_read 0 "a Read of a large skill reference is allowed" \
+      "$HOME/.claude/skills/big-skill/references/huge-ref.md"
+    expect_read 0 "a Read of a large instruction file is allowed" "$dir/instructions/CLAUDE.md"
+    expect_read 0 "a Read of an image is allowed" "$dir/huge.png"
+    expect_read 0 "a Read of a PDF is allowed, in any case" "$dir/huge.PDF"
+    expect_read 0 "a Read of a missing file is allowed" "$dir/nope"
+    expect_raw 0 "a Read without a path is allowed" '{"tool_name": "Read", "tool_input": {}}'
     shared_failopen
 
     guard=claude-wait-guard
@@ -137,6 +199,56 @@ pkgs.runCommand "claude-bash-guards-check"
     EOF"
     expect_call 0 "a backgrounded long sleep is allowed" "sleep 30" true
     expect_call 0 "a backgrounded poll is allowed" "until [ -f x ]; do sleep 5; done" true
+
+    expect 2 "a poll in bash -c is blocked" "bash -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll in sh -c is blocked" "sh -c 'while pgrep foo; do sleep 2; done'"
+    expect 2 "a long sleep in bash -c is blocked" "bash -c 'sleep 30'"
+    expect 2 "a poll in bash -lc is blocked" "bash -lc 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll in bash with options before -c is blocked" "bash -euo pipefail -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll under timeout is blocked" "timeout 590 bash -c 'until [ -f x ]; do sleep 5; done'; cat log"
+    expect 2 "a poll under nix develop is blocked" "nix develop .#ci -c bash -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll under timeout and nix develop is blocked" "timeout 600 nix develop -c bash -c 'sleep 30'"
+    expect 2 "a poll after an assignment is blocked" "D=/tmp bash -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a long sleep under timeout is blocked" "timeout 60 sleep 30"
+    expect 2 "a wait after a flake reference is blocked" "nix build .#foo; sleep 30"
+    expect 2 "a wait after a flake reference in bash -c is blocked" "bash -c 'nix build .#foo; sleep 30'"
+    expect 2 "a double-quoted bash -c keeps its flake reference apart" "bash -c \"nix build .#foo; sleep 30\""
+    expect 2 "a nested bash -c keeps its flake reference apart" "bash -c \"bash -c 'nix build .#foo; sleep 30'\""
+    expect 2 "an until around a bash -c condition is blocked" "until bash -c 'test -f x'; do sleep 5; done"
+    expect 2 "a while around a wrapped condition is blocked" "while timeout 60 bash -c 'pgrep foo'; do sleep 2; done"
+    expect 2 "tail -f is blocked" "tail -f build.log"
+    expect 2 "tail -F is blocked" "tail -F build.log"
+    expect 2 "tail --follow is blocked" "tail --follow build.log"
+    expect 2 "tail --follow=name is blocked" "tail --follow=name build.log"
+    expect 2 "tail with -f in a flag cluster is blocked" "tail -fn 20 build.log"
+    expect 2 "tail -f piped into a filter is blocked" "tail -n +1 -f build.log | grep -m1 ^EXIT"
+    expect 2 "tail -f on a pid is blocked" "tail --pid=\"\$P\" -f /dev/null"
+    expect 2 "tail -f under timeout is blocked" "timeout 590 tail -n +1 -f build.log | grep -m1 done"
+    expect 2 "tail -f in bash -c is blocked" "bash -c 'tail -f build.log'"
+    expect 2 "tail -f before && is blocked" "tail -f build.log && just build"
+    expect 2 "a wait after a backgrounded tail -f is blocked" "tail -f build.log & sleep 30"
+    expect 2 "a bash -c script that does not parse keeps the outer verdict" "sleep 30; bash -c 'echo a\\'"
+    expect 0 "a bash -c script that does not parse is allowed alone" "bash -c 'echo a\\'"
+    expect 0 "a tail -f sent to the background with & is allowed" "tail -f build.log & just build; kill %1"
+    expect 0 "a commented-out wait is allowed" "ls # sleep 30"
+    expect 0 "a one-shot script in bash -c is allowed" "bash -c 'echo hi; ls'"
+    expect 0 "a commented-out wait in bash -c is allowed" "bash -c 'ls # sleep 30'"
+    expect 0 "a bash -c in a loop without a sleep is allowed" "while read l; do bash -c 'echo hi'; done < f"
+    expect 0 "a short sleep after a bash -c condition is allowed" "if bash -c 'true'; then sleep 2; fi"
+    expect 0 "a short sleep in bash -c is allowed" "bash -c 'sleep 2'"
+    expect 0 "a build under nix develop is allowed" "nix develop -c bash -c 'just test'"
+    expect 0 "a command under timeout is allowed" "timeout 600 just test"
+    expect 0 "a short timeout bounds tail -f" "timeout 4 tail -f build.log"
+    expect 0 "a short timeout bounds a poll" "timeout 5 bash -c 'until [ -f x ]; do sleep 1; done'"
+    expect 0 "tail -n is allowed" "tail -n 20 build.log"
+    expect 0 "tail -c is allowed" "tail -c 100 build.log"
+    expect 0 "tail on a file named after the flag is allowed" "tail -n 5 -- f"
+    expect 0 "a plain tail is allowed" "tail build.log"
+    expect 0 "a tail in a pipe is allowed" "just test | tail -20"
+    expect 0 "a -f on another command is allowed" "rm -f build.log; grep -f patterns log"
+    expect 0 "a wrapper named in a string is allowed" "echo \"bash -c 'sleep 30'\" && git commit -m 'tail -f log'"
+    expect_call 0 "a backgrounded tail -f is allowed" "tail -f build.log" true
+    expect_call 0 "a backgrounded bash -c poll is allowed" "bash -c 'until [ -f x ]; do sleep 5; done'" true
     shared_failopen
 
     guard=$TMPDIR/secret-guard

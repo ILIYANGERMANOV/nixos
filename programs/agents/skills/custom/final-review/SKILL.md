@@ -1,22 +1,21 @@
 ---
 name: final-review
-description: Independent last review of a ready PR, with the user deciding what to fix. Runs pragmatic-review in one fresh agent, shows its findings table, requirement verdicts and security line unchanged, asks which rows survive and what to do with them, fixes only the chosen rows through a subagent, re-reviews the fix diff once, and waits on CI. Requirements in the arguments are the user's own and authoritative. Runs in rounds - each new call on the same PR is a fresh review. Use on a ready PR, for example after /engineer, when you want an independent check before merging.
-disable-model-invocation: true
+description: Independent last review of a ready PR, with the user deciding what to fix. Runs pragmatic-review in one fresh agent, shows its findings table, requirement verdicts and security line unchanged, asks which rows survive and what to do with them, fixes only the chosen rows through a subagent, re-reviews the fix diff once, and waits on CI. Requirements in the arguments are authoritative, from the user or from /engineer. Runs in rounds - each new call on the same PR is a fresh review. Use on a ready PR, for example after /engineer, when you want an independent check before merging.
 argument-hint: "[requirements] [PR number or URL]"
 ---
 
 # Final review
 
 The user wants an independent last look at a PR before merging it.
-`$ARGUMENTS` is a PR number or URL plus their requirements - what must hold,
-in their words. Both are optional.
+`$ARGUMENTS` is a PR number or URL plus the requirements - what must hold, in
+the words of whoever called this skill. Both are optional.
 
 ## The bar: the review reports, the user decides
 
 You run `pragmatic-review` in a fresh agent and relay what it finds. You never
 load that skill yourself, never judge the table on the user's behalf, and never
-fix a row they did not pick. Requirements are the user's own: authoritative,
-passed through unchanged.
+fix a row they did not pick. Requirements, from the user or /engineer, are
+authoritative: passed through unchanged.
 
 ## Each round
 
@@ -41,7 +40,9 @@ findings table, the requirement verdicts, a `Security:` line, the verdict and
 ### 3. Show, then ask
 
 Relay the table, the verdicts, the security line and the verdict to the user
-unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
+unchanged. Then run the review's two pickers yourself with `AskUserQuestion`.
+A delegated agent that cannot ask hands all of it back to its caller and stops
+here, since the picks are the user's:
 
 1. Which rows survive - `multiSelect`, grouped by severity, every Major
    recommended, at most four rows per question. Skip it when nothing survived.

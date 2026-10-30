@@ -10,6 +10,10 @@ OPERATORS = set(";&|()<>")
 PIPES = {"|", "|&"}
 # `<<` or `<<-`, then the delimiter, bare or quoted. `<<<` is a here-string.
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+# Bash starts a comment only at a word's start; shlex anywhere, so `.#ci` would
+# swallow the rest of the command. A `bash -c` script is split again with the
+# escape still on it, and a second one would escape the backslash, not the hash.
+MID_WORD_HASH = re.compile(r"(?<=[^\s;&|()<>\\])#")
 
 
 class Sink(Enum):
@@ -24,6 +28,7 @@ class Sink(Enum):
 class SimpleCommand:
     words: list[str]
     sink: Sink
+    background: bool = False
 
 
 def simple_commands(command: str) -> Iterator[SimpleCommand]:
@@ -33,7 +38,7 @@ def simple_commands(command: str) -> Iterator[SimpleCommand]:
     before `>` is the fd it redirects, so `2>/dev/null` leaves stdout alone.
     """
     lexer = shlex.shlex(
-        strip_heredoc_bodies(command).replace("\n", " ; "),
+        MID_WORD_HASH.sub(r"\\#", strip_heredoc_bodies(command)).replace("\n", " ; "),
         posix=True,
         punctuation_chars=True,
     )
@@ -56,7 +61,7 @@ def simple_commands(command: str) -> Iterator[SimpleCommand]:
             case _ if "<" in token:
                 next(tokens, "")
             case _:
-                yield SimpleCommand(words, sink)
+                yield SimpleCommand(words, sink, token == "&")
                 words, sink = [], Sink.SCREEN
     yield SimpleCommand(words, sink)
 

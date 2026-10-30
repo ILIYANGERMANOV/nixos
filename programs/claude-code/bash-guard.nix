@@ -20,7 +20,7 @@ rec {
     libraries = [ bashCommands ];
   } script;
 
-  # The hook entry, for a flavor's PreToolUse Bash matcher.
+  # The hook entry, for a flavor's PreToolUse matcher.
   hook = {
     type = "command";
     command = "${bin}/bin/${name}";

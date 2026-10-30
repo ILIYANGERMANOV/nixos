@@ -36,6 +36,8 @@ let
         or (throw "software-factory: the host must declare myConfig.secrets.gh-token for gh");
   };
 
+  relinkSkills = factory.mkRelinkSkills { };
+
   ctl = factory.mkCtl {
     opsStateDir = "/var/lib/factory-ops";
     deployRepo = osConfig.myConfig.factory.deploy.repo;
@@ -95,6 +97,11 @@ in
     playwright.qa
   ];
 
+  # After home.packages, whose generation keeps this farm alive.
+  home.activation.relinkClaudeSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    run ${lib.getExe relinkSkills} ${claude.factory.wrapper.skillFarm}
+  '';
+
   systemd.user.services = {
     "claude-rc@" = {
       Unit = keepOld // {
@@ -138,5 +145,25 @@ in
       };
       Install.WantedBy = [ "default.target" ];
     };
+
+    factory-root-shells = {
+      Unit = keepOld // {
+        Description = "Keep the repositories' main dev shells and flake inputs from GC";
+      };
+      Service = {
+        Type = "oneshot";
+        ExecStart = "${lib.getExe ctl} root-shells";
+        Environment = [ "PATH=${path}" ];
+      };
+    };
+  };
+
+  systemd.user.timers.factory-root-shells = {
+    Unit.Description = "Root the repositories' main dev shells daily";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
   };
 }

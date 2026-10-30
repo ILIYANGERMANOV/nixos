@@ -59,6 +59,12 @@ let
   # shared files, so concurrent starts would race. The wrapper therefore runs
   # once under a lock with --version, and the server is started from the
   # unwrapped binary the wrapper would have exec'd.
+  # The launchers and the skill relink serialise on this lock, held on fd 9.
+  openFactoryLock = ''
+    mkdir -p "$HOME/.claude"
+    exec 9>"$HOME/.claude/.factory.lock"
+  '';
+
   mkRemoteControl =
     {
       claude,
@@ -83,8 +89,7 @@ let
               local dir="$1" name="$2"
               shift 2
 
-              mkdir -p "$HOME/.claude"
-              exec 9>"$HOME/.claude/.factory.lock"
+              ${openFactoryLock}
               flock 9
               ${lib.getExe claude} --version >/dev/null
               trust "$dir"
@@ -133,6 +138,29 @@ let
       '';
     };
 
+  # factory-relink-skills <farm>, the home activation's relink. Sessions spawn
+  # from a Remote Control server without going through the wrapper, so nothing
+  # else moves the links off a farm factory-gc is about to collect. Skipping is
+  # the safe failure: a deploy must not hang or fail over skills, and the next
+  # deploy or server start links them again.
+  mkRelinkSkills =
+    {
+      lockSeconds ? 30,
+    }:
+    pkgs.writeShellApplication {
+      name = "factory-relink-skills";
+      runtimeInputs = [
+        pkgs.flock
+        (import ../skills-link { inherit pkgs; })
+      ];
+      text = ''
+        ${openFactoryLock}
+        if ! { flock --wait ${toString lockSeconds} 9 && factory-link-skills "$1"; }; then
+          echo "factory-relink-skills: left ~/.claude/skills as it was" >&2
+        fi
+      '';
+    };
+
   # Remote Control flags. Both start sessions in auto mode. A repository's
   # sessions each get their own git worktree, so sessions in one repository
   # never edit the same files.
@@ -162,7 +190,7 @@ let
 
   # The CLI the admin agent drives the box with, and the only thing its skills
   # call. Idempotent throughout; see ctl/main.sh for the commands. systemctl,
-  # gh and nix-store come from PATH, like the launchers' systemctl: the unit
+  # gh, nix and nix-store come from PATH, like the launchers' systemctl: the unit
   # and login environments provide them, and the check substitutes doubles.
   #
   #   opsStateDir    - where the root units record their results
@@ -351,6 +379,7 @@ in
     managedSettingsValue
     remoteControlArgs
     mkRemoteControl
+    mkRelinkSkills
     mkCtl
     mkBoot
     mkDeploy

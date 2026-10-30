@@ -98,6 +98,7 @@ class Unanswered:
 
 Timing = Union[Foreground, Background, Unanswered]
 Interval = tuple[float, float]
+StreamPoint = tuple[float, int]  # a call's start, then its position among calls sharing that start
 ASK = "AskUserQuestion"
 
 
@@ -121,6 +122,7 @@ class ToolCall:
     name: str
     input: dict
     start: float
+    position: int  # in its transcript's stream; siblings can share a start
     timing: Timing = Unanswered()
     outcome: Outcome = Ok()
     result_chars: int = 0
@@ -319,6 +321,12 @@ COMMAND_NAME = re.compile(r"<command-name>/?([\w:-]+)</command-name>")
 NOTIFICATION = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 EXIT_CODE = re.compile(r"exit code (\d+)", re.I)
 HANDBACK = "SubagentHandback"
+# A subagent's transcript has no `toolUseResult`: only the result text tells.
+BACKGROUND_START = re.compile(
+    r"Command running in background with ID|"
+    r"Command did not complete within its \S+ timeout and was moved to the background|"
+    r"Async agent launched"
+)
 
 
 def load_sessions(root: Path) -> list[Session]:
@@ -405,6 +413,7 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
     out = Transcript(Agent(path.stem.removeprefix("agent-"), kind, description, [], []))
     responses: dict[str, Response] = {}
     calls: dict[str, ToolCall] = {}
+    response_calls: dict[str, list[ToolCall]] = defaultdict(list)
     previous: float | None = None
     for event in read_jsonl(path):
         ts = parse_time(event.get("timestamp"))
@@ -419,10 +428,16 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
                 responses[key] = Response(to_usage(message.get("usage") or {}), event.get("attributionSkill"))
                 for block in blocks(content):
                     if block.get("type") == "tool_use":
-                        call = ToolCall(block["id"], block.get("name", "?"), block.get("input") or {}, ts)
+                        call = ToolCall(block["id"], block.get("name", "?"), block.get("input") or {}, ts, len(calls))
                         calls[call.id] = call
+                        response_calls[key].append(call)
                     elif block.get("type") == "text":
                         out.agent.texts.append(str(block.get("text", "")))
+                # A line is stamped when its block finished streaming and most tools start once the
+                # response has ended, but a tool can answer mid-stream, and then this line is past its end.
+                for call in response_calls[key]:
+                    if isinstance(call.timing, Unanswered):
+                        call.start = ts
             case "user" if is_tool_results(content):
                 for block in blocks(content):
                     if block.get("type") == "tool_result" and block.get("tool_use_id") in calls:
@@ -439,6 +454,8 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
                 record_notifications(calls, text, ts)
             case "queue-operation":
                 record_notifications(calls, str(event.get("content") or ""), ts)
+            case "attachment":
+                record_notifications(calls, str((event.get("attachment") or {}).get("prompt") or ""), ts)
         out.times.append(ts)
         previous = ts
     out.agent.responses = list(responses.values())
@@ -494,8 +511,8 @@ def plain_text(content: object) -> str:
 def record_result(call: ToolCall, block: dict, extra: object, ts: float) -> None:
     text, images = result_text(block.get("content"))
     call.result_chars, call.images = len(text), images
-    background = isinstance(extra, dict) and bool(extra.get("backgroundTaskId") or extra.get("isAsync"))
-    call.timing = Background(None) if background else Foreground(ts)
+    started = isinstance(extra, dict) and bool(extra.get("backgroundTaskId") or extra.get("isAsync"))
+    call.timing = Background(None) if started or BACKGROUND_START.match(text) else Foreground(ts)
     if block.get("is_error"):
         call.outcome = Failed(exit_code(text), signature(text))
     elif "command not found" in text:
@@ -705,20 +722,20 @@ def check_waste(session: Session) -> tuple[list[Rerun], list[Chain]]:
     An edit by any agent of the session counts as a change, so an orchestrator
     rerunning a check after its implementer edited is not flagged.
     """
-    edits = sorted((c.start, is_doc_edit(c)) for a in session.agents for c in a.calls if is_edit(c))
+    edits = sorted((stream_point(c), is_doc_edit(c)) for a in session.agents for c in a.calls if is_edit(c))
     reruns: list[Rerun] = []
     chains: list[Chain] = []
     for agent in session.agents:
-        last_run: dict[str, float] = {}
+        last_run: dict[str, StreamPoint] = {}
         earlier_steps: list[ToolCall] = []
         for call in filter(is_check_run, agent.calls):
             key = check_key(call.command)
             if key in last_run:
-                between = edits_between(edits, last_run[key], call.start)
+                between = edits_between(edits, last_run[key], stream_point(call))
                 reason = "no edit" if not between else "doc-only edit" if all(between) else None
                 if reason:
                     reruns.append(Rerun(session.id, agent.kind, key, reason, call.seconds or 0.0))
-            last_run[key] = call.start
+            last_run[key] = stream_point(call)
             found = [s for s in steps(call.command) if is_check(s)]
             full = [i for i, s in enumerate(found) if FULL_CHECK.match(s.name)]
             if not full:
@@ -728,7 +745,7 @@ def check_waste(session: Session) -> tuple[list[Rerun], list[Chain]]:
             chains += [
                 Chain(session.id, agent.kind, check_key(s.command), s.seconds or 0.0)
                 for s in earlier_steps
-                if not edits_between(edits, s.start, call.start)
+                if not edits_between(edits, stream_point(s), stream_point(call))
             ]
             earlier_steps = []
     return reruns, chains
@@ -738,8 +755,12 @@ def is_check_run(call: ToolCall) -> bool:
     return call.name == "Bash" and bool(check_key(call.command))
 
 
-def edits_between(edits: list[tuple[float, bool]], start: float, end: float) -> list[bool]:
-    return [doc for t, doc in edits if start < t < end]
+def stream_point(call: ToolCall) -> StreamPoint:
+    return call.start, call.position
+
+
+def edits_between(edits: list[tuple[StreamPoint, bool]], start: StreamPoint, end: StreamPoint) -> list[bool]:
+    return [doc for point, doc in edits if start < point < end]
 
 
 def is_edit(call: ToolCall) -> bool:
