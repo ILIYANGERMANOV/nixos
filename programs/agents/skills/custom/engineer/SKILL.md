@@ -118,10 +118,10 @@ verdict. No more reviews after this one, whatever it finds.
 ### 9. Final fix
 
 Through a fixer, fix what is safe and small. Anything bigger goes in the PR
-body as known follow-up work, or to the user as a question if it blocks the
-feature. Size decides fix or record, never drop: every surviving house-rule
-row, Major row or Not met verdict you do not fix is recorded there, under the
-merge-danger or follow-up section, with the reason.
+body's `## Follow-ups`, or to the user as a question if it blocks the feature.
+Size decides fix or record, never drop: every surviving house-rule row, Major
+row or Not met verdict you do not fix is recorded in `## Follow-ups`, with the
+reason.
 
 ### 10. Hand over
 

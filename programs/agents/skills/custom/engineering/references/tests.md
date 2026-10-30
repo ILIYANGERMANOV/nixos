@@ -133,7 +133,8 @@ must hold over every value of the domain.
   code proves only that the code equals itself.
 - **Anything that combines has laws.** A merge, reduce, batch or overlay gets
   an empty value and must not care how calls are grouped: `merge(a, empty) == a`,
-  `f(a + b) == f(a) + f(b)` for split-then-join. The empty case then needs no
+  `merge(merge(a, b), c) == merge(a, merge(b, c))`. A batch must not care how
+  its input is split: `f(a + b) == f(a) + f(b)`. The empty case then needs no
   branch. Most overlays are not commutative: say so.
 - **Generators cover the edge cases.** Empty, singleton, maximal, unicode,
   duplicates, negative, boundary values. A generator that never produces the

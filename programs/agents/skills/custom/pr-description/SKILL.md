@@ -25,7 +25,7 @@ Look for a PR template: `.github/pull_request_template.md`,
 `docs/`, or a `PULL_REQUEST_TEMPLATE/` directory. If one exists, fill in its
 sections in its order and ignore the default format below, except that the
 Approach TL;DR and the data flow open the template's "how" section if it has
-one. Never fill a section that asks for secrets, credentials or tokens; leave
+one, and `## Follow-ups` closes the body when it has entries. Never fill a section that asks for secrets, credentials or tokens; leave
 it as the template has it.
 
 ## Otherwise, the default format
@@ -48,6 +48,8 @@ it as the template has it.
 ### Manual
 
 ## Merge Danger
+
+## Follow-ups
 ```
 
 - **What & Why** - two or three sentences: what changes and why it is needed.
@@ -70,6 +72,8 @@ it as the template has it.
   - **Door:** one-way (hard or impossible to undo: data migrations, deletions,
     published APIs, sent messages) or two-way (a revert undoes it).
   - **Blast radius:** what breaks, and for whom, if this is wrong.
+- **Follow-ups** - one bullet per known item this PR leaves undone, each with
+  its reason. Omit the section when there are none.
 
 ## Style
 
@@ -104,5 +108,5 @@ error renders as an error box, not a diagram.
 Pass the body through a file or a heredoc so the shell does not mangle it:
 `gh pr create --body-file <file>` for a new PR, `gh pr edit <n> --body-file
 <file>` to rewrite one. A rewrite keeps any `Security-sensitive:` line and
-`## Feedback log` section verbatim. Write the file outside the repository, so
+`## Feedback log` section verbatim, and every open `## Follow-ups` item. Write the file outside the repository, so
 it is never committed.

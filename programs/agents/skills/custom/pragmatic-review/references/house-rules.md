@@ -46,8 +46,10 @@ contradicts it. Then it is **major**. Its `trigger` names what a record can now
 hold or lose.
 
 Never a violation: a copy under a named performance need, a value that must
-survive a rule change, or a nullable field the domain maps to a SUM type, only
-when a constraint rules out the other combinations. `status`, a nullable
+survive a rule change, an expand step (a nullable column for a required field)
+whose contract step is planned in the PR body or an issue, or a nullable field
+the domain maps to a SUM type, only when a constraint rules out the other
+combinations. `status`, a nullable
 `shipped_at` and `tracking` with no such constraint admit `pending` with a
 `shipped_at`: a violation.
 

@@ -49,15 +49,19 @@ meet the objective correctly and sanely.
   state likewise has one owner: only it writes, others read an immutable view.
 - Minimal state: store the facts with the most information and derive the rest,
   in the database, UI and memory alike: `createdAt`, never `isExpired`. A state
-  computable from facts is a SUM a function returns, not a field. Should old
-  records change with the rule? Yes derive, no store: a value that must survive
-  a rule change (invoice total) is a fact. Exception: a named performance need,
-  such as an indexed `expiresAt`. A derived store (cache, index, denormalized
-  copy) is disposable, rebuildable and takes no own writes.
+  computable from stored facts is derived: a pure function returns the SUM,
+  `expiry :: Now -> CreatedAt -> Expiry`, and no field holds it. Where the
+  transition itself is the fact, store a SUM whose cases carry their data,
+  `data Payment = Unpaid | Paid UTCTime`, so no separate nullable status exists.
+  Should old records change with the rule? Yes derive, no store: a value that
+  must survive a rule change (invoice total) is a fact. Exception: a named
+  performance need, such as an order's stored `itemCount` that a list view sorts
+  on, written in the same transaction as its items. A derived store (cache,
+  index, denormalized copy) is disposable, rebuildable and takes no own writes.
 - Idempotence: a webhook, consumer, cron or retry can run twice. Key the effect
   on a stable id with a unique constraint or upsert, not check-then-write.
 - Data outlives code: old rows meet new code, and mid-deploy old code meets new
-  data. Change a stored or wire format in steps: add, migrate, remove.
+  data. Change a stored or wire format across deploys: add, migrate, remove.
 - Task lifetimes: every spawned task has an owner that awaits it, gets its
   failure and cancels it. A catch-all handler rethrows cancellation.
 - Premature optimization: no micro-optimization until the user explicitly asks
@@ -108,10 +112,12 @@ This skill governs how to model a domain.
 - Programming style: language-idiomatic - write what a senior engineer in that
   language would write. Within that idiom, prefer Haskell-style FP principles:
   immutability, pure functions and a thin effect shell: read, decide in a pure
-  function over plain values, then write, with the read inside the same
-  transaction or the write conditional on what was read, so a concurrent stock
-  decrement cannot lose an update. Pass time, ids and randomness in. If testing
-  a decision needs a fake, the decision is in the shell.
+  function over plain values, then write. A transaction alone does not stop a
+  concurrent stock decrement losing an update: at READ COMMITTED two read 5 and
+  both write 4. Lock the read (`SELECT ... FOR UPDATE`), run SERIALIZABLE, or
+  make the write conditional on what was read (`UPDATE ... WHERE stock = 5`).
+  Pass time, ids and randomness in. If testing a decision needs a fake, the
+  decision is in the shell.
 - Function order: Clean Code top-down. A file reads like a book, the larger
   public functions at the top and the functions they use below them. This
   applies to code you write - do not reorder existing functions unless asked.
