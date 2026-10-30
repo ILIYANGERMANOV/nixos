@@ -138,6 +138,10 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "reference blobs read together are allowed" \
       "git -C $dir show HEAD:repo-docs/skills/custom/foo/references/a.md HEAD:repo-docs/skills/bar/references/b.md"
     expect 0 "an exempt file leaves a small sibling allowed" "cat CLAUDE.md big-a"
+    mkdir admin
+    head -c 6000 /dev/zero >admin/hm_CLAUDE.md
+    ln -s hm_CLAUDE.md admin/CLAUDE.md
+    expect 0 "an instruction file is exempt by the name it was read under" "cat admin/CLAUDE.md big-a"
 
     expect 2 "an exempt file does not exempt a source file over the limit" "cat CLAUDE.md huge"
     expect 2 "an exempt blob does not exempt a blob over the limit" "git show HEAD:repo-docs/CLAUDE.md HEAD:huge"
@@ -147,14 +151,6 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "a suffixed review diff stays counted" "cat $review/diff.txt big-a"
     expect 2 "a glob over a review directory counts its diff" "cat $review/* big-a"
     expect 2 "a nested review file stays counted" "cat $review/sub/stat big-a"
-    ln -s "$dir/huge" "$review/link-a"
-    ln -s "$dir/repo-docs/huge-b" "$review/link-b"
-    ln -s "$review/diff" "$review/alias"
-    expect 2 "links in a review directory count their targets" "cat $review/link-a $review/link-b"
-    expect 2 "a link to the review diff stays counted" "cat $review/alias big-a"
-    mkdir linked
-    ln -s "$dir/huge" linked/CLAUDE.md
-    expect 2 "a link named like an instruction file counts its target" "cat linked/CLAUDE.md big-a"
     expect 2 "a path that leaves the review directory is counted" "cat $review/../..$dir/huge CLAUDE.md"
     expect 2 "a relative path that leaves the review directory is counted" "cd $review && cat ../..$dir/huge $dir/CLAUDE.md"
     expect 2 "a path that leaves a references directory is counted" \
@@ -214,6 +210,11 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "tail -f on a pid is blocked" "tail --pid=\"\$P\" -f /dev/null"
     expect 2 "tail -f under timeout is blocked" "timeout 590 tail -n +1 -f build.log | grep -m1 done"
     expect 2 "tail -f in bash -c is blocked" "bash -c 'tail -f build.log'"
+    expect 2 "tail -f before && is blocked" "tail -f build.log && just build"
+    expect 2 "a wait after a backgrounded tail -f is blocked" "tail -f build.log & sleep 30"
+    expect 2 "a bash -c script that does not parse keeps the outer verdict" "sleep 30; bash -c 'echo a\\'"
+    expect 0 "a bash -c script that does not parse is allowed alone" "bash -c 'echo a\\'"
+    expect 0 "a tail -f sent to the background with & is allowed" "tail -f build.log & just build; kill %1"
     expect 0 "a commented-out wait is allowed" "ls # sleep 30"
     expect 0 "a one-shot script in bash -c is allowed" "bash -c 'echo hi; ls'"
     expect 0 "a commented-out wait in bash -c is allowed" "bash -c 'ls # sleep 30'"

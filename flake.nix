@@ -151,7 +151,8 @@
           # pgrep, which factory-ctl needs.
           software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
           # That the factory's home activation runs the relink: a farm factory-gc
-          # may collect is otherwise never moved off.
+          # may collect is otherwise never moved off. The one check that
+          # evaluates a host, so `just quick-check` pays for it.
           software-factory-activation =
             assert pkgs.lib.hasInfix "factory-relink-skills"
               self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaudeSkills.data;

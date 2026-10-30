@@ -28,6 +28,7 @@ class Sink(Enum):
 class SimpleCommand:
     words: list[str]
     sink: Sink
+    background: bool = False
 
 
 def simple_commands(command: str) -> Iterator[SimpleCommand]:
@@ -60,7 +61,7 @@ def simple_commands(command: str) -> Iterator[SimpleCommand]:
             case _ if "<" in token:
                 next(tokens, "")
             case _:
-                yield SimpleCommand(words, sink)
+                yield SimpleCommand(words, sink, token == "&")
                 words, sink = [], Sink.SCREEN
     yield SimpleCommand(words, sink)
 

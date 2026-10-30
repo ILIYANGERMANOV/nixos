@@ -392,6 +392,17 @@ class RedundantChecks(Case):
         # Then
         self.assertIn("Reruns with nothing changed since the same check: 0, 0m.", report)
 
+    def test_an_edit_sent_before_a_full_check_in_one_response_keeps_the_test_out_of_the_chain(self) -> None:
+        # Given: a test step, then an Edit and a full check, sibling calls of one response
+        main = Transcript().human(0, "go")
+        main.bash(10, "nix run .#test", 70)
+        main.siblings((80, "Edit", {"file_path": "/repo/src/Main.hs"}, 91), (90, "Bash", {"command": "just check"}, 150))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Build/test steps run before a full check with no edit between: 0, 0m.", report)
+
     def test_an_edit_sent_after_a_test_in_one_response_keeps_the_test_out_of_the_chain(self) -> None:
         # Given: a test step and an Edit, sibling calls of one response, then a full check
         main = Transcript().human(0, "go")

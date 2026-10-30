@@ -89,7 +89,8 @@ wrong tool for iterating.
    (Deslop, under a second).
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor`.
 5. `just quick-check` before handing back mid-work: lint, architecture, format and every
-   `checks` derivation for this system, no full host evaluation, a few seconds warm.
+   `checks` derivation for this system. On Linux that evaluates one host, for
+   `software-factory-activation`, and no other.
 6. `just check` once on the final state, in the background. Never after a
    docs-only edit, and never with a build, lint or test chained in front of it.
 
@@ -264,8 +265,9 @@ fetched derivation could not be `readDir`'d, but a flake input is a plain store
 path and can be — which is what lets the allowlist use bare skill names that are
 searched for recursively.
 
-`~/.claude/skills` is **not** Home Manager managed. Each flavor wrapper wipes and
-relinks it at launch from its own `linkFarm`, so switching flavors never leaves a
+`~/.claude/skills` is **not** Home Manager managed. Each flavor wrapper relinks it
+at launch from its own `linkFarm`, wiping it first (`claude-factory` swaps it
+atomically, see below), so switching flavors never leaves a
 stale skill behind — the same pattern `mkClaudeFlavor` already uses for
 `settings.json`, `CLAUDE.md` and `.mcpServers`. Anything hand-placed there is
 destroyed on the next launch; prototype in a project's `.claude/skills/` instead.

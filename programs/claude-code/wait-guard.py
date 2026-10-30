@@ -5,9 +5,11 @@ command sleeps MIN_SLEEP seconds or more in one go, loops with `until` or
 `while` around a `sleep`, or follows a file with `tail -f`, exits 2, which makes
 Claude Code block the call and show stderr to the model. A wait counts behind
 `bash -c`, `sh -c`, `timeout`, `nix develop -c` and an assignment prefix, unless
-a `timeout` under MIN_SLEEP bounds it. Only commands count, so `echo "sleep 30"`
-and a heredoc body naming one are allowed. Everything else exits 0, including
-any input this script does not understand: the guard fails open.
+a `timeout` under MIN_SLEEP bounds it. A `tail -f` sent to the background with
+`&` follows beside the call instead of holding it. Only commands count, so
+`echo "sleep 30"` and a heredoc body naming one are allowed. Everything else
+exits 0, including any input this script does not understand: the guard fails
+open.
 """
 
 import json
@@ -69,6 +71,8 @@ def split_keywords(command: str) -> Iterator[tuple[list[str], list[str]]]:
 
     The script of a `bash -c` stands in for the shell, so what it runs counts,
     under the keywords before that shell: `until bash -c ...` is still a loop.
+    A script that does not parse stands as the shell itself, so it cannot hide
+    what the commands around it do.
     """
     for simple in simple_commands(command):
         words = simple.words
@@ -76,12 +80,21 @@ def split_keywords(command: str) -> Iterator[tuple[list[str], list[str]]]:
             (i for i, word in enumerate(words) if word not in KEYWORDS), len(words)
         )
         keywords, inner = words[:count], unwrap(words[count:])
+        if simple.background and is_tail_follow(inner):
+            continue
         match shell_script(inner):
             case None:
                 yield keywords, inner
             case script:
-                for script_keywords, script_words in split_keywords(script):
+                for script_keywords, script_words in script_commands(script, inner):
                     yield keywords + script_keywords, script_words
+
+
+def script_commands(script: str, shell: list[str]) -> list[tuple[list[str], list[str]]]:
+    try:
+        return list(split_keywords(script))
+    except ValueError:
+        return [([], shell)]
 
 
 def unwrap(words: list[str]) -> list[str]:

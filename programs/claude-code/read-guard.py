@@ -6,11 +6,13 @@ Claude Code block the call and show stderr to the model. Only reads whose
 output reaches the screen count: one redirected to a file or piped into
 another command dumps nothing into context, and heredoc bodies are data, not
 commands. Files agents are told to read in full add no bytes: instruction
-files, skill references, the installed skills directory and a review
-directory's files except its diff. They still count as a file, so one beside a
-single file over the limit is blocked. Relative operands resolve against the
-directory the last `cd` in the chain moved to. Everything else exits 0,
-including any input this script does not understand: the guard fails open.
+files, skill references and a review directory's files except its diff. They
+still count as a file, so one beside a single file over the limit is blocked.
+What is exempt is decided on the path as typed, normalised but with links
+unfollowed: the guard stops accidents, it is not a security boundary. Relative
+operands resolve against the directory the last `cd` in the chain moved to.
+Everything else exits 0, including any input this script does not understand:
+the guard fails open.
 """
 
 import glob
@@ -29,12 +31,10 @@ HINT = (
     "grep -n first, then read the range with sed -n; "
     "read one large file per command."
 )
-SKILLS = os.path.expanduser("~/.claude/skills")
 INSTRUCTIONS = {"AGENTS.md", "CLAUDE.md", "SKILL.md", "factory-instructions.md"}
 # `custom/` is the repository's own copy of the skill catalog.
 SKILL_REFERENCE = re.compile(r"(?:.*/)?skills/(?:custom/)?[^/]+/references/[^/]+\.md")
-# Matched against a resolved path: /tmp is itself a link on macOS.
-REVIEW_FILE = re.compile(rf"{re.escape(os.path.realpath('/tmp'))}/review-[^/]+/[^/]+")
+REVIEW_FILE = re.compile(r"/tmp/review-[^/]+/[^/]+")
 
 
 def main() -> None:
@@ -84,18 +84,10 @@ def operands(args: list[str]) -> list[str]:
 
 
 def file_sizes(cwd: str, pattern: str) -> Iterator[int | None]:
-    """One size per file the operand names: a glob may name several.
-
-    An exempt file adds no bytes, and what is exempt is where a link lands, so
-    a link to a source file counts as that file. The skills directory is the
-    exception: the farm links each skill into the store, so it is tested
-    unresolved, and a read through a store path is still counted, unless its
-    basename exempts it.
-    """
+    """One size per file the operand names: a glob may name several."""
     path = os.path.normpath(os.path.join(cwd, os.path.expanduser(pattern)))
     for found in glob.glob(path) or [path]:
-        exempt = found.startswith(f"{SKILLS}/") or is_exempt(os.path.realpath(found))
-        match (os.path.isfile(found), exempt):
+        match (os.path.isfile(found), is_exempt(found)):
             case (True, False):
                 yield os.path.getsize(found)
             case (True, True):
