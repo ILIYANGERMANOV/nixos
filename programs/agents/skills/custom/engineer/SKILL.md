@@ -32,7 +32,8 @@ CI. You own the outcome; the user owns the decisions.
   background by default. Every brief ends with "hand back under 300 words:
   commit, proof, what remains". After launching an agent, or on a wake that
   needs nothing, end the turn without a tool call and at most one short line.
-  A CI wake carries its result: never poll `gh pr checks` after one.
+  After a CI wake on the head commit, run `gh pr checks <n>` once to verify the
+  PR's overall state, then act or end the turn. Never in a loop.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
 
@@ -51,9 +52,9 @@ ranked index.
 
 ### 2. Interview
 
-Run the `grilling` skill, or `grill-with-docs` when the task changes the domain
-language or the architecture - your call. The user answers it, together with
-the technical design questions a PRD would settle: interfaces, data model,
+Invoke the `grilling` skill, and `domain-modeling` too when the task changes the
+domain language or the architecture - your call. The user answers it, together
+with the technical design questions a PRD would settle: interfaces, data model,
 failure modes, what is out of scope. Fold in research results as they land.
 
 ### 3. Confirm the plan
@@ -91,6 +92,11 @@ Spawn a fresh agent whose prompt is "invoke `refactor` on the branch", so its
 reading stays out of your context. Keep only its hand-back.
 
 ### 7. Review
+
+A PR that changes a skill gets a dry run first: a fresh agent reads the changed
+`SKILL.md` from the branch, not the installed copy, follows it step by step on
+a realistic task, with no push or other outside effect, and reports each step
+it could not follow or that misled it. Fix what it finds through a fixer.
 
 Run each review pass as a fresh review agent whose prompt is "invoke
 `pragmatic-review` with: <arguments>"; never load that skill yourself. It
@@ -133,6 +139,11 @@ reason.
   agent when the final fix changed nothing. Otherwise CI is the full check.
 - Wait for CI the non-blocking way your instructions describe. Fix CI
   failures through a subagent, and wait again.
+- When CI is green and the change touches UI, ask with one `AskUserQuestion`
+  whether to run the app for the user. On yes, run it off localhost as well: on
+  a host and port they can reach from another device, or on a production-like
+  host such as a preview deploy. Give them the URL. A problem they hit goes
+  through a fixer, and you wait for CI again.
 - When CI is green and the change touches UI or runtime behaviour, offer QA
   with one `AskUserQuestion` before `gh pr ready`. On yes, or whenever the user
   asks for it, invoke `qa` yourself in this session, never in a subagent: its

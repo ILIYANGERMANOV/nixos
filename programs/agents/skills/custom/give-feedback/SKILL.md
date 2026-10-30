@@ -124,8 +124,9 @@ whole PR.
 - If the rest of the description no longer matches, rewrite it with the
   `pr-description` skill.
 - Wait on CI the non-blocking way your instructions describe: subscribe once,
-  end the turn after a push, and never poll `gh pr checks` after a wake. Fix
-  failures through the implementer and wait again.
+  end the turn after a push, and after a wake on the head commit run
+  `gh pr checks <n>` once to verify the PR's overall state, never in a loop.
+  Fix failures through the implementer and wait again.
 
 ### 7. Report
 
