@@ -170,3 +170,30 @@ reason.
   user answers its pickers. Otherwise mention to the user that
   `/final-review [requirements]` on the ready PR gives an independent check;
   that one the user runs, never you.
+
+## Delegated
+
+Only when your brief says delegated. A caller did steps 1-3 and owns the user:
+the brief holds the decided plan. This section wins where it clashes with the
+rest of this skill.
+
+- Read the brief first. Start at step 4, on its base branch and in its worktree:
+  the worktree exists, so skip the branching and open the draft PR with
+  `--base <base>`. A brief naming an open PR skips step 4 and starts at the step
+  it names.
+- Run steps 5-9 as written, the dry run for skill PRs included, with every agent
+  in the foreground (`run_in_background: false`). You are a subagent: you wait
+  for what you spawned, and ending your turn is your hand-back.
+- From step 10 do only the PR-body rewrite and any full check, the way your
+  instructions tell a subagent to run a long command. Then stop, before the CI
+  wait. QA, the app offer, the gates, `gh pr ready`, notifications and
+  `final-review` are your caller's.
+- Never call `AskUserQuestion`. A decision the rest of this skill sends to the
+  user goes in your hand-back, with whatever finished, pushed.
+- Write pass 1's requirements to the brief's report file.
+- Start your hand-back with one status, then its usual content plus the last
+  finished step, the head SHA and pass 1's `Security:` line:
+  - `READY <PR URL>` - step 10's part is done and pushed.
+  - `NEEDS_DECISION <question>` - the plan does not settle it.
+  - `BLOCKED <reason>` - something outside the worktree stops you.
+  - `FAILED <reason>` - you tried and cannot finish.
