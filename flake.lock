@@ -57,11 +57,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793187024,
-        "narHash": "sha256-Zahc/v8ExbHieKX4mOjRPaaUTU/C6vqpSJQgywlg/QY=",
+        "lastModified": 1793378752,
+        "narHash": "sha256-ScsNlZ1wbrFi/eaL/7PJw01NQ9vwDaisVEs+jJ1t5fo=",
         "owner": "Ivy-Apps",
         "repo": "deslop",
-        "rev": "0c9bfca36182bb99bea60d4c629c535cd9b74241",
+        "rev": "b6e0dcb503f21fc0807edebb9010e986e85e02c5",
         "type": "github"
       },
       "original": {
