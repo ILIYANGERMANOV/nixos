@@ -154,6 +154,9 @@ in
         "linear"
         "superhuman-docs"
       ];
+      # self-improve measures this Mac's own sessions; its analyzer needs the
+      # python3 that modules/home/terminal.nix installs.
+      extraSkills = [ "self-improve" ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
         "frontend-design@claude-plugins-official" = true;
@@ -173,8 +176,8 @@ in
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
         extraInstructions = [ ./factory-instructions.md ];
-        # self-improve measures this box's own transcripts, so only the factory
-        # has the data; android describes the toolchain only the factory has.
+        # self-improve measures this box's own transcripts; android describes
+        # the toolchain only the factory has.
         extraSkills = [
           "self-improve"
           "android"
