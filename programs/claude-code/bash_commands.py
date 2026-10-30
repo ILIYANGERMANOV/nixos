@@ -10,6 +10,9 @@ OPERATORS = set(";&|()<>")
 PIPES = {"|", "|&"}
 # `<<` or `<<-`, then the delimiter, bare or quoted. `<<<` is a here-string.
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+# Bash starts a comment only at a word's start; shlex anywhere, so `.#ci` would
+# swallow the rest of the command.
+MID_WORD_HASH = re.compile(r"(?<=[^\s;&|()<>])#")
 
 
 class Sink(Enum):
@@ -33,7 +36,7 @@ def simple_commands(command: str) -> Iterator[SimpleCommand]:
     before `>` is the fd it redirects, so `2>/dev/null` leaves stdout alone.
     """
     lexer = shlex.shlex(
-        strip_heredoc_bodies(command).replace("\n", " ; "),
+        MID_WORD_HASH.sub(r"\\#", strip_heredoc_bodies(command)).replace("\n", " ; "),
         posix=True,
         punctuation_chars=True,
     )

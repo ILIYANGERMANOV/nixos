@@ -184,6 +184,43 @@ pkgs.runCommand "claude-bash-guards-check"
     EOF"
     expect_call 0 "a backgrounded long sleep is allowed" "sleep 30" true
     expect_call 0 "a backgrounded poll is allowed" "until [ -f x ]; do sleep 5; done" true
+
+    expect 2 "a poll in bash -c is blocked" "bash -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll in sh -c is blocked" "sh -c 'while pgrep foo; do sleep 2; done'"
+    expect 2 "a long sleep in bash -c is blocked" "bash -c 'sleep 30'"
+    expect 2 "a poll in bash -lc is blocked" "bash -lc 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll in bash with options before -c is blocked" "bash -euo pipefail -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll under timeout is blocked" "timeout 590 bash -c 'until [ -f x ]; do sleep 5; done'; cat log"
+    expect 2 "a poll under nix develop is blocked" "nix develop .#ci -c bash -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a poll under timeout and nix develop is blocked" "timeout 600 nix develop -c bash -c 'sleep 30'"
+    expect 2 "a poll after an assignment is blocked" "D=/tmp bash -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a long sleep under timeout is blocked" "timeout 60 sleep 30"
+    expect 2 "a wait after a flake reference is blocked" "nix build .#foo; sleep 30"
+    expect 2 "tail -f is blocked" "tail -f build.log"
+    expect 2 "tail -F is blocked" "tail -F build.log"
+    expect 2 "tail --follow is blocked" "tail --follow build.log"
+    expect 2 "tail --follow=name is blocked" "tail --follow=name build.log"
+    expect 2 "tail with -f in a flag cluster is blocked" "tail -fn 20 build.log"
+    expect 2 "tail -f piped into a filter is blocked" "tail -n +1 -f build.log | grep -m1 ^EXIT"
+    expect 2 "tail -f on a pid is blocked" "tail --pid=\"\$P\" -f /dev/null"
+    expect 2 "tail -f under timeout is blocked" "timeout 590 tail -n +1 -f build.log | grep -m1 done"
+    expect 2 "tail -f in bash -c is blocked" "bash -c 'tail -f build.log'"
+    expect 0 "a commented-out wait is allowed" "ls # sleep 30"
+    expect 0 "a one-shot script in bash -c is allowed" "bash -c 'echo hi; ls'"
+    expect 0 "a short sleep in bash -c is allowed" "bash -c 'sleep 2'"
+    expect 0 "a build under nix develop is allowed" "nix develop -c bash -c 'just test'"
+    expect 0 "a command under timeout is allowed" "timeout 600 just test"
+    expect 0 "a short timeout bounds tail -f" "timeout 4 tail -f build.log"
+    expect 0 "a short timeout bounds a poll" "timeout 5 bash -c 'until [ -f x ]; do sleep 1; done'"
+    expect 0 "tail -n is allowed" "tail -n 20 build.log"
+    expect 0 "tail -c is allowed" "tail -c 100 build.log"
+    expect 0 "tail on a file named after the flag is allowed" "tail -n 5 -- f"
+    expect 0 "a plain tail is allowed" "tail build.log"
+    expect 0 "a tail in a pipe is allowed" "just test | tail -20"
+    expect 0 "a -f on another command is allowed" "rm -f build.log; grep -f patterns log"
+    expect 0 "a wrapper named in a string is allowed" "echo \"bash -c 'sleep 30'\" && git commit -m 'tail -f log'"
+    expect_call 0 "a backgrounded tail -f is allowed" "tail -f build.log" true
+    expect_call 0 "a backgrounded bash -c poll is allowed" "bash -c 'until [ -f x ]; do sleep 5; done'" true
     shared_failopen
 
     guard=$TMPDIR/secret-guard

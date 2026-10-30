@@ -1,17 +1,20 @@
 """PreToolUse hook: block a foreground Bash call that waits.
 
 Reads the hook input from stdin. A call not sent with run_in_background whose
-command sleeps MIN_SLEEP seconds or more in one go, or loops with `until` or
-`while` around a `sleep`, exits 2, which makes Claude Code block the call and
-show stderr to the model. Only commands count, so `echo "sleep 30"` and a
-heredoc body naming one are allowed. Everything else exits 0, including any
-input this script does not understand: the guard fails open.
+command sleeps MIN_SLEEP seconds or more in one go, loops with `until` or
+`while` around a `sleep`, or follows a file with `tail -f`, exits 2, which makes
+Claude Code block the call and show stderr to the model. A wait counts behind
+`bash -c`, `sh -c`, `timeout`, `nix develop -c` and an assignment prefix, unless
+a `timeout` under MIN_SLEEP bounds it. Only commands count, so `echo "sleep 30"`
+and a heredoc body naming one are allowed. Everything else exits 0, including
+any input this script does not understand: the guard fails open.
 """
 
 import json
 import re
 import sys
 from collections.abc import Iterator
+from itertools import dropwhile
 
 from bash_commands import simple_commands
 
@@ -27,6 +30,11 @@ KEYWORDS = {"do", "then", "else", "elif", "if", "{", "!", "time"} | LOOPS
 # GNU sleep: a number with an optional unit suffix.
 DURATION = re.compile(r"(\d+(?:\.\d*)?|\.\d+)([smhd]?)")
 UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=.*")
+SHELLS = {"bash", "sh"}
+SHELL_COMMAND_FLAG = re.compile(r"-[a-z]*c[a-z]*")
+# GNU tail: `-f` or `-F`, alone or after flags that take no value.
+TAIL_FOLLOW = re.compile(r"-[\dqvz]*[fF]\w*|--follow(=.*)?")
 
 
 def main() -> None:
@@ -50,17 +58,56 @@ def is_wait(command: str) -> bool:
     commands = list(split_keywords(command))
     loops = any(LOOPS & set(keywords) for keywords, _ in commands)
     sleeps = [seconds(words[1:]) for _, words in commands if words[:1] == ["sleep"]]
-    return any(s >= MIN_SLEEP for s in sleeps) or (loops and bool(sleeps))
+    follows = any(is_tail_follow(words) for _, words in commands)
+    return any(s >= MIN_SLEEP for s in sleeps) or (loops and bool(sleeps)) or follows
 
 
 def split_keywords(command: str) -> Iterator[tuple[list[str], list[str]]]:
-    """Each simple command as the compound keywords before it and its own words."""
+    """Each simple command as the compound keywords before it and its own words.
+
+    The script of a `bash -c` stands in for the shell, so what it runs counts.
+    """
     for simple in simple_commands(command):
         words = simple.words
         count = next(
             (i for i, word in enumerate(words) if word not in KEYWORDS), len(words)
         )
-        yield words[:count], words[count:]
+        keywords, inner = words[:count], unwrap(words[count:])
+        match shell_script(inner):
+            case None:
+                yield keywords, inner
+            case script:
+                yield from split_keywords(script)
+
+
+def unwrap(words: list[str]) -> list[str]:
+    """The command a wrapper runs. A timeout under MIN_SLEEP hides no wait."""
+    match words:
+        case [word, *rest] if ASSIGNMENT.fullmatch(word):
+            return unwrap(rest)
+        case ["timeout", *rest]:
+            match list(dropwhile(lambda arg: arg.startswith("-"), rest)):
+                case [limit, *inner] if duration(limit) >= MIN_SLEEP:
+                    return unwrap(inner)
+                case _:
+                    return []
+        case ["nix", "develop", *rest] if "-c" in rest:
+            return unwrap(rest[rest.index("-c") + 1:])
+        case _:
+            return words
+
+
+def shell_script(words: list[str]) -> str | None:
+    match words:
+        case [shell, *args] if shell in SHELLS:
+            flag = next((i for i, arg in enumerate(args) if SHELL_COMMAND_FLAG.fullmatch(arg)), None)
+            return None if flag is None or flag + 1 == len(args) else args[flag + 1]
+        case _:
+            return None
+
+
+def is_tail_follow(words: list[str]) -> bool:
+    return words[:1] == ["tail"] and any(TAIL_FOLLOW.fullmatch(arg) for arg in words[1:])
 
 
 def seconds(args: list[str]) -> float:
