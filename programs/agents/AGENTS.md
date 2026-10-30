@@ -6,7 +6,8 @@ Base instructions for every agent.
 
 - When writing, modifying, refactoring, reviewing or designing code, invoke the
   `engineering` skill and follow it. It carries the coding style and engineering
-  principles for all code work, in any language.
+  principles for all code work, in any language. A `pragmatic-review` agent
+  loads it only when its brief says so.
 - Before opening a pull request, or when writing or updating a PR description,
   invoke the `pr-description` skill and follow it. A draft PR whose body is
   the plan may skip it until hand-over.
@@ -80,6 +81,8 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
   front of a `just check` that runs them.
 - Run anything expected to take over a minute with `run_in_background`. It
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
+  A subagent's background task dies at its hand-back and nothing wakes it, so a
+  subagent runs it in the foreground with `timeout: 600000` instead.
 - Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
   as `.{0,250}` as too complex.
 

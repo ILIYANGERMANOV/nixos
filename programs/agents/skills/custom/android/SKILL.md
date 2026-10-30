@@ -26,8 +26,9 @@ The box has 7.7 GB of memory. `~/.gradle/gradle.properties`
 runs Gradle as one 4 GB JVM with the Kotlin compiler inside it; two Gradle
 daemons running lint at once have run it out of memory.
 
-- Run every Gradle command with `run_in_background`. A cold build downloads
-  dependencies and can take well over 10 minutes.
+- Run every Gradle command with `run_in_background`, or as a subagent in the
+  foreground with `timeout: 600000`. A cold build downloads dependencies and
+  can take well over 10 minutes.
 - One Gradle build at a time, across all your subagents. Never start a second
   `./gradlew` while one runs.
 - Do not raise `-Xmx`, enable `org.gradle.parallel` or start a Kotlin daemon
