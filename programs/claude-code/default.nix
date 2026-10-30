@@ -31,6 +31,7 @@ let
   readGuard = import ./read-guard.nix { inherit pkgs; };
   waitGuard = import ./wait-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
+  linkSkills = import ../skills-link { inherit pkgs; };
 
   baseSettings = {
     statusLine = {
@@ -176,6 +177,9 @@ in
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
         extraInstructions = [ ./factory-instructions.md ];
+        # Other sessions keep running while this one starts, and read the
+        # directory the stock rm -rf would empty under them.
+        applySkills = farm: "${lib.getExe linkSkills} ${farm}";
         # self-improve measures this box's own transcripts; android describes
         # the toolchain only the factory has.
         extraSkills = [

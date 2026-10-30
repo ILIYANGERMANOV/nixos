@@ -25,6 +25,8 @@ let
   #   mcpServers        - names from the catalog to activate for this flavor
   #   extraSkills       - skill names this flavor adds to baseSkills
   #   extraInstructions - markdown files appended to baseInstructions
+  #   applySkills       - farm -> shell snippet that links ~/.claude/skills,
+  #                       for a flavor mkApplySkills is not safe for
   #
   # Every flavor also gets `runtime` on PATH and, of `secretFiles` (env var ->
   # secret name), each one this host declares exported as its decrypted
@@ -54,6 +56,7 @@ let
         mcpServers ? [ ],
         extraSkills ? [ ],
         extraInstructions ? [ ],
+        applySkills ? mkApplySkills,
       }:
       let
         servers = mcp.selectServers {
@@ -68,6 +71,7 @@ let
           servers
           runtime
           files
+          applySkills
           ;
         settings = guardSecretFiles (lib.recursiveUpdate baseSettings extraSettings);
         skills = lib.unique (baseSkills ++ extraSkills);
@@ -99,6 +103,7 @@ let
       servers,
       runtime,
       files,
+      applySkills,
     }:
     let
       settingsFile = pkgs.writeText "${name}-settings.json" (builtins.toJSON settings);
@@ -113,9 +118,10 @@ let
     pkgs.writeShellApplication {
       inherit name;
       runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
+      passthru = { inherit skillFarm; };
       text = ''
         mkdir -p "$HOME/.claude"
-        ${mkApplySkills skillFarm}
+        ${applySkills skillFarm}
         ${mkApplyInstructions instructions}
         install -m 600 "${settingsFile}" "$HOME/.claude/settings.json"
         ${mkApplyMcp { inherit mcpStaticFile servers; }}

@@ -464,6 +464,65 @@ factory-deploy >/dev/null
 not_called "new test"
 [ "$(posted)" = "in_progress success" ] || fail "posted $(posted)"
 
+# ─── Skills ──────────────────────────────────────────────────────────────────
+
+# Two farms holding the same skill, as two generations do.
+skills="$HOME/.claude/skills"
+skills_reset() {
+  reset
+  rm -rf "$work/farm-a" "$work/farm-b"
+  mkdir -p "$skills" "$work/farm-a/alpha" "$work/farm-a/beta" "$work/farm-b/alpha"
+}
+
+echo "factory-relink-skills: replaces links a GC left dangling; status counts them, then none"
+skills_reset
+ln -s "$work/collected/alpha" "$skills/alpha"
+ln -s "$work/collected/gamma" "$skills/gamma"
+ln -s "$work/farm-a/beta" "$skills/beta"
+factory-ctl status >"$work/out"
+grep -qxF "Skills: 2 dangling link(s): alpha gamma" "$work/out" || { cat "$work/out" >&2; fail "dangling links are not reported"; }
+factory-relink-skills "$work/farm-a"
+[ "$(readlink "$skills/alpha")" = "$work/farm-a/alpha" ] || fail "alpha was not relinked"
+[ ! -L "$skills/gamma" ] || fail "a link of the old farm survived"
+factory-ctl status >"$work/out"
+grep -qxF "Skills: 0 dangling links" "$work/out" || { cat "$work/out" >&2; fail "a clean farm is reported as dangling"; }
+
+echo "factory-relink-skills: works on a first run with no ~/.claude"
+skills_reset
+rm -rf "$HOME/.claude"
+factory-relink-skills "$work/farm-a"
+[ "$(readlink "$skills/beta")" = "$work/farm-a/beta" ] || fail "the first run linked nothing"
+
+echo "factory-relink-skills: a skill never goes missing while it swaps farms"
+skills_reset
+factory-relink-skills "$work/farm-a"
+(
+  while [ ! -e "$work/stop-reading" ]; do
+    [ -e "$skills/alpha" ] || touch "$work/skill-missing"
+  done
+) &
+reader=$!
+for _ in $(seq 40); do
+  factory-relink-skills "$work/farm-b"
+  factory-relink-skills "$work/farm-a"
+done
+touch "$work/stop-reading"
+wait "$reader"
+rm -f "$work/stop-reading"
+[ ! -e "$work/skill-missing" ] || fail "a reader saw the skill missing during a relink"
+
+echo "factory-relink-skills: waits for the lock, and gives up without failing"
+skills_reset
+factory-relink-skills "$work/farm-a"
+exec 8>"$HOME/.claude/.factory.lock"
+flock 8
+factory-relink-skills "$work/farm-b" 2>"$work/out"
+exec 8>&-
+grep -q "left ~/.claude/skills as it was" "$work/out" || fail "the skipped relink says nothing"
+[ "$(readlink "$skills/alpha")" = "$work/farm-a/alpha" ] || fail "relinked without holding the lock"
+factory-relink-skills "$work/farm-b"
+[ "$(readlink "$skills/alpha")" = "$work/farm-b/alpha" ] || fail "did not relink once the lock was free"
+
 # ─── Root: factory-maintenance ───────────────────────────────────────────────
 
 echo "factory-maintenance rollback: switches to the previous generation"

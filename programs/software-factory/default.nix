@@ -133,6 +133,30 @@ let
       '';
     };
 
+  # factory-relink-skills <farm>, the home activation's relink. Sessions spawn
+  # from a Remote Control server without going through the wrapper, so nothing
+  # else moves the links off a farm factory-gc is about to collect. Skipping is
+  # the safe failure: a deploy must not hang or fail over skills, and the next
+  # deploy or server start links them again.
+  mkRelinkSkills =
+    {
+      lockSeconds ? 30,
+    }:
+    pkgs.writeShellApplication {
+      name = "factory-relink-skills";
+      runtimeInputs = [
+        pkgs.flock
+        (import ../skills-link { inherit pkgs; })
+      ];
+      text = ''
+        mkdir -p "$HOME/.claude"
+        exec 9>"$HOME/.claude/.factory.lock"
+        if ! { flock --wait ${toString lockSeconds} 9 && factory-link-skills "$1"; }; then
+          echo "factory-relink-skills: left ~/.claude/skills as it was" >&2
+        fi
+      '';
+    };
+
   # Remote Control flags. Both start sessions in auto mode. A repository's
   # sessions each get their own git worktree, so sessions in one repository
   # never edit the same files.
@@ -351,6 +375,7 @@ in
     managedSettingsValue
     remoteControlArgs
     mkRemoteControl
+    mkRelinkSkills
     mkCtl
     mkBoot
     mkDeploy

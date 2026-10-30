@@ -57,6 +57,8 @@ let
     ghToken = "${work}/gh-token";
   };
 
+  relinkSkills = factory.mkRelinkSkills { lockSeconds = 1; };
+
   ctl = factory.mkCtl {
     opsStateDir = "${work}/ops";
     deployRepo = "owner/nixos";
@@ -195,8 +197,10 @@ pkgs.runCommand "software-factory-check"
       pkgs.git
       pkgs.jq
       pkgs.procps
+      pkgs.flock
       remoteControl.repo
       remoteControl.admin
+      relinkSkills
       ctl
       boot
       deploy

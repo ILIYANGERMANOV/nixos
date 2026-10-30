@@ -269,6 +269,10 @@ stale skill behind — the same pattern `mkClaudeFlavor` already uses for
 `settings.json`, `CLAUDE.md` and `.mcpServers`. Anything hand-placed there is
 destroyed on the next launch; prototype in a project's `.claude/skills/` instead.
 
+The factory is the exception: its sessions never pass through a wrapper, so a
+home activation relinks the farm too, under `~/.claude/.factory.lock`, and
+both swap the directory atomically (`factory-link-skills`) instead of wiping it.
+
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
 `programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Every flavor
 gets every shared skill, `ui-coding` included, because a model-invoked skill
