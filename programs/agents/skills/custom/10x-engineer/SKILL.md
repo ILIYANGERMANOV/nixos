@@ -48,18 +48,26 @@ links and free text, across repos. Touch only the PRs the user named.
 Create `~/.10x/<yyyy-mm-dd>-<slug>/` and its ledger with the user's words
 verbatim, as `${CLAUDE_SKILL_DIR}/references/ledger.md` says.
 
+Once per repo, before anything reads it: `add_repo` with `access: "read"` as
+your instructions say, then, as this run's own step, `git clone` its SSH URL
+into `~/repos/<repo>` if missing. `gh repo view` resolves a bare repo name. A
+clone there of another owner's repo is a blocker: leave that repo out and tell
+the user.
+
 ### 2. Research
 
 List what you need to know and group it into topics, as /engineer step 1 does.
-One research subagent per group, in the background. Notes go to
-`/tmp/<unique-dir>/`; each hands back a ranked index plus the path. Check that
-each repo's CI runs on PRs to `epic/*` before planning an epic there.
+One research subagent per group, in the background, given each repo's clone
+path. Notes go to `/tmp/<unique-dir>/`; each hands back a ranked index plus the
+path. Check that each repo's CI runs on PRs to `epic/*` before planning an epic
+there; if it does not, say so in the breakdown.
 
 ### 3. Spikes
 
 A technical unknown that could change the plan gets one quick spike subagent:
 one question, a verdict, evidence. Background, in a throwaway worktree
-(`git worktree add --detach /tmp/<unique-dir>/<spike> origin/main`), nothing
+(`git -C <clone> worktree add --detach /tmp/<unique-dir>/<spike> origin/main`,
+`<clone>` as `${CLAUDE_SKILL_DIR}/references/brief.md` defines it), nothing
 pushed. Remove the worktree when it hands back.
 
 ### 4. Interview and breakdown
@@ -94,14 +102,12 @@ Dispatch by wave, dependencies first:
 
 - At most 3 subagents at once, fixers included; the rest stay `queued`. At
   most one heavy task at a time. A task whose dependency is not merged waits.
-- Once per repo: `add_repo` with `access: "read"`, then `git clone` its SSH URL
-  into `~/repos/<repo>` if missing. A clone there of another owner's repo is a
-  blocker: park that task and tell the user.
 - Worktree, brief and spawn prompt: `${CLAUDE_SKILL_DIR}/references/brief.md`.
 
 ### 6. Triage hand-backs
 
-Every engineer hands back one status. No status means `FAILED`.
+Every engineer hands back one status. No status means `FAILED`. Record its last
+step, head SHA and `Security:` line in the ledger.
 
 | Status | You do |
 |---|---|
@@ -138,19 +144,26 @@ gates; do not invoke that skill.
 
 1. `subscribe_pr_activity`, then `gh pr checks <n> --repo <owner>/<repo>` once,
    because events before the subscription never arrive. Pending: end the turn.
-   If subscribing is refused, follow your instructions' fallback and say in the
-   queue that this PR gives no approval wake.
+   A refusal, or a success saying another agent already watches the PR, delivers
+   no events: follow your instructions' fallback, and tell the user now and in
+   the queue that this PR gives no approval wake, so they must tell you here.
+   No checks at all is not green, and not red: a `CONFLICTING` PR gets no CI, so
+   rebase it; otherwise open one decision, whether to add CI or go on without,
+   and ask once.
 2. Red: classify it. The same check red on the head of the repo's default
-   branch means **base**, unless this PR is the base fix itself. If the repo has
-   no unmerged `base-fix-<repo>-<n>` task, add one to the ledger as an
-   independent PR to that branch and start it in the next free slot, ahead of
-   the queue, with no confirmation. From section 5 on it is a task like any
-   other. Then push the user what broke and the task. Merges on that repo hold
-   until the base is green (the Base gate in
+   branch means **base**, unless this PR is the base fix itself. No check runs
+   there means CI does not run on push, so the base is unknown: treat it as not
+   red, and ask the user only if a failed fix leaves that blocking a merge. If
+   the repo has no unmerged `base-fix-<repo>-<n>` task, add one to the ledger as
+   an independent PR to that branch and start it in the next free slot, ahead
+   of the queue, with no confirmation. From section 5 on it is a task like any
+   other. Then push the user what broke, the task and each PR it holds, so a
+   hold is never silent: a green PR the Base gate holds comes through here too.
+   Merges on that repo hold until the base is green (the Base gate in
    `${CLAUDE_SKILL_DIR}/references/merge.md`); other repos go on. Otherwise
    **branch**: a fresh fixer per `${CLAUDE_SKILL_DIR}/references/brief.md`, then
    wait again. A fixer that cannot fix it is a failed try.
-3. Green with QA yes: send a ready `/qa <PR URL>` line for a fresh session, push
+3. Green with QA yes and no result yet: send a ready `/qa <PR URL>` line for a fresh session, push
    it, and wait for the user's result. A Fail goes to the user. QA no: go on.
    Never offer to run the app: run it only when the user asks, on a port in
    3000-3099, and give the URL.
@@ -181,10 +194,12 @@ On an approval wake, follow `${CLAUDE_SKILL_DIR}/references/merge.md`.
 ### 10. Finish
 
 When every task is `merged` or `parked`, spawn a fresh-context audit agent with
-the ledger path. It checks from `gh` alone that every task is merged or parked
-with a reason, every issue is closed, no decision is open, and no worktree
-remains, and lists what fails. Fix that first, then run it again. Then send the
-final report: merged, parked and why, rulings to look at, follow-ups.
+the ledger path. From the ledger, `gh` and `git worktree list` it checks that
+every task is merged or parked with a reason, issues of merged tasks are closed,
+issues of parked tasks stay open and are listed, no decision is open, and
+worktrees of merged tasks are gone. It reports and never closes anything. Fix
+what fails, then run it again. Then send the final report: merged, parked and
+why, rulings to look at, follow-ups.
 
 ## Epics
 
@@ -199,8 +214,11 @@ final report: merged, parked and why, rulings to look at, follow-ups.
 - After the last child, open the final PR to `main` with `pr-description`. It
   lists every `Closes #n`, since issues auto-close only on the default branch.
   Give it a ledger row and a worktree, so a fixer can rebase it. It then runs
-  sections 7 to 9 like any PR: the user reviews it and approves. Its queue entry
+  sections 7 to 9 like any PR, with its requirements and `Security:` line from
+  the children's reports: the user reviews it and approves. Its queue entry
   summarises per child: PR link, what, rulings, QA.
+- A parked child holds the final PR. Escalate once, as an open decision: retry
+  it, ship the rest as a partial final PR, or drop the child.
 
 ## Failures
 
@@ -223,10 +241,16 @@ starts, and on a new question left in plain text. `AskUserQuestion` notifies by 
 candidates: ask. Subagents and subscriptions die with the session, so:
 
 1. Read the ledger, then each task's PR and issues on GitHub. GitHub wins: a PR
-   merged meanwhile is `merged`, its worktree removed.
-2. `add_repo` and `subscribe_pr_activity` again for every repo and open PR, then
-   `gh pr checks <n>` once for each.
+   merged meanwhile is `merged`, and gets the After each merge steps of
+   `${CLAUDE_SKILL_DIR}/references/merge.md`.
+2. `add_repo` and `subscribe_pr_activity` again for every repo and open PR,
+   handling a failed subscribe as section 7 does. Then read each PR's `gh pr
+   checks` and reviews once, and act on an approval or a change request given
+   during the outage as on a review wake.
 3. A `running` task's worker is gone: restart it with a fresh engineer from its
-   PR, or from its worktree when no PR exists yet. A crash is not a failed try.
+   PR, or from its worktree when no PR exists yet, at the step after the last
+   one in its report file or the ledger, whichever is later. It checks the
+   worktree first: it keeps a dead worker's uncommitted work and aborts a
+   half-done rebase. A crash is not a failed try.
 4. Ask every open decision again, resend the queue, and carry on from the
    section each task is in.

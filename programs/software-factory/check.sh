@@ -333,6 +333,17 @@ kept_what_must_stay
 [ -d "$HOME/.cache/nix" ] && [ -d "$HOME/.cache/cabal/packages" ] || fail "a cache that keeps builds fast was removed"
 called "nix-store --gc"
 
+echo "free-disk: keeps a /10x-engineer run's clean, pushed worktree"
+reset
+clone_repo origin
+tenx="$HOME/.10x/2026-01-01-run/worktrees/task"
+git -C "$HOME/repos/origin" worktree add --quiet -b task "$tenx" 2>/dev/null
+git -C "$tenx" push --quiet origin task 2>/dev/null
+factory-ctl free-disk plan >"$work/out"
+grep -q ".10x/" "$work/out" && fail "plan lists a /10x-engineer run's worktree"
+factory-ctl free-disk apply >"$work/out"
+[ -d "$tenx" ] || fail "a /10x-engineer run's worktree was removed"
+
 echo "free-disk: deletes /qa runs untouched for a day, never login state or scripts"
 reset
 clone_repo origin
