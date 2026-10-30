@@ -172,7 +172,7 @@ let
 
   skillsCheck = (import ../agents { inherit pkgs lib; }).skills.mkCheck factory.admin.skills;
 
-  nftCheck = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+  nftCheck = ''
     echo "nft --check: egress rules"
     cat >ruleset.conf <<'EOF'
     table inet factory-egress {
