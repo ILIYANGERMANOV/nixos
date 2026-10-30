@@ -126,6 +126,36 @@ let
       ;
   };
 
+  # The skill listing goes out on every call, and most of it was skills an
+  # unattended agent has no use for. name-only keeps a skill invocable; off
+  # hides it from the model and from /name. Claude.ai's synced skills are keyed
+  # with their anthropic-skills: prefix, bundled ones without.
+  skillOverrides =
+    let
+      synced = map (name: "anthropic-skills:${name}");
+    in
+    lib.genAttrs (synced [
+      "docs"
+      "docx"
+      "pptx"
+      "xlsx"
+    ]) (_: "name-only")
+    // lib.genAttrs (
+      synced [
+        "built-in-browser"
+        "chrome-browser"
+        "computer-use"
+        "google-workspace"
+        "import-memory"
+        "morning"
+      ]
+      ++ [
+        "keybindings-help"
+        "loop"
+        "schedule"
+      ]
+    ) (_: "off");
+
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
 {
@@ -191,6 +221,7 @@ in
         # the instructions; the hooks make them read ranges and background
         # long commands instead.
         extraSettings = {
+          inherit skillOverrides;
           hooks.PreToolUse = [
             {
               matcher = "Bash";
