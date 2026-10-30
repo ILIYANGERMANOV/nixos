@@ -43,8 +43,8 @@ Check every table, column, field and piece of state the diff adds or changes,
 schemas and migrations first. Is it derivable from facts already stored? Does it
 copy state another owner holds? Does it admit states the domain does not have?
 Job 2's two conditions still hold: the rule is written, and the diff plainly
-contradicts it. Then it is **major**, because it is expensive to fix once data
-exists. Its `trigger` names the contradictory state a record can now hold.
+contradicts it. Then it is **major**. Its `trigger` names the contradictory
+state a record can now hold.
 
 Never a violation: a copy under a named performance need, a value that must
 survive a rule change, or a nullable column the domain maps to a SUM type.

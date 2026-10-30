@@ -108,6 +108,10 @@ class Home:
         return run.stdout
 
 
+def worker(description: str, transcript: Transcript) -> tuple[str, str, Transcript]:
+    return "general-purpose", description, transcript
+
+
 def write(path: Path, transcript: Transcript) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(line) + "\n" for line in transcript.lines))
@@ -155,7 +159,7 @@ class Tokens(Case):
         main = Transcript().command(0, "engineer").reply(1, {"cache_read_input_tokens": 1000})
         sub = Transcript().reply(5, {"cache_read_input_tokens": 2_000_000, "cache_creation_input_tokens": 50_000})
         sub.reply(6, {"cache_read_input_tokens": 3_000_000}, skill="engineering")
-        self.home.session("s1", main, {"a1": ("general-purpose", "Implement parser", sub)})
+        self.home.session("s1", main, {"a1": worker("Implement parser", sub)})
         # When
         report = self.home.report()
         # Then
@@ -201,7 +205,7 @@ class WallTime(Case):
         main.human(1860, "next").reply(3600)
         sub = Transcript(parent=spawn)
         sub.bash(61, "just check", 1260)
-        self.home.session("s1", main, {"a1": ("general-purpose", "Review", sub)})
+        self.home.session("s1", main, {"a1": worker("Review", sub)})
         # When
         report = self.home.report()
         # Then: only the 10 idle minutes after the subagent's work are waiting
@@ -233,7 +237,7 @@ class RedundantChecks(Case):
         main.bash(200, "just check", 260)
         sub = Transcript()
         sub.tool(100, "Write", 101, file_path="/repo/src/New.hs")
-        self.home.session("s1", main, {"a1": ("general-purpose", "Implement", sub)})
+        self.home.session("s1", main, {"a1": worker("Implement", sub)})
         # When
         report = self.home.report()
         # Then
@@ -252,7 +256,6 @@ class RedundantChecks(Case):
         # Then
         self.assertIn("Build/test steps run before a full check with no edit between: 2, 1m.", report)
         self.assertIn("| nix run .#test -- -m parser | 60s |", report)
-
 
     def test_a_python_heredoc_writing_a_file_counts_as_a_change(self) -> None:
         # Given: two edits made by a Python heredoc, each between two runs of a check
@@ -343,20 +346,30 @@ def subagent(brief: str, usage: dict | None = None, parent_agent: str | None = N
     return Transcript(parent_agent=parent_agent).brief(5, brief).reply(6, usage)
 
 
+def idle_main() -> Transcript:
+    return Transcript().human(0, "go").reply(1)
+
+
+def spawning_implementer() -> Transcript:
+    main = Transcript().human(0, "go")
+    main.tool(1, "Agent", 2, background=True, description="Implement parser")
+    return main
+
+
 class LoopSteps(Case):
     def test_each_subagent_lands_in_its_step(self) -> None:
         # Given: one subagent per step, named as the loop names them
         main = Transcript().human(0, "go").reply(1, {"cache_read_input_tokens": 1000})
         self.home.session("s1", main, {
-            "a": ("general-purpose", "Research the parser", subagent("look around")),
-            "b": ("general-purpose", "Implement parser", subagent("build it")),
-            "c": ("general-purpose", "Refactor branch", subagent("invoke `refactor` on the branch")),
-            "d": ("general-purpose", "Review", subagent(REVIEW_BRIEF)),
-            "e": ("general-purpose", "Review", subagent(REVIEW_BRIEF + " --fixes abc123")),
-            "f": ("general-purpose", "Final review", subagent(REVIEW_BRIEF)),
-            "g": ("general-purpose", "Fix rows 1 and 2", subagent("fix them, then invoke `pragmatic-review` never")),
-            "h": ("general-purpose", "Write PR description", subagent("describe it")),
-            "i": ("general-purpose", "Sweep the floor", subagent("something else")),
+            "a": worker("Research the parser", subagent("look around")),
+            "b": worker("Implement parser", subagent("build it")),
+            "c": worker("Refactor branch", subagent("invoke `refactor` on the branch")),
+            "d": worker("Review", subagent(REVIEW_BRIEF)),
+            "e": worker("Review", subagent(REVIEW_BRIEF + " --fixes abc123")),
+            "f": worker("Final review", subagent(REVIEW_BRIEF)),
+            "g": worker("Fix rows 1 and 2", subagent("fix them, then invoke `pragmatic-review` never")),
+            "h": worker("Write PR description", subagent("describe it")),
+            "i": worker("Sweep the floor", subagent("something else")),
         })
         # When
         report = self.home.report()
@@ -369,8 +382,8 @@ class LoopSteps(Case):
         # Given: a review agent and the agent it spawned, 10 minutes each
         parent = subagent(REVIEW_BRIEF, {"cache_read_input_tokens": 2000}).reply(605)
         child = subagent("the bar", {"cache_read_input_tokens": 1000}, parent_agent="r").reply(605)
-        self.home.session("s1", Transcript().human(0, "go").reply(1),
-                          {"r": ("general-purpose", "Review", parent), "c": ("general-purpose", "Blockers", child)})
+        self.home.session("s1", idle_main(),
+                          {"r": worker("Review", parent), "c": worker("Blockers", child)})
         # When
         report = self.home.report()
         # Then
@@ -378,12 +391,15 @@ class LoopSteps(Case):
 
 
 class ReviewYield(Case):
+    def report_with_review(self, sub: Transcript) -> str:
+        self.home.session("s1", idle_main(), {"r": worker("Review", sub)})
+        return self.home.report()
+
     def test_a_report_handed_back_is_counted_in_its_pass(self) -> None:
         # Given: a first review whose hand-back carries the fixed report format
         sub = subagent(REVIEW_BRIEF, {"cache_read_input_tokens": 5000}).handback(7, REVIEW_REPORT)
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {"r": ("general-purpose", "Review", sub)})
         # When
-        report = self.home.report()
+        report = self.report_with_review(sub)
         # Then: reports, tokens, raised, survived, severities, verdicts, do not merge, unparsed
         self.assertEqual(row(report, "Review yield", "review 1")[1:],
                          ["1", "0/5k/0/0", "3", "2", "1", "1", "0", "1", "1", "1", "1", "0"])
@@ -391,9 +407,8 @@ class ReviewYield(Case):
     def test_a_second_pass_is_a_row_of_its_own(self) -> None:
         # Given
         sub = subagent(REVIEW_BRIEF + " --fixes abc123").handback(7, "Ready to merge - nothing serious. 4 raised, 0 survived.")
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {"r": ("general-purpose", "Review", sub)})
         # When
-        report = self.home.report()
+        report = self.report_with_review(sub)
         # Then
         self.assertEqual(row(report, "Review yield", "review 2")[3:5], ["4", "0"])
         self.assertNotIn("| review 1 |", section(report, "Review yield"))
@@ -401,22 +416,19 @@ class ReviewYield(Case):
     def test_an_agent_with_no_hand_back_is_read_from_its_last_text(self) -> None:
         # Given: the report is the agent's last text, with no SubagentHandback call
         sub = subagent(REVIEW_BRIEF).reply(7, text=REVIEW_REPORT)
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {"r": ("general-purpose", "Review", sub)})
         # When
-        report = self.home.report()
+        report = self.report_with_review(sub)
         # Then
         self.assertEqual(row(report, "Review yield", "review 1")[3:5], ["3", "2"])
 
     def test_a_report_without_the_verdict_arithmetic_counts_as_unparsed(self) -> None:
         # Given
         sub = subagent(REVIEW_BRIEF).handback(7, "Looks fine to me.")
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {"r": ("general-purpose", "Review", sub)})
         # When
-        report = self.home.report()
+        report = self.report_with_review(sub)
         # Then
-        self.assertEqual(row(report, "Review yield", "review 1")[1], "1")
-        self.assertEqual(row(report, "Review yield", "review 1")[-1], "1")
-        self.assertEqual(row(report, "Review yield", "review 1")[3], "0")
+        cells = row(report, "Review yield", "review 1")
+        self.assertEqual((cells[1], cells[3], cells[-1]), ("1", "0", "1"))
 
     def test_a_review_the_main_agent_ran_has_a_row_without_tokens(self) -> None:
         # Given
@@ -432,11 +444,11 @@ class ReviewYield(Case):
         # and its blockers agent finding nothing
         finding = "a.py:1\nseverity    major\nclaim       invented\n"
         verdict = "requirement  invented\nverdict      unverified\nexamined     nothing\n"
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {
-            "r": ("general-purpose", "Review", subagent(REVIEW_BRIEF).handback(7, REVIEW_REPORT)),
-            "t": ("general-purpose", "Tests agent", subagent("the bar", parent_agent="r").handback(7, finding)),
-            "q": ("general-purpose", "Requirement 1", subagent("the bar", parent_agent="r").handback(7, verdict)),
-            "b": ("general-purpose", "Blockers", subagent("the bar", parent_agent="r").handback(7, "NONE")),
+        self.home.session("s1", idle_main(), {
+            "r": worker("Review", subagent(REVIEW_BRIEF).handback(7, REVIEW_REPORT)),
+            "t": worker("Tests agent", subagent("the bar", parent_agent="r").handback(7, finding)),
+            "q": worker("Requirement 1", subagent("the bar", parent_agent="r").handback(7, verdict)),
+            "b": worker("Blockers", subagent("the bar", parent_agent="r").handback(7, "NONE")),
         })
         # When
         report = self.home.report()
@@ -466,7 +478,7 @@ class AfterHandback(Case):
         main = Transcript().human(0, "go").human(100, "looks wrong").reply(101)
         sub = subagent("finish it")
         sub.bash(50, "gh pr ready 1", 51)
-        self.home.session("s1", main, {"a": ("general-purpose", "Finish", sub)})
+        self.home.session("s1", main, {"a": worker("Finish", sub)})
         # When
         report = self.home.report()
         # Then
@@ -476,9 +488,9 @@ class AfterHandback(Case):
 class Communication(Case):
     def test_brief_and_hand_back_sizes_are_reported_by_type_and_step(self) -> None:
         # Given: two implementers, one over the hand-back limit, one too thin
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {
-            "a": ("general-purpose", "Implement a", subagent("word " * 100).handback(7, "word " * 400)),
-            "b": ("general-purpose", "Implement b", subagent("word " * 200).handback(7, "done")),
+        self.home.session("s1", idle_main(), {
+            "a": worker("Implement a", subagent("word " * 100).handback(7, "word " * 400)),
+            "b": worker("Implement b", subagent("word " * 200).handback(7, "done")),
         })
         # When
         report = self.home.report()
@@ -493,53 +505,78 @@ class Communication(Case):
         main.bash(20, "true", 21)
         main.bash(30, "true", 31)
         sub = subagent("look").handback(7, "word " * 400)
-        self.home.session("s1", main, {"a": ("general-purpose", "Research x", sub)})
+        self.home.session("s1", main, {"a": worker("Research x", sub)})
         # When
         report = self.home.report()
         # Then: 2000 chars is 500 tokens, sent twice more
         self.assertIn("Hand-backs over 300 words: 1, 2k chars, about 1k tokens sent again", report)
 
-    def test_a_notes_file_and_follow_up_messages_are_counted(self) -> None:
-        # Given: research handing back a notes path, and a follow-up to fix a thin brief
-        main = Transcript().human(0, "go")
-        main.tool(1, "SendMessage", 2, to="a", message="you also need x")
+    def test_a_hand_back_pointing_at_a_notes_file_is_counted(self) -> None:
+        # Given
         sub = subagent("look").handback(7, "Ranked index in /tmp/topic/notes.md, top item first.")
-        self.home.session("s1", main, {"a": ("general-purpose", "Research x", sub)})
+        self.home.session("s1", idle_main(), {"a": worker("Research x", sub)})
         # When
         report = self.home.report()
         # Then
         self.assertIn("Hand-backs pointing at a notes file: 1", report)
-        self.assertIn("Follow-up messages to a subagent: 1", report)
 
-    def test_a_parent_rereading_a_named_file_or_rerunning_a_check_is_counted(self) -> None:
-        # Given: a hand-back naming `parser.py`, then the parent reads it, reads an
-        # unnamed file, reruns a check and diffs, all before its next spawn
+    def test_a_follow_up_message_to_a_subagent_is_counted(self) -> None:
+        # Given
         main = Transcript().human(0, "go")
-        main.tool(1, "Agent", 2, background=True, description="Implement parser")
-        main.tool(10, "Read", 11, file_path="/repo/src/parser.py", result="x" * 500)
-        main.tool(12, "Read", 13, file_path="/repo/src/other.py", result="x" * 500)
-        main.bash(20, "just check", 80)
-        main.bash(90, "git diff HEAD~1", 91, result="y" * 300)
-        main.tool(100, "Agent", 101, background=True, description="Refactor branch")
-        main.tool(120, "Read", 121, file_path="/repo/src/parser.py", result="x" * 500)
-        implementer = subagent("build it").handback(7, "Changed src/parser.py, tests pass.")
-        refactorer = Transcript().brief(110, "invoke `refactor`").reply(111).handback(200, "Nothing to change.")
-        self.home.session("s1", main, {"a": ("general-purpose", "Implement parser", implementer),
-                                       "b": ("general-purpose", "Refactor branch", refactorer)})
+        main.tool(1, "SendMessage", 2, to="a", message="you also need x")
+        self.home.session("s1", main, {"a": worker("Research x", subagent("look"))})
         # When
         report = self.home.report()
-        # Then: 2 re-reads, 800 chars, 1 re-verify taking 1 min; the read after the next spawn is not one
-        self.assertEqual(row(report, "Agent communication", "implement")[1:6], ["1", "2", "800", "1", "1m"])
+        # Then
+        self.assertIn("Follow-up messages to a subagent: 1", report)
+
+    def report_with_implementer(self, main: Transcript, *others: Transcript) -> str:
+        """The report of `main` and an implementer that hands back at 7s, naming `parser.py`."""
+        implementer = subagent("build it").handback(7, "Changed src/parser.py, tests pass.")
+        agents = {"a": worker("Implement parser", implementer)}
+        self.home.session("s1", main, agents | {f"b{i}": worker("Refactor branch", t) for i, t in enumerate(others)})
+        return self.home.report()
+
+    def test_a_parent_rereading_a_named_file_or_a_diff_is_a_re_read(self) -> None:
+        # Given: the parent reads the named file, an unnamed file, and a diff
+        main = spawning_implementer()
+        main.tool(10, "Read", 11, file_path="/repo/src/parser.py", result="x" * 500)
+        main.tool(12, "Read", 13, file_path="/repo/src/other.py", result="x" * 500)
+        main.bash(90, "git diff HEAD~1", 91, result="y" * 300)
+        # When
+        report = self.report_with_implementer(main)
+        # Then: hand-backs, re-reads, re-read chars
+        self.assertEqual(row(report, "Agent communication", "implement")[1:4], ["1", "2", "800"])
+
+    def test_a_parent_rerunning_a_check_is_a_re_verify(self) -> None:
+        # Given
+        main = spawning_implementer()
+        main.bash(20, "just check", 80)
+        # When
+        report = self.report_with_implementer(main)
+        # Then: re-verifies, re-verify time
+        self.assertEqual(row(report, "Agent communication", "implement")[4:6], ["1", "1m"])
+
+    def test_a_read_after_the_next_spawn_answers_no_hand_back(self) -> None:
+        # Given: the named file is read after a later spawn that is still running
+        main = spawning_implementer()
+        main.tool(100, "Agent", 101, background=True, description="Refactor branch")
+        main.tool(120, "Read", 121, file_path="/repo/src/parser.py", result="x" * 500)
+        refactorer = Transcript().brief(110, "invoke `refactor`").reply(111).handback(200, "Nothing to change.")
+        # When
+        report = self.report_with_implementer(main, refactorer)
+        # Then
+        self.assertEqual(row(report, "Agent communication", "implement")[1:6], ["1", "0", "0", "0", "0m"])
         self.assertEqual(row(report, "Agent communication", "refactor")[1:6], ["1", "0", "0", "0", "0m"])
 
     def test_a_spawn_repeating_the_step_after_its_hand_back_is_counted_but_parallel_ones_are_not(self) -> None:
         # Given: two research agents in parallel, then a third after both returned
         def research(start: float, end: float) -> Transcript:
             return Transcript().brief(start, "look").reply(end)
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {
-            "a": ("general-purpose", "Research a", research(5, 50)),
-            "b": ("general-purpose", "Research b", research(6, 60)),
-            "c": ("general-purpose", "Research c", research(70, 80)),
+        self.home.session("s1", idle_main(), {
+            "a": worker("Research a", research(5, 50)),
+            "b": worker("Research b", research(6, 60)),
+            "c": worker("Research c", research(70, 80)),
         })
         # When
         report = self.home.report()
@@ -553,8 +590,8 @@ class Communication(Case):
         first.tool(9, "Read", 10, file_path="/repo/own.py", result="x" * 1000)
         second = subagent("look")
         second.tool(7, "Read", 8, file_path="/repo/big.py", result="x" * 1000)
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {
-            "a": ("general-purpose", "Audit a", first), "b": ("general-purpose", "Audit b", second)})
+        self.home.session("s1", idle_main(), {
+            "a": worker("Audit a", first), "b": worker("Audit b", second)})
         # When
         report = self.home.report()
         # Then
@@ -571,10 +608,10 @@ class Communication(Case):
         late.bash(102, "sed -n 1,40p /repo/a.py", 103)
         early = Transcript().brief(5, "build").reply(6)
         early.tool(7, "Read", 8, file_path="/repo/b.py")
-        self.home.session("s1", Transcript().human(0, "go").reply(1), {
-            "r": ("general-purpose", "Research parser", research),
-            "l": ("general-purpose", "Implement late", late),
-            "e": ("general-purpose", "Implement early", early),
+        self.home.session("s1", idle_main(), {
+            "r": worker("Research parser", research),
+            "l": worker("Implement late", late),
+            "e": worker("Implement early", early),
         })
         # When
         report = self.home.report()

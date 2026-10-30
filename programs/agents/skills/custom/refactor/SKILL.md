@@ -50,8 +50,7 @@ Look at the diff, in this order:
 2. **Derivable state and data modeling** - a stored value computable from
    facts, a copy of state another owner holds, an illegal state the model can
    represent. Removing a stored field or changing a schema changes persisted
-   data, so it is a **big** item whatever its size: delegated, it is reported as
-   out of scope, never applied.
+   data, so it is a **big** item whatever its size.
 3. **Rule violations** - anything in the diff that plainly contradicts a rule
    written in `engineering` or `ui-coding`. Check the diff against all of those
    rules, not only the ones this list names.
@@ -105,8 +104,8 @@ Look at the diff, in this order:
 Write the plan as a short numbered list, one line per item: what changes, why
 (the rule it serves), and its size - **small** (inside the diff, a few files) or
 **big** (touches code outside the diff, restructures across many files, or
-changes a public interface or persisted data). Skip taste: an item no rule backs is not in the
-plan. An empty plan is a good outcome; say so and stop.
+changes a public interface or persisted data). Skip taste: an item no rule backs
+is not in the plan. An empty plan is a good outcome; say so and stop.
 
 ## 4. Ask about the big items
 

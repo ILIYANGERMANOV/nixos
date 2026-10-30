@@ -23,6 +23,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timezone
 from enum import Enum
+from functools import cached_property
 from pathlib import Path
 from typing import Iterable, Iterator, Union
 
@@ -201,6 +202,10 @@ class Session:
     def agents(self) -> list[Agent]:
         return [self.main, *self.subagents]
 
+    @cached_property
+    def by_id(self) -> dict[str, Agent]:
+        return {a.id: a for a in self.subagents}
+
     @property
     def wall(self) -> float:
         return self.end - self.start
@@ -250,6 +255,25 @@ class ReviewRun:
     name: str  # the pass, or RUN_BY_MAIN
     usage: Usage  # the review agent and its children; empty when the main agent ran it
     review: Review
+
+
+@dataclass(frozen=True)
+class FollowUp:
+    """What a parent's calls did with one child's hand-back."""
+
+    step: LoopStep
+    rereads: list[ToolCall]
+    reverifies: list[ToolCall]
+
+
+@dataclass(frozen=True)
+class RepeatedRead:
+    """A read or read-only command two or more agents of a session ran."""
+
+    what: str
+    agents: int
+    runs: int
+    repeated_chars: int  # every run but the largest
 
 
 @dataclass(frozen=True)
@@ -378,9 +402,10 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
                 responses[key] = Response(to_usage(message.get("usage") or {}), event.get("attributionSkill"))
                 for block in blocks(content):
                     if block.get("type") == "tool_use":
-                        calls[block["id"]] = ToolCall(block["id"], block.get("name", "?"), block.get("input") or {}, ts)
-                        if block.get("name") == HANDBACK:
-                            out.agent.handback = str((block.get("input") or {}).get("message") or "")
+                        call = ToolCall(block["id"], block.get("name", "?"), block.get("input") or {}, ts)
+                        calls[call.id] = call
+                        if call.name == HANDBACK:
+                            out.agent.handback = str(call.input.get("message") or "")
                     elif block.get("type") == "text":
                         out.agent.texts.append(str(block.get("text", "")))
             case "user" if is_tool_results(content):
@@ -668,7 +693,7 @@ def check_waste(session: Session) -> tuple[list[Rerun], list[Chain]]:
     for agent in session.agents:
         last_run: dict[str, float] = {}
         earlier_steps: list[ToolCall] = []
-        for call in (c for c in agent.calls if c.name == "Bash" and check_key(c.command)):
+        for call in filter(is_check_run, agent.calls):
             key = check_key(call.command)
             if key in last_run:
                 between = edits_between(edits, last_run[key], call.start)
@@ -689,6 +714,10 @@ def check_waste(session: Session) -> tuple[list[Rerun], list[Chain]]:
             ]
             earlier_steps = []
     return reruns, chains
+
+
+def is_check_run(call: ToolCall) -> bool:
+    return call.name == "Bash" and bool(check_key(call.command))
 
 
 def edits_between(edits: list[tuple[float, bool]], start: float, end: float) -> list[bool]:
@@ -730,10 +759,26 @@ BRIEF_STEPS = (
 )
 
 
+def steps_of(session: Session) -> Iterator[tuple[Agent, LoopStep]]:
+    for agent in session.subagents:
+        yield agent, loop_step(root_of(agent, session.by_id))
+
+
+def step_by_id(session: Session) -> dict[str, LoopStep]:
+    return {a.id: step for a, step in steps_of(session)}
+
+
+def root_of(agent: Agent, by_id: dict[str, Agent]) -> Agent:
+    """The top-level subagent `agent` works under, or itself."""
+    while agent.parent in by_id:
+        agent = by_id[agent.parent]
+    return agent
+
+
 def loop_step(agent: Agent) -> LoopStep:
     """The step a top-level subagent ran. Its children work for the same step."""
     description = agent.description.lower()
-    brief = agent.brief[:BRIEF_HEAD].lower()
+    brief = brief_head(agent)
     if REVIEW_BRIEF.search(brief) and not FIX_DESCRIPTION.search(description):
         return review_pass(description, brief)
     by_description = (step for step, pattern in DESCRIPTION_STEPS if pattern.search(description))
@@ -747,26 +792,16 @@ def review_pass(description: str, brief: str) -> LoopStep:
     return LoopStep.FINAL_REVIEW if "final" in description else LoopStep.REVIEW_1
 
 
-def root_of(agent: Agent, by_id: dict[str, Agent]) -> Agent:
-    """The top-level subagent `agent` works under, or itself."""
-    while agent.parent in by_id:
-        agent = by_id[agent.parent]
-    return agent
-
-
-def steps_of(session: Session) -> Iterator[tuple[Agent, LoopStep]]:
-    by_id = {a.id: a for a in session.subagents}
-    for agent in session.subagents:
-        yield agent, loop_step(root_of(agent, by_id))
+def brief_head(agent: Agent) -> str:
+    return agent.brief[:BRIEF_HEAD].lower()
 
 
 def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
     """Every agent that spawned others, with its children in spawn order."""
-    by_id = {a.id: a for a in session.subagents}
     groups: dict[str, list[Agent]] = defaultdict(list)
     for agent in session.subagents:
-        groups[agent.parent if agent.parent in by_id else session.main.id].append(agent)
-    return [(by_id.get(key, session.main), sorted(kids, key=lambda a: a.start)) for key, kids in groups.items()]
+        groups[agent.parent if agent.parent in session.by_id else session.main.id].append(agent)
+    return [(session.by_id.get(key, session.main), sorted(kids, key=lambda a: a.start)) for key, kids in groups.items()]
 
 
 # --- Reviews -----------------------------------------------------------------
@@ -787,10 +822,9 @@ REVIEW_ROLES = (
 
 
 def review_runs(session: Session) -> Iterator[ReviewRun]:
-    by_id = {a.id: a for a in session.subagents}
     for agent, step in steps_of(session):
-        if step in REVIEW_PASSES and root_of(agent, by_id) is agent:
-            tree = [a for a in session.subagents if root_of(a, by_id) is agent]
+        if step in REVIEW_PASSES and root_of(agent, session.by_id) is agent:
+            tree = [a for a in session.subagents if root_of(a, session.by_id) is agent]
             yield ReviewRun(step.value, total(a.usage for a in tree), parse_review(agent.report))
     for text in session.main.texts:
         if RAISED.search(text):
@@ -801,7 +835,7 @@ def parse_review(report: str) -> Review:
     arithmetic = RAISED.search(report)
     if arithmetic is None:
         return Unparsed()
-    severities = Counter(s.lower() for s in SEVERITY_ROW.findall(report))
+    severities = tally(SEVERITY_ROW, report)
     return ParsedReview(
         raised=int(arithmetic.group(1)),
         survived=int(arithmetic.group(2)),
@@ -815,16 +849,19 @@ def parse_review(report: str) -> Review:
     )
 
 
+def tally(pattern: re.Pattern[str], text: str) -> Counter[str]:
+    return Counter(match.lower() for match in pattern.findall(text))
+
+
 def inner_reviewers(session: Session) -> Iterator[Agent]:
     """The agents a review agent spawned."""
-    by_id = {a.id: a for a in session.subagents}
     for agent, step in steps_of(session):
-        if step in REVIEW_PASSES and root_of(agent, by_id) is not agent:
+        if step in REVIEW_PASSES and root_of(agent, session.by_id) is not agent:
             yield agent
 
 
 def review_role(agent: Agent) -> str:
-    texts = (agent.description.lower(), agent.brief[:BRIEF_HEAD].lower())
+    texts = (agent.description.lower(), brief_head(agent))
     return next((role for text in texts for role, pattern in REVIEW_ROLES if pattern.search(text)), "other")
 
 
@@ -840,32 +877,17 @@ FILE_NAME = re.compile(r"[\w.+/-]+\.[A-Za-z]\w{0,7}\b")
 DIFF_COMMAND = re.compile(r"\bgit (diff|show)\b")
 
 
-@dataclass(frozen=True)
-class FollowUp:
-    """What a parent's calls did with one child's hand-back."""
-
-    step: LoopStep
-    rereads: list[ToolCall]
-    reverifies: list[ToolCall]
-
-
-def words(text: str) -> int:
-    return len(text.split())
-
-
-def file_names(text: str) -> set[str]:
-    return {Path(name).name for name in FILE_NAME.findall(text)}
-
-
-def read_files(call: ToolCall) -> set[str]:
-    """The file names a read-only call looked at."""
-    match call.name:
-        case "Read":
-            return {Path(str(call.input.get("file_path") or "")).name}
-        case "Bash" if not is_edit(call) and not check_key(call.command):
-            return file_names(call.command)
-        case _:
-            return set()
+def follow_ups(session: Session) -> Iterator[FollowUp]:
+    steps = step_by_id(session)
+    for parent, children in children_by_parent(session):
+        groups: dict[str, list[ToolCall]] = defaultdict(list)
+        for child, call in calls_after_handbacks(parent, children):
+            groups[child.id].append(call)
+        for child in children:
+            calls = groups[child.id]
+            named = file_names(child.report)
+            rereads = [c for c in calls if read_files(c) & named or is_diff(c)]
+            yield FollowUp(steps[child.id], rereads, [c for c in calls if is_check_run(c)])
 
 
 def calls_after_handbacks(parent: Agent, children: list[Agent]) -> Iterator[tuple[Agent, ToolCall]]:
@@ -880,26 +902,32 @@ def calls_after_handbacks(parent: Agent, children: list[Agent]) -> Iterator[tupl
                 yield child, call
 
 
-def follow_ups(session: Session) -> Iterator[FollowUp]:
-    steps = {a.id: step for a, step in steps_of(session)}
-    for parent, children in children_by_parent(session):
-        groups: dict[str, list[ToolCall]] = defaultdict(list)
-        for child, call in calls_after_handbacks(parent, children):
-            groups[child.id].append(call)
-        for child in children:
-            calls = groups[child.id]
-            named = file_names(child.report)
-            rereads = [c for c in calls if read_files(c) & named or is_diff(c)]
-            yield FollowUp(steps[child.id], rereads, [c for c in calls if c.name == "Bash" and check_key(c.command)])
-
-
 def is_diff(call: ToolCall) -> bool:
     return call.name == "Bash" and bool(DIFF_COMMAND.search(call.command)) and not is_edit(call)
 
 
+def read_files(call: ToolCall) -> set[str]:
+    """The file names a read-only call looked at."""
+    match call.name:
+        case "Read":
+            return {Path(str(call.input.get("file_path") or "")).name}
+        case "Bash" if is_read_only(call):
+            return file_names(call.command)
+        case _:
+            return set()
+
+
+def file_names(text: str) -> set[str]:
+    return {Path(name).name for name in FILE_NAME.findall(text)}
+
+
+def is_read_only(call: ToolCall) -> bool:
+    return call.name in {"Read", "Bash"} and not is_edit(call) and not is_check_run(call)
+
+
 def spawned_again(session: Session) -> Iterator[LoopStep]:
     """The step of each spawn that repeats the step of the hand-back right before it."""
-    steps = {a.id: step for a, step in steps_of(session)}
+    steps = step_by_id(session)
     for _, children in children_by_parent(session):
         for first, second in zip(children, children[1:]):
             if steps[first.id] == steps[second.id] and second.start >= first.end:
@@ -912,33 +940,30 @@ def resent_tokens(parent: Agent, child: Agent) -> int:
     return len(child.report) // CHARS_PER_TOKEN * later
 
 
-def repeated_reads(session: Session) -> list[tuple[str, int, int, int]]:
-    """Reads and read-only commands two agents ran: what, agents, runs, chars after the first."""
-    groups: dict[tuple, list[tuple[Agent, ToolCall]]] = defaultdict(list)
+def repeated_reads(session: Session) -> list[RepeatedRead]:
+    groups: dict[tuple[str, object, object], list[tuple[Agent, ToolCall]]] = defaultdict(list)
     for agent in session.agents:
-        for call in agent.calls:
-            if call.name in {"Read", "Bash"} and not is_edit(call) and not check_key(call.command):
-                groups[(what(call), call.input.get("offset"), call.input.get("limit"))].append((agent, call))
+        for call in filter(is_read_only, agent.calls):
+            groups[(what(call), call.input.get("offset"), call.input.get("limit"))].append((agent, call))
     out = []
     for (name, *_), runs in groups.items():
         agents = {agent.id for agent, _ in runs}
         sizes = sorted(call.result_chars for _, call in runs)
         if len(agents) > 1:
-            out.append((name, len(agents), len(runs), sum(sizes[:-1])))
+            out.append(RepeatedRead(name, len(agents), len(runs), sum(sizes[:-1])))
     return out
 
 
-def research_then_implement(session: Session) -> tuple[int, int]:
-    """Implementers reading files an earlier research agent read, and how many files."""
+def research_overlaps(session: Session) -> Iterator[set[str]]:
+    """For each implementer, the files it read that an earlier research agent read."""
     steps = list(steps_of(session))
     research = [a for a, step in steps if step == LoopStep.RESEARCH]
-    overlaps = []
     for agent, step in steps:
         if step == LoopStep.IMPLEMENT:
             explored = {name for a in research if a.end <= agent.start for c in a.calls for name in read_files(c)}
-            overlaps.append({name for c in agent.calls for name in read_files(c)} & explored)
-    found = [o for o in overlaps if o]
-    return len(found), sum(len(o) for o in found)
+            overlap = {name for c in agent.calls for name in read_files(c)} & explored
+            if overlap:
+                yield overlap
 
 
 # --- Rendering ---------------------------------------------------------------
@@ -1072,8 +1097,8 @@ def inner_yield(sessions: list[Session]) -> str:
             groups[review_role(agent)].append(agent)
     rows = []
     for role, group in sorted(groups.items(), key=lambda kv: -sum(a.usage.context for a in kv[1])):
-        found = [Counter(m.lower() for m in SEVERITY_LINE.findall(a.report)) for a in group]
-        verdicts = Counter(m.lower() for a in group for m in VERDICT_LINE.findall(a.report))
+        found = [tally(SEVERITY_LINE, a.report) for a in group]
+        verdicts = tally(VERDICT_LINE, "\n".join(a.report for a in group))
         by_severity = [str(sum(f[severity] for f in found)) for severity in ("major", "minor", "nit")]
         rows.append([role, str(len(group)), tokens(total(a.usage for a in group)), *by_severity, str(sum(1 for f in found if f)), str(verdicts["not met"]), str(verdicts["unverified"])])
     return table(["agent", "runs", "tokens", "major", "minor", "nit", "runs with a finding", "not met", "unverified"], rows)
@@ -1142,22 +1167,22 @@ def communication_lines(sessions: list[Session]) -> str:
     large = [(parent, child) for parent, child in handed if words(child.report) > HANDBACK_WORDS]
     notes = sum(1 for _, child in handed if NOTES_FILE.search(child.report))
     messages = [c for s in sessions for a in s.agents for c in a.calls if c.name == FOLLOW_UP]
-    splits = [research_then_implement(s) for s in sessions]
+    overlaps = [overlap for s in sessions for overlap in research_overlaps(s)]
     return "\n".join(
         [
             f"- Hand-backs over {HANDBACK_WORDS} words: {len(large)}, {kilo(sum(len(c.report) for _, c in large))} chars, about {kilo(sum(resent_tokens(p, c) for p, c in large))} tokens sent again on later parent calls",
             f"- Hand-backs pointing at a notes file: {notes}",
             f"- Follow-up messages to a subagent: {len(messages)}",
-            f"- Implementers reading files a research agent read: {sum(n for n, _ in splits)}, {sum(f for _, f in splits)} files between them",
+            f"- Implementers reading files a research agent read: {len(overlaps)}, {sum(len(o) for o in overlaps)} files between them",
         ]
     )
 
 
 def repeated_table(sessions: list[Session]) -> str:
-    found = [(s.id[:8], *r) for s in sessions for r in repeated_reads(s)]
-    ranked = sorted(found, key=lambda r: -r[4])
-    rows = [[sid, clip(name, 60), str(agents), str(runs), kilo(chars)] for sid, name, agents, runs, chars in ranked[:TOP]]
-    head = f"Same read or read-only command by two or more agents of a session: {len(found)}, {kilo(sum(r[4] for r in found))} chars repeated."
+    found = [(s.id[:8], r) for s in sessions for r in repeated_reads(s)]
+    ranked = sorted(found, key=lambda sr: -sr[1].repeated_chars)
+    rows = [[sid, clip(r.what, 60), str(r.agents), str(r.runs), kilo(r.repeated_chars)] for sid, r in ranked[:TOP]]
+    head = f"Same read or read-only command by two or more agents of a session: {len(found)}, {kilo(sum(r.repeated_chars for _, r in found))} chars repeated."
     return head + "\n\n" + table(["session", "what", "agents", "runs", "chars after the first"], rows) + omitted(len(ranked), len(rows))
 
 
@@ -1303,6 +1328,10 @@ def hours(seconds: float) -> str:
 
 def fmt_time(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+
+def words(text: str) -> int:
+    return len(text.split())
 
 
 def clip(text: str, n: int) -> str:

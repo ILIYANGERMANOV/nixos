@@ -61,8 +61,8 @@ judgment. It stays offline: everything from `gh` is the subagent's.
   the last text. The brief is the subagent's first user line.
 - **Loop steps.** Each top-level subagent gets one step from its description
   and the head of its brief; its children count under the same step. A review
-  is a brief that invokes `pragmatic-review`: `--fixes`, "pass 2" or
-  "re-review" make it the second pass, "final" in the description
+  is a brief that invokes `pragmatic-review`: `--fixes`, "pass 2", "re-review"
+  or "second" make it the second pass, "final" in the description
   `/final-review`. Agent wall adds agents up, so parallel agents overlap.
 - **Review yield.** Parsed from the report format `pragmatic-review` fixes:
   the verdict's `N raised, M survived`, table rows `| n | Major |`, and

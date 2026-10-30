@@ -38,8 +38,7 @@ meet the objective correctly and sanely.
 - DRY: do not repeat yourself. Prefer small functions that compose together
   into bigger functions. Abstract the same concept, never merely the same
   shape; when unsure whether it is the same concept, ask. Extract only what
-  stands alone, so a top-down file reads without jumping: its name and signature
-  explain it, without its body or caller.
+  stands alone: its name and signature explain it, without its body or caller.
 - Reuse before writing: search the codebase for an existing helper, type or
   module that already expresses the concept, and use or extend it. A second
   copy of the same concept is the moment to extract it - do not wait for a
@@ -50,20 +49,19 @@ meet the objective correctly and sanely.
   state likewise has one owner: only it writes, others read an immutable view.
 - Minimal state: store the facts with the most information and derive the rest,
   in the database, UI and memory alike: `createdAt`, never `isExpired`. A state
-  computable from facts is a SUM a function returns, not a field. When the rule
-  changes, should old records change? Yes derive, no store: a value that must
-  survive a rule change (invoice total) is a fact. Exception: a named
-  performance need, such as an indexed `expiresAt`. A derived store (cache,
-  index, denormalized copy) is disposable, rebuildable and takes no own writes.
+  computable from facts is a SUM a function returns, not a field. Should old
+  records change with the rule? Yes derive, no store: a value that must survive
+  a rule change (invoice total) is a fact. Exception: a named performance need,
+  such as an indexed `expiresAt`. A derived store (cache, index, denormalized
+  copy) is disposable, rebuildable and takes no own writes.
 - Idempotence: a webhook, consumer, cron or retry can run twice. Key the effect
   on a stable id with a unique constraint or upsert, not check-then-write.
 - Data outlives code: old rows meet new code, and mid-deploy old code meets new
   data. Change a stored or wire format in steps: add, migrate, remove.
 - Task lifetimes: every spawned task has an owner that awaits it, gets its
-  failure and cancels it. Catch-alls rethrow cancellation.
-- Premature optimization: avoid micro-optimization until the user explicitly
-  asks for performance. Prefer correctness and maintainability over performance
-  and complexity.
+  failure and cancels it. A catch-all handler rethrows cancellation.
+- Premature optimization: no micro-optimization until the user explicitly asks
+  for performance. Prefer correctness and maintainability over performance.
 - Type-safety: prefer explicit and strict typing, so the compiler catches bugs
   before the program runs. Define strictly input and output types for each
   function. In dynamic languages use the strongest available equivalent - type
@@ -111,23 +109,20 @@ This skill governs how to model a domain.
   immutability, pure functions and a thin effect shell: read, decide in a pure
   function over plain values, write. Pass time, ids and randomness in. If
   testing a decision needs a fake, the decision is in the shell.
-- Function order: follow Clean Code top-down ordering. The file reads like a book
-  from top to bottom, with the larger public functions at the top and the
-  functions they use below them. This applies to code you write - do not reorder
-  existing functions unless asked.
-- Minimal parameters: a function takes only what it uses - pass the field, not
-  the whole record, context or config it lives in. Smaller inputs make the
-  dependency visible, the function reusable and the test trivial. The exception
-  is a fixed signature: implementing an interface, abstraction or type class
-  whose shape is set elsewhere.
+- Function order: Clean Code top-down. A file reads like a book, the larger
+  public functions at the top and the functions they use below them. This
+  applies to code you write - do not reorder existing functions unless asked.
+- Minimal parameters: a function takes only what it uses - the field, not the
+  whole record, context or config it lives in - so the dependency is visible,
+  the function reusable and the test trivial. The exception is a fixed
+  signature: an interface, abstraction or type class whose shape is set
+  elsewhere.
 
 ## Structuring code
 
-- Code placement: if the code is feature-specific, place it in a
-  feature-specific directory. If the code is feature-agnostic and re-usable,
-  place it in a shared directory. When unsure whether a given piece of code is
-  feature-specific or feature-agnostic, ask. Shared code must be
-  feature-agnostic. Feature-specific code must never be shared.
+- Code placement: feature-specific code goes in a feature-specific directory
+  and is never shared; feature-agnostic, re-usable code goes in a shared
+  directory, which holds nothing else. When unsure which it is, ask.
 - Small and deep modules: a module hides a lot of behavior behind a small
   interface. The interface is everything a caller must know - signatures,
   invariants, error modes - so depth is a property of the interface, not of
@@ -137,8 +132,6 @@ This skill governs how to model a domain.
 - Deletion test: imagine deleting a module. If its complexity vanishes, it was
   a pass-through - inline it. If the complexity reappears across its callers, it
   earned its keep.
-- The interface is the test surface: test a module through its interface, so
-  internals can change without rewriting tests - see Testing.
 - Seams: one adapter behind an abstraction is a hypothetical seam, two is a real
   one. Do not introduce an abstraction for a single implementation unless a
   second is concretely planned.

@@ -86,9 +86,8 @@ requirement forces DEEP and those topics.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
 `engineering` or `ui-coding`, DRY included, is a finding, judged on the rule
-quoted verbatim. It is Minor, unless it is a **data-model violation** - stored
-derivable state, a representable illegal state or bad data modeling, DB schemas
-above all - which is Major because it is expensive to fix later.
+quoted verbatim. It is Minor, unless the bar makes it a Major **data-model
+violation**.
 
 ## The flow
 
