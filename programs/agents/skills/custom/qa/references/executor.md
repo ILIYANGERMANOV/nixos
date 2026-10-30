@@ -36,7 +36,10 @@ wait for must end, and one that fails must fail at once.
   the scripts directory, so the next run starts where this one ended. Keep
   run-specific values (the run directory, the PR) in arguments, not in them.
 - A logged-in scenario starts from the auth file it was given, opened through
-  `qa-session` or qa-kit, which write the renewed login back to it. Landing
+  `qa-session` or `openContext({ auth, ...contextOptions })` from qa-kit,
+  never a browser the script launches itself, which saves nothing. Both write
+  the renewed login back on `close()` (and `qa-session stop`, SIGTERM,
+  SIGINT), the old one kept as `<auth>.bak`, so always call `close()`. Landing
   on a login page means the state expired: stop that item as Unverified,
   "login state expired".
 - A wallet scenario installs the wallet before the first navigation, with the
@@ -73,16 +76,19 @@ await session.close(); // detaches; the browser and page stay
 - Only one browser runs at a time: stop the session (`qa-session stop
   <run>`) before the recorded run launches its own, and restart it after if
   probing continues.
-- Run every script in the foreground. `qa-node` enforces a deadline itself;
-  prefix `timeout <seconds>` when the checkpoint should end sooner. Never
+- Run every script in the foreground. `qa-node` ends it after
+  `QA_NODE_TIMEOUT` (default 300 s, `0` for none) with exit 124; set it
+  lower when the checkpoint should end sooner. Never
   background a script and poll for its output.
 
 ## Waiting
 
 - `context.setDefaultTimeout(10000)` in every context you create (`connect`
   already does), so a missing element fails in 10 s, not 30. Probe waits
-  keep that default; qa-kit caps a longer one unless it is given the reason
-  (a transaction mining, a first compile).
+  keep that default. A longer wait goes through `expectState(..., {
+  timeout, reason })`, which caps anything over 60 s unless `reason` says why
+  (a transaction mining, a first compile); a raw `waitFor({ timeout })` is
+  never capped, so do not use one for a long wait.
 - Never `page.waitForTimeout`, and never `networkidle`. Wait for a state on a
   specific locator: `await locator.waitFor()`,
   or, when the screen can end in success or an error, `expectState(expected, { name: errorLocator, ... }, { timeout })`,
@@ -108,7 +114,8 @@ await session.close(); // detaches; the browser and page stay
 - Record only the final evidence run, once the probes pass; probes are never
   recorded. Each video is one fresh context with `viewport: VIEWPORT` and
   `recordVideo: { dir, size: VIEWPORT }` (`VIEWPORT` from `qa-kit`, 960x540),
-  opened on the saved login through qa-kit. The video starts when the context
+  opened with `openContext({ auth, viewport, recordVideo })`; its `close()`
+  writes the video and saves the login. The video starts when the context
   is created and is written when it closes; `page.video().path()` names it.
   Go straight to the first screen: anything slow before it opens the video on
   a still frame.

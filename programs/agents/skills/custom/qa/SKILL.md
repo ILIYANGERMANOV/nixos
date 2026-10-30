@@ -45,14 +45,23 @@ Every Claude session has these on PATH, whatever the project:
 
 - `qa-node <script.cjs>` - Node with `require('playwright')` (Chromium
   included, no download), `require('viem')` and `require('qa-wallet')`
-  resolvable from any directory. It kills a script that runs past its default
-  deadline, so none can hang; a `timeout <s>` prefix ends one sooner. Scripts
-  are CommonJS: name them `.cjs`. For
+  resolvable from any directory. It runs every script under `timeout`:
+  300 s by default, `QA_NODE_TIMEOUT` overrides (any `timeout` duration,
+  `0` for none), and a hang exits 124. Scripts are CommonJS: name them
+  `.cjs`. For
   an ES module, `await import(process.env.QA_WALLET_MODULE)` (set by
   `qa-node`) gives the wallet helper.
 - `require('qa-kit')` - what every script shares: `connect(runDir)` attaches
-  to the `qa-session` browser; `expectState(expected, { name: locator })`
-  waits for the expected locator or the first error locator, whichever shows;
+  to the `qa-session` browser; `openContext({ auth, ...contextOptions })`
+  launches Chromium itself and returns `{ browser, context, close }` on the
+  saved login `auth`. Both write the login back on `close()`, so every
+  script calls it; `openContext` also on SIGTERM and SIGINT. A script that
+  launches its own browser gets no save-back: use `openContext`.
+  `expectState(expected, { name: locator }, { timeout, reason })` waits for
+  the expected locator or the first error locator, whichever shows; a wait
+  over 60 s is capped unless `reason` says why. Raw Playwright
+  `waitFor({ timeout })` is not capped, so a long wait goes through
+  `expectState`;
   `capture(context, file)` logs console, page errors and failed requests with
   credentials redacted; `VIEWPORT` is the 960x540 every page and video uses.
 - `qa-session start <run> [--url <url>] [--storage-state <auth.json>]
@@ -62,15 +71,16 @@ Every Claude session has these on PATH, whatever the project:
   open and writes its console, redacted, to `<run>/qa-session-console.log`.
   `qa-session stop <run>` ends it. Unrecorded: probes run here. With
   `--storage-state`, the login the app renews is written back to that file
-  as scripts detach, on stop and on SIGTERM, the old one kept as `.bak`, so
-  the saved login stays usable from run to run.
+  as scripts detach, on stop and on SIGTERM, the old one kept as
+  `<file>.bak` and a state with no cookies refused, so the saved login stays
+  usable from run to run.
 - `qa-mp4 <in.webm> <out.mp4>` - H.264 mp4 that GitHub plays inline. It
   trims a static lead-in (a still screen from the first 1.5 s, cut to its
   last 0.5 s, never a later one) and prints the offset: cite timestamps from
   the mp4, never the webm.
 - `qa-frames <video> <t1,t2,...> <out.png>` - one contact sheet of the
-  frames at those seconds, each labelled with its time. One image read
-  checks a whole item.
+  frames at those seconds, each labelled with its time; a time past the end
+  gets the last frame. One image read checks a whole item.
 - `timeout <s> <command>` - present on every host, macOS included.
 - `ffmpeg`, `ffprobe` - anything the commands above do not cover.
 - `qa-wallet address` - the QA Wallet's address, derived from the key; and
@@ -214,7 +224,8 @@ that opens Chromium **headed** on the login URL, waits for the user to log in
 and close the tab (`page.waitForEvent('close', { timeout: 0 })`), then saves
 `context.storageState({ path })`. Ask the user before opening it. Any other
 context on the saved login, a login check included, goes through `qa-session`
-or qa-kit, which write the renewed login back. First
+or qa-kit's `openContext`, never a browser the script launches itself: they
+write the renewed login back on `close()` (old kept as `.bak`). First
 follow the login link headless as far as the identity provider's page and
 screenshot it: an error there (a bad redirect URL) is a Fail to report, not
 something to send the user into. On a host without a display, ask the user
