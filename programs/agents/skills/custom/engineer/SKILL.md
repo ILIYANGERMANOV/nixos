@@ -159,7 +159,8 @@ reason.
   reports the result.
 - Before `gh pr ready`: every review comment on the PR has a reply or a
   triage, and when the diff touches a workflow, every `secrets.*` it
-  references, `GITHUB_TOKEN` aside, is in `gh secret list`, or in
+  references, `GITHUB_TOKEN` aside, is in `gh secret list`, in
+  `gh secret list --env <env>` for a job with an `environment:`, or in
   `gh secret list --org <owner>` for an org repository. A missing secret goes
   to the user.
 - Mark the PR ready with `gh pr ready <n>` and notify the user the way your

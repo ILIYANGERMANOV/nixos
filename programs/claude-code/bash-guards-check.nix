@@ -86,7 +86,7 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "small files after a relative cd are allowed" "cd sub && cat small-c small-d"
     expect 0 "a cd to a missing directory is allowed" "cd nowhere && cat big-a big-b"
     expect 0 "a commit without a path is not sized" "git show HEAD; cat big-b"
-    expect 0 "missing files are not counted" "cat nope-a nope-b big-a"
+    expect 2 "missing files are skipped, the rest still count" "cat nope big-a big-b"
     expect 0 "other commands are allowed" "grep -n x big-a big-b huge"
     expect 0 "a heredoc write is allowed" "cat > out <<'EOF'
     big-a big-b

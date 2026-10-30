@@ -221,7 +221,8 @@ When a plan item needs a logged-in session and step 1 did not log in, use
 `~/.cache/qa/<host owner>/<host repo>/auth/<name>.json` if it exists. When it is missing
 or expired (the app lands on its login page), on a Mac run a `qa-node` script
 that opens Chromium **headed** on the login URL, waits for the user to log in
-and close the tab (`page.waitForEvent('close', { timeout: 0 })`), then saves
+and close the tab (`page.waitForEvent('close', { timeout: 0 })`, with
+`QA_NODE_TIMEOUT=0` so `qa-node` does not end the wait at 300 s), then saves
 `context.storageState({ path })`. Ask the user before opening it. Any other
 context on the saved login, a login check included, goes through `qa-session`
 or qa-kit's `openContext`, never a browser the script launches itself: they
