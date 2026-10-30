@@ -2,7 +2,8 @@
 
 `QA.md` lives at the repo root and tells `/qa` how to QA this repo. It holds
 static facts only: no environment data such as specific records, ids or
-account state; no secrets, credentials, account ids, wallet addresses or
+account state (a how-to note that names no record is fine, such as which
+label a card shows and how to match it); no secrets, credentials, account ids, wallet addresses or
 internal URLs, since a repo may be public. Describe how to find data
 instead. Credentials live in the user's saved login state or a sops secret.
 Every section is optional except **Run the app**; `/qa` asks about whatever a
@@ -27,8 +28,9 @@ saves under ~/.cache/qa/<owner>/<repo>/auth/ for this app (for example
 Only for dApps. Whether QA uses the qa-wallet helper, the chain id, the RPC
 URL, any `forwardRpc` patterns the host needs headless, the connector the
 app shows (injected, EIP-6963, AppKit, RainbowKit) and how to reach the
-connect button. Funds the flows need, as token addresses `qa-wallet balance`
-can check. Never a wallet address: each engineer's differs.
+connect button. Funds each flow needs, as token addresses `qa-wallet balance`
+can check, which wallet pays (the QA wallet or the app's own), and how to get
+testnet funds. Never a wallet address: each engineer's differs.
 
 ## Test data
 Fixtures, sample inputs, how to find a record a flow needs, and how to reset

@@ -72,12 +72,13 @@ outcome. A refuted finding is dropped silently.
   twice.
 - Mechanical checks first: an `rg`, the `stat` file, a byte-identical
   `diff <(git show A:f) <(git show B:f)`. Then, only to settle one claim, a cheap
-  probe: one test file, a REPL line, the CLI on a tiny input crafted in `/tmp`.
-  Never the full test suite, a full build or a lint sweep - the implementer's
-  gates and CI run those. Write only under `/tmp`, install nothing, run nothing
-  with side effects.
+  probe: one test file, a REPL line, the CLI on a tiny input crafted in your
+  scratchpad. Never the full test suite, a full build or a lint sweep - the
+  implementer's gates and CI run those. Write only under your scratchpad,
+  install nothing, run nothing with side effects.
 
-**Return under 300 words**, no preamble: `NONE`, or one block per finding, at
+**Return in about 250 words, never over 300**, no preamble: `NONE`, or one
+block per finding, at
 most 60 words each.
 
 ```

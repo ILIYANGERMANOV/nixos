@@ -35,9 +35,10 @@ wait for must end, and one that fails must fail at once.
 - Before handing back, copy every script that worked, with `lib.cjs`, back to
   the scripts directory, so the next run starts where this one ended. Keep
   run-specific values (the run directory, the PR) in arguments, not in them.
-- A logged-in scenario starts from the auth file it was given. Landing on a
-  login page means the state expired: stop that item as Unverified, "login
-  state expired".
+- A logged-in scenario starts from the auth file it was given, opened through
+  `qa-session` or qa-kit, which write the renewed login back to it. Landing
+  on a login page means the state expired: stop that item as Unverified,
+  "login state expired".
 - A wallet scenario installs the wallet before the first navigation, with the
   chain, RPC and any `forwardRpc` from `QA.md`: `installWallet(context, {
   keyFile: process.env.QA_EVM_KEY_FILE, rpcUrl, chainId })` in a recorded
@@ -72,16 +73,16 @@ await session.close(); // detaches; the browser and page stay
 - Only one browser runs at a time: stop the session (`qa-session stop
   <run>`) before the recorded run launches its own, and restart it after if
   probing continues.
-- Run every script in the foreground under `timeout <seconds> qa-node ...`,
-  sized to the checkpoint. Never background a script and poll for its
-  output.
+- Run every script in the foreground. `qa-node` enforces a deadline itself;
+  prefix `timeout <seconds>` when the checkpoint should end sooner. Never
+  background a script and poll for its output.
 
 ## Waiting
 
 - `context.setDefaultTimeout(10000)` in every context you create (`connect`
   already does), so a missing element fails in 10 s, not 30. Probe waits
-  keep that default; a longer one carries a comment naming what is slow (a
-  transaction mining, a first compile).
+  keep that default; qa-kit caps a longer one unless it is given the reason
+  (a transaction mining, a first compile).
 - Never `page.waitForTimeout`, and never `networkidle`. Wait for a state on a
   specific locator: `await locator.waitFor()`,
   or, when the screen can end in success or an error, `expectState(expected, { name: errorLocator, ... }, { timeout })`,
@@ -105,9 +106,9 @@ await session.close(); // detaches; the browser and page stay
 ## Recording
 
 - Record only the final evidence run, once the probes pass; probes are never
-  recorded. Each video is one fresh context from `browser.newContext({
-  viewport: VIEWPORT, recordVideo: { dir, size: VIEWPORT }, storageState })`,
-  with `VIEWPORT` from `qa-kit` (960x540). The video starts when the context
+  recorded. Each video is one fresh context with `viewport: VIEWPORT` and
+  `recordVideo: { dir, size: VIEWPORT }` (`VIEWPORT` from `qa-kit`, 960x540),
+  opened on the saved login through qa-kit. The video starts when the context
   is created and is written when it closes; `page.video().path()` names it.
   Go straight to the first screen: anything slow before it opens the video on
   a still frame.
@@ -117,7 +118,8 @@ await session.close(); // detaches; the browser and page stay
 - **Frame what the expected result names.** Before the action, scroll so
   every element the expected result mentions (for example the line that
   should vanish and the button whose state hides it) is in the viewport
-  together, and keep it there through the change.
+  together, and keep it there through the change. When the claim is that a
+  list is complete, the frame shows its end.
 - `page.screenshot({ path: '<run>/<name>.png' })` on each key screen the plan
   names, with a name that says what it shows.
 - Never open, screenshot or cite Storybook or a component preview; the
@@ -142,8 +144,10 @@ look at it: everything the expected result names must be on screen in the
 cited frames. If not, fix the framing and record again; the evidence checker
 applies the same test to the same sheet.
 
-Hand back under 300 words: each repo's sha you ran on, per item the verdict,
-artifact paths with timestamps and its contact sheet, repro for each Fail,
-and knowledge this run discovered that a `QA.md` lacks (setup steps,
-selectors, quirks), as proposed lines sorted by the repo whose code each is
-about: "for <repo> QA.md: ...".
+Write to `<run>/results.md` each repo's sha you ran on and, per item, the
+verdict, artifact paths with timestamps, its contact sheet and the repro for
+each Fail. Write the knowledge this run discovered that a `QA.md` lacks
+(setup steps, selectors, quirks) to `<run>/qa-md-notes.md`, as proposed lines
+sorted by the repo whose code each is about: "for <repo> QA.md: ...". Hand
+back in about 250 words, never over 300: the shas, one verdict line per item,
+and both paths.

@@ -31,7 +31,9 @@ owns the decisions.
   is available with `printenv QA_EVM_KEY_FILE >/dev/null`.
 - **Protect your context.** Planning, running and evidence checks happen in
   subagents; keep their conclusions, not their output. Each brief ends with
-  "hand back under 300 words".
+  "hand back in about 250 words, never over 300; the rest goes in a file in
+  the run directory, by path". Run QA in a fresh session: one that already
+  carries other work, such as an `/engineer` run, resends it on every call.
 - **Light on the machine.** The host may be a medium server: one dev server,
   one browser at a time, no second Node server beside the app. Waiting on the
   user is fine; waiting on a tool is waste, so nothing sleeps, polls or waits
@@ -43,7 +45,9 @@ Every Claude session has these on PATH, whatever the project:
 
 - `qa-node <script.cjs>` - Node with `require('playwright')` (Chromium
   included, no download), `require('viem')` and `require('qa-wallet')`
-  resolvable from any directory. Scripts are CommonJS: name them `.cjs`. For
+  resolvable from any directory. It kills a script that runs past its default
+  deadline, so none can hang; a `timeout <s>` prefix ends one sooner. Scripts
+  are CommonJS: name them `.cjs`. For
   an ES module, `await import(process.env.QA_WALLET_MODULE)` (set by
   `qa-node`) gives the wallet helper.
 - `require('qa-kit')` - what every script shares: `connect(runDir)` attaches
@@ -56,7 +60,10 @@ Every Claude session has these on PATH, whatever the project:
   Chromium that outlives the scripts driving it, logged in and on the page,
   with the wallet when `--chain-id` is given. It returns once the page is
   open and writes its console, redacted, to `<run>/qa-session-console.log`.
-  `qa-session stop <run>` ends it. Unrecorded: probes run here.
+  `qa-session stop <run>` ends it. Unrecorded: probes run here. With
+  `--storage-state`, the login the app renews is written back to that file
+  as scripts detach, on stop and on SIGTERM, the old one kept as `.bak`, so
+  the saved login stays usable from run to run.
 - `qa-mp4 <in.webm> <out.mp4>` - H.264 mp4 that GitHub plays inline. It
   trims a static lead-in (a still screen from the first 1.5 s, cut to its
   last 0.5 s, never a later one) and prints the offset: cite timestamps from
@@ -103,6 +110,9 @@ All outside any checkout, so nothing is committed by accident.
 
 If the user did not ask for QA, or `AskUserQuestion` is unavailable, stop and
 touch nothing: no run directory, worktree, app or question. Say why in one line.
+If this session already carries other work, say once that a fresh session
+costs far less, with the `/qa ...` line to paste, and go on unless the user
+switches.
 
 ### 1. Resolve the PR and its repos
 
@@ -161,9 +171,9 @@ Spawn a fresh planner subagent in the foreground. Brief: read
 instructions verbatim (or "none: derive scope from the acceptance criteria and
 diff"); `<run>/repos.md`, `<run>/pr.diff` and the `QA.md` sections it needs;
 any conflict between them; the test data step 1 resolved; whether the wallet
-is available; the run directory. It returns the plan, prerequisites, blockers
-and, for each repo in the set without a `QA.md`, a draft at
-`<run>/QA-<repo>.md`.
+is available; the run directory. It writes the plan to `<run>/plan.md` and
+returns its path, blockers, the funds each spending item needs and, for each
+repo in the set without a `QA.md`, a draft at `<run>/QA-<repo>.md`.
 
 ### 3. Unblock
 
@@ -171,9 +181,15 @@ Research before you ask, as your instructions say: plan the open questions
 yourself, group them, and launch one research agent per group (start the
 app, read the code, check a URL) before your first question. When the
 instructions only name what to QA, the topics are yours to plan. Ask the rest
-one per `AskUserQuestion`, with concrete options. A missing `QA.md`, the PR repo's or a host's, is a blocker: show the
-draft, ask about each gap it lists one at a time, then ask whether to commit
-it (close-out says where). Fold the answers into the plan.
+one per `AskUserQuestion`, with concrete options. A missing `QA.md`, the PR
+repo's or a host's, is a blocker: show the draft, ask about each gap it lists
+one at a time, then ask whether to commit it (close-out says where). Fold the
+answers into `<run>/plan.md`.
+
+Check the funds the plan names for each spending item now, not in the
+executor: `qa-wallet balance` for the QA wallet, one probe of the balance
+screen for the app's own. A shortfall is a blocker: ask the user to top up or
+say where the token comes from.
 
 When the user picks a draft host PR for a new API the host does not consume
 yet, spawn a background agent, in parallel with login: on its own branch in a
@@ -183,9 +199,9 @@ install of the subject is never committed.
 
 ### 4. Approve
 
-Show the final plan: each item's id, kind (happy or unhappy), steps, expected
+Show the final plan from `<run>/plan.md`: each item's id, kind (happy or unhappy), steps, expected
 result and evidence. Ask the user to approve it or say what to change. Repeat
-until approved. No plan item runs before this, and nothing is recorded or
+until approved, editing the file to match. No plan item runs before this, and nothing is recorded or
 published: only the setup of steps 1 to 3 has run, such as the worktree, the
 app, login and probes.
 
@@ -196,7 +212,9 @@ When a plan item needs a logged-in session and step 1 did not log in, use
 or expired (the app lands on its login page), on a Mac run a `qa-node` script
 that opens Chromium **headed** on the login URL, waits for the user to log in
 and close the tab (`page.waitForEvent('close', { timeout: 0 })`), then saves
-`context.storageState({ path })`. Ask the user before opening it. First
+`context.storageState({ path })`. Ask the user before opening it. Any other
+context on the saved login, a login check included, goes through `qa-session`
+or qa-kit, which write the renewed login back. First
 follow the login link headless as far as the identity provider's page and
 screenshot it: an error there (a bad redirect URL) is a Fail to report, not
 something to send the user into. On a host without a display, ask the user
@@ -204,18 +222,22 @@ how to proceed.
 
 ### 6. Execute
 
+Right before each executor spawn, `gh pr view <n> --json headRefOid` must
+still match step 1's. If the head moved, tell the user and ask whether to
+restart from step 1.
+
 Spawn a fresh executor subagent. Brief: read
-`${CLAUDE_SKILL_DIR}/references/executor.md` and follow it; the approved plan
-verbatim; `<run>/repos.md` (each repo's path and the commit it must be at),
+`${CLAUDE_SKILL_DIR}/references/executor.md` and follow it; the approved plan,
+`<run>/plan.md`; `<run>/repos.md` (each repo's path and the commit it must be at),
 `<run>/pr.diff` and the `QA.md` sections it needs; the URL the app is
 already running at (it must not start a second one); the run directory; the
 auth file paths; whether the wallet is available, its balances from step 1
 and, if available, `${CLAUDE_SKILL_DIR}/references/wallet.md`; the scripts
 directory `~/.cache/qa/<owner>/<repo>/scripts/<host>/` and an index of it, so it reads only the files it needs - each file's name and
 exported functions, from `rg -n --no-heading '^(async )?function |module\.exports|^exports\.' <scripts>`.
-It returns a verdict per item (Pass, Fail or Unverified), each with its
-artifacts, repro steps for every Fail, and knowledge worth adding to each
-repo's `QA.md`. Brief a rerun with the previous run's findings and tell it
+It writes the results to `<run>/results.md` and its proposed `QA.md` lines to
+`<run>/qa-md-notes.md`, and returns a verdict per item (Pass, Fail or
+Unverified) with those paths. Brief a rerun with the previous run's findings and tell it
 to start from the scripts directory.
 
 ### 7. Check the evidence
@@ -223,7 +245,7 @@ to start from the scripts directory.
 Spawn a fresh evidence-checker subagent, never the executor. Brief: read
 `${CLAUDE_SKILL_DIR}/references/evidence-checker.md` and follow it; the plan;
 every repo's commit from `<run>/repos.md`; the executor's verdicts, the
-commits it reported and artifact paths. It returns the verdicts with every
+commits it reported and `<run>/results.md`. It returns the verdicts with every
 Pass its artifacts do not show turned Unverified, and why.
 
 ### 8. Publish
@@ -257,7 +279,7 @@ never `#<n>` (that resolves to this repo) or shorthand.
 
 - Update `QA.md` after every run, so the next run starts where this one
   ended: what launched the app, how login worked, flaky steps, what worked
-  and what did not, from the executor's knowledge and the conflicts the plan
+  and what did not, from `<run>/qa-md-notes.md` and the conflicts the plan
   named. First list the improvements and ask the user which to make and
   which not. Sort the approved ones by the repo whose code each is
   about, one diff per repo, and scan each for secrets and sensitive data

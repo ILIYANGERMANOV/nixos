@@ -12,6 +12,8 @@ Base instructions for every agent.
   the plan may skip it until hand-over.
 - Start every task with `git fetch origin main`. Branch from `origin/main` and
   diff against it, so you never build on or compare with a stale checkout.
+- Open a file with a bounded Read before you edit it: Edit refuses a file
+  this session has not read.
 
 ## Asking
 
@@ -51,13 +53,15 @@ costs rework, tech debt and bugs.
 - Run subagents in the background by default. Use the foreground only when your
   very next step needs the result and nothing else can usefully happen
   meanwhile, so you stay free to do other work and the person can steer.
+  A subagent waits for the agents it spawned: ending its turn is its
+  hand-back.
 - Trust a subagent's verified report and the CI results, and never re-fetch
   package indexes.
 - A subagent works with `git -C <path>` or on its own branch. It never checks
   out the branch the orchestrator's worktree holds: git refuses a branch
   another worktree has checked out.
-- Hand back in 300 words or fewer, unless the invoked skill sets its own
-  return format. Detail goes in commits, the PR or a file.
+- Hand back in about 250 words, never over 300, unless the invoked skill
+  sets its own return format. Detail goes in commits, the PR or a file.
   Relay a hand-back to the user only when it changes what they need to know.
 
 ## Checks
@@ -102,10 +106,12 @@ step.
   for a commit that is not the branch head, or for your own action (your
   push, `ready_for_review`), needs nothing: end the turn without a tool call.
   Where subscribing is unavailable or refused, run `gh pr checks <n> --watch`
-  as a background Bash command (`run_in_background`) instead; it exits 8 while
-  checks are pending, which is not a failure.
-- Fanning out in parallel, launch one agent first and the rest after it, so
-  they share its cached prefix.
+  as a background Bash command (`run_in_background`) instead, with no `sleep`
+  in front, even right after a push; it exits 8 while checks are pending,
+  which is not a failure.
+- Fanning out in parallel, spawn the agents in one message. Only the system
+  prefix is shared, so launch one first and the rest after it only when no
+  agent spawned in the last 5 minutes.
 
 ## Writing for people
 

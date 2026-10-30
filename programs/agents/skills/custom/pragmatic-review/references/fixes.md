@@ -11,7 +11,7 @@ none unless the fixes are large. Your budgets are the bar's
 P=<pass1-head>
 HEAD_SHA=$(git rev-parse HEAD)        # for a PR: fetch pull/<n>/head, use FETCH_HEAD
 git merge-base --is-ancestor "$P" "$HEAD_SHA" && echo ancestor
-D=/tmp/review-$HEAD_SHA-fixes; mkdir -p "$D"
+D=<scratchpad>/review-$HEAD_SHA-fixes; mkdir -p "$D"   # your scratchpad directory
 git diff "$P" > "$D/diff"             # the fixes, uncommitted work included
 git diff --stat "$P" > "$D/stat"
 git diff --shortstat "$P"

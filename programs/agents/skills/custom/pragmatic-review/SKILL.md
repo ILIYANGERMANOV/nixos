@@ -103,7 +103,7 @@ Both end in the report below, then the pickers.
 Facts first, the call last: a verdict read first anchors the reader. The order
 is fixed - answered or open intent-unclear test questions, the table, the
 requirement verdicts, the security line, the verdict line. Delegated, the
-whole return is at most about 400 words, and its last line is
+whole return aims for 350 words and never passes 400, and its last line is
 `Reviewed head: <full sha>` - the sha a re-review takes as `--fixes <sha>`.
 
 **The table.** Skip it entirely when nothing survived - no empty table, no
@@ -120,8 +120,8 @@ fields". A row rated from an answer to an intent question says so.
 
 Pre-existing blockers go one line each under the table.
 
-**The requirement verdicts.** Every requirement gets one line: the verdict, the
-requirement, and what was actually examined, written from its agent's return.
+**The requirement verdicts.** Every requirement gets one line of about 30
+words: the verdict, the requirement, and what was actually examined, written from its agent's return.
 An agent that returned no verdict is ⚠️, saying so. Every ❌ is also a row,
 Major by default.
 

@@ -1,8 +1,9 @@
 # House-rules agent - wrong approach, house rules
 
-The bar in your prompt applies. Invoke the `engineering` skill with the Skill
-tool, and `ui-coding` too if the diff touches UI. Those are the house rules;
-this brief does not restate them. Tests belong to the tests agent: leave them
+The bar in your prompt applies. Your first step: invoke the `engineering`
+skill with the Skill tool, and `ui-coding` too if the diff touches UI. Those
+are the house rules; this brief does not restate them, and you judge none
+without them loaded. Tests belong to the tests agent: leave them
 alone.
 
 This is a fast pass from the patch, inside the bar's budget. `rg` to settle
@@ -59,12 +60,12 @@ A rule finding has no failing input, so its `trigger` carries what the
 violation makes possible - the state left representable, the code now kept in
 sync by hand.
 
-Its `evidence` quotes **the rule verbatim, with file and line**, next to the
-offending lines. The orchestrator never loads the rules: it judges on your
+Its `evidence` quotes **the rule verbatim, with its file** (a line number only when
+you have one), next to the offending lines. The orchestrator never loads the rules: it judges on your
 quote alone and drops a paraphrase.
 
 ```
-evidence    engineering/SKILL.md:34 "DRY: do not repeat yourself."
+evidence    engineering/SKILL.md "DRY: do not repeat yourself."
             vs src/report.ts:40-58, the third copy of the same formatter.
 ```
 
