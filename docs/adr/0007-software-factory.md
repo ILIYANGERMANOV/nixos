@@ -180,7 +180,10 @@ and taking no input (`modules/nixos/server/ops.nix`):
   `factory-ctl root-shells` runs daily and roots, in `~/.gcroots/<repo>`, the
   default dev shell and flake inputs of each repository's `origin/main`, one
   generation each, so a GC does not send the next `nix develop` back to the
-  binary caches. Shells of other branches stay unrooted. `keep-outputs` is off:
+  binary caches. `nix print-dev-env --profile` builds and roots each shell
+  without running its shellHook, which is code from the repository that an
+  unattended timer has no reason to execute. Shells of other branches stay
+  unrooted. `keep-outputs` is off:
   it roots nothing for a `nix develop` without a profile, and would pin the
   build-time closure of everything else that is live.
   Before collecting it unregisters the result links builds left in `/tmp` or
@@ -191,6 +194,6 @@ and taking no input (`modules/nixos/server/ops.nix`):
   roots in `~/.gcroots` and `nix develop --profile` generations are left
   alone. `factory-ctl free-disk` deletes the agent's own such links without
   root, systemd-tmpfiles ages `/tmp` out after three days,
-  and an hourly check starts `factory-gc` whenever less than 20% of `/` is
+  and an hourly check starts `factory-gc` whenever less than 15% of `/` is
   free, above Nix's `min-free` on every size, so it fires before Nix collects
   mid-build.

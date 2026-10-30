@@ -26,6 +26,7 @@ cmd_free_disk() {
 # which a `nix develop` leaves unrooted, so a GC does not cost the next session
 # minutes of downloads. Bounded: one shell generation and the locked inputs per
 # repository, replaced on every run. One failure does not stop the rest.
+# print-dev-env, because `nix develop -c` would run main's shellHook unattended.
 cmd_root_shells() {
   local repo status=0
   for repo in $(cloned_repos); do
@@ -49,7 +50,7 @@ root_shell() {
   for path in $inputs; do
     nix-store --realise --add-root "$dir/inputs/${path##*/}" "$path" >/dev/null || return 1
   done
-  nix develop "$flake" --profile "$dir/default" -c true >/dev/null || return 1
+  nix print-dev-env "$flake" --profile "$dir/default" >/dev/null || return 1
   nix profile wipe-history --profile "$dir/default"
 }
 

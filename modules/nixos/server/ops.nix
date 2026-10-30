@@ -28,7 +28,7 @@ let
   # long before the weekly timer would. Above min-free on every size in
   # resources.nix, so it fires first: min-free collects in the middle of a
   # build, which then stalls on it.
-  gcBelowFreePercent = 20;
+  gcBelowFreePercent = 15;
   gcOnPressure = pkgs.writeShellScript "factory-gc-on-pressure" ''
     read -r avail size < <(df -B1 --output=avail,size / | tail -n 1)
     if [ $((avail * 100)) -lt $((size * ${toString gcBelowFreePercent})) ]; then

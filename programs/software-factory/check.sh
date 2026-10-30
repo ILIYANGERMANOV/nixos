@@ -466,7 +466,7 @@ not_called "new test"
 
 # ─── Dev shell roots ─────────────────────────────────────────────────────────
 
-echo "root-shells: roots main's shell and locked inputs, replaced each run, never a flake-less repo"
+echo "root-shells: roots main's shell and locked inputs without its hook, replaced each run, never a flake-less repo"
 reset
 git init --quiet --bare --initial-branch main "$work/flaked.git"
 git clone --quiet "$work/flaked.git" "$work/flaked" 2>/dev/null
@@ -483,7 +483,8 @@ ln -s /nix/store/old-source "$HOME/.gcroots/shop/inputs/old-source"
 exits 1 factory-ctl root-shells
 grep -q "could not root the dev shell of broken" "$work/out" || fail "the failed repository is not named"
 shop="git+file://$HOME/repos/shop?ref=refs/remotes/origin/main"
-called "nix develop $shop --profile $HOME/.gcroots/shop/default -c true"
+called "nix print-dev-env $shop --profile $HOME/.gcroots/shop/default"
+[ ! -e "$GH/shell-hook-ran" ] || fail "root-shells ran a shellHook"
 called "nix profile wipe-history --profile $HOME/.gcroots/shop/default"
 [ "$(find "$HOME/.gcroots/shop/inputs" -mindepth 1 -printf '%f\n' | sort | paste -sd ' ')" = "a-source b-source" ] || fail "the input roots are not exactly the locked inputs"
 [ -L "$HOME/.gcroots/broken/inputs/a-source" ] || fail "a repository without a shell lost its input roots"

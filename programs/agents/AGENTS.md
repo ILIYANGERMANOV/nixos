@@ -82,7 +82,9 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 - Run anything expected to take over a minute with `run_in_background`. It
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
   A subagent's background task dies at its hand-back and nothing wakes it, so a
-  subagent runs it in the foreground with `timeout: 600000` instead.
+  subagent runs it in the foreground with `timeout: 600000` instead. If it may
+  pass 10 minutes and a rerun resumes it, the subagent runs it under `timeout
+  590` and reruns it on exit 124, since the wait guard blocks waiting on a log.
 - Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
   as `.{0,250}` as too complex.
 
