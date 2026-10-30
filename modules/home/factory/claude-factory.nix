@@ -145,5 +145,25 @@ in
       };
       Install.WantedBy = [ "default.target" ];
     };
+
+    factory-root-shells = {
+      Unit = keepOld // {
+        Description = "Keep the repositories' main dev shells and flake inputs from GC";
+      };
+      Service = {
+        Type = "oneshot";
+        ExecStart = "${lib.getExe ctl} root-shells";
+        Environment = [ "PATH=${path}" ];
+      };
+    };
+  };
+
+  systemd.user.timers.factory-root-shells = {
+    Unit.Description = "Root the repositories' main dev shells daily";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
   };
 }

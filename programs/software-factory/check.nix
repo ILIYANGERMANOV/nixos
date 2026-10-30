@@ -151,6 +151,10 @@ let
 
   fakeNix = pkgs.writeShellScriptBin "nix" ''
     echo "nix $*" >>"$CALLS"
+    case "$1 $2" in
+      "flake archive") cat "$GH/flake-archive.json"; exit ;;
+      develop*broken*) exit 1 ;;
+    esac
     [ ! -e "$GH/build-fails" ] && echo "${work}/systems/new"
   '';
 
@@ -166,6 +170,7 @@ let
   fakeNixStore = pkgs.writeShellScriptBin "nix-store" ''
     echo "nix-store $*" >>"$CALLS"
     [ "$2" != --print-dead ] || echo "$HOME/garbage"
+    [ "$1" != --realise ] || ln -sfn "$4" "$3"
   '';
 
   fakeTailscale = pkgs.writeShellScriptBin "tailscale" ''

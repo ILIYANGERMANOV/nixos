@@ -176,9 +176,13 @@ and taking no input (`modules/nixos/server/ops.nix`):
   credential to the server out of GitHub.
 - `factory-rollback`, `factory-reboot` and `factory-gc` may be started by
   `factory` through one polkit rule. GC keeps the current and previous
-  generation of every profile, which is all a rollback reaches. Dev shells are
-  not rooted (#192 chose a bigger disk over pinning them), so a GC can make
-  the next `nix develop` fetch one again from the binary caches.
+  generation of every profile, which is all a rollback reaches.
+  `factory-ctl root-shells` runs daily and roots, in `~/.gcroots/<repo>`, the
+  default dev shell and flake inputs of each repository's `origin/main`, one
+  generation each, so a GC does not send the next `nix develop` back to the
+  binary caches. Shells of other branches stay unrooted. `keep-outputs` is off:
+  it roots nothing for a `nix develop` without a profile, and would pin the
+  build-time closure of everything else that is live.
   Before collecting it unregisters the result links builds left in `/tmp` or
   a `~/.cache` for two days: Nix registers each as an indirect GC root, and
   forgotten ones once pinned 18 GB that no GC could free. Root removes only
@@ -187,5 +191,5 @@ and taking no input (`modules/nixos/server/ops.nix`):
   roots in `~/.gcroots` and `nix develop --profile` generations are left
   alone. `factory-ctl free-disk` deletes the agent's own such links without
   root, systemd-tmpfiles ages `/tmp` out after three days,
-  and an hourly check starts `factory-gc` whenever less than 10% of `/` is
-  free.
+  and an hourly check starts `factory-gc` whenever free space on `/` is under
+  1.5 times Nix's `min-free`, so it fires before Nix collects mid-build.

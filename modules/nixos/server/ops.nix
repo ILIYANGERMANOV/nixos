@@ -24,12 +24,14 @@ let
   };
   maintenance = factory.mkMaintenance { inherit stateDir; };
 
-  # Below this share of free space on / the hourly check starts factory-gc,
-  # long before the weekly timer would.
-  gcBelowFreePercent = 10;
+  # Below this much free space on / the hourly check starts factory-gc, long
+  # before the weekly timer would. Half as much again as Nix's own min-free,
+  # whatever the machine's size, so it fires first: min-free collects in the
+  # middle of a build, which then stalls on it.
+  gcBelowFreeBytes = config.nix.settings.min-free * 3 / 2;
   gcOnPressure = pkgs.writeShellScript "factory-gc-on-pressure" ''
-    read -r avail size < <(df -B1 --output=avail,size / | tail -n 1)
-    if [ $((avail * 100)) -lt $((size * ${toString gcBelowFreePercent})) ]; then
+    read -r avail < <(df -B1 --output=avail / | tail -n 1)
+    if [ "$avail" -lt ${toString gcBelowFreeBytes} ]; then
       systemctl start --no-block factory-gc.service
     fi
   '';
@@ -86,7 +88,7 @@ in
       factory-rollback = oneshot "Roll back to the previous system generation" "${lib.getExe maintenance} rollback";
       factory-reboot = oneshot "Reboot, unless booted less than 10 minutes ago" "${lib.getExe maintenance} reboot";
       factory-gc = oneshot "Keep two generations per profile and collect garbage" "${lib.getExe maintenance} gc";
-      factory-gc-pressure = oneshot "Collect garbage when less than ${toString gcBelowFreePercent}% of / is free" gcOnPressure;
+      factory-gc-pressure = oneshot "Collect garbage when / nears Nix's min-free" gcOnPressure;
     };
 
     systemd.timers = {

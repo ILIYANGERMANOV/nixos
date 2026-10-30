@@ -186,7 +186,7 @@ let
 
   # The CLI the admin agent drives the box with, and the only thing its skills
   # call. Idempotent throughout; see ctl/main.sh for the commands. systemctl,
-  # gh and nix-store come from PATH, like the launchers' systemctl: the unit
+  # gh, nix and nix-store come from PATH, like the launchers' systemctl: the unit
   # and login environments provide them, and the check substitutes doubles.
   #
   #   opsStateDir    - where the root units record their results

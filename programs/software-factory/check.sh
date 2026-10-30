@@ -464,6 +464,31 @@ factory-deploy >/dev/null
 not_called "new test"
 [ "$(posted)" = "in_progress success" ] || fail "posted $(posted)"
 
+# ─── Dev shell roots ─────────────────────────────────────────────────────────
+
+echo "root-shells: roots main's shell and locked inputs, replaced each run, never a flake-less repo"
+reset
+git init --quiet --bare --initial-branch main "$work/flaked.git"
+git clone --quiet "$work/flaked.git" "$work/flaked" 2>/dev/null
+touch "$work/flaked/flake.nix"
+git -C "$work/flaked" add flake.nix
+git -C "$work/flaked" commit --quiet -m flake
+git -C "$work/flaked" push --quiet origin main
+git clone --quiet "$work/flaked.git" "$HOME/repos/shop"
+git clone --quiet "$work/flaked.git" "$HOME/repos/broken"
+clone_repo plain
+echo '{"path": "/nix/store/a-source", "inputs": {"x": {"path": "/nix/store/b-source", "inputs": {"y": {"path": "/nix/store/a-source"}}}}}' >"$GH/flake-archive.json"
+mkdir -p "$HOME/.gcroots/shop/inputs"
+ln -s /nix/store/old-source "$HOME/.gcroots/shop/inputs/old-source"
+exits 1 factory-ctl root-shells
+grep -q "could not root the dev shell of broken" "$work/out" || fail "the failed repository is not named"
+shop="git+file://$HOME/repos/shop?ref=refs/remotes/origin/main"
+called "nix develop $shop --profile $HOME/.gcroots/shop/default -c true"
+called "nix profile wipe-history --profile $HOME/.gcroots/shop/default"
+[ "$(find "$HOME/.gcroots/shop/inputs" -mindepth 1 -printf '%f\n' | sort | paste -sd ' ')" = "a-source b-source" ] || fail "the input roots are not exactly the locked inputs"
+[ -L "$HOME/.gcroots/broken/inputs/a-source" ] || fail "a repository without a shell lost its input roots"
+not_called "repos/plain?"
+
 # ─── Skills ──────────────────────────────────────────────────────────────────
 
 # Two farms holding the same skill, as two generations do.

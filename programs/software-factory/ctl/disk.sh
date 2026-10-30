@@ -6,9 +6,9 @@
 # ~/.cache for two days, and Nix store paths nothing refers to.
 # Kept: the Hackage index and cabal store and Nix's evaluation cache, so the
 # next build in a repository stays fast, and /qa's login state and scripts,
-# so the next QA run needs no login and no rewrite. Dev shells are not
-# rooted, so the store garbage includes any nobody is in; they come back from
-# the binary caches.
+# so the next QA run needs no login and no rewrite. Each repository's main
+# dev shell is rooted by root-shells; any other shell is store garbage once
+# nobody is in it, and comes back from the binary caches.
 
 # Where the /qa skill keeps its login state, scripts and runs, per repository.
 qa_dir="$HOME/.cache/qa"
@@ -20,6 +20,37 @@ cmd_free_disk() {
     apply) apply_disk ;;
     *) die "usage: factory-ctl free-disk plan|apply" ;;
   esac
+}
+
+# root-shells: roots what `nix develop` needs on each repository's origin/main,
+# which a `nix develop` leaves unrooted, so a GC does not cost the next session
+# minutes of downloads. Bounded: one shell generation and the locked inputs per
+# repository, replaced on every run. One failure does not stop the rest.
+cmd_root_shells() {
+  local repo status=0
+  for repo in $(cloned_repos); do
+    root_shell "$repo" || {
+      echo "factory-ctl: could not root the dev shell of $repo" >&2
+      status=1
+    }
+  done
+  return "$status"
+}
+
+# Inputs come first, so a repository without a default shell still keeps them.
+root_shell() {
+  local repo="$1" dir="$HOME/.gcroots/$1" flake inputs path
+  flake="git+file://$repos_dir/$repo?ref=refs/remotes/origin/main"
+  git -C "$repos_dir/$repo" fetch --quiet origin main || return 1
+  git -C "$repos_dir/$repo" cat-file -e origin/main:flake.nix 2>/dev/null || return 0
+  inputs=$(nix flake archive --json "$flake" | jq -r '[.. | .path? // empty] | unique | .[]') || return 1
+  rm -rf "$dir/inputs"
+  mkdir -p "$dir/inputs"
+  for path in $inputs; do
+    nix-store --realise --add-root "$dir/inputs/${path##*/}" "$path" >/dev/null || return 1
+  done
+  nix develop "$flake" --profile "$dir/default" -c true >/dev/null || return 1
+  nix profile wipe-history --profile "$dir/default"
 }
 
 plan_disk() {
