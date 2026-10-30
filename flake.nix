@@ -104,11 +104,6 @@
           # the skills directory and foreground waits blocked, all else allowed.
           claude-bash-guards = import ./programs/claude-code/bash-guards-check.nix { inherit pkgs; };
 
-          # The software factory's Claude policy (billing and permission mode),
-          # its repo scripts against a real git, and on Linux its egress rules
-          # through `nft --check`.
-          software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
-
           # That the Playwright environment given to agent sessions resolves
           # `require('playwright')` from an empty directory and finds Chromium,
           # which on Linux it also launches headless.
@@ -143,6 +138,11 @@
         # session browser shared by probe processes with redacted capture.
         # Linux only, as the Darwin sandbox cannot launch Chromium.
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          # The software factory's Claude policy (billing and permission mode),
+          # its repo scripts against a real git, and its egress rules through
+          # `nft --check`. Linux only, like the factory: darwin's procps has no
+          # pgrep, which factory-ctl needs.
+          software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }
       );
