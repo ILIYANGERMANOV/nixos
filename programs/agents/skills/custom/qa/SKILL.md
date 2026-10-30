@@ -1,7 +1,6 @@
 ---
 name: qa
-description: QAs a pull request in any repo and publishes the proof to it. Reads the QA.md of every repo in the test, the PR's and the hosts it runs in (drafting one when absent), plans with a subagent from the instructions or the PR's acceptance criteria and diff, asks the user to unblock it one question at a time, always gets the plan approved, drives the app in a headless browser with Playwright (an EVM wallet helper included), records a happy-path video first, then unhappy-path videos and key screenshots, has a fresh subagent downgrade any Pass its evidence does not show, and replaces a `## QA` section in the PR body. Reports bugs, never fixes them. Proposes QA.md updates and asks before committing them.
-disable-model-invocation: true
+description: QAs a pull request in any repo and publishes the proof to it. Reads the QA.md of every repo in the test, the PR's and the hosts it runs in (drafting one when absent), plans with a subagent from the instructions or the PR's acceptance criteria and diff, asks the user to unblock it one question at a time, always gets the plan approved, drives the app in a headless browser with Playwright (an EVM wallet helper included), records a happy-path video first, then unhappy-path videos and key screenshots, has a fresh subagent downgrade any Pass its evidence does not show, and replaces a `## QA` section in the PR body. Reports bugs, never fixes them. Proposes QA.md updates and asks before committing them. Use only when the user asks to QA a PR or feature, never on your own initiative, and run it in the session that can ask the user, never in a delegated subagent.
 argument-hint: "[instructions] [PR]"
 ---
 
@@ -19,8 +18,9 @@ owns the decisions.
   exception is a draft host PR the user chose in step 3, which an agent writes.
 - **One question per `AskUserQuestion`.** Never batch blockers. Never ask what
   a tool, the code or `QA.md` can answer.
-- **The user always approves the plan** before anything runs, even when
-  nothing is blocked.
+- **The user always approves the plan** before any plan item runs, even when
+  nothing is blocked. That approval goes through `AskUserQuestion`, so QA runs
+  in the session that can ask, never in a delegated subagent.
 - **Headless always.** The one exception is a manual login on a Mac, which the
   user does in a headed window (see Login state).
 - **Evidence or it did not happen.** A verdict without an artifact that shows
@@ -98,6 +98,11 @@ Unverified with that reason, never a failed run.
 All outside any checkout, so nothing is committed by accident.
 
 ## Lifecycle
+
+### 0. Gate
+
+If the user did not ask for QA, or `AskUserQuestion` is unavailable, stop and
+touch nothing: no run directory, worktree, app or question. Say why in one line.
 
 ### 1. Resolve the PR and its repos
 
@@ -180,7 +185,9 @@ install of the subject is never committed.
 
 Show the final plan: each item's id, kind (happy or unhappy), steps, expected
 result and evidence. Ask the user to approve it or say what to change. Repeat
-until approved. Nothing runs before this.
+until approved. No plan item runs before this, and nothing is recorded or
+published: only the setup of steps 1 to 3 has run, such as the worktree, the
+app, login and probes.
 
 ### 5. Login state
 

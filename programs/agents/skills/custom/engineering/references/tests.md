@@ -131,6 +131,11 @@ must hold over every value of the domain.
   permutation of the input and ordered), an algebraic law, an oracle relation.
   A property that computes the expected value with the same algorithm as the
   code proves only that the code equals itself.
+- **Anything that combines has laws.** A merge, reduce, batch or overlay gets
+  an empty value and must not care how calls are grouped: `merge(a, empty) == a`,
+  `merge(merge(a, b), c) == merge(a, merge(b, c))`. A batch must not care how
+  its input is split: `f(a + b) == f(a) + f(b)`. The empty case then needs no
+  branch. Most overlays are not commutative: say so.
 - **Generators cover the edge cases.** Empty, singleton, maximal, unicode,
   duplicates, negative, boundary values. A generator that never produces the
   hard inputs makes the property vacuous.
@@ -207,6 +212,10 @@ it is a false one. Delete it, or rewrite it to assert the observable outcome:
 - It tests the framework or a library rather than our code: that the ORM saves,
   that the JSON encoder encodes.
 - It pins internals: see *Black box*.
+- Its oracle is weak: it checks only existence, non-null, truthiness or a call.
+  Compare the specific value or error.
+- It was never seen red: break the code a new test covers once by hand, watch
+  it fail for the right reason, restore.
 
 ## Wrong tests - contradict the intent
 
@@ -229,8 +238,11 @@ tolerance, `toMatchObject` for `toEqual`, a skipped or deleted case, a
 re-recorded golden nobody read - throws away the only thing the test was
 protecting. A red test means the behavior changed: either the change is a bug,
 fix the code; or the change is intended, update the expectation to the new
-behavior and say so. Refactoring tests keeps every behavior they asserted
-before.
+behavior and say so. When the change was not intended, a test you cannot pass
+honestly, or think is wrong, is reported, never edited in the same breath. Never
+special-case code to a test with a hardcoded output, a branch on its fixture or
+an overloaded equality.
+Refactoring tests keeps every behavior they asserted before.
 
 ## Placement
 

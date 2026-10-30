@@ -1,6 +1,6 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Findings are Major, Minor or Nit; mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
+description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
 argument-hint: "[requirements] [PR number or URL] [--fixes <first-review head sha>]"
 ---
 
@@ -85,8 +85,9 @@ database, secrets) plus common attacks. A `security-sensitive: <topics>`
 requirement forces DEEP and those topics.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
-`engineering` or `ui-coding`, DRY included, is a Minor finding, judged on the
-rule quoted verbatim.
+`engineering` or `ui-coding`, DRY included, is a finding, judged on the rule
+quoted verbatim. It is Minor, unless the bar makes it a Major **data-model
+violation**.
 
 ## The flow
 

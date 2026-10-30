@@ -58,6 +58,8 @@ Then, over the fix diff only:
   requirement names. Keep what you checked for the report's Security line.
   Its `<tier>` is the fix diff's, classified by `first-pass.md` Phase 1; if
   the caller names a higher tier, such as the first review's, keep that one.
+- **The data-model gate**: when the fix diff adds or changes a table, column,
+  field or piece of state, run Job 3 of `references/house-rules.md` over it.
 - **Obvious mistakes and negligence**: the bar's always-check list, and whether
   a fix broke what it touched - its callers one hop out.
 

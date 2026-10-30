@@ -1,6 +1,6 @@
 ---
 name: ui-coding
-description: How to build UI - reuse existing components before writing new ones, slot-based composition, pure presentational components, variant unions over boolean flags, mobile-first layouts that survive long text and overflow, and semantic color tokens so components work in light and dark theme without per-component overrides. Examples are React and Tailwind; the principles apply to any UI framework, Jetpack Compose included. Use whenever writing, modifying or reviewing UI - components, screens, layouts or styling.
+description: How to build UI - reuse existing components before writing new ones, slot-based composition, pure presentational components, minimal state derived during render, variant unions over boolean flags, mobile-first layouts that survive long text and overflow, and semantic color tokens so components work in light and dark theme without per-component overrides. Examples are React and Tailwind; the principles apply to any UI framework, Jetpack Compose included. Use whenever writing, modifying or reviewing UI - components, screens, layouts or styling.
 ---
 
 # UI Coding
@@ -37,6 +37,14 @@ out.
 
 A shared component that fetches its own data is no longer re-usable: it is bound
 to one source, one loading policy and one feature.
+
+## State
+
+Store the minimum: a value computable from props or state is a local value,
+never state set by an effect. Keep the selected id, not a copy of the item.
+Never copy a prop into state unless it is only a seed, named `initial*`. Two
+states kept in sync: lift them to one owner. An effect syncs with an external
+system; logic caused by a user action runs in that action's handler.
 
 ## Slots
 
