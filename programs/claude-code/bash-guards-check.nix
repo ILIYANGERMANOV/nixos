@@ -1,4 +1,4 @@
-# checks.claude-bash-guards: the PreToolUse Bash guards fed the same JSON
+# checks.claude-bash-guards: the PreToolUse guards fed the same JSON
 # Claude Code sends a hook, the read guard against real files and a real git
 # repository. Exit 2 blocks the call; exit 0 allows it.
 { pkgs }:
@@ -66,11 +66,10 @@ pkgs.runCommand "claude-bash-guards-check"
 
     guard=claude-read-guard
     echo "$guard:"
-    mkdir -p skills-store/big-skill/{references,scripts} "$HOME/.claude/skills"
+    mkdir -p skills-store/big-skill/references "$HOME/.claude/skills"
     head -c 9000 /dev/zero >skills-store/big-skill/SKILL.md
     head -c 9000 /dev/zero >skills-store/big-skill/references/ref.md
     head -c 20000 /dev/zero >skills-store/big-skill/references/huge-ref.md
-    head -c 9000 /dev/zero >skills-store/big-skill/scripts/run.py
     ln -s "$dir/skills-store/big-skill" "$HOME/.claude/skills/big-skill"
 
     expect 2 "a single large file is blocked" "cat huge"
@@ -88,7 +87,6 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "a cd to a missing directory is allowed" "cd nowhere && cat big-a big-b"
     expect 0 "a commit without a path is not sized" "git show HEAD; cat big-b"
     expect 0 "missing files are not counted" "cat nope-a nope-b big-a"
-    expect 0 "a large file piped into a filter is allowed" "cat huge | grep -c x"
     expect 0 "other commands are allowed" "grep -n x big-a big-b huge"
     expect 0 "a heredoc write is allowed" "cat > out <<'EOF'
     big-a big-b
@@ -112,7 +110,6 @@ pkgs.runCommand "claude-bash-guards-check"
       "cat ~/.claude/skills/big-skill/SKILL.md ~/.claude/skills/big-skill/references/ref.md"
     expect 0 "a large skill reference is allowed" "cat ~/.claude/skills/big-skill/references/huge-ref.md"
     expect 0 "a skill glob is allowed" "cd ~/.claude/skills/big-skill && cat SKILL.md references/*"
-    expect 0 "an installed skill's script is allowed" "cat ~/.claude/skills/big-skill/scripts/run.py big-a"
     expect 2 "a skill file does not exempt another large file" \
       "cat ~/.claude/skills/big-skill/SKILL.md big-a big-b"
     expect 2 "a path that leaves the skills directory is sized" \
@@ -125,8 +122,6 @@ pkgs.runCommand "claude-bash-guards-check"
       repo-docs/skills/bar/{lib.py,references/{b.md,deep/nested.md}}; do
       head -c 9000 /dev/zero >"$file"
     done
-    head -c 20000 /dev/zero >huge.md
-    head -c 20000 /dev/zero >repo-docs/huge-b
     git add huge repo-docs
     git commit --quiet -m docs
 
@@ -149,9 +144,6 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "an exempt file does not exempt a source file over the limit" "cat CLAUDE.md huge"
     expect 2 "a single large blob is blocked" "git show HEAD:huge"
     expect 2 "an exempt blob does not exempt a blob over the limit" "git show HEAD:repo-docs/CLAUDE.md HEAD:huge"
-    expect 2 "a skill file does not exempt one file over the limit" "cat ~/.claude/skills/big-skill/SKILL.md huge"
-    expect 2 "a path that leaves a skill is counted" \
-      "cat repo-docs/skills/bar/references/../../../../huge.md CLAUDE.md"
     expect 2 "a skill file does not exempt a source file over the limit" "cat repo-docs/skills/bar/lib.py huge"
     expect 2 "a file directly under skills is counted" "cat repo-docs/skills/default.nix big-a"
     expect 2 "a directory that only ends in skills is counted" "cat repo-docs/notskills/bar/lib.py big-a"

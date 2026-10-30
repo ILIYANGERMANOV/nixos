@@ -8,10 +8,8 @@ redirected to a file or piped into another command dumps nothing into context,
 and heredoc bodies are data, not commands. Files agents are told to read in
 full are exempt: instruction files and anything in a skill. What is exempt is
 decided on the path as typed, normalised but with links unfollowed: the guard
-stops accidents, it is not a security boundary. Relative operands resolve
-against the directory the last `cd` in the chain moved to. Everything else
-exits 0, including any input this script does not understand: the guard fails
-open.
+stops accidents, it is not a security boundary. Everything else exits 0,
+including any input this script does not understand: the guard fails open.
 """
 
 import glob
@@ -46,9 +44,11 @@ def main() -> None:
         cwd = event.get("cwd") or os.getcwd()
         match event.get("tool_name"):
             case "Read":
-                size, hint = read_tool_size(tool_input, cwd), READ_HINT
+                size = read_tool_size(tool_input["file_path"], tool_input.get("limit"), cwd)
+                hint = READ_HINT
             case _:
-                size, hint = sum(read_sizes(tool_input["command"], cwd)), BASH_HINT
+                size = sum(read_sizes(tool_input["command"], cwd))
+                hint = BASH_HINT
     except Exception:
         sys.exit(0)
 
@@ -57,14 +57,22 @@ def main() -> None:
         sys.exit(2)
 
 
-def read_tool_size(tool_input: dict, cwd: str) -> int:
+def read_tool_size(file_path: str, limit: int | None, cwd: str) -> int:
     """What a Read tool call puts into context, 0 where it is bounded or exempt."""
-    path = resolve(cwd, tool_input["file_path"])
+    path = resolve(cwd, file_path)
     media = os.path.splitext(path)[1].lower() in MEDIA
-    bounded = tool_input.get("limit") is not None
-    if media or bounded or is_exempt(path) or not os.path.isfile(path):
+    if media or limit is not None or is_exempt(path) or not os.path.isfile(path):
         return 0
     return os.path.getsize(path)
+
+
+def resolve(cwd: str, path: str) -> str:
+    return os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
+
+
+def is_exempt(path: str) -> bool:
+    """Whether agents are told to read this normalised path in full."""
+    return os.path.basename(path) in INSTRUCTIONS or bool(SKILL_FILE.fullmatch(path))
 
 
 def read_sizes(command: str, cwd: str) -> Iterator[int]:
@@ -79,7 +87,7 @@ def read_sizes(command: str, cwd: str) -> Iterator[int]:
             case (["cd"], _):
                 cwd = os.path.expanduser("~")
             case (["cd", target], _):
-                cwd = os.path.join(cwd, os.path.expanduser(target))
+                cwd = resolve(cwd, target)
             case (["cat", *args], Sink.SCREEN):
                 for pattern in operands(args):
                     yield from file_sizes(cwd, pattern)
@@ -101,15 +109,6 @@ def file_sizes(cwd: str, pattern: str) -> Iterator[int]:
     for found in glob.glob(path) or [path]:
         if os.path.isfile(found) and not is_exempt(found):
             yield os.path.getsize(found)
-
-
-def resolve(cwd: str, path: str) -> str:
-    return os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
-
-
-def is_exempt(path: str) -> bool:
-    """Whether agents are told to read this normalised path in full."""
-    return os.path.basename(path) in INSTRUCTIONS or bool(SKILL_FILE.fullmatch(path))
 
 
 def blob_sizes(repo: str, args: list[str]) -> Iterator[int]:

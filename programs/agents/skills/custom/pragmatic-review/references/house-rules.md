@@ -3,8 +3,7 @@
 The bar in your prompt applies. Your first step: invoke the `engineering`
 skill with the Skill tool, and `ui-coding` too if the diff touches UI. Those
 are the house rules; this brief does not restate them, and you judge none
-without them loaded. Tests belong to the tests agent: leave them
-alone.
+without them loaded. Tests belong to the tests agent: leave them alone.
 
 This is a fast pass from the patch, inside the bar's budget. `rg` to settle
 one question - does this helper already exist, is there a token for this colour -

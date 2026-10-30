@@ -78,8 +78,7 @@ outcome. A refuted finding is dropped silently.
   with side effects.
 
 **Return in about 250 words, never over 300**, no preamble: `NONE`, or one
-block per finding, at
-most 60 words each.
+block per finding, at most 60 words each.
 
 ```
 file:line
