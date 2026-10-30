@@ -111,6 +111,53 @@ pkgs.runCommand "claude-bash-guards-check"
       "cat ~/.claude/skills/big-skill/SKILL.md big-a big-b"
     expect 2 "a path that leaves the skills directory is sized" \
       "cat ~/.claude/skills/../../$(basename "$dir")/big-a big-b"
+
+    mkdir -p repo-docs/skills/custom/foo/references repo-docs/skills/bar/references/deep
+    for name in AGENTS.md CLAUDE.md SKILL.md factory-instructions.md; do
+      head -c 6000 /dev/zero >"$name"
+      head -c 6000 /dev/zero >"repo-docs/$name"
+    done
+    head -c 6000 /dev/zero >repo-docs/skills/custom/foo/references/a.md
+    head -c 6000 /dev/zero >repo-docs/skills/bar/references/b.md
+    head -c 6000 /dev/zero >repo-docs/skills/bar/references/source.py
+    head -c 6000 /dev/zero >repo-docs/skills/bar/references/deep/nested.md
+    head -c 20000 /dev/zero >huge.md
+    git add huge repo-docs
+    git commit --quiet -m docs
+    review=$(mktemp -d /tmp/review-XXXXXX)
+    mkdir "$review/sub"
+    for name in stat log index diff diff.txt; do
+      head -c 6000 /dev/zero >"$review/$name"
+    done
+    head -c 6000 /dev/zero >"$review/sub/stat"
+
+    expect 0 "instruction files read together are allowed" \
+      "cat AGENTS.md CLAUDE.md SKILL.md factory-instructions.md"
+    expect 0 "instruction files are exempt by basename anywhere" "cat repo-docs/CLAUDE.md repo-docs/SKILL.md"
+    expect 0 "skill references read together are allowed" \
+      "cat repo-docs/skills/custom/foo/references/a.md repo-docs/skills/bar/references/*.md"
+    expect 0 "review files read together are allowed" "cat $review/stat $review/log $review/index"
+    expect 0 "instruction blobs read together are allowed" "git show HEAD:repo-docs/CLAUDE.md HEAD:repo-docs/SKILL.md"
+    expect 0 "reference blobs read together are allowed" \
+      "git -C $dir show HEAD:repo-docs/skills/custom/foo/references/a.md HEAD:repo-docs/skills/bar/references/b.md"
+    expect 0 "an exempt file leaves a small sibling allowed" "cat CLAUDE.md big-a"
+
+    expect 2 "an exempt file does not exempt a source file over the limit" "cat CLAUDE.md huge"
+    expect 2 "an exempt blob does not exempt a blob over the limit" "git show HEAD:repo-docs/CLAUDE.md HEAD:huge"
+    expect 2 "a skill file does not exempt one file over the limit" "cat ~/.claude/skills/big-skill/SKILL.md huge"
+    expect 2 "the review diff stays counted" "cat $review/stat $review/diff $review/log big-a"
+    expect 2 "a dotted path to the review diff stays counted" "cat $review/sub/../diff big-a"
+    expect 2 "a suffixed review diff stays counted" "cat $review/diff.txt big-a"
+    expect 2 "a glob over a review directory counts its diff" "cat $review/* big-a"
+    expect 2 "a nested review file stays counted" "cat $review/sub/stat big-a"
+    expect 2 "a path that leaves the review directory is counted" "cat $review/../..$dir/huge CLAUDE.md"
+    expect 2 "a relative path that leaves the review directory is counted" "cd $review && cat ../..$dir/huge $dir/CLAUDE.md"
+    expect 2 "a path that leaves a references directory is counted" \
+      "cat repo-docs/skills/bar/references/../../../../huge.md CLAUDE.md"
+    expect 2 "a non-markdown file under references is counted" "cat repo-docs/skills/bar/references/source.py big-a"
+    expect 2 "a nested file under references is counted" "cat repo-docs/skills/bar/references/deep/nested.md big-a"
+    head -c 6000 /dev/zero >NOTCLAUDE.md
+    expect 2 "a name that only ends like an instruction file is counted" "cat NOTCLAUDE.md big-a"
     shared_failopen
 
     guard=claude-wait-guard

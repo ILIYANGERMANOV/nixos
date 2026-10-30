@@ -5,16 +5,18 @@ operands name two or more files totalling over MAX_BYTES exits 2, which makes
 Claude Code block the call and show stderr to the model. Only reads whose
 output reaches the screen count: one redirected to a file or piped into
 another command dumps nothing into context, and heredoc bodies are data, not
-commands. Files under the installed skills directory never count: agents are
-told to read a skill and its references in full. Relative operands resolve
-against the directory the last `cd` in the chain moved to. Everything else
-exits 0, including any input this script does not understand: the guard fails
-open.
+commands. Files agents are told to read in full add no bytes: instruction
+files, skill references, the installed skills directory and a review
+directory's files except its diff. They still count as a file, so one beside a
+single file over the limit is blocked. Relative operands resolve against the
+directory the last `cd` in the chain moved to. Everything else exits 0,
+including any input this script does not understand: the guard fails open.
 """
 
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -28,6 +30,10 @@ HINT = (
     "read one large file per command."
 )
 SKILLS = os.path.expanduser("~/.claude/skills")
+INSTRUCTIONS = {"AGENTS.md", "CLAUDE.md", "SKILL.md", "factory-instructions.md"}
+# `custom/` is the repository's own copy of the skill catalog.
+SKILL_REFERENCE = re.compile(r"(?:.*/)?skills/(?:custom/)?[^/]+/references/[^/]+\.md")
+REVIEW_FILE = re.compile(r"/tmp/review-[^/]+/[^/]+")
 
 
 def main() -> None:
@@ -79,27 +85,44 @@ def operands(args: list[str]) -> list[str]:
 def file_sizes(cwd: str, pattern: str) -> Iterator[int | None]:
     """One size per file the operand names: a glob may name several.
 
-    A skill file is not sized. The farm links each skill into the store, so a
-    read through its store path is still counted.
+    An exempt file adds no bytes. The farm links each skill into the store, so
+    a read through its store path is still counted, unless its basename exempts it.
     """
     path = os.path.normpath(os.path.join(cwd, os.path.expanduser(pattern)))
     for found in glob.glob(path) or [path]:
-        match (os.path.isfile(found), is_skill_file(found)):
+        match (os.path.isfile(found), is_exempt(found)):
             case (True, False):
                 yield os.path.getsize(found)
+            case (True, True):
+                yield 0
             case _:
                 yield None
 
 
-def is_skill_file(path: str) -> bool:
-    return os.path.commonpath([path, SKILLS]) == SKILLS
+def is_exempt(path: str) -> bool:
+    """Whether agents are told to read this normalised path in full.
+
+    Any name holding `diff` under a review directory stays counted, so a copy
+    such as `diff.txt` cannot slip past. A review file is only one directly
+    under the directory: a nested one may be a checkout.
+    """
+    name = os.path.basename(path)
+    return any(
+        [
+            path.startswith(f"{SKILLS}/"),
+            name in INSTRUCTIONS,
+            SKILL_REFERENCE.fullmatch(path),
+            REVIEW_FILE.fullmatch(path) and "diff" not in name.lower(),
+        ]
+    )
 
 
 def blob_sizes(repo: str, args: list[str]) -> Iterator[int | None]:
     for arg in args:
         match arg.partition(":"):
             case (rev, ":", path) if path:
-                yield object_size(repo, f"{rev}:{path}")
+                exempt = is_exempt(os.path.normpath(path))
+                yield 0 if exempt else object_size(repo, f"{rev}:{path}")
             case _:
                 pass
 
