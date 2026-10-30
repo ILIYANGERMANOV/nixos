@@ -25,9 +25,9 @@ merges, since fixers use it too.
 `~/.10x/<run>/briefs/<task>.md`, with every field. No pasted research: paths.
 
 ```markdown
-# <task> - delegated
+# <task>
 
-Mode: delegated. Run `engineer`'s `## Delegated` section.
+Mode: delegated.
 
 ## The user's words
 
@@ -63,11 +63,6 @@ Security-sensitive: <topics, or none>
 ## Notes
 
 <research note paths; on a retry, why the last try failed>
-
-## Status vocabulary
-
-Your hand-back starts with exactly one of: `READY <PR URL>`,
-`NEEDS_DECISION <question>`, `BLOCKED <reason>`, `FAILED <reason>`.
 ```
 
 ## Spawn prompt
@@ -86,8 +81,9 @@ Invoke `engineering` first. Worktree: <path>, use it for every command. PR:
 <URL>, base <base>. Fix: <the failing check and its log, the review comments,
 or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
 HEAD`. After a rebase push with `git push --force-with-lease origin HEAD`.
-Hand back in about 250 words, never over 300, starting with the status from the
-brief's vocabulary, plus the new head SHA.
+Hand back in about 250 words, never over 300, starting with exactly one of
+`READY <PR URL>`, `NEEDS_DECISION <question>`, `BLOCKED <reason>` or
+`FAILED <reason>`, plus the new head SHA.
 ```
 
 A rebase fixer also runs `git range-diff <old head>...HEAD` and reports `CLEAN`
