@@ -119,17 +119,13 @@ yourself, spawn blockers only if it hits, and spawn neither regressions nor
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.
 
-**At most five agents run at once.** Past that, launch the remaining
-requirement agents as earlier ones return.
-
 **Spawn in the foreground**, `run_in_background: false`, staggered so siblings
 reuse the cached prompt prefix: the first agent alone in one message, then all
 the others together in the next. Never end a turn while a review agent is
 running: an orchestrator that spawned in the background handed back before its
 agents returned.
 
-**Every prompt starts with the same shared block**, byte-identical across
-agents, so the cache serves it:
+**Every prompt starts with the same shared block:**
 
 1. The bar: everything below the `---` line of `references/bar.md`, pasted
    verbatim. You read it once, for this.
