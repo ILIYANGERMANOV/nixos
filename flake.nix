@@ -125,6 +125,13 @@
           # turn CI red with no change to this repo. Sees only the committed
           # `.typos.toml`, never the private global allowlist.
           typos = (import ./programs/typos { inherit pkgs; }).mkCheck self;
+
+          # Static analysis of .github/: pinned actions, token permissions,
+          # credential persistence. Offline, against `.github/zizmor.yml`.
+          zizmor = import ./programs/zizmor/check.nix {
+            inherit pkgs;
+            src = self;
+          };
         }
         # That a .kt file gets kotlin_lsp running the binary programs/kotlin
         # packages, ktlint as its formatter, and that <leader>tt runs

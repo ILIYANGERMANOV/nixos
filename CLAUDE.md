@@ -87,9 +87,10 @@ wrong tool for iterating.
    `nix eval --raw .#darwinConfigurations.<host>.system.drvPath` (`macos-main`, `macos-work`).
    An added, moved or re-pointed import: `nix develop -c just architecture`
    (Deslop, under a second).
-4. `just quick-check` before handing back mid-work: lint, architecture, format and every
+4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor`.
+5. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system, no host evaluation, a few seconds warm.
-5. `just check` once on the final state, in the background. Never after a
+6. `just check` once on the final state, in the background. Never after a
    docs-only edit, and never with a build, lint or test chained in front of it.
 
 ## Dependency Updates

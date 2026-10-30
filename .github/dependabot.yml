@@ -7,7 +7,7 @@ updates:
       day: "friday"
     # Disable the commit cooldown window so llm-agents can update
     cooldown:
-      default-days: 0
+      default-days: 0 # zizmor: ignore[dependabot-cooldown] llm-agents must update at once
     ignore:
       - dependency-name: "lanzaboote"
     # Three groups, not one. A nixpkgs rev whose darwin closure is not cached
@@ -66,6 +66,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "friday"
+    cooldown:
+      default-days: 7
     groups:
       ci-updates:
         patterns:

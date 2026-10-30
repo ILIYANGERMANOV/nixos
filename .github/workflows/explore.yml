@@ -35,13 +35,13 @@ jobs:
     steps:
       # The PR head, not the merge commit, with full history: that is what
       # source links and the Diff view read. On main, the pushed commit.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload the page
         if: steps.preview.outcome == 'success'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: explorer-preview
           path: deslop/diagram/index.html
@@ -138,13 +138,13 @@ jobs:
       # Static pages, never run. `.nojekyll` and other PRs' folders stay as
       # they are.
       - if: steps.open.outputs.open == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: gh-pages
-          path: site
+          path: site # zizmor: ignore[artipacked] the push to gh-pages below needs this token
 
       - if: steps.open.outputs.open == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: explorer-preview
           path: ${{ runner.temp }}/preview

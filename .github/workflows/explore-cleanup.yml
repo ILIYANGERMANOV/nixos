@@ -39,10 +39,10 @@ jobs:
 
       # Static pages, never run.
       - if: steps.site.outputs.exists == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: gh-pages
-          path: site
+          path: site # zizmor: ignore[artipacked] the push to gh-pages below needs this token
 
       # As in the deploy: on a rejected push, start again from the new tip.
       - name: Remove from gh-pages
