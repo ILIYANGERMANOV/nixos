@@ -191,5 +191,6 @@ and taking no input (`modules/nixos/server/ops.nix`):
   roots in `~/.gcroots` and `nix develop --profile` generations are left
   alone. `factory-ctl free-disk` deletes the agent's own such links without
   root, systemd-tmpfiles ages `/tmp` out after three days,
-  and an hourly check starts `factory-gc` whenever free space on `/` is under
-  1.5 times Nix's `min-free`, so it fires before Nix collects mid-build.
+  and an hourly check starts `factory-gc` whenever less than 20% of `/` is
+  free, above Nix's `min-free` on every size, so it fires before Nix collects
+  mid-build.
