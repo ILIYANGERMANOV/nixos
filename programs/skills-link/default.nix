@@ -3,18 +3,22 @@
 # wrapper and programs/software-factory. Linux only: `mv --exchange`.
 #
 # The scratch directory is exchanged with the live one, so a path lookup never
-# misses, and the previous links stay in it until the next run, so a reader that
-# already opened them still lists every skill.
+# misses, and the previous links stay in `old` until the next run, so a reader
+# that already opened them still lists every skill. A bare `claude-factory`
+# takes no lock, so runs overlap: each fills a scratch of its own, and an
+# exchange leaves every directory whole, so no run needs to wait for another.
 { pkgs }:
 
 pkgs.writeShellApplication {
   name = "factory-link-skills";
   runtimeInputs = [ pkgs.coreutils ];
   text = ''
-    live="$HOME/.claude/skills" scratch="$HOME/.claude/.skills.old"
-    rm -rf "$scratch"
-    mkdir -p "$scratch" "$live"
+    live="$HOME/.claude/skills" old="$HOME/.claude/.skills.old"
+    mkdir -p "$live" "$old"
+    scratch=$(mktemp -d "$HOME/.claude/.skills.XXXXXX")
+    trap 'rm -rf "$scratch"' EXIT
     ln -s "$1"/* "$scratch/"
     mv --exchange --no-target-directory "$scratch" "$live"
+    mv --exchange --no-target-directory "$scratch" "$old"
   '';
 }

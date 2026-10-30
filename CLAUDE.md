@@ -89,7 +89,7 @@ wrong tool for iterating.
    (Deslop, under a second).
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor`.
 5. `just quick-check` before handing back mid-work: lint, architecture, format and every
-   `checks` derivation for this system, no host evaluation, a few seconds warm.
+   `checks` derivation for this system, no full host evaluation, a few seconds warm.
 6. `just check` once on the final state, in the background. Never after a
    docs-only edit, and never with a build, lint or test chained in front of it.
 
@@ -316,6 +316,8 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   root deploy and maintenance scripts (`ops/`), the admin agent's project
   (`admin/`) and the egress nftables rules. `checks.software-factory`
   (`check.nix`, scenarios in `check.sh`) tests them.
+  `checks.software-factory-activation` reads the relink hook off the host's Home
+  Manager config, a lazy partial eval.
 - **The admin agent runs the box; `factory-ctl` is its only tool.** Add an
   admin capability as a `factory-ctl` command with a scenario in `check.sh`,
   then a skill in `admin/skills/` that calls it. Skills there are

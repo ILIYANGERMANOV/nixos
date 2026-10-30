@@ -33,7 +33,8 @@ SKILLS = os.path.expanduser("~/.claude/skills")
 INSTRUCTIONS = {"AGENTS.md", "CLAUDE.md", "SKILL.md", "factory-instructions.md"}
 # `custom/` is the repository's own copy of the skill catalog.
 SKILL_REFERENCE = re.compile(r"(?:.*/)?skills/(?:custom/)?[^/]+/references/[^/]+\.md")
-REVIEW_FILE = re.compile(r"/tmp/review-[^/]+/[^/]+")
+# Matched against a resolved path: /tmp is itself a link on macOS.
+REVIEW_FILE = re.compile(rf"{re.escape(os.path.realpath('/tmp'))}/review-[^/]+/[^/]+")
 
 
 def main() -> None:
@@ -85,12 +86,16 @@ def operands(args: list[str]) -> list[str]:
 def file_sizes(cwd: str, pattern: str) -> Iterator[int | None]:
     """One size per file the operand names: a glob may name several.
 
-    An exempt file adds no bytes. The farm links each skill into the store, so
-    a read through its store path is still counted, unless its basename exempts it.
+    An exempt file adds no bytes, and what is exempt is where a link lands, so
+    a link to a source file counts as that file. The skills directory is the
+    exception: the farm links each skill into the store, so it is tested
+    unresolved, and a read through a store path is still counted, unless its
+    basename exempts it.
     """
     path = os.path.normpath(os.path.join(cwd, os.path.expanduser(pattern)))
     for found in glob.glob(path) or [path]:
-        match (os.path.isfile(found), is_exempt(found)):
+        exempt = found.startswith(f"{SKILLS}/") or is_exempt(os.path.realpath(found))
+        match (os.path.isfile(found), exempt):
             case (True, False):
                 yield os.path.getsize(found)
             case (True, True):
@@ -109,7 +114,6 @@ def is_exempt(path: str) -> bool:
     name = os.path.basename(path)
     return any(
         [
-            path.startswith(f"{SKILLS}/"),
             name in INSTRUCTIONS,
             SKILL_REFERENCE.fullmatch(path),
             REVIEW_FILE.fullmatch(path) and "diff" not in name.lower(),

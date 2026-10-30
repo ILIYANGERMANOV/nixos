@@ -119,6 +119,7 @@ pkgs.runCommand "claude-bash-guards-check"
       head -c 6000 /dev/zero >"$file"
     done
     head -c 20000 /dev/zero >huge.md
+    head -c 20000 /dev/zero >repo-docs/huge-b
     git add huge repo-docs
     git commit --quiet -m docs
     review=$(mktemp -d /tmp/review-XXXXXX)
@@ -146,6 +147,14 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "a suffixed review diff stays counted" "cat $review/diff.txt big-a"
     expect 2 "a glob over a review directory counts its diff" "cat $review/* big-a"
     expect 2 "a nested review file stays counted" "cat $review/sub/stat big-a"
+    ln -s "$dir/huge" "$review/link-a"
+    ln -s "$dir/repo-docs/huge-b" "$review/link-b"
+    ln -s "$review/diff" "$review/alias"
+    expect 2 "links in a review directory count their targets" "cat $review/link-a $review/link-b"
+    expect 2 "a link to the review diff stays counted" "cat $review/alias big-a"
+    mkdir linked
+    ln -s "$dir/huge" linked/CLAUDE.md
+    expect 2 "a link named like an instruction file counts its target" "cat linked/CLAUDE.md big-a"
     expect 2 "a path that leaves the review directory is counted" "cat $review/../..$dir/huge CLAUDE.md"
     expect 2 "a relative path that leaves the review directory is counted" "cd $review && cat ../..$dir/huge $dir/CLAUDE.md"
     expect 2 "a path that leaves a references directory is counted" \
@@ -191,6 +200,11 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "a poll after an assignment is blocked" "D=/tmp bash -c 'until [ -f x ]; do sleep 5; done'"
     expect 2 "a long sleep under timeout is blocked" "timeout 60 sleep 30"
     expect 2 "a wait after a flake reference is blocked" "nix build .#foo; sleep 30"
+    expect 2 "a wait after a flake reference in bash -c is blocked" "bash -c 'nix build .#foo; sleep 30'"
+    expect 2 "a double-quoted bash -c keeps its flake reference apart" "bash -c \"nix build .#foo; sleep 30\""
+    expect 2 "a nested bash -c keeps its flake reference apart" "bash -c \"bash -c 'nix build .#foo; sleep 30'\""
+    expect 2 "an until around a bash -c condition is blocked" "until bash -c 'test -f x'; do sleep 5; done"
+    expect 2 "a while around a wrapped condition is blocked" "while timeout 60 bash -c 'pgrep foo'; do sleep 2; done"
     expect 2 "tail -f is blocked" "tail -f build.log"
     expect 2 "tail -F is blocked" "tail -F build.log"
     expect 2 "tail --follow is blocked" "tail --follow build.log"
@@ -202,6 +216,9 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "tail -f in bash -c is blocked" "bash -c 'tail -f build.log'"
     expect 0 "a commented-out wait is allowed" "ls # sleep 30"
     expect 0 "a one-shot script in bash -c is allowed" "bash -c 'echo hi; ls'"
+    expect 0 "a commented-out wait in bash -c is allowed" "bash -c 'ls # sleep 30'"
+    expect 0 "a bash -c in a loop without a sleep is allowed" "while read l; do bash -c 'echo hi'; done < f"
+    expect 0 "a short sleep after a bash -c condition is allowed" "if bash -c 'true'; then sleep 2; fi"
     expect 0 "a short sleep in bash -c is allowed" "bash -c 'sleep 2'"
     expect 0 "a build under nix develop is allowed" "nix develop -c bash -c 'just test'"
     expect 0 "a command under timeout is allowed" "timeout 600 just test"

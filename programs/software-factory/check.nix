@@ -207,6 +207,7 @@ pkgs.runCommand "software-factory-check"
       remoteControl.repo
       remoteControl.admin
       relinkSkills
+      (import ../skills-link { inherit pkgs; })
       ctl
       boot
       deploy

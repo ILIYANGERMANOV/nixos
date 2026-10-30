@@ -150,6 +150,12 @@
           # `nft --check`. Linux only, like the factory: darwin's procps has no
           # pgrep, which factory-ctl needs.
           software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
+          # That the factory's home activation runs the relink: a farm factory-gc
+          # may collect is otherwise never moved off.
+          software-factory-activation =
+            assert pkgs.lib.hasInfix "factory-relink-skills"
+              self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaudeSkills.data;
+            pkgs.emptyFile;
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }
       );

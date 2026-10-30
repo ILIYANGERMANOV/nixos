@@ -13,8 +13,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 
 ANALYZER = ""
@@ -87,18 +89,20 @@ class Transcript:
     def bash(self, t: float, command: str, done: float, **kw: object) -> str:
         return self.tool(t, "Bash", done, command=command, **kw)
 
-    def siblings(self, done: float, *calls: tuple[float, str, dict]) -> None:
-        """One response of several (streamed at, tool, input) calls, written as Claude Code does:
-        one line per block, stamped when that block finished streaming. All results land at `done`."""
+    def siblings(self, *calls: tuple[float, str, dict, float]) -> None:
+        """One response of several (streamed at, tool, input, done) calls, written as Claude Code does:
+        one line per block, stamped when that block finished streaming, and each result where it landed,
+        so a tool finishing mid-stream answers between the lines of its own response."""
         self.calls += 1
         response = f"msg_{self.calls}"
-        ids = []
-        for t, name, tool_input in calls:
+        lines: list[tuple[float, Callable[[], None]]] = []
+        for t, name, tool_input, done in calls:
             self.calls += 1
-            ids.append(f"toolu_{self.calls}")
-            self.tool_use(t, response, ids[-1], name, tool_input)
-        for use_id in ids:
-            self.tool_result(done, use_id)
+            use_id = f"toolu_{self.calls}"
+            lines.append((t, partial(self.tool_use, t, response, use_id, name, tool_input)))
+            lines.append((done, partial(self.tool_result, done, use_id)))
+        for _, write in sorted(lines, key=lambda line: line[0]):
+            write()
 
     def notify(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
         return self.event(t, "queue-operation", operation="enqueue", content=notification(use_id, status, summary))
@@ -214,12 +218,23 @@ class WallTime(Case):
     def test_sibling_calls_are_timed_from_the_end_of_their_response(self) -> None:
         # Given: a quick mkdir streamed before a Write whose block took 60s to stream
         main = Transcript().human(0, "go")
-        main.siblings(102, (40, "Bash", {"command": "mkdir -p /tmp/x"}), (100, "Write", {"file_path": "/tmp/x/a"}))
+        main.siblings((40, "Bash", {"command": "mkdir -p /tmp/x"}, 102), (100, "Write", {"file_path": "/tmp/x/a"}, 102))
         self.home.session("s1", main)
         # When
         report = self.home.report()
         # Then: neither call is charged the 60s of streaming
         self.assertEqual(row(report, "Wall time per Bash command", "mkdir")[5], "2s")
+        self.assertEqual(row(report, "Wall time per tool", "Write")[5], "2s")
+
+    def test_a_call_finishing_mid_stream_is_timed_from_its_own_line(self) -> None:
+        # Given: a Read answered at 45 while its response streamed on until 100
+        main = Transcript().human(0, "go")
+        main.siblings((40, "Read", {"file_path": "/a"}, 45), (100, "Write", {"file_path": "/b"}, 102))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then: the Read keeps its 5s and is not moved past its own result
+        self.assertEqual(row(report, "Wall time per tool", "Read")[5], "5s")
         self.assertEqual(row(report, "Wall time per tool", "Write")[5], "2s")
 
     def test_a_subagent_background_start_is_timed_to_its_notification(self) -> None:
@@ -354,6 +369,50 @@ class RedundantChecks(Case):
         # Then
         self.assertIn("Build/test steps run before a full check with no edit between: 2, 1m.", report)
         self.assertIn("| nix run .#test -- -m parser | 60s |", report)
+
+    def test_an_edit_sent_before_a_check_in_one_response_is_a_change(self) -> None:
+        # Given: an Edit and a rerun of a check, sibling calls of one response
+        main = Transcript().human(0, "go")
+        main.bash(10, "just check", 70)
+        main.siblings((80, "Edit", {"file_path": "/repo/src/Main.hs"}, 91), (90, "Bash", {"command": "just check"}, 150))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Reruns with nothing changed since the same check: 0, 0m.", report)
+
+    def test_an_edit_sent_after_a_check_in_one_response_is_a_change_for_the_next_run(self) -> None:
+        # Given: a check and an Edit, sibling calls of one response, then the check again
+        main = Transcript().human(0, "go")
+        main.siblings((80, "Bash", {"command": "just check"}, 150), (90, "Edit", {"file_path": "/repo/src/Main.hs"}, 151))
+        main.bash(160, "just check", 220)
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Reruns with nothing changed since the same check: 0, 0m.", report)
+
+    def test_an_edit_sent_after_a_test_in_one_response_keeps_the_test_out_of_the_chain(self) -> None:
+        # Given: a test step and an Edit, sibling calls of one response, then a full check
+        main = Transcript().human(0, "go")
+        main.siblings((80, "Bash", {"command": "nix run .#test"}, 150), (90, "Edit", {"file_path": "/repo/src/Main.hs"}, 151))
+        main.bash(160, "just check", 220)
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Build/test steps run before a full check with no edit between: 0, 0m.", report)
+
+    def test_a_sibling_of_a_check_that_changes_nothing_leaves_it_a_rerun(self) -> None:
+        # Given: a Read beside a rerun of a check
+        main = Transcript().human(0, "go")
+        main.bash(10, "just check", 70)
+        main.siblings((80, "Read", {"file_path": "/repo/src/Main.hs"}, 91), (90, "Bash", {"command": "just check"}, 150))
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("Reruns with nothing changed since the same check: 1, 1m.", report)
 
     def test_a_python_heredoc_writing_a_file_counts_as_a_change(self) -> None:
         # Given: three edits made by a Python heredoc, each between two runs of a check

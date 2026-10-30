@@ -540,6 +540,29 @@ wait "$reader"
 rm -f "$work/stop-reading"
 [ ! -e "$work/skill-missing" ] || fail "a reader saw the skill missing during a relink"
 
+echo "factory-link-skills: overlapping runs all succeed, and a reader never sees none"
+skills_reset
+factory-link-skills "$work/farm-a"
+(
+  while [ ! -e "$work/stop-reading" ]; do
+    [ -n "$(ls -A "$skills")" ] || touch "$work/skills-empty"
+  done
+) &
+reader=$!
+(
+  for _ in $(seq 200); do
+    { factory-link-skills "$work/farm-a" || touch "$work/link-failed"; } 2>/dev/null &
+    { factory-link-skills "$work/farm-b" || touch "$work/link-failed"; } 2>/dev/null &
+  done
+  wait
+)
+touch "$work/stop-reading"
+wait "$reader"
+rm -f "$work/stop-reading"
+[ ! -e "$work/link-failed" ] || fail "a link run aborted while another ran"
+[ ! -e "$work/skills-empty" ] || fail "a reader saw ~/.claude/skills empty"
+[ -z "$(find "$HOME/.claude" -maxdepth 1 -name '.skills.??????')" ] || fail "a scratch directory was left behind"
+
 echo "factory-relink-skills: waits for the lock, and gives up without failing"
 skills_reset
 factory-relink-skills "$work/farm-a"

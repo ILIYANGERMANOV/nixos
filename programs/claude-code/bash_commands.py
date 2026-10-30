@@ -11,8 +11,9 @@ PIPES = {"|", "|&"}
 # `<<` or `<<-`, then the delimiter, bare or quoted. `<<<` is a here-string.
 HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 # Bash starts a comment only at a word's start; shlex anywhere, so `.#ci` would
-# swallow the rest of the command.
-MID_WORD_HASH = re.compile(r"(?<=[^\s;&|()<>])#")
+# swallow the rest of the command. A `bash -c` script is split again with the
+# escape still on it, and a second one would escape the backslash, not the hash.
+MID_WORD_HASH = re.compile(r"(?<=[^\s;&|()<>\\])#")
 
 
 class Sink(Enum):

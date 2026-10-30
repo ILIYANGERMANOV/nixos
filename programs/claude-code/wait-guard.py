@@ -67,7 +67,8 @@ def is_wait(command: str) -> bool:
 def split_keywords(command: str) -> Iterator[tuple[list[str], list[str]]]:
     """Each simple command as the compound keywords before it and its own words.
 
-    The script of a `bash -c` stands in for the shell, so what it runs counts.
+    The script of a `bash -c` stands in for the shell, so what it runs counts,
+    under the keywords before that shell: `until bash -c ...` is still a loop.
     """
     for simple in simple_commands(command):
         words = simple.words
@@ -79,7 +80,8 @@ def split_keywords(command: str) -> Iterator[tuple[list[str], list[str]]]:
             case None:
                 yield keywords, inner
             case script:
-                yield from split_keywords(script)
+                for script_keywords, script_words in split_keywords(script):
+                    yield keywords + script_keywords, script_words
 
 
 def unwrap(words: list[str]) -> list[str]:
