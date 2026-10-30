@@ -177,15 +177,10 @@ async function checkLoginSaved() {
   const auth = path.join(work, 'auth.json');
   fs.writeFileSync(auth, JSON.stringify(loginState(app, 'v0')));
   const script = (name, route, tail) => {
-    const file = path.join(work, `${name}.cjs`);
-    fs.writeFileSync(file, `const { openContext } = require('qa-kit');
-(async () => {
-  const { context, close } = await openContext({ auth: process.argv[2] });
+    const file = writeScript(name, `const { context, close } = await openContext({ auth: process.argv[2] });
   const page = await context.newPage();
   await page.goto(${JSON.stringify(`${app.url}${route}`)});
-  ${tail}
-})().catch((error) => { console.error(error); process.exit(1); });
-`);
+  ${tail}`);
     return run('qa-node', [file, auth], { env: { ...process.env, QA_NODE_TIMEOUT: '5' } });
   };
 
@@ -213,13 +208,8 @@ async function checkSessionSavesLogin() {
   const runDir = path.join(work, 'session-login-run');
   await run('qa-session', ['start', runDir, '--url', app.url, '--storage-state', auth]);
   const probe = (body) => {
-    const file = path.join(work, 'probe-login.cjs');
-    fs.writeFileSync(file, `const { connect } = require('qa-kit');
-(async () => {
-  const session = await connect(process.argv[2]);
-  ${body}
-})().catch((error) => { console.error(error); process.exit(1); });
-`);
+    const file = writeScript('probe-login', `const session = await connect(process.argv[2]);
+  ${body}`);
     return run('qa-node', [file, runDir]);
   };
 
@@ -238,7 +228,7 @@ async function checkSessionSavesLogin() {
 // version, as a refresh-token rotation does, and whose `/logout` clears it.
 async function loginApp() {
   let version = 0;
-  const server = http.createServer((req, res) => {
+  return listen((req, res) => {
     if (req.url === '/rotate') {
       version += 1;
       res.setHeader('Set-Cookie', `sid=v${version}; Path=/; HttpOnly`);
@@ -247,8 +237,6 @@ async function loginApp() {
     }
     res.end('<!doctype html><p>app</p>');
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() };
 }
 
 function loginState(app, version) {
@@ -285,14 +273,10 @@ async function checkSession() {
   await assert.rejects(run('qa-session', ['start', runDir], { env }), /already running/);
 
   const probe = async (name, body) => {
-    const file = path.join(work, `${name}.cjs`);
-    fs.writeFileSync(file, `const { connect } = require('qa-kit');
-(async () => {
-  const session = await connect(process.argv[2]);
+    const file = writeScript(name, `const session = await connect(process.argv[2]);
   const { page } = session;
   ${body}
-  await session.close();
-})().catch((error) => { console.error(error); process.exit(1); });\n`);
+  await session.close();`);
     return (await run('qa-node', [file, runDir])).stdout.trim();
   };
 
@@ -334,12 +318,29 @@ async function checkSession() {
 // Serves `html` on loopback; the first response waits `firstResponseDelayMs`.
 async function serve(html, { firstResponseDelayMs = 0 } = {}) {
   let delayMs = firstResponseDelayMs;
-  const server = http.createServer((_req, res) => {
+  return listen((_req, res) => {
     setTimeout(() => res.end(html), delayMs);
     delayMs = 0;
   });
+}
+
+// An HTTP server on a free loopback port.
+async function listen(handler) {
+  const server = http.createServer(handler);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() };
+}
+
+// Writes `<work>/<name>.cjs`, a qa-node script running `body` in an async
+// function with qa-kit's connect and openContext in scope, exiting 1 on a throw.
+function writeScript(name, body) {
+  const file = path.join(work, `${name}.cjs`);
+  fs.writeFileSync(file, `const { connect, openContext } = require('qa-kit');
+(async () => {
+  ${body}
+})().catch((error) => { console.error(error); process.exit(1); });
+`);
+  return file;
 }
 
 async function synthesise(out, graph) {
