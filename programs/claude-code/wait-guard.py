@@ -22,7 +22,9 @@ MIN_SLEEP = 10
 HINT = (
     "Blocked: this command waits in the foreground. Run a long command with "
     "run_in_background and wait for its task notification, never polling its "
-    "output; to wait for a condition, use the Monitor tool."
+    "output; to wait for a condition, use the Monitor tool. A subagent's "
+    "background task dies at its hand-back, so a subagent runs the long command "
+    "itself in the foreground with timeout 600000."
 )
 LOOPS = {"until", "while"}
 # Words that may precede a command in a compound statement.
