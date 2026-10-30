@@ -40,10 +40,10 @@ missing docs, your own preferences, and code the diff did not touch.
 ## Job 3 - the data model
 
 Check every table, column, field and piece of state the diff adds or changes,
-schemas and migrations first, against the bar's **data-model violation**. A copy
-of state another owner holds is a derivable value. Job 2's two conditions still
-hold: the rule is written, and the diff plainly contradicts it. Then it is
-**major**. Its `trigger` names what a record can now hold or lose.
+schemas and migrations first, against the bar's **data-model violation**. Job
+2's two conditions still hold: the rule is written, and the diff plainly
+contradicts it. Then it is **major**. Its `trigger` names what a record can now
+hold or lose.
 
 Never a violation: a copy under a named performance need, a value that must
 survive a rule change, or a nullable field the domain maps to a SUM type, only

@@ -18,7 +18,7 @@ owns the decisions.
   exception is a draft host PR the user chose in step 3, which an agent writes.
 - **One question per `AskUserQuestion`.** Never batch blockers. Never ask what
   a tool, the code or `QA.md` can answer.
-- **The user always approves the plan** before anything runs, even when
+- **The user always approves the plan** before any plan item runs, even when
   nothing is blocked. That approval goes through `AskUserQuestion`, so QA runs
   in the session that can ask, never in a delegated subagent.
 - **Headless always.** The one exception is a manual login on a Mac, which the
@@ -98,6 +98,11 @@ Unverified with that reason, never a failed run.
 All outside any checkout, so nothing is committed by accident.
 
 ## Lifecycle
+
+### 0. Gate
+
+If the user did not ask for QA, or `AskUserQuestion` is unavailable, stop and
+touch nothing: no run directory, worktree, app or question. Say why in one line.
 
 ### 1. Resolve the PR and its repos
 
@@ -180,7 +185,9 @@ install of the subject is never committed.
 
 Show the final plan: each item's id, kind (happy or unhappy), steps, expected
 result and evidence. Ask the user to approve it or say what to change. Repeat
-until approved. Nothing runs before this.
+until approved. No plan item runs before this, and nothing is recorded or
+published: only the setup of steps 1 to 3 has run, such as the worktree, the
+app, login and probes.
 
 ### 5. Login state
 

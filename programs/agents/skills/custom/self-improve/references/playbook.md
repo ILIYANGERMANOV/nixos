@@ -14,11 +14,11 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
   run by a fresh sub-implementer, instead of one agent growing for hours.
 - **Bounded reads.** `rg -n`, then a `sed -n` range; a hook blocks multi-file
   reads over 8KB. File reads were 38% of implementer cost.
-- **Same review coverage, at lower cost.** One fresh subagent per review pass,
-  one shared diff file, mechanical checks first, and a second pass on the fix
-  diff only. Historic passes cost 15-30M tokens; the lean one about 80k
-  context. No review agent was dropped for cost: the gain was cheaper context,
-  not less coverage.
+- **Leaner review passes.** One fresh subagent per review pass, one shared diff
+  file, mechanical checks first, and a second pass on the fix diff only.
+  Historic passes cost 15-30M tokens; the lean one about 80k context. No review
+  agent was dropped for cost, but pass 2 on the fix diff is narrower coverage:
+  it no longer sees the rest of the diff. Offer that part as a quality risk.
 - **Short hand-backs** under about 300 words, and no resuming a large agent
   after the prompt cache expired.
 

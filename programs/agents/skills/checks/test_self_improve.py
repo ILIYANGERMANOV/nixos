@@ -258,13 +258,15 @@ class RedundantChecks(Case):
         self.assertIn("| nix run .#test -- -m parser | 60s |", report)
 
     def test_a_python_heredoc_writing_a_file_counts_as_a_change(self) -> None:
-        # Given: two edits made by a Python heredoc, each between two runs of a check
+        # Given: three edits made by a Python heredoc, each between two runs of a check
         main = Transcript().human(0, "go")
         main.bash(10, "just check", 70)
         main.bash(80, "python3 - <<'EOF'\nfrom pathlib import Path\nPath('a.py').write_text('x')\nEOF", 81)
         main.bash(90, "just check", 150)
         main.bash(160, "python3 -I - <<EOF\nwith open('a.py', 'w') as f:\n    f.write('y')\nEOF", 161)
         main.bash(170, "just check", 230)
+        main.bash(240, "python3 - <<'EOF'\nfrom pathlib import Path\nPath('a.py').open('w').write('z')\nEOF", 241)
+        main.bash(250, "just check", 310)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -272,16 +274,18 @@ class RedundantChecks(Case):
         self.assertIn("Reruns with nothing changed since the same check: 0, 0m.", report)
 
     def test_a_python_heredoc_that_only_reads_is_no_change(self) -> None:
-        # Given: a heredoc reading a file between two runs of a check
+        # Given: two heredocs reading a file, each between two runs of a check
         main = Transcript().human(0, "go")
         main.bash(10, "just check", 70)
         main.bash(80, "python3 - <<'EOF'\nprint(open('data.txt').read())\nEOF", 81)
         main.bash(90, "just check", 150)
+        main.bash(160, "python3 - <<'EOF'\nfrom pathlib import Path\nprint(Path('a.txt').open('r').read())\nEOF", 161)
+        main.bash(170, "just check", 230)
         self.home.session("s1", main)
         # When
         report = self.home.report()
         # Then
-        self.assertIn("Reruns with nothing changed since the same check: 1, 1m.", report)
+        self.assertIn("Reruns with nothing changed since the same check: 2, 2m.", report)
 
 
 class Failures(Case):
@@ -519,10 +523,13 @@ class ReviewYield(Case):
 
 class AfterHandback(Case):
     def test_only_prompts_after_the_first_gh_pr_ready_count(self) -> None:
-        # Given: a prompt before `gh pr ready`, then free text and two commands after it
+        # Given: a prompt before the first `gh pr ready`, then free text and two commands
+        # after it, a second ready among them
         main = Transcript().human(0, "go").human(5, "also this")
         main.bash(10, "gh pr ready 1", 11)
-        main.human(20, "why this?").command(30, "final-review").command(40, "give-feedback").reply(50)
+        main.human(20, "why this?")
+        main.bash(25, "gh pr ready 1", 26)
+        main.command(30, "final-review").command(40, "give-feedback").reply(50)
         self.home.session("s1", main)
         self.home.session("s2", Transcript().human(0, "no ready here").human(5, "more").reply(6))
         # When
@@ -544,6 +551,13 @@ class AfterHandback(Case):
 
 
 class Communication(Case):
+    def two_agents_run(self, *commands: str) -> None:
+        first, second = subagent("look"), subagent("look")
+        for t, command in enumerate(commands):
+            first.bash(7 + t, command, 8 + t, result="x" * 1000)
+            second.bash(7 + t, command, 8 + t, result="x" * 1000)
+        self.home.session("s1", idle_main(), {"a": worker("Audit a", first), "b": worker("Audit b", second)})
+
     def test_brief_and_hand_back_sizes_are_reported_by_type_and_step(self) -> None:
         # Given: two implementers, one over the hand-back limit, one too thin
         self.home.session("s1", idle_main(), {
@@ -606,6 +620,15 @@ class Communication(Case):
         # Then: hand-backs, re-reads, re-read chars
         self.assertEqual(row(report, "Agent communication", "implement")[1:4], ["1", "2", "800"])
 
+    def test_a_diff_of_another_worktree_is_a_re_read(self) -> None:
+        # Given: the parent diffs a path it named with `git -C`
+        main = spawning_implementer()
+        main.bash(90, "git -C /repo/worktree diff HEAD~1", 91, result="y" * 300)
+        # When
+        report = self.report_with_implementer(main)
+        # Then: hand-backs, re-reads, re-read chars
+        self.assertEqual(row(report, "Agent communication", "implement")[1:4], ["1", "1", "300"])
+
     def test_a_parent_rerunning_a_check_is_a_re_verify(self) -> None:
         # Given
         main = spawning_implementer()
@@ -667,6 +690,22 @@ class Communication(Case):
         report = self.home.report()
         # Then
         self.assertEqual(row(report, "Agent communication", "s1")[1:], ["/repo/big.py", "2", "2", "1k"])
+
+    def test_a_read_command_run_by_two_agents_is_repeated_work_in_any_form(self) -> None:
+        # Given: two agents running one read command, chained, then through `git -C`
+        self.two_agents_run("cd /repo && sed -n 1,40p big.py 2>/dev/null | head -5 || true", "git -C /repo log -1")
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("by two or more agents of a session: 2, 2k chars repeated.", report)
+
+    def test_a_command_outside_the_read_list_is_no_repeated_read(self) -> None:
+        # Given: two agents running the same commands, none of them a read
+        self.two_agents_run("git push -u origin HEAD", "rm -f /repo/big.py", "rg foo /repo > /tmp/hits", "cd /repo")
+        # When
+        report = self.home.report()
+        # Then
+        self.assertIn("by two or more agents of a session: 0, 0 chars repeated.", report)
 
     def test_an_implementer_rereading_what_research_read_is_a_split(self) -> None:
         # Given: research reads two files, then an implementer reads one of them through

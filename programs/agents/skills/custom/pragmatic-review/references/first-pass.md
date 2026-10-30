@@ -187,8 +187,10 @@ Four exceptions:
   forbid what the agent says, and does the diff plainly do it? A paraphrase is
   dropped. Do not drop a verified one because you find it defensible - the user
   wrote the rule. A Major also needs to be a data-model violation by the bar,
-  with a `trigger` naming what a record can now hold or lose; without that,
-  correct it to Minor.
+  with a `trigger` naming what a record can now hold or lose, or a scream broken
+  today, per Job 1 of `references/house-rules.md`, with a `trigger` naming what
+  breaks, for whom and when; without either, correct it to Minor. A scream
+  quotes no rule, so judge it on that `trigger`.
 - **Test findings** are judged the same way, on the quoted rule or the quoted
   intent. A Major also needs its `trigger` to name the break the test misses,
   the intent it rejects or the old code it passes on; without one, correct it

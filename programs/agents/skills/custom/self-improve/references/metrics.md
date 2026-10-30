@@ -114,7 +114,9 @@ The Agent communication section holds leads for the communication review.
   cost. A `/tmp/....md` path in a hand-back counts as a notes file.
 - **Follow-ups**: `SendMessage` calls.
 - **Repeated work**: identical reads (`Read` of one path and range, or the same
-  read-only Bash command) by two or more agents of a session.
+  read-only Bash command) by two or more agents of a session. A Bash command is
+  read-only when every step of it is on the analyzer's `READ_COMMANDS` list and
+  it redirects no output to a file.
 - **Splits**: implementers reading a file name an earlier research agent read.
 
 ## What only reading can settle
@@ -147,9 +149,15 @@ labels mean its counts are a starting point, not a verdict.
 - Step labels rest on hand-tuned patterns over free-form descriptions: an agent
   doing two steps counts once, and whatever matches nothing lands in `other`.
   Inner review agents the main agent ran directly land in `other` too.
-- A Python edit outside a heredoc (`python -c`, a script file) is not seen as
-  an edit, so the reruns after it are overstated. An opaque script's writes
+- A Python edit outside a `python <<EOF` heredoc (`python -c`, a script file,
+  `cat <<EOF | python3 -`) is not seen as an edit, so the reruns after it are
+  overstated. Neither is a heredoc writing other than through `write_text`,
+  `write_bytes` or `open` (`shutil`, `os.rename`). An opaque script's writes
   stay invisible.
+- `find` and `xargs` can run anything, so they are not read commands, and
+  neither is a shell loop or a `git` flag other than `-C` in front of its
+  subcommand: repeated reads through them are undercounted. A `git diff` inside
+  `$(...)` is not seen as a re-read.
 - File names are matched without their directory, so two files of one name
   count as one. A repeated read compares exact paths and commands, so one file
   read from two worktrees does not count.

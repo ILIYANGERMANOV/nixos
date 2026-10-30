@@ -108,10 +108,10 @@ This skill governs how to model a domain.
 - Programming style: language-idiomatic - write what a senior engineer in that
   language would write. Within that idiom, prefer Haskell-style FP principles:
   immutability, pure functions and a thin effect shell: read, decide in a pure
-  function over plain values, then apply the write conditionally or in a
-  transaction, so a concurrent stock decrement cannot lose an update. Pass time,
-  ids and randomness in. If testing a decision needs a fake, the decision is in
-  the shell.
+  function over plain values, then write, with the read inside the same
+  transaction or the write conditional on what was read, so a concurrent stock
+  decrement cannot lose an update. Pass time, ids and randomness in. If testing
+  a decision needs a fake, the decision is in the shell.
 - Function order: Clean Code top-down. A file reads like a book, the larger
   public functions at the top and the functions they use below them. This
   applies to code you write - do not reorder existing functions unless asked.

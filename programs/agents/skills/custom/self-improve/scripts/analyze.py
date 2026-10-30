@@ -602,7 +602,8 @@ STEP = re.compile(
 )
 CODE_CHANGING_BASH = re.compile(
     r"sed -i|\btee\b|\bcat\s*>|git (pull|merge|rebase|reset|checkout|switch|cherry-pick|am|apply|stash)\b"
-    r"|python[\d.]*\b[^\n]*<<.*?(?:\.write_(?:text|bytes)\(|open\([^)\n]*,\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+])",
+    r"|python[\d.]*\b[^\n]*<<.*?(?:\.write_(?:text|bytes)\(|open\([^)\n]*,\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+]"
+    r"|\.open\(\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+][rbt+]*['\"])",
     re.S,
 )
 SLEEP_LOOP = re.compile(r"\bsleep\s+\d|\buntil\b|\bwhile\b.*\bsleep\b", re.S)
@@ -643,6 +644,8 @@ def step(tokens: list[str]) -> Step | None:
             return None
         case [head, *_] if head in NOT_A_COMMAND:
             return None
+        case ["git", "-C", _, *rest]:
+            return step(["git", *rest])
         case ["nix", "develop", *rest] if {"-c", "--command"} & set(rest):
             flag = next(i for i, t in enumerate(rest) if t in {"-c", "--command"})
             return step(rest[flag + 1 :])
@@ -892,7 +895,13 @@ THIN_WORDS = 20  # too short to carry a result: a stall, or an empty return
 CHARS_PER_TOKEN = 4
 NOTES_FILE = re.compile(r"/tmp/\S+\.md\b")
 FILE_NAME = re.compile(r"[\w.+/-]+\.[A-Za-z]\w{0,7}\b")
-DIFF_COMMAND = re.compile(r"\bgit (diff|show)\b")
+DIFF_COMMANDS = {"git diff", "git show"}
+READ_COMMANDS = DIFF_COMMANDS | {
+    "cat", "sed", "head", "tail", "nl", "rg", "grep", "ls", "wc", "awk", "jq", "sort", "uniq", "cut", "tr", "stat",
+    "file", "diff", "tree", "echo", "printf", "true", "git log", "git status", "git blame", "git grep", "git ls-files",
+    "git rev-parse", "gh pr view", "gh pr diff", "gh run view", "gh issue view",
+}
+OUTPUT_REDIRECT = re.compile(r">>?(?!>|\s*&|\s*/dev/null\b)")
 
 
 def follow_ups(session: Session) -> Iterator[FollowUp]:
@@ -921,7 +930,7 @@ def calls_after_handbacks(parent: Agent, children: list[Agent]) -> Iterator[tupl
 
 
 def is_diff(call: ToolCall) -> bool:
-    return call.name == "Bash" and bool(DIFF_COMMAND.search(call.command)) and not is_edit(call)
+    return call.name == "Bash" and any(s.name in DIFF_COMMANDS for s in steps(call.command)) and not is_edit(call)
 
 
 def read_files(call: ToolCall) -> set[str]:
@@ -940,7 +949,15 @@ def file_names(text: str) -> set[str]:
 
 
 def is_read_only(call: ToolCall) -> bool:
-    return call.name in {"Read", "Bash"} and not is_edit(call) and not is_check_run(call)
+    match call.name:
+        case "Read":
+            return True
+        case "Bash":
+            found = steps(call.command)
+            reads = bool(found) and all(s.name in READ_COMMANDS for s in found)
+            return reads and not OUTPUT_REDIRECT.search(call.command) and not is_edit(call)
+        case _:
+            return False
 
 
 def spawned_again(session: Session) -> Iterator[LoopStep]:
@@ -1100,11 +1117,20 @@ def review_yield(sessions: list[Session]) -> str:
     for name in [*(step.value for step in REVIEW_PASSES), RUN_BY_MAIN]:
         group = [r for r in runs if pass_name(r.source) == name]
         if group:
-            sums = [str(sum(getattr(r.review, count, 0) for r in group)) for count in counts]
+            sums = [str(sum(getattr(review_counts(r.review), count) for r in group)) for count in counts]
             unparsed = sum(1 for r in group if isinstance(r.review, Unparsed))
             rows.append([name, str(len(group)), review_tokens(r.source for r in group), *sums, str(unparsed)])
     header = ["pass", "reports", "tokens", *(c.replace("_", " ") for c in counts), "unparsed"]
     return section("Review yield", header, rows, len(rows)) + "\n\nBy review agent type, before judging:\n\n" + inner_yield(sessions)
+
+
+def review_counts(review: Review) -> ParsedReview:
+    """Every count of a report, 0 for what an unparsed one does not carry."""
+    match review:
+        case ParsedReview():
+            return review
+        case Unparsed(major, minor, nit):
+            return ParsedReview(raised=0, survived=0, major=major, minor=minor, nit=nit, met=0, not_met=0, unverified=0, do_not_merge=0)
 
 
 def pass_name(source: ReviewSource) -> str:

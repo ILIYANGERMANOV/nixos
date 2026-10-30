@@ -123,8 +123,9 @@ its quality impact and the sessions they came from, grouped as:
 Then ask one `AskUserQuestion` per bottleneck, and per audit finding whose fix
 is a real choice, with suggested fixes as options, recommended first. Each
 option states its quality impact. A fix with quality risk is never the
-recommended option. Base each fix on the data or the quoted text, never a
-guess. Fix only what the user approves.
+recommended option: when every option carries one, mark none recommended. Base
+each fix on the data or the quoted text, never a guess. Fix only what the user
+approves.
 `${CLAUDE_SKILL_DIR}/references/playbook.md` holds the fixes that worked
 before.
 
