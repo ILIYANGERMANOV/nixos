@@ -279,12 +279,16 @@ both swap the directory atomically (`factory-link-skills`) instead of wiping it.
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
 `programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Every flavor
 gets every shared skill, `ui-coding` included, because a model-invoked skill
-costs only its description until a task needs it. The one exception is
-`self-improve`, in the `extraSkills` of `claude-factory` and `claude-pm` only:
+costs only its description until a task needs it. There are two exceptions.
+`self-improve` is in the `extraSkills` of `claude-factory` and `claude-pm` only:
 it measures the machine's own transcripts, and on the Macs it relies on the
 `python3` (3.10+) that `modules/home/terminal.nix` installs. Its analyzer
 (`scripts/analyze.py`) is tested by `checks.self-improve` against synthetic
 transcripts, never real ones, because this repository is public.
+`10x-engineer` is in the `extraSkills` of `claude-factory` only: it runs
+delegated `engineer` subagents and leans on the factory's PR wakes and
+notifications. It invokes `engineer` with the Skill tool, so `engineer` must
+never set `disable-model-invocation`.
 Instructions work the same way: `baseInstructions` plus per-flavor
 `extraInstructions`, which only `claude-factory` uses.
 

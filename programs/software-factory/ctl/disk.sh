@@ -6,12 +6,17 @@
 # ~/.cache for two days, and Nix store paths nothing refers to.
 # Kept: the Hackage index and cabal store and Nix's evaluation cache, so the
 # next build in a repository stays fast, and /qa's login state and scripts,
-# so the next QA run needs no login and no rewrite. Each repository's main
-# dev shell is rooted by root-shells; any other shell is store garbage once
-# nobody is in it, and comes back from the binary caches.
+# so the next QA run needs no login and no rewrite. /10x-engineer's worktrees
+# stay too: a task waiting for review is clean, pushed and sessionless, and the
+# run removes them itself. Each repository's main dev shell is rooted by
+# root-shells; any other shell is store garbage once nobody is in it, and comes
+# back from the binary caches.
 
 # Where the /qa skill keeps its login state, scripts and runs, per repository.
 qa_dir="$HOME/.cache/qa"
+
+# Where /10x-engineer keeps its runs and their worktrees.
+tenx_dir="$HOME/.10x"
 
 # free-disk plan | apply: list what would go with sizes, or delete it.
 cmd_free_disk() {
@@ -120,7 +125,7 @@ prunable_worktrees() {
     while read -r wt; do
       [ "$wt" != "$repos_dir/$repo" ] || continue
       # A /qa run's worktree is clean while the run is live: qa_runs decides.
-      case "$wt" in "$qa_dir"/*) continue ;; esac
+      case "$wt" in "$qa_dir"/* | "$tenx_dir"/*) continue ;; esac
       [ -z "$(sessions_under "$wt")" ] || continue
       [ -z "$(local_work "$wt")" ] || continue
       echo "$wt"

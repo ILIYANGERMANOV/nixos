@@ -91,9 +91,13 @@ These are deliberate, and recorded so they are not mistaken for oversights.
 - **Anything running as `factory` holds its credentials.** A prompt injection
   that gets past the classifier can use the Claude login and the bot's GitHub
   access. That is why the bot is a separate account that cannot merge into
-  protected branches, and why nothing of value beyond it lives on the server.
-  On suspicion: revoke the bot's keys and token, sign the server out of the
-  Claude account, rebuild.
+  protected branches on its own, and why nothing of value beyond it lives on
+  the server. It merges to `main` only a PR the user approved, through
+  `/10x-engineer`.
+  GitHub requires the approval and refuses a self-approval, but keeps an
+  approval across later pushes, so tying a merge to the approved commit is that
+  skill's rule, not GitHub's. On suspicion: revoke the bot's keys and token,
+  sign the server out of the Claude account, rebuild.
 - **The bot can push branches that change CI workflows.** Its SSH key is not
   limited by token scopes. Workflows that run on a pushed branch can therefore
   see whatever secrets a repository exposes to such runs. Keeping secrets out

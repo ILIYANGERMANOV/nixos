@@ -212,8 +212,10 @@ in
         # directory the stock rm -rf would empty under them.
         applySkills = farm: "${lib.getExe linkSkills} ${farm}";
         # self-improve measures this box's own transcripts; android describes
-        # the toolchain only the factory has.
+        # the toolchain only the factory has; 10x-engineer relies on its session
+        # tools and unattended rules.
         extraSkills = [
+          "10x-engineer"
           "self-improve"
           "android"
         ];
