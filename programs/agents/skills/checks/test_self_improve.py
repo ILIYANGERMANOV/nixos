@@ -439,6 +439,64 @@ class ReviewYield(Case):
         # Then
         self.assertEqual(row(report, "Review yield", "run by main")[1:5], ["1", "-", "3", "2"])
 
+    def test_a_review_seconds_budget_is_not_a_second_pass(self) -> None:
+        # Given: a first review whose brief mentions seconds
+        sub = subagent(REVIEW_BRIEF + ", 30 seconds per file").handback(7, REVIEW_REPORT)
+        # When
+        report = self.report_with_review(sub)
+        # Then
+        self.assertEqual(row(report, "Review yield", "review 1")[1], "1")
+
+    def test_a_hand_back_wins_over_text_written_after_it(self) -> None:
+        # Given: the last hand-back is the report, and text follows it
+        sub = subagent(REVIEW_BRIEF).handback(7, "1 raised, 1 survived.").handback(8, REVIEW_REPORT)
+        sub.reply(9, text="Handed back.")
+        # When
+        report = self.report_with_review(sub)
+        # Then
+        self.assertEqual(row(report, "Review yield", "review 1")[3:5], ["3", "2"])
+
+    def test_a_review_agent_with_no_recorded_usage_still_shows_its_tokens(self) -> None:
+        # Given: a review agent whose transcript recorded no usage
+        sub = subagent(REVIEW_BRIEF).handback(7, REVIEW_REPORT)
+        # When
+        report = self.report_with_review(sub)
+        # Then: zero tokens, not the "-" of a review with none to attribute
+        self.assertEqual(row(report, "Review yield", "review 1")[2], "0/0/0/0")
+
+    def test_a_main_agent_report_without_the_arithmetic_keeps_its_rows_and_counts_as_unparsed(self) -> None:
+        # Given: a report the main agent wrote, its verdict line drifted
+        text = REVIEW_REPORT.replace(" 3 raised, 2 survived.", "")
+        self.home.session("s1", Transcript().human(0, "go").reply(1, text=text))
+        # When
+        cells = row(self.home.report(), "Review yield", "run by main")
+        # Then: reports, tokens, raised, survived, major, minor, then unparsed last
+        self.assertEqual(cells[1:7], ["1", "-", "0", "0", "1", "1"])
+        self.assertEqual(cells[-1], "1")
+
+    def test_main_agent_text_without_rows_or_arithmetic_is_no_report(self) -> None:
+        # Given
+        self.home.session("s1", Transcript().human(0, "go").reply(1, text="Major refactor done | see the PR"))
+        # When / Then
+        self.assertNotIn("run by main", section(self.home.report(), "Review yield"))
+
+    def test_a_review_under_an_orchestrator_subagent_is_counted_with_its_own_tree(self) -> None:
+        # Given: an orchestrator subagent, the review it spawned, and that review's tests agent
+        finding = "a.py:1\nseverity    major\nclaim       invented\n"
+        self.home.session("s1", idle_main(), {
+            "o": worker("Run the loop", subagent("drive the loop", {"cache_read_input_tokens": 9000})),
+            "r": worker("Review", subagent(REVIEW_BRIEF, {"cache_read_input_tokens": 2000}, parent_agent="o")
+                        .handback(7, REVIEW_REPORT)),
+            "t": worker("Tests agent", subagent("the bar", {"cache_read_input_tokens": 1000}, parent_agent="r")
+                        .handback(7, finding)),
+        })
+        # When
+        report = self.home.report()
+        # Then: the review and its child, without the orchestrator's tokens
+        self.assertEqual(row(report, "Review yield", "review 1")[1:7], ["1", "0/3k/0/0", "3", "2", "1", "1"])
+        self.assertEqual(row(report, "Loop steps", "review 1")[1], "2")
+        self.assertEqual(row(report, "Review yield", "tests")[1], "1")
+
     def test_inner_agents_are_counted_by_type(self) -> None:
         # Given: a review agent, its tests agent with a finding, its requirement agent with a verdict,
         # and its blockers agent finding nothing
@@ -596,6 +654,18 @@ class Communication(Case):
         report = self.home.report()
         # Then
         self.assertIn("by two or more agents of a session: 1, 1k chars repeated.", report)
+        self.assertEqual(row(report, "Agent communication", "s1")[1:], ["/repo/big.py", "2", "2", "1k"])
+
+    def test_the_same_read_by_the_main_agent_and_a_subagent_is_repeated_work(self) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        main.tool(1, "Read", 2, file_path="/repo/big.py", result="x" * 1000)
+        sub = subagent("look")
+        sub.tool(7, "Read", 8, file_path="/repo/big.py", result="x" * 1000)
+        self.home.session("s1", main, {"a": worker("Audit a", sub)})
+        # When
+        report = self.home.report()
+        # Then
         self.assertEqual(row(report, "Agent communication", "s1")[1:], ["/repo/big.py", "2", "2", "1k"])
 
     def test_an_implementer_rereading_what_research_read_is_a_split(self) -> None:

@@ -10,7 +10,8 @@ agree with the report.
   names start with `-`, so use Python's `pathlib` or quote them.
 - Subagents: `<session>/subagents/agent-<id>.jsonl`, with
   `agent-<id>.meta.json` holding `agentType`, `description`, `toolUseId` (the
-  spawning call) and `spawnDepth`.
+  spawning call), `spawnDepth` and `parentAgentId` (the spawning subagent, absent
+  when the main agent spawned it).
 - One JSON object per line, with `type` and `timestamp`. `assistant` lines
   carry `message.usage` and `tool_use` blocks in `message.content`; `user`
   lines carry `tool_result` blocks keyed by `tool_use_id`, plus a
@@ -61,16 +62,19 @@ judgment. It stays offline: everything from `gh` is the subagent's.
   the last text. The brief is the subagent's first user line.
 - **Loop steps.** Each top-level subagent gets one step from its description
   and the head of its brief; its children count under the same step. A review
-  is a brief that invokes `pragmatic-review`: `--fixes`, "pass 2", "re-review"
-  or "second" make it the second pass, "final" in the description
+  is a brief that invokes `pragmatic-review`, at any depth, so a review under an
+  orchestrator subagent is a review with its own children: `--fixes`, "pass 2",
+  "re-review" or "second" make it the second pass, "final" in the description
   `/final-review`. Agent wall adds agents up, so parallel agents overlap.
 - **Review yield.** Parsed from the report format `pragmatic-review` fixes:
   the verdict's `N raised, M survived`, table rows `| n | Major |`, and
   `✅ Met`, `❌ Not met`, `⚠️ Unverified` lines. A report without the arithmetic
-  counts as unparsed, so format drift shows. Inner agents are read from their
+  counts as unparsed, so format drift shows, and its table rows still count.
+  Inner agents are read from their
   `severity major|minor|nit` and `verdict met|not met|unverified` lines, typed
-  by description. `run by main` is a report the main agent wrote, with no
-  tokens to attribute; a report it merely relayed lands there too.
+  by description. `run by main` is a text of the main agent holding the
+  arithmetic or a table row, with no tokens to attribute; a report it merely
+  relayed lands there too.
 - **After hand-back.** Human prompts after the first `gh pr ready` of any agent
   of the session, split into slash commands and free text.
 

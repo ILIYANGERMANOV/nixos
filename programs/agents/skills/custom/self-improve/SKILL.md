@@ -16,9 +16,10 @@ Suspected bottlenecks from the user: `$ARGUMENTS` (may be empty).
 - **Numbers, never guesses.** A bottleneck is real only once the transcripts or
   the outcomes show it: its cost in tokens or minutes, or the quality it lost.
   A suspicion the data refutes is reported as refuted, with the numbers.
-- **Rank by net value**: measured tokens and wall time saved, with the quality
-  impact beside them (none, risk or gain, with its evidence). An unknown
-  quality impact counts as a risk.
+- **Order by net value**: measured tokens and wall time saved, weighed against
+  the quality impact (none, risk or gain, with its evidence). A fix with a risk
+  ranks below every fix without one, whatever its saving. An unknown quality
+  impact counts as a risk.
 - **Waiting on the person is never a bottleneck.** Time waiting on a prompt or
   an `AskUserQuestion` is not work time and never a saving
   target: it can be a second or a day. Asking is cheap and important; never

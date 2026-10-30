@@ -187,8 +187,8 @@ Four exceptions:
   forbid what the agent says, and does the diff plainly do it? A paraphrase is
   dropped. Do not drop a verified one because you find it defensible - the user
   wrote the rule. A Major also needs to be a data-model violation by the bar,
-  with a `trigger` naming the contradictory state; without that, correct it to
-  Minor.
+  with a `trigger` naming what a record can now hold or lose; without that,
+  correct it to Minor.
 - **Test findings** are judged the same way, on the quoted rule or the quoted
   intent. A Major also needs its `trigger` to name the break the test misses,
   the intent it rejects or the old code it passes on; without one, correct it

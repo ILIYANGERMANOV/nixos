@@ -237,9 +237,10 @@ tolerance, `toMatchObject` for `toEqual`, a skipped or deleted case, a
 re-recorded golden nobody read - throws away the only thing the test was
 protecting. A red test means the behavior changed: either the change is a bug,
 fix the code; or the change is intended, update the expectation to the new
-behavior and say so. A test you cannot pass honestly, or think is wrong, is
-reported: never edit it in the same breath, and never special-case code to it
-with a hardcoded output, a branch on its fixture or an overloaded equality.
+behavior and say so. When the change was not intended, a test you cannot pass
+honestly, or think is wrong, is reported, never edited in the same breath. Never
+special-case code to a test with a hardcoded output, a branch on its fixture or
+an overloaded equality.
 Refactoring tests keeps every behavior they asserted before.
 
 ## Placement

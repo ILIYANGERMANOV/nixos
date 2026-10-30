@@ -145,14 +145,13 @@ class ToolCall:
 
 @dataclass
 class Agent:
+    id: str  # the transcript's name, unique within a session
     kind: str  # "main" or the subagent's agentType
     description: str
     responses: list[Response]
     calls: list[ToolCall]
-    id: str = ""  # empty for the main agent
     parent: str | None = None  # the spawning subagent's id; None when the main agent spawned it
     brief: str = ""  # the first user text: a subagent's prompt
-    handback: str | None = None  # the SubagentHandback message, when it sent one
     texts: list[str] = field(default_factory=list)  # assistant text blocks, in order
     start: float = 0.0
     end: float = 0.0
@@ -163,8 +162,9 @@ class Agent:
 
     @property
     def report(self) -> str:
-        """What the agent handed back: its hand-back, else its last text."""
-        return self.handback if self.handback is not None else (self.texts[-1] if self.texts else "")
+        """What the agent handed back: its last hand-back, else its last text."""
+        handbacks = [str(c.input.get("message") or "") for c in self.calls if c.name == HANDBACK]
+        return (handbacks or self.texts or [""])[-1]
 
     @property
     def wall(self) -> float:
@@ -244,16 +244,34 @@ class ParsedReview:
 
 @dataclass(frozen=True)
 class Unparsed:
-    """A review report without the `N raised, M survived` verdict: its format drifted."""
+    """A review report without the `N raised, M survived` verdict: its format
+    drifted. Its table rows still count."""
+
+    major: int
+    minor: int
+    nit: int
 
 
 Review = Union[ParsedReview, Unparsed]
 
 
 @dataclass(frozen=True)
+class ByAgent:
+    step: LoopStep
+    usage: Usage  # the review agent and its children
+
+
+@dataclass(frozen=True)
+class ByMain:
+    """Written by the main agent, whose tokens cannot be attributed to the review."""
+
+
+ReviewSource = Union[ByAgent, ByMain]
+
+
+@dataclass(frozen=True)
 class ReviewRun:
-    name: str  # the pass, or RUN_BY_MAIN
-    usage: Usage  # the review agent and its children; empty when the main agent ran it
+    source: ReviewSource
     review: Review
 
 
@@ -335,7 +353,6 @@ def parse_subagent(path: Path, until: float | None) -> Transcript:
     meta_path = path.with_name(path.stem + ".meta.json")
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     transcript = parse_transcript(path, meta.get("agentType", "unknown"), meta.get("description", ""), until)
-    transcript.agent.id = path.stem.removeprefix("agent-")
     transcript.agent.parent = meta.get("parentAgentId")
     return transcript
 
@@ -385,7 +402,7 @@ def subtract(interval: Interval, merged: list[Interval]) -> Iterator[Interval]:
 
 
 def parse_transcript(path: Path, kind: str, description: str, until: float | None) -> Transcript:
-    out = Transcript(Agent(kind, description, [], []))
+    out = Transcript(Agent(path.stem.removeprefix("agent-"), kind, description, [], []))
     responses: dict[str, Response] = {}
     calls: dict[str, ToolCall] = {}
     previous: float | None = None
@@ -404,8 +421,6 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
                     if block.get("type") == "tool_use":
                         call = ToolCall(block["id"], block.get("name", "?"), block.get("input") or {}, ts)
                         calls[call.id] = call
-                        if call.name == HANDBACK:
-                            out.agent.handback = str(call.input.get("message") or "")
                     elif block.get("type") == "text":
                         out.agent.texts.append(str(block.get("text", "")))
             case "user" if is_tool_results(content):
@@ -743,7 +758,7 @@ def is_doc_edit(call: ToolCall) -> bool:
 
 BRIEF_HEAD = 700  # briefs paste long rules after their first lines
 REVIEW_BRIEF = re.compile(r"(?:invoke|run)\s+(?:the\s+)?\W*pragmatic-review")
-SECOND_PASS = re.compile(r"--fixes|pass[ -]2|re-review|second")
+SECOND_PASS = re.compile(r"--fixes|pass[ -]2|re-review|\bsecond\b")
 FIX_DESCRIPTION = re.compile(r"^(fix|final fix|address)")
 DESCRIPTION_STEPS = (
     (LoopStep.FIX, FIX_DESCRIPTION),
@@ -761,24 +776,27 @@ BRIEF_STEPS = (
 
 def steps_of(session: Session) -> Iterator[tuple[Agent, LoopStep]]:
     for agent in session.subagents:
-        yield agent, loop_step(root_of(agent, session.by_id))
+        yield agent, loop_step(step_owner(agent, session.by_id))
 
 
 def step_by_id(session: Session) -> dict[str, LoopStep]:
     return {a.id: step for a, step in steps_of(session)}
 
 
-def root_of(agent: Agent, by_id: dict[str, Agent]) -> Agent:
-    """The top-level subagent `agent` works under, or itself."""
-    while agent.parent in by_id:
-        agent = by_id[agent.parent]
-    return agent
+def step_owner(agent: Agent, by_id: dict[str, Agent]) -> Agent:
+    """The agent whose brief names `agent`'s step: the outermost review above it
+    or itself, so a review under an orchestrator subagent stays a review, else
+    its top-level subagent."""
+    lineage = [agent]
+    while lineage[-1].parent in by_id:
+        lineage.append(by_id[lineage[-1].parent])
+    return next((a for a in reversed(lineage) if loop_step(a) in REVIEW_PASSES), lineage[-1])
 
 
 def loop_step(agent: Agent) -> LoopStep:
-    """The step a top-level subagent ran. Its children work for the same step."""
+    """The step an agent's own description and brief name."""
     description = agent.description.lower()
-    brief = brief_head(agent)
+    brief = brief_head(agent.brief)
     if REVIEW_BRIEF.search(brief) and not FIX_DESCRIPTION.search(description):
         return review_pass(description, brief)
     by_description = (step for step, pattern in DESCRIPTION_STEPS if pattern.search(description))
@@ -792,8 +810,8 @@ def review_pass(description: str, brief: str) -> LoopStep:
     return LoopStep.FINAL_REVIEW if "final" in description else LoopStep.REVIEW_1
 
 
-def brief_head(agent: Agent) -> str:
-    return agent.brief[:BRIEF_HEAD].lower()
+def brief_head(brief: str) -> str:
+    return brief[:BRIEF_HEAD].lower()
 
 
 def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
@@ -823,19 +841,19 @@ REVIEW_ROLES = (
 
 def review_runs(session: Session) -> Iterator[ReviewRun]:
     for agent, step in steps_of(session):
-        if step in REVIEW_PASSES and root_of(agent, session.by_id) is agent:
-            tree = [a for a in session.subagents if root_of(a, session.by_id) is agent]
-            yield ReviewRun(step.value, total(a.usage for a in tree), parse_review(agent.report))
+        if step in REVIEW_PASSES and step_owner(agent, session.by_id) is agent:
+            tree = [a for a in session.subagents if step_owner(a, session.by_id) is agent]
+            yield ReviewRun(ByAgent(step, total(a.usage for a in tree)), parse_review(agent.report))
     for text in session.main.texts:
-        if RAISED.search(text):
-            yield ReviewRun(RUN_BY_MAIN, Usage(), parse_review(text))
+        if RAISED.search(text) or SEVERITY_ROW.search(text):
+            yield ReviewRun(ByMain(), parse_review(text))
 
 
 def parse_review(report: str) -> Review:
     arithmetic = RAISED.search(report)
-    if arithmetic is None:
-        return Unparsed()
     severities = tally(SEVERITY_ROW, report)
+    if arithmetic is None:
+        return Unparsed(severities["major"], severities["minor"], severities["nit"])
     return ParsedReview(
         raised=int(arithmetic.group(1)),
         survived=int(arithmetic.group(2)),
@@ -856,12 +874,12 @@ def tally(pattern: re.Pattern[str], text: str) -> Counter[str]:
 def inner_reviewers(session: Session) -> Iterator[Agent]:
     """The agents a review agent spawned."""
     for agent, step in steps_of(session):
-        if step in REVIEW_PASSES and root_of(agent, session.by_id) is not agent:
+        if step in REVIEW_PASSES and step_owner(agent, session.by_id) is not agent:
             yield agent
 
 
 def review_role(agent: Agent) -> str:
-    texts = (agent.description.lower(), brief_head(agent))
+    texts = (agent.description.lower(), brief_head(agent.brief))
     return next((role for text in texts for role, pattern in REVIEW_ROLES if pattern.search(text)), "other")
 
 
@@ -934,10 +952,10 @@ def spawned_again(session: Session) -> Iterator[LoopStep]:
                 yield steps[second.id]
 
 
-def resent_tokens(parent: Agent, child: Agent) -> int:
+def resent_tokens(report: str, ended: float, parent_calls: list[ToolCall]) -> int:
     """About what a hand-back costs: its tokens, sent again on every later parent call."""
-    later = sum(1 for c in parent.calls if c.start >= child.end)
-    return len(child.report) // CHARS_PER_TOKEN * later
+    later = sum(1 for c in parent_calls if c.start >= ended)
+    return len(report) // CHARS_PER_TOKEN * later
 
 
 def repeated_reads(session: Session) -> list[RepeatedRead]:
@@ -1080,14 +1098,26 @@ def review_yield(sessions: list[Session]) -> str:
     counts = [f.name for f in fields(ParsedReview)]
     rows = []
     for name in [*(step.value for step in REVIEW_PASSES), RUN_BY_MAIN]:
-        group = [r for r in runs if r.name == name]
-        parsed = [r.review for r in group if isinstance(r.review, ParsedReview)]
+        group = [r for r in runs if pass_name(r.source) == name]
         if group:
-            usage = total(r.usage for r in group)
-            sums = [str(sum(getattr(p, count) for p in parsed)) for count in counts]
-            rows.append([name, str(len(group)), tokens(usage) if usage != Usage() else "-", *sums, str(len(group) - len(parsed))])
+            sums = [str(sum(getattr(r.review, count, 0) for r in group)) for count in counts]
+            unparsed = sum(1 for r in group if isinstance(r.review, Unparsed))
+            rows.append([name, str(len(group)), review_tokens(r.source for r in group), *sums, str(unparsed)])
     header = ["pass", "reports", "tokens", *(c.replace("_", " ") for c in counts), "unparsed"]
     return section("Review yield", header, rows, len(rows)) + "\n\nBy review agent type, before judging:\n\n" + inner_yield(sessions)
+
+
+def pass_name(source: ReviewSource) -> str:
+    match source:
+        case ByAgent(step, _):
+            return step.value
+        case ByMain():
+            return RUN_BY_MAIN
+
+
+def review_tokens(sources: Iterable[ReviewSource]) -> str:
+    usages = [s.usage for s in sources if isinstance(s, ByAgent)]
+    return tokens(total(usages)) if usages else "-"
 
 
 def inner_yield(sessions: list[Session]) -> str:
@@ -1170,7 +1200,7 @@ def communication_lines(sessions: list[Session]) -> str:
     overlaps = [overlap for s in sessions for overlap in research_overlaps(s)]
     return "\n".join(
         [
-            f"- Hand-backs over {HANDBACK_WORDS} words: {len(large)}, {kilo(sum(len(c.report) for _, c in large))} chars, about {kilo(sum(resent_tokens(p, c) for p, c in large))} tokens sent again on later parent calls",
+            f"- Hand-backs over {HANDBACK_WORDS} words: {len(large)}, {kilo(sum(len(c.report) for _, c in large))} chars, about {kilo(sum(resent_tokens(c.report, c.end, p.calls) for p, c in large))} tokens sent again on later parent calls",
             f"- Hand-backs pointing at a notes file: {notes}",
             f"- Follow-up messages to a subagent: {len(messages)}",
             f"- Implementers reading files a research agent read: {len(overlaps)}, {sum(len(o) for o in overlaps)} files between them",
