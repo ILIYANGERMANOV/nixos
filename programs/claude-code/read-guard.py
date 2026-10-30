@@ -6,7 +6,7 @@ Claude Code block the call and show stderr to the model. Only reads whose
 output reaches the screen count: one redirected to a file or piped into
 another command dumps nothing into context, and heredoc bodies are data, not
 commands. Files agents are told to read in full add no bytes: instruction
-files, skill references and a review directory's files except its diff. They
+files, anything in a skill and a review directory's files except its diff. They
 still count as a file, so one beside a single file over the limit is blocked.
 What is exempt is decided on the path as typed, normalised but with links
 unfollowed: the guard stops accidents, it is not a security boundary. Relative
@@ -32,8 +32,7 @@ HINT = (
     "read one large file per command."
 )
 INSTRUCTIONS = {"AGENTS.md", "CLAUDE.md", "SKILL.md", "factory-instructions.md"}
-# `custom/` is the repository's own copy of the skill catalog.
-SKILL_REFERENCE = re.compile(r"(?:.*/)?skills/(?:custom/)?[^/]+/references/[^/]+\.md")
+SKILL_FILE = re.compile(r"(?:.*/)?skills/[^/]+/.+")
 REVIEW_FILE = re.compile(r"/tmp/review-[^/]+/[^/]+")
 
 
@@ -107,7 +106,7 @@ def is_exempt(path: str) -> bool:
     return any(
         [
             name in INSTRUCTIONS,
-            SKILL_REFERENCE.fullmatch(path),
+            SKILL_FILE.fullmatch(path),
             REVIEW_FILE.fullmatch(path) and "diff" not in name.lower(),
         ]
     )

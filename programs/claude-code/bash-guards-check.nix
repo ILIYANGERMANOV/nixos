@@ -66,9 +66,10 @@ pkgs.runCommand "claude-bash-guards-check"
 
     guard=claude-read-guard
     echo "$guard:"
-    mkdir -p skills-store/big-skill/references "$HOME/.claude/skills"
+    mkdir -p skills-store/big-skill/{references,scripts} "$HOME/.claude/skills"
     head -c 6000 /dev/zero >skills-store/big-skill/SKILL.md
     head -c 6000 /dev/zero >skills-store/big-skill/references/ref.md
+    head -c 6000 /dev/zero >skills-store/big-skill/scripts/run.py
     ln -s "$dir/skills-store/big-skill" "$HOME/.claude/skills/big-skill"
 
     expect 0 "a single large file is allowed" "cat huge"
@@ -107,15 +108,17 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "large skill files read together are allowed" \
       "cat ~/.claude/skills/big-skill/SKILL.md ~/.claude/skills/big-skill/references/ref.md"
     expect 0 "a skill glob is allowed" "cd ~/.claude/skills/big-skill && cat SKILL.md references/*"
+    expect 0 "an installed skill's script is allowed" "cat ~/.claude/skills/big-skill/scripts/run.py big-a"
     expect 2 "a skill file does not exempt another large file" \
       "cat ~/.claude/skills/big-skill/SKILL.md big-a big-b"
     expect 2 "a path that leaves the skills directory is sized" \
       "cat ~/.claude/skills/../../$(basename "$dir")/big-a big-b"
 
-    mkdir -p repo-docs/skills/custom/foo/references repo-docs/skills/bar/references/deep
+    mkdir -p repo-docs/skills/custom/foo/references repo-docs/skills/bar/references/deep repo-docs/notskills/bar
     for file in {,repo-docs/}{AGENTS,CLAUDE,SKILL,factory-instructions}.md NOTCLAUDE.md \
       repo-docs/skills/custom/foo/references/a.md \
-      repo-docs/skills/bar/references/{b.md,source.py,deep/nested.md}; do
+      repo-docs/skills/default.nix repo-docs/notskills/bar/lib.py \
+      repo-docs/skills/bar/{lib.py,references/{b.md,deep/nested.md}}; do
       head -c 6000 /dev/zero >"$file"
     done
     head -c 20000 /dev/zero >huge.md
@@ -133,6 +136,8 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "instruction files are exempt by basename anywhere" "cat repo-docs/CLAUDE.md repo-docs/SKILL.md"
     expect 0 "skill references read together are allowed" \
       "cat repo-docs/skills/custom/foo/references/a.md repo-docs/skills/bar/references/*.md"
+    expect 0 "a skill's source is allowed" "cat repo-docs/skills/bar/lib.py big-a"
+    expect 0 "a nested skill file is allowed" "cat repo-docs/skills/bar/references/deep/nested.md big-a"
     expect 0 "review files read together are allowed" "cat $review/stat $review/log $review/index"
     expect 0 "instruction blobs read together are allowed" "git show HEAD:repo-docs/CLAUDE.md HEAD:repo-docs/SKILL.md"
     expect 0 "reference blobs read together are allowed" \
@@ -153,10 +158,11 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "a nested review file stays counted" "cat $review/sub/stat big-a"
     expect 2 "a path that leaves the review directory is counted" "cat $review/../..$dir/huge CLAUDE.md"
     expect 2 "a relative path that leaves the review directory is counted" "cd $review && cat ../..$dir/huge $dir/CLAUDE.md"
-    expect 2 "a path that leaves a references directory is counted" \
+    expect 2 "a path that leaves a skill is counted" \
       "cat repo-docs/skills/bar/references/../../../../huge.md CLAUDE.md"
-    expect 2 "a non-markdown file under references is counted" "cat repo-docs/skills/bar/references/source.py big-a"
-    expect 2 "a nested file under references is counted" "cat repo-docs/skills/bar/references/deep/nested.md big-a"
+    expect 2 "a skill file does not exempt a source file over the limit" "cat repo-docs/skills/bar/lib.py huge"
+    expect 2 "a file directly under skills is counted" "cat repo-docs/skills/default.nix big-a"
+    expect 2 "a directory that only ends in skills is counted" "cat repo-docs/notskills/bar/lib.py big-a"
     expect 2 "a name that only ends like an instruction file is counted" "cat NOTCLAUDE.md big-a"
     shared_failopen
 
