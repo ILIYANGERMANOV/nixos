@@ -185,9 +185,10 @@ rest of this skill.
   in the foreground (`run_in_background: false`). You are a subagent: you wait
   for what you spawned, and ending your turn is your hand-back.
 - Every prompt you write, a nested implementer's, `refactor`'s, a review's or a
-  fixer's, carries the worktree path, for every command, and the base branch.
-  Diffs are against `origin/<base>`, so an epic child never sweeps in a
-  sibling's work: step 6 passes `refactor` that base ref.
+  fixer's, carries the worktree path, for every command, the base branch and
+  the first line of your spawn prompt. Diffs are against `origin/<base>`, so an
+  epic child never sweeps in a sibling's work: step 6 passes `refactor` that
+  base ref, step 10 passes it to `pr-description`.
 - From step 10 do only the PR-body rewrite and any full check, the way your
   instructions tell a subagent to run a long command. Then stop, before the CI
   wait. QA, the app offer, the gates, `gh pr ready`, notifications and

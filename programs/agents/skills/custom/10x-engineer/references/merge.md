@@ -27,7 +27,7 @@ only: they do not require CI, and they keep an approval across later pushes.
 |---|---|---|
 | Open | `state` is `OPEN`, `isDraft` false | Stop, re-read the ledger |
 | Approved | the user's latest non-`COMMENTED` review is `APPROVED`, on this SHA or on one the ledger's merge-safe heads chain to it | Back to `review`: ask for approval |
-| Green | `gh pr checks` exits 0 with at least one check, or the user's recorded answer accepts none | Pending: end the turn. Red or none: section 7 |
+| Green | `gh pr checks` exits 0 with at least one check, or the PR has no check and the user's recorded answer accepts that | Pending: end the turn. Red or none: section 7 |
 | Base | `failed` is 0, or this PR is the base fix | Held: section 7's base path, as for a red PR, then end the turn |
 | Current | `behind_by` is 0 and `mergeable` is not `CONFLICTING` | Rebase |
 
@@ -47,11 +47,18 @@ gh pr merge <n> --repo <owner>/<repo> --squash --match-head-commit <sha>
 ## Rebase
 
 Through a fresh fixer in the task's worktree, in `references/brief.md`'s form,
-counted against the 3-agent cap:
+given the live `headRefOid` and counted against both caps. On its hand-back,
+with `<new head>` read live, compare yourself:
 
-- `CLEAN`: add `<old head> -> <new head>` to the merge-safe heads and end the
-  turn. On the green wake, merge with no new approval.
-- `CONFLICT`: code changed. Back to `review`, and once green ask for a new
+```sh
+git -C <worktree> fetch origin <base>
+git -C <worktree> range-diff origin/<base>..<old head> origin/<base>..<new head>
+```
+
+- Every line `=`: clean. Add `<old head> -> <new head>` to the merge-safe heads
+  and end the turn. On the green wake run the gates again: Approved passes
+  without a new approval only if the chain reaches an approved commit.
+- Anything else: code changed. Back to `review`, and once green ask for a new
   approval, saying what changed. An epic child needs none.
 
 ## After each merge
@@ -69,7 +76,7 @@ yourself:
    A 409 is a conflict: escalate it.
 4. Read `mergeable` for each remaining open PR of the run in that repo. A
    `CONFLICTING` PR gets a rebase, and after a base fix so does each PR red on
-   the base: in a free slot, else `queued` until one frees. A `running` task is
+   the base: in a slot free under both caps, else `queued`. A `running` task is
    left alone, since its worktree has a writer: the Current gate catches it. One
    merely behind rebases when its turn comes, so CI does not run for nothing.
 5. Dispatch what the merge unblocked, then take the next approved PR.

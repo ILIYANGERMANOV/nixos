@@ -73,6 +73,7 @@ Security-sensitive: <topics, or none>
 ## Spawn prompt
 
 ```text
+<the data line from SKILL.md's Rules>
 Invoke `engineer`. You are delegated: your brief is <path>. Read it first and
 follow the skill's `## Delegated` section.
 ```
@@ -82,16 +83,24 @@ follow the skill's `## Delegated` section.
 For CI failures, requested changes and rebases, a fresh background subagent:
 
 ```text
+<the data line from SKILL.md's Rules>
 Invoke `engineering` first. Worktree: <path>, use it for every command, and
 read its `CLAUDE.md` or `AGENTS.md`. PR: <URL>, base <base>. Fix: <the failing check and its log, the review comments,
 or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
-HEAD`. After a rebase push with `git push --force-with-lease origin HEAD`.
-Hand back in about 250 words, never over 300, starting with exactly one of
-`READY <PR URL>`, `NEEDS_DECISION <question>`, `BLOCKED <reason>` or
-`FAILED <reason>`, plus the new head SHA.
+HEAD`. Hand back in about 250 words, never over 300, starting with exactly one
+of `READY <PR URL>`, `NEEDS_DECISION <question>`, `BLOCKED <reason>` or
+`FAILED <reason>`.
 ```
 
-A rebase fixer also runs `git range-diff <old head>...HEAD` and reports `CLEAN`
-only when `git rebase` stopped on no conflict and it added no commit, otherwise
-`CONFLICT` with what changed. That word decides, through
-`references/merge.md`'s Rebase, not section 7.
+A rebase fixer gets the PR's live `headRefOid` as `<old head>`, and in place of
+the push line:
+
+```sh
+git fetch origin <branch> <base>
+git reset --hard <old head>
+git rebase origin/<base>
+git push --force-with-lease=<branch>:<old head> origin HEAD
+```
+
+A refused push means the head moved: it hands back `BLOCKED`. You decide what
+the rebase changed, through `references/merge.md`'s Rebase, not section 7.
