@@ -9,10 +9,13 @@ gh pr view <n> --repo <owner>/<repo> \
   --json state,isDraft,baseRefName,headRefOid,mergeable,reviews
 gh pr checks <n> --repo <owner>/<repo>
 gh api repos/<owner>/<repo>/compare/<base>...<headRefOid> --jq .behind_by
+gh api 'repos/<owner>/<repo>/commits/HEAD/check-runs?per_page=100' \
+  --jq '[.check_runs[] | select(.conclusion == "failure")] | length'
 ```
 
 `gh pr checks` exits 0 when green and 8 while pending. Read the SHA first, so a
-later push fails the merge instead of slipping past the check.
+later push fails the merge instead of slipping past the check. The last command
+counts failed checks on the default branch's head.
 
 ## Gates
 
@@ -24,6 +27,7 @@ only: they do not require CI, and they keep an approval across later pushes.
 | Open | `state` is `OPEN`, `isDraft` false | Stop, re-read the ledger |
 | Approved | the user's latest review is `APPROVED`, on this SHA or on one the ledger's merge-safe heads chain to it | Back to `review`: ask for approval |
 | Green | `gh pr checks` exits 0 with at least one check | Pending: end the turn. Red: section 7. None: ask the user |
+| Base | the failed count is 0, or this PR is the base fix | Start the base fix if section 7 calls for one, then end the turn |
 | Current | `behind_by` is 0 and `mergeable` is not `CONFLICTING` | Rebase |
 
 Only the user's review counts, read from `reviews`, never a comment. A CI fix or
@@ -54,11 +58,13 @@ GitHub sends no webhook when a base advance makes a PR conflict, so check it
 yourself:
 
 1. Confirm `state` is `MERGED`. Mark the task `merged`, notify.
-2. `git -C ~/repos/<repo> worktree remove <path>`, then
-   `git -C ~/repos/<repo> branch -D <branch>`.
+2. `git -C <clone> worktree remove <path>`, then
+   `git -C <clone> branch -D <branch>`, with `<clone>` as `references/brief.md`
+   defines it.
 3. Read `mergeable` for each remaining open PR of the run in that repo. A
-   `CONFLICTING` PR rebases now. One merely behind rebases when its turn comes,
-   so CI does not run for nothing.
+   `CONFLICTING` PR rebases now, and after a base fix so does each PR red on the
+   base. One merely behind rebases when its turn comes, so CI does not run for
+   nothing.
 4. Dispatch what the merge unblocked, then take the next approved PR.
 
 ## Review wakes

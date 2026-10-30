@@ -2,23 +2,24 @@
 
 ## Worktree
 
+`<clone>` is `~/repos/<repo>`, or `<this worktree>` for the repo this session
+runs in: isolation checks refuse git in its main checkout.
+
 New work:
 
 ```sh
-git -C ~/repos/<repo> fetch origin
-git -C ~/repos/<repo> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<base>
+git -C <clone> fetch origin
+git -C <clone> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<base>
 ```
 
 A named or retried PR:
 
 ```sh
-git -C ~/repos/<repo> fetch origin <branch>
-git -C ~/repos/<repo> worktree add --track -b <branch> ~/.10x/<run>/worktrees/<task> origin/<branch>
+git -C <clone> fetch origin <branch>
+git -C <clone> worktree add --track -b <branch> ~/.10x/<run>/worktrees/<task> origin/<branch>
 ```
 
-For the repo this session runs in, use `git -C <this worktree>` instead:
-isolation checks refuse git in its main checkout. Keep the worktree until the PR
-merges, since fixers use it too.
+Keep the worktree until the PR merges, since fixers use it too.
 
 ## Brief
 

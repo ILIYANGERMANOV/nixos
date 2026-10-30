@@ -85,7 +85,8 @@ tasks share is written into both briefs before they start.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
-before this. Record the confirmation in the ledger.
+before this, except a base fix (section 7). Record the confirmation in the
+ledger.
 
 ### 5. Delegate
 
@@ -139,13 +140,20 @@ gates; do not invoke that skill.
    because events before the subscription never arrive. Pending: end the turn.
    If subscribing is refused, follow your instructions' fallback and say in the
    queue that this PR gives no approval wake.
-2. Red: classify it. The same check red on the base's head means **base**: tell
-   the user once and propose a task for it. Otherwise **branch**: a fresh fixer
-   per `${CLAUDE_SKILL_DIR}/references/brief.md`, then wait again. A fixer that
-   cannot fix it is a failed try.
+2. Red: classify it. The same check red on the head of the repo's default
+   branch means **base**, unless this PR is the base fix itself. If the repo has
+   no unmerged `base-fix-<repo>-<n>` task, add one to the ledger as an
+   independent PR to that branch and start it in the next free slot, ahead of
+   the queue, with no confirmation. From section 5 on it is a task like any
+   other. Then push the user what broke and the task. Merges on that repo hold
+   until the base is green (the Base gate in
+   `${CLAUDE_SKILL_DIR}/references/merge.md`); other repos go on. Otherwise
+   **branch**: a fresh fixer per `${CLAUDE_SKILL_DIR}/references/brief.md`, then
+   wait again. A fixer that cannot fix it is a failed try.
 3. Green with QA yes: send a ready `/qa <PR URL>` line for a fresh session, push
    it, and wait for the user's result. A Fail goes to the user. QA no: go on.
-   The user asks if they want the app run for them.
+   Never offer to run the app: run it only when the user asks, on a port in
+   3000-3099, and give the URL.
 4. The `gh pr ready` gates from that section.
 5. `gh pr ready`. Then `final-review` on the sensitive tier, with the
    requirements from the worker's report; the user answers its pickers. On
@@ -181,7 +189,8 @@ final report: merged, parked and why, rulings to look at, follow-ups.
 ## Epics
 
 - Before its first child, fetch, then
-  `git -C ~/repos/<repo> push origin origin/main:refs/heads/epic/<name>`.
+  `git -C <clone> push origin origin/main:refs/heads/epic/<name>`, with
+  `<clone>` as `${CLAUDE_SKILL_DIR}/references/brief.md` defines it.
 - Child PRs target `epic/<name>`. The child runs sections 5 to 7, QA included.
   You merge it after its two reviews and green CI, with no user tap, by the same
   loop minus the approval gate.
@@ -205,8 +214,8 @@ it. Parked work is never discarded: keep its branch and PR.
 
 ## Progress
 
-`PushNotification` when a PR is ready, merged or parked, and on a new question
-left in plain text. `AskUserQuestion` notifies by itself.
+`PushNotification` when a PR is ready, merged or parked, when a base fix
+starts, and on a new question left in plain text. `AskUserQuestion` notifies by itself.
 
 ## Resume
 
