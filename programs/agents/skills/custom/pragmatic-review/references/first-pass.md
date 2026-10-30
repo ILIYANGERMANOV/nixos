@@ -121,11 +121,9 @@ references. `docs-only`: run the step-1 sweep of `references/blockers.md` on
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.
 
-**At most five agents run at once.** Past that, launch the remaining
-requirement agents as earlier ones return.
-
-**Spawn in the foreground**, `run_in_background: false`, the whole pass in one
-message. Never end a turn while a review agent is running: an orchestrator
+**Spawn in the foreground**, `run_in_background: false`, in one message per
+batch of at most five agents. Past five, launch the remaining requirement
+agents as earlier ones return. Never end a turn while a review agent is running: an orchestrator
 that spawned in the background handed back before its agents returned.
 
 **Every prompt starts with the same shared block**, byte-identical across

@@ -10,7 +10,7 @@
 'use strict';
 
 const assert = require('assert');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -169,8 +169,8 @@ async function checkDeadline() {
 }
 
 // Given a saved login the app rotates on every visit, when a script on
-// openContext closes, or hangs and meets qa-node's deadline, then the file
-// holds the rotated login and `.bak` the one before; when the app logs out,
+// openContext closes, hangs and meets qa-node's deadline, or is interrupted
+// with SIGINT, then the file holds the rotated login and `.bak` the one before; when the app logs out,
 // then the empty state is refused and the last login stays.
 async function checkLoginSaved() {
   const app = await loginApp();
@@ -192,10 +192,32 @@ async function checkLoginSaved() {
   assert.strictEqual(sid(auth), 'v2', 'the deadline lost the rotated login');
   assert.strictEqual(sid(`${auth}.bak`), 'v1');
 
+  const interrupted = await interrupt(writeScript('login-interrupt', `const { context } = await openContext({ auth: process.argv[2] });
+  const page = await context.newPage();
+  await page.goto(${JSON.stringify(`${app.url}rotate`)});
+  console.log('ready');
+  await new Promise(() => {});`), auth);
+  assert.strictEqual(interrupted, 130);
+  assert.strictEqual(sid(auth), 'v3', 'SIGINT lost the rotated login');
+  assert.strictEqual(sid(`${auth}.bak`), 'v2');
+
   const { stderr } = await script('login-out', 'logout', 'await close();');
   assert.match(stderr, /not saving .*auth\.json: the state has no cookies; kept the previous one/);
-  assert.strictEqual(sid(auth), 'v2');
+  assert.strictEqual(sid(auth), 'v3');
   app.close();
+}
+
+// Runs `file` under qa-node, sends it SIGINT once it prints `ready`, as
+// Ctrl-C does, and resolves to its exit code.
+function interrupt(file, ...args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('qa-node', [file, ...args], { env: { ...process.env, QA_NODE_TIMEOUT: '30' }, stdio: ['ignore', 'pipe', 'inherit'] });
+    child.stdout.on('data', (chunk) => {
+      if (chunk.toString().includes('ready')) child.kill('SIGINT');
+    });
+    child.on('error', reject);
+    child.on('exit', (code, signal) => resolve(code ?? signal));
+  });
 }
 
 // Given a session started on a saved login, when a probe rotates it and

@@ -20,10 +20,10 @@ wait for must end, and one that fails must fail at once.
 - The app is already running at the URL you were given. Never start another
   dev server or any other Node server beside it. If it does not answer,
   hand back with the tail of `<run>/app.log`.
-- A wallet run checks funds first (`qa-wallet balance`, with the RPC and
-  tokens `QA.md` names). A precondition that blocks every wallet item - short
-  funds, an expired login, no test data on the chain - ends the run: hand back
-  at once with what is missing, and do not explore around it.
+- Funds were checked before you started. A precondition that blocks every
+  wallet item - a shortfall hit mid-run, an expired login, no test data on the
+  chain - ends the run: hand back at once with what is missing, and do not
+  explore around it.
 - You were given an index of the scripts directory
   (`~/.cache/qa/<owner>/<repo>/scripts/<host>/`): file names and their
   exported functions. Read only the files your items need, never all of them.

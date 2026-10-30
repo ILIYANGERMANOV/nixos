@@ -31,6 +31,6 @@ targeted checks, and commit.
 4. Brief the next part from what the last one handed back, not from re-reading
    its files.
 
-Hand back under 300 words: the commit, the proof, what remains, any question
+Hand back in about 250 words, never over 300: the commit, the proof, what remains, any question
 for the user you could not settle, and any auth, session, authorization,
 database, secrets or CI work your brief did not flag as security-sensitive.
