@@ -36,16 +36,26 @@ costs rework, tech debt and bugs.
   any open decision back to its caller in its report, finishing the work the
   decision does not block rather than stopping or guessing.
 
+## Quality
+
+Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
+agent may lower or raise it for a subtask. A skill's text is Max: it names only
+what Balanced and POC change, and no branch means as written.
+
+- **POC**: prove the idea cheaply. One quick review, then a PR labelled `POC`,
+  not merge-ready and never auto-merged.
+- **Balanced** (default): fewer review agents and one fix pass. Security depth
+  stays.
+- **Max**: every step.
+
 ## Subagents
 
 - Act as an orchestrator: hand self-contained work that would flood your own
   context to a subagent and keep only its conclusion. Good candidates are long
   verification runs (diffing builds, checking two outputs are equal), broad
   searches, log and test-output triage, and research. Give the subagent the
-  goal, the facts it needs and the shape of the answer you want. Spawning one
-  pays off even when it repeats or follows up on earlier work: a fresh subagent
-  per step costs less than carrying every step's raw output in the main
-  conversation.
+  goal, the facts it needs and the shape of the answer you want. A fresh
+  subagent per step costs less than carrying every step's raw output.
 - The exception: when exploring feeds directly into a change, one subagent both
   explores and implements. Splitting them makes the implementer re-read
   everything the explorer already read.
@@ -84,9 +94,12 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 - Run anything expected to take over a minute with `run_in_background`. It
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
   A subagent's background task dies at its hand-back and nothing wakes it, so a
-  subagent runs it in the foreground with `timeout: 600000` instead. If it may
-  pass 10 minutes and a rerun resumes it, the subagent runs it under `timeout
-  590` and reruns it on exit 124, since the wait guard blocks waiting on a log.
+  subagent runs it in the foreground with `timeout: 600000` instead.
+- A check expected over about 4 minutes runs in a fresh small agent: a
+  subagent's cache lasts 5 minutes, and rewriting a large context costs far
+  more than a small one. Foreground Bash caps at 10 minutes, so if the check may
+  pass that and a rerun resumes it, the small agent runs it under `timeout 590`
+  and reruns it on exit 124, since the wait guard blocks waiting on a log.
 - Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
   as `.{0,250}` as too complex.
 
@@ -102,8 +115,8 @@ step.
 - Never send new scope to a large agent: start a fresh one.
 - The prompt cache expires after about 5 minutes idle. Never resume a large
   agent after a gap; spawn a fresh one from a summary.
-- Subagents never wait on CI or deploys: they hand back, and the parent
-  waits. A check they run is still theirs to wait for.
+- Subagents never wait on or poll CI or deploys: they hand back, the parent
+  waits, and a guard enforces it. A check they run is still theirs to wait for.
 - Wait on a pull request's CI without blocking: after your final push, call
   `subscribe_pr_activity` and end your turn, so CI results wake you. An event
   for a commit that is not the branch head, or for your own action (your

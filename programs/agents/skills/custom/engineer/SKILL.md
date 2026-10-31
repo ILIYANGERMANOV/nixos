@@ -1,6 +1,6 @@
 ---
 name: engineer
-description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews the user, confirms the plan, opens a draft PR with it, implements through subagents, refactors, reviews twice, and hands over a ready PR with green CI. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills, and offers QA at hand-over on a UI or runtime change. Use when asked to build, fix or change something end to end and deliver it as a PR.
+description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews the user, confirms the plan and its Quality, opens a draft PR with it, implements through subagents, refactors and reviews as that Quality says, and hands over a ready PR with green CI. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills, and offers QA at hand-over on a UI or runtime change. Use when asked to build, fix or change something end to end and deliver it as a PR.
 argument-hint: "[feature or task]"
 ---
 
@@ -18,15 +18,15 @@ CI. You own the outcome; the user owns the decisions.
   the user has said to use your own judgment do you decide the rest yourself -
   and then record each such decision, with its reason, in the PR body.
 - **Facts are yours, decisions are theirs.** Research facts with subagents.
+- **Quality** is in your instructions. It goes in every brief, the review and
+  `refactor` prompts included. The branches below are all it changes here.
 - **You answer the skills you invoke.** `pragmatic-review`'s pickers ask which
   findings survive and what to do with them, and its open questions what a
   test is meant to prove. Answer those yourself - unless the answer is a
   product, scope or design decision, which goes to the user. `refactor` asks
   nothing when delegated: its big items come back as out of scope.
-- **Simplicity over completeness.** Prefer the simplest design that meets the
-  goal (see `engineering`). A rare edge case that would cost a complex or flaky
-  fix is skipped, unless a miss corrupts data or opens a security hole, and
-  recorded as out of scope in the PR body.
+- **Simplicity over completeness**, as `engineering` says. A rare edge case you
+  skip is recorded as out of scope in the PR body.
 - **Protect your context window.** Delegate reading, implementing, verification
   and log triage to subagents and keep only their conclusions. Run them in the
   background by default. Every brief ends with "hand back in about 250 words,
@@ -61,8 +61,9 @@ failure modes, what is out of scope. Fold in research results as they land.
 
 ### 3. Confirm the plan
 
-Show the plan in a few lines: goals, the approach, decisions, out of scope.
-Ask with one `AskUserQuestion` whether it matches the user's understanding
+Unless told, ask Quality first with one `AskUserQuestion`, Balanced recommended.
+Show the plan in a few lines: goals, the approach, decisions, out of scope,
+Quality. Ask with one `AskUserQuestion` whether it matches the user's understanding
 ("Yes, build it (Recommended)" / "No, adjust"). On "adjust", take the
 correction and ask again. Done when the user confirms.
 
@@ -70,15 +71,16 @@ correction and ask again. Done when the user confirms.
 
 Branch from `origin/main`, commit the first change (or an empty commit),
 push, and open a **draft** PR whose body is the agreed plan:
-goals, decisions, out of scope, and the **acceptance criteria** - each goal as
+goals, decisions, out of scope, `Quality: <mode>` and the **acceptance criteria** - each goal as
 a checkable statement, input to observable outcome. When the plan touches
 auth, sessions, authorization, databases, secrets or CI, it also states
 `Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
-plan is now visible from the phone.
+plan is now visible from the phone. POC: `gh label create POC --force`, then
+`gh pr edit <n> --add-label POC`.
 
 ### 5. Implement
 
-Delegate to implementer subagents. One implementer explores and implements a
+Delegate to implementer subagents. POC: exactly one. One implementer explores and implements a
 self-contained slice, because splitting exploring from implementing makes it
 re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
@@ -92,7 +94,8 @@ any security-sensitive topic an implementer reports to the plan's line.
 ### 6. Refactor
 
 Spawn a fresh agent whose prompt is "invoke `refactor` on the branch", so its
-reading stays out of your context. Keep only its hand-back.
+reading stays out of your context. Keep only its hand-back. Skip this step
+under POC, and under Balanced below about 100 changed lines.
 
 ### 7. Review
 
@@ -100,31 +103,38 @@ A PR that changes a skill gets a dry run first: a fresh agent reads the changed
 `SKILL.md` from the branch, not the installed copy, follows it step by step on
 a realistic task, with no push or other outside effect, and reports each step
 it could not follow or that misled it. Fix what it finds through a fixer.
+Balanced: only for a new or rewritten skill. POC: never.
 
 Run each review pass as a fresh review agent whose prompt is "invoke
-`pragmatic-review` with: <arguments>"; never load that skill yourself. It
+`pragmatic-review` with: Quality: <mode> <arguments>"; never load that skill yourself. It
 returns the findings table and requirement verdicts, ending with
 `Reviewed head: <sha>`. You answer its pickers by acting on the table
 yourself: choose the rows worth fixing and hand them to a fixer subagent that
 commits and pushes. Every surviving house-rule row is fixed, or the reason for
-leaving it is recorded in the PR body. Never reply to the review agent with an
-action.
+leaving it is recorded in the PR body. POC: a fixer gets blockers only (security,
+irreversible damage, broken code); every other row goes in `## Follow-ups`.
+Never reply to the review agent with an action.
 
-Pass 1 is a first review. Its requirements are the acceptance criteria plus
-what must hold where you are least sure of the implementation; the plan's
-decisions and out-of-scope list go with them as assumptions, in your words, so
-a deliberately skipped edge case is not raised. With a `Security-sensitive:`
-line, every pass also gets the requirement `security-sensitive: <topics>`.
-Record its `Reviewed head`, its requirement verdicts and its `Security:` line.
+Pass 1 is a first review. Write its requirements once to
+`/tmp/engineer-<PR>/requirements.md` and give every pass `--requirements <path>`,
+never a list. They are the acceptance criteria plus what must hold where you
+are least sure of the implementation; the plan's decisions and out-of-scope
+list go with them as assumptions, in your words, so a deliberately skipped edge
+case is not raised. A `Security-sensitive:` line adds the requirement
+`security-sensitive: <topics>`.
+Record its `Reviewed head` and its requirement verdicts.
 
 ### 8. Review again, for the last time
 
-Pass 2 is a re-review: invoke `pragmatic-review` with `--fixes <the pass-1
-Reviewed head>`, the pass-1 requirements again, and "finding N is fixed" for
-each row you had fixed. A requirement it answers "unchanged" keeps its pass-1
-verdict. A fix that changed an interface, a data model or an auth flow gets a
-first review of the whole branch instead, as in step 7. No more reviews after
-this one, whatever it finds, except step 10's final review.
+Pass 2 is a re-review: append "finding N is fixed" to the requirements file for
+each row you had fixed, then invoke `pragmatic-review` with `--fixes <the pass-1
+Reviewed head>` and that file. A requirement it answers "unchanged" keeps its
+pass-1 verdict. A fix that changed an interface, a data model or an auth flow
+gets a first review of the whole branch instead, as in step 7. No more reviews
+after this one, whatever it finds.
+
+Balanced: nothing fixed, no pass, and only a data-model or auth fix gets the
+first review. POC: skip this step and step 9.
 
 ### 9. Final fix
 
@@ -135,6 +145,9 @@ row or Not met verdict you do not fix is recorded in `## Follow-ups`, with the
 reason.
 
 ### 10. Hand over
+
+POC: do only the body rewrite, the full check rule and the CI wait, then notify.
+The PR stays a labelled draft, not merge-ready, with no offers.
 
 - Rewrite the PR body with the `pr-description` skill, keeping any decisions
   you made on the user's behalf and every recorded reason for an unfixed row.
@@ -165,11 +178,8 @@ reason.
   to the user.
 - Mark the PR ready with `gh pr ready <n>` and notify the user the way your
   instructions describe.
-- On the sensitive tier (pass 1's `Security:` line says `sensitive`), invoke
-  `final-review` yourself once the PR is ready, with pass 1's requirements; the
-  user answers its pickers. Otherwise mention to the user that
-  `/final-review [requirements]` on the ready PR gives an independent check;
-  that one the user runs, never you.
+- Offer `/final-review --requirements <path> <PR>` on the ready PR as an
+  independent check. Only the user runs it.
 
 ## Delegated
 
@@ -181,8 +191,7 @@ rest of this skill.
   the worktree exists, so skip the branching and open the draft PR with
   `--repo <repo> --head <branch> --base <base>`. A brief naming an open PR skips
   step 4 and starts at the step it names.
-- Run steps 5-9 as written, the dry run for skill PRs included, with every agent
-  in the foreground (`run_in_background: false`). You are a subagent: you wait
+- Run steps 5-9 as written, with every agent in the foreground (`run_in_background: false`). You are a subagent: you wait
   for what you spawned, and ending your turn is your hand-back.
 - Every prompt you write, a nested implementer's, `refactor`'s, a review's or a
   fixer's, carries the worktree path, for every command, the base branch and
@@ -192,14 +201,14 @@ rest of this skill.
   the base ref to `pr-description`.
 - From step 10 do only the PR-body rewrite and any full check, the way your
   instructions tell a subagent to run a long command. Then stop, before the CI
-  wait. QA, the app offer, the gates, `gh pr ready`, notifications and
-  `final-review` are your caller's.
+  wait. QA, the offers, the gates, `gh pr ready` and notifications are your
+  caller's.
 - Never call `AskUserQuestion`. A decision the rest of this skill sends to the
   user goes in your hand-back, with whatever finished, pushed.
-- Write pass 1's requirements to the brief's report file, and after each step
-  the last finished step, the head SHA and pass 1's `Security:` line.
+- Your requirements file is the brief's. After each step, write the last
+  finished step and the head SHA to its report file.
 - Start your hand-back with one status, then its usual content plus the last
-  finished step, the head SHA and pass 1's `Security:` line:
+  finished step and the head SHA:
   - `READY <PR URL>` - step 10's part is done and pushed.
   - `NEEDS_DECISION <question>` - the plan does not settle it.
   - `BLOCKED <reason>` - something outside the worktree stops you.

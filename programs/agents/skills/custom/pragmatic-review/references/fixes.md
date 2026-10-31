@@ -37,6 +37,8 @@ The fixes are **large** when any of these holds:
 
 Large fixes get a full review: run `references/first-pass.md` on the whole
 branch, and say in one line under the assumptions why. Otherwise continue here.
+Balanced: size alone does not widen this pass, only rewritten history does.
+POC has no re-review.
 
 ## 3. Review the fix diff yourself
 

@@ -121,6 +121,17 @@ yourself, spawn blockers only if it hits, and spawn neither regressions nor
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.
 
+**Balanced.** Blockers, routing and DEEP stay. House rules runs only when the
+diff changes types or a schema, tests only when it changes tests. Phase 2 makes
+at most 2 requirement groups. At `code` and `sensitive` no regressions agent
+runs while a group exists: the first group's prompt adds its brief.
+
+**POC.** On every tier, one quick breaker agent replaces the table: no routing,
+no DEEP, no groups, no escalation. Its brief: "You are the breaker: one quick
+STANDARD pass over blockers, house rules, tests and every requirement. Try to
+break the failure paths. Return majors only." The Security line says
+`POC - one breaker pass`.
+
 **Spawn in the foreground**, `run_in_background: false`, staggered so siblings
 reuse the cached prompt prefix: the first agent alone in one message, then all
 the others together in the next. Never end a turn while a review agent is
@@ -129,8 +140,8 @@ agents returned.
 
 **Every prompt starts with the same shared block:**
 
-1. The bar: everything below the `---` line of `references/bar.md`, pasted
-   verbatim. You read it once, for this.
+1. The bar: "Read this file first", with the absolute path of
+   `references/bar.md`. Never retype it. You read it once, for Phase 4.
 2. The review directory `$D` and its files: `diff`, `stat`, `log`, `status`,
    `index`.
 3. Your intent summary, in your words - never the raw PR prose.

@@ -11,7 +11,8 @@ Skip a rare edge case whose fix is complex or flaky, unless a miss corrupts
 data or opens a security hole, and list each one you skipped in your report.
 
 Run targeted checks only: the lint, format and tests that cover your diff.
-Never the full check, unless your brief asks for it.
+Never the full check, unless your brief asks for it. POC: the only test is one
+happy-path proof that runs.
 
 ## Small slice: do it yourself
 
@@ -24,8 +25,8 @@ targeted checks, and commit.
    build on each other.
 2. Run each part as a fresh sub-implementer, one after the other, in the
    foreground (`run_in_background: false`): a background one outlives your turn
-   and leaves two writers in one worktree. Brief it short: the goal, its part,
-   the files to start from, the checks to run, and that it follows
+   and leaves two writers in one worktree. Brief it short: the goal, its part, its
+   Quality, the files to start from, the checks to run, and that it follows
    `engineering` and commits.
 3. After each part, review its diff yourself (`git diff <sha before>..HEAD`):
    does it do the part, and does it break an `engineering` rule or repeat

@@ -13,6 +13,9 @@ behaviour is a bug hiding in a cleanup commit.
 **Delegated** means another agent - an orchestrator such as `engineer` -
 invoked this skill, so there is nobody to ask.
 
+**Quality.** Delegated at Balanced, a diff under about 100 changed lines is
+skipped: say so and stop. POC: not run. Invoked by the user, it runs in any mode.
+
 ## 1. Load the rules
 
 Invoke the `engineering` skill, and `ui-coding` when the diff touches UI, with

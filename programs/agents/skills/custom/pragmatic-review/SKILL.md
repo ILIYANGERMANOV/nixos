@@ -1,7 +1,7 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
-argument-hint: "[requirements] [PR number or URL] [--fixes <first-review head sha>]"
+description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Quality, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
+argument-hint: "[requirements | --requirements <path>] [PR number or URL] [--fixes <first-review head sha>] [Quality: <mode>]"
 ---
 
 # Pragmatic Review
@@ -37,6 +37,11 @@ leaks data, and burying one real bug under twelve opinions.
 - **`--fixes <sha>`** - this is a re-review of the fixes made since a first
   review whose head was `<sha>`, the `Reviewed head` line of its return. Without
   it, this is a first review.
+- **`Quality: <mode>`** - your instructions define it; `first-pass.md` and
+  `fixes.md` branch on it.
+- **`--requirements <path>`** - a file holding the requirements, the form every
+  calling agent uses, with the "finding N is fixed" lines appended over passes.
+  Read it once.
 - **Requirements** - anything else, usually a bracketed list, one per bullet or
   line; *tips* is a synonym. On a re-review the caller passes the first review's
   requirements again, plus "finding N is fixed" for each row it fixed.
@@ -66,8 +71,8 @@ the user and its answer is the instruction.
 ## The bar
 
 `references/bar.md` is the bar: severity, the always-check list, what is never a
-finding, refutation, and the agents' return schema. You paste it into every
-agent's prompt and judge their returns at it. The verdict is mechanical:
+finding, refutation, and the agents' return schema. You pass its absolute path
+to every agent, never retyping it, and judge their returns at it. The verdict is mechanical:
 **mergeable iff no Major survives.**
 
 **Blockers reverse the reluctance.** Security (injection, RCE, leaked user data,
@@ -171,12 +176,5 @@ the table yourself.", then the `Reviewed head` line.
 
 ## Rules of engagement
 
-- Be specific or be quiet. "This could have security implications" is noise;
-  "an unauthenticated POST to `/import` writes to the orders table" is signal.
-- One real bug beats ten observations. If the list is long, the bar slipped.
-  Never pad a clean diff with gentle suggestions.
-- Answer what you were asked: a requirement gets a verdict whether or not
-  anything was found there.
-- Review only what this diff changes and what it breaks.
+- Be specific or be quiet. If the list is long, the bar slipped.
 - If part of the diff was too large or unfamiliar to judge honestly, say which.
-- Drop a finding the moment it is shown wrong; never reach for a replacement.
