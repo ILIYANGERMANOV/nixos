@@ -25,30 +25,85 @@ let
     PLAYWRIGHT_BROWSERS_PATH = "${browsers}";
   };
 
-  # The wallet helper with viem as its own dependency, pinned by the lock file.
-  wallet = pkgs.buildNpmPackage {
-    pname = "qa-wallet";
-    version = "1.0.0";
+  # The TypeScript sources and their locked dependencies, as a tech check needs
+  # them. tsc and Biome come from nixpkgs, not the lock file: a `typescript` in
+  # the lock file becomes viem's peer and ships in the runtime closure. Playwright
+  # is a dev dependency for its types only, at the version of `playwright-test`.
+  typescript = rec {
+    fileset = lib.fileset.unions [
+      ./package.json
+      ./pnpm-lock.yaml
+      ./tsconfig.json
+      ./tsconfig.build.json
+      (lib.fileset.fileFilter (file: file.hasExt "ts") ./.)
+    ];
     src = lib.fileset.toSource {
-      root = ./wallet;
-      fileset = lib.fileset.unions [
-        ./wallet/package.json
-        ./wallet/package-lock.json
-        ./wallet/index.js
-        ./wallet/cli.js
-      ];
+      root = ./.;
+      inherit fileset;
     };
-    npmDepsHash = "sha256-52Ye5hQDGtMYcXxPic8agTIEfVyCm9Hl4FkBC+9Pr7M=";
-    dontNpmBuild = true;
+    pnpmDeps = pkgs.fetchPnpmDeps {
+      pname = "qa-tools";
+      src = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./package.json
+          ./pnpm-lock.yaml
+        ];
+      };
+      fetcherVersion = 4;
+      hash = "sha256-Vh1yscy6wQf5rzib+NLlzDQYmgepz8KBsrpwupULqCA=";
+    };
+    tsc = pkgs.typescript-go;
+    # What a derivation needs to get `node_modules` from `pnpmDeps`.
+    nativeBuildInputs = [
+      pkgs.nodejs
+      pkgs.pnpm
+      pkgs.pnpmConfigHook
+      pkgs.writableTmpDirAsHomeHook
+    ];
   };
-  walletModules = "${wallet}/lib/node_modules";
 
-  # Plain CommonJS with no dependencies of its own: playwright and qa-wallet
-  # resolve through qa-node's NODE_PATH.
-  kitModules = pkgs.runCommand "qa-kit" { } ''
-    mkdir -p "$out/lib/node_modules"
-    cp -r ${./kit} "$out/lib/node_modules/qa-kit"
-  '';
+  # The compiled runtime. Node refuses type stripping under `node_modules`, and
+  # `lib/node_modules` holds qa-kit, qa-wallet, viem and playwright side by side:
+  # the packages are ES modules, which resolve siblings by directory and ignore
+  # NODE_PATH, while a script's `require` finds them through it. `check` is the
+  # compiled checks.qa scripts, kept out of the runtime.
+  compiled = pkgs.stdenvNoCC.mkDerivation {
+    pname = "qa-tools";
+    version = "1.0.0";
+    outputs = [
+      "out"
+      "check"
+    ];
+    inherit (typescript) src pnpmDeps;
+    nativeBuildInputs = typescript.nativeBuildInputs ++ [ typescript.tsc ];
+    buildPhase = ''
+      runHook preBuild
+      tsgo -p tsconfig.build.json
+      pnpm prune --prod --ignore-scripts
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      modules="$out/lib/node_modules"
+      mkdir -p "$out/lib" "$check"
+      mv node_modules "$modules"
+      ln -s ${pkgs.playwright-test}/lib/node_modules/playwright "$modules/playwright"
+      mv dist/kit "$modules/qa-kit"
+      mv dist/wallet "$modules/qa-wallet"
+      echo '{"type":"module","main":"index.js"}' | tee "$modules/qa-kit/package.json" "$modules/qa-wallet/package.json" > "$check/package.json"
+      mv dist/qa-check*.js "$check/"
+      ln -s "$modules" "$check/node_modules"
+      runHook postInstall
+    '';
+  };
+  modules = "${compiled}/lib/node_modules";
+
+  qaWallet = pkgs.writeShellApplication {
+    name = "qa-wallet";
+    runtimeInputs = [ pkgs.nodejs ];
+    text = ''exec node ${modules}/qa-wallet/cli.js "$@"'';
+  };
 
   # A script that hangs still ends: QA_NODE_TIMEOUT (default 300 s, any
   # `timeout` duration, 0 for none) sends it SIGTERM, which lets qa-kit save
@@ -60,9 +115,9 @@ let
       timeout
     ];
     text = ''
-      export NODE_PATH="${env.NODE_PATH}:${walletModules}:${walletModules}/qa-wallet/node_modules:${kitModules}/lib/node_modules"
+      export NODE_PATH="${env.NODE_PATH}:${modules}"
       export PLAYWRIGHT_BROWSERS_PATH="${env.PLAYWRIGHT_BROWSERS_PATH}"
-      export QA_WALLET_MODULE="${walletModules}/qa-wallet/index.js"
+      export QA_WALLET_MODULE="${modules}/qa-wallet/index.js"
       exec timeout --kill-after=10 "''${QA_NODE_TIMEOUT:-300}" node "$@"
     '';
   };
@@ -70,7 +125,7 @@ let
   qaSession = pkgs.writeShellApplication {
     name = "qa-session";
     runtimeInputs = [ qaNode ];
-    text = ''exec qa-node ${kitModules}/lib/node_modules/qa-kit/session.js "$@"'';
+    text = ''exec qa-node ${modules}/qa-kit/session.js "$@"'';
   };
 
   # Playwright records webm from context creation, so a video opens on
@@ -155,7 +210,10 @@ let
   '';
 in
 {
-  inherit env;
+  inherit env typescript;
+
+  # The compiled scripts checks.qa runs under `qa-node`.
+  qaCheckScripts = compiled.check;
 
   qa = pkgs.symlinkJoin {
     name = "qa-runtime";
@@ -164,7 +222,7 @@ in
       qaSession
       qaMp4
       qaFrames
-      wallet
+      qaWallet
       timeout
       pkgs.ffmpeg-headless
     ];
