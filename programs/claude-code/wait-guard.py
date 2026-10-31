@@ -31,9 +31,12 @@ from enum import Enum, auto
 from itertools import dropwhile
 
 from bash_commands import simple_commands
-from transcripts import CHECK_HANDBACK_AT, own_transcript, parse_line
+from transcripts import own_transcript, parse_line
 
 MIN_SLEEP = 10
+# Past this context an agent hands a long check back: a wait over the 5 minute
+# cache costs more in rewrites than a fresh small agent running the check.
+CHECK_HANDBACK_AT = 60_000
 HINT = (
     "Blocked: this command waits in the foreground. Run a long command with "
     "run_in_background and wait for its task notification, never polling its "

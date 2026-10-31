@@ -4,7 +4,7 @@ Reads the hook input from stdin and the agent's own transcript, whose assistant
 lines carry the context each call sent. It compares the newest call with the
 last one before it that ran a tool, the last the hook saw, so it needs no state,
 loses no crossing on a text-only reply, and speaks only when the context crosses
-a line: once at CHECK_HANDBACK_AT, at STOP_AT, then every STOP_STEP past it.
+a line: once at WARN_AT, at STOP_AT, then every STOP_STEP past it.
 Calls sent together share a message and may each repeat the notice. The hook
 only talks: blocking tools here would also block the commit and the push the notice asks
 for. Everything else, including any input this script does not understand,
@@ -16,15 +16,16 @@ import os
 import sys
 from pathlib import Path
 
-from transcripts import CHECK_HANDBACK_AT, own_transcript, parse_line
+from transcripts import own_transcript, parse_line
 
+WARN_AT = 150_000
 STOP_AT = 220_000
 STOP_STEP = 10_000
 # Enough for two calls unless a single result is larger, which only costs the
 # comparison: the newest call then counts as a crossing.
 TAIL_BYTES = 256 * 1024
 WARN = (
-    "Context {size}k, budget {stop}k: stop there. From here, never run a check "
+    "Context {size}k, budget {stop}k: stop there. Until then, never run a check "
     "over about 4 minutes yourself: commit, push and hand back naming it."
 )
 STOP = (
@@ -110,7 +111,7 @@ def notice(previous: int, current: int) -> str | None:
 
 def band(size: int) -> int:
     """0 under budget, 1 warned, 2 and up one per STOP_STEP past STOP_AT."""
-    if size < CHECK_HANDBACK_AT:
+    if size < WARN_AT:
         return 0
     if size < STOP_AT:
         return 1
