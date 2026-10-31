@@ -15,6 +15,7 @@ modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
+programs/tech-checks/ - `<tech>-<kind>` flake checks and the treefmt formatter
 shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
 secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 deslop/         - the architecture rules `deslop check .` enforces, and their baseline
@@ -67,11 +68,17 @@ program needs a flake input.
 3. Register the HM module in `modules/home/default.nix`.
 4. Optionally import `programs/<name>` directly in any `shells/` that need it.
 
+A lint, type or test check for a technology rather than a program is
+`<tech>-<kind>` in `programs/tech-checks/`, such as `shell-actionlint`; a new
+`<tech>` also joins the `tech` matrix in `check.yml`. See
+`docs/adr/0009-tech-checks.md`.
+
 ## Checks
 
 **Run the narrowest rung that covers the edit; `just check` runs once, at the end.**
 `nix flake check` spends most of its time evaluating every host, so it is the
-wrong tool for iterating.
+wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
+`x86_64-linux` and `aarch64-linux`.
 
 1. A skill or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`
    and `.#checks.x86_64-linux.typos`, plus `self-improve` when the analyzer under
@@ -87,8 +94,15 @@ wrong tool for iterating.
    `nix eval --raw .#darwinConfigurations.<host>.system.drvPath` (`macos-main`, `macos-work`).
    An added, moved or re-pointed import: `nix develop -c just architecture`
    (Deslop, under a second).
-4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor`.
-5. `just quick-check` before handing back mid-work: lint, architecture, format and every
+4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
+   `nix develop -c just tech shell`.
+5. A script edit in a technology with checks: `nix develop -c just tech <name>`
+   (`shell` today). Seconds, no host evaluated: it builds every `<name>-*` flake
+   check for this system. It prints `All good (N)` and exits 0, or the failures
+   verbatim and exits nonzero, so never pipe it through `grep`, and never run its
+   tools by hand before it. A name with no checks fails. It sees only files git
+   tracks, so `git add -N` a new file first.
+6. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system. On Linux that evaluates one host, for
    `software-factory-activation`, and no other.
 6. `just check` once on the final state, run as the Checks rules in

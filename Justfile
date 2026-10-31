@@ -16,7 +16,7 @@ default:
 # Lint all Nix files
 lint:
     statix check .
-    deadnix .
+    deadnix --fail .
 
 # The rules live in deslop/rules/; `deslop explore .` draws the graph into
 # deslop/diagram/index.html. See docs/adr/0008-deslop-enforces-the-architecture.md.
@@ -25,7 +25,7 @@ lint:
 architecture:
     deslop check .
 
-# Format all Nix files (nixfmt); pass --ci to check without writing
+# Format all files through treefmt; pass --ci to check without writing
 format *ARGS:
     nix fmt -- {{ ARGS }}
 
@@ -59,12 +59,27 @@ typos-edit:
 # and `check` stays the final one.
 #
 # Run the fast checks (lint + format + every flake check, no host evaluation)
-quick-check: lint architecture (format "--ci")
+quick-check: lint architecture (format "--ci") (_build-checks ".*")
+
+# Prints `All good (N)`, or every failure in full and exits nonzero, so never
+# pipe it through grep. See docs/adr/0009-tech-checks.md.
+#
+# Run one technology's checks, every `<NAME>-*` flake check, with no host evaluation
+tech NAME: (_build-checks (NAME + "-.*"))
+
+# Builds this system's checks whose name matches `pattern`. Matching nothing
+# fails: a typo in a group name must not pass with nothing built. `--keep-going`
+# and `--log-lines` report every failure whole, past nix's default 25-line tail.
+[private]
+_build-checks pattern:
     #!/usr/bin/env bash
     set -euo pipefail
     system=$(nix eval --impure --raw --expr builtins.currentSystem)
-    names=$(nix eval --raw ".#checks.$system" --apply 'cs: toString (builtins.attrNames cs)')
-    nix build --no-link $(printf ".#checks.$system.%s " $names)
+    names=$(nix eval --raw ".#checks.$system" --apply \
+      'cs: toString (builtins.filter (n: builtins.match "{{ pattern }}" n != null) (builtins.attrNames cs))')
+    [ -n "$names" ] || { echo "no checks match {{ pattern }} on $system" >&2; exit 1; }
+    nix build --no-link --keep-going --log-lines 100000 $(printf ".#checks.$system.%s " $names)
+    echo "All good ($(wc -w <<<"$names"))"
 
 # Run all checks (lint + architecture + format + spell + flake check)
 check:
