@@ -14,7 +14,8 @@ behaviour is a bug hiding in a cleanup commit.
 invoked this skill, so there is nobody to ask.
 
 **Quality.** Delegated at Balanced, a diff under about 100 changed lines is
-skipped: say so and stop. POC: not run. Invoked by the user, it runs in any mode.
+skipped: say so and stop. Delegated at POC, one quick pass: step 3's items 1-3
+only, and skip `references/tests.md`. Invoked by the user, it runs in any mode.
 
 ## 1. Load the rules
 

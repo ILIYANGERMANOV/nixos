@@ -42,8 +42,8 @@ Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
 agent may lower or raise it for a subtask. A skill's text is Max: it names only
 what Balanced and POC change, and no branch means as written.
 
-- **POC**: prove the idea cheaply. One quick review, then a PR labelled `POC`,
-  not merge-ready and never auto-merged.
+- **POC**: prove the idea cheaply. One quick refactor and one quick review, then
+  a PR labelled `POC`, not merge-ready and never auto-merged.
 - **Balanced** (default): fewer review agents and one fix pass. Security depth
   stays.
 - **Max**: every step.

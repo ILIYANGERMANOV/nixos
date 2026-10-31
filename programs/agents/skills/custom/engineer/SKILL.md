@@ -94,8 +94,8 @@ any security-sensitive topic an implementer reports to the plan's line.
 ### 6. Refactor
 
 Spawn a fresh agent whose prompt is "invoke `refactor` on the branch", so its
-reading stays out of your context. Keep only its hand-back. Skip this step
-under POC, and under Balanced below about 100 changed lines.
+reading stays out of your context. Keep only its hand-back. Balanced: skip
+this step below about 100 changed lines. POC: one quick pass, never skipped.
 
 ### 7. Review
 
