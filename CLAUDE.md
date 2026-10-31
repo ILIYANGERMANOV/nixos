@@ -37,7 +37,8 @@ Designed for reuse: the same program config can be consumed by home modules and 
 
 A script is built with `writeShellApplication` from `programs/shell-check`, the
 one source of the optional shellcheck rules; `shell-lint` holds every `.sh` to
-the same rules. A `.sh` spliced into a script opens with a `# shellcheck
+the same rules, and `shell-just`, built after a Justfile edit, every just recipe.
+It also rejects `{{ }}` on a sudo line: use an exported parameter. A `.sh` spliced into a script opens with a `# shellcheck
 shell=bash` directive, which `fragment` in `programs/software-factory` cuts on
 assembly: mid-script it would silence the next function.
 

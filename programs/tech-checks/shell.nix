@@ -20,6 +20,14 @@ let
     fileset = lib.fileset.fileFilter (file: file.hasExt "sh") root;
   };
 
+  justSource = lib.fileset.toSource {
+    inherit root;
+    fileset = lib.fileset.unions [
+      (root + "/Justfile")
+      (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
+    ];
+  };
+
   formatSource = lib.fileset.toSource {
     inherit root;
     fileset = lib.fileset.fileFilter (
@@ -53,6 +61,44 @@ in
         mapfile -d "" scripts < <(find . -name '*.sh' -print0)
         [ "''${#scripts[@]}" -gt 0 ] || { echo "shell-lint: no scripts found" >&2; exit 1; }
         shellcheck ${lib.escapeShellArgs shellCheck.extraFlags} "''${scripts[@]}"
+        touch "$out"
+      '';
+
+  # The shell inside the Justfile and its imports, which `--dump` flattens without
+  # evaluating a backtick. Script names carry the recipe, as `<recipe>.sh` or
+  # `<recipe>.line<N>.sh`. `{{ }}` next to sudo is text spliced into a root command.
+  shell-just =
+    pkgs.runCommand "shell-just"
+      {
+        nativeBuildInputs = [
+          pkgs.jq
+          pkgs.just
+          pkgs.shellcheck
+        ];
+      }
+      ''
+        just --justfile ${justSource}/Justfile --dump --dump-format json > dump.json
+        jq -f ${./just-recipes.jq} dump.json > extracted.json
+
+        [ -s extracted.json ] || { echo "shell-just: no recipes extracted" >&2; exit 1; }
+
+        mkdir scripts
+        jq --raw-output0 '.path, .text' extracted.json |
+          while IFS= read -r -d "" path && IFS= read -r -d "" text; do
+            printf '%s' "$text" > "scripts/$path"
+          done
+
+        status=0
+        (cd scripts && shellcheck ${lib.escapeShellArgs shellCheck.extraFlags} -- *.sh) || status=1
+
+        jq -r '.path as $path | .sudoSplices[] | "\($path): \(.)"' extracted.json > splices
+        if [ -s splices ]; then
+          cat splices >&2
+          echo 'shell-just: {{ }} on a sudo line, use an exported parameter: `recipe $x:` then "$x"' >&2
+          status=1
+        fi
+
+        [ "$status" -eq 0 ]
         touch "$out"
       '';
 

@@ -73,7 +73,7 @@ setup-yubikey-ssh:
 
     echo "Generating resident ed25519-sk credential for host '$HOST'."
     echo "You will be prompted for the FIDO2 PIN once, then asked to TAP the key."
-    ssh-keygen -t ed25519-sk -O resident -O application=ssh:$HOST \
+    ssh-keygen -t ed25519-sk -O resident -O application=ssh:"$HOST" \
       -O user="$EMAIL" -f "$KEY" -N "" -C "$EMAIL"
     chmod 600 "$KEY"
     chmod 644 "$KEY.pub"
@@ -85,6 +85,7 @@ setup-yubikey-ssh:
       BACKUP="$HOME/.ssh/backups/$(date +%Y%m%d_%H%M%S)"
       mkdir -p "$BACKUP" && chmod 700 "$HOME/.ssh/backups" "$BACKUP"
       mv "$OLD" "$OLD.pub" "$BACKUP/" 2>/dev/null || true
+      # shellcheck disable=SC2312 # uname does not fail
       if [ "$(uname)" = "Darwin" ]; then
         ssh-add --apple-use-keychain -d "$BACKUP/id_ed25519" 2>/dev/null || true
       else
@@ -132,7 +133,7 @@ enroll-backup-yubikey:
 
     echo "Make sure your BACKUP YubiKey is the one plugged in."
     echo "Generating resident ed25519-sk credential for host '$HOST' on the backup key."
-    ssh-keygen -t ed25519-sk -O resident -O application=ssh:$HOST \
+    ssh-keygen -t ed25519-sk -O resident -O application=ssh:"$HOST" \
       -O user="$EMAIL" -f "$KEY" -N "" -C "$EMAIL (backup)"
     chmod 600 "$KEY"
     chmod 644 "$KEY.pub"
@@ -148,11 +149,11 @@ enroll-backup-yubikey:
 
 # Restore the local stub file on a fresh/rebuilt machine from the plugged-in YubiKey.
 # Prompts for the FIDO2 PIN — this is why a stolen token alone is useless.
-restore-ssh-stubs which="primary":
+restore-ssh-stubs $which="primary":
     #!/usr/bin/env bash
     set -euo pipefail
     HOST=$(hostname -s)
-    case "{{ which }}" in
+    case "$which" in
       primary) DEST="$HOME/.ssh/id_ed25519_sk" ;;
       backup)  DEST="$HOME/.ssh/id_ed25519_sk_backup" ;;
       *) echo "Usage: just restore-ssh-stubs [primary|backup]" >&2; exit 1 ;;
@@ -175,12 +176,12 @@ restore-ssh-stubs which="primary":
     fi
     install -m 600 "$MATCH" "$DEST"
     install -m 644 "$MATCH.pub" "$DEST.pub"
-    echo "Restored {{ which }} stub to $DEST"
+    echo "Restored $which stub to $DEST"
     echo "Verify: ssh -T git@github.com"
 
 # Rotate this host's credential on the plugged-in YubiKey (delete + regenerate).
 # which: primary | backup (required) — selects the local stub file to replace.
-rotate-ssh-key which:
+rotate-ssh-key $which:
     #!/usr/bin/env bash
     set -euo pipefail
     HOST=$(hostname -s)
@@ -190,7 +191,7 @@ rotate-ssh-key which:
       echo "Check that '$HOST' is a valid darwin/nixos configuration." >&2
       exit 1
     fi
-    case "{{ which }}" in
+    case "$which" in
       primary) KEY="$HOME/.ssh/id_ed25519_sk"; COMMENT="$EMAIL" ;;
       backup)  KEY="$HOME/.ssh/id_ed25519_sk_backup"; COMMENT="$EMAIL (backup)" ;;
       *) echo "Usage: just rotate-ssh-key [primary|backup]" >&2; exit 1 ;;
@@ -209,7 +210,7 @@ rotate-ssh-key which:
       mv "$KEY" "$KEY.pub" "$BACKUP/" 2>/dev/null || true
     fi
 
-    ssh-keygen -t ed25519-sk -O resident -O application=ssh:$HOST \
+    ssh-keygen -t ed25519-sk -O resident -O application=ssh:"$HOST" \
       -O user="$EMAIL" -f "$KEY" -N "" -C "$COMMENT"
     chmod 600 "$KEY"
     chmod 644 "$KEY.pub"
@@ -227,6 +228,7 @@ rotate-ssh-key which:
 yubikey-test-sound:
     #!/usr/bin/env bash
     set -euo pipefail
+    # shellcheck disable=SC2312 # uname does not fail
     if [ "$(uname -s)" != "Darwin" ]; then
       echo "The touch alert is macOS-only (uses /usr/bin/afplay)." >&2
       exit 1

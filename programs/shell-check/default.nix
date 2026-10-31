@@ -1,6 +1,6 @@
 # The optional shellcheck rules every script here is held to, in one place: the
-# `shell-lint` tech check and each writeShellApplication read them from here, so
-# the fragments and the assembled scripts cannot disagree. Not `--enable=all`:
+# `shell-lint` and `shell-just` tech checks and each writeShellApplication read
+# them from here, so no two can disagree. Not `--enable=all`:
 # its bulk is style (SC2250, SC2292) rather than bugs.
 { pkgs }:
 

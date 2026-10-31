@@ -2,8 +2,8 @@
 # Day-to-day commands for managing a macOS nix-darwin configuration.
 
 # Rebuild and switch the system to the latest flake configuration.
-darwin-rebuild host:
-    sudo darwin-rebuild switch --flake .#{{ host }}
+darwin-rebuild $host:
+    sudo darwin-rebuild switch --flake ".#$host"
 
 # Dry-run: check the config compiles without applying it.
 darwin-build host:

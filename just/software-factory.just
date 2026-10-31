@@ -166,6 +166,7 @@ factory-install $ip:
     set -euo pipefail
     case "$ip" in
         *[!0-9.]* | "") echo "ERROR: expected an IPv4 address, got '$ip'" >&2; exit 1 ;;
+        *) ;;
     esac
 
     extra=$(mktemp -d)
