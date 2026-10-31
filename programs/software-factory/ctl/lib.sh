@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2034,SC2154,SC2312 # other fragments and the preamble's pipefail: the assembled script is checked whole
 # The rest of factory-ctl's shared state: the enabled set, live sessions and
 # local work. Sourced into one script after paths.sh, so these are plain
 # functions over $HOME.
@@ -28,13 +29,14 @@ enabled_repos() {
 is_enabled() { enabled_repos | grep -qxF "$1"; }
 
 enable_repo() {
-  mkdir -p "$(dirname "$state_file")"
+  mkdir -p "${state_file%/*}"
   { enabled_repos; echo "$1"; } | sort -u >"$state_file.tmp"
   mv "$state_file.tmp" "$state_file"
 }
 
 disable_repo() {
-  mkdir -p "$(dirname "$state_file")"
+  mkdir -p "${state_file%/*}"
+  # shellcheck disable=SC2310 # the || is for grep, which fails on the last name
   enabled_repos | grep -vxF "$1" >"$state_file.tmp" || true
   mv "$state_file.tmp" "$state_file"
 }
@@ -43,7 +45,7 @@ disable_repo() {
 # process; its working directory is the repository or one of its worktrees.
 sessions() {
   local pid cwd
-  for pid in $(pgrep -u "$(id -u)" -f -- '--sdk-url'); do
+  for pid in $(pgrep -u "$EUID" -f -- '--sdk-url'); do
     cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null) || continue
     printf '%s\t%s\n' "$pid" "$cwd"
   done
@@ -75,16 +77,18 @@ local_work() {
 # Prints what stopping repository $1 would cost and fails if it costs anything:
 # live sessions, or worktrees with local work.
 check_nothing_at_risk() {
-  local repo="$1" count wt work at_risk=0
+  local repo="$1" count wt work label at_risk=0
   count=$(sessions_under "$repos_dir/$repo" | wc -l)
   if [ "$count" -gt 0 ]; then
     echo "$repo: $count live session(s)"
     at_risk=1
   fi
+  # shellcheck disable=SC2312 # a failed listing has always read as no worktrees
   while read -r wt; do
     work=$(local_work "$wt" | paste -sd ',' | sed 's/,/, /g')
     if [ -n "$work" ]; then
-      echo "$repo: $(worktree_label "$repo" "$wt"): $work"
+      label=$(worktree_label "$repo" "$wt")
+      echo "$repo: $label: $work"
       at_risk=1
     fi
   done < <(worktrees_of "$repo")

@@ -14,6 +14,19 @@
 }:
 
 let
+  shellCheck = import ../shell-check { inherit pkgs; };
+
+  # A fragment opens with a directive for the shell-lint check, which sees it
+  # alone. Spliced mid-script that directive would silence only the function
+  # below it, and for no reason: the assembled script defines everything.
+  fragment =
+    file:
+    lib.concatLines (
+      lib.filter (line: !lib.hasPrefix "# shellcheck shell=bash" line) (
+        lib.splitString "\n" (builtins.readFile file)
+      )
+    );
+
   # Root-owned policy, installed at /etc/claude-code/managed-settings.json.
   #
   # Billing: only a claude.ai subscription login may be used. forceLoginMethod
@@ -74,7 +87,7 @@ let
     let
       launcher =
         name: text:
-        pkgs.writeShellApplication {
+        shellCheck.writeShellApplication {
           inherit name;
           runtimeInputs = [
             pkgs.jq
@@ -119,11 +132,12 @@ let
     in
     {
       repo = launcher "factory-rc" ''
-        ${builtins.readFile ./ctl/paths.sh}
+        ${fragment ./ctl/paths.sh}
 
         main() {
           local name="''${1:?usage: factory-rc <repo>}"
           check_repo_name "$name"
+          # shellcheck disable=SC2310 # a predicate
           is_cloned "$name" || die "$repos_dir/$name is not a git repository"
           serve "$repos_dir/$name" "$name" ${lib.escapeShellArgs remoteControlArgs.repo}
         }
@@ -147,7 +161,7 @@ let
     {
       lockSeconds ? 30,
     }:
-    pkgs.writeShellApplication {
+    shellCheck.writeShellApplication {
       name = "factory-relink-skills";
       runtimeInputs = [
         pkgs.flock
@@ -204,7 +218,7 @@ let
       gcrootsAuto ? "/nix/var/nix/gcroots/auto",
       tmpDir ? "/tmp",
     }:
-    pkgs.writeShellApplication {
+    shellCheck.writeShellApplication {
       name = "factory-ctl";
       runtimeInputs = with pkgs; [
         coreutils
@@ -227,7 +241,7 @@ let
         admin_dir="${adminDir}"
         admin_unit=${adminUnit}
 
-        ${lib.concatMapStrings builtins.readFile [
+        ${lib.concatMapStrings fragment [
           ./ctl/paths.sh
           ./ctl/lib.sh
           ./ctl/repo.sh
@@ -291,12 +305,12 @@ let
       gcroots_auto=${lib.escapeShellArg gcrootsAuto}
       tmp_dir=${lib.escapeShellArg tmpDir}
       homes_dir=${lib.escapeShellArg homesDir}
-      ${builtins.readFile ./space.sh}
+      ${fragment ./space.sh}
     '';
 
   rootScript =
     name: script: settings:
-    pkgs.writeShellApplication {
+    shellCheck.writeShellApplication {
       inherit name;
       runtimeInputs = with pkgs; [
         coreutils
@@ -307,8 +321,8 @@ let
       ];
       text = ''
         ${settings}
-        ${builtins.readFile ./ops/state.sh}
-        ${builtins.readFile script}
+        ${fragment ./ops/state.sh}
+        ${fragment script}
       '';
     };
 
@@ -337,7 +351,7 @@ let
   #   repos - attrset of directory name -> clone URL
   mkBoot =
     ctl: repos:
-    pkgs.writeShellApplication {
+    shellCheck.writeShellApplication {
       name = "factory-boot";
       text = ''
         exec ${lib.getExe ctl} boot ${

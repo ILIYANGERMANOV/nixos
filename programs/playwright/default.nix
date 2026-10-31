@@ -13,6 +13,8 @@
 # project's own, differently versioned Playwright at the wrong browsers.
 { pkgs }:
 let
+  shellCheck = import ../shell-check { inherit pkgs; };
+
   inherit (pkgs) lib;
 
   browsers = pkgs.playwright-driver.selectBrowsers {
@@ -53,7 +55,7 @@ let
   # A script that hangs still ends: QA_NODE_TIMEOUT (default 300 s, any
   # `timeout` duration, 0 for none) sends it SIGTERM, which lets qa-kit save
   # the login, then SIGKILL 10 s later; the exit status is 124.
-  qaNode = pkgs.writeShellApplication {
+  qaNode = shellCheck.writeShellApplication {
     name = "qa-node";
     runtimeInputs = [
       pkgs.nodejs
@@ -67,7 +69,7 @@ let
     '';
   };
 
-  qaSession = pkgs.writeShellApplication {
+  qaSession = shellCheck.writeShellApplication {
     name = "qa-session";
     runtimeInputs = [ qaNode ];
     text = ''exec qa-node ${kitModules}/lib/node_modules/qa-kit/session.js "$@"'';
@@ -79,7 +81,7 @@ let
   # the app being slow and stays. GitHub plays H.264 mp4 inline. libx264 with
   # yuv420p needs even dimensions, and faststart lets the video play before
   # it has fully downloaded.
-  qaMp4 = pkgs.writeShellApplication {
+  qaMp4 = shellCheck.writeShellApplication {
     name = "qa-mp4";
     runtimeInputs = [ pkgs.ffmpeg-headless ];
     text = ''
@@ -103,7 +105,7 @@ let
   # Timestamps must be plain seconds: they are also the labels drawtext prints.
   # A time past the last frame is clamped to the last frame, labelled with
   # the video's length, so a timestamp cited a little long still gets a tile.
-  qaFrames = pkgs.writeShellApplication {
+  qaFrames = shellCheck.writeShellApplication {
     name = "qa-frames";
     runtimeInputs = [ pkgs.ffmpeg-headless ];
     text = ''

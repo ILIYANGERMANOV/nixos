@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 main() {
   local cmd="${1:-help}"
   shift || true

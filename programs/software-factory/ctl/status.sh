@@ -1,12 +1,19 @@
+# shellcheck shell=bash disable=SC2154,SC2312 # other fragments and the preamble's pipefail: the assembled script is checked whole
 # Read-only reports, sized for a phone screen.
 
 # status: every server, its sessions and local work, then the last root
 # operation, the deploy token's expiry and any skills a GC took away.
 cmd_status() {
-  local repo
-  row "admin" "$(systemctl --user is-active "$admin_unit")" "$(sessions_under "$admin_dir" | wc -l)" 0
+  local repo state count dirty
+  # is-active exits nonzero for every state but active, and still prints it.
+  state=$(systemctl --user is-active "$admin_unit") || true
+  count=$(sessions_under "$admin_dir" | wc -l)
+  row "admin" "$state" "$count" 0
   for repo in $(cloned_repos); do
-    row "$repo" "$(repo_state "$repo")" "$(sessions_under "$repos_dir/$repo" | wc -l)" "$(dirty_worktrees "$repo")"
+    state=$(repo_state "$repo")
+    count=$(sessions_under "$repos_dir/$repo" | wc -l)
+    dirty=$(dirty_worktrees "$repo")
+    row "$repo" "$state" "$count" "$dirty"
   done
   echo
   last_op
@@ -22,20 +29,24 @@ row() {
 # "on" and "off" when the server matches the enabled set; otherwise systemd's
 # own word, such as failed or activating, which is what needs attention.
 repo_state() {
-  local active
-  active=$(systemctl --user is-active "$(unit_of "$1")") || true
+  local unit active
+  unit=$(unit_of "$1")
+  active=$(systemctl --user is-active "$unit") || true
+  # shellcheck disable=SC2310 # a predicate
   case "$(is_enabled "$1" && echo enabled || echo disabled)/$active" in
     enabled/active) echo "on" ;;
     disabled/inactive) echo "off" ;;
     disabled/active) echo "on*" ;;
-    */*) echo "$active" ;;
+    *) echo "$active" ;;
   esac
 }
 
 dirty_worktrees() {
-  local wt count=0
+  local wt work count=0
+  # shellcheck disable=SC2312 # a failed listing has always read as no worktrees
   while read -r wt; do
-    [ -z "$(local_work "$wt")" ] || count=$((count + 1))
+    work=$(local_work "$wt")
+    [ -z "$work" ] || count=$((count + 1))
   done < <(worktrees_of "$1")
   echo "$count"
 }
@@ -50,25 +61,28 @@ last_op() {
   fi
   expires="$ops_state_dir/token-expires"
   if [ -r "$expires" ]; then
-    days=$(( ($(date -d "$(cat "$expires")" +%s) - $(date +%s)) / 86400 ))
+    days=$(( ($(date -d "$(<"$expires")" +%s) - $(date +%s)) / 86400 ))
     [ "$days" -ge 30 ] || echo "WARNING: the deploy token expires in $days day(s). Renew it (docs/SOFTWARE-FACTORY.md)."
   fi
 }
 
 # Links into a farm that was collected: the skills every new session lacks.
 dangling_skills() {
-  local names
+  local names count first
   names=$(find -L "$HOME/.claude/skills" -mindepth 1 -maxdepth 1 -type l -printf '%f\n' 2>/dev/null | sort) || true
   if [ -z "$names" ]; then
     echo "Skills: 0 dangling links"
   else
-    echo "Skills: $(echo "$names" | wc -l) dangling link(s): $(echo "$names" | head -n 5 | paste -sd ' ')"
+    count=$(wc -l <<<"$names")
+    # A here-string, because under pipefail a writer that head outruns would fail.
+    first=$(head -n 5 <<<"$names" | paste -sd ' ')
+    echo "Skills: $count dangling link(s): $first"
   fi
 }
 
 # stats: the machine's headline numbers.
 cmd_stats() {
-  local slice
+  local slice load cores used cap
   slice="/sys/fs/cgroup/user.slice/user-$(id -u).slice"
   awk '
     /^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 }
@@ -79,9 +93,13 @@ cmd_stats() {
     }' /proc/meminfo
   df -B1 --output=size,avail / | awk 'NR == 2 {
     printf "Disk   %3d%% used  (%.0f GB free of %.0f)\n", ($1 - $2) * 100 / $1, $2 / 1e9, $1 / 1e9 }'
-  printf 'CPU    load %s on %s core(s)\n' "$(cut -d ' ' -f 1 /proc/loadavg)" "$(nproc)"
+  load=$(cut -d ' ' -f 1 /proc/loadavg) || true
+  cores=$(nproc) || true
+  printf 'CPU    load %s on %s core(s)\n' "$load" "$cores"
   if [ -r "$slice/memory.current" ]; then
-    printf 'Agents %s of %s cap\n' "$(gib "$(cat "$slice/memory.current")")" "$(gib "$(cat "$slice/memory.max")")"
+    used=$(gib "$(<"$slice/memory.current")")
+    cap=$(gib "$(<"$slice/memory.max")")
+    printf 'Agents %s of %s cap\n' "$used" "$cap"
   fi
   awk '{ printf "Up     %dd %dh %dm\n", $1 / 86400, $1 % 86400 / 3600, $1 % 3600 / 60 }' /proc/uptime
 }

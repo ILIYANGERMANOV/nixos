@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 # Deploys the newest pending GitHub Deployment of this host, as root.
 #
 # Run every minute by a timer. The workflow that creates deployments
@@ -14,13 +15,15 @@ main() {
   exec 9>"$state_dir/deploy.lock"
   flock -n 9 || exit 0
 
-  local deployment
+  local deployment statuses
   deployment=$(api GET "/repos/$repo/deployments?environment=$environment&per_page=1" | jq -c '.[0] // empty')
   [ -n "$deployment" ] || exit 0
   id=$(jq -r .id <<<"$deployment")
   sha=$(jq -r .sha <<<"$deployment")
   # A deployment with any status was handled already, or is being handled.
-  [ "$(api GET "/repos/$repo/deployments/$id/statuses?per_page=1" | jq length)" -eq 0 ] || exit 0
+  # shellcheck disable=SC2310 # no answer from GitHub: the next tick retries
+  statuses=$(api GET "/repos/$repo/deployments/$id/statuses?per_page=1" | jq length) || exit 0
+  [ "$statuses" -eq 0 ] || exit 0
 
   # Anything unexpected from here on still reaches GitHub as a failure.
   set -o errtrace
@@ -31,6 +34,7 @@ main() {
 
 deploy() {
   local new old
+  # shellcheck disable=SC2310 # a predicate: refusing is the failure path
   is_main_tip "$sha" || fail "$sha is not the tip of main"
   new=$(nix build --no-link --print-out-paths \
     "github:$repo/$sha#nixosConfigurations.$host.config.system.build.toplevel") ||
@@ -40,6 +44,7 @@ deploy() {
 
   # A failed activation can still leave the box reachable; the gate decides.
   "$new/bin/switch-to-configuration" test || true
+  # shellcheck disable=SC2310 # the gate: a failure here rolls back
   if healthy; then
     nix-env -p "$profile" --set "$new"
     "$new/bin/switch-to-configuration" boot
@@ -55,7 +60,9 @@ fail() {
   exit 1
 }
 is_main_tip() {
-  [ "$(api GET "/repos/$repo/commits/main" | jq -r .sha)" = "$1" ]
+  local tip
+  tip=$(api GET "/repos/$repo/commits/main" | jq -r .sha)
+  [ "$tip" = "$1" ]
 }
 
 # Reachable again the way it was reached before: tailscale up, sshd running,
@@ -92,7 +99,7 @@ api() {
     cat >"$tmp/body"
     body=(--data-binary "@$tmp/body")
   fi
-  printf 'header = "Authorization: Bearer %s"\n' "$(cat "$token_file")" |
+  printf 'header = "Authorization: Bearer %s"\n' "$(<"$token_file")" |
     curl -fsS -K - -X "$method" -D "$tmp/headers" "${body[@]}" \
       -H "Accept: application/vnd.github+json" \
       "https://api.github.com$path"

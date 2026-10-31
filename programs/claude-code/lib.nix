@@ -9,6 +9,8 @@
 }:
 
 let
+  shellCheck = import ../shell-check { inherit pkgs; };
+
   mcp = import ./mcp.nix { inherit lib secrets; };
   secretGuard = import ./secret-guard.nix { inherit pkgs; };
 
@@ -115,7 +117,7 @@ let
         builtins.toJSON (mcp.mkMcpStructure servers)
       );
     in
-    pkgs.writeShellApplication {
+    shellCheck.writeShellApplication {
       inherit name;
       runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
       passthru = { inherit skillFarm; };

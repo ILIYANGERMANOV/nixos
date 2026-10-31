@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2154,SC2312 # other fragments and the preamble's pipefail: the assembled script is checked whole
 # Freeing disk without losing work or making the repositories slow again.
 #
 # Reclaimed: worktrees with no local work and no live session (everything in
@@ -35,6 +36,7 @@ cmd_free_disk() {
 cmd_root_shells() {
   local repo status=0
   for repo in $(cloned_repos); do
+    # shellcheck disable=SC2310 # one failure must not stop the rest
     root_shell "$repo" || {
       echo "factory-ctl: could not root the dev shell of $repo" >&2
       status=1
@@ -60,31 +62,45 @@ root_shell() {
 }
 
 plan_disk() {
-  local wt path dead
+  local wt path store_path dead garbage
   echo "Worktrees (clean, pushed, no session):"
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r wt; do
-    printf '  %-8s %s\n' "$(size_of "$wt")" "${wt#"$repos_dir"/}"
+    plan_row "$wt" "${wt#"$repos_dir"/}"
   done < <(prunable_worktrees)
   echo "Caches:"
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r path; do
-    printf '  %-8s %s\n' "$(size_of "$path")" "${path#"$HOME"/}"
+    plan_row "$path" "${path#"$HOME"/}"
   done < <(caches)
   echo "QA runs:"
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r path; do
-    printf '  %-8s %s\n' "$(size_of "$path")" "${path#"$qa_dir"/}"
+    plan_row "$path" "${path#"$qa_dir"/}"
   done < <(qa_runs)
   echo "Stale GC roots (store path size):"
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r path; do
-    printf '  %-8s %s\n' "$(size_of "$(readlink -f "$path")")" "$path"
+    store_path=$(readlink -f "$path") || true
+    plan_row "$store_path" "$path"
   done < <(own_stale_roots)
   dead=$(nix-store --gc --print-dead 2>/dev/null | xargs -r du -sbc 2>/dev/null | tail -n 1 | cut -f 1) || true
-  printf 'Nix store garbage: %s\n' "$(human "${dead:-0}")"
+  garbage=$(human "${dead:-0}")
+  printf 'Nix store garbage: %s\n' "$garbage"
+  # shellcheck disable=SC2312 # a plan is a report: df failing must not end it
   echo "Free now: $(gb "$(free_bytes)")"
 }
 
+plan_row() {
+  local size
+  size=$(size_of "$1")
+  printf '  %-8s %s\n' "$size" "$2"
+}
+
 apply_disk() {
-  local wt path repo before after
+  local wt path repo before after freed free
   before=$(free_bytes)
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r wt; do
     repo="${wt#"$repos_dir"/}"
     repo="${repo%%/*}"
@@ -93,10 +109,12 @@ apply_disk() {
     git -C "$repos_dir/$repo" worktree remove --force "$wt"
     echo "removed ${wt#"$repos_dir"/}"
   done < <(prunable_worktrees)
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r path; do
     rm -rf "$path"
     echo "removed ${path#"$HOME"/}"
   done < <(caches)
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r path; do
     rm -rf "$path"
     echo "removed ${path#"$HOME"/}"
@@ -106,28 +124,37 @@ apply_disk() {
   for repo in $(cloned_repos); do
     git -C "$repos_dir/$repo" worktree prune
   done
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r path; do
     rm -f "$path"
     echo "removed $path"
   done < <(own_stale_roots)
   nix-store --gc >/dev/null 2>&1
   after=$(free_bytes)
-  echo "Freed $(gb $((after - before)))"
-  echo "Free now: $(gb "$after")"
+  freed=$(gb $((after - before)))
+  free=$(gb "$after")
+  echo "Freed $freed"
+  echo "Free now: $free"
 }
 
 free_bytes() { df -B1 --output=avail / | tail -n 1; }
 
 # Secondary worktrees whose deletion loses nothing.
 prunable_worktrees() {
-  local repo wt
+  local repo wt live work
   for repo in $(cloned_repos); do
+    # shellcheck disable=SC2312 # a failed listing prunes nothing
     while read -r wt; do
       [ "$wt" != "$repos_dir/$repo" ] || continue
       # A /qa run's worktree is clean while the run is live: qa_runs decides.
-      case "$wt" in "$qa_dir"/* | "$tenx_dir"/*) continue ;; esac
-      [ -z "$(sessions_under "$wt")" ] || continue
-      [ -z "$(local_work "$wt")" ] || continue
+      case "$wt" in
+        "$qa_dir"/* | "$tenx_dir"/*) continue ;;
+        *) ;;
+      esac
+      live=$(sessions_under "$wt")
+      [ -z "$live" ] || continue
+      work=$(local_work "$wt")
+      [ -z "$work" ] || continue
       echo "$wt"
     done < <(worktrees_of "$repo")
   done
@@ -150,10 +177,12 @@ caches() {
 # written for a day, so a run in progress keeps its videos. Never auth/ or
 # scripts/, which sit beside runs/.
 qa_runs() {
-  local run
+  local run recent
   for run in "$qa_dir"/*/*/runs/*/; do
     run="${run%/}"
-    [ -d "$run" ] && [ -z "$(find "$run" -newermt '1 day ago' -print -quit)" ] && echo "$run"
+    [ -d "$run" ] || continue
+    recent=$(find "$run" -newermt '1 day ago' -print -quit) || true
+    [ -n "$recent" ] || echo "$run"
   done
   return 0
 }
@@ -163,11 +192,17 @@ qa_runs() {
 # which the next GC drops.
 own_stale_roots() {
   local link
+  # shellcheck disable=SC2312 # a failed listing lists nothing
   while read -r link; do
     find "$(readlink "$link")" -maxdepth 0 -user "$(id -u)" 2>/dev/null || true
   done < <(stale_roots "$tmp_dir" "$HOME/.cache")
 }
 
-size_of() { human "$(du -sb "$1" 2>/dev/null | cut -f 1)"; }
+# du still prints a total when it fails on part of the tree.
+size_of() {
+  local bytes
+  bytes=$(du -sb "$1" 2>/dev/null | cut -f 1) || true
+  human "$bytes"
+}
 
 human() { awk -v b="${1:-0}" 'BEGIN { if (b >= 1e9) printf "%.1fG", b / 1e9; else printf "%.0fM", b / 1e6 }'; }

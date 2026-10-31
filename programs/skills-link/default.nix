@@ -9,7 +9,7 @@
 # exchange leaves every directory whole, so no run needs to wait for another.
 { pkgs }:
 
-pkgs.writeShellApplication {
+(import ../shell-check { inherit pkgs; }).writeShellApplication {
   name = "factory-link-skills";
   runtimeInputs = [ pkgs.coreutils ];
   text = ''
