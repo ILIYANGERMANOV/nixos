@@ -27,13 +27,13 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      # The jobs of check.yml, which runs on every push to main.
+      # The jobs of check.yml that gate a deploy. It runs on every push to main.
       - name: Require green CI on this commit
         run: |
           conclusions=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
-            --jq '[.check_runs[] | select(.name == "check" or .name == "cache-guard") | "\(.name)=\(.conclusion)"] | sort | join(" ")')
+            --jq '[.check_runs[] | select(.name == "check" or .name == "cache-guard" or .name == "checks-x86_64") | "\(.name)=\(.conclusion)"] | sort | join(" ")')
           echo "CI on $GITHUB_SHA: ${conclusions:-none}"
-          [ "$conclusions" = "cache-guard=success check=success" ] || {
+          [ "$conclusions" = "cache-guard=success check=success checks-x86_64=success" ] || {
             echo "::error::CI has not passed on $GITHUB_SHA yet. Wait for it, or fix main."
             exit 1
           }

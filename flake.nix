@@ -68,14 +68,16 @@
       };
     in
     {
-      # `nix fmt` — nixfmt (RFC 166) via a treefmt wrapper.
-      formatter = lib.forAllSystems (pkgs: pkgs.nixfmt-tree);
+      # `nix fmt` - treefmt, the one door to every formatter.
+      formatter = lib.forAllSystems (pkgs: import ./programs/tech-checks/formatter.nix { inherit pkgs; });
 
       # `nix flake check` (run by `just check` in CI) validates every installed
       # SKILL.md - frontmatter present, name matches the directory, description
       # within the Agent Skills limit - the Claude Code MCP catalog logic, the
       # Neovim TypeScript server routing, the Neovim search config, and the
-      # Playwright environment.
+      # Playwright environment. The `<tech>-<kind>` checks at the end are the
+      # groups `just tech <tech>` builds, each with no host evaluation; CI builds
+      # this set on aarch64-linux (`check`) and x86_64-linux (`checks-x86_64`).
       checks = lib.forAllSystems (
         pkgs:
         let
@@ -159,6 +161,7 @@
             pkgs.emptyFile;
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }
+        // import ./programs/tech-checks { inherit pkgs; }
       );
 
       devShells = lib.forAllSystems (pkgs: {
