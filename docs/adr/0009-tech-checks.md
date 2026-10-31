@@ -49,7 +49,7 @@ outside it does not gate a deploy.
 - The `tech` jobs are not in the gate, and need not be. Every tech check is a
   flake check, so `check` and `checks-x86_64` already build it. A tech check
   outside `checks` would gate nothing, which is why none may live anywhere else.
-- A new job must never be named `check` or `cache-guard`: it would break the
+- A new job must never reuse one of these three names: it would break the
   string compare.
 
 No job is a required check in the ruleset. The gate and convention enforce CI.

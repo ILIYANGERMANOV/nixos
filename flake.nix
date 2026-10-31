@@ -161,7 +161,6 @@
             pkgs.emptyFile;
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }
-        # Lint, types and tests per technology, as `<tech>-<kind>`.
         // import ./programs/tech-checks { inherit pkgs; }
       );
 

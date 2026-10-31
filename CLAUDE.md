@@ -105,7 +105,7 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 6. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system. On Linux that evaluates one host, for
    `software-factory-activation`, and no other.
-6. `just check` once on the final state, run as the Checks rules in
+7. `just check` once on the final state, run as the Checks rules in
    `programs/agents/AGENTS.md` say. Never after a docs-only edit, and never
    with a build, lint or test chained in front of it.
 

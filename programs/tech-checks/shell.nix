@@ -4,6 +4,11 @@ let
 
   # A path literal, not the flake's `self`: fileset refuses a store path string.
   root = ../..;
+
+  githubSource = lib.fileset.toSource {
+    inherit root;
+    fileset = root + "/.github";
+  };
 in
 {
   # Lints .github/workflows, and through nixpkgs' wrapped shellcheck every
@@ -14,12 +19,7 @@ in
         nativeBuildInputs = [ pkgs.actionlint ];
       }
       ''
-        cd ${
-          lib.fileset.toSource {
-            inherit root;
-            fileset = ../../.github;
-          }
-        }
+        cd ${githubSource}
         actionlint .github/workflows/*.yml
         touch "$out"
       '';
