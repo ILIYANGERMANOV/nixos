@@ -46,22 +46,22 @@ def simple_commands(command: str) -> Iterator[SimpleCommand]:
     tokens = iter(lexer)
     words: list[str] = []
     sink = Sink.SCREEN
-    for token in tokens:
-        match token:
-            case _ if not set(token) <= OPERATORS:
-                words.append(token)
-            case _ if token in PIPES:
+    for lexeme in tokens:
+        match lexeme:
+            case _ if not set(lexeme) <= OPERATORS:
+                words.append(lexeme)
+            case _ if lexeme in PIPES:
                 yield SimpleCommand(words, Sink.PIPE)
                 words, sink = [], Sink.SCREEN
-            case _ if ">" in token:
+            case _ if ">" in lexeme:
                 fd = words.pop() if words and words[-1].isdigit() else "1"
                 target = next(tokens, "")
-                if redirects_stdout_to_file(fd, token, target):
+                if redirects_stdout_to_file(fd, lexeme, target):
                     sink = Sink.FILE
-            case _ if "<" in token:
-                next(tokens, "")
+            case _ if "<" in lexeme:
+                _ = next(tokens, "")
             case _:
-                yield SimpleCommand(words, sink, token == "&")
+                yield SimpleCommand(words, sink, lexeme == "&")
                 words, sink = [], Sink.SCREEN
     yield SimpleCommand(words, sink)
 
@@ -69,7 +69,7 @@ def simple_commands(command: str) -> Iterator[SimpleCommand]:
 def strip_heredoc_bodies(command: str) -> str:
     """The command without the body lines of its heredocs."""
     lines = iter(command.split("\n"))
-    kept = []
+    kept: list[str] = []
     for line in lines:
         kept.append(line)
         for heredoc in HEREDOC.finditer(line):

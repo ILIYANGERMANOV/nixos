@@ -88,6 +88,16 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 0 "a cd to a missing directory is allowed" "cd nowhere && cat big-a big-b"
     expect 0 "a commit without a path is not sized" "git show HEAD; cat big-b"
     expect 2 "missing files are skipped, the rest still count" "cat nope big-a big-b"
+    mkdir locked
+    chmod 000 locked
+    expect 2 "a path behind a denied directory is skipped, the rest still count" \
+      "cat big-a big-b locked/secret"
+    chmod 755 locked
+    expect 2 "an over-long file name is skipped, the rest still count" \
+      "cat big-a big-b $(printf 'x%.0s' {1..300})"
+    expect 2 "an unknown ~user is skipped, the rest still count" "cat big-a big-b ~nouser/file"
+    expect 2 "a ~name with no user is skipped, the rest still count" "cat big-a big-b ~backup.txt"
+    expect 2 "a cd to the previous directory keeps what was already sized" "cat big-a big-b; cd ~-"
     expect 0 "other commands are allowed" "grep -n x big-a big-b huge"
     expect 0 "a heredoc write is allowed" "cat > out <<'EOF'
     big-a big-b
@@ -163,6 +173,8 @@ pkgs.runCommand "claude-bash-guards-check"
     expect_read 2 "a whole Read of a large file is blocked" "$dir/huge"
     grep -q "offset and limit" "$TMPDIR/err" || { echo "  ✗ the Read block carries the hint" >&2; status=1; }
     expect_read 2 "a relative Read resolves against cwd" huge
+    cp huge ..png
+    expect_read 2 "a dotfile named like an image is sized" ..png
     expect_read 2 "an offset alone does not bound a Read" huge '{"offset": 100}'
     expect_read 2 "a Read that leaves a skill is sized" "$dir/repo-docs/skills/bar/../../../huge"
     expect_read 0 "a limited Read of a large file is allowed" "$dir/huge" '{"limit": 100}'
@@ -321,6 +333,10 @@ pkgs.runCommand "claude-bash-guards-check"
     expect_agent 0 "a subagent with no transcript yet may read once" "gh pr checks 7"
     expect_agent 2 "a subagent with no transcript still may not watch" "gh run watch 12"
     expect_agent 2 "a subagent with no transcript still may not loop" "until gh pr checks 7; do sleep 30; done" true
+    expect_raw 2 "an event with no transcript_path is still judged on its command" \
+      '{"agent_id": "a", "tool_input": {"command": "sleep 60"}}'
+    expect_raw 0 "a status read with no transcript_path fails open" \
+      '{"agent_id": "a", "tool_input": {"command": "gh pr checks 7"}}'
     agent=
     bash_line "gh pr checks 7" old >"$session.jsonl"
     expect_agent 0 "main may read checks again" "gh pr checks 7"

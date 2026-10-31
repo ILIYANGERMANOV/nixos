@@ -1,0 +1,38 @@
+# Tool config only: ruff and basedpyright for every .py in this repository. No
+# Python package lives here, and every script stays stdlib-only. Enforced by
+# `just tech python`; see docs/adr/0009-tech-checks.md.
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "A", "ANN", "ARG", "B", "BLE", "C4", "C90", "DTZ", "E", "ERA", "F", "FBT",
+  "FURB", "G", "I", "ISC", "LOG", "N", "PERF", "PIE", "PL", "PTH", "RET", "RUF",
+  "S", "SIM", "SLF", "T10", "TC", "TID", "TRY", "UP", "W",
+]
+ignore = [
+  "E501",   # The formatter owns width.
+  "ISC001", # Conflicts with the formatter.
+  "TRY003", # A short message at the raise beats an exception class per message.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The only two that call subprocess, always with an argv list. The guard's git is
+# substituted at build time; the test runs what the check puts on PATH.
+"programs/claude-code/read-guard.py" = ["S603", "S607"]
+"programs/agents/skills/checks/test_self_improve.py" = ["S603", "S607"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.system".msg = "Use subprocess.run with an argv list."
+
+[tool.basedpyright]
+typeCheckingMode = "recommended"
+pythonVersion = "3.13"
+
+# The guards import their sibling modules from site-packages at runtime
+# (bash-guard.nix), so they are absolute imports, not relative ones.
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/claude-code"

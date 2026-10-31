@@ -106,7 +106,7 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
    `nix develop -c just tech shell`.
 5. A script or just recipe edit in a technology with checks: `nix develop -c just tech <name>`
-   (`shell` today, for a `.sh`, a recipe or a workflow). Seconds, no host evaluated: it builds every `<name>-*` flake
+   (`shell` for a `.sh`, a recipe or a workflow, `python`). Seconds, no host evaluated: it builds every `<name>-*` flake
    check for this system. It prints `All good (N)` and exits 0, or the failures
    verbatim and exits nonzero, so never pipe it through `grep`, and never run its
    tools by hand before it. A name with no checks fails. It sees only files git
@@ -321,7 +321,7 @@ gets every shared skill, `ui-coding` included, because a model-invoked skill
 costs only its description until a task needs it. There are two exceptions.
 `self-improve` is in the `extraSkills` of `claude-factory` and `claude-pm` only:
 it measures the machine's own transcripts, and on the Macs it relies on the
-`python3` (3.10+) that `modules/home/terminal.nix` installs. Its analyzer
+`python3` (nixpkgs', 3.13) that `modules/home/terminal.nix` installs. Its analyzer
 (`scripts/analyze.py`) is tested by `checks.self-improve` against synthetic
 transcripts, never real ones, because this repository is public.
 `10x-engineer` is in the `extraSkills` of `claude-factory` only: it runs
