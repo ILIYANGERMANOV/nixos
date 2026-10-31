@@ -8,7 +8,8 @@ name: pnpm hash
 # holds a read-only token and takes only the lock file and package.json from
 # the PR, as data for the base commit's flake; fetchPnpmDeps runs no package
 # scripts. `update` holds the write token, checks nothing out and runs nothing
-# of the PR's: its only input from `compute` is one hash matched by a regex.
+# of the PR's: its only input from `compute` is one value, and it refuses
+# anything but a hash, since `compute` is the side that touches PR content.
 #
 # A push with GITHUB_TOKEN starts no workflow, but a dispatch does, so `update`
 # dispatches check.yml on the branch. Its checks land on the fixed head.
@@ -74,7 +75,7 @@ jobs:
             in
             playwright.typescript.pnpmDeps.overrideAttrs { outputHash = pkgs.lib.fakeHash; }
           ' 2>&1) || true
-          hash=$(sed -nE 's|^ *got: *(sha256-[A-Za-z0-9+/]{43}=)$|\1|p' <<<"$output")
+          hash=$(sed -nE 's|^ *got: *([^ ]+)$|\1|p' <<<"$output")
           [ -n "$hash" ] || {
             echo "$output"
             echo "::error::Nix reported no hash."
@@ -98,6 +99,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
+          [[ $HASH =~ ^sha256-[A-Za-z0-9+/]{43}=$ ]]
           path=programs/playwright/default.nix
           file=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$HEAD_SHA")
           jq -r .content <<<"$file" | base64 -d >current.nix
