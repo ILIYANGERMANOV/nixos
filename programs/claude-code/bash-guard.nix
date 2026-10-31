@@ -1,4 +1,4 @@
-# A hook guard: a Python script built against bash_commands.py and
+# A hook guard: a Python script built against bash_commands.py, hook_event.py and
 # transcripts.py, so every guard splits a command and finds its agent's
 # transcript the same way.
 {
@@ -12,6 +12,7 @@ let
     pkgs.runCommand "guard-modules" { } ''
       site=$out/${pkgs.python3.sitePackages}
       install -Dm644 ${./bash_commands.py} $site/bash_commands.py
+      install -Dm644 ${./hook_event.py} $site/hook_event.py
       install -Dm644 ${./transcripts.py} $site/transcripts.py
     ''
   );

@@ -16,6 +16,7 @@ import os
 import sys
 from pathlib import Path
 
+from hook_event import Json, parse_json
 from transcripts import own_transcript, parse_line
 
 WARN_AT = 150_000
@@ -37,9 +38,9 @@ STOP = (
 
 def main() -> None:
     try:
-        event = json.load(sys.stdin)
+        event = parse_json(sys.stdin.read())
         contexts = recent_contexts(own_transcript(event))
-    except Exception:
+    except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
     match contexts:
@@ -64,9 +65,9 @@ def recent_contexts(path: Path) -> list[int]:
         match parse_line(line):
             case {
                 "type": "assistant",
-                "message": {"id": message_id, "usage": usage} as message,
+                "message": {"id": str(message_id), "usage": dict(usage)} as message,
             } if context(usage) > 0:
-                contexts.setdefault(message_id, context(usage))
+                _ = contexts.setdefault(message_id, context(usage))
                 if runs_tool(message):
                     ran_tool.add(message_id)
             case _:
@@ -75,25 +76,38 @@ def recent_contexts(path: Path) -> list[int]:
     return [contexts[call] for call in newest + [c for c in older if c in ran_tool]]
 
 
-def runs_tool(message: dict) -> bool:
-    return any(block.get("type") == "tool_use" for block in message.get("content", []))
+def runs_tool(message: dict[str, Json]) -> bool:
+    match message:
+        case {"content": list(blocks)}:
+            return any(is_tool_use(block) for block in blocks)
+        case _:
+            return False
+
+
+def is_tool_use(block: Json) -> bool:
+    match block:
+        case {"type": "tool_use"}:
+            return True
+        case _:
+            return False
 
 
 def tail_lines(path: Path) -> list[bytes]:
     with path.open("rb") as file:
-        file.seek(0, os.SEEK_END)
-        file.seek(max(0, file.tell() - TAIL_BYTES))
+        _ = file.seek(0, os.SEEK_END)
+        _ = file.seek(max(0, file.tell() - TAIL_BYTES))
         return file.read().splitlines()
 
 
-def context(usage: dict) -> int:
+def context(usage: dict[str, Json]) -> int:
     return sum(
-        usage.get(key, 0)
+        tokens
         for key in (
             "input_tokens",
             "cache_read_input_tokens",
             "cache_creation_input_tokens",
         )
+        if isinstance(tokens := usage.get(key), int)
     )
 
 
@@ -118,7 +132,7 @@ def band(size: int) -> int:
     return 2 + (size - STOP_AT) // STOP_STEP
 
 
-def output(message: str) -> dict:
+def output(message: str) -> dict[str, dict[str, str]]:
     return {
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",

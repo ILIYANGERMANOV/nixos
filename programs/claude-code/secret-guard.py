@@ -25,10 +25,12 @@ any input this script does not understand: the guard fails open, and the Read
 deny rules beside it still hold.
 """
 
-import json
-import os
 import re
 import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+from hook_event import Json, parse_bash_call, parse_json
 
 HINT = (
     "Blocked: this command names a secret file, its directory or the variable "
@@ -40,31 +42,49 @@ HINT = (
 ENV_IN_SUBSTITUTION = re.compile(r"(\$\(|`)\s*(printenv|env)(?![A-Za-z0-9_-])")
 
 
+@dataclass(frozen=True, slots=True)
+class Protected:
+    paths: list[str]
+    variables: list[str]
+
+
 def main() -> None:
     try:
-        protected = json.loads(sys.argv[1])
-        command = json.load(sys.stdin)["tool_input"]["command"]
-    except Exception:
+        protected = parse_protected(parse_json(sys.argv[1]))
+        command = parse_bash_call(parse_json(sys.stdin.read())).command
+    except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
-    if names_secret(command, protected["paths"], protected["vars"]):
+    if names_secret(command, protected):
         print(HINT, file=sys.stderr)
         sys.exit(2)
 
 
-def names_secret(command: str, paths: list[str], variables: list[str]) -> bool:
+def parse_protected(argument: Json) -> Protected:
+    match argument:
+        case {"paths": list(paths), "vars": list(variables)}:
+            return Protected(strings(paths), strings(variables))
+        case _:
+            raise ValueError("no paths and vars")
+
+
+def strings(values: list[Json]) -> list[str]:
+    return [value for value in values if isinstance(value, str)]
+
+
+def names_secret(command: str, protected: Protected) -> bool:
     return any(
         [
-            any(names_file(command, path) for path in paths),
-            any(expands(command, var) for var in variables),
+            any(names_file(command, path) for path in protected.paths),
+            any(expands(command, var) for var in protected.variables),
             ENV_IN_SUBSTITUTION.search(command) is not None,
         ]
     )
 
 
 def names_file(command: str, path: str) -> bool:
-    directory, basename = os.path.split(path)
-    return directory in command or as_word(basename).search(command) is not None
+    file = Path(path)
+    return str(file.parent) in command or as_word(file.name).search(command) is not None
 
 
 def expands(command: str, var: str) -> bool:
