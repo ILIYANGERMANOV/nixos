@@ -23,7 +23,7 @@ let
   ];
 
   findFiles =
-    fd: "<cmd>lua require('telescope.builtin').find_files({ find_command = ${toLuaList fd} })<CR>";
+    fd: ''<cmd>lua require("telescope.builtin").find_files({ find_command = ${toLuaList fd} })<CR>'';
 in
 {
   # fff owns <leader>ff and nothing else. It is a file-search specialist: no
@@ -88,7 +88,7 @@ in
     {
       mode = "n";
       key = "<leader>ff";
-      action = "<cmd>lua require('fff').find_files()<CR>";
+      action = ''<cmd>lua require("fff").find_files()<CR>'';
       options.desc = "Find Files (fff, frecency-ranked)";
     }
     {
@@ -106,7 +106,7 @@ in
     {
       mode = "n";
       key = "<leader>fr";
-      action = "<cmd>lua require('telescope.builtin').oldfiles({ cwd_only = true })<CR>";
+      action = ''<cmd>lua require("telescope.builtin").oldfiles({ cwd_only = true })<CR>'';
       options.desc = "Find Recent Files (this project)";
     }
   ];

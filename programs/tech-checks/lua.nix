@@ -42,7 +42,9 @@ let
   fragmentsOfValue =
     file: key: value:
     let
-      recurse = fragmentsOfValue file;
+      # Everything under a Lua key is Lua, whatever its leaf is called:
+      # `luaConfig.pre`, `extraFiles."x.lua".text`.
+      recurse = name: fragmentsOfValue file (if isStatementsKey key then key else name);
     in
     if lib.isDerivation value then
       [ ]
@@ -52,6 +54,7 @@ let
       {
         "if" = recurse key value.content;
         override = recurse key value.content;
+        order = recurse key value.content;
         merge = recurse key value.contents;
         option = [ ];
         plain = lib.concatLists (lib.mapAttrsToList recurse value);
@@ -65,48 +68,51 @@ let
       [ ];
 
   # A `command` is a keymap's right-hand side, and an `expression` is what nixvim
-  # splices after `=`, so it needs `return` to parse on its own.
+  # splices after `=`, so it needs `return` to parse on its own. `marked` says
+  # the source text holds a marker for it, which is what `missed` counts.
   classify =
     key: text:
     let
-      command = builtins.match "<cmd>lua (.*)<CR>" text;
-      script = lua: [
-        {
-          kind = "scripts";
-          inherit lua;
-        }
-      ];
-      expression = script "return ${text}";
+      command = builtins.match "<[cC][mM][dD]>lua (.*)<[cC][rR]>" text;
+      fragment = kind: marked: lua: [ { inherit kind marked lua; } ];
+      expression = marked: fragment "scripts" marked "return ${text}";
     in
-    if lib.hasPrefix "extraConfigLua" key then
-      script text
+    if isStatementsKey key then
+      fragment "scripts" true text
     else if key == "__raw" then
-      expression
+      expression true
     else if command != null then
-      [
-        {
-          kind = "commands";
-          lua = lib.head command;
-        }
-      ]
-    else if lib.hasInfix "<cmd>lua " text then
+      fragment "commands" true (lib.head command)
+    else if lib.hasInfix "<cmd>lua " (lib.toLower text) then
       throw "lua-lint: cannot read the keymap `${text}`"
     else if looksLikeLua text then
-      expression
+      expression false
     else
       [ ];
+
+  isStatementsKey = key: builtins.match "extraConfigLua.*|luaConfig|onAttach|extraFiles" key != null;
 
   # Plugin settings take Lua in a plain string, under a key nothing marks. Any
   # call counts: a `desc` has a space before its parenthesis, and a wrong guess
   # fails the parse instead of passing.
-  looksLikeLua = text: occurrences "[[:alnum:]_]\\(|vim\\." text > 0;
+  looksLikeLua = text: occurrences "[[:alnum:]_]\\(|function[[:space:]]*\\(|vim\\." text > 0;
 
   occurrences = pattern: text: lib.count lib.isList (builtins.split pattern text);
 
-  # A marker in a source the walk got nothing from: an unimported file, or a
-  # value it cannot see into. Helpers render one marker several times, so a file
-  # may yield more fragments than it has markers, never fewer.
-  missed = lib.filter (file: markersIn file > lib.count (f: f.file == file) fragments) sources;
+  # A marker the walk got nothing from: an unimported file, or a value it cannot
+  # see into, such as `lib.optionalAttrs stdenv.isDarwin` on Linux. So each file's
+  # marked fragments must equal its markers exactly: any surplus would hide a
+  # miss. A helper renders one marker per call, and `helperRenders` names the rest.
+  missed = lib.filter (
+    file:
+    markersIn file + helperRenders.${relative file} or 0
+    != lib.count (f: f.file == file && f.marked) fragments
+  ) sources;
+
+  helperRenders = {
+    "./core/search/file.nix" = 1;
+    "./languages/typescript.nix" = 2;
+  };
 
   sources = lib.fileset.toList (
     lib.fileset.fileFilter (file: file.hasExt "nix" && file.name != "check.nix") ../nvim
@@ -114,8 +120,8 @@ let
 
   markersIn =
     file:
-    occurrences "extraConfigLua(Pre|Post)?[[:space:]]*=|__raw[[:space:]]*=|<cmd>lua " (
-      builtins.readFile file
+    occurrences "extraconfiglua(pre|post)?[[:space:]]*=|luaconfig|onattach|extrafiles|__raw[[:space:]]*=|<cmd>lua " (
+      lib.toLower (builtins.readFile file)
     );
 
   lines = lib.foldl' (sum: f: sum + lib.length (lib.splitString "\n" f.lua)) 0 fragments;
@@ -131,14 +137,14 @@ let
   sourceName =
     file:
     lib.replaceStrings [ "/" ] [ "-" ] (
-      lib.removeSuffix ".nix" (lib.removePrefix "./" (lib.path.removePrefix ../nvim file))
+      lib.removeSuffix ".nix" (lib.removePrefix "./" (relative file))
     );
+
+  relative = lib.path.removePrefix ../nvim;
 in
 {
-  # A command stays out of stylua: a keymap holds one line, so there is no layout
-  # to check, and `find_command` renders far past the column limit.
   lua-lint =
-    assert lib.assertMsg (missed == [ ]) "lua-lint: Lua the walk missed in ${toString missed}";
+    assert lib.assertMsg (missed == [ ]) "lua-lint: markers and fragments differ in ${toString missed}";
     assert lib.assertMsg (lib.length fragments >= minimumFragments)
       "lua-lint: found ${toString (lib.length fragments)} fragments, expected ${toString minimumFragments}";
     assert lib.assertMsg (
@@ -156,6 +162,9 @@ in
         cp ${./lua-config}/* .
         selene --no-summary --color Never scripts commands
         stylua --check --config-path stylua.toml scripts
+        # A keymap holds one line, and `find_command` renders far past the limit,
+        # so a command is checked for everything but its width.
+        stylua --check --config-path stylua.toml --column-width 9999 commands
         echo "lua-lint: ${toString (lib.length fragments)} fragments, ${toString lines} lines"
         touch "$out"
       '';

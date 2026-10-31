@@ -98,9 +98,16 @@ until #261 moves it to real files. It evaluates the modules without nixvim and
 walks the values, so interpolations are rendered and `''` escapes resolved, which
 a text extractor would have to redo.
 
-- A value under `extraConfigLua*` or `__raw`, a `<cmd>lua` keymap, or a plain
-  string that looks like a call is Lua. A function value aborts the walk, since it
-  could hide Lua.
-- A source with more markers than fragments, and a fragment or line count under
-  a floor, fail evaluation, so a broken walk cannot pass on little or nothing.
+- A value under `extraConfigLua*`, `luaConfig`, `onAttach`, `extraFiles` or
+  `__raw`, a `<cmd>lua` keymap, or a plain string that looks like a call or a
+  `function (` is Lua. A function value aborts the walk, since it could hide Lua.
+- Fragments go in `scripts/` or `commands/`, by kind. A command is the Lua of one
+  keymap, so stylua checks it with a wide column limit: `find_command` renders
+  far past the usual one.
+- A source whose markers, matched in any case, differ from its marked fragments
+  fails evaluation, as does a fragment or line count under a floor, so a broken
+  walk cannot pass on little or nothing. The comparison is exact and per file,
+  with a named allowance for a helper that renders one marker per call, so a
+  branch the walk cannot see, such as `optionalAttrs isDarwin`, fails too.
+- `check.nix` stays out: it is test code, and evaluating it builds nixvim.
 - Its dynamic `import` and `readFile` are baselined, as ADR 0008 says.

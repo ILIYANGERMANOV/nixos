@@ -5,7 +5,7 @@ _:
     {
       mode = "n";
       key = "<leader>fm";
-      action = "<cmd>lua require('conform').format()<CR>";
+      action = ''<cmd>lua require("conform").format()<CR>'';
       options.desc = "Format";
     }
   ];
