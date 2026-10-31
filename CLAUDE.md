@@ -89,10 +89,10 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 `x86_64-linux` and `aarch64-linux`.
 
 1. A skill or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`
-   and `.#checks.x86_64-linux.typos`, plus `self-improve` when the analyzer under
-   its skill changed.
+   and `.#checks.x86_64-linux.typos`, plus `nix develop -c just tech python` when
+   the analyzer under its skill changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code`,
-   `claude-bash-guards` and `shell-embedded` for `programs/claude-code`, `nvim-search`,
+   `python-tests` and `shell-embedded` for `programs/claude-code`, `nvim-search`,
    `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
    `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
@@ -106,7 +106,9 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
    `nix develop -c just tech shell`.
 5. A script or just recipe edit in a technology with checks: `nix develop -c just tech <name>`
-   (`shell` for a `.sh`, a recipe or a workflow, `python`). Seconds, no host evaluated: it builds every `<name>-*` flake
+   (`shell` for a `.sh`, a recipe or a workflow, `python` for ruff, basedpyright and
+   pytest: a test is `test_<name>.py` beside `<name>.py`, keeping the name literal,
+   such as `test_read-guard.py`). Seconds, no host evaluated: it builds every `<name>-*` flake
    check for this system. It prints `All good (N)` and exits 0, or the failures
    verbatim and exits nonzero, so never pipe it through `grep`, and never run its
    tools by hand before it. A name with no checks fails. It sees only files git
@@ -280,8 +282,7 @@ inside a command substitution. **This is protection against accidental reads,
 not a security boundary**: every `qa-node` script must read the variable, so a
 script (or a determined session) can read the file, and no filter over command
 text can close that. `checks.qa` tests the wallet helper and the video
-pipeline headless against a generated key; `checks.claude-bash-guards` the
-guard.
+pipeline headless against a generated key; `checks.python-tests` the guard.
 
 ### Agent Skills
 
@@ -322,7 +323,7 @@ costs only its description until a task needs it. There are two exceptions.
 `self-improve` is in the `extraSkills` of `claude-factory` and `claude-pm` only:
 it measures the machine's own transcripts, and on the Macs it relies on the
 `python3` (nixpkgs', 3.13) that `modules/home/terminal.nix` installs. Its analyzer
-(`scripts/analyze.py`) is tested by `checks.self-improve` against synthetic
+(`scripts/analyze.py`) is tested by `checks.python-tests` against synthetic
 transcripts, never real ones, because this repository is public.
 `10x-engineer` is in the `extraSkills` of `claude-factory` only: it runs
 delegated `engineer` subagents and leans on the factory's PR wakes and

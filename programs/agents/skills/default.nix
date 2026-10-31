@@ -70,7 +70,13 @@ let
   # Custom skills go through the same resolution as external sources so they get
   # the same collision detection, rename support and validation.
   customSource = {
-    src = ./.;
+    # A script's test sits beside it and stays out of the deployed skill.
+    src = lib.fileset.toSource {
+      root = ./.;
+      fileset = lib.fileset.difference ./custom (
+        lib.fileset.fileFilter (file: lib.hasPrefix "test_" file.name && file.hasExt "py") ./custom
+      );
+    };
     roots = [ "custom" ];
     skills = custom;
     rename = { };

@@ -257,6 +257,14 @@ in
     unwrapped = claude-code;
   };
 
+  # The hook guards as they deploy, for `python-tests` to run.
+  guards = {
+    read = readGuard.bin;
+    wait = waitGuard.bin;
+    secret = (import ./secret-guard.nix { inherit pkgs; }).bin;
+    context = contextGuard.bin;
+  };
+
   # Writes the base settings and instructions on every rebuild so both files
   # exist before the first `claude` invocation. Each wrapper then overwrites
   # them at launch time.
