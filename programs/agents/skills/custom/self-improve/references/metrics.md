@@ -26,6 +26,14 @@ agree with the report.
   Usage splits into input, cache read, cache write and output. Context at a
   call is input + cache read + cache write; **peak context** is its maximum
   over an agent's calls. `attributionSkill` names the skill a call ran under.
+- **Effective cost.** What a call costs in input tokens: input x1, cache read
+  x0.1, cache write x1.25, output x5. The costliest-first tables rank by it.
+  Context hides what a call pays: a cached 200k costs less than a fresh 30k.
+- **Cache rewrite.** A call whose cache write is over 50% of its context, after
+  a gap between response starts above the cache's life: 5 minutes for a
+  subagent, 1 hour for the main agent. Its cost is the write alone. The wait is
+  read from the response before the gap: an Agent call, else a foreground Bash
+  call, else idle.
 - **Wall time of a tool call.** No duration field exists: it runs from the
   last line of the call's response before its result to the `tool_result`
   timestamp. A line is stamped when its block finished streaming and most tools

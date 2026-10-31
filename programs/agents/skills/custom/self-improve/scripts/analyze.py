@@ -24,10 +24,24 @@ from dataclasses import dataclass, field, fields
 from datetime import datetime, timezone
 from enum import Enum
 from functools import cached_property
+from itertools import pairwise
 from pathlib import Path
 from typing import Iterable, Iterator, Union
 
 TOP = 10
+INPUT_WEIGHT = 1
+CACHE_READ_WEIGHT = 0.1
+CACHE_WRITE_WEIGHT = 1.25
+OUTPUT_WEIGHT = 5
+WEIGHTS = (
+    f"input {INPUT_WEIGHT}, cache read {CACHE_READ_WEIGHT}, "
+    f"cache write {CACHE_WRITE_WEIGHT}, output {OUTPUT_WEIGHT}"
+)
+# How long a prompt cache entry outlives its last use.
+SUBAGENT_CACHE_LIFE = 5 * 60
+MAIN_CACHE_LIFE = 60 * 60
+REWRITE_SHARE = 0.5  # of a call's context written to cache, to count as a rewrite
+TOP_REWRITERS = 5
 
 
 def main() -> None:
@@ -60,6 +74,16 @@ class Usage:
         """Tokens sent to the model in one call: the context at that call."""
         return self.input + self.cache_read + self.cache_creation
 
+    @property
+    def effective(self) -> float:
+        """What the call costs in input tokens: reads are cheap, writes and output are not."""
+        return (
+            self.input * INPUT_WEIGHT
+            + self.cache_read * CACHE_READ_WEIGHT
+            + self.cache_creation * CACHE_WRITE_WEIGHT
+            + self.output * OUTPUT_WEIGHT
+        )
+
     def __add__(self, other: Usage) -> Usage:
         return Usage(
             self.input + other.input,
@@ -79,6 +103,8 @@ class Response:
 
     usage: Usage
     skill: str | None
+    at: float = 0.0  # its first line
+    calls: list[ToolCall] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -175,6 +201,10 @@ class Agent:
     @property
     def peak_context(self) -> int:
         return max((r.usage.context for r in self.responses), default=0)
+
+    @property
+    def effective(self) -> float:
+        return self.usage.effective
 
 
 @dataclass(frozen=True)
@@ -425,7 +455,10 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
         match event.get("type"):
             case "assistant":
                 key = message.get("id") or event.get("requestId") or f"line-{len(responses)}"
-                responses[key] = Response(to_usage(message.get("usage") or {}), event.get("attributionSkill"))
+                first = responses[key].at if key in responses else ts
+                responses[key] = Response(
+                    to_usage(message.get("usage") or {}), event.get("attributionSkill"), first, response_calls[key]
+                )
                 for block in blocks(content):
                     if block.get("type") == "tool_use":
                         call = ToolCall(block["id"], block.get("name", "?"), block.get("input") or {}, ts, len(calls))
@@ -907,6 +940,46 @@ def review_role(agent: Agent) -> str:
     return next((role for text in texts for role, pattern in REVIEW_ROLES if pattern.search(text)), "other")
 
 
+# --- Cache rewrites ----------------------------------------------------------
+
+
+class Wait(Enum):
+    """What the agent was doing while its cache expired."""
+
+    BASH = "foreground Bash"
+    AGENT = "Agent"
+    IDLE = "idle"
+
+
+@dataclass(frozen=True)
+class Rewrite:
+    agent: Agent
+    usage: Usage
+    wait: Wait
+
+    @property
+    def cost(self) -> float:
+        return self.usage.cache_creation * CACHE_WRITE_WEIGHT
+
+
+def cache_rewrites(agent: Agent) -> Iterator[Rewrite]:
+    """Each call that wrote most of its context back after its cache expired."""
+    life = MAIN_CACHE_LIFE if agent.kind == "main" else SUBAGENT_CACHE_LIFE
+    for before, response in pairwise(agent.responses):
+        usage = response.usage
+        if response.at - before.at > life and usage.cache_creation > usage.context * REWRITE_SHARE:
+            yield Rewrite(agent, usage, wait_of(before.calls))
+
+
+def wait_of(calls: list[ToolCall]) -> Wait:
+    """The wait behind a gap, from the calls of the response before it."""
+    if any(c.name in SPAWN for c in calls):
+        return Wait.AGENT
+    if any(c.name == "Bash" and isinstance(c.timing, Foreground) for c in calls):
+        return Wait.BASH
+    return Wait.IDLE
+
+
 # --- Agent communication -----------------------------------------------------
 
 SPAWN = {"Agent", "Task"}
@@ -1037,6 +1110,7 @@ def render(window: Window, scope: str) -> str:
         costliest_agents(agents),
         skills(agents),
         loop_steps(sessions),
+        cache_rewrites_section(sessions),
         review_yield(sessions),
         after_handback(sessions),
         communication(sessions),
@@ -1056,17 +1130,19 @@ def summary(sessions: list[Session]) -> str:
     main = total(s.main.usage for s in sessions)
     subs = total(a.usage for s in sessions for a in s.subagents)
     calls = sum(len(a.responses) for s in sessions for a in s.agents)
+    cost = f"main {kilo(main.effective)}, subagents {kilo(subs.effective)}"
     return "\n".join(
         [
             f"- Sessions: {len(sessions)}, agents: {sum(len(s.agents) for s in sessions)}, API calls: {calls}",
             f"- Wall clock: {hours(wall)} = work {hours(wall - wait)} + waiting on the person {hours(wait)}",
             f"- Tokens (in/cache read/cache write/out): main {tokens(main)}, subagents {tokens(subs)}",
+            f"- Effective cost ({WEIGHTS}): {kilo(main.effective + subs.effective)} = {cost}",
         ]
     )
 
 
 def sessions_table(sessions: list[Session]) -> str:
-    ranked = sorted(sessions, key=lambda s: -sum(a.usage.context for a in s.agents))
+    ranked = sorted(sessions, key=lambda s: -sum(a.effective for a in s.agents))
     rows = [
         [
             s.id[:8],
@@ -1079,10 +1155,11 @@ def sessions_table(sessions: list[Session]) -> str:
             kilo(s.main.peak_context),
             tokens(total(a.usage for a in s.subagents)),
             str(len(s.subagents)),
+            kilo(sum(a.effective for a in s.agents)),
         ]
         for s in ranked[:12]
     ]
-    header = ["session", "project", "start", "wall", "waiting", "commands", "main tokens", "main peak", "subagent tokens", "subagents"]
+    header = ["session", "project", "start", "wall", "waiting", "commands", "main tokens", "main peak", "subagent tokens", "subagents", "effective"]
     return section("Sessions, costliest first", header, rows, len(ranked))
 
 
@@ -1090,21 +1167,21 @@ def agent_types(agents: list[tuple[Session, Agent]]) -> str:
     groups: dict[str, list[Agent]] = defaultdict(list)
     for _, agent in agents:
         groups[agent.kind].append(agent)
-    ranked = sorted(groups.items(), key=lambda kv: -sum(a.usage.context for a in kv[1]))
+    ranked = sorted(groups.items(), key=lambda kv: -sum(a.effective for a in kv[1]))
     rows = [
-        [kind, str(len(group)), str(sum(len(a.responses) for a in group)), tokens(total(a.usage for a in group)), kilo(max(a.peak_context for a in group))]
+        [kind, str(len(group)), str(sum(len(a.responses) for a in group)), tokens(total(a.usage for a in group)), kilo(max(a.peak_context for a in group)), kilo(sum(a.effective for a in group))]
         for kind, group in ranked
     ]
-    return section("Tokens by agent type", ["type", "agents", "API calls", "tokens", "peak context"], rows, len(rows))
+    return section("Tokens by agent type", ["type", "agents", "API calls", "tokens", "peak context", "effective"], rows, len(rows))
 
 
 def costliest_agents(agents: list[tuple[Session, Agent]]) -> str:
-    subs = sorted(((s, a) for s, a in agents if a.kind != "main"), key=lambda sa: -sa[1].usage.context)
+    subs = sorted(((s, a) for s, a in agents if a.kind != "main"), key=lambda sa: -sa[1].effective)
     rows = [
-        [s.id[:8], a.kind, clip(a.description, 50), tokens(a.usage), kilo(a.peak_context), str(len(a.responses))]
+        [s.id[:8], a.kind, clip(a.description, 50), tokens(a.usage), kilo(a.peak_context), str(len(a.responses)), kilo(a.effective)]
         for s, a in subs[:TOP]
     ]
-    return section("Costliest subagents", ["session", "type", "description", "tokens", "peak context", "API calls"], rows, len(subs))
+    return section("Costliest subagents", ["session", "type", "description", "tokens", "peak context", "API calls", "effective"], rows, len(subs))
 
 
 def skills(agents: list[tuple[Session, Agent]]) -> str:
@@ -1123,12 +1200,40 @@ def loop_steps(sessions: list[Session]) -> str:
         groups[LoopStep.ORCHESTRATOR].append((s, s.main))
         for agent, step in steps_of(s):
             groups[step].append((s, agent))
-    ranked = sorted(groups.items(), key=lambda kv: -sum(a.usage.context for _, a in kv[1]))
+    ranked = sorted(groups.items(), key=lambda kv: -sum(a.effective for _, a in kv[1]))
     rows = [
-        [step.value, str(len(group)), str(len({s.id for s, _ in group})), tokens(total(a.usage for _, a in group)), minutes(sum(a.wall for _, a in group))]
+        [step.value, str(len(group)), str(len({s.id for s, _ in group})), tokens(total(a.usage for _, a in group)), minutes(sum(a.wall for _, a in group)), kilo(sum(a.effective for _, a in group))]
         for step, group in ranked
     ]
-    return section("Loop steps", ["step", "agents", "sessions", "tokens", "agent wall"], rows, len(rows))
+    return section("Loop steps", ["step", "agents", "sessions", "tokens", "agent wall", "effective"], rows, len(rows))
+
+
+def cache_rewrites_section(sessions: list[Session]) -> str:
+    agents = [(s, a) for s in sessions for a in s.agents]
+    rewrites = [(s, r) for s, a in agents for r in cache_rewrites(a)]
+    spent = sum(a.effective for _, a in agents)
+    cost = sum(r.cost for _, r in rewrites)
+    share = f"{100 * cost / spent:.0f}%" if spent else "0%"
+    by_wait = [[wait.value, *rewrite_cells([r for _, r in rewrites if r.wait is wait])] for wait in Wait]
+    groups: dict[tuple[str, str], list[Rewrite]] = defaultdict(list)
+    for s, r in rewrites:
+        groups[s.id, r.agent.id].append(r)
+    ranked = sorted(groups.items(), key=lambda kv: -sum(r.cost for r in kv[1]))
+    by_agent = [
+        [sid[:8], group[0].agent.kind, clip(group[0].agent.description, 50), *rewrite_cells(group)]
+        for (sid, _), group in ranked[:TOP_REWRITERS]
+    ]
+    return "\n\n".join(
+        [
+            section("Cache rewrites", ["waiting on", "rewrites", "effective"], by_wait, len(by_wait)),
+            f"{len(rewrites)} rewrites, {kilo(cost)} effective, {share} of the total.",
+            table(["session", "type", "description", "rewrites", "effective"], by_agent) + omitted(len(ranked), len(by_agent)),
+        ]
+    )
+
+
+def rewrite_cells(rewrites: list[Rewrite]) -> list[str]:
+    return [str(len(rewrites)), kilo(sum(r.cost for r in rewrites))]
 
 
 def review_yield(sessions: list[Session]) -> str:
@@ -1391,8 +1496,8 @@ def tokens(u: Usage) -> str:
     return "/".join(kilo(n) for n in (u.input, u.cache_read, u.cache_creation, u.output))
 
 
-def kilo(n: int) -> str:
-    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e3 else str(n)
+def kilo(n: float) -> str:
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e3 else str(round(n))
 
 
 def minutes(seconds: float) -> str:
