@@ -91,7 +91,7 @@ let
       ln -s ${pkgs.playwright-test}/lib/node_modules/playwright "$modules/playwright"
       mv dist/kit "$modules/qa-kit"
       mv dist/wallet "$modules/qa-wallet"
-      echo '{"type":"module"}' | tee "$modules/qa-kit/package.json" "$modules/qa-wallet/package.json" > "$check/package.json"
+      echo '{"type":"module","main":"index.js"}' | tee "$modules/qa-kit/package.json" "$modules/qa-wallet/package.json" > "$check/package.json"
       mv dist/qa-check.js dist/qa-check-tools.js "$check/"
       ln -s "$modules" "$check/node_modules"
       runHook postInstall

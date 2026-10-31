@@ -447,12 +447,10 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
       case "eth_blockNumber":
         if (pending.length > 0) {
           block += 1;
-          for (
-            const next = pending[0];
-            next && next.at <= block;
-            pending.shift()
-          )
-            mined.set(next.hash, block);
+          while (pending[0] && pending[0].at <= block) {
+            mined.set(pending[0].hash, block);
+            pending.shift();
+          }
         }
         return `0x${block.toString(16)}`;
       case "eth_getTransactionCount":
