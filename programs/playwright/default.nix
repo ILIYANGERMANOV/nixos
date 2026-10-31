@@ -101,7 +101,7 @@ let
   };
   modules = "${compiled}/lib/node_modules";
 
-  qaWallet = pkgs.writeShellApplication {
+  qaWallet = shellCheck.writeShellApplication {
     name = "qa-wallet";
     runtimeInputs = [ pkgs.nodejs ];
     text = ''exec node ${modules}/qa-wallet/cli.js "$@"'';

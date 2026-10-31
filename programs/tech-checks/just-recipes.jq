@@ -18,8 +18,13 @@ def logicalLines:
     else . + [$line]
     end);
 
-def isSudoSplice:
-  test("\\bsudo\\b") and test("__JUST_") and (test("^\\s*#") | not);
+# A shell comment ends at its newline even after a `\`, so a comment line must
+# go before joining, or it would swallow the sudo line below it.
+def sudoSplices:
+  split("\n")
+  | map(select(test("^\\s*#") | not))
+  | logicalLines
+  | map(select(test("\\bsudo\\b") and test("__JUST_")));
 
 .recipes
 | to_entries[]
@@ -43,4 +48,4 @@ def isSudoSplice:
       text: "#!/usr/bin/env bash\n\($prelude)\(.value)\n"
     }
   end
-| . + {sudoSplices: (.text | split("\n") | logicalLines | map(select(isSudoSplice)))}
+| . + {sudoSplices: (.text | sudoSplices)}
