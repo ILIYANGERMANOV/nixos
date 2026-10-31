@@ -34,8 +34,8 @@ jobs:
     # branch, and the event's sender alone for Dependabot acting on someone
     # else's PR.
     if: >-
-      github.event.pull_request.user.login == 'dependabot[bot]'
-      && github.event.sender.login == 'dependabot[bot]'
+      github.event.pull_request.user.login == 'ivywallet'
+      && github.event.sender.login == 'ivywallet'
       && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
