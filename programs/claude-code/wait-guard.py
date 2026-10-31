@@ -82,13 +82,12 @@ def main() -> None:
     try:
         event = parse_json(sys.stdin.read())
         call = parse_bash_call(event)
-        background = call.background
         waits = is_wait(call.command)
         polls = in_subagent(event) and polls_ci(call.command, earlier_commands(event))
     except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
-    match (polls, background, waits):
+    match (polls, call.background, waits):
         case (True, _, _):
             print(CI_HINT, file=sys.stderr)
             sys.exit(2)

@@ -28,10 +28,7 @@ ban-relative-imports = "all"
 typeCheckingMode = "recommended"
 pythonVersion = "3.13"
 
-# The guards import bash_commands and transcripts from site-packages at runtime
+# The guards import their sibling modules from site-packages at runtime
 # (bash-guard.nix), so they are absolute imports, not relative ones.
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code"
-
-[[tool.basedpyright.executionEnvironments]]
-root = "."

@@ -45,9 +45,8 @@ SUBAGENT_CACHE_LIFE = 5 * 60
 MAIN_CACHE_LIFE = 60 * 60
 REWRITE_SHARE = 0.5  # of a call's context written to cache, to count as a rewrite
 TOP_REWRITERS = 5
-ROUTINE_POLLS = (
-    2  # a watch-less `gh pr checks` above this many in one agent is reported
-)
+# A watch-less `gh pr checks` above this many in one agent is reported.
+ROUTINE_POLLS = 2
 
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
@@ -87,7 +86,7 @@ def parse_args() -> Args:
 
 
 def parse_since(value: str) -> datetime:
-    return parse_iso(value).astimezone(UTC)
+    return datetime.fromisoformat(value).astimezone(UTC)
 
 
 # --- Domain ------------------------------------------------------------------
@@ -459,16 +458,6 @@ class SubagentMeta:
     parent: str | None  # the spawning subagent's id
 
 
-@dataclass
-class Replay:
-    """What a transcript's lines add up to as they are read."""
-
-    responses: dict[str, Response] = field(default_factory=dict)
-    calls: dict[str, ToolCall] = field(default_factory=dict)
-    response_calls: dict[str, list[ToolCall]] = field(default_factory=dict)
-    response_starts: dict[str, float] = field(default_factory=dict)
-
-
 SELF = "self-improve"
 COMMAND_NAME = re.compile(r"<command-name>/?([\w:-]+)</command-name>")
 NOTIFICATION = re.compile(
@@ -596,7 +585,8 @@ def parse_transcript(
     path: Path, kind: str, description: str, until: float | None
 ) -> Transcript:
     out = Transcript(Agent(path.stem.removeprefix("agent-"), kind, description, [], []))
-    replay = Replay()
+    responses: dict[str, Response] = {}
+    calls: dict[str, ToolCall] = {}
     previous: float | None = None
     for line in map(parse_line, read_jsonl(path)):
         if line is None or (until is not None and line.at >= until):
@@ -604,21 +594,21 @@ def parse_transcript(
         out.cwd = out.cwd or line.cwd
         match line.body:
             case AssistantLine() as body:
-                record_assistant(replay, body, line.at, out.agent)
+                record_assistant(responses, calls, body, line.at, out.agent.texts)
             case ToolResultsLine() as body:
-                record_results(replay.calls, body, line.at)
+                record_results(calls, body, line.at)
             case UserLine() as body:
-                record_user(out, replay.calls, body, line.at, previous)
+                record_user(out, calls, body, line.at, previous)
             case NotificationLine(text):
-                record_notifications(replay.calls, text, line.at)
+                record_notifications(calls, text, line.at)
             case OtherLine():
                 pass
             case _:
                 assert_never(line.body)
         out.times.append(line.at)
         previous = line.at
-    out.agent.responses = list(replay.responses.values())
-    out.agent.calls = sorted(replay.calls.values(), key=lambda c: c.start)
+    out.agent.responses = list(responses.values())
+    out.agent.calls = sorted(calls.values(), key=lambda c: c.start)
     out.agent.start, out.agent.end = (
         (min(out.times), max(out.times)) if out.times else (0.0, 0.0)
     )
@@ -626,26 +616,32 @@ def parse_transcript(
 
 
 def record_assistant(
-    replay: Replay, line: AssistantLine, ts: float, agent: Agent
+    responses: dict[str, Response],
+    calls: dict[str, ToolCall],
+    line: AssistantLine,
+    ts: float,
+    texts: list[str],
 ) -> None:
-    key = line.key or f"line-{len(replay.responses)}"
-    calls = replay.response_calls.setdefault(key, [])
-    replay.responses[key] = Response(
-        line.usage, line.skill, replay.response_starts.setdefault(key, ts), calls
-    )
+    key = line.key or f"line-{len(responses)}"
+    match responses.get(key):
+        case Response(at=start, calls=response_calls):
+            pass
+        case None:
+            start, response_calls = ts, []
+    responses[key] = Response(line.usage, line.skill, start, response_calls)
     for block in line.blocks:
         match block:
             case ToolUse(call_id, name, tool_input):
-                call = ToolCall(call_id, name, tool_input, ts, len(replay.calls))
-                replay.calls[call.id] = call
-                calls.append(call)
+                call = ToolCall(call_id, name, tool_input, ts, len(calls))
+                calls[call.id] = call
+                response_calls.append(call)
             case Text(text):
-                agent.texts.append(text)
+                texts.append(text)
             case _:
                 assert_never(block)
     # A line is stamped when its block finished streaming and most tools start once the
     # response has ended, but a tool can answer mid-stream, and then this line is past its end.
-    for call in calls:
+    for call in response_calls:
         if isinstance(call.timing, Unanswered):
             call.start = ts
 
@@ -666,7 +662,7 @@ def record_user(
     ts: float,
     previous: float | None,
 ) -> None:
-    names: list[str] = [m.group(1) for m in COMMAND_NAME.finditer(line.text)]
+    names = captures(COMMAND_NAME, line.text)
     out.commands += names
     out.invocations += [ts] if SELF in names else []
     out.agent.brief = out.agent.brief or line.text
@@ -785,11 +781,7 @@ def token_count(value: Json) -> int:
 def parse_time(value: object) -> float | None:
     if not isinstance(value, str):
         return None
-    return parse_iso(value).timestamp()
-
-
-def parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value)
+    return datetime.fromisoformat(value).timestamp()
 
 
 def to_usage(raw: dict[str, Json]) -> Usage:
@@ -841,8 +833,7 @@ def result_text(content: Json) -> tuple[str, int]:
 
 def record_notifications(calls: dict[str, ToolCall], text: str, ts: float) -> None:
     """A background call ends at its first task notification."""
-    for found in NOTIFICATION.finditer(text):
-        body: str = found.group(1)
+    for body in captures(NOTIFICATION, text):
         call = calls.get(tag(body, "tool-use-id"))
         if call is None or call.timing != Background(None):
             continue
@@ -850,6 +841,11 @@ def record_notifications(calls: dict[str, ToolCall], text: str, ts: float) -> No
         if tag(body, "status") == "failed":
             summary = tag(body, "summary")
             call.outcome = Failed(exit_code(summary), clip(summary, 100))
+
+
+def captures(pattern: re.Pattern[str], text: str) -> list[str]:
+    """Each match's first group: `findall`, which typeshed types as Any."""
+    return [found.group(1) for found in pattern.finditer(text)]
 
 
 def tag(body: str, name: str) -> str:
@@ -1306,7 +1302,7 @@ def parse_review(report: str) -> Review:
 
 
 def tally(pattern: re.Pattern[str], text: str) -> Counter[str]:
-    return Counter(found.group(1).lower() for found in pattern.finditer(text))
+    return Counter(found.lower() for found in captures(pattern, text))
 
 
 def inner_reviewers(session: Session) -> Iterator[Agent]:
