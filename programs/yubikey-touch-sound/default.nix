@@ -36,13 +36,15 @@
 }:
 
 let
+  shellCheck = import ../shell-check { inherit pkgs; };
+
   afplay = "/usr/bin/afplay";
   openssh = lib.getExe pkgs.openssh;
   opensshKeygen = lib.getExe' pkgs.openssh "ssh-keygen";
 
   # Repeats the alert until killed. Kept in its own script so both entry points
   # share one implementation.
-  beep = pkgs.writeShellApplication {
+  beep = shellCheck.writeShellApplication {
     name = "yubikey-touch-beep";
     # `sleep`. Without this, writeShellApplication leaves PATH as the caller's,
     # so a shadowed `sleep` would run inside the auth path.
@@ -87,7 +89,7 @@ let
 
   # $SSH_ASKPASS target. ssh(1) execs this with the notification text as $1,
   # stdin and stdout on /dev/null, and SIGTERMs it once the touch completes.
-  askpass = pkgs.writeShellApplication {
+  askpass = shellCheck.writeShellApplication {
     name = "yubikey-touch-askpass";
     text = ''
       case "''${1-}" in
@@ -113,7 +115,7 @@ let
   # passphrase prompts through the helper even when a tty is available. Setting
   # DISPLAY still opens that door for the no-tty case, which is why the helper
   # guards on the prompt text.
-  ssh = pkgs.writeShellApplication {
+  ssh = shellCheck.writeShellApplication {
     name = "yubikey-touch-ssh";
     # `cat`. Without this, writeShellApplication leaves PATH as the caller's,
     # so a shadowed `cat` would run inside the auth path.
@@ -139,7 +141,7 @@ let
   # Drop-in ssh-keygen for git (gpg.ssh.program). Signing always needs a tap and
   # has no notifier hook, so alert for the whole call. Verification and every
   # other subcommand are passed straight through, untouched and silent.
-  sshKeygen = pkgs.writeShellApplication {
+  sshKeygen = shellCheck.writeShellApplication {
     name = "yubikey-touch-ssh-keygen";
     text = ''
       signing=0

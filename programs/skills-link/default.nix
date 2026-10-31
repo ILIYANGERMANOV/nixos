@@ -14,7 +14,7 @@
 # share skills, and such a mix of two farms lasts until the next relink.
 { pkgs }:
 
-pkgs.writeShellApplication {
+(import ../shell-check { inherit pkgs; }).writeShellApplication {
   name = "factory-link-skills";
   runtimeInputs = [ pkgs.coreutils ];
   text = ''

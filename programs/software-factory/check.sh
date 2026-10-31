@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2154,SC2312 # check.nix sets the variables and pipefail, and a masked failure fails the assertion around it
 # Scenarios for checks.software-factory, sourced by check.nix with every
 # program and double on PATH and $work, $repoArgs, $adminArgs and
 # $adminSettings set.
@@ -15,14 +16,19 @@ fail() {
   echo "FAIL: $*" >&2
   exit 1
 }
+# Fails with the file that explains why.
+fail_showing() {
+  cat "$1" >&2
+  fail "$2"
+}
 reset() {
   kill_sessions
   rm -rf "$HOME" "$UNITS" "$GH" "$work/ops"
   mkdir -p "$HOME" "$GH"
   : >"$CALLS"
 }
-called() { grep -qxF "$1" "$CALLS" || { cat "$CALLS" >&2; fail "expected call: $1"; }; }
-not_called() { ! grep -qF "$1" "$CALLS" || { cat "$CALLS" >&2; fail "unexpected call: $1"; }; }
+called() { grep -qxF "$1" "$CALLS" || fail_showing "$CALLS" "expected call: $1"; }
+not_called() { ! grep -qF "$1" "$CALLS" || fail_showing "$CALLS" "unexpected call: $1"; }
 active() { [ -e "$UNITS/claude-rc@$1.service" ]; }
 enabled() { grep -qxF "$1" "$HOME/.local/state/factory/enabled" 2>/dev/null; }
 # Runs a command that must fail with exit code $1.
@@ -30,7 +36,7 @@ exits() {
   local want="$1" got=0
   shift
   "$@" >"$work/out" 2>&1 || got=$?
-  [ "$got" -eq "$want" ] || { cat "$work/out" >&2; fail "'$*' exited $got, expected $want"; }
+  [ "$got" -eq "$want" ] || fail_showing "$work/out" "'$*' exited $got, expected $want"
 }
 
 # A live session: a process with --sdk-url in its command line, working in $1.
@@ -134,6 +140,7 @@ reset
 mkdir -p "$HOME/repos/plain"
 exits 1 factory-rc plain
 if factory-rc "" >/dev/null 2>&1; then fail "factory-rc accepted an empty name"; fi
+# shellcheck disable=SC2016 # a literal dollar in a name
 for bad in ".hidden" ".." "a b" "a/b" 'a$b'; do
   exits 1 factory-rc "$bad"
 done
@@ -144,7 +151,7 @@ reset
 factory-rc-admin
 called "claude remote-control --name admin $adminArgs GH_TOKEN=ghp_check PWD=$HOME/admin"
 [ "$(jq '.projects["'"$HOME/admin"'"].hasTrustDialogAccepted' "$HOME/.claude.json")" = true ] ||
-  fail "~/admin was not trusted"
+  fail "the admin directory was not trusted"
 jq -e '.permissions.allow | index("Bash(factory-ctl *)")' "$adminSettings" >/dev/null ||
   fail "the admin agent is not allowed to run factory-ctl"
 
@@ -167,7 +174,7 @@ mkdir -p "$HOME/repos/repo" "$HOME/repos/other" "$HOME/repos/custom"
 factory-ctl start git@github.com:owner/repo.git >/dev/null
 factory-ctl start https://github.com/owner/other >/dev/null
 factory-ctl start "file://$work/origin.git" custom >/dev/null
-active repo && active other && active custom || fail "a URL was mapped to the wrong name"
+{ active repo && active other && active custom; } || fail "a URL was mapped to the wrong name"
 
 echo "start: a bare name serves its clone, or exits 3 when there is none"
 reset
@@ -180,6 +187,7 @@ enabled missing && fail "enabled a repository that is not cloned"
 
 echo "start / stop / restart: refuse unsafe names"
 reset
+# shellcheck disable=SC2016 # a literal dollar in a name
 for bad in ".hidden" ".." "a b" 'a$b'; do
   exits 1 factory-ctl start "$bad"
   exits 1 factory-ctl stop "$bad"
@@ -206,11 +214,12 @@ for risk in session uncommitted unpushed; do
     session) start_session "$wt" ;;
     uncommitted) touch "$wt/new-file" ;;
     unpushed) git -C "$wt" commit --quiet --allow-empty -m local ;;
+    *) ;;
   esac
   factory-ctl start origin >/dev/null
   exits 2 factory-ctl stop origin
   grep -q "origin" "$work/out" || fail "the refusal did not say what is at risk ($risk)"
-  active origin && enabled origin || fail "a refused stop changed state ($risk)"
+  { active origin && enabled origin; } || fail "a refused stop changed state ($risk)"
   factory-ctl stop --force origin >/dev/null
   active origin || enabled origin && fail "--force did not stop ($risk)"
 done
@@ -268,7 +277,7 @@ reset
 clone_repo by-hand
 exits 1 factory-boot
 [ -d "$HOME/repos/declared/.git" ] || fail "the declared repo was not cloned"
-active declared && active by-hand || fail "boot did not start every enabled repo"
+{ active declared && active by-hand; } || fail "boot did not start every enabled repo"
 not_called "claude-rc@unreachable"
 enabled unreachable && fail "a repo that failed to clone was enabled"
 
@@ -301,8 +310,8 @@ grep -q 'WARNING: the deploy token expires' "$work/out" || fail "no expiry warni
 
 echo "stats: reports RAM, disk, CPU and uptime"
 factory-ctl stats >"$work/out"
-grep -q '^RAM ' "$work/out" && grep -q '^Disk ' "$work/out" && grep -q '^CPU ' "$work/out" && grep -Eq '^Up +[0-9]+d' "$work/out" ||
-  { cat "$work/out" >&2; fail "stats is missing a line"; }
+{ grep -q '^RAM ' "$work/out" && grep -q '^Disk ' "$work/out" && grep -q '^CPU ' "$work/out" && grep -Eq '^Up +[0-9]+d' "$work/out"; } ||
+  fail_showing "$work/out" "stats is missing a line"
 
 echo "free-disk: prunes only worktrees that lose nothing, throwaway caches and stale GC roots"
 reset
@@ -318,7 +327,7 @@ mkdir -p "$HOME/.cache/npm" "$HOME/.cache/nix" "$HOME/.cache/cabal/logs" "$HOME/
 add_roots
 factory-ctl free-disk plan >"$work/out"
 grep -q "origin/.claude/worktrees/pushed" "$work/out" || fail "plan misses the pushed worktree"
-grep -qF "$old_tmp_root" "$work/out" && grep -qF "$old_cache_root" "$work/out" || fail "plan misses a stale GC root"
+{ grep -qF "$old_tmp_root" "$work/out" && grep -qF "$old_cache_root" "$work/out"; } || fail "plan misses a stale GC root"
 grep -qF -e "$new_tmp_root" -e "$worktree_root" -e "$shell_root" "$work/out" && fail "plan lists a GC root that must stay"
 grep -Eq "worktrees/(dirty|unpushed|busy)" "$work/out" && fail "plan lists a worktree with work"
 grep -q ".cache/npm" "$work/out" || fail "plan misses a cache"
@@ -395,6 +404,7 @@ done
 # Two systems whose activation is recorded, the running one being old.
 make_system() {
   mkdir -p "$work/systems/$1/bin"
+  # shellcheck disable=SC2016 # expands in the generated script
   printf '#!/bin/sh\necho "%s $*" >>"$CALLS"\n' "$1" >"$work/systems/$1/bin/switch-to-configuration"
   chmod +x "$work/systems/$1/bin/switch-to-configuration"
 }
@@ -421,6 +431,18 @@ not_called "nix "
 deploy_reset
 echo '[{"state": "success"}]' >"$GH/statuses.json"
 factory-deploy
+not_called "nix "
+
+echo "factory-deploy: a failed read of a deployment's statuses waits for the next tick"
+deploy_reset
+rm "$GH/statuses.json"
+factory-deploy 2>/dev/null
+not_called "nix "
+
+echo "factory-deploy: an unreadable answer about a deployment's statuses waits for the next tick"
+deploy_reset
+echo 'not json' >"$GH/statuses.json"
+factory-deploy 2>/dev/null
 not_called "nix "
 
 echo "factory-deploy: builds the tip of main, tests it, then makes it the boot default"
@@ -458,6 +480,7 @@ for broken in sshd github; do
   case "$broken" in
     sshd) export SSHD_UP=0 ;;
     github) touch "$GH/github-down" ;;
+    *) ;;
   esac
   exits 1 factory-deploy
   unset SSHD_UP
@@ -474,6 +497,15 @@ ln -sfn "$work/systems/new" "$work/current-system"
 factory-deploy >/dev/null
 not_called "new test"
 [ "$(posted)" = "in_progress success" ] || fail "posted $(posted)"
+
+echo "factory-deploy: with GitHub refusing every POST, gives up after one failure report and leaves no temporary directory"
+deploy_reset
+rm -rf "$work/deploy-tmp"
+mkdir "$work/deploy-tmp"
+touch "$GH/post-fails"
+! TMPDIR="$work/deploy-tmp" timeout 30 factory-deploy >/dev/null 2>&1 || fail "the failed POST did not fail the deploy"
+[ "$(grep -c -- '-X POST' "$CALLS")" -le 3 ] || fail "the failure report repeated without end"
+[ -z "$(ls -A "$work/deploy-tmp")" ] || fail "left behind: $(ls -A "$work/deploy-tmp")"
 
 # ─── Dev shell roots ─────────────────────────────────────────────────────────
 
@@ -513,7 +545,7 @@ skills_reset() {
 
 status_reports() {
   factory-ctl status >"$work/out"
-  grep -qxF "$1" "$work/out" || { cat "$work/out" >&2; fail "status does not report: $1"; }
+  grep -qxF "$1" "$work/out" || fail_showing "$work/out" "status does not report: $1"
 }
 
 echo "factory-relink-skills: replaces links a GC left dangling; status counts them, then none"
@@ -618,9 +650,18 @@ factory-maintenance gc >/dev/null
 called "nix-env -p $work/profiles/system --delete-generations +2"
 called "nix-store --gc"
 kept_what_must_stay
-! registered "$old_tmp_root" && ! registered "$old_cache_root" && ! registered "$spaced_root" || fail "a stale GC root is still registered"
-registered "$new_tmp_root" && registered "$worktree_root" && registered "$shell_root" || fail "a GC root that must stay was unregistered"
+{ ! registered "$old_tmp_root" && ! registered "$old_cache_root" && ! registered "$spaced_root"; } || fail "a stale GC root is still registered"
+{ registered "$new_tmp_root" && registered "$worktree_root" && registered "$shell_root"; } || fail "a GC root that must stay was unregistered"
 jq -r .message "$work/ops/last.json" | grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' || fail "gc does not report the space freed in GB"
+
+echo "factory-maintenance gc: keeps two generations of a profile under the homes directory, by its unnumbered name"
+deploy_reset
+mkdir -p "$HOME/.local/state/nix/profiles"
+ln -s "$work/systems/old" "$HOME/.local/state/nix/profiles/home-manager"
+ln -s "$work/systems/old" "$HOME/.local/state/nix/profiles/home-manager-1-link"
+factory-maintenance gc >/dev/null
+called "nix-env -p $HOME/.local/state/nix/profiles/home-manager --delete-generations +2"
+not_called "home-manager-1-link"
 
 echo "factory-maintenance reboot: refused within 10 minutes of boot"
 deploy_reset

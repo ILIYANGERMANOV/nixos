@@ -1,6 +1,8 @@
 { pkgs, theme }:
 
 let
+  shellCheck = import ../shell-check { inherit pkgs; };
+
   # Colors tuned for dark terminals (bright/pastel)
   darkVars = ''
     CYAN='\033[38;5;116m'
@@ -51,7 +53,7 @@ let
 
   # Outputs: "<cyan>dir</cyan>  <green>branch</green>"
   # SC2034: colorSetup defines the full palette; only CYAN/GREEN/RESET used here.
-  dir = pkgs.writeShellApplication {
+  dir = shellCheck.writeShellApplication {
     name = "claude-statusline-dir";
     runtimeInputs = with pkgs; [ git ];
     excludeShellChecks = [ "SC2034" ];
@@ -81,7 +83,7 @@ let
 
   # Outputs: "  <blue>Claude Sonnet 4.6</blue>"
   # SC2034: colorSetup defines the full palette; only BLUE/RESET used here.
-  model = pkgs.writeShellApplication {
+  model = shellCheck.writeShellApplication {
     name = "claude-statusline-model";
     runtimeInputs = [ ];
     excludeShellChecks = [ "SC2034" ];
@@ -97,7 +99,7 @@ let
 
   # Outputs: "  <color>▓▓▓░░ 60% (reset 2h30m)</color>"
   # SC2034: colorSetup defines the full palette; only GREY/YELLOW/RED/RESET used here.
-  usage = pkgs.writeShellApplication {
+  usage = shellCheck.writeShellApplication {
     name = "claude-statusline-usage";
     runtimeInputs = with pkgs; [ coreutils ];
     excludeShellChecks = [ "SC2034" ];
@@ -146,7 +148,7 @@ let
 
   # Outputs: "  <badge> 30k / 200k (15%) </badge>"
   # SC2034: colorSetup defines the full palette; only GREEN/YELLOW/RED/RESET used here.
-  tokens = pkgs.writeShellApplication {
+  tokens = shellCheck.writeShellApplication {
     name = "claude-statusline-tokens";
     runtimeInputs = [ ];
     excludeShellChecks = [ "SC2034" ];
@@ -175,7 +177,7 @@ let
 
 in
 # Orchestrator: reads JSON from stdin, dispatches to sub-scripts, assembles output.
-pkgs.writeShellApplication {
+shellCheck.writeShellApplication {
   name = "claude-statusline";
   runtimeInputs = [
     pkgs.jq

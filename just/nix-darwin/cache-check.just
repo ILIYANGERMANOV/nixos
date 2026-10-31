@@ -28,6 +28,7 @@ _cache-check $label $installable:
         plan="$(build_plan)"
         grep -E 'will be (built|fetched)' <<<"$plan" || true
 
+        # shellcheck disable=SC2310 # the || is for grep, which matches nothing in a clean plan
         offenders="$(derivations_to_build <<<"$plan" | grep -E "$denylist" || true)"
         [ -z "$offenders" ] || reject "$offenders"
 
@@ -60,6 +61,7 @@ _cache-check $label $installable:
     # the real pipeline over a plan with known answers before trusting it.
     assert_guard_works() {
         local denylist="$1" flagged
+        # shellcheck disable=SC2310 # the || is for grep; a miss is what the checks below catch
         flagged="$(sample_plan | derivations_to_build | grep -E "$denylist" || true)"
 
         if ! grep -qx 'swift-5\.10\.1\.drv' <<<"$flagged"; then

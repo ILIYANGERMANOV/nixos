@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 # Root operations. This account has no sudo: each one starts a fixed root unit
 # that polkit lets it start and nothing else (modules/nixos/server/ops.nix).
 # Results land in $ops_state_dir/last.json, which `status` shows.

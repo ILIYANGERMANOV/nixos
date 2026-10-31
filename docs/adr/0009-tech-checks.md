@@ -26,6 +26,16 @@ A tech check takes source through `lib.fileset`, evaluates no host and uses no
 import from derivation. That is what keeps a group to seconds, and a commit that
 touches none of its files reuses the store path on the box.
 
+Shell has five: `shell-actionlint` (workflows), `shell-lint` (every `.sh`),
+`shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and no `{{ }}` on
+a sudo line) and `shell-embedded` (wrappers no other check builds). The lint
+rules live in `programs/shell-check`, shared with `writeShellApplication`.
+
+`shell-embedded` is the one that needs flake inputs: `flake.nix` calls
+`adapters/claude-code.nix` and hands the result in, with synthetic secret paths
+so a wrapper's secret branches are linted too. It still evaluates no host. It
+exists on Linux only, as `llm-agents` has no x86_64-darwin package.
+
 ## Additive: existing tests stay where they are
 
 Tech checks are ordinary flake checks, so `nix flake check` in `check` builds

@@ -16,6 +16,7 @@ modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
 programs/tech-checks/ - `<tech>-<kind>` flake checks and the treefmt formatter
+programs/shell-check/ - the optional shellcheck rules and the `writeShellApplication` that applies them
 shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
 secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 deslop/         - the architecture rules `deslop check .` enforces, and their baseline
@@ -34,6 +35,13 @@ Plain Nix functions (not NixOS/HM modules) that build derivations and return an 
 They know nothing about hosts, users, or activation — just packages and configuration artifacts.
 
 Designed for reuse: the same program config can be consumed by home modules and dev shells alike.
+
+A script uses `writeShellApplication` from `programs/shell-check`, never
+`pkgs.writeShellApplication`.
+A just recipe has no `{{ }}` on a sudo line: use an exported parameter.
+A `.sh` spliced into a script opens with a `# shellcheck shell=bash` directive,
+which `fragment` in `programs/software-factory` cuts on assembly: mid-script it
+would silence the next function.
 
 ### `modules/home/` — thin wiring into Home Manager
 
@@ -69,7 +77,7 @@ program needs a flake input.
 4. Optionally import `programs/<name>` directly in any `shells/` that need it.
 
 A lint, type or test check for a technology rather than a program is
-`<tech>-<kind>` in `programs/tech-checks/`, such as `shell-actionlint`; a new
+`<tech>-<kind>` in `programs/tech-checks/`, such as `shell-lint`; a new
 `<tech>` also joins the `tech` matrix in `check.yml`. See
 `docs/adr/0009-tech-checks.md`.
 
@@ -83,8 +91,8 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 1. A skill or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`
    and `.#checks.x86_64-linux.typos`, plus `self-improve` when the analyzer under
    its skill changed.
-2. A `programs/<x>` edit: build that program's check - `claude-code` and
-   `claude-bash-guards` for `programs/claude-code`, `nvim-search`,
+2. A `programs/<x>` edit: build that program's check - `claude-code`,
+   `claude-bash-guards` and `shell-embedded` for `programs/claude-code`, `nvim-search`,
    `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
    `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
@@ -97,8 +105,8 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
    (Deslop, under a second).
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
    `nix develop -c just tech shell`.
-5. A script edit in a technology with checks: `nix develop -c just tech <name>`
-   (`shell` today). Seconds, no host evaluated: it builds every `<name>-*` flake
+5. A script or just recipe edit in a technology with checks: `nix develop -c just tech <name>`
+   (`shell` today, for a `.sh`, a recipe or a workflow). Seconds, no host evaluated: it builds every `<name>-*` flake
    check for this system. It prints `All good (N)` and exits 0, or the failures
    verbatim and exits nonzero, so never pipe it through `grep`, and never run its
    tools by hand before it. A name with no checks fails. It sees only files git

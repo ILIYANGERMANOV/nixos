@@ -38,6 +38,7 @@ set-password-hash $host:
             echo "ERROR: invalid host name '$host' (expected [a-z0-9-])" >&2
             exit 1
             ;;
+        *) ;;
     esac
     file="secrets/hosts/$host.yaml"
     key_file=/var/lib/sops-age/keys.txt
@@ -85,6 +86,7 @@ set-password-hash $host:
 
     # sops wants the value as JSON, and --value-stdin keeps it out of argv.
     # mkpasswd emits one line of printable ASCII, so escaping " and \ covers it.
+    # shellcheck disable=SC2312 # sed over a variable does not fail
     printf '"%s"' "$(printf '%s' "$hash" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')" \
         | sops set --value-stdin "$file" '["password-hash"]'
 
@@ -105,6 +107,7 @@ edit-secrets $host="":
                 echo "ERROR: invalid host name '$host' (expected [a-z0-9-])" >&2
                 exit 1
                 ;;
+            *) ;;
         esac
         mkdir -p secrets/hosts
         file="secrets/hosts/$host.yaml"

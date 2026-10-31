@@ -13,6 +13,8 @@
 # project's own, differently versioned Playwright at the wrong browsers.
 { pkgs }:
 let
+  shellCheck = import ../shell-check { inherit pkgs; };
+
   inherit (pkgs) lib;
 
   browsers = pkgs.playwright-driver.selectBrowsers {
@@ -99,7 +101,7 @@ let
   };
   modules = "${compiled}/lib/node_modules";
 
-  qaWallet = pkgs.writeShellApplication {
+  qaWallet = shellCheck.writeShellApplication {
     name = "qa-wallet";
     runtimeInputs = [ pkgs.nodejs ];
     text = ''exec node ${modules}/qa-wallet/cli.js "$@"'';
@@ -108,7 +110,7 @@ let
   # A script that hangs still ends: QA_NODE_TIMEOUT (default 300 s, any
   # `timeout` duration, 0 for none) sends it SIGTERM, which lets qa-kit save
   # the login, then SIGKILL 10 s later; the exit status is 124.
-  qaNode = pkgs.writeShellApplication {
+  qaNode = shellCheck.writeShellApplication {
     name = "qa-node";
     runtimeInputs = [
       pkgs.nodejs
@@ -122,7 +124,7 @@ let
     '';
   };
 
-  qaSession = pkgs.writeShellApplication {
+  qaSession = shellCheck.writeShellApplication {
     name = "qa-session";
     runtimeInputs = [ qaNode ];
     text = ''exec qa-node ${modules}/qa-kit/session.js "$@"'';
@@ -134,7 +136,7 @@ let
   # the app being slow and stays. GitHub plays H.264 mp4 inline. libx264 with
   # yuv420p needs even dimensions, and faststart lets the video play before
   # it has fully downloaded.
-  qaMp4 = pkgs.writeShellApplication {
+  qaMp4 = shellCheck.writeShellApplication {
     name = "qa-mp4";
     runtimeInputs = [ pkgs.ffmpeg-headless ];
     text = ''
@@ -158,7 +160,7 @@ let
   # Timestamps must be plain seconds: they are also the labels drawtext prints.
   # A time past the last frame is clamped to the last frame, labelled with
   # the video's length, so a timestamp cited a little long still gets a tile.
-  qaFrames = pkgs.writeShellApplication {
+  qaFrames = shellCheck.writeShellApplication {
     name = "qa-frames";
     runtimeInputs = [ pkgs.ffmpeg-headless ];
     text = ''
@@ -180,13 +182,15 @@ let
           exit 2
         fi
         frame=$(printf '%s/%03d.png' "$tmp" "$n")
-        ffmpeg -y -loglevel error -ss "$t" -i "$video" -frames:v 1 -vf "scale=480:-2,$(label "$t s")" "$frame"
+        tile=$(label "$t s")
+        ffmpeg -y -loglevel error -ss "$t" -i "$video" -frames:v 1 -vf "scale=480:-2,$tile" "$frame"
         if [ ! -s "$frame" ]; then
           end=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$video")
           end=$(printf '%.2f' "$end")
           echo "qa-frames: $t s is past the end of $video; using its last frame ($end s)" >&2
           # -update keeps overwriting one image, so what is left is the last frame.
-          ffmpeg -y -loglevel error -sseof -1 -i "$video" -update 1 -vf "scale=480:-2,$(label "$end s (end)")" "$frame"
+          tile=$(label "$end s (end)")
+          ffmpeg -y -loglevel error -sseof -1 -i "$video" -update 1 -vf "scale=480:-2,$tile" "$frame"
         fi
         if [ ! -s "$frame" ]; then
           echo "qa-frames: no frame in $video" >&2

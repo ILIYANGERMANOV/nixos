@@ -144,7 +144,7 @@ let
       "GET "*/deployments\?*) cat "$GH/deployments.json" ;;
       "GET "*/statuses\?*) cat "$GH/statuses.json" ;;
       "GET "*/commits/main) cat "$GH/main.json" ;;
-      "POST "*/statuses) { cat "$body"; echo; } >>"$GH/posted"; echo '{}' ;;
+      "POST "*/statuses) [ ! -e "$GH/post-fails" ] || exit 22; { cat "$body"; echo; } >>"$GH/posted"; echo '{}' ;;
       *) echo "fake curl: unexpected $method $url" >&2; exit 22 ;;
     esac
   '';

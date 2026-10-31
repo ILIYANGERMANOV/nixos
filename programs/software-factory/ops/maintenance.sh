@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 # rollback | reboot | gc, as root. Each is started by a unit the agent account
 # may start through polkit, so each takes no input: what it does is fixed here.
 
@@ -16,9 +17,12 @@ main() {
 
 # Back to the previous system generation, as the boot default too.
 rollback() {
+  local generation
   nix-env -p "$profile" --rollback
   "$(readlink -f "$profile")/bin/switch-to-configuration" switch
-  record rollback success "" "Switched to $(readlink "$profile")"
+  # Already switched: a name left blank must not turn this into a failure.
+  generation=$(readlink "$profile") || true
+  record rollback success "" "Switched to $generation"
 }
 
 # Refused within 10 minutes of boot, so a loop of requests cannot keep the box
@@ -40,26 +44,27 @@ reboot_box() {
 # in ~/.gcroots, profiles and home-manager's roots are never temporary, so
 # they stay.
 gc() {
-  local before after p link
+  local before after p link freed
   before=$(df -B1 --output=avail /nix/store | tail -n 1)
   for p in "$profile" $(profiles); do
     nix-env -p "$p" --delete-generations +2
   done
   # Only the registration in $gcroots_auto goes: root never deletes a path an
   # agent chose. The orphaned link dangles until tmpfiles or its owner drops it.
-  # shellcheck disable=SC2046 # one directory per home
+  # shellcheck disable=SC2046,SC2312 # one directory per home; a failed listing removes nothing
   while read -r link; do
     rm -f -- "$link"
   done < <(stale_roots "$tmp_dir" $(home_caches))
   nix-store --gc
   after=$(df -B1 --output=avail /nix/store | tail -n 1)
-  record gc success "" "Freed $(gb $((after - before)))"
+  freed=$(gb $((after - before)))
+  record gc success "" "Freed $freed"
 }
 
 # Every user's profiles, by their unnumbered name: the numbered *-N-link
 # entries are their generations.
 profiles() {
-  find /nix/var/nix/profiles/per-user /root/.local/state/nix/profiles /home/*/.local/state/nix/profiles \
+  find /nix/var/nix/profiles/per-user /root/.local/state/nix/profiles "$homes_dir"/*/.local/state/nix/profiles \
     -maxdepth 2 -type l ! -name '*-link' 2>/dev/null || true
 }
 

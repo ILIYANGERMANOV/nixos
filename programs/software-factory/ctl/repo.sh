@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 # Turning repositories on and off. "On" means enabled - started at boot - and
 # running; "off" means neither. The clone and its worktrees are kept either way.
 
@@ -13,6 +14,7 @@ cmd_start() {
     *)
       name="$target"
       check_repo_name "$name"
+      # shellcheck disable=SC2310 # a predicate
       is_cloned "$name" || {
         echo "factory-ctl: $name is not cloned. Find its URL with: factory-ctl resolve $name" >&2
         exit "$exit_not_cloned"
@@ -20,7 +22,7 @@ cmd_start() {
       ;;
   esac
   enable_repo "$name"
-  systemctl --user start "$(unit_of "$name")"
+  repo_unit start "$name"
   echo "$name: on"
 }
 
@@ -30,11 +32,12 @@ cmd_stop() {
   parse_force "$@"
   local name="${args[0]:?usage: factory-ctl stop [--force] <name>}"
   check_repo_name "$name"
+  # shellcheck disable=SC2310 # both are predicates
   if [ "$force" -eq 0 ] && is_cloned "$name" && ! check_nothing_at_risk "$name"; then
     refuse "stopping $name ends its sessions"
   fi
   disable_repo "$name"
-  systemctl --user stop "$(unit_of "$name")"
+  repo_unit stop "$name"
   echo "$name: off"
 }
 
@@ -44,11 +47,13 @@ cmd_restart() {
   parse_force "$@"
   local name="${args[0]:?usage: factory-ctl restart [--force] <name>}"
   check_repo_name "$name"
+  # shellcheck disable=SC2310 # a predicate
   is_enabled "$name" || die "$name is off; turn it on with: factory-ctl start $name"
+  # shellcheck disable=SC2310 # a predicate
   if [ "$force" -eq 0 ] && ! check_nothing_at_risk "$name"; then
     refuse "restarting $name ends its sessions"
   fi
-  systemctl --user restart "$(unit_of "$name")"
+  repo_unit restart "$name"
   echo "$name: restarted"
 }
 
@@ -74,11 +79,14 @@ cmd_boot() {
     name="$1" url="$2"
     shift 2
     check_repo_name "$name"
+    # shellcheck disable=SC2310 # one failure must not stop the rest
     is_cloned "$name" || { clone "$url" "$name" && enable_repo "$name"; } || status=1
   done
   for name in $(enabled_repos); do
+    # shellcheck disable=SC2310 # a predicate
     if is_cloned "$name"; then
-      systemctl --user start "$(unit_of "$name")" || status=1
+      # shellcheck disable=SC2310 # one failure must not stop the rest
+      repo_unit start "$name" || status=1
     else
       echo "factory-ctl: $name is enabled but not cloned, skipping" >&2
     fi
@@ -90,7 +98,7 @@ cmd_boot() {
 # with it keeps that behaviour by enabling every existing clone once.
 adopt_existing_clones() {
   [ -f "$state_file" ] && return 0
-  mkdir -p "$(dirname "$state_file")"
+  mkdir -p "${state_file%/*}"
   cloned_repos >"$state_file"
 }
 

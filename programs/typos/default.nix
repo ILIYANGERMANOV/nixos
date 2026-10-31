@@ -43,6 +43,8 @@
   globalConfigRelPath ? ".config/typos/typos.toml",
 }:
 let
+  shellCheck = import ../shell-check { inherit pkgs; };
+
   typos = lib.getExe' pkgs.typos "typos";
 in
 {
@@ -88,7 +90,7 @@ in
   # The existence check is load-bearing: typos exits 78 (EX_CONFIG) on *every*
   # invocation when --config points at a missing file, so a deleted allowlist has
   # to degrade to plain typos rather than break the command outright.
-  cli = pkgs.writeShellApplication {
+  cli = shellCheck.writeShellApplication {
     name = "typos";
     text = ''
       config="$HOME/${globalConfigRelPath}"

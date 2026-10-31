@@ -1,4 +1,4 @@
-set shell := ["bash", "-eo", "pipefail", "-c"]
+set shell := ["bash", "-euo", "pipefail", "-c"]
 
 import 'just/secrets.just'
 import 'just/ssh.just'
@@ -81,16 +81,18 @@ _build-checks pattern:
     names=$(nix eval --raw ".#checks.$system" --apply \
       'cs: toString (builtins.filter (n: builtins.match "{{ pattern }}" n != null) (builtins.attrNames cs))')
     [ -n "$names" ] || { echo "no checks match {{ pattern }} on $system" >&2; exit 1; }
+    read -ra checks <<<"$names"
     errors=$(mktemp)
     trap 'rm -f "$errors"' EXIT
-    nix build --no-link --keep-going --quiet $(printf ".#checks.$system.%s " $names) 2>"$errors" || {
+    nix build --no-link --keep-going --quiet "${checks[@]/#/.#checks.$system.}" 2>"$errors" || {
       sed '/Last [0-9]* log lines:/,/^ *nix log \/nix\/store/d' "$errors" >&2
       log_lost=false
+      # shellcheck disable=SC2013 # one store path a line, so a word is a line
       for drv in $(sed -n 's/^ *nix log //p' "$errors"); do nix log "$drv" >&2 || log_lost=true; done
       if "$log_lost"; then cat "$errors" >&2; fi
       exit 1
     }
-    echo "All good ($(wc -w <<<"$names"))"
+    echo "All good (${#checks[@]})"
 
 # Run all checks (lint + architecture + format + spell + flake check)
 check:

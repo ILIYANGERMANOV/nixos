@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2154,SC2312 # other fragments and the preamble's pipefail: the assembled script is checked whole
 # Ending sessions while their Remote Control servers keep running. Only
 # sessions under ~/repos are touched, so the admin agent - which works in
 # ~/admin - never ends its own.
@@ -7,10 +8,12 @@
 # is mid-task, unless forced. The worktrees themselves are kept.
 cmd_terminate() {
   parse_force "$@"
-  local repos=("${args[@]}") repo live cwd work at_risk=0
+  local repos=("${args[@]}") repo live cwd work count at_risk=0
+  # shellcheck disable=SC2312 # cloned_repos cannot fail
   [ "${#repos[@]}" -gt 0 ] || mapfile -t repos < <(cloned_repos)
   for repo in "${repos[@]}"; do
     check_repo_name "$repo"
+    # shellcheck disable=SC2310 # a predicate
     is_cloned "$repo" || die "$repo is not cloned"
   done
 
@@ -31,7 +34,8 @@ cmd_terminate() {
     refuse "these sessions have local work"
   fi
 
-  # shellcheck disable=SC2046 # one pid per word
+  # shellcheck disable=SC2046,SC2312 # one pid per word, and cut cannot fail here
   kill -TERM $(cut -f 1 <<<"$live")
-  echo "Ended $(wc -l <<<"$live") session(s). Their servers keep running."
+  count=$(wc -l <<<"$live")
+  echo "Ended $count session(s). Their servers keep running."
 }
