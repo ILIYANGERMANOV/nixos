@@ -14,6 +14,9 @@ let
       install -Dm644 ${./bash_commands.py} $site/bash_commands.py
       install -Dm644 ${./hook_event.py} $site/hook_event.py
       install -Dm644 ${./transcripts.py} $site/transcripts.py
+      # The store cannot hold a cache written at run time, and a hook pays for
+      # compiling on every tool call. Unchecked: a store path never changes.
+      ${pkgs.python3.interpreter} -m compileall -q --invalidation-mode unchecked-hash $site
     ''
   );
 in
