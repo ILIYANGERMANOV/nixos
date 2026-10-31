@@ -26,7 +26,7 @@ from enum import Enum
 from functools import cached_property
 from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING, NewType, assert_never, cast
+from typing import TYPE_CHECKING, ClassVar, NewType, assert_never, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -182,24 +182,73 @@ type Outcome = Ok | Failed
 
 
 @dataclass(frozen=True, slots=True)
-class ToolInput:
-    """What the analyzer reads of a tool's input: each field is "" where absent."""
-
+class BashTool:
+    name: ClassVar[str] = "Bash"
     command: str
-    message: str
-    file_path: str
-    notebook_path: str
-    description: str
-    pattern: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReadTool:
+    name: ClassVar[str] = "Read"
+    path: str
     offset: ReadBound
     limit: ReadBound
+
+
+@dataclass(frozen=True, slots=True)
+class EditTool:
+    name: ClassVar[str] = "Edit"
+    path: str
+
+
+@dataclass(frozen=True, slots=True)
+class WriteTool:
+    name: ClassVar[str] = "Write"
+    path: str
+
+
+@dataclass(frozen=True, slots=True)
+class MultiEditTool:
+    name: ClassVar[str] = "MultiEdit"
+    path: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookEditTool:
+    name: ClassVar[str] = "NotebookEdit"
+    path: str
+
+
+@dataclass(frozen=True, slots=True)
+class HandbackTool:
+    name: ClassVar[str] = "SubagentHandback"
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class OtherTool:
+    """Any other tool, or one of the above whose input lacks its required field."""
+
+    name: str
+    label: str | None  # what a report names the call by
+
+
+type Tool = (
+    BashTool
+    | ReadTool
+    | EditTool
+    | WriteTool
+    | MultiEditTool
+    | NotebookEditTool
+    | HandbackTool
+    | OtherTool
+)
 
 
 @dataclass
 class ToolCall:
     id: ToolUseId
-    name: str
-    input: ToolInput
+    tool: Tool
     start: float
     position: int  # in its transcript's stream; siblings can share a start
     timing: Timing = Unanswered()
@@ -208,8 +257,26 @@ class ToolCall:
     images: int = 0
 
     @property
-    def command(self) -> str:
-        return self.input.command
+    def name(self) -> str:
+        return self.tool.name
+
+    @property
+    def command(self) -> str | None:
+        match self.tool:
+            case BashTool(command=command):
+                return command
+            case (
+                ReadTool()
+                | EditTool()
+                | WriteTool()
+                | MultiEditTool()
+                | NotebookEditTool()
+                | HandbackTool()
+                | OtherTool()
+            ):
+                return None
+            case _:
+                assert_never(self.tool)
 
     @property
     def seconds(self) -> float | None:
@@ -244,7 +311,9 @@ class Agent:
     @property
     def report(self) -> str:
         """What the agent handed back: its last hand-back, else its last text."""
-        handbacks = [c.input.message for c in self.calls if c.name == HANDBACK]
+        handbacks = [
+            m for c in self.calls if (m := handback_message(c.tool)) is not None
+        ]
         return (handbacks or self.texts or [""])[-1]
 
     @property
@@ -254,6 +323,24 @@ class Agent:
     @property
     def peak_context(self) -> int:
         return max((r.usage.context for r in self.responses), default=0)
+
+
+def handback_message(tool: Tool) -> str | None:
+    match tool:
+        case HandbackTool(message=message):
+            return message
+        case (
+            BashTool()
+            | ReadTool()
+            | EditTool()
+            | WriteTool()
+            | MultiEditTool()
+            | NotebookEditTool()
+            | OtherTool()
+        ):
+            return None
+        case _:
+            assert_never(tool)
 
 
 def effective(agents: Iterable[Agent]) -> float:
@@ -402,8 +489,7 @@ class Transcript:
 @dataclass(frozen=True, slots=True)
 class ToolUse:
     id: ToolUseId
-    name: str
-    input: ToolInput
+    tool: Tool
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,7 +567,6 @@ NOTIFICATION = re.compile(
     r"<task-notification>(.*?)(?:</task-notification>|$)", re.DOTALL
 )
 EXIT_CODE = re.compile(r"exit code (\d+)", re.IGNORECASE)
-HANDBACK = "SubagentHandback"
 # A subagent's transcript has no `toolUseResult`: only the result text tells.
 BACKGROUND_START = re.compile(
     "|".join(
@@ -650,8 +735,8 @@ def record_assistant(
     responses[key] = Response(line.usage, line.skill, start, response_calls)
     for block in line.blocks:
         match block:
-            case ToolUse(call_id, name, tool_input):
-                call = ToolCall(call_id, name, tool_input, ts, len(calls))
+            case ToolUse(call_id, tool):
+                call = ToolCall(call_id, tool, ts, len(calls))
                 calls[call.id] = call
                 response_calls.append(call)
             case Text(text):
@@ -760,8 +845,9 @@ def parse_assistant_block(block: dict[str, Json]) -> AssistantBlock | None:
         case {"type": "tool_use", "id": str(call_id)}:
             return ToolUse(
                 ToolUseId(call_id),
-                text_of(block.get("name"), "?"),
-                parse_tool_input(as_object(block.get("input"))),
+                parse_tool(
+                    text_of(block.get("name"), "?"), as_object(block.get("input"))
+                ),
             )
         case {"type": "text"}:
             return Text(str(block.get("text", "")))
@@ -769,20 +855,32 @@ def parse_assistant_block(block: dict[str, Json]) -> AssistantBlock | None:
             return None
 
 
-def parse_tool_input(raw: dict[str, Json]) -> ToolInput:
-    def field_text(name: str) -> str:
-        return str(raw.get(name) or "")
+def parse_tool(name: str, raw: dict[str, Json]) -> Tool:  # noqa: PLR0911 - one return per tool
+    match (name, raw):
+        case (BashTool.name, {"command": str(command)}):
+            return BashTool(command)
+        case (ReadTool.name, {"file_path": str(path)}):
+            offset, limit = read_bound(raw.get("offset")), read_bound(raw.get("limit"))
+            return ReadTool(path, offset, limit)
+        case (EditTool.name, {"file_path": str(path)}):
+            return EditTool(path)
+        case (WriteTool.name, {"file_path": str(path)}):
+            return WriteTool(path)
+        case (MultiEditTool.name, {"file_path": str(path)}):
+            return MultiEditTool(path)
+        case (NotebookEditTool.name, {"notebook_path": str(path)}):
+            return NotebookEditTool(path)
+        case (HandbackTool.name, {"message": str(message)}):
+            return HandbackTool(message)
+        case _:
+            return OtherTool(name, tool_label(raw))
 
-    return ToolInput(
-        command=field_text("command"),
-        message=field_text("message"),
-        file_path=field_text("file_path"),
-        notebook_path=field_text("notebook_path"),
-        description=field_text("description"),
-        pattern=field_text("pattern"),
-        offset=read_bound(raw.get("offset")),
-        limit=read_bound(raw.get("limit")),
+
+def tool_label(raw: dict[str, Json]) -> str | None:
+    values = (
+        raw.get(key) for key in ("command", "file_path", "description", "pattern")
     )
+    return next((str(value) for value in values if value), None)
 
 
 def read_bound(value: Json) -> ReadBound:
@@ -1153,9 +1251,11 @@ def check_waste(session: Session) -> tuple[list[Rerun], list[Chain]]:
     chains: list[Chain] = []
     for agent in session.agents:
         last_run: dict[str, StreamPoint] = {}
-        earlier_steps: list[ToolCall] = []
-        for call in filter(is_check_run, agent.calls):
-            key = check_key(call.command)
+        earlier_steps: list[tuple[ToolCall, str]] = []
+        for call, command in bash_runs(agent.calls):
+            key = check_key(command)
+            if not key:
+                continue
             if key in last_run:
                 between = edits_between(edits, last_run[key], stream_point(call))
                 reason = (
@@ -1170,25 +1270,25 @@ def check_waste(session: Session) -> tuple[list[Rerun], list[Chain]]:
                         Rerun(session.id, agent.kind, key, reason, call.seconds or 0.0)
                     )
             last_run[key] = stream_point(call)
-            found = [s for s in steps(call.command) if is_check(s)]
+            found = [s for s in steps(command) if is_check(s)]
             full = [i for i, s in enumerate(found) if FULL_CHECK.match(s.name)]
             if not full:
-                earlier_steps.append(call)
+                earlier_steps.append((call, key))
                 continue
             chains += [
                 Chain(session.id, agent.kind, s.text, 0.0) for s in found[: full[0]]
             ]
             chains += [
-                Chain(session.id, agent.kind, check_key(s.command), s.seconds or 0.0)
-                for s in earlier_steps
-                if not edits_between(edits, stream_point(s), stream_point(call))
+                Chain(session.id, agent.kind, step_key, step.seconds or 0.0)
+                for step, step_key in earlier_steps
+                if not edits_between(edits, stream_point(step), stream_point(call))
             ]
             earlier_steps = []
     return reruns, chains
 
 
-def is_check_run(call: ToolCall) -> bool:
-    return call.name == "Bash" and bool(check_key(call.command))
+def bash_runs(calls: Iterable[ToolCall]) -> Iterator[tuple[ToolCall, str]]:
+    return ((c, command) for c in calls if (command := c.command) is not None)
 
 
 def stream_point(call: ToolCall) -> StreamPoint:
@@ -1202,18 +1302,30 @@ def edits_between(
 
 
 def is_edit(call: ToolCall) -> bool:
-    match call.name:
-        case "Edit" | "Write" | "NotebookEdit" | "MultiEdit":
+    match call.tool:
+        case EditTool() | WriteTool() | NotebookEditTool() | MultiEditTool():
             return True
-        case "Bash":
-            return bool(CODE_CHANGING_BASH.search(call.command))
-        case _:
+        case BashTool(command=command):
+            return bool(CODE_CHANGING_BASH.search(command))
+        case ReadTool() | HandbackTool() | OtherTool():
             return False
+        case _:
+            assert_never(call.tool)
 
 
 def is_doc_edit(call: ToolCall) -> bool:
-    path = call.input.file_path or call.input.notebook_path
-    return call.name != "Bash" and path.endswith(".md")
+    match call.tool:
+        case (
+            EditTool(path=path)
+            | WriteTool(path=path)
+            | MultiEditTool(path=path)
+            | NotebookEditTool(path=path)
+        ):
+            return path.endswith(".md")
+        case BashTool() | ReadTool() | HandbackTool() | OtherTool():
+            return False
+        case _:
+            assert_never(call.tool)
 
 
 # --- Loop steps --------------------------------------------------------------
@@ -1418,7 +1530,7 @@ def wait_of(calls: list[ToolCall]) -> Wait:
     """The wait behind a gap, from the calls of the response before it."""
     if any(c.name in SPAWN for c in calls):
         return Wait.AGENT
-    if any(c.name == "Bash" and isinstance(c.timing, Foreground) for c in calls):
+    if any(isinstance(c.timing, Foreground) for c, _ in bash_runs(calls)):
         return Wait.BASH
     return Wait.IDLE
 
@@ -1481,7 +1593,9 @@ def follow_ups(session: Session) -> Iterator[FollowUp]:
             named = file_names(child.report)
             rereads = [c for c in calls if read_files(c) & named or is_diff(c)]
             yield FollowUp(
-                steps[child.id], rereads, [c for c in calls if is_check_run(c)]
+                steps[child.id],
+                rereads,
+                [c for c, command in bash_runs(calls) if check_key(command)],
             )
 
 
@@ -1500,22 +1614,33 @@ def calls_after_handbacks(
 
 
 def is_diff(call: ToolCall) -> bool:
+    command = call.command
     return (
-        call.name == "Bash"
-        and any(s.name in DIFF_COMMANDS for s in steps(call.command))
+        command is not None
+        and any(s.name in DIFF_COMMANDS for s in steps(command))
         and not is_edit(call)
     )
 
 
 def read_files(call: ToolCall) -> set[str]:
     """The file names a read-only call looked at."""
-    match call.name:
-        case "Read":
-            return {Path(call.input.file_path).name}
-        case "Bash" if is_read_only(call):
-            return file_names(call.command)
-        case _:
+    match call.tool:
+        case ReadTool(path=path):
+            return {Path(path).name}
+        case BashTool(command=command) if is_read_only(call):
+            return file_names(command)
+        case (
+            BashTool()
+            | EditTool()
+            | WriteTool()
+            | MultiEditTool()
+            | NotebookEditTool()
+            | HandbackTool()
+            | OtherTool()
+        ):
             return set()
+        case _:
+            assert_never(call.tool)
 
 
 def file_names(text: str) -> set[str]:
@@ -1523,17 +1648,24 @@ def file_names(text: str) -> set[str]:
 
 
 def is_read_only(call: ToolCall) -> bool:
-    match call.name:
-        case "Read":
+    match call.tool:
+        case ReadTool():
             return True
-        case "Bash":
-            found = steps(call.command)
+        case BashTool(command=command):
+            found = steps(command)
             reads = bool(found) and all(s.name in READ_COMMANDS for s in found)
-            return (
-                reads and not OUTPUT_REDIRECT.search(call.command) and not is_edit(call)
-            )
-        case _:
+            return reads and not OUTPUT_REDIRECT.search(command) and not is_edit(call)
+        case (
+            EditTool()
+            | WriteTool()
+            | MultiEditTool()
+            | NotebookEditTool()
+            | HandbackTool()
+            | OtherTool()
+        ):
             return False
+        case _:
+            assert_never(call.tool)
 
 
 def spawned_again(session: Session) -> Iterator[LoopStep]:
@@ -1557,9 +1689,7 @@ def repeated_reads(session: Session) -> list[RepeatedRead]:
     )
     for agent in session.agents:
         for call in filter(is_read_only, agent.calls):
-            groups[(what(call), call.input.offset, call.input.limit)].append(
-                (agent, call)
-            )
+            groups[(what(call), *read_window(call.tool))].append((agent, call))
     out: list[RepeatedRead] = []
     for (name, *_), runs in groups.items():
         agents = {agent.id for agent, _ in runs}
@@ -1567,6 +1697,24 @@ def repeated_reads(session: Session) -> list[RepeatedRead]:
         if len(agents) > 1:
             out.append(RepeatedRead(name, len(agents), len(runs), sum(sizes[:-1])))
     return out
+
+
+def read_window(tool: Tool) -> tuple[ReadBound, ReadBound]:
+    match tool:
+        case ReadTool(offset=offset, limit=limit):
+            return offset, limit
+        case (
+            BashTool()
+            | EditTool()
+            | WriteTool()
+            | MultiEditTool()
+            | NotebookEditTool()
+            | HandbackTool()
+            | OtherTool()
+        ):
+            return None, None
+        case _:
+            assert_never(tool)
 
 
 def research_overlaps(session: Session) -> Iterator[set[str]]:
@@ -1937,8 +2085,8 @@ def first_ready(session: Session) -> float | None:
     readied = [
         c.start
         for a in session.agents
-        for c in a.calls
-        if c.name == "Bash" and PR_READY.search(c.command)
+        for c, command in bash_runs(a.calls)
+        if PR_READY.search(command)
     ]
     return min(readied, default=None)
 
@@ -2099,14 +2247,27 @@ def largest_results(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
 
 
 def what(call: ToolCall) -> str:
-    tool_input = call.input
-    value = (
-        tool_input.command
-        or tool_input.file_path
-        or tool_input.description
-        or tool_input.pattern
-    )
-    return " ".join(value.split())
+    return " ".join(subject(call.tool).split())
+
+
+def subject(tool: Tool) -> str:
+    match tool:
+        case BashTool(command=command):
+            return command
+        case (
+            ReadTool(path=path)
+            | EditTool(path=path)
+            | WriteTool(path=path)
+            | MultiEditTool(path=path)
+            | NotebookEditTool(path=path)
+        ):
+            return path
+        case HandbackTool():
+            return ""
+        case OtherTool(label=label):
+            return label or ""
+        case _:
+            assert_never(tool)
 
 
 def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
@@ -2138,9 +2299,9 @@ def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
 
 def bash_commands(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
     groups: dict[str, list[ToolCall]] = defaultdict(list)
-    for _, _, c in calls:
-        if c.name == "Bash" and c.seconds is not None:
-            groups[label(c.command)].append(c)
+    for c, command in bash_runs(c for _, _, c in calls):
+        if c.seconds is not None:
+            groups[label(command)].append(c)
     ranked = sorted(groups.items(), key=lambda kv: -sum(c.seconds or 0 for c in kv[1]))
     rows: list[list[str]] = []
     for name, cs in ranked[:12]:
@@ -2190,8 +2351,8 @@ def checks_section(sessions: list[Session]) -> str:
 
 
 def polling(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
-    bash = [(s, a, c) for s, a, c in calls if c.name == "Bash"]
-    loops = [c for _, _, c in bash if SLEEP_LOOP.search(c.command)]
+    bash = [(s, a, c, cmd) for s, a, c in calls if (cmd := c.command) is not None]
+    loops = [c for _, _, c, command in bash if SLEEP_LOOP.search(command)]
     fg_loops = [c for c in loops if c.mode == "fg"]
     timeouts = [
         c
@@ -2200,8 +2361,8 @@ def polling(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
     ]
     per_agent = Counter(
         (s.id[:8], a.kind)
-        for s, a, c in bash
-        if PR_CHECKS.search(c.command) and "--watch" not in c.command
+        for s, a, _, command in bash
+        if PR_CHECKS.search(command) and "--watch" not in command
     )
     repeated = [
         f"{sid} {kind}: {n}"
@@ -2223,7 +2384,7 @@ def failures(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
     missing: Counter[str] = Counter()
     for _, _, c in calls:
         if isinstance(c.outcome, Failed):
-            name = label(c.command) if c.name == "Bash" else ""
+            name = "" if c.command is None else label(c.command)
             groups[(c.name, name, c.outcome.signature)].append(c)
             missing.update(MISSING_TOOL.findall(c.outcome.signature))
     ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]))
