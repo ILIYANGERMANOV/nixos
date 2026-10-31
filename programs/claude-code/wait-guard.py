@@ -28,17 +28,25 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from enum import Enum, auto
 from itertools import dropwhile, pairwise
+from typing import assert_never
 
 from bash_commands import simple_commands
 from hook_event import (
-    Caller,
     Json,
     ToolUseId,
+    parse_agent,
     parse_bash_call,
     parse_caller,
     parse_json,
 )
-from transcripts import in_subagent, own_transcript, parse_line
+from transcripts import (
+    BashUse,
+    OtherUse,
+    ToolUse,
+    in_subagent,
+    own_transcript,
+    parse_assistant_line,
+)
 
 MIN_SLEEP = 10
 # Past this context an agent hands a long check back: a wait over the 5 minute
@@ -90,9 +98,8 @@ def main() -> None:
         event = parse_json(sys.stdin.read())
         call = parse_bash_call(event)
         waits = is_wait(call.command)
-        caller = parse_caller(event)
-        polls = in_subagent(caller.agent) and polls_ci(
-            call.command, earlier_commands(caller, call.tool_use_id)
+        polls = in_subagent(parse_agent(event)) and polls_ci(
+            call.command, earlier_commands(event, call.tool_use_id)
         )
     except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
@@ -187,29 +194,27 @@ def parsed(command: str, *, looped: bool = False) -> list[Step]:
         return []
 
 
-def earlier_commands(caller: Caller, skip: ToolUseId | None) -> Iterator[str]:
-    """The agent's Bash commands so far, without the call under judgement."""
-    with own_transcript(caller).open("rb") as transcript:
+def earlier_commands(event: Json, skip: ToolUseId | None) -> Iterator[str]:
+    """The agent's Bash commands so far, without the call under judgement.
+
+    Lazy, so a command that is no CI read still gets its verdict with no transcript.
+    """
+    with own_transcript(parse_caller(event)).open("rb") as transcript:
         for line in transcript:
-            match parse_line(line):
-                case {"type": "assistant", "message": {"content": list(blocks)}}:
-                    yield from bash_commands(blocks, skip)
-                case _:
-                    pass
+            assistant = parse_assistant_line(line)
+            if assistant is not None:
+                yield from bash_commands(assistant.tool_uses, skip)
 
 
-def bash_commands(blocks: list[Json], skip: ToolUseId | None) -> Iterator[str]:
-    for block in blocks:
-        match block:
-            case {
-                "type": "tool_use",
-                "name": "Bash",
-                "id": call,
-                "input": {"command": str(command)},
-            } if call != skip:
+def bash_commands(tool_uses: list[ToolUse], skip: ToolUseId | None) -> Iterator[str]:
+    for use in tool_uses:
+        match use:
+            case BashUse(use_id, command) if use_id != skip:
                 yield command
-            case _:
+            case BashUse() | OtherUse():
                 pass
+            case _:
+                assert_never(use)
 
 
 def is_wait(command: str) -> bool:

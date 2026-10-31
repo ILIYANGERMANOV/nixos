@@ -16,8 +16,8 @@ import os
 import sys
 from pathlib import Path
 
-from hook_event import Json, parse_caller, parse_json
-from transcripts import own_transcript, parse_line
+from hook_event import parse_caller, parse_json
+from transcripts import AssistantLine, MessageId, own_transcript, parse_assistant_line
 
 WARN_AT = 150_000
 STOP_AT = 220_000
@@ -59,16 +59,13 @@ def recent_contexts(path: Path) -> list[int]:
 
     One message spans a line per content block, each with the same usage.
     """
-    contexts: dict[str, int] = {}
-    ran_tool: set[str] = set()
+    contexts: dict[MessageId, int] = {}
+    ran_tool: set[MessageId] = set()
     for line in reversed(tail_lines(path)):
-        match parse_line(line):
-            case {
-                "type": "assistant",
-                "message": {"id": str(message_id), "usage": dict(usage)} as message,
-            } if context(usage) > 0:
-                _ = contexts.setdefault(message_id, context(usage))
-                if runs_tool(message):
+        match parse_assistant_line(line):
+            case AssistantLine(str() as message_id, context, tool_uses) if context > 0:
+                _ = contexts.setdefault(message_id, context)
+                if tool_uses:
                     ran_tool.add(message_id)
             case _:
                 pass
@@ -76,39 +73,11 @@ def recent_contexts(path: Path) -> list[int]:
     return [contexts[call] for call in newest + [c for c in older if c in ran_tool]]
 
 
-def runs_tool(message: dict[str, Json]) -> bool:
-    match message:
-        case {"content": list(blocks)}:
-            return any(is_tool_use(block) for block in blocks)
-        case _:
-            return False
-
-
-def is_tool_use(block: Json) -> bool:
-    match block:
-        case {"type": "tool_use"}:
-            return True
-        case _:
-            return False
-
-
 def tail_lines(path: Path) -> list[bytes]:
     with path.open("rb") as file:
         _ = file.seek(0, os.SEEK_END)
         _ = file.seek(max(0, file.tell() - TAIL_BYTES))
         return file.read().splitlines()
-
-
-def context(usage: dict[str, Json]) -> int:
-    return sum(
-        tokens
-        for key in (
-            "input_tokens",
-            "cache_read_input_tokens",
-            "cache_creation_input_tokens",
-        )
-        if isinstance(tokens := usage.get(key), int)
-    )
 
 
 def notice(previous: int, current: int) -> str | None:

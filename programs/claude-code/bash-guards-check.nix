@@ -333,6 +333,10 @@ pkgs.runCommand "claude-bash-guards-check"
     expect_agent 0 "a subagent with no transcript yet may read once" "gh pr checks 7"
     expect_agent 2 "a subagent with no transcript still may not watch" "gh run watch 12"
     expect_agent 2 "a subagent with no transcript still may not loop" "until gh pr checks 7; do sleep 30; done" true
+    expect_raw 2 "an event with no transcript_path is still judged on its command" \
+      '{"agent_id": "a", "tool_input": {"command": "sleep 60"}}'
+    expect_raw 0 "a status read with no transcript_path fails open" \
+      '{"agent_id": "a", "tool_input": {"command": "gh pr checks 7"}}'
     agent=
     bash_line "gh pr checks 7" old >"$session.jsonl"
     expect_agent 0 "main may read checks again" "gh pr checks 7"

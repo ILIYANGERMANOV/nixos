@@ -49,14 +49,14 @@ type Agent = MainAgent | Subagent | UnnamedSubagent
 
 @dataclass(frozen=True, slots=True)
 class Caller:
-    """Who made the call, read off any hook event. Parsing it never fails.
+    """The agent that made the call and the session's transcript.
 
-    A hook that never reads the transcript must not fail on one that is absent,
-    so `transcript_path` stays None until a reader asks for it.
+    Only a transcript reader parses this: a verdict that needs no transcript must
+    not fail on an event without one, so it reads `parse_agent` instead.
     """
 
     agent: Agent
-    transcript_path: Path | None
+    transcript_path: Path
 
 
 def parse_json(text: str | bytes) -> Json:
@@ -102,9 +102,9 @@ def parse_agent(event: Json) -> Agent:
             return MainAgent()
 
 
-def parse_transcript_path(event: Json) -> Path | None:
+def parse_transcript_path(event: Json) -> Path:
     match event:
         case {"transcript_path": str(path)}:
             return Path(path)
         case _:
-            return None
+            raise ValueError("no transcript_path")
