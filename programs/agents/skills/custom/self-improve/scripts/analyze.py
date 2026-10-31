@@ -21,12 +21,15 @@ import re
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, fields
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from functools import cached_property
 from itertools import pairwise
 from pathlib import Path
-from typing import Iterable, Iterator, Union
+from typing import TYPE_CHECKING, assert_never, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
 
 TOP = 10
 INPUT_WEIGHT = 1
@@ -42,6 +45,12 @@ SUBAGENT_CACHE_LIFE = 5 * 60
 MAIN_CACHE_LIFE = 60 * 60
 REWRITE_SHARE = 0.5  # of a call's context written to cache, to count as a rewrite
 TOP_REWRITERS = 5
+ROUTINE_POLLS = (
+    2  # a watch-less `gh pr checks` above this many in one agent is reported
+)
+
+# What `json.loads` can return, spelled out because typeshed says Any.
+type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 
 
 def main() -> None:
@@ -51,25 +60,34 @@ def main() -> None:
     print(render(window, describe_window(window.since, args.project)))
 
 
-def parse_args() -> argparse.Namespace:
+class Args(argparse.Namespace):
+    since: datetime | None = None
+    project: str | None = None
+    root: Path = Path.home() / ".claude" / "projects"
+
+
+def parse_args() -> Args:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--since",
-        type=lambda v: parse_iso(v).astimezone(timezone.utc),
+        type=parse_since,
         help="ISO date or time; default: the previous /self-improve run",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--project", help="only sessions whose working directory contains this"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--root",
         type=Path,
-        default=Path.home() / ".claude" / "projects",
         help=argparse.SUPPRESS,
     )
-    return parser.parse_args()
+    return parser.parse_args(namespace=Args())
+
+
+def parse_since(value: str) -> datetime:
+    return parse_iso(value).astimezone(UTC)
 
 
 # --- Domain ------------------------------------------------------------------
@@ -135,7 +153,7 @@ class Unanswered:
     """A tool call whose result never reached the transcript."""
 
 
-Timing = Union[Foreground, Background, Unanswered]
+type Timing = Foreground | Background | Unanswered
 Interval = tuple[float, float]
 StreamPoint = tuple[
     float, int
@@ -154,14 +172,14 @@ class Failed:
     signature: str
 
 
-Outcome = Union[Ok, Failed]
+type Outcome = Ok | Failed
 
 
 @dataclass
 class ToolCall:
     id: str
     name: str
-    input: dict
+    input: dict[str, Json]
     start: float
     position: int  # in its transcript's stream; siblings can share a start
     timing: Timing = Unanswered()
@@ -303,7 +321,7 @@ class Unparsed:
     nit: int
 
 
-Review = Union[ParsedReview, Unparsed]
+type Review = ParsedReview | Unparsed
 
 
 @dataclass(frozen=True)
@@ -317,7 +335,7 @@ class ByMain:
     """Written by the main agent, whose tokens cannot be attributed to the review."""
 
 
-ReviewSource = Union[ByAgent, ByMain]
+type ReviewSource = ByAgent | ByMain
 
 
 @dataclass(frozen=True)
@@ -365,16 +383,108 @@ class Transcript:
     cwd: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Json]
+
+
+@dataclass(frozen=True, slots=True)
+class Text:
+    text: str
+
+
+type AssistantBlock = ToolUse | Text
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantLine:
+    """One content block of a model call, which can span several lines."""
+
+    key: str | None  # the message id, else the request id
+    usage: Usage
+    skill: str | None
+    blocks: list[AssistantBlock]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResult:
+    tool_use_id: str
+    text: str
+    images: int
+    is_error: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultsLine:
+    results: list[ToolResult]
+    started_background: bool
+
+
+@dataclass(frozen=True, slots=True)
+class UserLine:
+    text: str
+    human: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationLine:
+    """A line that carries no message, only task notifications."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class OtherLine:
+    """A line of a type nothing reads: it only moves the clock."""
+
+
+type LineBody = (
+    AssistantLine | ToolResultsLine | UserLine | NotificationLine | OtherLine
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Line:
+    at: float
+    cwd: str
+    body: LineBody
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentMeta:
+    kind: str
+    description: str
+    parent: str | None  # the spawning subagent's id
+
+
+@dataclass
+class Replay:
+    """What a transcript's lines add up to as they are read."""
+
+    responses: dict[str, Response] = field(default_factory=dict)
+    calls: dict[str, ToolCall] = field(default_factory=dict)
+    response_calls: dict[str, list[ToolCall]] = field(default_factory=dict)
+    response_starts: dict[str, float] = field(default_factory=dict)
+
+
 SELF = "self-improve"
 COMMAND_NAME = re.compile(r"<command-name>/?([\w:-]+)</command-name>")
-NOTIFICATION = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
-EXIT_CODE = re.compile(r"exit code (\d+)", re.I)
+NOTIFICATION = re.compile(
+    r"<task-notification>(.*?)(?:</task-notification>|$)", re.DOTALL
+)
+EXIT_CODE = re.compile(r"exit code (\d+)", re.IGNORECASE)
 HANDBACK = "SubagentHandback"
 # A subagent's transcript has no `toolUseResult`: only the result text tells.
 BACKGROUND_START = re.compile(
-    r"Command running in background with ID|"
-    r"Command did not complete within its \S+ timeout and was moved to the background|"
-    r"Async agent launched"
+    "|".join(
+        (
+            r"Command running in background with ID",
+            r"Command did not complete within its \S+ timeout and was moved to the background",
+            r"Async agent launched",
+        )
+    )
 )
 
 
@@ -412,13 +522,19 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
 
 
 def parse_subagent(path: Path, until: float | None) -> Transcript:
-    meta_path = path.with_name(path.stem + ".meta.json")
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    transcript = parse_transcript(
-        path, meta.get("agentType", "unknown"), meta.get("description", ""), until
-    )
-    transcript.agent.parent = meta.get("parentAgentId")
+    meta = parse_meta(path.with_name(path.stem + ".meta.json"))
+    transcript = parse_transcript(path, meta.kind, meta.description, until)
+    transcript.agent.parent = meta.parent
     return transcript
+
+
+def parse_meta(path: Path) -> SubagentMeta:
+    raw = as_object(parse_json(path.read_text())) if path.exists() else {}
+    return SubagentMeta(
+        text_of(raw.get("agentType"), "unknown"),
+        text_of(raw.get("description")),
+        optional_text(raw.get("parentAgentId")),
+    )
 
 
 def question_intervals(agent: Agent) -> list[Interval]:
@@ -431,7 +547,7 @@ def question_intervals(agent: Agent) -> list[Interval]:
 
 def project_name(cwd: str) -> str:
     """The repository or directory a session ran in, without its worktree suffix."""
-    return Path(cwd.split("/.claude/worktrees/")[0]).name or "?"
+    return Path(cwd.split("/.claude/worktrees/", maxsplit=1)[0]).name or "?"
 
 
 def waiting_seconds(
@@ -480,96 +596,190 @@ def parse_transcript(
     path: Path, kind: str, description: str, until: float | None
 ) -> Transcript:
     out = Transcript(Agent(path.stem.removeprefix("agent-"), kind, description, [], []))
-    responses: dict[str, Response] = {}
-    calls: dict[str, ToolCall] = {}
-    response_calls: dict[str, list[ToolCall]] = defaultdict(list)
-    response_starts: dict[str, float] = {}
+    replay = Replay()
     previous: float | None = None
-    for event in read_jsonl(path):
-        ts = parse_time(event.get("timestamp"))
-        if ts is None or (until is not None and ts >= until):
+    for line in map(parse_line, read_jsonl(path)):
+        if line is None or (until is not None and line.at >= until):
             continue
-        out.cwd = out.cwd or event.get("cwd", "")
-        message = event.get("message") or {}
-        content = message.get("content")
-        match event.get("type"):
-            case "assistant":
-                key = (
-                    message.get("id")
-                    or event.get("requestId")
-                    or f"line-{len(responses)}"
-                )
-                responses[key] = Response(
-                    to_usage(message.get("usage") or {}),
-                    event.get("attributionSkill"),
-                    response_starts.setdefault(key, ts),
-                    response_calls[key],
-                )
-                for block in blocks(content):
-                    if block.get("type") == "tool_use":
-                        call = ToolCall(
-                            block["id"],
-                            block.get("name", "?"),
-                            block.get("input") or {},
-                            ts,
-                            len(calls),
-                        )
-                        calls[call.id] = call
-                        response_calls[key].append(call)
-                    elif block.get("type") == "text":
-                        out.agent.texts.append(str(block.get("text", "")))
-                # A line is stamped when its block finished streaming and most tools start once the
-                # response has ended, but a tool can answer mid-stream, and then this line is past its end.
-                for call in response_calls[key]:
-                    if isinstance(call.timing, Unanswered):
-                        call.start = ts
-            case "user" if is_tool_results(content):
-                for block in blocks(content):
-                    if (
-                        block.get("type") == "tool_result"
-                        and block.get("tool_use_id") in calls
-                    ):
-                        record_result(
-                            calls[block["tool_use_id"]],
-                            block,
-                            event.get("toolUseResult"),
-                            ts,
-                        )
-            case "user":
-                text = plain_text(content)
-                names = COMMAND_NAME.findall(text)
-                out.commands += names
-                out.invocations += [ts] if SELF in names else []
-                out.agent.brief = out.agent.brief or text
-                if (event.get("origin") or {}).get("kind") == "human":
-                    out.prompts.append(Prompt(ts, names))
-                    out.human_gaps += [(previous, ts)] if previous is not None else []
-                record_notifications(calls, text, ts)
-            case "queue-operation":
-                record_notifications(calls, str(event.get("content") or ""), ts)
-            case "attachment":
-                record_notifications(
-                    calls, str((event.get("attachment") or {}).get("prompt") or ""), ts
-                )
-        out.times.append(ts)
-        previous = ts
-    out.agent.responses = list(responses.values())
-    out.agent.calls = sorted(calls.values(), key=lambda c: c.start)
+        out.cwd = out.cwd or line.cwd
+        match line.body:
+            case AssistantLine() as body:
+                record_assistant(replay, body, line.at, out.agent)
+            case ToolResultsLine() as body:
+                record_results(replay.calls, body, line.at)
+            case UserLine() as body:
+                record_user(out, replay.calls, body, line.at, previous)
+            case NotificationLine(text):
+                record_notifications(replay.calls, text, line.at)
+            case OtherLine():
+                pass
+            case _:
+                assert_never(line.body)
+        out.times.append(line.at)
+        previous = line.at
+    out.agent.responses = list(replay.responses.values())
+    out.agent.calls = sorted(replay.calls.values(), key=lambda c: c.start)
     out.agent.start, out.agent.end = (
         (min(out.times), max(out.times)) if out.times else (0.0, 0.0)
     )
     return out
 
 
-def read_jsonl(path: Path) -> Iterator[dict]:
+def record_assistant(
+    replay: Replay, line: AssistantLine, ts: float, agent: Agent
+) -> None:
+    key = line.key or f"line-{len(replay.responses)}"
+    calls = replay.response_calls.setdefault(key, [])
+    replay.responses[key] = Response(
+        line.usage, line.skill, replay.response_starts.setdefault(key, ts), calls
+    )
+    for block in line.blocks:
+        match block:
+            case ToolUse(call_id, name, tool_input):
+                call = ToolCall(call_id, name, tool_input, ts, len(replay.calls))
+                replay.calls[call.id] = call
+                calls.append(call)
+            case Text(text):
+                agent.texts.append(text)
+            case _:
+                assert_never(block)
+    # A line is stamped when its block finished streaming and most tools start once the
+    # response has ended, but a tool can answer mid-stream, and then this line is past its end.
+    for call in calls:
+        if isinstance(call.timing, Unanswered):
+            call.start = ts
+
+
+def record_results(
+    calls: dict[str, ToolCall], line: ToolResultsLine, ts: float
+) -> None:
+    for result in line.results:
+        call = calls.get(result.tool_use_id)
+        if call is not None:
+            record_result(call, result, ts, started=line.started_background)
+
+
+def record_user(
+    out: Transcript,
+    calls: dict[str, ToolCall],
+    line: UserLine,
+    ts: float,
+    previous: float | None,
+) -> None:
+    names: list[str] = [m.group(1) for m in COMMAND_NAME.finditer(line.text)]
+    out.commands += names
+    out.invocations += [ts] if SELF in names else []
+    out.agent.brief = out.agent.brief or line.text
+    if line.human:
+        out.prompts.append(Prompt(ts, names))
+        out.human_gaps += [(previous, ts)] if previous is not None else []
+    record_notifications(calls, line.text, ts)
+
+
+def read_jsonl(path: Path) -> Iterator[dict[str, Json]]:
     with path.open(errors="replace") as lines:
         for line in lines:
             try:
-                event = json.loads(line)
+                event = parse_json(line)
             except ValueError:
                 continue
             if isinstance(event, dict):
                 yield event
+
+
+def parse_json(text: str) -> Json:
+    return cast("Json", json.loads(text))
+
+
+def parse_line(event: dict[str, Json]) -> Line | None:
+    """The transcript line `event`, None when it has no timestamp."""
+    ts = parse_time(event.get("timestamp"))
+    if ts is None:
+        return None
+    return Line(ts, text_of(event.get("cwd")), parse_body(event))
+
+
+def parse_body(event: dict[str, Json]) -> LineBody:
+    message = as_object(event.get("message"))
+    content = message.get("content")
+    match event.get("type"):
+        case "assistant":
+            return AssistantLine(
+                text_of(message.get("id")) or text_of(event.get("requestId")) or None,
+                to_usage(as_object(message.get("usage"))),
+                optional_text(event.get("attributionSkill")),
+                parse_assistant_blocks(content),
+            )
+        case "user" if is_tool_results(content):
+            return ToolResultsLine(
+                parse_tool_results(content),
+                started_background(event.get("toolUseResult")),
+            )
+        case "user":
+            origin = as_object(event.get("origin"))
+            return UserLine(plain_text(content), origin.get("kind") == "human")
+        case "queue-operation":
+            return NotificationLine(str(event.get("content") or ""))
+        case "attachment":
+            attachment = as_object(event.get("attachment"))
+            return NotificationLine(str(attachment.get("prompt") or ""))
+        case _:
+            return OtherLine()
+
+
+def parse_assistant_blocks(content: Json) -> list[AssistantBlock]:
+    parsed = map(parse_assistant_block, blocks(content))
+    return [block for block in parsed if block is not None]
+
+
+def parse_assistant_block(block: dict[str, Json]) -> AssistantBlock | None:
+    match block:
+        case {"type": "tool_use", "id": str(call_id)}:
+            return ToolUse(
+                call_id,
+                text_of(block.get("name"), "?"),
+                as_object(block.get("input")),
+            )
+        case {"type": "text"}:
+            return Text(str(block.get("text", "")))
+        case _:
+            return None
+
+
+def parse_tool_results(content: Json) -> list[ToolResult]:
+    parsed = map(parse_tool_result, blocks(content))
+    return [result for result in parsed if result is not None]
+
+
+def parse_tool_result(block: dict[str, Json]) -> ToolResult | None:
+    match block:
+        case {"type": "tool_result", "tool_use_id": str(tool_use_id)}:
+            text, images = result_text(block.get("content"))
+            return ToolResult(tool_use_id, text, images, bool(block.get("is_error")))
+        case _:
+            return None
+
+
+def started_background(extra: Json) -> bool:
+    return isinstance(extra, dict) and bool(
+        extra.get("backgroundTaskId") or extra.get("isAsync")
+    )
+
+
+def as_object(value: Json) -> dict[str, Json]:
+    return value if isinstance(value, dict) else {}
+
+
+def text_of(value: Json, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def optional_text(value: Json) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def token_count(value: Json) -> int:
+    return value if isinstance(value, int) else 0
 
 
 def parse_time(value: object) -> float | None:
@@ -579,50 +789,49 @@ def parse_time(value: object) -> float | None:
 
 
 def parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)
 
 
-def to_usage(raw: dict) -> Usage:
+def to_usage(raw: dict[str, Json]) -> Usage:
     return Usage(
-        raw.get("input_tokens") or 0,
-        raw.get("cache_read_input_tokens") or 0,
-        raw.get("cache_creation_input_tokens") or 0,
-        raw.get("output_tokens") or 0,
+        token_count(raw.get("input_tokens")),
+        token_count(raw.get("cache_read_input_tokens")),
+        token_count(raw.get("cache_creation_input_tokens")),
+        token_count(raw.get("output_tokens")),
     )
 
 
-def blocks(content: object) -> list[dict]:
+def blocks(content: Json) -> list[dict[str, Json]]:
     return (
         [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
     )
 
 
-def is_tool_results(content: object) -> bool:
+def is_tool_results(content: Json) -> bool:
     return any(b.get("type") == "tool_result" for b in blocks(content))
 
 
-def plain_text(content: object) -> str:
+def plain_text(content: Json) -> str:
     if isinstance(content, str):
         return content
     return "\n".join(str(b.get("text", "")) for b in blocks(content))
 
 
-def record_result(call: ToolCall, block: dict, extra: object, ts: float) -> None:
-    text, images = result_text(block.get("content"))
-    call.result_chars, call.images = len(text), images
-    started = isinstance(extra, dict) and bool(
-        extra.get("backgroundTaskId") or extra.get("isAsync")
-    )
+def record_result(
+    call: ToolCall, result: ToolResult, ts: float, *, started: bool
+) -> None:
+    text = result.text
+    call.result_chars, call.images = len(text), result.images
     call.timing = (
         Background(None) if started or BACKGROUND_START.match(text) else Foreground(ts)
     )
-    if block.get("is_error"):
+    if result.is_error:
         call.outcome = Failed(exit_code(text), signature(text))
     elif "command not found" in text:
         call.outcome = Failed(None, signature(text))
 
 
-def result_text(content: object) -> tuple[str, int]:
+def result_text(content: Json) -> tuple[str, int]:
     if isinstance(content, str):
         return content, 0
     items = blocks(content)
@@ -632,7 +841,8 @@ def result_text(content: object) -> tuple[str, int]:
 
 def record_notifications(calls: dict[str, ToolCall], text: str, ts: float) -> None:
     """A background call ends at its first task notification."""
-    for body in NOTIFICATION.findall(text):
+    for found in NOTIFICATION.finditer(text):
+        body: str = found.group(1)
         call = calls.get(tag(body, "tool-use-id"))
         if call is None or call.timing != Background(None):
             continue
@@ -643,7 +853,7 @@ def record_notifications(calls: dict[str, ToolCall], text: str, ts: float) -> No
 
 
 def tag(body: str, name: str) -> str:
-    found = re.search(rf"<{name}>(.*?)</{name}>", body, re.S)
+    found = re.search(rf"<{name}>(.*?)</{name}>", body, re.DOTALL)
     return found.group(1) if found else ""
 
 
@@ -654,18 +864,18 @@ def exit_code(text: str) -> int | None:
 
 ERROR_LINE = re.compile(
     r"error|not found|no such file|fatal|denied|failed|traceback|timed out|blocked|refused",
-    re.I,
+    re.IGNORECASE,
 )
 
 
 def signature(text: str) -> str:
     """The error line that identifies a failure, with volatile parts masked."""
     lines = [
-        l.strip()
-        for l in text.splitlines()
-        if l.strip() and not l.lower().startswith("exit code")
+        raw.strip()
+        for raw in text.splitlines()
+        if raw.strip() and not raw.lower().startswith("exit code")
     ]
-    line = next((l for l in lines if ERROR_LINE.search(l)), lines[0] if lines else "")
+    line = next(filter(ERROR_LINE.search, lines), lines[0] if lines else "")
     line = re.sub(r"/nix/store/[a-z0-9]{32}-", "/nix/store/…-", line)
     line = re.sub(r"\b[0-9a-f]{7,}\b", "…", line)
     return clip(re.sub(r"(?<![A-Za-z])\d+", "N", line), 100)
@@ -766,16 +976,12 @@ SEGMENT = re.compile(r"&&|\|\||;|\||\n")
 REDIRECT = re.compile(r"^\d*(>>?|<)&?\S*$")
 FULL_CHECK = re.compile(r"^(just check|nix flake check)$")
 STEP = re.compile(
-    r"^(just (build|test|lint|fmt|typecheck)|nix build|nix build \.#\S+|nix run \.#(build|test|lint|check)"
-    r"|cabal (build|test)|npm (test|run)|pnpm (test|run)|cargo (build|test|clippy))$"
+    r"^(just (build|test|lint|fmt|typecheck)|nix build|nix build \.#\S+|nix run \.#(build|test|lint|check)|cabal (build|test)|npm (test|run)|pnpm (test|run)|cargo (build|test|clippy))$"
 )
-CODE_CHANGING_BASH = re.compile(
-    r"sed -i|\btee\b|\bcat\s*>|git (pull|merge|rebase|reset|checkout|switch|cherry-pick|am|apply|stash)\b"
-    r"|python[\d.]*\b[^\n]*<<.*?(?:\.write_(?:text|bytes)\(|open\([^)\n]*,\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+]"
-    r"|\.open\(\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+][rbt+]*['\"])",
-    re.S,
-)
-SLEEP_LOOP = re.compile(r"\bsleep\s+\d|\buntil\b|\bwhile\b.*\bsleep\b", re.S)
+SHELL_EDIT = r"sed -i|\btee\b|\bcat\s*>|git (pull|merge|rebase|reset|checkout|switch|cherry-pick|am|apply|stash)\b"
+PYTHON_WRITE = r"python[\d.]*\b[^\n]*<<.*?(?:\.write_(?:text|bytes)\(|open\([^)\n]*,\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+]|\.open\(\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+][rbt+]*['\"])"
+CODE_CHANGING_BASH = re.compile(f"{SHELL_EDIT}|{PYTHON_WRITE}", re.DOTALL)
+SLEEP_LOOP = re.compile(r"\bsleep\s+\d|\buntil\b|\bwhile\b.*\bsleep\b", re.DOTALL)
 PR_CHECKS = re.compile(r"\bgh pr checks\b")
 PR_READY = re.compile(r"\bgh pr ready\b")
 MISSING_TOOL = re.compile(r"([\w.+-]+): (?:command )?not found\b")
@@ -811,8 +1017,6 @@ def step(tokens: list[str]) -> Step | None:
     ):
         tokens = tokens[1:]
     match tokens:
-        case []:
-            return None
         case [head, *_] if head in NOT_A_COMMAND:
             return None
         case ["git", "-C", _, *rest]:
@@ -831,6 +1035,8 @@ def step(tokens: list[str]) -> Step | None:
             return Step(
                 " ".join([head, *words]), " ".join([head, *without_redirects(args)])
             )
+        case _:
+            return None
 
 
 def is_assignment(token: str) -> bool:
@@ -1048,9 +1254,15 @@ def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
 
 RUN_BY_MAIN = "run by main"
 RAISED = re.compile(r"(\d+)\s+raised,\s*(\d+)\s+survived")
-SEVERITY_ROW = re.compile(r"^\|\s*\d+\s*\|\s*\**(Major|Minor|Nit)\**\s*\|", re.M | re.I)
-SEVERITY_LINE = re.compile(r"^\s*severity\s+(major|minor|nit)\b", re.M | re.I)
-VERDICT_LINE = re.compile(r"^\s*verdict\s+(met|not met|unverified)\b", re.M | re.I)
+SEVERITY_ROW = re.compile(
+    r"^\|\s*\d+\s*\|\s*\**(Major|Minor|Nit)\**\s*\|", re.MULTILINE | re.IGNORECASE
+)
+SEVERITY_LINE = re.compile(
+    r"^\s*severity\s+(major|minor|nit)\b", re.MULTILINE | re.IGNORECASE
+)
+VERDICT_LINE = re.compile(
+    r"^\s*verdict\s+(met|not met|unverified)\b", re.MULTILINE | re.IGNORECASE
+)
 REVIEW_ROLES = (
     ("requirement", re.compile(r"requirement|\breq\b")),
     ("blockers DEEP", re.compile(r"blockers?\b.*\bdeep\b|\bdeep\b.*\bblockers?")),
@@ -1094,7 +1306,7 @@ def parse_review(report: str) -> Review:
 
 
 def tally(pattern: re.Pattern[str], text: str) -> Counter[str]:
-    return Counter(match.lower() for match in pattern.findall(text))
+    return Counter(found.group(1).lower() for found in pattern.finditer(text))
 
 
 def inner_reviewers(session: Session) -> Iterator[Agent]:
@@ -1164,7 +1376,7 @@ FOLLOW_UP = "SendMessage"
 HANDBACK_WORDS = 300  # the hand-back limit agents are told to keep to
 THIN_WORDS = 20  # too short to carry a result: a stall, or an empty return
 CHARS_PER_TOKEN = 4
-NOTES_FILE = re.compile(r"/tmp/\S+\.md\b")
+NOTES_FILE = re.compile(r"/tmp/\S+\.md\b")  # noqa: S108 - matches paths, creates none
 FILE_NAME = re.compile(r"[\w.+/-]+\.[A-Za-z]\w{0,7}\b")
 DIFF_COMMANDS = {"git diff", "git show"}
 READ_COMMANDS = DIFF_COMMANDS | {
@@ -1253,7 +1465,7 @@ def read_files(call: ToolCall) -> set[str]:
 
 
 def file_names(text: str) -> set[str]:
-    return {Path(name).name for name in FILE_NAME.findall(text)}
+    return {Path(found.group()).name for found in FILE_NAME.finditer(text)}
 
 
 def is_read_only(call: ToolCall) -> bool:
@@ -1274,7 +1486,7 @@ def spawned_again(session: Session) -> Iterator[LoopStep]:
     """The step of each spawn that repeats the step of the hand-back right before it."""
     steps = step_by_id(session)
     for _, children in children_by_parent(session):
-        for first, second in zip(children, children[1:]):
+        for first, second in pairwise(children):
             if steps[first.id] == steps[second.id] and second.start >= first.end:
                 yield steps[second.id]
 
@@ -1294,7 +1506,7 @@ def repeated_reads(session: Session) -> list[RepeatedRead]:
             groups[
                 (what(call), call.input.get("offset"), call.input.get("limit"))
             ].append((agent, call))
-    out = []
+    out: list[RepeatedRead] = []
     for (name, *_), runs in groups.items():
         agents = {agent.id for agent, _ in runs}
         sizes = sorted(call.result_chars for _, call in runs)
@@ -1540,7 +1752,7 @@ def rewrite_cells(rewrites: list[Rewrite]) -> list[str]:
 def review_yield(sessions: list[Session]) -> str:
     runs = [r for s in sessions for r in review_runs(s)]
     counts = [f.name for f in fields(ParsedReview)]
-    rows = []
+    rows: list[list[str]] = []
     for name in [*(step.value for step in REVIEW_PASSES), RUN_BY_MAIN]:
         group = [r for r in runs if pass_name(r.source) == name]
         if group:
@@ -1609,7 +1821,7 @@ def inner_yield(sessions: list[Session]) -> str:
     for s in sessions:
         for agent in inner_reviewers(s):
             groups[review_role(agent)].append(agent)
-    rows = []
+    rows: list[list[str]] = []
     for role, group in sorted(
         groups.items(), key=lambda kv: -sum(a.usage.context for a in kv[1])
     ):
@@ -1695,7 +1907,7 @@ def brief_sizes(sessions: list[Session]) -> str:
         for agent, step in steps_of(s):
             groups[(agent.kind, step)].append(agent)
     ranked = sorted(groups.items(), key=lambda kv: -sum(words(a.report) for a in kv[1]))
-    rows = []
+    rows: list[list[str]] = []
     for (kind, step), group in ranked[:TOP]:
         briefs = [words(a.brief) for a in group]
         reports = [words(a.report) for a in group]
@@ -1738,7 +1950,7 @@ def handback_table(sessions: list[Session]) -> str:
         for follow_up in follow_ups(s):
             groups[follow_up.step].append(follow_up)
     again = Counter(step for s in sessions for step in spawned_again(s))
-    rows = []
+    rows: list[list[str]] = []
     for step, group in sorted(
         groups.items(),
         key=lambda kv: -sum(c.result_chars for f in kv[1] for c in f.rereads),
@@ -1876,7 +2088,7 @@ def bash_commands(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
         if c.name == "Bash" and c.seconds is not None:
             groups[label(c.command)].append(c)
     ranked = sorted(groups.items(), key=lambda kv: -sum(c.seconds or 0 for c in kv[1]))
-    rows = []
+    rows: list[list[str]] = []
     for name, cs in ranked[:12]:
         fg = [c.seconds or 0 for c in cs if c.mode == "fg"]
         bg = [c.seconds or 0 for c in cs if c.mode == "bg"]
@@ -1938,7 +2150,9 @@ def polling(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
         if PR_CHECKS.search(c.command) and "--watch" not in c.command
     )
     repeated = [
-        f"{sid} {kind}: {n}" for (sid, kind), n in per_agent.most_common(5) if n > 2
+        f"{sid} {kind}: {n}"
+        for (sid, kind), n in per_agent.most_common(5)
+        if n > ROUTINE_POLLS
     ]
     return "\n".join(
         [
@@ -1999,11 +2213,14 @@ def section(title: str, header: list[str], rows: list[list[str]], total: int) ->
 def table(header: list[str], rows: list[list[str]]) -> str:
     if not rows:
         return "(none)"
-    cell = lambda v: v.replace("|", "\\|")
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     return "\n".join(
-        lines + ["| " + " | ".join(cell(v) for v in row) + " |" for row in rows]
+        lines + ["| " + " | ".join(escape_cell(v) for v in row) + " |" for row in rows]
     )
+
+
+def escape_cell(value: str) -> str:
+    return value.replace("|", "\\|")
 
 
 def omitted(total: int, shown: int) -> str:
@@ -2016,12 +2233,16 @@ def tokens(u: Usage) -> str:
     )
 
 
+MILLION = 1e6
+THOUSAND = 1e3
+
+
 def kilo(n: float) -> str:
     return (
-        f"{n / 1e6:.1f}M"
-        if n >= 1e6
-        else f"{n / 1e3:.0f}k"
-        if n >= 1e3
+        f"{n / MILLION:.1f}M"
+        if n >= MILLION
+        else f"{n / THOUSAND:.0f}k"
+        if n >= THOUSAND
         else str(round(n))
     )
 
@@ -2035,7 +2256,7 @@ def hours(seconds: float) -> str:
 
 
 def fmt_time(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M")
+    return datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%d %H:%M")
 
 
 def words(text: str) -> int:
