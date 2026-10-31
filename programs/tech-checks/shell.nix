@@ -26,7 +26,15 @@ let
   source = fileset: lib.fileset.toSource { inherit root fileset; };
 
   # Every shell script in the repository, so a new one is covered by existing.
-  shellFiles = lib.fileset.fileFilter (file: file.hasExt "sh") root;
+  # bats suites and their `load`ed helpers are shell too.
+  shellFiles = lib.fileset.fileFilter (
+    file:
+    lib.any file.hasExt [
+      "sh"
+      "bats"
+      "bash"
+    ]
+  ) root;
   justFiles = lib.fileset.unions [
     (root + "/Justfile")
     (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
@@ -65,7 +73,7 @@ in
       }
       ''
         cd ${shellSource}
-        mapfile -d "" scripts < <(find . -name '*.sh' -print0)
+        mapfile -d "" scripts < <(find . -type f -print0)
         [ "''${#scripts[@]}" -gt 0 ] || { echo "shell-lint: no scripts found" >&2; exit 1; }
         shellcheck ${lib.escapeShellArgs shellCheck.extraFlags} "''${scripts[@]}"
         touch "$out"
@@ -136,6 +144,12 @@ in
 }
 # Linux only: `llm-agents` has no x86_64-darwin package.
 // lib.optionalAttrs pkgs.stdenv.isLinux {
+  # The software factory's Claude policy (billing and permission mode), its
+  # scripts through their bats suites against a real git, and its egress rules
+  # through `nft --check`. It evaluates no host. Linux only, like the factory:
+  # darwin's procps has no pgrep, which factory-ctl needs.
+  shell-tests = (import ../software-factory { inherit pkgs; }).check;
+
   # The writeShellApplication derivations no other check builds, so their
   # shellcheck phase runs without a host. Every flavor is listed through
   # `claude`, and the statusline's and yubikey's private scripts are reached

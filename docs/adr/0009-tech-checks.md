@@ -26,10 +26,15 @@ A tech check takes source through `lib.fileset`, evaluates no host and uses no
 import from derivation. That is what keeps a group to seconds, and a commit that
 touches none of its files reuses the store path on the box.
 
-Shell has five: `shell-actionlint` (workflows), `shell-lint` (every `.sh`),
-`shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and no `{{ }}` on
-a sudo line) and `shell-embedded` (wrappers no other check builds). The lint
-rules live in `programs/shell-check`, shared with `writeShellApplication`.
+Shell has six: `shell-actionlint` (workflows), `shell-lint` (every `.sh`, `.bats`
+and `.bash`), `shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and
+no `{{ }}` on a sudo line), `shell-embedded` (wrappers no other check builds) and
+`shell-tests` (the software factory's bats suites). The lint rules live in
+`programs/shell-check`, shared with `writeShellApplication`.
+
+`shell-tests` is the one that runs what it checks. It needs only `pkgs`, so it
+stays a tech check, and it replaced `checks.software-factory`. Its suites run one
+at a time and take most of a group's minute, on the commits that change them.
 
 `shell-embedded` is the one that needs flake inputs: `flake.nix` calls
 `adapters/claude-code.nix` and hands the result in, with synthetic secret paths

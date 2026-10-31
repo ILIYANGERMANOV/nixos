@@ -40,7 +40,11 @@ pkgs.treefmt.withConfig {
           "-ci"
           "-w"
         ];
-        includes = [ "*.sh" ];
+        includes = [
+          "*.sh"
+          "*.bats"
+          "*.bash"
+        ];
       };
       just = {
         command = "just-format-each";

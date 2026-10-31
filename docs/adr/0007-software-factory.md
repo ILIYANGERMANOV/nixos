@@ -151,7 +151,7 @@ others, serving `~/admin` instead of a repository.
   would reach the repository agents too.
 - **One tested CLI.** Every skill calls `factory-ctl`, which is idempotent,
   refuses with exit code 2 whatever would end live sessions or touch worktrees
-  with local work, and is exercised by `checks.software-factory`. The skills
+  with local work, and is exercised by `checks.shell-tests`. The skills
   add judgement - which repository, whether to force - and phone-sized output.
 - **Always on.** `claude-rc-admin` is outside the enabled set, restarts
   always, and keeps its memory with `MemoryMin`. A deploy does not restart it

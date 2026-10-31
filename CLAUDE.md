@@ -94,8 +94,8 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 2. A `programs/<x>` edit: build that program's check - `claude-code`,
    `claude-bash-guards` and `shell-embedded` for `programs/claude-code`, `nvim-search`,
    `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
-   a `software-factory` host eval for `programs/kotlin`, `software-factory`,
-   `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
+   a `software-factory` host eval for `programs/kotlin`, `shell-tests` for
+   `programs/software-factory`, `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
    `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
@@ -106,7 +106,7 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
    `nix develop -c just tech shell`.
 5. A script or just recipe edit in a technology with checks: `nix develop -c just tech <name>`
-   (`shell` for a `.sh`, a recipe or a workflow, `python`). Seconds, no host evaluated: it builds every `<name>-*` flake
+   (`shell` for a `.sh`, a `.bats`, a recipe or a workflow, `python`). Under a minute, no host evaluated: it builds every `<name>-*` flake
    check for this system. It prints `All good (N)` and exits 0, or the failures
    verbatim and exits nonzero, so never pipe it through `grep`, and never run its
    tools by hand before it. A name with no checks fails. It sees only files git
@@ -359,12 +359,15 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
 - `programs/software-factory/` holds the logic: managed settings (billing and
   permission policy), the Remote Control launchers, `factory-ctl` (`ctl/`), the
   root deploy and maintenance scripts (`ops/`), the admin agent's project
-  (`admin/`) and the egress nftables rules. `checks.software-factory`
-  (`check.nix`, scenarios in `check.sh`) tests them.
+  (`admin/`) and the egress nftables rules. `checks.shell-tests` (`check.nix`)
+  tests them with bats, one suite beside each script (`ctl/disk.bats` for
+  `ctl/disk.sh`), plus a named suite for what crosses scripts (`skills.bats`) and
+  one helper for the doubles and setup (`test_helper.bash`). A scenario goes
+  through `factory-ctl` or an ops script's entry point, never inside a script.
   `checks.software-factory-activation` reads the relink hook off the host's Home
   Manager config, a lazy partial eval.
 - **The admin agent runs the box; `factory-ctl` is its only tool.** Add an
-  admin capability as a `factory-ctl` command with a scenario in `check.sh`,
+  admin capability as a `factory-ctl` command with a scenario in its suite,
   then a skill in `admin/skills/` that calls it. Skills there are
   project-scoped to `~/admin` on purpose - never add them to the shared skill
   catalog, which every agent of the account loads.
