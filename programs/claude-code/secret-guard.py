@@ -68,7 +68,9 @@ def names_file(command: str, path: str) -> bool:
 
 
 def expands(command: str, var: str) -> bool:
-    return re.search(r"\$\{?" + re.escape(var) + r"(?![A-Za-z0-9_])", command) is not None
+    return (
+        re.search(r"\$\{?" + re.escape(var) + r"(?![A-Za-z0-9_])", command) is not None
+    )
 
 
 def as_word(text: str) -> re.Pattern[str]:

@@ -62,8 +62,17 @@ SHELL_COMMAND_FLAG = re.compile(r"-[a-z]*c[a-z]*")
 # gh flags whose value is no operand of a status read. A filter such as `--branch`
 # stays out, so its value keeps reads of two branches apart.
 GH_VALUE_FLAGS = {
-    "-R", "--repo", "-q", "--jq", "-t", "--template", "--json",
-    "-L", "--limit", "-i", "--interval",
+    "-R",
+    "--repo",
+    "-q",
+    "--jq",
+    "-t",
+    "--template",
+    "--json",
+    "-L",
+    "--limit",
+    "-i",
+    "--interval",
 }
 # GNU tail: `-f` or `-F`, alone or after flags that take no value.
 TAIL_FOLLOW = re.compile(r"-[\dqvz]*[fF]\w*|--follow(=.*)?")
@@ -272,7 +281,9 @@ def after(is_flag: Callable[[str], object], args: list[str]) -> list[str]:
 
 
 def is_tail_follow(words: list[str]) -> bool:
-    return words[:1] == ["tail"] and any(TAIL_FOLLOW.fullmatch(arg) for arg in words[1:])
+    return words[:1] == ["tail"] and any(
+        TAIL_FOLLOW.fullmatch(arg) for arg in words[1:]
+    )
 
 
 def seconds(args: list[str]) -> float:

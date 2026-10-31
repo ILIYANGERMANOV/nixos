@@ -44,7 +44,9 @@ def main() -> None:
         cwd = event.get("cwd") or os.getcwd()
         match event.get("tool_name"):
             case "Read":
-                size = read_tool_size(tool_input["file_path"], tool_input.get("limit"), cwd)
+                size = read_tool_size(
+                    tool_input["file_path"], tool_input.get("limit"), cwd
+                )
                 hint = READ_HINT
             case _:
                 size = sum(read_sizes(tool_input["command"], cwd))
