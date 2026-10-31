@@ -503,6 +503,15 @@ factory-deploy >/dev/null
 not_called "new test"
 [ "$(posted)" = "in_progress success" ] || fail "posted $(posted)"
 
+echo "factory-deploy: with GitHub refusing every POST, gives up after one failure report and leaves no temporary directory"
+deploy_reset
+rm -rf "$work/deploy-tmp"
+mkdir "$work/deploy-tmp"
+touch "$GH/post-fails"
+! TMPDIR="$work/deploy-tmp" timeout 30 factory-deploy >/dev/null 2>&1 || fail "the failed POST did not fail the deploy"
+[ "$(grep -c -- '-X POST' "$CALLS")" -le 3 ] || fail "the failure report repeated without end"
+[ -z "$(ls -A "$work/deploy-tmp")" ] || fail "left behind: $(ls -A "$work/deploy-tmp")"
+
 # ─── Dev shell roots ─────────────────────────────────────────────────────────
 
 echo "root-shells: roots main's shell and locked inputs without its hook, replaced each run, never a flake-less repo"
@@ -636,6 +645,15 @@ kept_what_must_stay
 { ! registered "$old_tmp_root" && ! registered "$old_cache_root" && ! registered "$spaced_root"; } || fail "a stale GC root is still registered"
 { registered "$new_tmp_root" && registered "$worktree_root" && registered "$shell_root"; } || fail "a GC root that must stay was unregistered"
 jq -r .message "$work/ops/last.json" | grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' || fail "gc does not report the space freed in GB"
+
+echo "factory-maintenance gc: keeps two generations of a profile under the homes directory, by its unnumbered name"
+deploy_reset
+mkdir -p "$HOME/.local/state/nix/profiles"
+ln -s "$work/systems/old" "$HOME/.local/state/nix/profiles/home-manager"
+ln -s "$work/systems/old" "$HOME/.local/state/nix/profiles/home-manager-1-link"
+factory-maintenance gc >/dev/null
+called "nix-env -p $HOME/.local/state/nix/profiles/home-manager --delete-generations +2"
+not_called "home-manager-1-link"
 
 echo "factory-maintenance reboot: refused within 10 minutes of boot"
 deploy_reset

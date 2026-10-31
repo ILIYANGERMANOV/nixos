@@ -64,7 +64,7 @@ gc() {
 # Every user's profiles, by their unnumbered name: the numbered *-N-link
 # entries are their generations.
 profiles() {
-  find /nix/var/nix/profiles/per-user /root/.local/state/nix/profiles /home/*/.local/state/nix/profiles \
+  find /nix/var/nix/profiles/per-user /root/.local/state/nix/profiles "$homes_dir"/*/.local/state/nix/profiles \
     -maxdepth 2 -type l ! -name '*-link' 2>/dev/null || true
 }
 

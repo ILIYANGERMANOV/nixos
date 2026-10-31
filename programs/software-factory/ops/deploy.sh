@@ -94,10 +94,15 @@ report() {
 # GitHub's REST API with the deploy token. The token reaches curl in a config
 # on stdin, never in argv, so a POST body arrives on this function's stdin and
 # is staged in a file first. GitHub sends the token's expiry with every
-# response; it is kept for `factory-ctl status`.
-api() {
+# response; it is kept for `factory-ctl status`. A subshell, for its EXIT trap:
+# `set -e` leaves on a failed curl, and a RETURN trap does not fire on exit.
+# ERR stays with the caller: run in here too, each failed report would report
+# again, without end while GitHub is down.
+api() (
+  trap - ERR
   local method="$1" path="$2" tmp body=()
   tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
   if [ "$method" != GET ]; then
     cat >"$tmp/body"
     body=(--data-binary "@$tmp/body")
@@ -108,7 +113,6 @@ api() {
       "https://api.github.com$path"
   sed -n 's/^github-authentication-token-expiration: *//Ip' "$tmp/headers" | tr -d '\r' >"$tmp/expires"
   [ ! -s "$tmp/expires" ] || mv "$tmp/expires" "$state_dir/token-expires"
-  rm -rf "$tmp"
-}
+)
 
 main "$@"
