@@ -13,6 +13,15 @@ let
 
   fragments = fragmentsOfModule ../nvim;
 
+  fragmentsOfModule =
+    path:
+    let
+      file = if lib.pathIsDirectory path then lib.path.append path "default.nix" else path;
+      module = loadModule file;
+    in
+    fragmentsOfValue file "" (removeAttrs module [ "imports" ])
+    ++ lib.concatMap fragmentsOfModule (module.imports or [ ]);
+
   # What a module would hand nixvim. Nothing is merged, so `style` only has to
   # exist: a `lib.mkIf` condition is never forced, which is what reaches the Lua
   # of every theme at once.
@@ -30,15 +39,6 @@ let
     else
       module;
 
-  fragmentsOfModule =
-    path:
-    let
-      file = if lib.pathIsDirectory path then lib.path.append path "default.nix" else path;
-      module = loadModule file;
-    in
-    fragmentsOfValue file "" (removeAttrs module [ "imports" ])
-    ++ lib.concatMap fragmentsOfModule (module.imports or [ ]);
-
   fragmentsOfValue =
     file: key: value:
     let
@@ -50,9 +50,9 @@ let
       lib.concatMap (recurse key) value
     else if lib.isAttrs value then
       {
-        "if" = recurse key value.content or null;
-        override = recurse key value.content or null;
-        merge = recurse key value.contents or null;
+        "if" = recurse key value.content;
+        override = recurse key value.content;
+        merge = recurse key value.contents;
         option = [ ];
         plain = lib.concatLists (lib.mapAttrsToList recurse value);
       }
@@ -60,7 +60,7 @@ let
     else if lib.isFunction value then
       throw "lua-lint: `${key}` in ${toString file} is a function, which hides any Lua it returns"
     else if lib.isString value then
-      lib.optional (classify key value != null) ({ inherit file; } // classify key value)
+      map (fragment: fragment // { inherit file; }) (classify key (lib.trim value))
     else
       [ ];
 
@@ -70,35 +70,38 @@ let
     key: text:
     let
       command = builtins.match "<cmd>lua (.*)<CR>" text;
-      chunk = {
-        kind = "scripts";
-        lua = text;
-      };
-      expression = {
-        kind = "scripts";
-        lua = "return ${text}";
-      };
+      script = lua: [
+        {
+          kind = "scripts";
+          inherit lua;
+        }
+      ];
+      expression = script "return ${text}";
     in
     if lib.hasPrefix "extraConfigLua" key then
-      chunk
+      script text
     else if key == "__raw" then
       expression
     else if command != null then
-      {
-        kind = "commands";
-        lua = lib.head command;
-      }
+      [
+        {
+          kind = "commands";
+          lua = lib.head command;
+        }
+      ]
     else if lib.hasInfix "<cmd>lua " text then
       throw "lua-lint: cannot read the keymap `${text}`"
     else if looksLikeLua text then
       expression
     else
-      null;
+      [ ];
 
   # Plugin settings take Lua in a plain string, under a key nothing marks. Any
   # call counts: a `desc` has a space before its parenthesis, and a wrong guess
   # fails the parse instead of passing.
-  looksLikeLua = text: lib.length (builtins.split "[[:alnum:]_]\\(|vim\\." text) > 1;
+  looksLikeLua = text: occurrences "[[:alnum:]_]\\(|vim\\." text > 0;
+
+  occurrences = pattern: text: lib.count lib.isList (builtins.split pattern text);
 
   # A marker in a source the walk got nothing from: an unimported file, or a
   # value it cannot see into. Helpers render one marker several times, so a file
@@ -111,19 +114,17 @@ let
 
   markersIn =
     file:
-    lib.count lib.isList (
-      builtins.split "extraConfigLua(Pre|Post)?[[:space:]]*=|__raw[[:space:]]*=|<cmd>lua " (
-        builtins.readFile file
-      )
+    occurrences "extraConfigLua(Pre|Post)?[[:space:]]*=|__raw[[:space:]]*=|<cmd>lua " (
+      builtins.readFile file
     );
 
-  lines = lib.foldl' (sum: f: sum + lib.length (lib.splitString "\n" (lib.trim f.lua))) 0 fragments;
+  lines = lib.foldl' (sum: f: sum + lib.length (lib.splitString "\n" f.lua)) 0 fragments;
 
   # `<kind>/<source>-<n>.lua`, so a finding names the file to fix.
   fragmentFiles = pkgs.linkFarm "lua-fragments" (
     lib.imap0 (i: fragment: {
       name = "${fragment.kind}/${sourceName fragment.file}-${toString i}.lua";
-      path = pkgs.writeText "fragment.lua" "${lib.trim fragment.lua}\n";
+      path = pkgs.writeText "fragment.lua" "${fragment.lua}\n";
     }) fragments
   );
 
@@ -132,11 +133,6 @@ let
     lib.replaceStrings [ "/" ] [ "-" ] (
       lib.removeSuffix ".nix" (lib.removePrefix "./" (lib.path.removePrefix ../nvim file))
     );
-
-  config = lib.fileset.toSource {
-    root = ./lua-config;
-    fileset = ./lua-config;
-  };
 in
 {
   # A command stays out of stylua: a keymap holds one line, so there is no layout
@@ -157,7 +153,7 @@ in
       }
       ''
         cp -rL ${fragmentFiles}/. .
-        cp ${config}/* .
+        cp ${./lua-config}/* .
         selene --no-summary --color Never scripts commands
         stylua --check --config-path stylua.toml scripts
         echo "lua-lint: ${toString (lib.length fragments)} fragments, ${toString lines} lines"
