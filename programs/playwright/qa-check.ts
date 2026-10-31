@@ -298,6 +298,15 @@ async function checkCommand(
     `USDC 12.25 (${TOKEN})`,
   ]);
 
+  for (const erc20 of [["--erc20"], ["--erc20", "not-an-address"]]) {
+    const badToken = await run(["balance", "--rpc", rpcUrl, ...erc20], {
+      QA_EVM_KEY_FILE: keyFile,
+    });
+    assert.strictEqual(badToken.status, 1);
+    assert.match(badToken.stderr, /--erc20 needs an address/);
+    assert.strictEqual(badToken.stdout, "");
+  }
+
   const unset = await run(["address"], {});
   assert.strictEqual(unset.status, 1);
   assert.match(unset.stderr, /unavailable/);

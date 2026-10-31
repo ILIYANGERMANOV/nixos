@@ -9,8 +9,12 @@ import {
   formatEther,
   formatUnits,
   http,
+  isAddress,
 } from "viem";
 import { walletAddress } from "./index.js";
+
+const USAGE =
+  "usage: qa-wallet address | qa-wallet balance --rpc <url> [--erc20 <address>]...";
 
 type BalanceArgs = { rpc: string; erc20: Address[] };
 
@@ -25,9 +29,7 @@ async function main([command, ...args]: string[]): Promise<void> {
     case "balance":
       return printBalances(address, parseBalanceArgs(args));
     default:
-      fail(
-        "usage: qa-wallet address | qa-wallet balance --rpc <url> [--erc20 <address>]...",
-      );
+      fail(USAGE);
   }
 }
 
@@ -46,11 +48,16 @@ function parseBalanceArgs(args: string[]): BalanceArgs {
   for (let i = 0; i < args.length; i += 2) {
     const [flag, value] = [args[i], args[i + 1]];
     if (flag === "--rpc") rpc = value;
-    else if (flag === "--erc20") erc20.push(value as Address);
+    else if (flag === "--erc20") erc20.push(parseAddress(value));
     else fail(`qa-wallet: unknown option ${flag}`);
   }
   if (!rpc) fail("qa-wallet: balance needs --rpc <url>");
   return { rpc, erc20 };
+}
+
+function parseAddress(value: string | undefined): Address {
+  if (value !== undefined && isAddress(value)) return value;
+  fail(`qa-wallet: --erc20 needs an address\n${USAGE}`);
 }
 
 async function printBalances(

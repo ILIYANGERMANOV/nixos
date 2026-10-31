@@ -14,7 +14,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import {
   installWallet,
-  type WalletOptions,
+  type WalletRpc,
   type WalletTarget,
   walletAddress,
 } from "./index.js";
@@ -80,7 +80,7 @@ function fakeContext() {
   return { target, request, page };
 }
 
-async function installed(options: Partial<WalletOptions> = {}) {
+async function installed(options: WalletRpc = {}) {
   const { target, request, page } = fakeContext();
   const wallet = await installWallet(target, {
     keyFile: keyFile(KEY),
@@ -281,6 +281,7 @@ describe("forwardRpc", () => {
   const forwardRpc = [/^http:\/\/rpc\.test\//];
 
   test("needs an rpcUrl", async () => {
+    // @ts-expect-error A /qa script is plain JavaScript, so it can still pass this.
     await expect(installed({ forwardRpc })).rejects.toThrow(
       /forwardRpc needs an rpcUrl/,
     );

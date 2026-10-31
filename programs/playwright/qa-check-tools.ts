@@ -5,7 +5,8 @@
 // run closes, stops or is killed, `qa-session` keeps one browser
 // whose page state survives between separate probe processes, with the
 // wallet's decline reachable from a probe and credentials redacted in its
-// console log, and `expectState` returns at the first error screen. No
+// console log, that flags which cannot make a wallet and a corrupt session
+// file stop it, and `expectState` returns at the first error screen. No
 // network: the app is a server on loopback.
 import assert from "node:assert";
 import { execFile, spawn } from "node:child_process";
@@ -36,6 +37,8 @@ async function main(): Promise<void> {
   await checkLoginSaved();
   await checkSession();
   await checkSessionSavesLogin();
+  await checkSessionRejectsWalletFlags();
+  await checkSessionRefusesCorruptFile();
   await waitCap;
   console.log("qa: evidence tools and session ok");
 }
@@ -388,7 +391,7 @@ function sid(file: string): string | undefined {
 // its credentials redacted.
 async function checkSession(): Promise<void> {
   const token = "tQ7x-Lm2vZ9bK4wR_c8Y";
-  const jwtSignature = "pH3nD6sF_j1Gy5Ue-a0T";
+  const jwtSignature = "pH3nD6sF_j1Gy5Xq-a0T";
   const jwt = `eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJxYSJ9.${jwtSignature}`;
   const app = await serve(
     `<!doctype html><title>app</title><p>app</p>${DISCOVERY_SCRIPT}`,
@@ -464,7 +467,7 @@ async function checkSession(): Promise<void> {
   assert.match(log, /Bearer \[redacted\]/);
   assert.match(log, /\[redacted-jwt\]/);
   assert.ok(
-    !log.includes(token) && !log.includes(`.${jwtSignature}`),
+    !log.includes(token) && !log.includes(jwtSignature),
     `a credential reached the console log:\n${log}`,
   );
 
@@ -479,6 +482,40 @@ async function checkSession(): Promise<void> {
     "the session process outlived stop",
   );
   app.close();
+}
+
+// Given flags that cannot make a wallet, when a session starts, then it fails
+// with a usage error before anything launches, the run directory included.
+async function checkSessionRejectsWalletFlags(): Promise<void> {
+  const rpc = ["--rpc", "http://rpc.test/"];
+  const forward = ["--forward-rpc", "rpc"];
+  const chain = ["--chain-id", String(SEPOLIA)];
+  const cases: [string[], RegExp][] = [
+    [rpc, /--rpc and --forward-rpc need --chain-id/],
+    [forward, /--rpc and --forward-rpc need --chain-id/],
+    [[...rpc, ...forward], /--rpc and --forward-rpc need --chain-id/],
+    [[...chain, ...forward], /--forward-rpc needs --rpc/],
+    [[...chain, "--rpc", ""], /--rpc needs a value/],
+  ];
+  const runDir = path.join(work, "bad-flags-run");
+  for (const [flags, usage] of cases) {
+    await assert.rejects(run("qa-session", ["start", runDir, ...flags]), usage);
+    assert.ok(!fs.existsSync(runDir), `started with ${flags.join(" ")}`);
+  }
+}
+
+// Given a session file that holds no session, then neither stop nor start
+// reads that as none running: its browser may be alive, and a new one would
+// leak it.
+async function checkSessionRefusesCorruptFile(): Promise<void> {
+  const runDir = path.join(work, "corrupt-run");
+  const file = path.join(runDir, "qa-session.json");
+  fs.mkdirSync(runDir);
+  fs.writeFileSync(file, '{"endpoint":"http://127');
+  for (const command of ["stop", "start"]) {
+    await assert.rejects(run("qa-session", [command, runDir]), /cannot read/);
+  }
+  assert.ok(fs.existsSync(file), "the session file was replaced");
 }
 
 function sessionPid(runDir: string): number {

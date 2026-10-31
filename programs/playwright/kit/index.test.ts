@@ -1,6 +1,9 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fc, test } from "@fast-check/vitest";
-import { describe, expect } from "vitest";
-import { redact } from "./index.js";
+import { afterEach, beforeEach, describe, expect } from "vitest";
+import { readSession, redact, SESSION_FILE } from "./index.js";
 
 const BASE64URL =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -104,5 +107,42 @@ describe("redact", () => {
 
   test("turns a value that is not a string into text", () => {
     expect(redact(undefined)).toBe("undefined");
+  });
+});
+
+describe("readSession", () => {
+  let runDir: string;
+
+  beforeEach(() => {
+    runDir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-kit-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(runDir, { recursive: true });
+  });
+
+  const writeSessionFile = (content: string) =>
+    fs.writeFileSync(path.join(runDir, SESSION_FILE), content);
+
+  test("reads what the session wrote", () => {
+    const session = { endpoint: "http://127.0.0.1:9222", pid: 42 };
+
+    writeSessionFile(JSON.stringify(session));
+
+    expect(readSession(runDir)).toEqual(session);
+  });
+
+  test("gives null for a run without a session file", () => {
+    expect(readSession(runDir)).toBeNull();
+  });
+
+  test.each([
+    ["truncated JSON", '{"endpoint":"http://127'],
+    ["JSON null", "null"],
+    ["no pid", '{"endpoint":"http://127.0.0.1:9222"}'],
+  ])("throws on %s", (_name, content) => {
+    writeSessionFile(content);
+
+    expect(() => readSession(runDir)).toThrow(/cannot read/);
   });
 });

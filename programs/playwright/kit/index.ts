@@ -97,8 +97,13 @@ declare global {
  * they fail when the session has no wallet.
  */
 export async function connect(runDir: string): Promise<Session> {
-  const { endpoint } = readSession(runDir);
-  const browser = await chromium.connectOverCDP(endpoint);
+  const session = readSession(runDir);
+  if (!session) {
+    throw new Error(
+      `qa-kit: no session in ${runDir}; run qa-session start ${runDir}`,
+    );
+  }
+  const browser = await chromium.connectOverCDP(session.endpoint);
   const context = browser.contexts().find((c) => c.pages().length > 0);
   const page = context?.pages()[0];
   if (!context || !page) {
@@ -138,16 +143,29 @@ export async function connect(runDir: string): Promise<Session> {
   };
 }
 
-export function readSession(runDir: string): SessionFile {
+/**
+ * The session of `runDir`, null when it has none. A file that holds no session
+ * throws: its browser may still be running, so it must not read as none.
+ */
+export function readSession(runDir: string): SessionFile | null {
   const file = path.join(runDir, SESSION_FILE);
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return parseSession(fs.readFileSync(file, "utf8"));
   } catch (error) {
     const { code, message } = error as NodeJS.ErrnoException;
+    if (code === "ENOENT") return null;
     throw new Error(
-      `qa-kit: no session in ${runDir} (${code ?? message}); run qa-session start ${runDir}`,
+      `qa-kit: cannot read ${file} (${code ?? message}); delete it once no session is running`,
     );
   }
+}
+
+function parseSession(text: string): SessionFile {
+  const { endpoint, pid } = JSON.parse(text);
+  if (typeof endpoint !== "string" || typeof pid !== "number") {
+    throw new Error("not a session file");
+  }
+  return { endpoint, pid };
 }
 
 /**

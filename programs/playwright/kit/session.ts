@@ -3,7 +3,7 @@
 // relaunching, logging in and navigating again.
 //
 //   qa-session start <run-dir> [--url <url>] [--storage-state <file>]
-//                    [--chain-id <n> [--rpc <url>] [--forward-rpc <regex>]...]
+//                    [--chain-id <n> [--rpc <url> [--forward-rpc <regex>]...]]
 //   qa-session stop <run-dir>
 //
 // `start` returns once the page is open, having written the CDP endpoint to
@@ -20,7 +20,7 @@ import fs from "node:fs";
 import net, { type AddressInfo } from "node:net";
 import path from "node:path";
 import { type BrowserContext, chromium } from "playwright";
-import type { WalletControls } from "qa-wallet";
+import type { WalletChain, WalletControls } from "qa-wallet";
 import {
   capture,
   readSession,
@@ -34,16 +34,14 @@ import {
 } from "./index.js";
 
 const USAGE = `usage: qa-session start <run-dir> [--url <url>] [--storage-state <file>]
-                  [--chain-id <n> [--rpc <url>] [--forward-rpc <regex>]...]
+                  [--chain-id <n> [--rpc <url> [--forward-rpc <regex>]...]]
        qa-session stop <run-dir>`;
 const START_TIMEOUT_MS = 60_000;
 
 type Options = {
   url?: string;
   storageState?: string;
-  chainId?: number;
-  rpcUrl?: string;
-  forwardRpc: RegExp[];
+  wallet: WalletChain | undefined;
 };
 
 async function main([command, runDir, ...args]: string[]): Promise<void> {
@@ -107,28 +105,46 @@ async function start(dir: string, args: string[]): Promise<void> {
 }
 
 function parseOptions(args: string[]): Options {
-  const options: Options = { forwardRpc: [] };
+  const options: Omit<Options, "wallet"> = {};
+  const forwardRpc: RegExp[] = [];
+  let chainId: number | undefined;
+  let rpcUrl: string | undefined;
   for (let i = 0; i < args.length; i += 2) {
     const [flag, value] = [args[i], args[i + 1]];
-    if (value === undefined) fail(`qa-session: ${flag} needs a value`);
+    if (!value) fail(`qa-session: ${flag} needs a value`);
     else if (flag === "--url") options.url = value;
     else if (flag === "--storage-state") options.storageState = value;
-    else if (flag === "--chain-id") options.chainId = Number(value);
-    else if (flag === "--rpc") options.rpcUrl = value;
-    else if (flag === "--forward-rpc")
-      options.forwardRpc.push(new RegExp(value));
+    else if (flag === "--chain-id") chainId = Number(value);
+    else if (flag === "--rpc") rpcUrl = value;
+    else if (flag === "--forward-rpc") forwardRpc.push(new RegExp(value));
     else fail(`qa-session: unknown option ${flag}\n${USAGE}`);
   }
-  if (options.chainId !== undefined && !Number.isInteger(options.chainId)) {
-    fail("qa-session: --chain-id takes a number");
+  return { ...options, wallet: parseWallet(chainId, rpcUrl, forwardRpc) };
+}
+
+function parseWallet(
+  chainId: number | undefined,
+  rpcUrl: string | undefined,
+  forwardRpc: RegExp[],
+): WalletChain | undefined {
+  if (chainId === undefined) {
+    if (rpcUrl !== undefined || forwardRpc.length > 0) {
+      fail(`qa-session: --rpc and --forward-rpc need --chain-id\n${USAGE}`);
+    }
+    return undefined;
   }
-  return options;
+  if (!Number.isInteger(chainId)) fail("qa-session: --chain-id takes a number");
+  if (rpcUrl !== undefined) return { chainId, rpcUrl, forwardRpc };
+  if (forwardRpc.length > 0) {
+    fail(`qa-session: --forward-rpc needs --rpc\n${USAGE}`);
+  }
+  return { chainId };
 }
 
 // The detached process: owns the browser until SIGTERM or the browser exits.
 async function serve(
   dir: string,
-  { url, storageState: stateArg, chainId, rpcUrl, forwardRpc }: Options,
+  { url, storageState: stateArg, wallet }: Options,
 ): Promise<void> {
   const storageState = stateArg && path.resolve(stateArg);
   const port = await freePort();
@@ -148,11 +164,8 @@ async function serve(
   // this context reads no cookies.
   const save = async (): Promise<SessionSaveResult> =>
     storageState ? saveState(context, storageState) : { kind: "no-login" };
-  const wallet =
-    chainId !== undefined
-      ? await walletControls(context, chainId, rpcUrl, forwardRpc)
-      : {};
-  await exposeControls(context, { saveState: save, ...wallet });
+  const controls = wallet ? await walletControls(context, wallet) : {};
+  await exposeControls(context, { saveState: save, ...controls });
   const page = await context.newPage();
   // A dev server compiles a route on its first hit, which outlasts the 10 s
   // step timeout; the load gets the whole start budget instead.
@@ -200,9 +213,7 @@ async function exposeControls(
 // The wallet's controls; signing stays in this process.
 async function walletControls(
   context: BrowserContext,
-  chainId: number,
-  rpcUrl: string | undefined,
-  forwardRpc: RegExp[],
+  chain: WalletChain,
 ): Promise<WalletControls> {
   const keyFile = process.env.QA_EVM_KEY_FILE;
   if (!keyFile) {
@@ -213,9 +224,7 @@ async function walletControls(
   const { installWallet } = await import("qa-wallet");
   const { rejectNext, waitForReceipt } = await installWallet(context, {
     keyFile,
-    rpcUrl,
-    chainId,
-    forwardRpc,
+    ...chain,
   });
   return { rejectNext, waitForReceipt };
 }
@@ -235,12 +244,8 @@ async function stop(dir: string): Promise<void> {
 }
 
 function runningSession(dir: string): SessionFile | null {
-  try {
-    const session = readSession(dir);
-    return isAlive(session.pid) ? session : null;
-  } catch {
-    return null;
-  }
+  const session = readSession(dir);
+  return session && isAlive(session.pid) ? session : null;
 }
 
 function isAlive(pid: number): boolean {

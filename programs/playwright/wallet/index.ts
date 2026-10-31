@@ -77,22 +77,28 @@ export type WalletTarget = Pick<
 > &
   Partial<Pick<BrowserContext, "route">>;
 
+export type WalletRpc =
+  /** Offline: only accounts, chain and signing requests work. */
+  | { rpcUrl?: undefined; forwardRpc?: undefined }
+  | {
+      /** JSON-RPC endpoint for reads and transactions. */
+      rpcUrl: string;
+      /**
+       * URL patterns whose JSON-RPC POSTs are answered from `rpcUrl` instead;
+       * needs a BrowserContext.
+       */
+      forwardRpc?: readonly RegExp[];
+    };
+
+export type WalletChain = {
+  /** The chain the wallet is on. */
+  chainId: number;
+} & WalletRpc;
+
 export type WalletOptions = {
   /** A file holding a 0x-prefixed or bare hex private key. */
   keyFile: string | undefined;
-  /** The chain the wallet is on. */
-  chainId: number;
-  /**
-   * JSON-RPC endpoint for reads and transactions; without it only accounts,
-   * chain and signing requests work.
-   */
-  rpcUrl?: string | undefined;
-  /**
-   * URL patterns whose JSON-RPC POSTs are answered from `rpcUrl` instead;
-   * needs a BrowserContext.
-   */
-  forwardRpc?: readonly RegExp[];
-};
+} & WalletChain;
 
 export type Receipt = {
   transactionHash: Hash;
@@ -326,6 +332,7 @@ async function forwardTo(
   rpcUrl: string | undefined,
   chainId: number,
 ): Promise<void> {
+  // WalletRpc rules this out, but a /qa script is plain JavaScript.
   if (!rpcUrl) throw new Error("qa-wallet: forwardRpc needs an rpcUrl");
   if (!target.route) {
     throw new Error("qa-wallet: forwardRpc needs a BrowserContext or Page");
