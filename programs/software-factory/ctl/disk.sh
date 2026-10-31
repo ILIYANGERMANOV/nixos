@@ -113,12 +113,10 @@ apply_disk() {
   while read -r path; do
     rm -rf "$path"
     echo "removed ${path#"$HOME"/}"
-  done < <(caches)
-  # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r path; do
-    rm -rf "$path"
-    echo "removed ${path#"$HOME"/}"
-  done < <(qa_runs)
+  done < <(
+    caches
+    qa_runs
+  )
   # A run's worktree that had changes outside .gitignore was deleted with its
   # run rather than by worktree remove: drop its registration.
   for repo in $(cloned_repos); do
@@ -184,7 +182,6 @@ qa_runs() {
     recent=$(find "$run" -newermt '1 day ago' -print -quit) || true
     [ -n "$recent" ] || echo "$run"
   done
-  return 0
 }
 
 # The result links of the stale roots this account made, the only ones it may

@@ -9,7 +9,8 @@ state_file="${XDG_STATE_HOME:-$HOME/.local/state}/factory/enabled"
 readonly exit_refused=2    # would lose work or end sessions; rerun with --force
 readonly exit_not_cloned=3 # a bare name with no clone; needs a URL
 
-unit_of() { echo "claude-rc@$1.service"; }
+# repo_unit <verb> <repo>: runs a systemctl verb on the repository's server.
+repo_unit() { systemctl --user "$1" "claude-rc@$2.service"; }
 
 cloned_repos() {
   local dir

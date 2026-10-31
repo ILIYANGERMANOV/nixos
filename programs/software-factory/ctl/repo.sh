@@ -4,7 +4,7 @@
 
 # start <name|git-url> [name]: clone if needed, enable, start. Idempotent.
 cmd_start() {
-  local target="${1:?usage: factory-ctl start <name|git-url> [name]}" name unit
+  local target="${1:?usage: factory-ctl start <name|git-url> [name]}" name
   case "$target" in
     *:* | */*)
       name="${2:-$(repo_name_from_url "$target")}"
@@ -22,8 +22,7 @@ cmd_start() {
       ;;
   esac
   enable_repo "$name"
-  unit=$(unit_of "$name")
-  systemctl --user start "$unit"
+  repo_unit start "$name"
   echo "$name: on"
 }
 
@@ -31,15 +30,14 @@ cmd_start() {
 # worktrees hold local work, unless forced.
 cmd_stop() {
   parse_force "$@"
-  local name="${args[0]:?usage: factory-ctl stop [--force] <name>}" unit
+  local name="${args[0]:?usage: factory-ctl stop [--force] <name>}"
   check_repo_name "$name"
   # shellcheck disable=SC2310 # both are predicates
   if [ "$force" -eq 0 ] && is_cloned "$name" && ! check_nothing_at_risk "$name"; then
     refuse "stopping $name ends its sessions"
   fi
   disable_repo "$name"
-  unit=$(unit_of "$name")
-  systemctl --user stop "$unit"
+  repo_unit stop "$name"
   echo "$name: off"
 }
 
@@ -47,7 +45,7 @@ cmd_stop() {
 # applies a newly deployed configuration to it.
 cmd_restart() {
   parse_force "$@"
-  local name="${args[0]:?usage: factory-ctl restart [--force] <name>}" unit
+  local name="${args[0]:?usage: factory-ctl restart [--force] <name>}"
   check_repo_name "$name"
   # shellcheck disable=SC2310 # a predicate
   is_enabled "$name" || die "$name is off; turn it on with: factory-ctl start $name"
@@ -55,8 +53,7 @@ cmd_restart() {
   if [ "$force" -eq 0 ] && ! check_nothing_at_risk "$name"; then
     refuse "restarting $name ends its sessions"
   fi
-  unit=$(unit_of "$name")
-  systemctl --user restart "$unit"
+  repo_unit restart "$name"
   echo "$name: restarted"
 }
 
@@ -76,7 +73,7 @@ cmd_resolve() {
 # repository that is already cloned keeps whatever state it has, so a stopped
 # one stays stopped. One failure does not stop the rest.
 cmd_boot() {
-  local status=0 name url unit
+  local status=0 name url
   adopt_existing_clones
   while [ "$#" -ge 2 ]; do
     name="$1" url="$2"
@@ -88,8 +85,8 @@ cmd_boot() {
   for name in $(enabled_repos); do
     # shellcheck disable=SC2310 # a predicate
     if is_cloned "$name"; then
-      unit=$(unit_of "$name")
-      systemctl --user start "$unit" || status=1
+      # shellcheck disable=SC2310 # one failure must not stop the rest
+      repo_unit start "$name" || status=1
     else
       echo "factory-ctl: $name is enabled but not cloned, skipping" >&2
     fi

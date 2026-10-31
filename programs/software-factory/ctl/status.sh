@@ -29,9 +29,9 @@ row() {
 # "on" and "off" when the server matches the enabled set; otherwise systemd's
 # own word, such as failed or activating, which is what needs attention.
 repo_state() {
-  local unit active
-  unit=$(unit_of "$1")
-  active=$(systemctl --user is-active "$unit") || true
+  local active
+  # shellcheck disable=SC2310 # is-active exits nonzero for every state but active
+  active=$(repo_unit is-active "$1") || true
   # shellcheck disable=SC2310 # a predicate
   case "$(is_enabled "$1" && echo enabled || echo disabled)/$active" in
     enabled/active) echo "on" ;;
