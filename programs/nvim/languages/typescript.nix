@@ -102,7 +102,7 @@ in
   '';
 
   extraConfigLua = ''
-    vim.treesitter.language.register('markdown', 'mdx')
+    vim.treesitter.language.register("markdown", "mdx")
 
     _G.RegisterContextRunner({
       detect = function(cwd)

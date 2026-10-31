@@ -90,3 +90,17 @@ can be skipped, so CI must run the check anyway.
   binary included.
 - `biome.json` sits at the repository root: Biome refuses a nested root
   configuration, and treefmt runs from the root.
+
+## Lua is linted where it lives, in Nix strings
+
+`lua-lint` runs selene and `stylua --check` on the Lua under `programs/nvim`
+until #261 moves it to real files. It evaluates the modules without nixvim and
+walks the values, so interpolations are rendered and `''` escapes resolved, which
+a text extractor would have to redo.
+
+- A value under `extraConfigLua*` or `__raw`, a `<cmd>lua` keymap, or a plain
+  string that looks like a call is Lua. A function value aborts the walk, since it
+  could hide Lua.
+- A source with more markers than fragments, and a fragment or line count under
+  a floor, fail evaluation, so a broken walk cannot pass on little or nothing.
+- Its dynamic `import` and `readFile` are baselined, as ADR 0008 says.

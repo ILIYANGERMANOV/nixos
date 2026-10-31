@@ -1,0 +1,14 @@
+# selene ships no Neovim standard library, and `vim` is too large to spell out.
+base: lua51
+name: vim
+lua_versions:
+  - luajit
+globals:
+  vim:
+    any: true
+  # Set by snacks.nvim when it loads.
+  Snacks:
+    any: true
+  # nixvim binds it where it splices `plugins.cmp.settings.mapping`.
+  cmp:
+    any: true

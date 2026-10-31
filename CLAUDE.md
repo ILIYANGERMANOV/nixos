@@ -93,7 +93,7 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
    its skill changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code`,
    `claude-bash-guards` and `shell-embedded` for `programs/claude-code`, `nvim-search`,
-   `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
+   `nvim-typescript`, `nvim-kotlin` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
    `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
    `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
