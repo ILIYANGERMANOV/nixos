@@ -65,6 +65,7 @@ jobs:
       - name: Compute the hash
         id: hash
         run: |
+          # shellcheck disable=SC2016 # the ${...} are Nix's, not the shell's
           output=$(nix build --no-link --impure --expr '
             let
               flake = builtins.getFlake (toString ./.);
