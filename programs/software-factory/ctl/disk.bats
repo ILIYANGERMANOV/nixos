@@ -26,7 +26,7 @@ load ../test_helper
 
   factory-ctl free-disk apply >"$work/out"
 
-  grep -Eq "$freed_gb" "$work/out" || fail "apply does not report the space freed in GB"
+  reports_freed_gb
   [ ! -e "$old_tmp_root" ] && [ ! -e "$old_cache_root" ] && [ ! -e "$spaced_root" ] || fail "a stale GC root was kept"
   kept_what_must_stay
   [ ! -e "$pushed" ] || fail "the pushed worktree was kept"
@@ -39,8 +39,7 @@ load ../test_helper
 @test "free-disk: keeps a /10x-engineer run's clean, pushed worktree" {
   clone_repo origin
   tenx="$HOME/.10x/2026-01-01-run/worktrees/task"
-  git -C "$HOME/repos/origin" worktree add --quiet -b task "$tenx" 2>/dev/null
-  git -C "$tenx" push --quiet origin task 2>/dev/null
+  add_worktree origin task "$tenx"
 
   factory-ctl free-disk plan >"$work/out"
   ! grep -q ".10x/" "$work/out" || fail "plan lists a /10x-engineer run's worktree"
@@ -72,7 +71,7 @@ load ../test_helper
 
   factory-ctl free-disk apply >"$work/out"
 
-  grep -Eq "$freed_gb" "$work/out" || fail "apply does not report the space freed in GB"
+  reports_freed_gb
   [ ! -e "$qa/runs/12-old" ] || fail "a finished QA run was kept"
   git -C "$HOME/repos/origin" worktree list >"$work/worktrees"
   ! grep -q 12-old "$work/worktrees" || fail "a deleted run's worktree is still registered"
@@ -81,15 +80,22 @@ load ../test_helper
   [ -e "$qa/auth/user.json" ] && [ -e "$qa/scripts/lib.cjs" ] || fail "QA login state or scripts were removed"
 }
 
-@test "root-shells: roots main's shell and locked inputs without its hook, replaced each run, never a flake-less repo" {
+# Clones $@ of a repository with a flake on main.
+clone_flaked() {
   git init --quiet --bare --initial-branch main "$work/flaked.git"
   git clone --quiet "$work/flaked.git" "$work/flaked" 2>/dev/null
   touch "$work/flaked/flake.nix"
   git -C "$work/flaked" add flake.nix
   git -C "$work/flaked" commit --quiet -m flake
   git -C "$work/flaked" push --quiet origin main
-  git clone --quiet "$work/flaked.git" "$HOME/repos/shop"
-  git clone --quiet "$work/flaked.git" "$HOME/repos/broken"
+  local name
+  for name in "$@"; do
+    git clone --quiet "$work/flaked.git" "$HOME/repos/$name"
+  done
+}
+
+@test "root-shells: roots main's shell and locked inputs without its hook, replaced each run, never a flake-less repo" {
+  clone_flaked shop broken
   clone_repo plain
   echo '{"path": "/nix/store/a-source", "inputs": {"x": {"path": "/nix/store/b-source", "inputs": {"y": {"path": "/nix/store/a-source"}}}}}' >"$GH/flake-archive.json"
   mkdir -p "$HOME/.gcroots/shop/inputs"

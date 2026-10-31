@@ -8,6 +8,7 @@ setup() {
   given_two_systems
 }
 
+posted_states() { [ "$(posted)" = "$1" ] || fail "posted $(posted)"; }
 posted() { jq -s -r 'map(.state) | join(" ")' "$GH/posted"; }
 
 @test "factory-deploy: nothing pending is a no-op" {
@@ -49,7 +50,7 @@ posted() { jq -s -r 'map(.state) | join(" ")' "$GH/posted"; }
   called "new test"
   called "new boot"
   [ "$(readlink "$work/profiles/system")" = "$work/systems/new" ] || fail "the profile was not set"
-  [ "$(posted)" = "in_progress success" ] || fail "posted $(posted)"
+  posted_states "in_progress success"
   [ "$(jq -r .state "$work/ops/last.json")" = success ] || fail "the result was not recorded"
   grep -q 2027-01-01 "$work/ops/token-expires" || fail "the token expiry was not recorded"
 }
@@ -67,7 +68,7 @@ posted() { jq -s -r 'map(.state) | join(" ")' "$GH/posted"; }
   run -1 factory-deploy
 
   not_called "nix build"
-  [ "$(posted)" = "in_progress failure" ] || fail "posted $(posted)"
+  posted_states "in_progress failure"
 }
 
 @test "factory-deploy: a failed build changes nothing" {
@@ -76,7 +77,7 @@ posted() { jq -s -r 'map(.state) | join(" ")' "$GH/posted"; }
   run -1 factory-deploy
 
   not_called "new test"
-  [ "$(posted)" = "in_progress failure" ] || fail "posted $(posted)"
+  posted_states "in_progress failure"
 }
 
 went_back_to_the_old_system() {
@@ -109,7 +110,7 @@ went_back_to_the_old_system() {
   factory-deploy
 
   not_called "new test"
-  [ "$(posted)" = "in_progress success" ] || fail "posted $(posted)"
+  posted_states "in_progress success"
 }
 
 @test "factory-deploy: with GitHub refusing every POST, gives up after one failure report and leaves no temporary directory" {

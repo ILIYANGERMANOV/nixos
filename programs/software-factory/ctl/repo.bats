@@ -3,14 +3,18 @@
 
 load ../test_helper
 
-@test "start: clones a URL under its name, enables and starts it; rerunning is a no-op" {
+@test "start: clones a URL under its name, enables and starts it" {
   factory-ctl start "file://$work/origin.git"
 
   [ -d "$HOME/repos/origin/.git" ] || fail "origin was not cloned"
   active origin || fail "origin was not started"
   enabled origin || fail "origin was not enabled"
+}
 
+@test "start: rerunning is a no-op" {
+  factory-ctl start "file://$work/origin.git"
   touch "$HOME/repos/origin/marker"
+
   factory-ctl start "file://$work/origin.git"
 
   [ -e "$HOME/repos/origin/marker" ] || fail "an existing clone was replaced"
@@ -27,18 +31,22 @@ load ../test_helper
   { active repo && active other && active custom; } || fail "a URL was mapped to the wrong name"
 }
 
-@test "start: a bare name serves its clone, or exits 3 when there is none" {
+@test "start: a bare name serves its clone" {
   clone_repo origin
 
   factory-ctl start origin
-  active origin || fail "the clone was not started"
 
+  active origin || fail "the clone was not started"
+}
+
+@test "start: a bare name exits 3 when there is no clone" {
   run -3 factory-ctl start missing
+
   ! active missing || fail "started a repository that is not cloned"
   ! enabled missing || fail "enabled a repository that is not cloned"
 }
 
-@test "start / stop / restart: refuse unsafe names" {
+@test "start / stop: refuse unsafe names" {
   # shellcheck disable=SC2016 # a literal dollar in a name
   for bad in ".hidden" ".." "a b" 'a$b'; do
     run -1 factory-ctl start "$bad"
@@ -58,6 +66,13 @@ load ../test_helper
 
   ! active origin || fail "origin still runs"
   ! enabled origin || fail "origin would start at boot"
+}
+
+@test "stop: stopping twice succeeds" {
+  clone_repo origin
+  factory-ctl start origin
+  factory-ctl stop origin
+
   factory-ctl stop origin || fail "stopping twice failed"
 }
 
@@ -98,22 +113,36 @@ stop_refuses_until_forced() {
   stop_refuses_until_forced
 }
 
-@test "restart: restarts an enabled repository, refuses one that is off" {
+@test "restart: restarts an enabled repository" {
   clone_repo origin
-
-  run -1 factory-ctl restart origin
-
   factory-ctl start origin
+
   factory-ctl restart origin
+
   called "systemctl --user restart claude-rc@origin.service"
 }
 
-@test "resolve: finds the bot's repositories by name, case-insensitively" {
+@test "restart: refuses a repository that is off" {
+  clone_repo origin
+
+  run -1 factory-ctl restart origin
+}
+
+given_bot_repos() {
   echo '[{"name":"Deslop","ssh_url":"git@github.com:a/Deslop.git"},{"name":"deslop","ssh_url":"git@github.com:b/deslop.git"},{"name":"x","ssh_url":"git@github.com:a/x.git"}]' >"$GH/user-repos.json"
+}
+
+@test "resolve: finds the bot's repositories by name, case-insensitively" {
+  given_bot_repos
 
   factory-ctl resolve deslop >"$work/out"
 
   [ "$(wc -l <"$work/out")" -eq 2 ] || fail "resolve missed a match"
+}
+
+@test "resolve: exits 1 when no repository matches" {
+  given_bot_repos
+
   run -1 factory-ctl resolve nothing
 }
 

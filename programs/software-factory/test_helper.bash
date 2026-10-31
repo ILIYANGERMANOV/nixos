@@ -31,27 +31,31 @@ fresh_world() {
 
 # ─── Assertions ──────────────────────────────────────────────────────────────
 
-fail() {
-  echo "FAIL: $*" >&2
-  return 1
+called() { grep -qxF "$1" "$CALLS" || fail_showing "$CALLS" "expected call: $1"; }
+not_called() { ! grep -qF "$1" "$CALLS" || fail_showing "$CALLS" "unexpected call: $1"; }
+active() { [ -e "$UNITS/claude-rc@$1.service" ]; }
+enabled() { grep -qxF "$1" "$HOME/.local/state/factory/enabled" 2>/dev/null; }
+# What a run printed to $work/out says how much space it freed.
+reports_freed_gb() {
+  grep -Eq '^Freed -?[0-9]+\.[0-9] GB$' "$work/out" || fail_showing "$work/out" "the space freed in GB is not reported"
 }
 # Fails with the file that explains why.
 fail_showing() {
   cat "$1" >&2
   fail "$2"
 }
-called() { grep -qxF "$1" "$CALLS" || fail_showing "$CALLS" "expected call: $1"; }
-not_called() { ! grep -qF "$1" "$CALLS" || fail_showing "$CALLS" "unexpected call: $1"; }
-active() { [ -e "$UNITS/claude-rc@$1.service" ]; }
-enabled() { grep -qxF "$1" "$HOME/.local/state/factory/enabled" 2>/dev/null; }
-freed_gb='^Freed -?[0-9]+\.[0-9] GB$'
+fail() {
+  echo "FAIL: $*" >&2
+  return 1
+}
 
 # ─── Repositories ────────────────────────────────────────────────────────────
 
 clone_repo() { git clone --quiet "$work/origin.git" "$HOME/repos/$1" 2>/dev/null; }
-# A worktree of repository $1 named $2, on its own branch, pushed.
+# A worktree of repository $1 named $2, on its own branch, pushed: at $3, or
+# where a session makes one.
 add_worktree() {
-  local wt="$HOME/repos/$1/.claude/worktrees/$2"
+  local wt="${3:-$HOME/repos/$1/.claude/worktrees/$2}"
   git -C "$HOME/repos/$1" worktree add --quiet -b "$2" "$wt" 2>/dev/null
   git -C "$wt" push --quiet origin "$2" 2>/dev/null
   echo "$wt"
@@ -76,8 +80,6 @@ stop_background() {
 # A live session: a process with --sdk-url in its command line, working in $1.
 start_session() { in_background run_session "$1"; }
 run_session() { cd "$1" && exec bash -c 'sleep 300; true' session --sdk-url; }
-# A process that was killed stays a zombie until reaped, so check its state.
-alive() { [ -e "/proc/$1" ] && [ "$(cut -d " " -f 3 "/proc/$1/stat")" != Z ]; }
 # A signalled process dies shortly after the signal returns.
 ended() {
   local _
@@ -87,6 +89,8 @@ ended() {
   done
   return 1
 }
+# A process that was killed stays a zombie until reaped, so check its state.
+alive() { [ -e "/proc/$1" ] && [ "$(cut -d " " -f 3 "/proc/$1/stat")" != Z ]; }
 
 # ─── GC roots ────────────────────────────────────────────────────────────────
 

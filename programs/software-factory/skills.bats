@@ -41,16 +41,19 @@ status_reports() {
   [ "$(readlink "$skills/beta")" = "$work/farm-a/beta" ] || fail "the first run linked nothing"
 }
 
-# Flags the skill as missing whenever it sees that, until the test ends.
-watch_skill() {
+# A reader: touches $1 whenever the rest of its arguments fail, until the test
+# ends.
+flag_unless() {
+  local flag=$1
+  shift
   while true; do
-    [ -e "$skills/alpha" ] || touch "$work/skill-missing"
+    "$@" || touch "$flag"
   done
 }
 
 @test "factory-relink-skills: a skill never goes missing while it swaps farms" {
   factory-relink-skills "$work/farm-a"
-  in_background watch_skill
+  in_background flag_unless "$work/skill-missing" test -e "$skills/alpha"
   reader=$!
 
   for _ in $(seq 40); do
@@ -63,16 +66,11 @@ watch_skill() {
   [ ! -e "$work/skill-missing" ] || fail "a reader saw the skill missing during a relink"
 }
 
-# Flags the directory as empty whenever it sees that, until the test ends.
-watch_listing() {
-  while true; do
-    [ -n "$(ls -A "$skills")" ] || touch "$work/skills-empty"
-  done
-}
+lists_a_skill() { [ -n "$(ls -A "$skills")" ]; }
 
 @test "factory-link-skills: overlapping runs all succeed, and a reader never sees none" {
   factory-link-skills "$work/farm-a"
-  in_background watch_listing
+  in_background flag_unless "$work/skills-empty" lists_a_skill
   reader=$!
 
   (
