@@ -10,19 +10,21 @@
 import assert from "node:assert";
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
-import http from "node:http";
-import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { expectState, MAX_WAIT_MS } from "qa-kit";
 import { generatePrivateKey } from "viem/accounts";
-
-type Listening = { url: string; close: () => void };
+import {
+  DISCOVERY_SCRIPT,
+  type Listening,
+  listen,
+  runCheck,
+  SEPOLIA,
+} from "./qa-check-lib.js";
 
 const run = promisify(execFile);
 const work = process.argv[2] ?? assert.fail("usage: qa-check-tools <work-dir>");
-const SEPOLIA = 11155111;
 
 async function main(): Promise<void> {
   // A minute of waiting, so it runs alongside the rest.
@@ -120,35 +122,15 @@ async function checkContactSheet(): Promise<void> {
   await assert.rejects(sheet("1;rm"), /not a time in seconds/);
 }
 
-// A deterministic token source: base64url-ish strings of 16-48 characters.
-function seeded(seed: number): { token: () => string } {
-  let state = seed;
-  const next = () => {
-    state = (state * 1103515245 + 12345) % 2 ** 31;
-    return state;
-  };
-  const alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-  return {
-    token: () =>
-      Array.from(
-        { length: 16 + (next() % 33) },
-        () => alphabet[next() % alphabet.length],
-      ).join(""),
-  };
-}
-
 // Given an error that shows at once and a success that would show after 5 s,
 // expectState returns the error well before the success; given only the
 // success, it returns that; given neither, it throws at its timeout.
 async function checkExpectState(): Promise<void> {
   const browser = await chromium.launch();
   const page = await browser.newPage();
-  const show = (id: string, ms: number) =>
-    `<script>setTimeout(() => { const p = document.createElement('p'); p.id = '${id}'; p.textContent = '${id} shown'; document.body.append(p); }, ${ms});</script>`;
 
   await page.setContent(
-    `<body>${show("done", 5000)}${show("error", 200)}</body>`,
+    `<body>${showAfter("done", 5000)}${showAfter("error", 200)}</body>`,
   );
   const started = Date.now();
   const failed = await expectState(
@@ -166,7 +148,7 @@ async function checkExpectState(): Promise<void> {
     "expectState waited for the success after the error showed",
   );
 
-  await page.setContent(`<body>${show("done", 100)}</body>`);
+  await page.setContent(`<body>${showAfter("done", 100)}</body>`);
   assert.deepStrictEqual(
     await expectState(page.locator("#done"), { error: page.locator("#error") }),
     { kind: "expected" },
@@ -184,13 +166,18 @@ async function checkExpectState(): Promise<void> {
   await browser.close();
 }
 
+// A script adding `<p id="id">id shown</p>` to the page after `ms`.
+function showAfter(id: string, ms: number): string {
+  return `<script>setTimeout(() => { const p = document.createElement('p'); p.id = '${id}'; p.textContent = '${id} shown'; document.body.append(p); }, ${ms});</script>`;
+}
+
 // Given an expectState asked to wait two minutes, or forever, with no
 // reason, it gives up at the cap; given a reason, the long wait stands.
 async function checkWaitCap(): Promise<void> {
   const browser = await chromium.launch();
   const page = await browser.newPage();
   await page.setContent(
-    `<body><script>setTimeout(() => { const p = document.createElement('p'); p.id = 'late'; document.body.append(p); p.textContent = 'late'; }, ${MAX_WAIT_MS + 3_000});</script></body>`,
+    `<body>${showAfter("late", MAX_WAIT_MS + 3_000)}</body>`,
   );
   const capped = async (timeout: number) => {
     const started = Date.now();
@@ -230,10 +217,11 @@ async function checkDeadline(): Promise<void> {
 
 // Given a saved login the app rotates on every visit, when a script on
 // openContext closes, hangs and meets qa-node's deadline, or is interrupted
-// with SIGINT, then the file holds the rotated login and `.bak` the one before; when the app logs out,
-// then the empty state is refused and the last login stays. `timeout` signals
-// node and then its group, so a signal can arrive twice: `signalAgain` makes
-// the second land right after the first, with the save still running.
+// with SIGINT, then the file holds the rotated login and `.bak` the one
+// before; when the app logs out, then the empty state is refused and the last
+// login stays. `timeout` signals node and then its group, so a signal can
+// arrive twice: `signalAgain` makes the second land right after the first,
+// with the save still running.
 async function checkLoginSaved(): Promise<void> {
   const app = await loginApp();
   const auth = path.join(work, "auth.json");
@@ -395,20 +383,16 @@ function sid(file: string): string | undefined {
 // Given a session started on an app whose first response outlasts the 10 s
 // step timeout, as a dev server's first compile does, then it starts; when
 // one probe process sets page state and a second attaches, then the second
-// sees it, in the same browser process;
-// the wallet in the session declines when a probe says so; and what the page
-// logs reaches the console log with its credentials redacted.
+// sees it, in the same browser process; the wallet in the session declines
+// when a probe says so; and what the page logs reaches the console log with
+// its credentials redacted.
 async function checkSession(): Promise<void> {
-  const token = seeded(7).token();
-  const jwtSignature = seeded(9).token();
+  const token = "tQ7x-Lm2vZ9bK4wR_c8Y";
+  const jwtSignature = "pH3nD6sF_j1Gy5Ue-a0T";
   const jwt = `eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJxYSJ9.${jwtSignature}`;
   const app = await serve(
-    `<!doctype html><title>app</title><p>app</p><script>
-    window.found = [];
-    window.addEventListener('eip6963:announceProvider', (e) => window.found.push(e.detail));
-    window.dispatchEvent(new Event('eip6963:requestProvider'));
-  </script>`,
-    { firstResponseDelayMs: 12_000 },
+    `<!doctype html><title>app</title><p>app</p>${DISCOVERY_SCRIPT}`,
+    12_000,
   );
   const runDir = path.join(work, "session-run");
   const keyFile = path.join(work, "session-key");
@@ -421,9 +405,7 @@ async function checkSession(): Promise<void> {
     { env },
   );
   assert.match(started.stdout, /qa-session: http:\/\/127\.0\.0\.1:\d+/);
-  const { pid }: { pid: number } = JSON.parse(
-    fs.readFileSync(path.join(runDir, "qa-session.json"), "utf8"),
-  );
+  const pid = sessionPid(runDir);
   await assert.rejects(
     run("qa-session", ["start", runDir], { env }),
     /already running/,
@@ -473,10 +455,7 @@ async function checkSession(): Promise<void> {
   );
   assert.strictEqual(declined, "4001");
 
-  const { pid: pidAfter }: { pid: number } = JSON.parse(
-    fs.readFileSync(path.join(runDir, "qa-session.json"), "utf8"),
-  );
-  assert.strictEqual(pidAfter, pid, "the session was relaunched");
+  assert.strictEqual(sessionPid(runDir), pid, "the session was relaunched");
 
   const log = fs.readFileSync(
     path.join(runDir, "qa-session-console.log"),
@@ -502,24 +481,20 @@ async function checkSession(): Promise<void> {
   app.close();
 }
 
+function sessionPid(runDir: string): number {
+  const { pid }: { pid: number } = JSON.parse(
+    fs.readFileSync(path.join(runDir, "qa-session.json"), "utf8"),
+  );
+  return pid;
+}
+
 // Serves `html` on loopback; the first response waits `firstResponseDelayMs`.
-async function serve(
-  html: string,
-  { firstResponseDelayMs = 0 } = {},
-): Promise<Listening> {
+function serve(html: string, firstResponseDelayMs: number): Promise<Listening> {
   let delayMs = firstResponseDelayMs;
   return listen((_req, res) => {
     setTimeout(() => res.end(html), delayMs);
     delayMs = 0;
   });
-}
-
-// An HTTP server on a free loopback port.
-async function listen(handler: http.RequestListener): Promise<Listening> {
-  const server = http.createServer(handler);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  return { url: `http://127.0.0.1:${port}/`, close: () => server.close() };
 }
 
 // Writes `<work>/<name>.cjs`, a qa-node script running `body` in an async
@@ -578,7 +553,4 @@ async function sizeOf(image: string): Promise<number[]> {
   return stdout.trim().split(",").map(Number);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+runCheck(main);

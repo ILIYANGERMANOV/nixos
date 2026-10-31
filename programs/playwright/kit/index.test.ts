@@ -37,7 +37,7 @@ const credentialLine = fc.constantFrom(
 
 const plainText = fc
   .stringMatching(/^[a-zA-Z0-9 .,]*$/)
-  .filter((text) => !/bearer/i.test(text));
+  .filter((text) => !/bearer|eyJ/i.test(text));
 
 describe("redact", () => {
   test.prop([credentialLine, token])(
@@ -76,7 +76,7 @@ describe("redact", () => {
   test.prop([
     fc.oneof(
       fc.string(),
-      token.map((t) => `Bearer ${t}`),
+      fc.tuple(credentialLine, token).map(([line, secret]) => line(secret)),
     ),
   ])("is idempotent, so a line redacted twice reads the same", (text) => {
     const once = redact(text);
@@ -84,10 +84,13 @@ describe("redact", () => {
     expect(redact(once)).toBe(once);
   });
 
-  test("keeps the header name of a redacted line", () => {
+  test("keeps the scheme of a redacted Authorization header", () => {
     expect(redact("Authorization: Bearer abc")).toBe(
       "Authorization: Bearer [redacted]",
     );
+  });
+
+  test("keeps the name of a redacted Cookie header", () => {
     expect(redact("Cookie: sid=abc; theme=dark")).toBe("Cookie: [redacted]");
   });
 

@@ -12,11 +12,17 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect } from "vitest";
-import { installWallet, type WalletTarget, walletAddress } from "./index.js";
+import {
+  installWallet,
+  type WalletOptions,
+  type WalletTarget,
+  walletAddress,
+} from "./index.js";
 
 const CHAIN_ID = 11155111;
 const KEY = `0x${"11".repeat(32)}` as const;
 const ADDRESS = privateKeyToAccount(KEY).address;
+const RPC_URL = "http://rpc.test/";
 
 // secp256k1's order: a private key is in [1, order).
 const CURVE_ORDER =
@@ -74,13 +80,22 @@ function fakeContext() {
   return { target, request, page };
 }
 
-async function installed() {
+async function installed(options: Partial<WalletOptions> = {}) {
   const { target, request, page } = fakeContext();
   const wallet = await installWallet(target, {
     keyFile: keyFile(KEY),
     chainId: CHAIN_ID,
+    ...options,
   });
   return { ...wallet, request, page };
+}
+
+function signedByWallet(message: Hex, signature: unknown): Promise<boolean> {
+  return verifyMessage({
+    address: ADDRESS,
+    message: { raw: message },
+    signature: signature as Hex,
+  });
 }
 
 describe("walletAddress", () => {
@@ -143,13 +158,7 @@ describe("the provider's requests", () => {
 
       const { result } = await request("personal_sign", [message, ADDRESS]);
 
-      expect(
-        await verifyMessage({
-          address: ADDRESS,
-          message: { raw: message },
-          signature: result as Hex,
-        }),
-      ).toBe(true);
+      expect(await signedByWallet(message, result)).toBe(true);
     },
   );
 
@@ -159,13 +168,7 @@ describe("the provider's requests", () => {
 
     const { result } = await request("eth_sign", [ADDRESS, message]);
 
-    expect(
-      await verifyMessage({
-        address: ADDRESS,
-        message: { raw: message },
-        signature: result as Hex,
-      }),
-    ).toBe(true);
+    expect(await signedByWallet(message, result)).toBe(true);
   });
 
   test("signs typed data given as JSON or as an object, the same", async () => {
@@ -196,17 +199,24 @@ describe("the provider's requests", () => {
     expect(error?.code).toBe(4902);
   });
 
-  test("switches only to its own chain", async () => {
+  test("switches to its own chain", async () => {
     const { request } = await installed();
-    const own = toHex(CHAIN_ID);
 
-    expect(
-      await request("wallet_switchEthereumChain", [{ chainId: own }]),
-    ).toEqual({ result: null });
-    const other = await request("wallet_switchEthereumChain", [
+    const answer = await request("wallet_switchEthereumChain", [
+      { chainId: toHex(CHAIN_ID) },
+    ]);
+
+    expect(answer).toEqual({ result: null });
+  });
+
+  test("refuses a switch to another chain", async () => {
+    const { request } = await installed();
+
+    const { error } = await request("wallet_switchEthereumChain", [
       { chainId: "0x1" },
     ]);
-    expect(other.error?.code).toBe(4902);
+
+    expect(error?.code).toBe(4902);
   });
 
   test("answers a read as unsupported when it has no RPC", async () => {
@@ -261,12 +271,7 @@ describe("waitForReceipt", () => {
   });
 
   test("says so when there is no hash and nothing was sent", async () => {
-    const { target } = fakeContext();
-    const { waitForReceipt } = await installWallet(target, {
-      keyFile: keyFile(KEY),
-      chainId: CHAIN_ID,
-      rpcUrl: "http://rpc.test/",
-    });
+    const { waitForReceipt } = await installed({ rpcUrl: RPC_URL });
 
     expect(() => waitForReceipt()).toThrow(/has sent nothing/);
   });
@@ -276,28 +281,15 @@ describe("forwardRpc", () => {
   const forwardRpc = [/^http:\/\/rpc\.test\//];
 
   test("needs an rpcUrl", async () => {
-    const { target } = fakeContext();
-
-    await expect(
-      installWallet(target, {
-        keyFile: keyFile(KEY),
-        chainId: CHAIN_ID,
-        forwardRpc,
-      }),
-    ).rejects.toThrow(/forwardRpc needs an rpcUrl/);
+    await expect(installed({ forwardRpc })).rejects.toThrow(
+      /forwardRpc needs an rpcUrl/,
+    );
   });
 
   test("needs a target that can route", async () => {
-    const { target } = fakeContext();
-
-    await expect(
-      installWallet(target, {
-        keyFile: keyFile(KEY),
-        chainId: CHAIN_ID,
-        rpcUrl: "http://rpc.test/",
-        forwardRpc,
-      }),
-    ).rejects.toThrow(/needs a BrowserContext or Page/);
+    await expect(installed({ rpcUrl: RPC_URL, forwardRpc })).rejects.toThrow(
+      /needs a BrowserContext or Page/,
+    );
   });
 });
 

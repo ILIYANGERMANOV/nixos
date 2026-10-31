@@ -1,16 +1,18 @@
 // checks.qa, run by `qa-node`: the wallet helper against a synthetic dApp
 // served from a Playwright route, with a key generated for this run, and a
 // recorded video through `qa-mp4`, `waitForReceipt`, and the `qa-wallet`
-// command. No network:
-// the dApp origin never resolves, and the RPC is a fake JSON-RPC node on
-// loopback.
+// command. No network: the dApp origin never resolves, and the RPC is a fake
+// JSON-RPC node on loopback.
 import assert from "node:assert";
 import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
-import http from "node:http";
-import type { AddressInfo } from "node:net";
 import path from "node:path";
-import { type Browser, chromium } from "playwright";
+import {
+  type Browser,
+  type BrowserContext,
+  chromium,
+  type Page,
+} from "playwright";
 import { installWallet } from "qa-wallet";
 import {
   type Address,
@@ -19,10 +21,18 @@ import {
   erc20Abi,
   type Hex,
   keccak256,
+  toHex,
   verifyMessage,
   verifyTypedData,
 } from "viem";
 import { generatePrivateKey } from "viem/accounts";
+import {
+  DISCOVERY_SCRIPT,
+  type Listening,
+  listen,
+  runCheck,
+  SEPOLIA,
+} from "./qa-check-lib.js";
 
 type Announced = {
   info: { uuid: string; name: string; icon: string; rdns: string };
@@ -30,6 +40,13 @@ type Announced = {
 };
 
 type RpcRequest = { id: number; method: string; params: unknown[] };
+
+type RpcError = Error & { code: number };
+
+type RpcOutcome = {
+  result?: unknown;
+  error?: { code: number; message: string };
+};
 
 declare global {
   interface Window {
@@ -39,24 +56,11 @@ declare global {
 
 const work = process.argv[2] ?? assert.fail("usage: qa-check <work-dir>");
 
-type RpcError = Error & { code: number };
-
-type RpcOutcome = {
-  result?: unknown;
-  error?: { code: number; message: string };
-};
-
-const SEPOLIA = 11155111;
 const DAPP = "http://dapp.test/";
 const RPC = "http://rpc.test/v1/";
 const TOKEN: Address = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
 
-// The page a wagmi or AppKit dApp would be, reduced to EIP-6963 discovery.
-const DAPP_HTML = `<!doctype html><title>dApp</title><p>dApp</p><script>
-  window.found = [];
-  window.addEventListener('eip6963:announceProvider', (e) => window.found.push(e.detail));
-  window.dispatchEvent(new Event('eip6963:requestProvider'));
-</script>`;
+const DAPP_HTML = `<!doctype html><title>dApp</title><p>dApp</p>${DISCOVERY_SCRIPT}`;
 
 const TYPED_DATA = {
   domain: { name: "QA", version: "1", chainId: SEPOLIA },
@@ -75,9 +79,7 @@ async function main(): Promise<void> {
   const context = await browser.newContext({ recordVideo: { dir: videos } });
   const logs: string[] = [];
   context.on("console", (message) => logs.push(message.text()));
-  await context.route(DAPP, (route) =>
-    route.fulfill({ contentType: "text/html", body: DAPP_HTML }),
-  );
+  await routeDapp(context);
   const { address, rejectNext } = await installWallet(context, {
     keyFile,
     chainId: SEPOLIA,
@@ -99,19 +101,7 @@ async function main(): Promise<void> {
     wallet?.uuid && wallet.name && wallet.icon.startsWith("data:image/"),
   );
 
-  const call = (method: string, params?: unknown[]) =>
-    page.evaluate(
-      async ([method, params]) => {
-        const provider = window.found[0]?.provider;
-        try {
-          return { result: await provider?.request({ method, params }) };
-        } catch (error) {
-          const { code, message } = error as RpcError;
-          return { error: { code, message } };
-        }
-      },
-      [method, params ?? []] as const,
-    ) as Promise<RpcOutcome>;
+  const call = providerCall(page);
 
   // Connect, as wagmi's injected connector does.
   assert.deepStrictEqual((await call("eth_requestAccounts")).result, [address]);
@@ -119,7 +109,7 @@ async function main(): Promise<void> {
 
   // personal_sign takes hex data and the address; the signature verifies.
   const message = "Sign in to the QA dApp";
-  const hexMessage = `0x${Buffer.from(message).toString("hex")}`;
+  const hexMessage = toHex(message);
   const signature = (await call("personal_sign", [hexMessage, address]))
     .result as Hex;
   assert.ok(
@@ -250,6 +240,29 @@ async function main(): Promise<void> {
   console.log("qa: wallet and video pipeline ok");
 }
 
+async function routeDapp(context: BrowserContext): Promise<void> {
+  await context.route(DAPP, (route) =>
+    route.fulfill({ contentType: "text/html", body: DAPP_HTML }),
+  );
+}
+
+// A request through the announced provider, as the dApp makes it.
+function providerCall(page: Page) {
+  return (method: string, params: unknown[] = []) =>
+    page.evaluate(
+      async ([method, params]) => {
+        try {
+          const provider = window.found[0]?.provider;
+          return { result: await provider?.request({ method, params }) };
+        } catch (error) {
+          const { code, message } = error as RpcError;
+          return { error: { code, message } };
+        }
+      },
+      [method, params] as const,
+    ) as Promise<RpcOutcome>;
+}
+
 // `qa-wallet` derives the address, reads the balances from the RPC, and never
 // names the key file, not even when the file is unreadable. Asynchronous, so
 // the fake RPC in this process can answer it.
@@ -308,9 +321,7 @@ async function checkForwardingAndDelayedDecline(
   rpcUrl: string,
 ): Promise<void> {
   const context = await browser.newContext();
-  await context.route(DAPP, (route) =>
-    route.fulfill({ contentType: "text/html", body: DAPP_HTML }),
-  );
+  await routeDapp(context);
   const { address, rejectNext } = await installWallet(context, {
     keyFile,
     rpcUrl,
@@ -359,25 +370,14 @@ async function checkForwardingAndDelayedDecline(
   );
   assert.strictEqual(get, "failed", "a GET was forwarded");
 
-  const call = (method: string, params: unknown[]) =>
-    page.evaluate(
-      async ([method, params]) => {
-        try {
-          return {
-            result: await window.found[0]?.provider.request({ method, params }),
-          };
-        } catch (error) {
-          return { error: { code: (error as RpcError).code } };
-        }
-      },
-      [method, params] as const,
-    );
-  const hex = `0x${Buffer.from("hello").toString("hex")}`;
+  const call = providerCall(page);
+  const hex = toHex("hello");
   const afterMs = 400;
   rejectNext("personal_sign", { afterMs });
   const started = Date.now();
-  assert.deepStrictEqual(await call("personal_sign", [hex, address]), {
-    error: { code: 4001 },
+  assert.deepStrictEqual((await call("personal_sign", [hex, address])).error, {
+    code: 4001,
+    message: "User rejected the request.",
   });
   assert.ok(
     Date.now() - started >= afterMs,
@@ -400,9 +400,7 @@ async function checkReceipt(
   rpcUrl: string,
 ): Promise<void> {
   const context = await browser.newContext();
-  await context.route(DAPP, (route) =>
-    route.fulfill({ contentType: "text/html", body: DAPP_HTML }),
-  );
+  await routeDapp(context);
   const { address, waitForReceipt } = await installWallet(context, {
     keyFile,
     rpcUrl,
@@ -433,7 +431,7 @@ async function checkReceipt(
 // holding 12.25 for anyone, at block 42. A sent transaction is mined two
 // blocks later; the chain advances a block per eth_blockNumber only while
 // one is pending.
-async function fakeRpc(): Promise<{ url: string; close: () => void }> {
+async function fakeRpc(): Promise<Listening> {
   // As a real node answers a method it does not serve (viem probes
   // eth_fillTransaction before filling a transaction itself).
   const METHOD_NOT_FOUND = Symbol("method not found");
@@ -443,7 +441,7 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
   const answer = ({ method, params }: RpcRequest) => {
     switch (method) {
       case "eth_chainId":
-        return `0x${SEPOLIA.toString(16)}`;
+        return toHex(SEPOLIA);
       case "eth_blockNumber":
         if (pending.length > 0) {
           block += 1;
@@ -452,7 +450,7 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
             pending.shift();
           }
         }
-        return `0x${block.toString(16)}`;
+        return toHex(block);
       case "eth_getTransactionCount":
         return "0x0";
       case "eth_estimateGas":
@@ -462,7 +460,7 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
         return "0x1";
       case "eth_getBlockByNumber":
         return {
-          number: `0x${block.toString(16)}`,
+          number: toHex(block),
           hash: `0x${"ab".repeat(32)}`,
           baseFeePerGas: "0x1",
           timestamp: "0x0",
@@ -481,7 +479,7 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
         return {
           transactionHash: params[0],
           blockHash: `0x${"cd".repeat(32)}`,
-          blockNumber: `0x${at.toString(16)}`,
+          blockNumber: toHex(at),
           status: "0x1",
           logs: [],
           logsBloom: `0x${"00".repeat(256)}`,
@@ -496,7 +494,7 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
         };
       }
       case "eth_getBalance":
-        return `0x${(15n * 10n ** 17n).toString(16)}`;
+        return toHex(15n * 10n ** 17n);
       case "eth_call": {
         const [{ data, input }] = params as [{ data?: Hex; input: Hex }];
         const { functionName } = decodeFunctionData({
@@ -544,7 +542,7 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
         }
       : { jsonrpc: "2.0", id: request.id, result };
   };
-  const server = http.createServer((req, res) => {
+  return listen((req, res) => {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
@@ -554,12 +552,6 @@ async function fakeRpc(): Promise<{ url: string; close: () => void }> {
       res.end(JSON.stringify(respond(JSON.parse(body))));
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  return { url: `http://127.0.0.1:${port}/`, close: () => server.close() };
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+runCheck(main);

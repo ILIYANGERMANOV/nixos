@@ -124,6 +124,8 @@ type WalletResponse = { result: unknown } | { error: RpcFailure };
 
 type Eip1193Request = { method: string; params?: unknown[] };
 
+type TransactionParams = { to?: Address; data?: Hex; value?: Hex; gas?: Hex };
+
 type Listener = (value: unknown) => void;
 
 type Eip1193Provider = {
@@ -148,7 +150,7 @@ export async function installWallet(
   const account = privateKeyToAccount(readKey(keyFile));
   const handle = requestHandler(account, rpcUrl, chainId);
   const toReject = new Map<string, number>();
-  const sent: Hash[] = [];
+  let lastSent: Hash | undefined;
   if (forwardRpc.length > 0) {
     await forwardTo(target, forwardRpc, rpcUrl, chainId);
   }
@@ -163,7 +165,7 @@ export async function installWallet(
           throw rpcError(USER_REJECTED, "User rejected the request.");
         }
         const result = await handle(method, params ?? []);
-        if (method === "eth_sendTransaction") sent.push(result as Hash);
+        if (method === "eth_sendTransaction") lastSent = result as Hash;
         return { result };
       } catch (error) {
         return { error: toRpcError(error) };
@@ -183,7 +185,7 @@ export async function installWallet(
     toReject.set(method, afterMs);
   };
   const waitForReceipt: Wallet["waitForReceipt"] = (
-    hash = sent.at(-1),
+    hash = lastSent,
     { timeout = 120_000 } = {},
   ) => {
     if (!rpcUrl) throw new Error("qa-wallet: waitForReceipt needs an rpcUrl");
@@ -197,33 +199,122 @@ export async function installWallet(
   return { address: account.address, rejectNext, waitForReceipt };
 }
 
-// A receipt reduced to what a QA verdict reads, as plain JSON so it crosses
-// into a page and back.
-async function receiptOf(
-  rpcUrl: string,
-  hash: Hash,
-  timeout: number,
-): Promise<Receipt> {
-  const client = createPublicClient({
-    transport: http(rpcUrl),
-    pollingInterval: 1_000,
-  });
-  // The QA wallet is the transaction's only sender and never replaces one.
-  const receipt = await client.waitForTransactionReceipt({
-    hash,
-    timeout,
-    checkReplacement: false,
-  });
-  return {
-    transactionHash: receipt.transactionHash,
-    status: receipt.status,
-    blockNumber: Number(receipt.blockNumber),
-  };
-}
-
 /** The wallet's address, derived from the key; the key itself never leaves. */
 export function walletAddress(keyFile: string | undefined): Address {
   return privateKeyToAccount(readKey(keyFile)).address;
+}
+
+function readKey(keyFile: string | undefined): Hex {
+  if (!keyFile) {
+    throw new Error("qa-wallet: no keyFile given (is QA_EVM_KEY_FILE set?)");
+  }
+  const raw = readKeyFile(keyFile);
+  const key = raw.startsWith("0x") ? raw : `0x${raw}`;
+  // The message names the file, never its content.
+  if (!isPrivateKey(key)) {
+    throw new Error(
+      `qa-wallet: ${keyFile} does not hold a 32-byte hex private key`,
+    );
+  }
+  return key;
+}
+
+function readKeyFile(keyFile: string): string {
+  try {
+    return fs.readFileSync(keyFile, "utf8").trim();
+  } catch (error) {
+    throw new Error(
+      `qa-wallet: cannot read the key file ${keyFile} (${(error as NodeJS.ErrnoException).code})`,
+    );
+  }
+}
+
+function isPrivateKey(key: string): key is Hex {
+  return /^0x[0-9a-fA-F]{64}$/.test(key);
+}
+
+function requestHandler(
+  account: PrivateKeyAccount,
+  rpcUrl: string | undefined,
+  chainId: number,
+): (method: string, params: unknown[]) => Promise<unknown> {
+  const chainHex = toHex(chainId);
+  const wallet = rpcUrl
+    ? createWalletClient({ account, transport: http(rpcUrl) })
+    : null;
+
+  const needRpc = (method: string) => {
+    if (wallet) return wallet;
+    throw rpcError(UNSUPPORTED, `qa-wallet: ${method} needs an rpcUrl`);
+  };
+
+  const requireChain = (wanted: string | number | bigint) => {
+    if (Number(wanted) !== chainId) {
+      throw rpcError(
+        UNRECOGNISED_CHAIN,
+        `qa-wallet: only chain ${chainId} is available`,
+      );
+    }
+  };
+
+  const signMessage = (message: Hex) =>
+    account.signMessage({ message: { raw: message } });
+
+  // A typed-data domain names the chain the signature is valid on: one for
+  // another chain (a mainnet Permit, say) is refused, as for a chain switch.
+  const signTypedData = (typedData: TypedDataDefinition) => {
+    const wanted = typedData.domain?.chainId;
+    if (wanted !== undefined) requireChain(wanted);
+    return account.signTypedData(typedData);
+  };
+
+  // Each method's params are what EIP-1193 says the page sends: the handler
+  // takes them unchecked, and a malformed request fails as an RPC error.
+  const methods: Record<string, (params: never) => unknown> = {
+    eth_requestAccounts: () => [account.address],
+    eth_accounts: () => [account.address],
+    eth_chainId: () => chainHex,
+    net_version: () => String(chainId),
+    wallet_requestPermissions: () => [{ parentCapability: "eth_accounts" }],
+    wallet_getPermissions: () => [{ parentCapability: "eth_accounts" }],
+    wallet_switchEthereumChain: ([{ chainId: wanted }]: [
+      { chainId: string },
+    ]) => {
+      requireChain(wanted);
+      return null;
+    },
+    personal_sign: ([message]: [Hex]) => signMessage(message),
+    eth_sign: ([, message]: [Address, Hex]) => signMessage(message),
+    eth_signTypedData_v4: ([, typedData]: [
+      Address,
+      string | TypedDataDefinition,
+    ]) =>
+      signTypedData(
+        typeof typedData === "string" ? JSON.parse(typedData) : typedData,
+      ),
+    eth_sendTransaction: ([tx]: [TransactionParams]) =>
+      needRpc("eth_sendTransaction").sendTransaction({
+        chain: null,
+        to: tx.to,
+        data: tx.data,
+        value: optionalBigInt(tx.value),
+        gas: optionalBigInt(tx.gas),
+      }),
+  };
+
+  return async (method, params) => {
+    const local = methods[method];
+    if (local) return local(params as never);
+    return needRpc(method).request({ method, params } as never);
+  };
+}
+
+function optionalBigInt(hex: Hex | undefined): bigint | undefined {
+  return hex === undefined ? undefined : BigInt(hex);
+}
+
+function rpcError(code: number, message: string): Error {
+  return Object.assign(new Error(message), { code });
 }
 
 // Answers the page's JSON-RPC POSTs to `patterns` from `rpcUrl`. Anything
@@ -264,114 +355,28 @@ async function forwardTo(
   for (const pattern of patterns) await target.route(pattern, forward);
 }
 
-function readKey(keyFile: string | undefined): Hex {
-  if (!keyFile) {
-    throw new Error("qa-wallet: no keyFile given (is QA_EVM_KEY_FILE set?)");
-  }
-  const key = prefixed(readKeyFile(keyFile));
-  // The message names the file, never its content.
-  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
-    throw new Error(
-      `qa-wallet: ${keyFile} does not hold a 32-byte hex private key`,
-    );
-  }
-  return key;
-}
-
-function readKeyFile(keyFile: string): string {
-  try {
-    return fs.readFileSync(keyFile, "utf8").trim();
-  } catch (error) {
-    throw new Error(
-      `qa-wallet: cannot read the key file ${keyFile} (${(error as NodeJS.ErrnoException).code})`,
-    );
-  }
-}
-
-function prefixed(raw: string): Hex {
-  return raw.startsWith("0x") ? (raw as Hex) : `0x${raw}`;
-}
-
-function requestHandler(
-  account: PrivateKeyAccount,
-  rpcUrl: string | undefined,
-  chainId: number,
-): (method: string, params: unknown[]) => Promise<unknown> {
-  const chainHex = toHex(chainId);
-  const wallet = rpcUrl
-    ? createWalletClient({ account, transport: http(rpcUrl) })
-    : null;
-
-  const needRpc = (method: string) => {
-    if (wallet) return wallet;
-    throw rpcError(UNSUPPORTED, `qa-wallet: ${method} needs an rpcUrl`);
+// A receipt reduced to what a QA verdict reads, as plain JSON so it crosses
+// into a page and back.
+async function receiptOf(
+  rpcUrl: string,
+  hash: Hash,
+  timeout: number,
+): Promise<Receipt> {
+  const client = createPublicClient({
+    transport: http(rpcUrl),
+    pollingInterval: 1_000,
+  });
+  // The QA wallet is the transaction's only sender and never replaces one.
+  const receipt = await client.waitForTransactionReceipt({
+    hash,
+    timeout,
+    checkReplacement: false,
+  });
+  return {
+    transactionHash: receipt.transactionHash,
+    status: receipt.status,
+    blockNumber: Number(receipt.blockNumber),
   };
-
-  // A typed-data domain names the chain the signature is valid on: one for
-  // another chain (a mainnet Permit, say) is refused, as for a chain switch.
-  const signTypedData = (typedData: TypedDataDefinition) => {
-    const wanted = typedData.domain?.chainId;
-    if (wanted !== undefined && Number(wanted) !== chainId) {
-      throw rpcError(
-        UNRECOGNISED_CHAIN,
-        `qa-wallet: only chain ${chainId} is available`,
-      );
-    }
-    return account.signTypedData(typedData);
-  };
-
-  // Each method's params are what EIP-1193 says the page sends: the handler
-  // takes them unchecked, and a malformed request fails as an RPC error.
-  const methods: Record<string, (params: never) => unknown> = {
-    eth_requestAccounts: () => [account.address],
-    eth_accounts: () => [account.address],
-    eth_chainId: () => chainHex,
-    net_version: () => String(chainId),
-    wallet_requestPermissions: () => [{ parentCapability: "eth_accounts" }],
-    wallet_getPermissions: () => [{ parentCapability: "eth_accounts" }],
-    wallet_switchEthereumChain: ([{ chainId: wanted }]: [
-      { chainId: string },
-    ]) => {
-      if (Number(wanted) !== chainId) {
-        throw rpcError(
-          UNRECOGNISED_CHAIN,
-          `qa-wallet: only chain ${chainId} is available`,
-        );
-      }
-      return null;
-    },
-    personal_sign: ([message]: [Hex]) =>
-      account.signMessage({ message: { raw: message } }),
-    eth_sign: ([, message]: [Address, Hex]) =>
-      account.signMessage({ message: { raw: message } }),
-    eth_signTypedData_v4: ([, typedData]: [
-      Address,
-      string | TypedDataDefinition,
-    ]) =>
-      signTypedData(
-        typeof typedData === "string" ? JSON.parse(typedData) : typedData,
-      ),
-    eth_sendTransaction: ([tx]: [TransactionParams]) =>
-      needRpc("eth_sendTransaction").sendTransaction({
-        chain: null,
-        to: tx.to,
-        data: tx.data,
-        value: tx.value === undefined ? undefined : BigInt(tx.value),
-        gas: tx.gas === undefined ? undefined : BigInt(tx.gas),
-      }),
-  };
-
-  return async (method, params) => {
-    const local = methods[method];
-    if (local) return local(params as never);
-    return needRpc(method).request({ method, params } as never);
-  };
-}
-
-type TransactionParams = { to?: Address; data?: Hex; value?: Hex; gas?: Hex };
-
-function rpcError(code: number, message: string): Error {
-  return Object.assign(new Error(message), { code });
 }
 
 function toRpcError(error: unknown): RpcFailure {

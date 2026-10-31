@@ -23,10 +23,12 @@ import { type BrowserContext, chromium } from "playwright";
 import type { WalletControls } from "qa-wallet";
 import {
   capture,
+  readSession,
   SESSION_BINDING,
   SESSION_FILE,
   type SessionFile,
   type SessionSaveResult,
+  STEP_TIMEOUT_MS,
   saveState,
   VIEWPORT,
 } from "./index.js";
@@ -37,10 +39,10 @@ const USAGE = `usage: qa-session start <run-dir> [--url <url>] [--storage-state 
 const START_TIMEOUT_MS = 60_000;
 
 type Options = {
-  url: string | null;
-  storageState: string | undefined;
-  chainId: number | null;
-  rpcUrl: string | undefined;
+  url?: string;
+  storageState?: string;
+  chainId?: number;
+  rpcUrl?: string;
   forwardRpc: RegExp[];
 };
 
@@ -105,13 +107,7 @@ async function start(dir: string, args: string[]): Promise<void> {
 }
 
 function parseOptions(args: string[]): Options {
-  const options: Options = {
-    url: null,
-    storageState: undefined,
-    chainId: null,
-    rpcUrl: undefined,
-    forwardRpc: [],
-  };
+  const options: Options = { forwardRpc: [] };
   for (let i = 0; i < args.length; i += 2) {
     const [flag, value] = [args[i], args[i + 1]];
     if (value === undefined) fail(`qa-session: ${flag} needs a value`);
@@ -123,7 +119,7 @@ function parseOptions(args: string[]): Options {
       options.forwardRpc.push(new RegExp(value));
     else fail(`qa-session: unknown option ${flag}\n${USAGE}`);
   }
-  if (options.chainId !== null && !Number.isInteger(options.chainId)) {
+  if (options.chainId !== undefined && !Number.isInteger(options.chainId)) {
     fail("qa-session: --chain-id takes a number");
   }
   return options;
@@ -146,14 +142,14 @@ async function serve(
     viewport: VIEWPORT,
     ...(storageState ? { storageState } : {}),
   });
-  context.setDefaultTimeout(10_000);
+  context.setDefaultTimeout(STEP_TIMEOUT_MS);
   capture(context, path.join(dir, "qa-session-console.log"));
   // The session saves the login, not the probe: over CDP the probe's view of
   // this context reads no cookies.
   const save = async (): Promise<SessionSaveResult> =>
     storageState ? saveState(context, storageState) : { kind: "no-login" };
   const wallet =
-    chainId !== null
+    chainId !== undefined
       ? await walletControls(context, chainId, rpcUrl, forwardRpc)
       : {};
   await exposeControls(context, { saveState: save, ...wallet });
@@ -215,16 +211,13 @@ async function walletControls(
     );
   }
   const { installWallet } = await import("qa-wallet");
-  const wallet = await installWallet(context, {
+  const { rejectNext, waitForReceipt } = await installWallet(context, {
     keyFile,
     rpcUrl,
     chainId,
     forwardRpc,
   });
-  return {
-    rejectNext: (method, options) => wallet.rejectNext(method, options),
-    waitForReceipt: (hash, options) => wallet.waitForReceipt(hash, options),
-  };
+  return { rejectNext, waitForReceipt };
 }
 
 async function stop(dir: string): Promise<void> {
@@ -243,9 +236,7 @@ async function stop(dir: string): Promise<void> {
 
 function runningSession(dir: string): SessionFile | null {
   try {
-    const session: SessionFile = JSON.parse(
-      fs.readFileSync(path.join(dir, SESSION_FILE), "utf8"),
-    );
+    const session = readSession(dir);
     return isAlive(session.pid) ? session : null;
   } catch {
     return null;

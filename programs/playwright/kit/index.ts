@@ -47,6 +47,9 @@ export const SESSION_BINDING = "__qaSession";
 // that has not come is almost always one that will not.
 export const MAX_WAIT_MS = 60_000;
 
+// How long one step of a /qa script waits by default.
+export const STEP_TIMEOUT_MS = 10_000;
+
 /** What `qa-session` writes to SESSION_FILE. */
 export type SessionFile = { endpoint: string; pid: number };
 
@@ -103,7 +106,7 @@ export async function connect(runDir: string): Promise<Session> {
       "qa-kit: the session has no open page; restart it with qa-session",
     );
   }
-  context.setDefaultTimeout(10_000);
+  context.setDefaultTimeout(STEP_TIMEOUT_MS);
   const control = <Op extends keyof SessionControls>(
     op: Op,
     args: Parameters<SessionControls[Op]>,
@@ -135,7 +138,7 @@ export async function connect(runDir: string): Promise<Session> {
   };
 }
 
-function readSession(runDir: string): SessionFile {
+export function readSession(runDir: string): SessionFile {
   const file = path.join(runDir, SESSION_FILE);
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -232,7 +235,7 @@ export async function saveState(
 export async function expectState(
   expected: Locator,
   failures: Record<string, Locator> = {},
-  { timeout = 10_000, reason }: ExpectStateOptions = {},
+  { timeout = STEP_TIMEOUT_MS, reason }: ExpectStateOptions = {},
 ): Promise<ExpectedState> {
   const capped = (timeout === 0 || timeout > MAX_WAIT_MS) && !reason;
   if (capped) {
