@@ -1,4 +1,4 @@
-{ pkgs }:
+{ pkgs, claude }:
 let
   inherit (pkgs) lib;
 
@@ -8,6 +8,20 @@ let
   shellCheck = import ../shell-check { inherit pkgs; };
 
   formatter = import ./formatter.nix { inherit pkgs; };
+
+  typos = import ../typos { inherit pkgs; };
+  yubikey = import ../yubikey-touch-sound { inherit pkgs; };
+
+  # Same text and same shellcheck phase, without building what the text names:
+  # keeping the context builds claude-code and `qa`'s browsers, 2.8 GiB against
+  # 415 MiB, to lint one file nobody runs. Nothing goes unchecked, since the
+  # guards and `qa` have checks of their own. The cost is that a script reached
+  # only through such a reference stays unbuilt, so never use it on those.
+  dry =
+    drv:
+    drv.overrideAttrs (old: {
+      text = builtins.unsafeDiscardStringContext old.text;
+    });
 
   githubSource = lib.fileset.toSource {
     inherit root;
@@ -101,6 +115,20 @@ in
         [ "$status" -eq 0 ]
         touch "$out"
       '';
+
+  # The writeShellApplication derivations no other check builds, so their
+  # shellcheck phase runs without a host. Every flavor is listed through
+  # `claude`, and the statusline's and yubikey's private scripts are reached
+  # through references, which is why those two build for real.
+  shell-embedded = pkgs.linkFarmFromDrvs "shell-embedded" (
+    map dry (claude.packages ++ [ claude.factory.wrapper ])
+    ++ [
+      claude.statusline
+      typos.cli
+      yubikey.ssh
+      yubikey.sshKeygen
+    ]
+  );
 
   # `just format --ci` over the shell and just files alone, so it needs no host
   # and no Nix. treefmt rewrites in place, hence the writable copy.

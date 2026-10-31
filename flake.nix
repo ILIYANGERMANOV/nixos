@@ -161,7 +161,19 @@
             pkgs.emptyFile;
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }
-        // import ./programs/tech-checks { inherit pkgs; }
+        // import ./programs/tech-checks {
+          inherit pkgs;
+          claude = import ./adapters/claude-code.nix {
+            inherit pkgs inputs;
+            root = self;
+            # Synthetic paths, never read, so a wrapper's secret branches are in
+            # the text `shell-embedded` lints.
+            secrets = {
+              figma-token = "/run/secrets/figma-token";
+              qa-sepolia-key = "/run/secrets/qa-sepolia-key";
+            };
+          };
+        }
       );
 
       devShells = lib.forAllSystems (pkgs: {

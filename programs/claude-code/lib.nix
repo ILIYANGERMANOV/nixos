@@ -248,6 +248,7 @@ let
           lib.mapAttrsToList (envVar: path: ''
             if [ ! -f "${path}" ]; then
               echo "Error: MCP server '${serverName}' needs ${path}, which does not exist." >&2
+              # shellcheck disable=SC2312 # A failed hostname costs one word of a fatal message.
               echo "$(hostname -s) declares this secret via myConfig.secrets, so it should be there." >&2
               echo "Check the age key (just darwin-install-age-key) and re-run darwin-rebuild switch." >&2
               exit 1

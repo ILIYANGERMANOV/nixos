@@ -26,6 +26,10 @@ A tech check takes source through `lib.fileset`, evaluates no host and uses no
 import from derivation. That is what keeps a group to seconds, and a commit that
 touches none of its files reuses the store path on the box.
 
+`shell-embedded` is the one that needs flake inputs: `flake.nix` calls
+`adapters/claude-code.nix` and hands the result in, with synthetic secret paths
+so a wrapper's secret branches are linted too. It still evaluates no host.
+
 ## Additive: existing tests stay where they are
 
 Tech checks are ordinary flake checks, so `nix flake check` in `check` builds

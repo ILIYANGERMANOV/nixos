@@ -90,8 +90,8 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
 1. A skill or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`
    and `.#checks.x86_64-linux.typos`, plus `self-improve` when the analyzer under
    its skill changed.
-2. A `programs/<x>` edit: build that program's check - `claude-code` and
-   `claude-bash-guards` for `programs/claude-code`, `nvim-search`,
+2. A `programs/<x>` edit: build that program's check - `claude-code`,
+   `claude-bash-guards` and `shell-embedded` for `programs/claude-code`, `nvim-search`,
    `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
    `playwright` and `qa` (Linux only) for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.

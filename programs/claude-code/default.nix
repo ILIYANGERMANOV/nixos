@@ -166,6 +166,8 @@ let
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
 {
+  inherit statusline;
+
   # One entry per flavor; the attr name is the binary name. Everything is
   # optional - `claude` is the base configuration with nothing added.
   packages = mkClaudeFlavors {
