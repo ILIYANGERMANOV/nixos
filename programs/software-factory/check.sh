@@ -16,20 +16,19 @@ fail() {
   echo "FAIL: $*" >&2
   exit 1
 }
+# Fails with the file that explains why.
+fail_showing() {
+  cat "$1" >&2
+  fail "$2"
+}
 reset() {
   kill_sessions
   rm -rf "$HOME" "$UNITS" "$GH" "$work/ops"
   mkdir -p "$HOME" "$GH"
   : >"$CALLS"
 }
-called() { grep -qxF "$1" "$CALLS" || {
-  cat "$CALLS" >&2
-  fail "expected call: $1"
-}; }
-not_called() { ! grep -qF "$1" "$CALLS" || {
-  cat "$CALLS" >&2
-  fail "unexpected call: $1"
-}; }
+called() { grep -qxF "$1" "$CALLS" || fail_showing "$CALLS" "expected call: $1"; }
+not_called() { ! grep -qF "$1" "$CALLS" || fail_showing "$CALLS" "unexpected call: $1"; }
 active() { [ -e "$UNITS/claude-rc@$1.service" ]; }
 enabled() { grep -qxF "$1" "$HOME/.local/state/factory/enabled" 2>/dev/null; }
 # Runs a command that must fail with exit code $1.
@@ -37,10 +36,7 @@ exits() {
   local want="$1" got=0
   shift
   "$@" >"$work/out" 2>&1 || got=$?
-  [ "$got" -eq "$want" ] || {
-    cat "$work/out" >&2
-    fail "'$*' exited $got, expected $want"
-  }
+  [ "$got" -eq "$want" ] || fail_showing "$work/out" "'$*' exited $got, expected $want"
 }
 
 # A live session: a process with --sdk-url in its command line, working in $1.
@@ -315,10 +311,7 @@ grep -q 'WARNING: the deploy token expires' "$work/out" || fail "no expiry warni
 echo "stats: reports RAM, disk, CPU and uptime"
 factory-ctl stats >"$work/out"
 { grep -q '^RAM ' "$work/out" && grep -q '^Disk ' "$work/out" && grep -q '^CPU ' "$work/out" && grep -Eq '^Up +[0-9]+d' "$work/out"; } ||
-  {
-    cat "$work/out" >&2
-    fail "stats is missing a line"
-  }
+  fail_showing "$work/out" "stats is missing a line"
 
 echo "free-disk: prunes only worktrees that lose nothing, throwaway caches and stale GC roots"
 reset
@@ -508,7 +501,7 @@ deploy_reset
 rm -rf "$work/deploy-tmp"
 mkdir "$work/deploy-tmp"
 touch "$GH/post-fails"
-! TMPDIR="$work/deploy-tmp" timeout 30 factory-deploy >/dev/null 2>&1 || fail "the failed POST did not fail the deploy"
+exits 1 env TMPDIR="$work/deploy-tmp" timeout 30 factory-deploy
 [ "$(grep -c -- '-X POST' "$CALLS")" -le 3 ] || fail "the failure report repeated without end"
 [ -z "$(ls -A "$work/deploy-tmp")" ] || fail "left behind: $(ls -A "$work/deploy-tmp")"
 
@@ -550,10 +543,7 @@ skills_reset() {
 
 status_reports() {
   factory-ctl status >"$work/out"
-  grep -qxF "$1" "$work/out" || {
-    cat "$work/out" >&2
-    fail "status does not report: $1"
-  }
+  grep -qxF "$1" "$work/out" || fail_showing "$work/out" "status does not report: $1"
 }
 
 echo "factory-relink-skills: replaces links a GC left dangling; status counts them, then none"

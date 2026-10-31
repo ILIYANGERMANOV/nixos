@@ -33,7 +33,8 @@ rules live in `programs/shell-check`, shared with `writeShellApplication`.
 
 `shell-embedded` is the one that needs flake inputs: `flake.nix` calls
 `adapters/claude-code.nix` and hands the result in, with synthetic secret paths
-so a wrapper's secret branches are linted too. It still evaluates no host.
+so a wrapper's secret branches are linted too. It still evaluates no host. It
+exists on Linux only, as `llm-agents` has no x86_64-darwin package.
 
 ## Additive: existing tests stay where they are
 

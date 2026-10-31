@@ -23,31 +23,24 @@ let
       text = builtins.unsafeDiscardStringContext old.text;
     });
 
-  githubSource = lib.fileset.toSource {
-    inherit root;
-    fileset = root + "/.github";
-  };
+  source = fileset: lib.fileset.toSource { inherit root fileset; };
 
   # Every shell script in the repository, so a new one is covered by existing.
-  shellSource = lib.fileset.toSource {
-    inherit root;
-    fileset = lib.fileset.fileFilter (file: file.hasExt "sh") root;
-  };
+  shellFiles = lib.fileset.fileFilter (file: file.hasExt "sh") root;
+  justFiles = lib.fileset.unions [
+    (root + "/Justfile")
+    (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
+  ];
 
-  justSource = lib.fileset.toSource {
-    inherit root;
-    fileset = lib.fileset.unions [
-      (root + "/Justfile")
-      (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
-    ];
-  };
-
-  formatSource = lib.fileset.toSource {
-    inherit root;
-    fileset = lib.fileset.fileFilter (
-      file: file.hasExt "sh" || file.hasExt "just" || file.name == "Justfile"
-    ) root;
-  };
+  githubSource = source (root + "/.github");
+  shellSource = source shellFiles;
+  justSource = source justFiles;
+  formatSource = source (
+    lib.fileset.unions [
+      shellFiles
+      justFiles
+    ]
+  );
 in
 {
   # Lints .github/workflows, and through nixpkgs' wrapped shellcheck every
@@ -116,20 +109,6 @@ in
         touch "$out"
       '';
 
-  # The writeShellApplication derivations no other check builds, so their
-  # shellcheck phase runs without a host. Every flavor is listed through
-  # `claude`, and the statusline's and yubikey's private scripts are reached
-  # through references, which is why those two build for real.
-  shell-embedded = pkgs.linkFarmFromDrvs "shell-embedded" (
-    map dry (claude.packages ++ [ claude.factory.wrapper ])
-    ++ [
-      claude.statusline
-      typos.cli
-      yubikey.ssh
-      yubikey.sshKeygen
-    ]
-  );
-
   # `just format --ci` over the shell and just files alone, so it needs no host
   # and no Nix. treefmt rewrites in place, hence the writable copy.
   shell-format =
@@ -146,4 +125,20 @@ in
         fi
         touch "$out"
       '';
+}
+# Linux only: `llm-agents` has no x86_64-darwin package.
+// lib.optionalAttrs pkgs.stdenv.isLinux {
+  # The writeShellApplication derivations no other check builds, so their
+  # shellcheck phase runs without a host. Every flavor is listed through
+  # `claude`, and the statusline's and yubikey's private scripts are reached
+  # through references, which is why those two build for real.
+  shell-embedded = pkgs.linkFarmFromDrvs "shell-embedded" (
+    map dry (claude.packages ++ [ claude.factory.wrapper ])
+    ++ [
+      claude.statusline
+      typos.cli
+      yubikey.ssh
+      yubikey.sshKeygen
+    ]
+  );
 }
