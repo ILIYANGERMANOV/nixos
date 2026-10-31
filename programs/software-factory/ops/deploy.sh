@@ -113,6 +113,9 @@ api() (
       "https://api.github.com$path"
   sed -n 's/^github-authentication-token-expiration: *//Ip' "$tmp/headers" | tr -d '\r' >"$tmp/expires"
   [ ! -s "$tmp/expires" ] || mv "$tmp/expires" "$state_dir/token-expires"
+  # A caller reading the body in `$(...)` runs with -e off: a lost expiry note
+  # must not read as a failed request there.
+  true
 )
 
 main "$@"
