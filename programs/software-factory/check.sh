@@ -503,7 +503,7 @@ deploy_reset
 rm -rf "$work/deploy-tmp"
 mkdir "$work/deploy-tmp"
 touch "$GH/post-fails"
-exits 1 env TMPDIR="$work/deploy-tmp" timeout 30 factory-deploy
+! TMPDIR="$work/deploy-tmp" timeout 30 factory-deploy >/dev/null 2>&1 || fail "the failed POST did not fail the deploy"
 [ "$(grep -c -- '-X POST' "$CALLS")" -le 3 ] || fail "the failure report repeated without end"
 [ -z "$(ls -A "$work/deploy-tmp")" ] || fail "left behind: $(ls -A "$work/deploy-tmp")"
 
