@@ -32,7 +32,7 @@ let
   waitGuard = import ./wait-guard.nix { inherit pkgs; };
   contextGuard = import ./context-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
-  linkSkills = import ../skills-link { inherit pkgs; };
+  linkFarm = import ../farm-link { inherit pkgs; };
 
   model = "opus";
   effortLevel = "medium";
@@ -131,42 +131,75 @@ let
       runtime
       secretFiles
       ;
+    agentFarm = agents.subagents.farm;
   };
 
-  # The skill listing goes out on every call, and most of it was skills an
-  # unattended agent has no use for. name-only drops the description, and the
-  # model can still invoke the skill; user-invocable-only hides it from the
-  # model and keeps /name. Claude.ai's synced skills are keyed with their
-  # anthropic-skills: prefix, bundled ones without.
-  skillOverrides =
-    let
-      synced = map (name: "anthropic-skills:${name}");
-    in
-    lib.genAttrs (synced [
+  # The skill listing goes out on every call, and nothing here was ever invoked
+  # by a factory agent. user-invocable-only hides a skill from the model and
+  # keeps /name. Claude.ai's synced skills are keyed with their anthropic-skills:
+  # prefix, bundled ones without. checks.claude-config fails if a catalog skill
+  # lands on this list.
+  skillOverrides = lib.genAttrs (
+    map (name: "anthropic-skills:${name}") [
+      "built-in-browser"
+      "chrome-browser"
+      "computer-use"
+      "deep-research"
       "docs"
       "docx"
+      "google-workspace"
+      "import-memory"
+      "morning"
+      "pdf"
       "pptx"
+      "skill-creator"
       "xlsx"
-    ]) (_: "name-only")
-    // lib.genAttrs (
-      synced [
-        "built-in-browser"
-        "chrome-browser"
-        "computer-use"
-        "google-workspace"
-        "import-memory"
-        "morning"
-      ]
-      ++ [
-        "keybindings-help"
-        "loop"
-        "schedule"
-      ]
-    ) (_: "user-invocable-only");
+    ]
+    ++ [
+      "claude-api"
+      "code-review"
+      "dataviz"
+      "fewer-permission-prompts"
+      "init"
+      "keybindings-help"
+      "loop"
+      "plugin-authoring"
+      "run"
+      "schedule"
+      "security-review"
+      "simplify"
+      "update-config"
+      "workflow-authoring"
+    ]
+  ) (_: "user-invocable-only");
+
+  # What one kind of agent reads for its work, on top of what every agent
+  # carries, for the size budget: files, by path.
+  budgetLoads =
+    let
+      inherit (agents.skills) all;
+      review = "${all.pragmatic-review}/references";
+    in
+    {
+      review-agent = [
+        "${review}/first-pass.md"
+        "${review}/bar.md"
+        "${review}/blockers.md"
+      ];
+      implementer = [
+        "${all.engineer}/references/implementer.md"
+        "${all.engineering}/SKILL.md"
+      ];
+      researcher = [
+        agents.subagents.all.researcher
+        "${all.researcher}/SKILL.md"
+      ];
+      repo-instructions = [ ../../CLAUDE.md ];
+    };
 
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
-{
+rec {
   # One entry per flavor; the attr name is the binary name. Everything is
   # optional - `claude` is the base configuration with nothing added.
   packages = mkClaudeFlavors {
@@ -217,7 +250,7 @@ in
         extraInstructions = [ ./factory-instructions.md ];
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
-        applySkills = farm: "${lib.getExe linkSkills} ${farm}";
+        applyLinks = dir: farm: "${lib.getExe linkFarm} ${dir} ${farm}";
         # self-improve measures this box's own transcripts; android describes
         # the toolchain only the factory has; 10x-engineer relies on its session
         # tools and unattended rules.
@@ -233,6 +266,10 @@ in
         # budget when an agent crosses it.
         extraSettings = {
           inherit skillOverrides;
+          # The Claude Docs connector, used once ever and paid for on every call.
+          # claude-code-remote is not a connector: Remote Control's bridge
+          # delivers it, so add_repo and subscribe_pr_activity stay.
+          disableClaudeAiConnectors = true;
           hooks.PreToolUse = [
             {
               matcher = "Bash";
@@ -254,6 +291,18 @@ in
       };
     });
     unwrapped = claude-code;
+  };
+
+  # checks.claude-config: this configuration against its size ceilings. See
+  # config-check.nix.
+  check = import ./config-check.nix {
+    inherit pkgs lib;
+    inherit (agents.skills) frontmatter;
+    hiddenSkills = lib.attrNames skillOverrides;
+    skillNames = agents.skills.names;
+    flavors = packages ++ [ factory.wrapper ];
+    loads = budgetLoads;
+    ceilings = ./budget.json;
   };
 
   # Writes the base settings and instructions on every rebuild so both files

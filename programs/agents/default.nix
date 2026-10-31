@@ -7,6 +7,11 @@
 
 let
   skills = import ./skills { inherit pkgs lib externalSrcs; };
+  subagents = import ./subagents {
+    inherit pkgs lib;
+    inherit (skills) frontmatter;
+    skillNames = skills.names;
+  };
 in
 {
   # Agent-agnostic instructions, loaded at user scope by every agent.
@@ -21,9 +26,19 @@ in
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format, even
   # though Claude Code is currently its only consumer.
-  inherit skills;
+  # The subagent definitions. Each agent program installs them its own way.
+  inherit skills subagents;
 
   # Every build-time check over shared agent config, wired into `nix flake check`
-  # as `checks.agents`. Only skills have one today.
-  inherit (skills) check;
+  # as `checks.agents`.
+  check = pkgs.linkFarm "agents-check" [
+    {
+      name = "skills";
+      path = skills.check;
+    }
+    {
+      name = "subagents";
+      path = subagents.check;
+    }
+  ];
 }

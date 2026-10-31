@@ -96,6 +96,14 @@
           # ~/.claude.json structure - against a synthetic catalog and secrets.
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
+          # The real Claude Code configuration: no catalog skill hidden, and
+          # instructions and skill listing under their committed ceilings.
+          claude-config =
+            (import ./adapters/claude-code.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).check;
+
           # The /self-improve transcript analyzer against synthetic transcripts:
           # token dedupe, tool timing, redundant checks, failures and the window.
           self-improve = import ./programs/agents/skills/checks/self-improve.nix { inherit pkgs; };
@@ -154,8 +162,12 @@
           # may collect is otherwise never moved off. The one check that
           # evaluates a host, so `just quick-check` pays for it.
           software-factory-activation =
-            assert pkgs.lib.hasInfix "factory-relink-skills"
-              self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaudeSkills.data;
+            let
+              relink =
+                self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaude.data;
+            in
+            assert pkgs.lib.hasInfix "/factory-relink skills " relink;
+            assert pkgs.lib.hasInfix "/factory-relink agents " relink;
             pkgs.emptyFile;
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }

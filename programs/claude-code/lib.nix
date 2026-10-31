@@ -25,8 +25,8 @@ let
   #   mcpServers        - names from the catalog to activate for this flavor
   #   extraSkills       - skill names this flavor adds to baseSkills
   #   extraInstructions - markdown files appended to baseInstructions
-  #   applySkills       - farm -> shell snippet that links ~/.claude/skills,
-  #                       for a flavor mkApplySkills is not safe for
+  #   applyLinks        - dir -> farm -> shell snippet that links ~/.claude/<dir>,
+  #                       for a flavor mkApplyLinks is not safe for
   #
   # Every flavor also gets `runtime` on PATH and, of `secretFiles` (env var ->
   # secret name), each one this host declares exported as its decrypted
@@ -36,6 +36,7 @@ let
       baseSettings,
       baseSkills,
       baseInstructions,
+      agentFarm,
       mcpCatalog,
       runtime,
       secretFiles,
@@ -56,7 +57,7 @@ let
         mcpServers ? [ ],
         extraSkills ? [ ],
         extraInstructions ? [ ],
-        applySkills ? mkApplySkills,
+        applyLinks ? mkApplyLinks,
       }:
       let
         servers = mcp.selectServers {
@@ -71,7 +72,8 @@ let
           servers
           runtime
           files
-          applySkills
+          agentFarm
+          applyLinks
           ;
         settings = guardSecretFiles (lib.recursiveUpdate baseSettings extraSettings);
         skills = lib.unique (baseSkills ++ extraSkills);
@@ -88,8 +90,8 @@ let
 
   # Builds a named Claude wrapper binary that owns ~/.claude/settings.json,
   # ~/.claude/CLAUDE.md, the mcpServers key in ~/.claude.json, and the
-  # ~/.claude/skills directory for its lifetime. Every invocation resets all four
-  # so switching between flavors is always clean.
+  # ~/.claude/skills and ~/.claude/agents directories for its lifetime. Every
+  # invocation resets all five so switching between flavors is always clean.
   #
   # Security model: secrets are read from sops-nix at invocation time, exported
   # as process env vars, and inherited by Claude Code via exec. ~/.claude.json
@@ -103,7 +105,8 @@ let
       servers,
       runtime,
       files,
-      applySkills,
+      agentFarm,
+      applyLinks,
     }:
     let
       settingsFile = pkgs.writeText "${name}-settings.json" (builtins.toJSON settings);
@@ -118,10 +121,11 @@ let
     pkgs.writeShellApplication {
       inherit name;
       runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
-      passthru = { inherit skillFarm; };
+      passthru = { inherit skillFarm agentFarm instructions; };
       text = ''
         mkdir -p "$HOME/.claude"
-        ${applySkills skillFarm}
+        ${applyLinks "skills" skillFarm}
+        ${applyLinks "agents" agentFarm}
         ${mkApplyInstructions instructions}
         install -m 600 "${settingsFile}" "$HOME/.claude/settings.json"
         ${mkApplyMcp { inherit mcpStaticFile servers; }}
@@ -175,24 +179,23 @@ let
         ]
     ) (lib.unique (map dirOf (lib.attrValues files)));
 
-  # Shell snippet: rebuild ~/.claude/skills from this flavor's farm.
+  # Shell snippet: rebuild ~/.claude/<dir> (skills, agents) from a farm.
   #
   # The directory is replaced wholesale rather than reconciled, so switching
-  # flavors can never leave a stale skill behind. The cost is that anything
-  # hand-placed in ~/.claude/skills is discarded on the next launch — prototype
-  # new skills in a project's .claude/skills instead, then commit them to
-  # programs/agents/skills/custom.
+  # flavors can never leave a stale entry behind. The cost is that anything
+  # hand-placed there is discarded on the next launch — prototype in a project's
+  # .claude/skills or .claude/agents instead, then commit to programs/agents.
   #
-  # Entries are per-skill symlinks into the store rather than one symlink for the
+  # Entries are per-entry symlinks into the store rather than one symlink for the
   # whole directory: per-entry symlinks are what Claude Code documents support for.
-  mkApplySkills =
-    skillFarm:
+  mkApplyLinks =
+    dir: farm:
     ''
-      rm -rf "$HOME/.claude/skills"
+      rm -rf "$HOME/.claude/${dir}"
     ''
-    + lib.optionalString (skillFarm != null) ''
-      mkdir -p "$HOME/.claude/skills"
-      ln -s ${skillFarm}/* "$HOME/.claude/skills/"
+    + lib.optionalString (farm != null) ''
+      mkdir -p "$HOME/.claude/${dir}"
+      ln -s ${farm}/* "$HOME/.claude/${dir}/"
     '';
 
   # Shell snippet: rewrite ~/.claude/CLAUDE.md from the store on every launch.

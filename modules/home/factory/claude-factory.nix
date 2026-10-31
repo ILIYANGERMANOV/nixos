@@ -36,7 +36,7 @@ let
         or (throw "software-factory: the host must declare myConfig.secrets.gh-token for gh");
   };
 
-  relinkSkills = factory.mkRelinkSkills { };
+  relink = factory.mkRelink { };
 
   ctl = factory.mkCtl {
     opsStateDir = "/var/lib/factory-ops";
@@ -97,9 +97,10 @@ in
     playwright.qa
   ];
 
-  # After home.packages, whose generation keeps this farm alive.
-  home.activation.relinkClaudeSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    run ${lib.getExe relinkSkills} ${claude.factory.wrapper.skillFarm}
+  # After home.packages, whose generation keeps these farms alive.
+  home.activation.relinkClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    run ${lib.getExe relink} skills ${claude.factory.wrapper.skillFarm}
+    run ${lib.getExe relink} agents ${claude.factory.wrapper.agentFarm}
   '';
 
   systemd.user.services = {

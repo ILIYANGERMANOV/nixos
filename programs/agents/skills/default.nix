@@ -11,6 +11,7 @@ let
     mergeSources
     mkSkillFarm
     mkCheck
+    frontmatter
     ;
 
   # Third-party skill sets. Each source says where to search and exactly which
@@ -104,5 +105,5 @@ in
 
   # The same validation for skills outside this catalog, such as the factory
   # admin agent's project-scoped ones.
-  inherit mkCheck;
+  inherit mkCheck frontmatter;
 }

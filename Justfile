@@ -66,6 +66,16 @@ quick-check: lint architecture (format "--ci")
     names=$(nix eval --raw ".#checks.$system" --apply 'cs: toString (builtins.attrNames cs)')
     nix build --no-link $(printf ".#checks.$system.%s " $names)
 
+# The ceilings live in programs/claude-code/budget.json; checks.claude-config
+# fails above them.
+#
+# Print instruction, skill listing and per-agent sizes against their ceilings
+skill-budget:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    cat "$(nix build --no-link --print-out-paths ".#checks.$system.claude-config.report")"
+
 # Run all checks (lint + architecture + format + spell + flake check)
 check:
     just lint
