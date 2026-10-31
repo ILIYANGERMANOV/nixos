@@ -122,6 +122,8 @@ The denylist is a plain pattern-per-line file, edited by hand. Anchor every patt
 
 Dependabot splits nix inputs into `nixpkgs-core` (guard-gated), `ai` (agent tooling and skill sources) and `ungrouped` (a catch-all matching everything else), so a nixpkgs rev the guard rejects does not also hold back herdr, llm-agents and the skills, and an input nobody classified still gets updates instead of silently freezing. `ungrouped` restates the other two memberships in `exclude-patterns` because dependabot has no group-reference syntax; keep them in step.
 
+Dependabot's `npm` ecosystem updates `programs/playwright/pnpm-lock.yaml`, except `playwright`, which stays at nixpkgs' version. It cannot update `pnpmDeps.hash`, so `.github/workflows/pnpm-hash.yml` computes it with the base commit's flake, commits it to the Dependabot branch and dispatches `check.yml` there, because a push with `GITHUB_TOKEN` starts no CI.
+
 ## Secrets
 
 **`myConfig.secrets` is the only door to `sops.secrets`. Never write
