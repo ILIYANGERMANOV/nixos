@@ -10,6 +10,7 @@ stored, you read them live.
   briefs/<task>.md
   reports/<task>.md     the worker's: last step, head
   reports/<task>-requirements.md   the worker's, for every review
+  reports/<task>-fixes.md          the worker's, for its re-review
   worktrees/<task>/
 ```
 

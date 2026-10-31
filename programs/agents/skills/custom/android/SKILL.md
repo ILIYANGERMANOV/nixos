@@ -26,11 +26,13 @@ The box has 7.7 GB of memory. `~/.gradle/gradle.properties`
 runs Gradle as one 4 GB JVM with the Kotlin compiler inside it; two Gradle
 daemons running lint at once have run it out of memory.
 
-- Run every Gradle command with `run_in_background`, or in a fresh small
-  agent in the foreground with `timeout: 600000` as `timeout 590 ./gradlew ...`. A cold
-  build downloads dependencies and can take well over 10 minutes. Downloads
-  and finished tasks survive, so on exit 124 run `./gradlew --stop`, then the
-  same command again, until it exits with anything else.
+- Run every Gradle command with `run_in_background`. An agent past about 60k
+  context hands a build over about 4 minutes back. Only a fresh small check
+  agent runs one in the foreground, with `timeout: 600000` as
+  `timeout 590 ./gradlew ...`. A cold build downloads dependencies and can take
+  well over 10 minutes. Downloads and finished tasks survive, so on exit 124
+  run `./gradlew --stop`, then the same command again, until it exits with
+  anything else.
 - One Gradle build at a time, across all your subagents. Never start a second
   `./gradlew` while one runs.
 - Do not raise `-Xmx`, enable `org.gradle.parallel` or start a Kotlin daemon

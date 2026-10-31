@@ -97,14 +97,15 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
   A subagent's background task dies at its hand-back and nothing wakes it, so a
   subagent runs it in the foreground with `timeout: 600000` instead.
 - A subagent's cache lasts 5 minutes, and rewriting a large context costs far
-  more than a small one. So an agent past about 150k tokens never waits on a
-  check expected over about 4 minutes: it commits, pushes if the branch is
+  more than a small one. So an agent past about 60k tokens never runs a check
+  expected over about 4 minutes itself: it commits, pushes if the branch is
   pushed, and hands back naming the check. Its caller spawns a fresh small agent
   to run it, and a failure goes to a fresh fixer.
 - Foreground Bash caps at 10 minutes. If a check may pass that and a rerun
-  resumes it, the subagent runs it under `timeout 590` and reruns it on exit
-  124, since the wait guard blocks waiting on a log. If no rerun resumes it, it
-  hands back and the top-level agent runs it with `run_in_background`.
+  resumes it, the fresh small check agent runs it under `timeout 590` and
+  reruns it on exit 124, since the wait guard blocks waiting on a log. If no
+  rerun resumes it, it hands back and the top-level agent runs it with
+  `run_in_background`.
 - Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
   as `.{0,250}` as too complex.
 

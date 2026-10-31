@@ -3,6 +3,10 @@
 import json
 from pathlib import Path
 
+# Past this context an agent hands a long check back: a wait over the 5 minute
+# cache costs more in rewrites than a fresh small agent running the check.
+CHECK_HANDBACK_AT = 60_000
+
 
 def own_transcript(event: dict) -> Path:
     """The transcript of the agent that made the call.

@@ -2,10 +2,11 @@
 
 Reads the hook input from stdin and the agent's own transcript, whose assistant
 lines carry the context each call sent. It compares the newest call with the
-one before, so it needs no state and speaks only when the context crosses a
-line: once at WARN_AT, at STOP_AT, then every STOP_STEP past it. Calls sent
-together share a message and may each repeat the notice. The hook only talks:
-blocking tools here would also block the commit and the push the notice asks
+last one before it that ran a tool, the last the hook saw, so it needs no state,
+loses no crossing on a text-only reply, and speaks only when the context crosses
+a line: once at CHECK_HANDBACK_AT, at STOP_AT, then every STOP_STEP past it.
+Calls sent together share a message and may each repeat the notice. The hook
+only talks: blocking tools here would also block the commit and the push the notice asks
 for. Everything else, including any input this script does not understand,
 prints nothing and exits 0: the guard fails open.
 """
@@ -15,17 +16,16 @@ import os
 import sys
 from pathlib import Path
 
-from transcripts import own_transcript, parse_line
+from transcripts import CHECK_HANDBACK_AT, own_transcript, parse_line
 
-WARN_AT = 150_000
 STOP_AT = 220_000
 STOP_STEP = 10_000
 # Enough for two calls unless a single result is larger, which only costs the
 # comparison: the newest call then counts as a crossing.
 TAIL_BYTES = 256 * 1024
 WARN = (
-    "Context {size}k, budget {stop}k: stop there. Until then, never wait on a "
-    "check over about 4 minutes: commit, push and hand back naming it."
+    "Context {size}k, budget {stop}k: stop there. From here, never run a check "
+    "over about 4 minutes yourself: commit, push and hand back naming it."
 )
 STOP = (
     "Context {size}k, over the {stop}k budget: stop now. Commit, push, hand back "
@@ -53,21 +53,29 @@ def main() -> None:
 
 
 def recent_contexts(path: Path) -> list[int]:
-    """The context of each call in the file's tail, newest first.
+    """The newest call's context, then each older one that ran a tool, newest first.
 
     One message spans a line per content block, each with the same usage.
     """
     contexts: dict[str, int] = {}
+    ran_tool: set[str] = set()
     for line in reversed(tail_lines(path)):
         match parse_line(line):
             case {
                 "type": "assistant",
-                "message": {"id": message_id, "usage": usage},
+                "message": {"id": message_id, "usage": usage} as message,
             } if context(usage) > 0:
                 contexts.setdefault(message_id, context(usage))
+                if runs_tool(message):
+                    ran_tool.add(message_id)
             case _:
                 pass
-    return list(contexts.values())
+    newest, older = list(contexts)[:1], list(contexts)[1:]
+    return [contexts[call] for call in newest + [c for c in older if c in ran_tool]]
+
+
+def runs_tool(message: dict) -> bool:
+    return any(block.get("type") == "tool_use" for block in message.get("content", []))
 
 
 def tail_lines(path: Path) -> list[bytes]:
@@ -102,7 +110,7 @@ def notice(previous: int, current: int) -> str | None:
 
 def band(size: int) -> int:
     """0 under budget, 1 warned, 2 and up one per STOP_STEP past STOP_AT."""
-    if size < WARN_AT:
+    if size < CHECK_HANDBACK_AT:
         return 0
     if size < STOP_AT:
         return 1

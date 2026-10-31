@@ -223,9 +223,10 @@ send the final report: merged, parked and why, rulings to look at, follow-ups.
 - Children of a later wave branch from the epic.
 - After the last child, open the final PR to `main` with `pr-description`. It
   lists every `Closes #n`, since issues auto-close only on the default branch.
-  Give it a ledger row and a worktree, so a fixer can rebase it. It then runs
-  sections 7 to 9 like any PR: the user reviews it and approves. Its queue entry
-  summarises per child: PR link, what, rulings, QA.
+  Give it a ledger row and a worktree, so a fixer can rebase it. Join the merged
+  children's requirements files into its `reports/<task>-requirements.md`. It
+  then runs sections 7 to 9 like any PR: the user reviews it and approves. Its
+  queue entry summarises per child: PR link, what, rulings, QA.
 - A parked child holds the final PR. Escalate once, as an open decision: retry
   it, ship the rest as a partial final PR, or drop the child. A partial final PR
   leaves the parked child's issues out of `Closes`.

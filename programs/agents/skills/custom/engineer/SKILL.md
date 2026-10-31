@@ -117,8 +117,8 @@ irreversible damage, broken code); every other row goes in `## Follow-ups`.
 Never reply to the review agent with an action.
 
 Pass 1 is a first review. Write its requirements once to
-`/tmp/engineer-<PR>/requirements.md` and give every pass `--requirements <path>`,
-never a list. They are the acceptance criteria plus what must hold where you
+`/tmp/engineer-<owner>-<repo>-<PR>/requirements.md` and give every pass
+`--requirements <path>`, never a list. They are the acceptance criteria plus what must hold where you
 are least sure of the implementation; the plan's decisions and out-of-scope
 list go with them as assumptions, in your words, so a deliberately skipped edge
 case is not raised. A `Security-sensitive:` line adds the requirement
@@ -127,9 +127,9 @@ Record its `Reviewed head` and its requirement verdicts.
 
 ### 8. Review again, for the last time
 
-Pass 2 is a re-review: copy the requirements file to `fixes.md` beside it,
-append "finding N is fixed: <the row's What and Impact>" to the copy for each
-row you had fixed, then invoke `pragmatic-review` with `--fixes <the pass-1
+Pass 2 is a re-review: copy the requirements file beside it, with `fixes` for
+`requirements` in its name (`<task>-fixes.md` under a brief), append "finding N
+is fixed: <the row's What and Impact>" to the copy for each row you had fixed, then invoke `pragmatic-review` with `--fixes <the pass-1
 Reviewed head>` and the copy. /final-review gets the original. A requirement it answers "unchanged" keeps its
 pass-1 verdict. A fix that changed an interface, a data model or an auth flow
 gets a first review of the whole branch instead, as in step 7. No more reviews

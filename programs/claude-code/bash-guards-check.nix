@@ -180,6 +180,7 @@ pkgs.runCommand "claude-bash-guards-check"
     echo "$guard:"
     expect 2 "a long sleep is blocked" "sleep 30"
     grep -q "run_in_background" "$TMPDIR/err" || { echo "  ✗ the block carries the hint" >&2; status=1; }
+    grep -q "about 60k context" "$TMPDIR/err" || { echo "  ✗ the hint carries the hand-back line" >&2; status=1; }
     expect 2 "a sleep with a unit is blocked" "sleep 1m"
     expect 2 "a long sleep after another command is blocked" "nix build && sleep 600; cat log"
     expect 2 "an until loop around a sleep is blocked" "until [ -f x ]; do sleep 5; done"
@@ -217,6 +218,9 @@ pkgs.runCommand "claude-bash-guards-check"
     expect 2 "a nested bash -c keeps its flake reference apart" "bash -c \"bash -c 'nix build .#foo; sleep 30'\""
     expect 2 "an until around a bash -c condition is blocked" "until bash -c 'test -f x'; do sleep 5; done"
     expect 2 "a while around a wrapped condition is blocked" "while timeout 60 bash -c 'pgrep foo'; do sleep 2; done"
+    expect 2 "a long sleep under nohup is blocked" "nohup sleep 30"
+    expect 2 "a poll under env is blocked" "env -i A=1 bash -c 'until [ -f x ]; do sleep 5; done'"
+    expect 2 "a long sleep under command is blocked" "command sleep 30"
     expect 2 "tail -f is blocked" "tail -f build.log"
     expect 2 "tail -F is blocked" "tail -F build.log"
     expect 2 "tail --follow is blocked" "tail --follow build.log"
@@ -277,13 +281,19 @@ pkgs.runCommand "claude-bash-guards-check"
     expect_agent 2 "a second read of the same checks is blocked" "gh pr checks 7"
     grep -q "never waits on CI" "$TMPDIR/err" || { echo "  ✗ the block carries the CI hint" >&2; status=1; }
     expect_agent 2 "a second read with other flags is blocked" "gh pr checks 7 --json state"
+    expect_agent 2 "a repeated read behind a value flag is blocked" "gh pr checks --repo o/r 7"
     expect_agent 0 "another pull request's checks are allowed" "gh pr checks 8"
+    expect_agent 0 "another pull request behind a value flag is allowed" "gh pr checks --repo o/r 8"
+    expect_agent 0 "another pull request behind a value flag with = is allowed" "gh pr checks --repo=o/r 8"
     expect_agent 0 "a repeated command that is not CI is allowed" "git status"
     agent=fresh
     bash_line "gh pr checks 7" now >"$session/subagents/agent-fresh.jsonl"
     expect_agent 0 "a first read is allowed, though the transcript holds the call itself" "gh pr checks 7"
     expect_agent 0 "a log read is allowed" "gh run view 12 --log-failed | rg error"
     expect_agent 0 "a one-shot run status is allowed" "gh run view 12"
+    expect_agent 0 "a status read after a loop is allowed" "for f in a b; do ls \"\$f\"; done; gh pr checks 7"
+    expect_agent 0 "a status read after a loop around bash -c is allowed" "until bash -c 'a; b'; do ls; done; gh pr checks 7"
+    expect_agent 0 "watch over something else is allowed" "watch -n 30 ls"
     expect_agent 2 "gh pr checks --watch is blocked" "gh pr checks 7 --watch"
     expect_agent 2 "gh pr checks --watch in the background is blocked" "gh pr checks 7 --watch" true
     expect_agent 2 "gh run watch is blocked" "gh run watch 12"
@@ -291,7 +301,20 @@ pkgs.runCommand "claude-bash-guards-check"
     expect_agent 2 "gh run watch in nix develop is blocked" "nix develop -c bash -c 'gh run watch 12'"
     expect_agent 2 "a polling loop in the background is blocked" "until gh pr checks 7; do sleep 30; done" true
     expect_agent 2 "a for loop over a read is blocked" "for i in 1 2 3; do gh run view 12; sleep 30; done" true
-    expect_agent 2 "a log read in a loop is blocked" "while true; do gh run view 12 --log; done" true
+    expect_agent 2 "a read after a sleep in a loop body is blocked" "while true; do sleep 30; gh pr checks 7; done" true
+    expect_agent 2 "a read deep in a for body is blocked" "for i in 1 2; do ls; gh pr checks 7; done"
+    expect_agent 2 "a read deep in an until body is blocked" "until false; do ls; gh run list; done" true
+    expect_agent 2 "a read in a loop in bash -c is blocked" "bash -c 'while true; do sleep 30; gh pr checks 7; done'" true
+    expect_agent 2 "a read in bash -c in a loop is blocked" "while true; do sleep 30; bash -c 'gh pr checks 7'; done" true
+    expect_agent 2 "a read after an inner loop of an outer one is blocked" "while true; do for i in 1; do ls; done; gh pr checks 7; done" true
+    expect_agent 0 "a finite loop over failed logs is allowed" "for r in 12 13; do gh run view \"\$r\" --log-failed | rg error; done"
+    expect_agent 0 "a loop in the background over a log is allowed" "while read r; do gh run view \"\$r\" --log; done < runs" true
+    expect_agent 2 "watch over a read is blocked" "watch gh pr checks 7"
+    expect_agent 2 "watch with an interval is blocked" "watch -n 30 'gh pr checks 7'"
+    expect_agent 2 "watch under timeout in the background is blocked" "timeout 300 watch -n 30 gh run list" true
+    expect_agent 2 "gh run watch under env is blocked" "env A=1 gh run watch 12"
+    expect_agent 2 "gh pr checks --watch under nohup is blocked" "nohup gh pr checks 7 --watch"
+    expect_agent 2 "gh run watch under command is blocked" "command gh run watch 12"
     expect_agent 2 "two reads in one command are blocked" "gh pr checks 7; sleep 5; gh pr checks 7"
     expect_agent 0 "reads of two pull requests in one command are allowed" "gh pr checks 7; gh pr checks 8"
     agent=missing
@@ -306,10 +329,11 @@ pkgs.runCommand "claude-bash-guards-check"
 
     guard=claude-context-guard
     echo "$guard:"
-    # An assistant line of a call that sent $2 input and $3 cache read tokens.
+    # An assistant line of a call that sent $2 input and $3 cache read tokens,
+    # with one block of type $4, by default a tool call.
     usage_line() {
-      jq -cn --arg i "$1" --argjson n "$2" --argjson r "$3" \
-        '{type: "assistant", message: {id: $i, usage: {input_tokens: $n, cache_read_input_tokens: $r, cache_creation_input_tokens: 500}}}'
+      jq -cn --arg i "$1" --argjson n "$2" --argjson r "$3" --arg b "''${4:-tool_use}" \
+        '{type: "assistant", message: {id: $i, content: [{type: $b}], usage: {input_tokens: $n, cache_read_input_tokens: $r, cache_creation_input_tokens: 500}}}'
     }
     two_calls() {
       usage_line a 100 "$1"
@@ -333,10 +357,10 @@ pkgs.runCommand "claude-bash-guards-check"
     file=$session.jsonl
     two_calls 1000 2000 >"$file"
     expect_notice "" "under the budget it says nothing"
-    two_calls 148000 150000 >"$file"
-    expect_notice "Context 150k" "crossing 150k warns"
-    two_calls 150000 151000 >"$file"
-    expect_notice "" "staying past 150k says nothing"
+    two_calls 58000 60000 >"$file"
+    expect_notice "Context 60k" "crossing 60k warns"
+    two_calls 60000 61000 >"$file"
+    expect_notice "" "staying past 60k says nothing"
     two_calls 218000 220000 >"$file"
     expect_notice "stop now" "crossing 220k says stop"
     two_calls 220000 221000 >"$file"
@@ -345,19 +369,25 @@ pkgs.runCommand "claude-bash-guards-check"
     expect_notice "stop now" "another 10k past the budget says stop again"
     two_calls 230000 90000 >"$file"
     expect_notice "" "a compacted context says nothing"
-    { usage_line a 100 148000; usage_line b 100 150000; usage_line b 100 150000; } >"$file"
-    expect_notice "Context 150k" "a message of several lines counts as one call"
-    { usage_line a 100 150000; usage_line b 100 150000; usage_line c 0 0 | sed 's/500/0/'; } >"$file"
+    { usage_line a 100 58000; usage_line b 100 60000; usage_line b 100 60000; } >"$file"
+    expect_notice "Context 60k" "a message of several lines counts as one call"
+    { usage_line a 100 60000; usage_line b 100 60000; usage_line c 0 0 | sed 's/500/0/'; } >"$file"
     expect_notice "" "an empty synthetic call is skipped"
-    usage_line b 100 150000 >"$file"
-    expect_notice "Context 150k" "a first call past the line warns"
-    { usage_line a 100 148000; usage_line b 100 150000; echo '{"type":"assis'; } >"$file"
-    expect_notice "Context 150k" "a partial last line is skipped"
+    usage_line b 100 60000 >"$file"
+    expect_notice "Context 60k" "a first call past the line warns"
+    { usage_line a 100 58000; usage_line b 100 60000; echo '{"type":"assis'; } >"$file"
+    expect_notice "Context 60k" "a partial last line is skipped"
+    { usage_line a 100 58000; usage_line t 100 60000 text; usage_line b 100 61000; } >"$file"
+    expect_notice "Context 61k" "a crossing on a text-only reply warns at the next call"
+    { usage_line a 100 61000; usage_line t 100 62000 text; usage_line b 100 63000; } >"$file"
+    expect_notice "" "a text-only reply past the line repeats nothing"
+    { usage_line a 100 58000; usage_line b 100 60000 text; usage_line b 100 60000; usage_line c 100 61000; } >"$file"
+    expect_notice "" "a call's text block does not hide its tool call"
     agent=deep
     two_calls 1000 1000 >"$file"
-    two_calls 148000 150000 >"$session/subagents/agent-deep.jsonl"
-    expect_notice "Context 150k" "a subagent is judged on its own transcript"
-    two_calls 148000 150000 >"$file"
+    two_calls 58000 60000 >"$session/subagents/agent-deep.jsonl"
+    expect_notice "Context 60k" "a subagent is judged on its own transcript"
+    two_calls 58000 60000 >"$file"
     two_calls 1000 1000 >"$session/subagents/agent-deep.jsonl"
     expect_notice "" "a subagent is not judged on the parent's transcript"
     agent=gone
