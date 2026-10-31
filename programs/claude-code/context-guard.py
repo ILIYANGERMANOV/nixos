@@ -91,12 +91,13 @@ def context(usage: dict) -> int:
 def notice(previous: int, current: int) -> str | None:
     """What to say when the context moved from previous to current."""
     match (band(previous) < band(current), band(current)):
-        case (False, _) | (True, 0):
+        case (False, _):
             return None
         case (True, 1):
-            return WARN.format(size=current // 1000, stop=STOP_AT // 1000)
+            template = WARN
         case _:
-            return STOP.format(size=current // 1000, stop=STOP_AT // 1000)
+            template = STOP
+    return template.format(size=current // 1000, stop=STOP_AT // 1000)
 
 
 def band(size: int) -> int:

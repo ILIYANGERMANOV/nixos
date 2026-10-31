@@ -103,8 +103,8 @@ class Response:
 
     usage: Usage
     skill: str | None
-    at: float = 0.0  # its first line
-    calls: list[ToolCall] = field(default_factory=list)
+    at: float  # its first line
+    calls: list[ToolCall]
 
 
 @dataclass(frozen=True)
@@ -202,9 +202,9 @@ class Agent:
     def peak_context(self) -> int:
         return max((r.usage.context for r in self.responses), default=0)
 
-    @property
-    def effective(self) -> float:
-        return self.usage.effective
+
+def effective(agents: Iterable[Agent]) -> float:
+    return total(a.usage for a in agents).effective
 
 
 @dataclass(frozen=True)
@@ -444,6 +444,7 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
     responses: dict[str, Response] = {}
     calls: dict[str, ToolCall] = {}
     response_calls: dict[str, list[ToolCall]] = defaultdict(list)
+    response_starts: dict[str, float] = {}
     previous: float | None = None
     for event in read_jsonl(path):
         ts = parse_time(event.get("timestamp"))
@@ -455,9 +456,11 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
         match event.get("type"):
             case "assistant":
                 key = message.get("id") or event.get("requestId") or f"line-{len(responses)}"
-                first = responses[key].at if key in responses else ts
                 responses[key] = Response(
-                    to_usage(message.get("usage") or {}), event.get("attributionSkill"), first, response_calls[key]
+                    to_usage(message.get("usage") or {}),
+                    event.get("attributionSkill"),
+                    response_starts.setdefault(key, ts),
+                    response_calls[key],
                 )
                 for block in blocks(content):
                     if block.get("type") == "tool_use":
@@ -953,13 +956,8 @@ class Wait(Enum):
 
 @dataclass(frozen=True)
 class Rewrite:
-    agent: Agent
-    usage: Usage
+    cost: float
     wait: Wait
-
-    @property
-    def cost(self) -> float:
-        return self.usage.cache_creation * CACHE_WRITE_WEIGHT
 
 
 def cache_rewrites(agent: Agent) -> Iterator[Rewrite]:
@@ -968,7 +966,7 @@ def cache_rewrites(agent: Agent) -> Iterator[Rewrite]:
     for before, response in pairwise(agent.responses):
         usage = response.usage
         if response.at - before.at > life and usage.cache_creation > usage.context * REWRITE_SHARE:
-            yield Rewrite(agent, usage, wait_of(before.calls))
+            yield Rewrite(usage.cache_creation * CACHE_WRITE_WEIGHT, wait_of(before.calls))
 
 
 def wait_of(calls: list[ToolCall]) -> Wait:
@@ -1142,7 +1140,7 @@ def summary(sessions: list[Session]) -> str:
 
 
 def sessions_table(sessions: list[Session]) -> str:
-    ranked = sorted(sessions, key=lambda s: -sum(a.effective for a in s.agents))
+    ranked = sorted(sessions, key=lambda s: -effective(s.agents))
     rows = [
         [
             s.id[:8],
@@ -1155,7 +1153,7 @@ def sessions_table(sessions: list[Session]) -> str:
             kilo(s.main.peak_context),
             tokens(total(a.usage for a in s.subagents)),
             str(len(s.subagents)),
-            kilo(sum(a.effective for a in s.agents)),
+            kilo(effective(s.agents)),
         ]
         for s in ranked[:12]
     ]
@@ -1167,18 +1165,18 @@ def agent_types(agents: list[tuple[Session, Agent]]) -> str:
     groups: dict[str, list[Agent]] = defaultdict(list)
     for _, agent in agents:
         groups[agent.kind].append(agent)
-    ranked = sorted(groups.items(), key=lambda kv: -sum(a.effective for a in kv[1]))
+    ranked = sorted(groups.items(), key=lambda kv: -effective(kv[1]))
     rows = [
-        [kind, str(len(group)), str(sum(len(a.responses) for a in group)), tokens(total(a.usage for a in group)), kilo(max(a.peak_context for a in group)), kilo(sum(a.effective for a in group))]
+        [kind, str(len(group)), str(sum(len(a.responses) for a in group)), tokens(total(a.usage for a in group)), kilo(max(a.peak_context for a in group)), kilo(effective(group))]
         for kind, group in ranked
     ]
     return section("Tokens by agent type", ["type", "agents", "API calls", "tokens", "peak context", "effective"], rows, len(rows))
 
 
 def costliest_agents(agents: list[tuple[Session, Agent]]) -> str:
-    subs = sorted(((s, a) for s, a in agents if a.kind != "main"), key=lambda sa: -sa[1].effective)
+    subs = sorted(((s, a) for s, a in agents if a.kind != "main"), key=lambda sa: -sa[1].usage.effective)
     rows = [
-        [s.id[:8], a.kind, clip(a.description, 50), tokens(a.usage), kilo(a.peak_context), str(len(a.responses)), kilo(a.effective)]
+        [s.id[:8], a.kind, clip(a.description, 50), tokens(a.usage), kilo(a.peak_context), str(len(a.responses)), kilo(a.usage.effective)]
         for s, a in subs[:TOP]
     ]
     return section("Costliest subagents", ["session", "type", "description", "tokens", "peak context", "API calls", "effective"], rows, len(subs))
@@ -1200,9 +1198,9 @@ def loop_steps(sessions: list[Session]) -> str:
         groups[LoopStep.ORCHESTRATOR].append((s, s.main))
         for agent, step in steps_of(s):
             groups[step].append((s, agent))
-    ranked = sorted(groups.items(), key=lambda kv: -sum(a.effective for _, a in kv[1]))
+    ranked = sorted(groups.items(), key=lambda kv: -effective(a for _, a in kv[1]))
     rows = [
-        [step.value, str(len(group)), str(len({s.id for s, _ in group})), tokens(total(a.usage for _, a in group)), minutes(sum(a.wall for _, a in group)), kilo(sum(a.effective for _, a in group))]
+        [step.value, str(len(group)), str(len({s.id for s, _ in group})), tokens(total(a.usage for _, a in group)), minutes(sum(a.wall for _, a in group)), kilo(effective(a for _, a in group))]
         for step, group in ranked
     ]
     return section("Loop steps", ["step", "agents", "sessions", "tokens", "agent wall", "effective"], rows, len(rows))
@@ -1210,18 +1208,16 @@ def loop_steps(sessions: list[Session]) -> str:
 
 def cache_rewrites_section(sessions: list[Session]) -> str:
     agents = [(s, a) for s in sessions for a in s.agents]
-    rewrites = [(s, r) for s, a in agents for r in cache_rewrites(a)]
-    spent = sum(a.effective for _, a in agents)
-    cost = sum(r.cost for _, r in rewrites)
+    rewriters = [(s, a, found) for s, a in agents if (found := list(cache_rewrites(a)))]
+    rewrites = [r for _, _, group in rewriters for r in group]
+    spent = effective(a for _, a in agents)
+    cost = sum(r.cost for r in rewrites)
     share = f"{100 * cost / spent:.0f}%" if spent else "0%"
-    by_wait = [[wait.value, *rewrite_cells([r for _, r in rewrites if r.wait is wait])] for wait in Wait]
-    groups: dict[tuple[str, str], list[Rewrite]] = defaultdict(list)
-    for s, r in rewrites:
-        groups[s.id, r.agent.id].append(r)
-    ranked = sorted(groups.items(), key=lambda kv: -sum(r.cost for r in kv[1]))
+    by_wait = [[wait.value, *rewrite_cells([r for r in rewrites if r.wait is wait])] for wait in Wait]
+    ranked = sorted(rewriters, key=lambda rewriter: -sum(r.cost for r in rewriter[2]))
     by_agent = [
-        [sid[:8], group[0].agent.kind, clip(group[0].agent.description, 50), *rewrite_cells(group)]
-        for (sid, _), group in ranked[:TOP_REWRITERS]
+        [s.id[:8], a.kind, clip(a.description, 50), *rewrite_cells(group)]
+        for s, a, group in ranked[:TOP_REWRITERS]
     ]
     return "\n\n".join(
         [

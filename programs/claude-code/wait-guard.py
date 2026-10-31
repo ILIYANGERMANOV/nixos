@@ -97,14 +97,14 @@ def polls_ci(command: str, earlier: Iterable[str]) -> bool:
         LOOP_BODY & set(keywords) and kind is not CiRead.NONE
         for (keywords, _), kind in zip(commands, kinds)
     )
-    statuses = [
-        status_key(words)
-        for (_, words), kind in zip(commands, kinds)
-        if kind is CiRead.STATUS
-    ]
+    statuses = status_reads(commands)
     if CiRead.WATCH in kinds or looped or len(set(statuses)) < len(statuses):
         return True
-    return bool(statuses) and not status_keys(earlier).isdisjoint(statuses)
+    return bool(statuses) and any(
+        status in statuses
+        for earlier_command in earlier
+        for status in status_reads(parsed(earlier_command))
+    )
 
 
 def ci_read(words: list[str]) -> CiRead:
@@ -122,19 +122,18 @@ def ci_read(words: list[str]) -> CiRead:
             return CiRead.NONE
 
 
+def status_reads(commands: list[tuple[list[str], list[str]]]) -> list[tuple[str, ...]]:
+    return [
+        status_key(words)
+        for _, words in commands
+        if ci_read(words) is CiRead.STATUS
+    ]
+
+
 def status_key(words: list[str]) -> tuple[str, ...]:
     """What a status read asks about: its subcommand and first operand."""
     operands = [word for word in words[3:] if not word.startswith("-")]
     return (*words[:3], *operands[:1])
-
-
-def status_keys(commands: Iterable[str]) -> set[tuple[str, ...]]:
-    return {
-        status_key(words)
-        for command in commands
-        for _, words in parsed(command)
-        if ci_read(words) is CiRead.STATUS
-    }
 
 
 def parsed(command: str) -> list[tuple[list[str], list[str]]]:
