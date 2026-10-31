@@ -68,9 +68,10 @@ quick-check: lint architecture (format "--ci") (_build-checks ".*")
 tech NAME: (_build-checks (NAME + "-.*"))
 
 # Builds this system's checks whose name matches `pattern`. Matching nothing
-# fails: a typo in a group name must not pass with nothing built. `-L` and
-# `--keep-going` report every failure whole: nix's own tail stops at 25 lines,
-# and `log-lines` is a setting only trusted users may change.
+# fails: a typo in a group name must not pass with nothing built. A pass prints
+# no build log. A failure prints nix's errors with each tail swapped for the
+# whole `nix log`: `-L` would also print the passing logs, and `log-lines` is a
+# setting only trusted users may change.
 [private]
 _build-checks pattern:
     #!/usr/bin/env bash
@@ -79,7 +80,13 @@ _build-checks pattern:
     names=$(nix eval --raw ".#checks.$system" --apply \
       'cs: toString (builtins.filter (n: builtins.match "{{ pattern }}" n != null) (builtins.attrNames cs))')
     [ -n "$names" ] || { echo "no checks match {{ pattern }} on $system" >&2; exit 1; }
-    nix build --no-link --keep-going -L $(printf ".#checks.$system.%s " $names)
+    errors=$(mktemp)
+    trap 'rm -f "$errors"' EXIT
+    nix build --no-link --keep-going --quiet $(printf ".#checks.$system.%s " $names) 2>"$errors" || {
+      sed '/Last [0-9]* log lines:/,/^ *nix log \/nix\/store/d' "$errors" >&2
+      for drv in $(sed -n 's/^ *nix log //p' "$errors"); do nix log "$drv" >&2; done
+      exit 1
+    }
     echo "All good ($(wc -w <<<"$names"))"
 
 # Run all checks (lint + architecture + format + spell + flake check)
