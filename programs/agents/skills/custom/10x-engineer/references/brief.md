@@ -52,7 +52,7 @@ Security-sensitive: <topics, or none>
 - Repo: <owner>/<repo>
 - Base branch: <main or epic/<name>>
 - Worktree: <absolute path>; every command uses it, by `git -C` or an absolute
-  path. Never touch `~/repos/<repo>`.
+  path, and every `gh` command by `--repo <owner>/<repo>`. Never touch `~/repos/<repo>`.
 - Repo rules: read the worktree's `CLAUDE.md` or `AGENTS.md` and follow them.
 - Issues: <#n each, closed by `Closes #n` in the PR body, or none>
 - Existing PR: <URL and the step to start from, or none>
@@ -76,7 +76,7 @@ Security-sensitive: <topics, or none>
 
 ```text
 <the data line from SKILL.md's Rules>
-Invoke `engineer`. You are delegated: your brief is <path>. Read it first and
+Quality: <the task's>. Invoke `engineer`. You are delegated: your brief is <path>. Read it first and
 follow the skill's `## Delegated` section.
 ```
 

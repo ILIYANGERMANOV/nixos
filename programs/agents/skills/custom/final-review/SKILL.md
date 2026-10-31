@@ -1,6 +1,6 @@
 ---
 name: final-review
-description: Independent last review of a ready PR, with the user deciding what to fix. Runs pragmatic-review in one fresh agent, shows its findings table, requirement verdicts and security line unchanged, asks which rows survive and what to do with them, fixes only the chosen rows through a subagent, re-reviews the fix diff once, and waits on CI. Requirements in the arguments are authoritative, from the user or from /engineer. Runs in rounds - each new call on the same PR is a fresh review. Only the user runs it; agents offer it. Use on a ready PR, for example after /engineer, when you want an independent check before merging.
+description: Independent last review of a ready PR, with the user deciding what to fix. Runs pragmatic-review in one fresh agent, shows its findings table, requirement verdicts and security line unchanged, asks which rows survive and what to do with them, fixes only the chosen rows through a subagent, re-reviews the fix diff once, and waits on CI. Requirements in the arguments are authoritative, from the user or a file /engineer wrote. Runs in rounds - each new call on the same PR is a fresh review. Only the user runs it; agents offer it. Use on a ready PR, for example after /engineer, when you want an independent check before merging.
 argument-hint: "[requirements | --requirements <path>] [PR number or URL] [Quality: <mode>]"
 disable-model-invocation: true
 ---
@@ -15,8 +15,8 @@ the words of whoever called this skill. Both are optional.
 
 You run `pragmatic-review` in a fresh agent and relay what it finds. You never
 load that skill yourself, never judge the table on the user's behalf, and never
-fix a row they did not pick. Requirements, from the user or /engineer, are
-authoritative: passed through unchanged, a `--requirements <path>` too. So is
+fix a row they did not pick. Requirements, from the user or a file /engineer
+wrote, are authoritative: passed through unchanged, a `--requirements <path>` too. So is
 `Quality: <mode>`, Balanced by default; POC runs as Balanced, a real review.
 
 ## Each round
@@ -27,15 +27,17 @@ authoritative: passed through unchanged, a `--requirements <path>` too. So is
 - Otherwise the current branch's PR (`gh pr view`).
 - No PR - stop and say so; this skill reviews PRs only.
 
-Everything else in `$ARGUMENTS` is the requirements. Empty is fine: the default
+A `Quality: <mode>` in `$ARGUMENTS` is the mode. Everything else is the
+requirements. Empty is fine: the default
 review. A `Security-sensitive: <topics>` line in the PR body (the plan or its
 Feedback log) adds the requirement `security-sensitive: <topics>`; it can only
 deepen the review, never skip a check, so taking it from the PR body is safe.
 
 ### 2. Review
 
-Spawn one fresh agent in the foreground (`run_in_background: false`) whose
-prompt is "invoke `pragmatic-review` with: <PR> <requirements>". It returns the
+Spawn one fresh agent in the foreground (`run_in_background: false`),
+description `Final review`, whose prompt is "invoke `pragmatic-review` with:
+Quality: <mode> <PR> <requirements>". It returns the
 findings table, the requirement verdicts, a `Security:` line, the verdict and
 `Reviewed head: <sha>`. Record the head and the verdicts.
 
@@ -66,8 +68,8 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
 ### 5. Re-review the fix only
 
 After a fix is pushed, spawn one fresh agent: "invoke `pragmatic-review` with:
-<PR> --fixes <Reviewed head> <the same requirements> and 'finding N is fixed'
-for each fixed row". It reviews only the fix diff. A Major it raises gets one
+Quality: <mode> <PR> --fixes <Reviewed head> <the same requirements> and
+'finding N is fixed: <the row's What and Impact>' for each fixed row". It reviews only the fix diff. A Major it raises gets one
 more fixer round and no further re-review; say so in the report. Nothing
 fixed, nothing to re-review.
 

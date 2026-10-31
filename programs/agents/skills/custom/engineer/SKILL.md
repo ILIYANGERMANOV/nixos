@@ -63,7 +63,8 @@ failure modes, what is out of scope. Fold in research results as they land.
 
 Unless told, ask Quality first with one `AskUserQuestion`, Balanced recommended.
 Show the plan in a few lines: goals, the approach, decisions, out of scope,
-Quality. Ask with one `AskUserQuestion` whether it matches the user's understanding
+Quality. A POC touching a `Security-sensitive` topic says it gets no DEEP
+review. Ask with one `AskUserQuestion` whether it matches the user's understanding
 ("Yes, build it (Recommended)" / "No, adjust"). On "adjust", take the
 correction and ask again. Done when the user confirms.
 
@@ -93,8 +94,8 @@ any security-sensitive topic an implementer reports to the plan's line.
 
 ### 6. Refactor
 
-Spawn a fresh agent whose prompt is "invoke `refactor` on the branch", so its
-reading stays out of your context. Keep only its hand-back. Balanced: skip
+Spawn a fresh agent whose prompt is "invoke `refactor` with: Quality: <mode>",
+so its reading stays out of your context. Keep only its hand-back. Balanced: skip
 this step below about 100 changed lines. POC: one quick pass, never skipped.
 
 ### 7. Review
@@ -126,9 +127,10 @@ Record its `Reviewed head` and its requirement verdicts.
 
 ### 8. Review again, for the last time
 
-Pass 2 is a re-review: append "finding N is fixed" to the requirements file for
-each row you had fixed, then invoke `pragmatic-review` with `--fixes <the pass-1
-Reviewed head>` and that file. A requirement it answers "unchanged" keeps its
+Pass 2 is a re-review: copy the requirements file to `fixes.md` beside it,
+append "finding N is fixed: <the row's What and Impact>" to the copy for each
+row you had fixed, then invoke `pragmatic-review` with `--fixes <the pass-1
+Reviewed head>` and the copy. /final-review gets the original. A requirement it answers "unchanged" keeps its
 pass-1 verdict. A fix that changed an interface, a data model or an auth flow
 gets a first review of the whole branch instead, as in step 7. No more reviews
 after this one, whatever it finds.
@@ -154,7 +156,7 @@ The PR stays a labelled draft, not merge-ready, with no offers.
 - Make sure the final state got one full check when your instructions'
   Checks rules call for it (a large change, or a project that always wants
   one): brief the last fixer to run it before its push, or run it in a fresh
-  agent when the final fix changed nothing. Otherwise CI is the full check.
+  agent when the final fix changed nothing or the fixer hands it back. Otherwise CI is the full check.
 - Wait for CI the non-blocking way your instructions describe. Fix CI
   failures through a subagent, and wait again.
 - When CI is green and the change touches UI, ask with one `AskUserQuestion`
@@ -189,7 +191,8 @@ rest of this skill.
 
 - Read the brief first. Start at step 4, on its base branch and in its worktree:
   the worktree exists, so skip the branching and open the draft PR with
-  `--repo <repo> --head <branch> --base <base>`. A brief naming an open PR skips
+  `--repo <repo> --head <branch> --base <base>`, and give both POC label
+  commands `--repo <repo>`. A brief naming an open PR skips
   step 4 and starts at the step it names.
 - Run steps 5-9 as written, with every agent in the foreground (`run_in_background: false`). You are a subagent: you wait
   for what you spawned, and ending your turn is your hand-back.

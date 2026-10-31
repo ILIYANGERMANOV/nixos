@@ -37,7 +37,8 @@ HINT = (
     "run_in_background and wait for its task notification, never polling its "
     "output; to wait for a condition, use the Monitor tool. A subagent's "
     "background task dies at its hand-back, so a subagent runs the long command "
-    "itself in the foreground with timeout 600000."
+    "in the foreground with timeout 600000. Past about 150k context, a check "
+    "over about 4 minutes is not yours: commit, push and hand back naming it."
 )
 CI_HINT = (
     "Blocked: a subagent never waits on CI. Hand back now and your caller waits "

@@ -40,11 +40,12 @@ leaks data, and burying one real bug under twelve opinions.
 - **`Quality: <mode>`** - your instructions define it; `first-pass.md` and
   `fixes.md` branch on it.
 - **`--requirements <path>`** - a file holding the requirements, the form every
-  calling agent uses, with the "finding N is fixed" lines appended over passes.
-  Read it once.
+  calling agent uses; a re-review's adds the "finding N is fixed" lines. Read
+  it once.
 - **Requirements** - anything else, usually a bracketed list, one per bullet or
   line; *tips* is a synonym. On a re-review the caller passes the first review's
-  requirements again, plus "finding N is fixed" for each row it fixed.
+  requirements again, plus "finding N is fixed: <the row's What and Impact>"
+  for each row it fixed.
 
 Anything the user says must hold, including in a reply to your question, is a
 requirement. No requirements - nothing, an empty string, `no requirements` - is
@@ -87,12 +88,12 @@ diff; a pre-existing one gets one line under the table and does not block.
 `first-pass.md` sets how deep it digs: the sensitive tier gets a DEEP blockers
 agent that loads, on demand, the topic references the diff matches (CI, auth,
 database, secrets) plus common attacks. A `security-sensitive: <topics>`
-requirement forces DEEP and those topics.
+requirement forces DEEP and those topics, except at POC.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
 `engineering` or `ui-coding`, DRY included, is a finding, judged on the rule
 quoted verbatim. It is Minor, unless the bar makes it a Major **data-model
-violation**.
+violation**. Balanced checks this only on the diffs `first-pass.md` names.
 
 ## The flow
 
@@ -113,7 +114,7 @@ whole return aims for 350 words and never passes 400, and its last line is
 
 **The table.** Skip it entirely when nothing survived - no empty table, no
 placeholder. Otherwise number the rows and sort by severity, Major then Minor
-then Nit. Mark a row from a requirement agent 🔍: it cleared a lower bar. A
+then Nit. Mark a row from a requirement 🔍: it cleared a lower bar. A
 house-rule row names its rule - "`engineering`: prefer SUM types over nullable
 fields". A row rated from an answer to an intent question says so.
 

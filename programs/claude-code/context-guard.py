@@ -24,8 +24,8 @@ STOP_STEP = 10_000
 # comparison: the newest call then counts as a crossing.
 TAIL_BYTES = 256 * 1024
 WARN = (
-    "Context {size}k, budget {stop}k: finish this step, then commit, push and "
-    "hand back a short note so a fresh agent continues."
+    "Context {size}k, budget {stop}k: stop there. Until then, never wait on a "
+    "check over about 4 minutes: commit, push and hand back naming it."
 )
 STOP = (
     "Context {size}k, over the {stop}k budget: stop now. Commit, push, hand back "

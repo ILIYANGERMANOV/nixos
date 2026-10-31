@@ -28,8 +28,8 @@ Breakdown confirmed: <yes, when>
 
 ## Tasks
 
-| Task | Repo | Wave | Deps | Base | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Merge-safe heads |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Task | Repo | Wave | Deps | Base | Quality | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Merge-safe heads |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 ## Pre-flight
 

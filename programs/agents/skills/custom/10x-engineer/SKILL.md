@@ -171,8 +171,10 @@ gates; do not invoke that skill.
    `${CLAUDE_SKILL_DIR}/references/brief.md`, then wait again. A fixer that
    cannot fix it is a failed try.
 3. Green on a POC task: it stays a labelled draft and never reaches the queue or
-   the merge loop. `parked POC <PR URL>`, notify. Retrying it at a higher
-   Quality is the user's call.
+   the merge loop. `parked POC <PR URL>`, notify. A task depending on it opens
+   one decision: retry it or re-plan. Retrying it at a higher Quality is the
+   user's call: remove the `POC` label, then a fresh engineer from its PR at
+   step 6.
 4. Green with QA yes and no result yet: state `qa`, send a ready `/qa <PR URL>`
    line for a fresh session, push it, and wait for the user's result. A Fail
    goes to the user. QA no: go on. Never offer to run the app: run it only when

@@ -42,10 +42,11 @@ Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
 agent may lower or raise it for a subtask. A skill's text is Max: it names only
 what Balanced and POC change, and no branch means as written.
 
-- **POC**: prove the idea cheaply. One quick refactor and one quick review, then
-  a PR labelled `POC`, not merge-ready and never auto-merged.
-- **Balanced** (default): fewer review agents and one fix pass. Security depth
-  stays.
+- **POC**: prove the idea cheaply. One quick refactor and one quick review with
+  no DEEP security pass, then a PR labelled `POC`, not merge-ready and never
+  auto-merged.
+- **Balanced** (default): fewer review agents, a fix pass, one `--fixes`
+  re-review and one final small fix. Security depth stays.
 - **Max**: every step.
 
 ## Subagents
@@ -85,7 +86,7 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
   build or evaluation logic, many modules, or code with tests beyond the
   targeted ones. The orchestrator owns that: it hands the duty to the last
   agent to push, or runs it in a fresh agent when the last pass changed
-  nothing. Rerun it only after a code edit, never after a docs-only edit.
+  nothing or that agent hands it back. Rerun it only after a code edit, never after a docs-only edit.
   CI has the final say.
 - A project's own instructions win where they are stricter, such as one
   that runs its full check on the final state of every change.
@@ -95,11 +96,15 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
   A subagent's background task dies at its hand-back and nothing wakes it, so a
   subagent runs it in the foreground with `timeout: 600000` instead.
-- A check expected over about 4 minutes runs in a fresh small agent: a
-  subagent's cache lasts 5 minutes, and rewriting a large context costs far
-  more than a small one. Foreground Bash caps at 10 minutes, so if the check may
-  pass that and a rerun resumes it, the small agent runs it under `timeout 590`
-  and reruns it on exit 124, since the wait guard blocks waiting on a log.
+- A subagent's cache lasts 5 minutes, and rewriting a large context costs far
+  more than a small one. So an agent past about 150k tokens never waits on a
+  check expected over about 4 minutes: it commits, pushes if the branch is
+  pushed, and hands back naming the check. Its caller spawns a fresh small agent
+  to run it, and a failure goes to a fresh fixer.
+- Foreground Bash caps at 10 minutes. If a check may pass that and a rerun
+  resumes it, the subagent runs it under `timeout 590` and reruns it on exit
+  124, since the wait guard blocks waiting on a log. If no rerun resumes it, it
+  hands back and the top-level agent runs it with `run_in_background`.
 - Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
   as `.{0,250}` as too complex.
 
