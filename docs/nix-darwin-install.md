@@ -155,7 +155,7 @@ Paste the key when prompted and press **Ctrl-D on a new line** to finish. The re
 
 ```bash
 sudo nix run --extra-experimental-features 'nix-command flakes' \
-  'github:nix-darwin/nix-darwin/nix-darwin-25.11#darwin-rebuild' \
+  --inputs-from . nix-darwin#darwin-rebuild \
   -- switch --flake .#macos-main
 ```
 
@@ -166,7 +166,7 @@ sudo nix run --extra-experimental-features 'nix-command flakes' \
 
 **Why `--extra-experimental-features`?** `sudo` drops your user environment. Passing the flag inline enables flakes without relying on your user's `nix.conf`.
 
-**Why pin the branch?** The `flake.nix` pins nix-darwin to `nix-darwin-25.11` to match `nixpkgs/nixos-25.11`. Using the unversioned `github:nix-darwin/nix-darwin` fetches the current default branch, which may be a newer release — nix-darwin enforces a hard version match and aborts if they differ.
+**Why `--inputs-from .`?** It takes nix-darwin from this repo's `flake.lock`, so the bootstrap cannot drift from `flake.nix`. The unversioned `github:nix-darwin/nix-darwin` fetches the current default branch, which may be a newer release - nix-darwin enforces a hard version match and aborts if they differ.
 
 > [!NOTE]
 > The build downloads a large number of packages on first run. Expect 5–20 minutes depending on your connection.
@@ -345,14 +345,14 @@ Then re-run the bootstrap.
 ### nix-darwin / nixpkgs version mismatch
 
 ```
-error: You are currently using nix-darwin 26.05 with Nixpkgs 25.11.
+error: You are currently using nix-darwin 26.11 with Nixpkgs 26.05.
 ```
 
 The `nix-darwin` input in `flake.nix` is missing a branch pin and picked up a newer release. Ensure the branch matches the nixpkgs branch:
 
 ```nix
 nix-darwin = {
-  url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
+  url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 ```

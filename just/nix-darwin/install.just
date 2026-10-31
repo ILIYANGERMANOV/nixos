@@ -16,7 +16,7 @@ darwin-backup-etc:
 # Bootstrap nix-darwin for the first time on a machine (run after darwin-set-hostname and darwin-backup-etc).
 darwin-bootstrap $host:
     sudo nix run --extra-experimental-features 'nix-command flakes' \
-      'github:nix-darwin/nix-darwin/nix-darwin-25.11#darwin-rebuild' \
+      --inputs-from . nix-darwin#darwin-rebuild \
       -- switch --flake ".#$host"
 
 # Paste the key from Bitwarden, then press Ctrl-D on a new line. It is written
