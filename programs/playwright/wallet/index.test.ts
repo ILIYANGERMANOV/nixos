@@ -286,12 +286,6 @@ describe("forwardRpc", () => {
       /forwardRpc needs an rpcUrl/,
     );
   });
-
-  test("needs a target that can route", async () => {
-    await expect(installed({ rpcUrl: RPC_URL, forwardRpc })).rejects.toThrow(
-      /needs a BrowserContext or Page/,
-    );
-  });
 });
 
 describe("the key", () => {

@@ -73,9 +73,8 @@ const UNRECOGNISED_CHAIN = 4902;
 /** Either a BrowserContext (every page) or a Page (that page only). */
 export type WalletTarget = Pick<
   BrowserContext,
-  "exposeFunction" | "addInitScript"
-> &
-  Partial<Pick<BrowserContext, "route">>;
+  "exposeFunction" | "addInitScript" | "route"
+>;
 
 export type WalletRpc =
   /** Offline: only accounts, chain and signing requests work. */
@@ -334,9 +333,6 @@ async function forwardTo(
 ): Promise<void> {
   // WalletRpc rules this out, but a /qa script is plain JavaScript.
   if (!rpcUrl) throw new Error("qa-wallet: forwardRpc needs an rpcUrl");
-  if (!target.route) {
-    throw new Error("qa-wallet: forwardRpc needs a BrowserContext or Page");
-  }
   const forward = async (route: Route) => {
     const request = route.request();
     const wanted = new URL(request.url()).searchParams.get("chainId");

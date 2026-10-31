@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { chromium } from "playwright";
-import { expectState, MAX_WAIT_MS } from "qa-kit";
+import { expectState, MAX_WAIT_MS, readSession, SESSION_FILE } from "qa-kit";
 import { generatePrivateKey } from "viem/accounts";
 import {
   DISCOVERY_SCRIPT,
@@ -473,7 +473,7 @@ async function checkSession(): Promise<void> {
 
   assert.match((await run("qa-session", ["stop", runDir])).stdout, /stopped/);
   assert.ok(
-    !fs.existsSync(path.join(runDir, "qa-session.json")),
+    !fs.existsSync(path.join(runDir, SESSION_FILE)),
     "stop left the session file",
   );
   assert.throws(
@@ -509,7 +509,7 @@ async function checkSessionRejectsWalletFlags(): Promise<void> {
 // leak it.
 async function checkSessionRefusesCorruptFile(): Promise<void> {
   const runDir = path.join(work, "corrupt-run");
-  const file = path.join(runDir, "qa-session.json");
+  const file = path.join(runDir, SESSION_FILE);
   fs.mkdirSync(runDir);
   fs.writeFileSync(file, '{"endpoint":"http://127');
   for (const command of ["stop", "start"]) {
@@ -519,10 +519,9 @@ async function checkSessionRefusesCorruptFile(): Promise<void> {
 }
 
 function sessionPid(runDir: string): number {
-  const { pid }: { pid: number } = JSON.parse(
-    fs.readFileSync(path.join(runDir, "qa-session.json"), "utf8"),
-  );
-  return pid;
+  const session = readSession(runDir);
+  assert.ok(session, "no session is running");
+  return session.pid;
 }
 
 // Serves `html` on loopback; the first response waits `firstResponseDelayMs`.
