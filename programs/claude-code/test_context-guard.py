@@ -5,7 +5,14 @@ import os
 from pathlib import Path
 from typing import cast
 
-from guard_harness import ALLOWED, Case, guard_cases, run_guard
+from guard_harness import (
+    ALLOWED,
+    Case,
+    agent_fields,
+    guard_cases,
+    run_guard,
+    session_with,
+)
 
 GUARD = os.environ["CONTEXT_GUARD"]
 
@@ -117,33 +124,6 @@ RAW_CASES: list[Case[str]] = [
 ]
 
 
-def notice(session: Path, agent: str | None = None) -> str:
-    """What the guard tells `agent`, or the main agent, after a call."""
-    identity = {} if agent is None else {"agent_id": agent}
-    event = {
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Bash",
-        "transcript_path": str(session),
-    }
-    stdout = run_guard([GUARD], json.dumps(event | identity)).stdout
-    return additional_context(stdout) if stdout else SILENT
-
-
-def additional_context(stdout: str) -> str:
-    output = cast("dict[str, dict[str, str]]", json.loads(stdout))
-    return output["hookSpecificOutput"]["additionalContext"]
-
-
-def session_with(root: Path, main: str, subagents: dict[str, str]) -> Path:
-    """Writes the transcripts in Claude Code's layout. Returns the main one."""
-    (root / "session/subagents").mkdir(parents=True)
-    for agent, lines in subagents.items():
-        _ = (root / f"session/subagents/agent-{agent}.jsonl").write_text(lines)
-    path = root / "session.jsonl"
-    _ = path.write_text(main)
-    return path
-
-
 @guard_cases(NOTICE_CASES)
 def test_notice(tmp_path: Path, want: str, given: str) -> None:
     assert want in notice(session_with(tmp_path, given, {}))
@@ -179,3 +159,19 @@ def test_a_missing_transcript_says_nothing(tmp_path: Path) -> None:
     session = session_with(tmp_path, two_calls(148000, 150000), {})
 
     assert notice(session, "gone") == SILENT
+
+
+def notice(session: Path, agent: str | None = None) -> str:
+    """What the guard tells `agent`, or the main agent, after a call."""
+    event = {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "transcript_path": str(session),
+    }
+    stdout = run_guard([GUARD], json.dumps(event | agent_fields(agent))).stdout
+    return additional_context(stdout) if stdout else SILENT
+
+
+def additional_context(stdout: str) -> str:
+    output = cast("dict[str, dict[str, str]]", json.loads(stdout))
+    return output["hookSpecificOutput"]["additionalContext"]

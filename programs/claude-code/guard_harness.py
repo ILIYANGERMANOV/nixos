@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 from collections.abc import Mapping
+from pathlib import Path
 
 import pytest
 
@@ -49,11 +50,30 @@ def run_guard(
 
 def bash_event(command: str, *, background: bool = False, **fields: str) -> str:
     """The JSON Claude Code sends a PreToolUse hook for a Bash call."""
-    return json.dumps(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Bash",
-            "tool_input": {"command": command, "run_in_background": background},
-        }
-        | fields
-    )
+    tool_input = {"command": command, "run_in_background": background}
+    return tool_event("Bash", tool_input, **fields)
+
+
+def tool_event(tool: str, tool_input: Mapping[str, object], **fields: str) -> str:
+    """The JSON Claude Code sends a PreToolUse hook."""
+    event: dict[str, object] = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool,
+        "tool_input": tool_input,
+    }
+    return json.dumps(event | fields)
+
+
+def agent_fields(agent: str | None) -> dict[str, str]:
+    """What a hook event adds for a subagent. `None` is the main agent."""
+    return {} if agent is None else {"agent_id": agent}
+
+
+def session_with(root: Path, main: str, subagents: Mapping[str, str]) -> Path:
+    """Writes the transcripts in Claude Code's layout. Returns the main one."""
+    (root / "session/subagents").mkdir(parents=True)
+    for agent, lines in subagents.items():
+        _ = (root / f"session/subagents/agent-{agent}.jsonl").write_text(lines)
+    path = root / "session.jsonl"
+    _ = path.write_text(main)
+    return path

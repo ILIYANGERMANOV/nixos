@@ -49,12 +49,10 @@ class Transcript:
     """Builds one agent's JSONL transcript; times are seconds after BASE."""
 
     cwd: str = "/home/dev/repos/demo"
-    parent: str | None = (
-        None  # a subagent's spawning Agent call, as its meta.json names it
-    )
-    parent_agent: str | None = (
-        None  # the subagent that spawned this one, as its meta.json names it
-    )
+    # A subagent's spawning Agent call, as its meta.json names it.
+    parent: str | None = None
+    # The subagent that spawned this one, as its meta.json names it.
+    parent_agent: str | None = None
     lines: list[JsonObject] = field(default_factory=list)
     calls: int = 0
 

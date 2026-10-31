@@ -3,7 +3,6 @@
 `$DIR` in a table is the project, `$HOME` the home holding its skills.
 """
 
-import json
 import os
 import subprocess
 from collections.abc import Iterator
@@ -19,6 +18,7 @@ from guard_harness import (
     bash_event,
     guard_cases,
     run_guard,
+    tool_event,
 )
 
 GUARD = os.environ["READ_GUARD"]
@@ -285,15 +285,41 @@ class Project:
         self, file_path: str, tool_input: ToolInput
     ) -> subprocess.CompletedProcess[str]:
         return self.decide(
-            json.dumps(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "Read",
-                    "tool_input": {"file_path": self.expand(file_path), **tool_input},
-                    "cwd": str(self.root),
-                }
+            tool_event(
+                "Read",
+                {"file_path": self.expand(file_path), **tool_input},
+                cwd=str(self.root),
             )
         )
+
+
+@guard_cases(BASH_CASES)
+def test_bash_call(project: Project, want: int, given: str) -> None:
+    assert project.bash(given).returncode == want
+
+
+@guard_cases(READ_CASES)
+def test_read_call(project: Project, want: int, given: tuple[str, ToolInput]) -> None:
+    assert project.read(*given).returncode == want
+
+
+@guard_cases(RAW_CASES + FAIL_OPEN_CASES)
+def test_raw_input(project: Project, want: int, given: str) -> None:
+    assert project.decide(given).returncode == want
+
+
+def test_a_bash_block_carries_the_hint(project: Project) -> None:
+    result = project.bash("cat big-a big-b")
+
+    assert result.returncode == BLOCKED
+    assert "grep -n first" in result.stderr
+
+
+def test_a_read_block_carries_the_hint(project: Project) -> None:
+    result = project.read("$DIR/huge", {})
+
+    assert result.returncode == BLOCKED
+    assert "offset and limit" in result.stderr
 
 
 @pytest.fixture(scope="module")
@@ -371,32 +397,3 @@ def commit(root: Path, *paths: str) -> None:
         "-m",
         "init",
     )
-
-
-@guard_cases(BASH_CASES)
-def test_bash_call(project: Project, want: int, given: str) -> None:
-    assert project.bash(given).returncode == want
-
-
-@guard_cases(READ_CASES)
-def test_read_call(project: Project, want: int, given: tuple[str, ToolInput]) -> None:
-    assert project.read(*given).returncode == want
-
-
-@guard_cases(RAW_CASES + FAIL_OPEN_CASES)
-def test_raw_input(project: Project, want: int, given: str) -> None:
-    assert project.decide(given).returncode == want
-
-
-def test_a_bash_block_carries_the_hint(project: Project) -> None:
-    result = project.bash("cat big-a big-b")
-
-    assert result.returncode == BLOCKED
-    assert "grep -n first" in result.stderr
-
-
-def test_a_read_block_carries_the_hint(project: Project) -> None:
-    result = project.read("$DIR/huge", {})
-
-    assert result.returncode == BLOCKED
-    assert "offset and limit" in result.stderr

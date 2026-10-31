@@ -10,9 +10,11 @@ from guard_harness import (
     BLOCKED,
     FAIL_OPEN_CASES,
     Case,
+    agent_fields,
     bash_event,
     guard_cases,
     run_guard,
+    session_with,
 )
 
 GUARD = os.environ["WAIT_GUARD"]
@@ -438,51 +440,6 @@ RAW_CASES: list[Case[str]] = [
 ]
 
 
-@pytest.fixture(scope="module")
-def session(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The main transcript, with one read of checks by main, by `polled` and by `fresh`.
-
-    `polled` read twice: the transcript holds a call the moment its hook runs,
-    so its second line, `now`, is the call under test, and `old` the earlier one.
-    """
-    root = tmp_path_factory.mktemp("session")
-    subagents = root / "session/subagents"
-    subagents.mkdir(parents=True)
-    read = "gh pr checks 7"
-    _ = (subagents / "agent-polled.jsonl").write_text(
-        bash_line(read, "old") + bash_line(read, "now")
-    )
-    _ = (subagents / "agent-fresh.jsonl").write_text(bash_line(read, "now"))
-    main = root / "session.jsonl"
-    _ = main.write_text(bash_line(read, "old"))
-    return main
-
-
-def bash_line(command: str, use_id: str) -> str:
-    """An assistant transcript line with one Bash call."""
-    call = {
-        "type": "tool_use",
-        "id": use_id,
-        "name": "Bash",
-        "input": {"command": command},
-    }
-    message = {"id": use_id, "content": [call]}
-    return json.dumps({"type": "assistant", "message": message}) + "\n"
-
-
-def agent_call(
-    session: Path, agent: str | None, command: str, *, background: bool = False
-) -> str:
-    identity = {} if agent is None else {"agent_id": agent}
-    return bash_event(
-        command,
-        background=background,
-        tool_use_id="now",
-        transcript_path=str(session),
-        **identity,
-    )
-
-
 @guard_cases(FOREGROUND_CASES)
 def test_foreground_call(want: int, given: str) -> None:
     assert run_guard([GUARD], bash_event(given)).returncode == want
@@ -524,3 +481,45 @@ def test_a_repeated_read_says_a_subagent_never_waits_on_ci(session: Path) -> Non
 
     assert result.returncode == BLOCKED
     assert "never waits on CI" in result.stderr
+
+
+@pytest.fixture(scope="module")
+def session(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The main transcript, with one read of checks by main, by `polled` and by `fresh`.
+
+    `polled` read twice: the transcript holds a call the moment its hook runs,
+    so its second line, `now`, is the call under test, and `old` the earlier one.
+    """
+    read = "gh pr checks 7"
+    return session_with(
+        tmp_path_factory.mktemp("session"),
+        bash_line(read, "old"),
+        {
+            "polled": bash_line(read, "old") + bash_line(read, "now"),
+            "fresh": bash_line(read, "now"),
+        },
+    )
+
+
+def bash_line(command: str, use_id: str) -> str:
+    """An assistant transcript line with one Bash call."""
+    call = {
+        "type": "tool_use",
+        "id": use_id,
+        "name": "Bash",
+        "input": {"command": command},
+    }
+    message = {"id": use_id, "content": [call]}
+    return json.dumps({"type": "assistant", "message": message}) + "\n"
+
+
+def agent_call(
+    session: Path, agent: str | None, command: str, *, background: bool = False
+) -> str:
+    return bash_event(
+        command,
+        background=background,
+        tool_use_id="now",
+        transcript_path=str(session),
+        **agent_fields(agent),
+    )
