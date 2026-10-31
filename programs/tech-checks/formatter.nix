@@ -25,26 +25,28 @@ pkgs.treefmt.withConfig {
   settings = {
     # treefmt warns by default, too loud for a repo where most files have no formatter.
     on-unmatched = "info";
-    formatter.nixfmt = {
-      command = "nixfmt";
-      includes = [ "*.nix" ];
-    };
-    formatter.shfmt = {
-      command = "shfmt";
-      options = [
-        "-i"
-        "2"
-        "-ci"
-        "-w"
-      ];
-      includes = [ "*.sh" ];
-    };
-    formatter.just = {
-      command = "just-format-each";
-      includes = [
-        "Justfile"
-        "*.just"
-      ];
+    formatter = {
+      nixfmt = {
+        command = "nixfmt";
+        includes = [ "*.nix" ];
+      };
+      shfmt = {
+        command = "shfmt";
+        options = [
+          "-i"
+          "2"
+          "-ci"
+          "-w"
+        ];
+        includes = [ "*.sh" ];
+      };
+      just = {
+        command = "just-format-each";
+        includes = [
+          "Justfile"
+          "*.just"
+        ];
+      };
     };
   };
 }
