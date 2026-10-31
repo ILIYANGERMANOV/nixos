@@ -93,7 +93,7 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
    the analyzer under its skill changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code`,
    `python-tests` and `shell-embedded` for `programs/claude-code`, `nvim-search`,
-   `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
+   `nvim-typescript`, `nvim-kotlin` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
    `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
    `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
@@ -131,6 +131,8 @@ Both branches fast-forward along `release-26.05`, but different Hydra jobsets ad
 The denylist is a plain pattern-per-line file, edited by hand. Anchor every pattern with `^`: unanchored, `go-1\.` also matches car`go-1.9`6.1-aarch64-apple-darwin, which herdr's rust-overlay toolchain builds every time. The recipe self-tests its own pipeline against a synthetic plan before trusting a real one, because both of its failure modes report a bad plan as clean.
 
 Dependabot splits nix inputs into `nixpkgs-core` (guard-gated), `ai` (agent tooling and skill sources) and `ungrouped` (a catch-all matching everything else), so a nixpkgs rev the guard rejects does not also hold back herdr, llm-agents and the skills, and an input nobody classified still gets updates instead of silently freezing. `ungrouped` restates the other two memberships in `exclude-patterns` because dependabot has no group-reference syntax; keep them in step.
+
+Dependabot's `npm` ecosystem updates `programs/playwright/pnpm-lock.yaml`, except `playwright`, which stays at nixpkgs' version. It cannot update `pnpmDeps.hash`, so `.github/workflows/pnpm-hash.yml` computes it with the base commit's flake, commits it to the Dependabot branch and dispatches `check.yml` there, because a push with `GITHUB_TOKEN` starts no CI.
 
 ## Secrets
 

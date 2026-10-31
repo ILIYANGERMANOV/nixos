@@ -5,13 +5,13 @@ _:
     {
       mode = "n";
       key = "<leader>tt";
-      action = "<cmd>lua _G.SmartRun('test')<CR>";
+      action = ''<cmd>lua _G.SmartRun("test")<CR>'';
       options.desc = "Run Tests (context-aware)";
     }
     {
       mode = "n";
       key = "<leader>oi";
-      action = "<cmd>lua _G.SmartRun('organize-imports')<CR>";
+      action = ''<cmd>lua _G.SmartRun("organize-imports")<CR>'';
       options.desc = "Organize Imports (context-aware)";
     }
   ];

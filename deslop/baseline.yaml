@@ -14,6 +14,10 @@
   + "/SKILL.md"
 - architecture#lib-is-private-to-the-flake#programs/software-factory/default#unresolved#builtins.readFile
   script
+- architecture#lib-is-private-to-the-flake#programs/tech-checks/lua#unresolved#builtins.readFile
+  file
+- architecture#lib-is-private-to-the-flake#programs/tech-checks/lua#unresolved#import
+  file
 - architecture#nixos-is-not-darwin#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
 - architecture#nixos-is-not-darwin#programs/agents/skills/lib#unresolved#dir + "/${name}"
@@ -32,6 +36,10 @@
   + "/SKILL.md"
 - architecture#nothing-imports-the-flake#programs/software-factory/default#unresolved#builtins.readFile
   script
+- architecture#nothing-imports-the-flake#programs/tech-checks/lua#unresolved#builtins.readFile
+  file
+- architecture#nothing-imports-the-flake#programs/tech-checks/lua#unresolved#import
+  file
 - architecture#only-lib-assembles-hosts#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
 - architecture#only-lib-assembles-hosts#programs/agents/skills/lib#unresolved#dir
@@ -42,6 +50,10 @@
   + "/SKILL.md"
 - architecture#only-lib-assembles-hosts#programs/software-factory/default#unresolved#builtins.readFile
   script
+- architecture#only-lib-assembles-hosts#programs/tech-checks/lua#unresolved#builtins.readFile
+  file
+- architecture#only-lib-assembles-hosts#programs/tech-checks/lua#unresolved#import
+  file
 - architecture#programs-are-host-agnostic#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
 - architecture#programs-are-host-agnostic#programs/agents/skills/lib#unresolved#dir
@@ -52,6 +64,10 @@
   + "/SKILL.md"
 - architecture#programs-are-host-agnostic#programs/software-factory/default#unresolved#builtins.readFile
   script
+- architecture#programs-are-host-agnostic#programs/tech-checks/lua#unresolved#builtins.readFile
+  file
+- architecture#programs-are-host-agnostic#programs/tech-checks/lua#unresolved#import
+  file
 - architecture#programs-are-isolated#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
 - architecture#programs-are-isolated#programs/agents/skills/lib#unresolved#dir + "/${name}"
@@ -60,6 +76,9 @@
 - architecture#programs-are-isolated#programs/agents/skills/lib#unresolved#sub + "/SKILL.md"
 - architecture#programs-are-isolated#programs/software-factory/default#unresolved#builtins.readFile
   script
+- architecture#programs-are-isolated#programs/tech-checks/lua#unresolved#builtins.readFile
+  file
+- architecture#programs-are-isolated#programs/tech-checks/lua#unresolved#import file
 - architecture#secrets-are-read-in-one-place#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
 - architecture#secrets-are-read-in-one-place#programs/agents/skills/lib#unresolved#dir
@@ -70,6 +89,10 @@
   + "/SKILL.md"
 - architecture#secrets-are-read-in-one-place#programs/software-factory/default#unresolved#builtins.readFile
   script
+- architecture#secrets-are-read-in-one-place#programs/tech-checks/lua#unresolved#builtins.readFile
+  file
+- architecture#secrets-are-read-in-one-place#programs/tech-checks/lua#unresolved#import
+  file
 - architecture#server-modules-are-server-only#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
 - architecture#server-modules-are-server-only#programs/agents/skills/lib#unresolved#dir
@@ -80,3 +103,7 @@
   + "/SKILL.md"
 - architecture#server-modules-are-server-only#programs/software-factory/default#unresolved#builtins.readFile
   script
+- architecture#server-modules-are-server-only#programs/tech-checks/lua#unresolved#builtins.readFile
+  file
+- architecture#server-modules-are-server-only#programs/tech-checks/lua#unresolved#import
+  file

@@ -6,3 +6,4 @@
 import ./shell.nix { inherit pkgs claude; }
 // import ./ts.nix { inherit pkgs; }
 // import ./python.nix { inherit pkgs claude; }
+// import ./lua.nix { inherit pkgs; }

@@ -72,3 +72,20 @@ updates:
       ci-updates:
         patterns:
           - "*"
+
+  # The npm ecosystem is also how Dependabot updates pnpm lock files. It cannot
+  # update pnpmDeps.hash: .github/workflows/pnpm-hash.yml does.
+  - package-ecosystem: "npm"
+    directory: "/programs/playwright"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+    cooldown:
+      default-days: 7
+    # Types only, at the version of nixpkgs' playwright-test.
+    ignore:
+      - dependency-name: "playwright"
+    groups:
+      qa-tools:
+        patterns:
+          - "*"

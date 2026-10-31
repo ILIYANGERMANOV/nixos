@@ -9,7 +9,11 @@ _:
       ];
       pattern = [ "*.mdc" ];
       callback = {
-        __raw = "function() vim.bo.filetype = 'markdown' end";
+        __raw = ''
+          function()
+            vim.bo.filetype = "markdown"
+          end
+        '';
       };
     }
   ];
