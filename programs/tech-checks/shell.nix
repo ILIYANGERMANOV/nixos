@@ -84,8 +84,16 @@ in
         ];
       }
       ''
-        just --justfile ${justSource}/Justfile --dump --dump-format json > dump.json
-        jq -f ${./just-recipes.jq} dump.json > extracted.json
+        extract() { just --justfile "$1" --dump --dump-format json | jq -f ${./just-recipes.jq}; }
+        splices() { jq -r '.path as $path | .sudoSplices[] | "\($path): \(.)"' "$1"; }
+
+        extract ${./sudo-splices.just} > fixture.json
+        splices fixture.json | diff - ${builtins.toFile "sudo-splices.expected" ''
+          after-comment.sh: sudo echo __JUST_x__
+          plain.line0.sh: sudo echo __JUST_x__
+        ''}
+
+        extract ${justSource}/Justfile > extracted.json
 
         [ -s extracted.json ] || { echo "shell-just: no recipes extracted" >&2; exit 1; }
 
@@ -98,7 +106,7 @@ in
         status=0
         (cd scripts && shellcheck ${lib.escapeShellArgs shellCheck.extraFlags} -- *.sh) || status=1
 
-        jq -r '.path as $path | .sudoSplices[] | "\($path): \(.)"' extracted.json > splices
+        splices extracted.json > splices
         if [ -s splices ]; then
           cat splices >&2
           echo 'shell-just: {{ }} on a sudo line, use an exported parameter: `recipe $x:` then "$x"' >&2
