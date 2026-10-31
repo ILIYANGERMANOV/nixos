@@ -13,18 +13,34 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
+from typing import ClassVar, override
 
-ANALYZER = ""
-BASE = datetime(2026, 1, 1, tzinfo=timezone.utc)
+# What a transcript line can hold, spelled out so the builders stay checked.
+type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
+type JsonObject = dict[str, Json]
+
+ANALYZER = sys.argv.pop(1)
+BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def at(seconds: float) -> str:
     return (BASE + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+
+
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    """How a tool call ended, as its result line records it."""
+
+    content: Json = "ok"
+    error: bool = False
+    background: bool = False
+
+
+OK = Outcome()
 
 
 @dataclass
@@ -38,10 +54,10 @@ class Transcript:
     parent_agent: str | None = (
         None  # the subagent that spawned this one, as its meta.json names it
     )
-    lines: list[dict] = field(default_factory=list)
+    lines: list[JsonObject] = field(default_factory=list)
     calls: int = 0
 
-    def event(self, t: float, kind: str, **fields: object) -> Transcript:
+    def event(self, t: float, kind: str, **fields: Json) -> Transcript:
         self.lines.append({"type": kind, "timestamp": at(t), "cwd": self.cwd, **fields})
         return self
 
@@ -64,27 +80,27 @@ class Transcript:
         return self.event(t, "user", message={"role": "user", "content": text})
 
     def handback(self, t: float, message: str) -> Transcript:
-        self.tool(t, "SubagentHandback", t, message=message)
+        _ = self.tool(t, "SubagentHandback", t, message=message)
         return self
 
     def reply(
         self,
         t: float,
-        usage: dict | None = None,
+        usage: JsonObject | None = None,
         skill: str | None = None,
         content_lines: int = 1,
         text: str = "ok",
     ) -> Transcript:
         """One model response, written as Claude Code does: one line per content block."""
         self.calls += 1
-        message = {
+        message: JsonObject = {
             "id": f"msg_{self.calls}",
             "role": "assistant",
             "content": [{"type": "text", "text": text}],
             "usage": usage or {},
         }
         for _ in range(content_lines):
-            self.event(t, "assistant", message=message, attributionSkill=skill)
+            _ = self.event(t, "assistant", message=message, attributionSkill=skill)
         return self
 
     def tool(
@@ -93,23 +109,23 @@ class Transcript:
         name: str,
         done: float,
         *,
-        result: str | list[dict] = "ok",
-        error: bool = False,
-        background: bool = False,
-        **tool_input: object,
+        outcome: Outcome = OK,
+        **tool_input: Json,
     ) -> str:
         """A tool call and its result. Returns the tool_use id."""
         self.calls += 1
         use_id = f"toolu_{self.calls}"
         self.tool_use(t, f"msg_{self.calls}", use_id, name, tool_input)
-        extra = {"backgroundTaskId": f"bg{self.calls}"} if background else {}
-        self.tool_result(done, use_id, result, error, extra)
+        extra: JsonObject = (
+            {"backgroundTaskId": f"bg{self.calls}"} if outcome.background else {}
+        )
+        self.tool_result(done, use_id, outcome, extra)
         return use_id
 
     def tool_use(
-        self, t: float, response: str, use_id: str, name: str, tool_input: dict
+        self, t: float, response: str, use_id: str, name: str, tool_input: JsonObject
     ) -> None:
-        self.event(
+        _ = self.event(
             t,
             "assistant",
             message={
@@ -131,11 +147,10 @@ class Transcript:
         self,
         t: float,
         use_id: str,
-        result: str | list[dict] = "ok",
-        error: bool = False,
-        extra: dict | None = None,
+        outcome: Outcome = OK,
+        extra: JsonObject | None = None,
     ) -> None:
-        self.event(
+        _ = self.event(
             t,
             "user",
             toolUseResult=extra or {},
@@ -145,23 +160,25 @@ class Transcript:
                     {
                         "type": "tool_result",
                         "tool_use_id": use_id,
-                        "content": result,
-                        "is_error": error,
+                        "content": outcome.content,
+                        "is_error": outcome.error,
                     }
                 ],
             },
         )
 
-    def bash(self, t: float, command: str, done: float, **kw: object) -> str:
-        return self.tool(t, "Bash", done, command=command, **kw)
+    def bash(
+        self, t: float, command: str, done: float, *, outcome: Outcome = OK
+    ) -> str:
+        return self.tool(t, "Bash", done, outcome=outcome, command=command)
 
-    def siblings(self, *calls: tuple[float, str, dict, float]) -> None:
+    def siblings(self, *calls: tuple[float, str, JsonObject, float]) -> None:
         """One response of several (streamed at, tool, input, done) calls, written as Claude Code does:
         one line per block, stamped when that block finished streaming, and each result where it landed,
         so a tool finishing mid-stream answers between the lines of its own response."""
         self.calls += 1
         response = f"msg_{self.calls}"
-        lines: list[tuple[float, Callable[[], None]]] = []
+        lines: list[tuple[float, partial[None]]] = []
         for t, name, tool_input, done in calls:
             self.calls += 1
             use_id = f"toolu_{self.calls}"
@@ -184,7 +201,7 @@ class Transcript:
         self, t: float, use_id: str, status: str, summary: str
     ) -> Transcript:
         """How a subagent's transcript carries a task notification."""
-        attachment = {
+        attachment: JsonObject = {
             "type": "queued_command",
             "commandMode": "task-notification",
             "prompt": notification(use_id, status, summary),
@@ -222,7 +239,7 @@ class Home:
                 "toolUseId": transcript.parent,
                 "parentAgentId": transcript.parent_agent,
             }
-            base.with_suffix(".meta.json").write_text(json.dumps(meta))
+            _ = base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
     def report(self, *args: str) -> str:
         run = subprocess.run(
@@ -240,7 +257,7 @@ def worker(description: str, transcript: Transcript) -> tuple[str, str, Transcri
 
 def write(path: Path, transcript: Transcript) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(line) + "\n" for line in transcript.lines))
+    _ = path.write_text("".join(json.dumps(line) + "\n" for line in transcript.lines))
 
 
 def section(report: str, title: str) -> str:
@@ -258,10 +275,16 @@ def row(report: str, title: str, first_cell: str) -> list[str]:
 
 
 class Case(unittest.TestCase):
+    # unittest builds these per test in setUp, not at construction.
+    tmp: tempfile.TemporaryDirectory[str]  # pyright: ignore[reportUninitializedInstanceVariable]
+    home: Home  # pyright: ignore[reportUninitializedInstanceVariable]
+
+    @override
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Home(Path(self.tmp.name))
 
+    @override
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
@@ -270,7 +293,7 @@ class Tokens(Case):
     def test_a_response_split_over_content_lines_is_counted_once(self) -> None:
         # Given: one response written as three lines, and a second response
         main = Transcript().human(0, "go")
-        main.reply(
+        _ = main.reply(
             1,
             {
                 "input_tokens": 10,
@@ -280,7 +303,7 @@ class Tokens(Case):
             },
             content_lines=3,
         )
-        main.reply(
+        _ = main.reply(
             2, {"input_tokens": 5, "cache_read_input_tokens": 1000, "output_tokens": 0}
         )
         self.home.session("s1", main)
@@ -306,7 +329,7 @@ class Tokens(Case):
                 "cache_creation_input_tokens": 50_000,
             },
         )
-        sub.reply(6, {"cache_read_input_tokens": 3_000_000}, skill="engineering")
+        _ = sub.reply(6, {"cache_read_input_tokens": 3_000_000}, skill="engineering")
         self.home.session("s1", main, {"a1": worker("Implement parser", sub)})
         # When
         report = self.home.report()
@@ -326,7 +349,7 @@ class Tokens(Case):
 
 
 class EffectiveCost(Case):
-    USAGE = {
+    USAGE: ClassVar[JsonObject] = {
         "input_tokens": 10,
         "cache_read_input_tokens": 1000,
         "cache_creation_input_tokens": 400,
@@ -374,7 +397,7 @@ class EffectiveCost(Case):
         )
 
 
-REWRITE = {
+REWRITE: JsonObject = {
     "input_tokens": 1000,
     "cache_read_input_tokens": 9000,
     "cache_creation_input_tokens": 90_000,
@@ -385,11 +408,11 @@ class CacheRewrites(Case):
     def test_a_subagent_rewrite_after_each_wait_is_split_by_that_wait(self) -> None:
         # Given: a subagent that loses its cache behind a foreground Bash, a foreground Agent and no tool
         sub = Transcript().brief(0, "build").reply(1, {"cache_read_input_tokens": 1000})
-        sub.bash(2, "just test", 400)
-        sub.reply(401, REWRITE)
-        sub.tool(402, "Agent", 800, description="Research")
-        sub.reply(801, REWRITE)
-        sub.reply(1200, REWRITE)
+        _ = sub.bash(2, "just test", 400)
+        _ = sub.reply(401, REWRITE)
+        _ = sub.tool(402, "Agent", 800, description="Research")
+        _ = sub.reply(801, REWRITE)
+        _ = sub.reply(1200, REWRITE)
         self.home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
         # When
         report = self.home.report()
@@ -414,7 +437,7 @@ class CacheRewrites(Case):
 
     def test_a_small_write_after_a_gap_is_no_rewrite(self) -> None:
         # Given: half the context written after a long gap, the cache having survived the rest
-        half = {
+        half: JsonObject = {
             "cache_read_input_tokens": 50_000,
             "cache_creation_input_tokens": 50_000,
         }
@@ -444,8 +467,8 @@ class CacheRewrites(Case):
     def test_a_background_bash_is_idle(self) -> None:
         # Given: the wait came after a command sent to the background
         sub = Transcript().brief(0, "build")
-        sub.bash(1, "just test", 2, background=True)
-        sub.reply(400, REWRITE)
+        _ = sub.bash(1, "just test", 2, outcome=Outcome(background=True))
+        _ = sub.reply(400, REWRITE)
         self.home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
         # When / Then
         self.assertEqual(
@@ -459,15 +482,14 @@ class WallTime(Case):
     ) -> None:
         # Given: a 90s foreground check and a background one finishing 300s after launch
         main = Transcript().human(0, "go")
-        main.bash(10, "cd /repo && just check", 100)
+        _ = main.bash(10, "cd /repo && just check", 100)
         bg = main.bash(
             200,
             "just check 2>&1 | tail",
             201,
-            background=True,
-            result="Command running in background",
+            outcome=Outcome("Command running in background", background=True),
         )
-        main.notify(
+        _ = main.notify(
             500, bg, "completed", 'Background command "check" completed (exit code 0)'
         )
         self.home.session("s1", main)
@@ -483,8 +505,8 @@ class WallTime(Case):
         # Given: a quick mkdir streamed before a Write whose block took 60s to stream
         main = Transcript().human(0, "go")
         main.siblings(
-            (40, "Bash", {"command": "mkdir -p /tmp/x"}, 102),
-            (100, "Write", {"file_path": "/tmp/x/a"}, 102),
+            (40, "Bash", {"command": "mkdir -p /work/x"}, 102),
+            (100, "Write", {"file_path": "/work/x/a"}, 102),
         )
         self.home.session("s1", main)
         # When
@@ -511,8 +533,8 @@ class WallTime(Case):
         # Given: a subagent whose transcript has only the result text and an attached notification
         start = "Command running in background with ID: b1. Output is being written to: /tmp/b1.output"
         sub = awaited_subagent()
-        bg = sub.bash(10, "just check", 11, result=start)
-        sub.attach_notification(
+        bg = sub.bash(10, "just check", 11, outcome=Outcome(start))
+        _ = sub.attach_notification(
             310, bg, "completed", 'Background command "check" completed (exit code 0)'
         )
         self.home.session("s1", awaiting_subagent(400), {"s": worker("Implement", sub)})
@@ -530,8 +552,8 @@ class WallTime(Case):
         # Given: a foreground call the harness moved to the background at its timeout
         moved = "Command did not complete within its 600s timeout and was moved to the background with ID: b1."
         sub = awaited_subagent()
-        bg = sub.bash(10, "just check", 610, result=moved)
-        sub.attach_notification(
+        bg = sub.bash(10, "just check", 610, outcome=Outcome(moved))
+        _ = sub.attach_notification(
             910, bg, "completed", 'Background command "check" completed (exit code 0)'
         )
         self.home.session(
@@ -547,10 +569,14 @@ class WallTime(Case):
 
     def test_a_subagent_background_agent_is_timed_to_its_notification(self) -> None:
         # Given: a subagent spawning a background agent, with the result as a text block
-        launched = [{"type": "text", "text": "Async agent launched successfully."}]
+        launched: Json = [
+            {"type": "text", "text": "Async agent launched successfully."}
+        ]
         sub = awaited_subagent()
-        child = sub.tool(10, "Agent", 11, result=launched, description="Research")
-        sub.attach_notification(130, child, "completed", "Agent finished")
+        child = sub.tool(
+            10, "Agent", 11, outcome=Outcome(launched), description="Research"
+        )
+        _ = sub.attach_notification(130, child, "completed", "Agent finished")
         self.home.session("s1", awaiting_subagent(50), {"s": worker("Implement", sub)})
         # When
         report = self.home.report()
@@ -564,9 +590,12 @@ class WallTime(Case):
         # Given: a background command failing in a subagent's attached notification
         sub = awaited_subagent()
         bg = sub.bash(
-            10, "just check", 11, result="Command running in background with ID: b1."
+            10,
+            "just check",
+            11,
+            outcome=Outcome("Command running in background with ID: b1."),
         )
-        sub.attach_notification(
+        _ = sub.attach_notification(
             100, bg, "failed", 'Background command "check" failed with exit code 2'
         )
         self.home.session("s1", awaiting_subagent(200), {"s": worker("Implement", sub)})
@@ -580,11 +609,11 @@ class WallTime(Case):
     def test_output_quoting_a_background_start_stays_a_foreground_call(self) -> None:
         # Given: a foreground command that prints the words mid-output
         main = Transcript().human(0, "go")
-        main.bash(
+        _ = main.bash(
             10,
             "just check",
             20,
-            result="note: Command running in background with ID: b1.",
+            outcome=Outcome("note: Command running in background with ID: b1."),
         )
         self.home.session("s1", main)
         # When
@@ -597,9 +626,9 @@ class WallTime(Case):
     def test_waiting_on_the_person_is_split_from_work(self) -> None:
         # Given: a 10 min gap before the person's second prompt and a 2 min question
         main = Transcript().human(0, "go").reply(60)
-        main.human(660, "next")
-        main.tool(700, "AskUserQuestion", 820)
-        main.reply(3600)
+        _ = main.human(660, "next")
+        _ = main.tool(700, "AskUserQuestion", 820)
+        _ = main.reply(3600)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -615,10 +644,12 @@ class WallTime(Case):
         # Given: a background agent works 20 min into a 30 min silence in the main transcript,
         # and its notification is not in it, so only the subagent's own calls show the work
         main = Transcript().human(0, "go")
-        spawn = main.tool(60, "Agent", 61, background=True, description="Review")
-        main.human(1860, "next").reply(3600)
+        spawn = main.tool(
+            60, "Agent", 61, outcome=Outcome(background=True), description="Review"
+        )
+        _ = main.human(1860, "next").reply(3600)
         sub = Transcript(parent=spawn)
-        sub.bash(61, "just check", 1260)
+        _ = sub.bash(61, "just check", 1260)
         self.home.session("s1", main, {"a1": worker("Review", sub)})
         # When
         report = self.home.report()
@@ -630,12 +661,12 @@ class RedundantChecks(Case):
     def test_reruns_are_flagged_only_when_nothing_but_docs_changed(self) -> None:
         # Given: a rerun with no edit, one after a doc edit, one after a code edit
         main = Transcript().human(0, "go")
-        main.bash(10, "just check 2> /tmp/err.log", 70)
-        main.bash(80, "cd /repo && just check > /tmp/a.log", 140)
-        main.tool(150, "Edit", 151, file_path="/repo/README.md")
-        main.bash(160, "just check", 220)
-        main.tool(230, "Edit", 231, file_path="/repo/src/Main.hs")
-        main.bash(240, "just check", 300)
+        _ = main.bash(10, "just check 2> /tmp/err.log", 70)
+        _ = main.bash(80, "cd /repo && just check > /tmp/a.log", 140)
+        _ = main.tool(150, "Edit", 151, file_path="/repo/README.md")
+        _ = main.bash(160, "just check", 220)
+        _ = main.tool(230, "Edit", 231, file_path="/repo/src/Main.hs")
+        _ = main.bash(240, "just check", 300)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -649,10 +680,10 @@ class RedundantChecks(Case):
     def test_an_edit_by_another_agent_of_the_session_counts_as_a_change(self) -> None:
         # Given: the orchestrator checks, its implementer edits, the orchestrator checks again
         main = Transcript().human(0, "go")
-        main.bash(10, "just check", 70)
-        main.bash(200, "just check", 260)
+        _ = main.bash(10, "just check", 70)
+        _ = main.bash(200, "just check", 260)
         sub = Transcript()
-        sub.tool(100, "Write", 101, file_path="/repo/src/New.hs")
+        _ = sub.tool(100, "Write", 101, file_path="/repo/src/New.hs")
         self.home.session("s1", main, {"a1": worker("Implement", sub)})
         # When
         report = self.home.report()
@@ -664,10 +695,10 @@ class RedundantChecks(Case):
     def test_steps_run_in_front_of_a_full_check_are_chains(self) -> None:
         # Given: build && check in one call, and a test run right before a check
         main = Transcript().human(0, "go")
-        main.bash(10, "just build && just check", 100)
-        main.tool(110, "Edit", 111, file_path="/repo/src/Main.hs")
-        main.bash(120, "nix run .#test -- -m parser", 180)
-        main.bash(190, "just check", 250)
+        _ = main.bash(10, "just build && just check", 100)
+        _ = main.tool(110, "Edit", 111, file_path="/repo/src/Main.hs")
+        _ = main.bash(120, "nix run .#test -- -m parser", 180)
+        _ = main.bash(190, "just check", 250)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -681,7 +712,7 @@ class RedundantChecks(Case):
     def test_an_edit_sent_before_a_check_in_one_response_is_a_change(self) -> None:
         # Given: an Edit and a rerun of a check, sibling calls of one response
         main = Transcript().human(0, "go")
-        main.bash(10, "just check", 70)
+        _ = main.bash(10, "just check", 70)
         main.siblings(
             (80, "Edit", {"file_path": "/repo/src/Main.hs"}, 91),
             (90, "Bash", {"command": "just check"}, 150),
@@ -703,7 +734,7 @@ class RedundantChecks(Case):
             (80, "Bash", {"command": "just check"}, 150),
             (90, "Edit", {"file_path": "/repo/src/Main.hs"}, 151),
         )
-        main.bash(160, "just check", 220)
+        _ = main.bash(160, "just check", 220)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -717,7 +748,7 @@ class RedundantChecks(Case):
     ) -> None:
         # Given: a test step, then an Edit and a full check, sibling calls of one response
         main = Transcript().human(0, "go")
-        main.bash(10, "nix run .#test", 70)
+        _ = main.bash(10, "nix run .#test", 70)
         main.siblings(
             (80, "Edit", {"file_path": "/repo/src/Main.hs"}, 91),
             (90, "Bash", {"command": "just check"}, 150),
@@ -740,7 +771,7 @@ class RedundantChecks(Case):
             (80, "Bash", {"command": "nix run .#test"}, 150),
             (90, "Edit", {"file_path": "/repo/src/Main.hs"}, 151),
         )
-        main.bash(160, "just check", 220)
+        _ = main.bash(160, "just check", 220)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -753,7 +784,7 @@ class RedundantChecks(Case):
     def test_a_sibling_of_a_check_that_changes_nothing_leaves_it_a_rerun(self) -> None:
         # Given: a Read beside a rerun of a check
         main = Transcript().human(0, "go")
-        main.bash(10, "just check", 70)
+        _ = main.bash(10, "just check", 70)
         main.siblings(
             (80, "Read", {"file_path": "/repo/src/Main.hs"}, 91),
             (90, "Bash", {"command": "just check"}, 150),
@@ -769,25 +800,25 @@ class RedundantChecks(Case):
     def test_a_python_heredoc_writing_a_file_counts_as_a_change(self) -> None:
         # Given: three edits made by a Python heredoc, each between two runs of a check
         main = Transcript().human(0, "go")
-        main.bash(10, "just check", 70)
-        main.bash(
+        _ = main.bash(10, "just check", 70)
+        _ = main.bash(
             80,
             "python3 - <<'EOF'\nfrom pathlib import Path\nPath('a.py').write_text('x')\nEOF",
             81,
         )
-        main.bash(90, "just check", 150)
-        main.bash(
+        _ = main.bash(90, "just check", 150)
+        _ = main.bash(
             160,
             "python3 -I - <<EOF\nwith open('a.py', 'w') as f:\n    f.write('y')\nEOF",
             161,
         )
-        main.bash(170, "just check", 230)
-        main.bash(
+        _ = main.bash(170, "just check", 230)
+        _ = main.bash(
             240,
             "python3 - <<'EOF'\nfrom pathlib import Path\nPath('a.py').open('w').write('z')\nEOF",
             241,
         )
-        main.bash(250, "just check", 310)
+        _ = main.bash(250, "just check", 310)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -799,15 +830,15 @@ class RedundantChecks(Case):
     def test_a_python_heredoc_that_only_reads_is_no_change(self) -> None:
         # Given: two heredocs reading a file, each between two runs of a check
         main = Transcript().human(0, "go")
-        main.bash(10, "just check", 70)
-        main.bash(80, "python3 - <<'EOF'\nprint(open('data.txt').read())\nEOF", 81)
-        main.bash(90, "just check", 150)
-        main.bash(
+        _ = main.bash(10, "just check", 70)
+        _ = main.bash(80, "python3 - <<'EOF'\nprint(open('data.txt').read())\nEOF", 81)
+        _ = main.bash(90, "just check", 150)
+        _ = main.bash(
             160,
             "python3 - <<'EOF'\nfrom pathlib import Path\nprint(Path('a.txt').open('r').read())\nEOF",
             161,
         )
-        main.bash(170, "just check", 230)
+        _ = main.bash(170, "just check", 230)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -822,19 +853,22 @@ class Failures(Case):
         # Given: the same failing build twice, and a missing tool
         main = Transcript().human(0, "go")
         for t in (10, 20):
-            main.bash(
+            _ = main.bash(
                 t,
                 "nix run .#build",
                 t + 5,
-                error=True,
-                result=f"Exit code 1\nwarning: dirty\nerror: builder for '/nix/store/{'a' * 32}-x.drv' failed",
+                outcome=Outcome(
+                    f"Exit code 1\nwarning: dirty\nerror: builder for '/nix/store/{'a' * 32}-x.drv' failed",
+                    error=True,
+                ),
             )
-        main.bash(
+        _ = main.bash(
             30,
             "claude --version",
             31,
-            error=True,
-            result="Exit code 127\nbash: line 1: claude: command not found",
+            outcome=Outcome(
+                "Exit code 127\nbash: line 1: claude: command not found", error=True
+            ),
         )
         self.home.session("s1", main)
         # When
@@ -851,8 +885,8 @@ class Failures(Case):
     ) -> None:
         # Given
         main = Transcript().human(0, "go")
-        bg = main.bash(10, "just check", 11, background=True)
-        main.notify(
+        bg = main.bash(10, "just check", 11, outcome=Outcome(background=True))
+        _ = main.notify(
             100, bg, "failed", 'Background command "check" failed with exit code 2'
         )
         self.home.session("s1", main)
@@ -868,9 +902,9 @@ class Polling(Case):
     def test_foreground_sleep_loops_and_repeated_pr_polls_are_counted(self) -> None:
         # Given
         main = Transcript().human(0, "go")
-        main.bash(10, "until gh pr checks 1; do sleep 30; done", 130)
+        _ = main.bash(10, "until gh pr checks 1; do sleep 30; done", 130)
         for t in (200, 300, 400):
-            main.bash(t, "gh pr checks 1", t + 2)
+            _ = main.bash(t, "gh pr checks 1", t + 2)
         self.home.session("s1", main)
         # When
         report = self.home.report()
@@ -898,7 +932,7 @@ Do not merge - Major row 1. 3 raised, 2 survived.
 
 
 def subagent(
-    brief: str, usage: dict | None = None, parent_agent: str | None = None
+    brief: str, usage: JsonObject | None = None, parent_agent: str | None = None
 ) -> Transcript:
     return Transcript(parent_agent=parent_agent).brief(5, brief).reply(6, usage)
 
@@ -910,7 +944,7 @@ def idle_main() -> Transcript:
 def awaiting_subagent(done: float) -> Transcript:
     """A session whose first tool call runs `awaited_subagent` in the foreground until `done`."""
     main = Transcript().human(0, "go")
-    main.tool(1, "Agent", done, description="Implement")
+    _ = main.tool(1, "Agent", done, description="Implement")
     return main
 
 
@@ -920,7 +954,9 @@ def awaited_subagent() -> Transcript:
 
 def spawning_implementer() -> Transcript:
     main = Transcript().human(0, "go")
-    main.tool(1, "Agent", 2, background=True, description="Implement parser")
+    _ = main.tool(
+        1, "Agent", 2, outcome=Outcome(background=True), description="Implement parser"
+    )
     return main
 
 
@@ -1064,7 +1100,7 @@ class ReviewYield(Case):
             .handback(7, "1 raised, 1 survived.")
             .handback(8, REVIEW_REPORT)
         )
-        sub.reply(9, text="Handed back.")
+        _ = sub.reply(9, text="Handed back.")
         # When
         report = self.report_with_review(sub)
         # Then
@@ -1170,10 +1206,11 @@ class ReviewYield(Case):
         )
         # When
         report = self.home.report()
+
         # Then: runs, major, minor, nit, runs with a finding, not met, unverified
-        cells = lambda name: [
-            row(report, "Review yield", name)[i] for i in (1, 3, 4, 5, 6, 7, 8)
-        ]
+        def cells(name: str) -> list[str]:
+            return [row(report, "Review yield", name)[i] for i in (1, 3, 4, 5, 6, 7, 8)]
+
         self.assertEqual(cells("tests"), ["1", "1", "0", "0", "1", "0", "0"])
         self.assertEqual(cells("requirement"), ["1", "0", "0", "0", "0", "0", "1"])
         self.assertEqual(cells("blockers"), ["1", "0", "0", "0", "0", "0", "0"])
@@ -1184,10 +1221,10 @@ class AfterHandback(Case):
         # Given: a prompt before the first `gh pr ready`, then free text and two commands
         # after it, a second ready among them
         main = Transcript().human(0, "go").human(5, "also this")
-        main.bash(10, "gh pr ready 1", 11)
-        main.human(20, "why this?")
-        main.bash(25, "gh pr ready 1", 26)
-        main.command(30, "final-review").command(40, "give-feedback").reply(50)
+        _ = main.bash(10, "gh pr ready 1", 11)
+        _ = main.human(20, "why this?")
+        _ = main.bash(25, "gh pr ready 1", 26)
+        _ = main.command(30, "final-review").command(40, "give-feedback").reply(50)
         self.home.session("s1", main)
         self.home.session(
             "s2", Transcript().human(0, "no ready here").human(5, "more").reply(6)
@@ -1208,7 +1245,7 @@ class AfterHandback(Case):
         # Given
         main = Transcript().human(0, "go").human(100, "looks wrong").reply(101)
         sub = subagent("finish it")
-        sub.bash(50, "gh pr ready 1", 51)
+        _ = sub.bash(50, "gh pr ready 1", 51)
         self.home.session("s1", main, {"a": worker("Finish", sub)})
         # When
         report = self.home.report()
@@ -1220,8 +1257,8 @@ class Communication(Case):
     def two_agents_run(self, *commands: str) -> None:
         first, second = subagent("look"), subagent("look")
         for t, command in enumerate(commands):
-            first.bash(7 + t, command, 8 + t, result="x" * 1000)
-            second.bash(7 + t, command, 8 + t, result="x" * 1000)
+            _ = first.bash(7 + t, command, 8 + t, outcome=Outcome("x" * 1000))
+            _ = second.bash(7 + t, command, 8 + t, outcome=Outcome("x" * 1000))
         self.home.session(
             "s1",
             idle_main(),
@@ -1251,9 +1288,11 @@ class Communication(Case):
     def test_a_large_hand_back_is_priced_by_the_parent_calls_after_it(self) -> None:
         # Given: a 400-word hand-back at 7s and two parent calls after it, one before
         main = Transcript().human(0, "go")
-        main.tool(1, "Agent", 2, background=True, description="Research x")
-        main.bash(20, "true", 21)
-        main.bash(30, "true", 31)
+        _ = main.tool(
+            1, "Agent", 2, outcome=Outcome(background=True), description="Research x"
+        )
+        _ = main.bash(20, "true", 21)
+        _ = main.bash(30, "true", 31)
         sub = subagent("look").handback(7, "word " * 400)
         self.home.session("s1", main, {"a": worker("Research x", sub)})
         # When
@@ -1277,7 +1316,7 @@ class Communication(Case):
     def test_a_follow_up_message_to_a_subagent_is_counted(self) -> None:
         # Given
         main = Transcript().human(0, "go")
-        main.tool(1, "SendMessage", 2, to="a", message="you also need x")
+        _ = main.tool(1, "SendMessage", 2, to="a", message="you also need x")
         self.home.session("s1", main, {"a": worker("Research x", subagent("look"))})
         # When
         report = self.home.report()
@@ -1301,9 +1340,13 @@ class Communication(Case):
     def test_a_parent_rereading_a_named_file_or_a_diff_is_a_re_read(self) -> None:
         # Given: the parent reads the named file, an unnamed file, and a diff
         main = spawning_implementer()
-        main.tool(10, "Read", 11, file_path="/repo/src/parser.py", result="x" * 500)
-        main.tool(12, "Read", 13, file_path="/repo/src/other.py", result="x" * 500)
-        main.bash(90, "git diff HEAD~1", 91, result="y" * 300)
+        _ = main.tool(
+            10, "Read", 11, file_path="/repo/src/parser.py", outcome=Outcome("x" * 500)
+        )
+        _ = main.tool(
+            12, "Read", 13, file_path="/repo/src/other.py", outcome=Outcome("x" * 500)
+        )
+        _ = main.bash(90, "git diff HEAD~1", 91, outcome=Outcome("y" * 300))
         # When
         report = self.report_with_implementer(main)
         # Then: hand-backs, re-reads, re-read chars
@@ -1314,7 +1357,9 @@ class Communication(Case):
     def test_a_diff_of_another_worktree_is_a_re_read(self) -> None:
         # Given: the parent diffs a path it named with `git -C`
         main = spawning_implementer()
-        main.bash(90, "git -C /repo/worktree diff HEAD~1", 91, result="y" * 300)
+        _ = main.bash(
+            90, "git -C /repo/worktree diff HEAD~1", 91, outcome=Outcome("y" * 300)
+        )
         # When
         report = self.report_with_implementer(main)
         # Then: hand-backs, re-reads, re-read chars
@@ -1325,7 +1370,7 @@ class Communication(Case):
     def test_a_parent_rerunning_a_check_is_a_re_verify(self) -> None:
         # Given
         main = spawning_implementer()
-        main.bash(20, "just check", 80)
+        _ = main.bash(20, "just check", 80)
         # When
         report = self.report_with_implementer(main)
         # Then: re-verifies, re-verify time
@@ -1336,8 +1381,20 @@ class Communication(Case):
     def test_a_read_after_the_next_spawn_answers_no_hand_back(self) -> None:
         # Given: the named file is read after a later spawn that is still running
         main = spawning_implementer()
-        main.tool(100, "Agent", 101, background=True, description="Refactor branch")
-        main.tool(120, "Read", 121, file_path="/repo/src/parser.py", result="x" * 500)
+        _ = main.tool(
+            100,
+            "Agent",
+            101,
+            outcome=Outcome(background=True),
+            description="Refactor branch",
+        )
+        _ = main.tool(
+            120,
+            "Read",
+            121,
+            file_path="/repo/src/parser.py",
+            outcome=Outcome("x" * 500),
+        )
         refactorer = (
             Transcript()
             .brief(110, "invoke `refactor`")
@@ -1380,10 +1437,16 @@ class Communication(Case):
     def test_the_same_read_by_two_agents_is_repeated_work(self) -> None:
         # Given: two agents read one file; the first also reads a file nobody else does
         first = subagent("look")
-        first.tool(7, "Read", 8, file_path="/repo/big.py", result="x" * 1000)
-        first.tool(9, "Read", 10, file_path="/repo/own.py", result="x" * 1000)
+        _ = first.tool(
+            7, "Read", 8, file_path="/repo/big.py", outcome=Outcome("x" * 1000)
+        )
+        _ = first.tool(
+            9, "Read", 10, file_path="/repo/own.py", outcome=Outcome("x" * 1000)
+        )
         second = subagent("look")
-        second.tool(7, "Read", 8, file_path="/repo/big.py", result="x" * 1000)
+        _ = second.tool(
+            7, "Read", 8, file_path="/repo/big.py", outcome=Outcome("x" * 1000)
+        )
         self.home.session(
             "s1",
             idle_main(),
@@ -1405,9 +1468,13 @@ class Communication(Case):
     ) -> None:
         # Given
         main = Transcript().human(0, "go")
-        main.tool(1, "Read", 2, file_path="/repo/big.py", result="x" * 1000)
+        _ = main.tool(
+            1, "Read", 2, file_path="/repo/big.py", outcome=Outcome("x" * 1000)
+        )
         sub = subagent("look")
-        sub.tool(7, "Read", 8, file_path="/repo/big.py", result="x" * 1000)
+        _ = sub.tool(
+            7, "Read", 8, file_path="/repo/big.py", outcome=Outcome("x" * 1000)
+        )
         self.home.session("s1", main, {"a": worker("Audit a", sub)})
         # When
         report = self.home.report()
@@ -1451,12 +1518,12 @@ class Communication(Case):
         # Given: research reads two files, then an implementer reads one of them through
         # Bash, and an earlier implementer reads the other before research finished
         research = Transcript().brief(50, "look").reply(51)
-        research.tool(52, "Read", 53, file_path="/repo/a.py")
-        research.tool(54, "Read", 55, file_path="/repo/b.py")
+        _ = research.tool(52, "Read", 53, file_path="/repo/a.py")
+        _ = research.tool(54, "Read", 55, file_path="/repo/b.py")
         late = Transcript().brief(100, "build").reply(101)
-        late.bash(102, "sed -n 1,40p /repo/a.py", 103)
+        _ = late.bash(102, "sed -n 1,40p /repo/a.py", 103)
         early = Transcript().brief(5, "build").reply(6)
-        early.tool(7, "Read", 8, file_path="/repo/b.py")
+        _ = early.tool(7, "Read", 8, file_path="/repo/b.py")
         self.home.session(
             "s1",
             idle_main(),
@@ -1484,10 +1551,7 @@ class Window(Case):
         cwd: str = "/home/dev/repos/demo",
     ) -> None:
         main = Transcript(cwd=cwd)
-        if command:
-            main.command(t, command)
-        else:
-            main.human(t, "work")
+        _ = main.command(t, command) if command else main.human(t, "work")
         self.home.session(sid, main.reply(t + 60))
 
     def sessions(self, report: str) -> set[str]:
@@ -1563,5 +1627,4 @@ class Window(Case):
 
 
 if __name__ == "__main__":
-    ANALYZER = sys.argv.pop(1)
-    unittest.main(verbosity=2)
+    _ = unittest.main(verbosity=2)
