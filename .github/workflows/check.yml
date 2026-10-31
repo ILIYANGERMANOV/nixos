@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # pnpm-hash.yml runs CI on the commit it pushes, which no push event can do.
+  workflow_dispatch:
 
 permissions:
   contents: read
