@@ -1,6 +1,6 @@
-# checks.claude-bash-guards: the PreToolUse guards fed the same JSON
-# Claude Code sends a hook, the read guard against real files and a real git
-# repository. Exit 2 blocks the call; exit 0 allows it.
+# checks.claude-bash-guards: the hook guards fed the same JSON Claude Code sends
+# a hook, the read guard against real files and a real git repository. Exit 2
+# blocks the call; exit 0 allows it.
 { pkgs }:
 
 pkgs.runCommand "claude-bash-guards-check"
@@ -9,6 +9,7 @@ pkgs.runCommand "claude-bash-guards-check"
       (import ./read-guard.nix { inherit pkgs; }).bin
       (import ./wait-guard.nix { inherit pkgs; }).bin
       (import ./secret-guard.nix { inherit pkgs; }).bin
+      (import ./context-guard.nix { inherit pkgs; }).bin
       pkgs.git
       pkgs.jq
     ];
@@ -250,6 +251,110 @@ pkgs.runCommand "claude-bash-guards-check"
     expect_call 0 "a backgrounded tail -f is allowed" "tail -f build.log" true
     expect_call 0 "a backgrounded bash -c poll is allowed" "bash -c 'until [ -f x ]; do sleep 5; done'" true
     shared_failopen
+
+    echo "claude-wait-guard, in a subagent:"
+    session=$TMPDIR/session
+    mkdir -p "$session/subagents"
+    # An assistant line with one Bash call.
+    bash_line() {
+      jq -cn --arg c "$1" --arg i "$2" \
+        '{type: "assistant", message: {id: $i, content: [{type: "tool_use", id: $i, name: "Bash", input: {command: $c}}]}}'
+    }
+    # Runs the guard on a Bash call in subagent $agent, or in main with agent=.
+    expect_agent() {
+      local want="$1" name="$2" command="$3" background="''${4:-false}"
+      expect_raw "$want" "$name" "$(jq -n --arg c "$command" --arg a "$agent" --arg t "$session.jsonl" --argjson b "$background" \
+        '{hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: "now", transcript_path: $t,
+          tool_input: {command: $c, run_in_background: $b}} + (if $a == "" then {} else {agent_id: $a} end)')"
+    }
+    agent=polled
+    bash_line "gh pr checks 7" old >"$session/subagents/agent-polled.jsonl"
+    bash_line "gh pr checks 7" now >>"$session/subagents/agent-polled.jsonl"
+    expect_agent 2 "a second read of the same checks is blocked" "gh pr checks 7"
+    grep -q "never waits on CI" "$TMPDIR/err" || { echo "  ✗ the block carries the CI hint" >&2; status=1; }
+    expect_agent 2 "a second read with other flags is blocked" "gh pr checks 7 --json state"
+    expect_agent 0 "another pull request's checks are allowed" "gh pr checks 8"
+    expect_agent 0 "a repeated command that is not CI is allowed" "git status"
+    agent=fresh
+    bash_line "gh pr checks 7" now >"$session/subagents/agent-fresh.jsonl"
+    expect_agent 0 "a first read is allowed, though the transcript holds the call itself" "gh pr checks 7"
+    expect_agent 0 "a log read is allowed" "gh run view 12 --log-failed | rg error"
+    expect_agent 0 "a one-shot run status is allowed" "gh run view 12"
+    expect_agent 2 "gh pr checks --watch is blocked" "gh pr checks 7 --watch"
+    expect_agent 2 "gh pr checks --watch in the background is blocked" "gh pr checks 7 --watch" true
+    expect_agent 2 "gh run watch is blocked" "gh run watch 12"
+    expect_agent 2 "gh run watch under timeout is blocked" "timeout 300 gh run watch 12"
+    expect_agent 2 "gh run watch in nix develop is blocked" "nix develop -c bash -c 'gh run watch 12'"
+    expect_agent 2 "a polling loop in the background is blocked" "until gh pr checks 7; do sleep 30; done" true
+    expect_agent 2 "a for loop over a read is blocked" "for i in 1 2 3; do gh run view 12; sleep 30; done" true
+    expect_agent 2 "a log read in a loop is blocked" "while true; do gh run view 12 --log; done" true
+    expect_agent 2 "two reads in one command are blocked" "gh pr checks 7; sleep 5; gh pr checks 7"
+    expect_agent 0 "reads of two pull requests in one command are allowed" "gh pr checks 7; gh pr checks 8"
+    agent=missing
+    expect_agent 0 "a subagent with no transcript yet may read once" "gh pr checks 7"
+    expect_agent 2 "a subagent with no transcript still may not watch" "gh run watch 12"
+    agent=
+    bash_line "gh pr checks 7" old >"$session.jsonl"
+    expect_agent 0 "main may read checks again" "gh pr checks 7"
+    expect_agent 0 "main may watch in the background" "gh pr checks 7 --watch" true
+    expect_agent 0 "main may run gh run watch" "gh run watch 12"
+
+    guard=claude-context-guard
+    echo "$guard:"
+    # An assistant line of a call that sent $2 input and $3 cache read tokens.
+    usage_line() {
+      jq -cn --arg i "$1" --argjson n "$2" --argjson r "$3" \
+        '{type: "assistant", message: {id: $i, usage: {input_tokens: $n, cache_read_input_tokens: $r, cache_creation_input_tokens: 500}}}'
+    }
+    # Runs the guard on the transcript of $agent and checks what it prints: text
+    # holding $1, or nothing for an empty $1.
+    expect_notice() {
+      local want="$1" name="$2" input got
+      input=$(jq -n --arg t "$session.jsonl" --arg a "$agent" \
+        '{hook_event_name: "PostToolUse", tool_name: "Bash", transcript_path: $t} + (if $a == "" then {} else {agent_id: $a} end)')
+      got=$(printf '%s' "$input" | "$guard" | jq -r .hookSpecificOutput.additionalContext)
+      if { [ -z "$want" ] && [ -z "$got" ]; } || { [ -n "$want" ] && [[ "$got" == *"$want"* ]]; }; then
+        printf '  ✓ %s\n' "$name"
+      else
+        printf '  ✗ %s: printed "%s"\n' "$name" "$got" >&2
+        status=1
+      fi
+    }
+    agent=
+    file=$session.jsonl
+    { usage_line a 100 1000; usage_line b 100 2000; } >"$file"
+    expect_notice "" "under the budget it says nothing"
+    { usage_line a 100 148000; usage_line b 100 150000; } >"$file"
+    expect_notice "Context 150k" "crossing 150k warns"
+    { usage_line a 100 150000; usage_line b 100 151000; } >"$file"
+    expect_notice "" "staying past 150k says nothing"
+    { usage_line a 100 218000; usage_line b 100 220000; } >"$file"
+    expect_notice "stop now" "crossing 220k says stop"
+    { usage_line a 100 220000; usage_line b 100 221000; } >"$file"
+    expect_notice "" "staying past 220k says nothing"
+    { usage_line a 100 228000; usage_line b 100 230000; } >"$file"
+    expect_notice "stop now" "another 10k past the budget says stop again"
+    { usage_line a 100 230000; usage_line b 100 90000; } >"$file"
+    expect_notice "" "a compacted context says nothing"
+    { usage_line a 100 148000; usage_line b 100 150000; usage_line b 100 150000; } >"$file"
+    expect_notice "Context 150k" "a message of several lines counts as one call"
+    { usage_line a 100 150000; usage_line b 100 150000; usage_line c 0 0 | sed 's/500/0/'; } >"$file"
+    expect_notice "" "an empty synthetic call is skipped"
+    usage_line b 100 150000 >"$file"
+    expect_notice "Context 150k" "a first call past the line warns"
+    { usage_line a 100 148000; usage_line b 100 150000; echo '{"type":"assis'; } >"$file"
+    expect_notice "Context 150k" "a partial last line is skipped"
+    agent=deep
+    { usage_line a 100 1000; usage_line b 100 1000; } >"$file"
+    { usage_line a 100 148000; usage_line b 100 150000; } >"$session/subagents/agent-deep.jsonl"
+    expect_notice "Context 150k" "a subagent is judged on its own transcript"
+    { usage_line a 100 148000; usage_line b 100 150000; } >"$file"
+    { usage_line a 100 1000; usage_line b 100 1000; } >"$session/subagents/agent-deep.jsonl"
+    expect_notice "" "a subagent is not judged on the parent's transcript"
+    agent=gone
+    expect_notice "" "a missing transcript says nothing"
+    expect_raw 0 "malformed input is allowed" 'not json'
+    expect_raw 0 "input without a transcript is allowed" '{"tool_input": {}}'
 
     guard=$TMPDIR/secret-guard
     echo "claude-secret-guard:"
