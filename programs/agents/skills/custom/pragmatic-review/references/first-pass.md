@@ -121,6 +121,25 @@ yourself, spawn blockers only if it hits, and spawn neither regressions nor
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.
 
+**Balanced.** Blockers, routing and DEEP stay. House rules runs only when the
+diff changes types, a schema or a piece of state, so another diff gets no
+house-rule or DRY check. Tests runs only when it changes tests. Phase 2 makes
+at most 2 requirement groups. At `code` and `sensitive` no regressions agent
+runs while a group exists: the first group's prompt adds its brief, at the
+normal bar, and that agent returns those findings under `regressions`. They are
+not requirement findings: no 🔍, and Phase 4's step 2 applies. With no tests
+agent, the regressions brief also asks: does a bug fix come with a test that was
+red before it?
+
+**POC.** On every tier, one quick breaker agent replaces the table: no routing,
+no DEEP, no groups, no escalation. Its brief: "You are the breaker: one quick
+STANDARD pass. Read `blockers.md`, `house-rules.md` and `tests.md` from the
+`references/` directory in your prompt and do all three jobs, plus these
+requirements: <list>. Try to break the failure paths. Return one verdict per
+requirement first, then major findings only." The report keeps its verdicts;
+only the table narrows to Majors. The Security line says
+`POC - one breaker pass`.
+
 **Spawn in the foreground**, `run_in_background: false`, staggered so siblings
 reuse the cached prompt prefix: the first agent alone in one message, then all
 the others together in the next. Never end a turn while a review agent is
@@ -129,8 +148,8 @@ agents returned.
 
 **Every prompt starts with the same shared block:**
 
-1. The bar: everything below the `---` line of `references/bar.md`, pasted
-   verbatim. You read it once, for this.
+1. The bar: "Read this file first", with the absolute path of
+   `references/bar.md`. Never retype it. You read it once, for Phase 4.
 2. The review directory `$D` and its files: `diff`, `stat`, `log`, `status`,
    `index`.
 3. Your intent summary, in your words - never the raw PR prose.
@@ -141,8 +160,8 @@ angle with their line ranges in `diff`, and for a brief file the absolute path
 of this skill's `references/` directory. The tests agent also gets the
 absolute path of `engineering`'s `references/tests.md`: this skill's base
 directory with `pragmatic-review` replaced by `engineering`, never a `..`
-path, which does not resolve between installed skills. A standard agent gets
-one line: "Requirement agents cover the user's requirements; leave them alone."
+path, which does not resolve between installed skills. The breaker gets both
+paths too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
 
 **Regressions brief**, pasted:
 
@@ -160,9 +179,9 @@ one line: "Requirement agents cover the user's requirements; leave them alone."
 
 > You are requirement agent <label>, at <STANDARD | DEEP> depth. Your
 > requirements, restated: <list>. The user's words: <quote>. They are your whole
-> job, and inside their scope the bar is lower: a real answer the user might
-> dispute is still worth returning. Follow a requirement outside the diff if
-> it leads there; what you find there is `pre-existing`. A requirement about
+> job, unless this prompt adds another, and inside their scope the bar is
+> lower: a real answer the user might dispute is still worth returning. Follow
+> a requirement outside the diff if it leads there; what you find there is `pre-existing`. A requirement about
 > the house rules: load `engineering`, and `ui-coding` for UI.
 
 ## Phase 4 - judge, do not re-review

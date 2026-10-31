@@ -16,6 +16,7 @@ owns the decisions.
   never change product code, tests or config. The only files you may commit
   are `QA.md` files, and only after the user approves the diff. The one
   exception is a draft host PR the user chose in step 3, which an agent writes.
+- **Quality changes nothing here.** QA runs only when the user asks, in any mode.
 - **One question per `AskUserQuestion`.** Never batch blockers. Never ask what
   a tool, the code or `QA.md` can answer.
 - **The user always approves the plan** before any plan item runs, even when

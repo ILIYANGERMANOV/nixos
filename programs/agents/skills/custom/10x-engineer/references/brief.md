@@ -31,6 +31,7 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 # <task>
 
 Mode: delegated.
+Quality: <mode>
 
 ## The user's words
 
@@ -51,11 +52,12 @@ Security-sensitive: <topics, or none>
 - Repo: <owner>/<repo>
 - Base branch: <main or epic/<name>>
 - Worktree: <absolute path>; every command uses it, by `git -C` or an absolute
-  path. Never touch `~/repos/<repo>`.
+  path, and every `gh` command by `--repo <owner>/<repo>`. Never touch `~/repos/<repo>`.
 - Repo rules: read the worktree's `CLAUDE.md` or `AGENTS.md` and follow them.
 - Issues: <#n each, closed by `Closes #n` in the PR body, or none>
 - Existing PR: <URL and the step to start from, or none>
 - Report file: ~/.10x/<run>/reports/<task>.md
+- Requirements file: ~/.10x/<run>/reports/<task>-requirements.md
 
 ## Checks
 
@@ -74,7 +76,7 @@ Security-sensitive: <topics, or none>
 
 ```text
 <the data line from SKILL.md's Rules>
-Invoke `engineer`. You are delegated: your brief is <path>. Read it first and
+Quality: <the task's>. Invoke `engineer`. You are delegated: your brief is <path>. Read it first and
 follow the skill's `## Delegated` section.
 ```
 
@@ -84,7 +86,7 @@ For CI failures, requested changes and rebases, a fresh background subagent:
 
 ```text
 <the data line from SKILL.md's Rules>
-Invoke `engineering` first. Worktree: <path>, use it for every command, and
+Quality: <the task's>. Invoke `engineering` first. Worktree: <path>, use it for every command, and
 read its `CLAUDE.md` or `AGENTS.md`. PR: <URL>, base <base>. Fix: <the failing
 check and its log, the review comments, or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
 HEAD`. Hand back in about 250 words, never over 300, starting with exactly one

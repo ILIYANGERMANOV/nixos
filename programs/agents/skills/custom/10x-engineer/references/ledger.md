@@ -8,7 +8,9 @@ stored, you read them live.
 ~/.10x/<run>/
   ledger.md
   briefs/<task>.md
-  reports/<task>.md     the worker's: requirements, last step, head, `Security:`
+  reports/<task>.md     the worker's: last step, head
+  reports/<task>-requirements.md   the worker's, for every review
+  reports/<task>-fixes.md          the worker's, for its re-review
   worktrees/<task>/
 ```
 
@@ -27,8 +29,8 @@ Breakdown confirmed: <yes, when>
 
 ## Tasks
 
-| Task | Repo | Wave | Deps | Base | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Merge-safe heads |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Task | Repo | Wave | Deps | Base | Quality | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Merge-safe heads |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 ## Pre-flight
 
@@ -63,7 +65,7 @@ One `State` per task. The skill's steps name the moves; GitHub wins over them.
 | `merged` | terminal |
 | `parked <reason>` | terminal unless the user picks retry, which clears `Tries`; the reason is required |
 
-`<job>` is `engineer`, `final-review`, or `fixer <what> <head>`: `rebase` or what
+`<job>` is `engineer` or `fixer <what> <head>`: `rebase` or what
 it fixes, and the live head at dispatch, so resume can tell whether it pushed.
 
 An `[open]` line naming a task holds it, in whatever state it is: that is read

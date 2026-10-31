@@ -196,10 +196,97 @@ class Tokens(Case):
         # When
         report = self.home.report()
         # Then
-        self.assertEqual(row(report, "Tokens by agent type", "general-purpose")[1:], ["1", "2", "0/5.0M/50k/0", "3.0M"])
+        self.assertEqual(row(report, "Tokens by agent type", "general-purpose")[1:5], ["1", "2", "0/5.0M/50k/0", "3.0M"])
         self.assertEqual(row(report, "Costliest subagents", "s1")[1:5], ["general-purpose", "Implement parser", "0/5.0M/50k/0", "3.0M"])
         self.assertEqual(row(report, "Tokens by skill", "engineering")[1:], ["1", "0/3.0M/0/0"])
         self.assertIn("/engineer", row(report, "Sessions", "s1")[5])
+
+
+class EffectiveCost(Case):
+    USAGE = {"input_tokens": 10, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 400,
+             "output_tokens": 20}  # 10 + 100 + 500 + 100 = 710
+
+    def test_a_call_is_weighed_by_what_it_pays(self) -> None:
+        # Given: a main call and a subagent call of the same usage, the subagent's reported twice
+        main = Transcript().human(0, "go").reply(1, self.USAGE)
+        sub = Transcript().brief(5, "build").reply(6, self.USAGE, content_lines=2).reply(7, self.USAGE)
+        self.home.session("s1", main, {"a1": worker("Implement parser", sub)})
+        # When
+        report = self.home.report()
+        # Then: every view sums weighted calls, counting a split response once
+        self.assertIn("2k = main 710, subagents 1k", section(report, "Session report"))
+        self.assertEqual(row(report, "Sessions", "s1")[-1], "2k")
+        self.assertEqual(row(report, "Tokens by agent type", "main")[-1], "710")
+        self.assertEqual(row(report, "Tokens by agent type", "general-purpose")[-1], "1k")
+        self.assertEqual(row(report, "Costliest subagents", "s1")[-1], "1k")
+        self.assertEqual(row(report, "Loop steps", "implement")[-1], "1k")
+
+    def test_output_outranks_cached_context(self) -> None:
+        # Given: a large cached subagent and a small one that writes more
+        cached = Transcript().brief(5, "a").reply(6, {"cache_read_input_tokens": 100_000})
+        verbose = Transcript().brief(5, "b").reply(6, {"output_tokens": 10_000})
+        self.home.session("s1", idle_main(), {"a1": worker("Cached", cached), "a2": worker("Verbose", verbose)})
+        # When
+        lines = section(self.home.report(), "Costliest subagents").splitlines()
+        # Then
+        self.assertIn("Verbose", next(line for line in lines if "general-purpose" in line))
+
+
+REWRITE = {"input_tokens": 1000, "cache_read_input_tokens": 9000, "cache_creation_input_tokens": 90_000}  # costs 112k
+
+
+class CacheRewrites(Case):
+    def test_a_subagent_rewrite_after_each_wait_is_split_by_that_wait(self) -> None:
+        # Given: a subagent that loses its cache behind a foreground Bash, a foreground Agent and no tool
+        sub = Transcript().brief(0, "build").reply(1, {"cache_read_input_tokens": 1000})
+        sub.bash(2, "just test", 400)
+        sub.reply(401, REWRITE)
+        sub.tool(402, "Agent", 800, description="Research")
+        sub.reply(801, REWRITE)
+        sub.reply(1200, REWRITE)
+        self.home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Cache rewrites", "foreground Bash")[1:], ["1", "112k"])
+        self.assertEqual(row(report, "Cache rewrites", "Agent")[1:], ["1", "112k"])
+        self.assertEqual(row(report, "Cache rewrites", "idle")[1:], ["1", "112k"])
+        self.assertIn("3 rewrites, 338k effective", section(report, "Cache rewrites"))
+        self.assertEqual(row(report, "Cache rewrites", "s1")[1:], ["general-purpose", "Implement parser", "3", "338k"])
+
+    def test_a_gap_within_the_cache_life_is_no_rewrite(self) -> None:
+        # Given: a large write under 5 minutes after the previous call
+        sub = Transcript().brief(0, "build").reply(1).reply(299, REWRITE)
+        self.home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
+        # When / Then
+        self.assertIn("0 rewrites", section(self.home.report(), "Cache rewrites"))
+
+    def test_a_small_write_after_a_gap_is_no_rewrite(self) -> None:
+        # Given: half the context written after a long gap, the cache having survived the rest
+        half = {"cache_read_input_tokens": 50_000, "cache_creation_input_tokens": 50_000}
+        sub = Transcript().brief(0, "build").reply(1).reply(1000, half)
+        self.home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
+        # When / Then
+        self.assertIn("0 rewrites", section(self.home.report(), "Cache rewrites"))
+
+    def test_a_main_agent_keeps_its_cache_for_an_hour(self) -> None:
+        # Given: main gaps of 59 and 61 minutes before a large write
+        main = Transcript().human(0, "go").reply(1).reply(3541, REWRITE).reply(7202, REWRITE)
+        self.home.session("s1", main)
+        # When
+        report = self.home.report()
+        # Then: only the second counts
+        self.assertEqual(row(report, "Cache rewrites", "s1")[1:], ["main", "", "1", "112k"])
+        self.assertEqual(row(report, "Cache rewrites", "idle")[1:], ["1", "112k"])
+
+    def test_a_background_bash_is_idle(self) -> None:
+        # Given: the wait came after a command sent to the background
+        sub = Transcript().brief(0, "build")
+        sub.bash(1, "just test", 2, background=True)
+        sub.reply(400, REWRITE)
+        self.home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Cache rewrites", "idle")[1:], ["1", "112k"])
 
 
 class WallTime(Case):
@@ -570,7 +657,7 @@ class LoopSteps(Case):
         # When
         report = self.home.report()
         # Then
-        self.assertEqual(row(report, "Loop steps", "review 1")[1:], ["2", "1", "0/3k/0/0", "20m"])
+        self.assertEqual(row(report, "Loop steps", "review 1")[1:5], ["2", "1", "0/3k/0/0", "20m"])
 
 
 class ReviewYield(Case):

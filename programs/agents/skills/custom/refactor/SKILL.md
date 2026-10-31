@@ -1,7 +1,7 @@
 ---
 name: refactor
 description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then derivable state and data modeling, rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, a schema or stored-data change included, when run by the user (delegated, big items are reported as out of scope), then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
-argument-hint: "[scope notes] [PR number or base ref]"
+argument-hint: "[Quality: <mode>] [scope notes] [PR number or base ref]"
 ---
 
 # Refactor
@@ -13,6 +13,10 @@ behaviour is a bug hiding in a cleanup commit.
 **Delegated** means another agent - an orchestrator such as `engineer` -
 invoked this skill, so there is nobody to ask.
 
+**Quality.** Delegated at Balanced, a diff under about 100 changed lines is
+skipped: say so and stop. Delegated at POC, one quick pass: step 3's items 1-3
+only, item 3 as one read of the diff, and skip `references/tests.md`. Invoked by the user, it runs in any mode.
+
 ## 1. Load the rules
 
 Invoke the `engineering` skill, and `ui-coding` when the diff touches UI, with
@@ -23,7 +27,8 @@ directory, and a `..` path does not resolve between installed skills.
 
 ## 2. Read the diff
 
-`$ARGUMENTS` may carry scope notes (anything that is not a ref) and a target:
+`$ARGUMENTS` may carry `Quality: <mode>`, scope notes (anything else that is
+not a ref) and a target:
 
 - A PR number or URL - `gh pr diff <n>`. Check the PR's branch out first if it
   is not the current one (`gh pr checkout <n>`).

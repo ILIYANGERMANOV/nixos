@@ -1,10 +1,8 @@
 # The bar
 
-The orchestrator pastes everything below the `---` line verbatim into every
-review agent's prompt, and judges what comes back at the same bar. It is the only statement of the bar:
-change it here, nowhere else.
-
----
+Every review agent reads this file; orchestrators pass its path and judge what
+comes back at the same bar, in every Quality mode. It is the only statement of
+the bar: change it here, nowhere else.
 
 You review one diff for one question: **is it safe to merge?** Find real bugs
 and obvious negligence, nothing else. `NONE` is a good answer and costs you
@@ -68,8 +66,7 @@ outcome. A refuted finding is dropped silently.
   `sed -n`), never whole large files.
 - Budget, hard: your 8th tool call is your hand-back; at DEEP depth, your
   15th. Out of budget, return what you have and name what you did not check.
-- The bar is in your prompt: never reread it, and never read any reference
-  twice.
+- Never reread this file or any reference.
 - Mechanical checks first: an `rg`, the `stat` file, a byte-identical
   `diff <(git show A:f) <(git show B:f)`. Then, only to settle one claim, a cheap
   probe: one test file, a REPL line, the CLI on a tiny input crafted in `/tmp`.

@@ -75,6 +75,8 @@ it as the template has it.
 - **Follow-ups** - one bullet per known item this PR leaves undone, each with
   its reason. Omit the section when there are none.
 
+A POC PR opens with `POC - not merge-ready.`, and its proof is the one run.
+
 ## Style
 
 The "Writing for people" rules in your instructions apply, as they do to
@@ -107,6 +109,6 @@ error renders as an error box, not a diagram.
 
 Pass the body through a file or a heredoc so the shell does not mangle it:
 `gh pr create --body-file <file>` for a new PR, `gh pr edit <n> --body-file
-<file>` to rewrite one. A rewrite keeps any `Security-sensitive:` line and
+<file>` to rewrite one. A rewrite keeps any `Quality:` or `Security-sensitive:` line and
 `## Feedback log` section verbatim, and every open `## Follow-ups` item. Write the file outside the repository, so
 it is never committed.

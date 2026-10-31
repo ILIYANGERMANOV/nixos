@@ -91,8 +91,9 @@ wrong tool for iterating.
 5. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system. On Linux that evaluates one host, for
    `software-factory-activation`, and no other.
-6. `just check` once on the final state, in the background. Never after a
-   docs-only edit, and never with a build, lint or test chained in front of it.
+6. `just check` once on the final state, run as the Checks rules in
+   `programs/agents/AGENTS.md` say. Never after a docs-only edit, and never
+   with a build, lint or test chained in front of it.
 
 ## Dependency Updates
 

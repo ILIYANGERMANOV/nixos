@@ -36,16 +36,27 @@ costs rework, tech debt and bugs.
   any open decision back to its caller in its report, finishing the work the
   decision does not block rather than stopping or guessing.
 
+## Quality
+
+Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
+agent may lower or raise it for a subtask. A skill's text is Max: it names only
+what Balanced and POC change, and no branch means as written.
+
+- **POC**: prove the idea cheaply. One quick refactor and one quick review with
+  no DEEP security pass, then a PR labelled `POC`, not merge-ready and never
+  auto-merged.
+- **Balanced** (default): fewer review agents, a fix pass, one `--fixes`
+  re-review and one final small fix. Security depth stays.
+- **Max**: every step.
+
 ## Subagents
 
 - Act as an orchestrator: hand self-contained work that would flood your own
   context to a subagent and keep only its conclusion. Good candidates are long
   verification runs (diffing builds, checking two outputs are equal), broad
   searches, log and test-output triage, and research. Give the subagent the
-  goal, the facts it needs and the shape of the answer you want. Spawning one
-  pays off even when it repeats or follows up on earlier work: a fresh subagent
-  per step costs less than carrying every step's raw output in the main
-  conversation.
+  goal, the facts it needs and the shape of the answer you want. A fresh
+  subagent per step costs less than carrying every step's raw output.
 - The exception: when exploring feeds directly into a change, one subagent both
   explores and implements. Splitting them makes the implementer re-read
   everything the explorer already read.
@@ -75,7 +86,7 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
   build or evaluation logic, many modules, or code with tests beyond the
   targeted ones. The orchestrator owns that: it hands the duty to the last
   agent to push, or runs it in a fresh agent when the last pass changed
-  nothing. Rerun it only after a code edit, never after a docs-only edit.
+  nothing or that agent hands it back. Rerun it only after a code edit, never after a docs-only edit.
   CI has the final say.
 - A project's own instructions win where they are stricter, such as one
   that runs its full check on the final state of every change.
@@ -84,9 +95,17 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 - Run anything expected to take over a minute with `run_in_background`. It
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
   A subagent's background task dies at its hand-back and nothing wakes it, so a
-  subagent runs it in the foreground with `timeout: 600000` instead. If it may
-  pass 10 minutes and a rerun resumes it, the subagent runs it under `timeout
-  590` and reruns it on exit 124, since the wait guard blocks waiting on a log.
+  subagent runs it in the foreground with `timeout: 600000` instead.
+- A subagent's cache lasts 5 minutes, and rewriting a large context costs far
+  more than a small one. So an agent past about 60k tokens never runs a check
+  expected over about 4 minutes itself: it commits, pushes if the branch is
+  pushed, and hands back naming the check. Its caller spawns a fresh small agent
+  to run it, and a failure goes to a fresh fixer.
+- Foreground Bash caps at 10 minutes. If a check may pass that and a rerun
+  resumes it, the fresh small check agent runs it under `timeout 590` and
+  reruns it on exit 124, since the wait guard blocks waiting on a log. If no
+  rerun resumes it, it hands back and the top-level agent runs it with
+  `run_in_background`.
 - Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
   as `.{0,250}` as too complex.
 
@@ -102,8 +121,8 @@ step.
 - Never send new scope to a large agent: start a fresh one.
 - The prompt cache expires after about 5 minutes idle. Never resume a large
   agent after a gap; spawn a fresh one from a summary.
-- Subagents never wait on CI or deploys: they hand back, and the parent
-  waits. A check they run is still theirs to wait for.
+- Subagents never wait on or poll CI or deploys: they hand back, the parent
+  waits, and a guard enforces it. A check they run is still theirs to wait for.
 - Wait on a pull request's CI without blocking: after your final push, call
   `subscribe_pr_activity` and end your turn, so CI results wake you. An event
   for a commit that is not the branch head, or for your own action (your

@@ -37,6 +37,8 @@ The fixes are **large** when any of these holds:
 
 Large fixes get a full review: run `references/first-pass.md` on the whole
 branch, and say in one line under the assumptions why. Otherwise continue here.
+Balanced: size alone does not widen this pass, only rewritten history does.
+POC has no re-review.
 
 ## 3. Review the fix diff yourself
 
@@ -48,8 +50,8 @@ Then, over the fix diff only:
   one at STANDARD depth, mechanical checks first. An untouched one gets the
   verdict "unchanged - the fixes do not touch it": the first review's verdict
   stands, and your caller holds it.
-- **"Finding N is fixed"** requirements: met iff the fix removes the finding's
-  trigger, checked on the code.
+- **"Finding N is fixed: <What and Impact>"** requirements: met iff the fix
+  removes that cause, checked on the code.
 - **A fast blockers check**: the step 1 sweep of `blockers.md` on the fix diff,
   then any security hole or irreversible damage the fixes introduce. If the
   fix diff is in the sensitive tier, run on it the greps of

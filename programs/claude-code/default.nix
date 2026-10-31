@@ -30,8 +30,12 @@ let
   statusline = import ./statusline.nix { inherit pkgs theme; };
   readGuard = import ./read-guard.nix { inherit pkgs; };
   waitGuard = import ./wait-guard.nix { inherit pkgs; };
+  contextGuard = import ./context-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
+
+  model = "opus";
+  effortLevel = "medium";
 
   baseSettings = {
     statusLine = {
@@ -39,8 +43,10 @@ let
       command = "${statusline}/bin/claude-statusline";
     };
     autoMemoryEnabled = false;
-    effortLevel = "high";
-    model = "opus";
+    # In user settings the top-level key only reaches a fixed list of older
+    # models. Opus 5.5 and later read modelSettings, which also takes an alias.
+    inherit effortLevel model;
+    modelSettings.${model} = { inherit effortLevel; };
     theme = "auto";
   };
 
@@ -222,7 +228,8 @@ in
         # Unattended agents dumped whole files with `cat` and Read, and
         # subagents blocked on foreground sleeps and polling loops despite
         # the instructions; the hooks make them read ranges and background
-        # long commands instead.
+        # long commands instead, keep subagents off CI, and name the context
+        # budget when an agent crosses it.
         extraSettings = {
           inherit skillOverrides;
           hooks.PreToolUse = [
@@ -238,6 +245,7 @@ in
               hooks = [ readGuard.hook ];
             }
           ];
+          hooks.PostToolUse = [ { hooks = [ contextGuard.hook ]; } ];
           enabledPlugins = {
             "typescript-lsp@claude-plugins-official" = true;
           };

@@ -1,6 +1,6 @@
 ---
 name: 10x-engineer
-description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown, runs up to 3 delegated /engineer subagents in worktrees, rules on what is settled and escalates the rest with context, owns CI, QA and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Durable ledger under ~/.10x, resumable with `resume`. Factory only, invoked by the user.
+description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown with a Quality per task, runs up to 3 delegated /engineer subagents in worktrees, rules on what is settled and escalates the rest with context, owns CI, QA and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Durable ledger under ~/.10x, resumable with `resume`. Factory only, invoked by the user.
 argument-hint: "[issues, PR links, a goal] | resume [run]"
 disable-model-invocation: true
 ---
@@ -84,6 +84,7 @@ breakdown in the ledger and show it, phone-sized:
 | Task | one deliverable, its issues, acceptance criteria |
 | Repo, deps, wave | what must merge first |
 | Shape | independent PR to `main`, or child of `epic/<name>` |
+| Quality | POC, Balanced or Max; ask unless told, Balanced recommended |
 | QA | yes or no |
 | Heavy | Gradle or Next.js build: yes or no |
 | Security-sensitive | topics from `ci`, `auth`, `database`, `secrets`, or none |
@@ -105,7 +106,7 @@ ledger.
 Dispatch by wave, dependencies first:
 
 - At most 3 subagents at once and one heavy task at a time, whatever the job:
-  fixers and `final-review` count, a heavy task's fixer as heavy. A slot is free
+  fixers count, a heavy task's fixer as heavy. A slot is free
   only when both caps hold; the rest stay `queued`. A task with an unmerged
   dependency or an open decision waits.
 - Worktree, brief and spawn prompt: `${CLAUDE_SKILL_DIR}/references/brief.md`.
@@ -169,15 +170,16 @@ gates; do not invoke that skill.
    green; other repos go on. Otherwise **branch**: a fresh fixer per
    `${CLAUDE_SKILL_DIR}/references/brief.md`, then wait again. A fixer that
    cannot fix it is a failed try.
-3. Green with QA yes and no result yet: state `qa`, send a ready `/qa <PR URL>`
+3. Green on a POC task: it stays a labelled draft and never reaches the queue or
+   the merge loop. `parked POC <PR URL>`, notify. A task depending on it opens
+   one decision: retry it or re-plan. Retrying it at a higher Quality is the
+   user's call: remove the `POC` label, then a fresh engineer from its PR at
+   step 6.
+4. Green with QA yes and no result yet: state `qa`, send a ready `/qa <PR URL>`
    line for a fresh session, push it, and wait for the user's result. A Fail
    goes to the user. QA no: go on. Never offer to run the app: run it only when
    the user asks, on a port in 3000-3099, and give the URL.
-4. The `gh pr ready` gates from that section, then `gh pr ready`.
-5. On a PR to `main` on the sensitive tier (the `Security:` line in the report
-   file), run `final-review` once, in a free slot, before the task enters the
-   queue, with the report file's requirements; the user answers its pickers. On
-   other tiers the queue offers `/final-review` once.
+5. The `gh pr ready` gates from that section, then `gh pr ready`.
 6. State `review`: the queue, or the merge loop when the Approved gate already
    holds.
 
@@ -192,6 +194,7 @@ order, safest first:
    Risk: <low/medium/high and why>
    Rulings: <each, or none>
    QA: <passed / no / /qa line>
+   Optional: /final-review --requirements <its file> <PR URL>
 ```
 
 The user approves on GitHub. Push one line saying how many PRs wait.
@@ -215,15 +218,15 @@ send the final report: merged, parked and why, rulings to look at, follow-ups.
 - Before its first child, fetch, then
   `git -C <clone> push origin origin/main:refs/heads/epic/<name>`.
 - Child PRs target `epic/<name>`. The child runs sections 5 to 7, QA included.
-  You merge it after its two reviews and green CI, with no user tap, by the same
+  You merge it after its reviews and green CI, with no user tap, by the same
   loop minus the approval gate.
 - Children of a later wave branch from the epic.
 - After the last child, open the final PR to `main` with `pr-description`. It
   lists every `Closes #n`, since issues auto-close only on the default branch.
-  Give it a ledger row and a worktree, so a fixer can rebase it. It then runs
-  sections 7 to 9 like any PR, with its requirements and `Security:` line from
-  the children's reports: the user reviews it and approves. Its queue entry
-  summarises per child: PR link, what, rulings, QA.
+  Give it a ledger row and a worktree, so a fixer can rebase it. Join the merged
+  children's requirements files into its `reports/<task>-requirements.md`. It
+  then runs sections 7 to 9 like any PR: the user reviews it and approves. Its
+  queue entry summarises per child: PR link, what, rulings, QA.
 - A parked child holds the final PR. Escalate once, as an open decision: retry
   it, ship the rest as a partial final PR, or drop the child. A partial final PR
   leaves the parked child's issues out of `Closes`.
@@ -259,7 +262,7 @@ candidates: ask. Subagents and subscriptions die with the session, so:
 3. A `running` task's worker is gone, and its job says what it was doing:
    - A fixer whose `<head>` is no longer the live head pushed: a rebase takes
      Rebase in `${CLAUDE_SKILL_DIR}/references/merge.md`, any other `ci`.
-   - Any other fixer, or `final-review`: a fresh one for that job.
+   - Any other fixer: a fresh one for that job.
    - `engineer`: read its last step from its report file. Step 10 means it
      finished: `READY`, section 7. Otherwise a fresh engineer from its PR, or
      from its worktree when no PR exists yet, at the next step.
