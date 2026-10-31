@@ -22,6 +22,7 @@ require_email() {
 require_fido_pin() {
   local device=$1 line
   shift
+  # shellcheck disable=SC2312 # the sourcing script sets pipefail
   if ! ykman fido info 2>/dev/null | grep -qiE 'PIN:.*attempt'; then
     echo "ERROR: no FIDO2 PIN set on $device. Run 'just yubikey-set-pin' first." >&2
     for line in "$@"; do
