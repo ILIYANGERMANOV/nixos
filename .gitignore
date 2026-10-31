@@ -2,3 +2,5 @@
 result
 result-*
 deslop/diagram/
+programs/playwright/node_modules/
+programs/playwright/dist/

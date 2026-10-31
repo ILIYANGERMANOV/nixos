@@ -10,7 +10,9 @@
 # are reshuffled on every re-encrypt, so allowlisting the words would both break at
 # the next rotation and blind us to a real one in prose. A glob rather than a list
 # so a new host's file is covered without touching this.
-extend-exclude = ["/secrets/**/*.yaml"]
+#
+# A lock file holds generated names and hashes, not prose.
+extend-exclude = ["/secrets/**/*.yaml", "pnpm-lock.yaml"]
 
 [default.extend-words]
 # The nvim-noice plugin. Lowercase covers `Noice` and `NoiceDismiss` too, since

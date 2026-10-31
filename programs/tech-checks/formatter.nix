@@ -21,6 +21,7 @@ pkgs.treefmt.withConfig {
     pkgs.nixfmt
     pkgs.shfmt
     justFormatEach
+    pkgs.biome
   ];
   settings = {
     # treefmt warns by default, too loud for a repo where most files have no formatter.
@@ -45,6 +46,18 @@ pkgs.treefmt.withConfig {
         includes = [
           "Justfile"
           "*.just"
+        ];
+      };
+      biome = {
+        command = "biome";
+        options = [
+          "format"
+          "--write"
+        ];
+        includes = [
+          "programs/playwright/*.ts"
+          "programs/playwright/*.json"
+          "programs/playwright/**/*.ts"
         ];
       };
     };

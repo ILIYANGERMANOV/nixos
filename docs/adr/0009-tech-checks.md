@@ -76,3 +76,17 @@ can be skipped, so CI must run the check anyway.
 
 `modules/nix.nix` sets `allow-import-from-derivation = false`. Every job in
 `check.yml` sets it too, so an import from derivation cannot pass CI and then fail on a host.
+
+## TypeScript is ES modules, with its tools from nixpkgs
+
+`ts-lint`, `ts-types` and `ts-test` cover `programs/playwright`.
+
+- `verbatimModuleSyntax` refuses `import` in a CommonJS file, so the sources are
+  ES modules. The compiled packages sit side by side in `lib/node_modules`,
+  because an ES module resolves by directory and ignores NODE_PATH. A `/qa`
+  script keeps its `require`.
+- `tsgo` (TypeScript 7) and Biome come from nixpkgs. In the lock file, `typescript`
+  would resolve as viem's optional peer and ship in the runtime closure, native
+  binary included.
+- `biome.json` sits at the repository root: Biome refuses a nested root
+  configuration, and treefmt runs from the root.
