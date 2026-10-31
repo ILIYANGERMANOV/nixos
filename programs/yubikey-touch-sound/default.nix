@@ -42,6 +42,16 @@ let
   openssh = lib.getExe pkgs.openssh;
   opensshKeygen = lib.getExe' pkgs.openssh "ssh-keygen";
 
+  beepSettings = {
+    inherit
+      afplay
+      sound
+      volume
+      interval
+      ;
+    timeout_seconds = timeoutSeconds;
+  };
+
   # Repeats the alert until killed. Kept in its own script so both entry points
   # share one implementation.
   beep = shellCheck.writeShellApplication {
@@ -50,40 +60,8 @@ let
     # so a shadowed `sleep` would run inside the auth path.
     runtimeInputs = [ pkgs.coreutils ];
     text = ''
-      parent=$PPID
-      deadline=$(( SECONDS + ${timeoutSeconds} ))
-      child=""
-
-      # Take the in-flight afplay down with us instead of letting it finish.
-      # Never `kill 0`: this process shares its process group with ssh (and
-      # therefore with git and the shell's foreground job).
-      cleanup() {
-        if [ -n "$child" ]; then
-          kill "$child" 2>/dev/null || true
-        fi
-        exit 0
-      }
-      trap cleanup TERM INT HUP
-
-      # Nothing outside can be relied on to stop us. A SIGKILLed ssh never
-      # reaches notify_complete(), and a SIGKILLed or SIGTERMed signing wrapper
-      # never runs its EXIT trap — either way this process is orphaned and
-      # would beep until logout. No trap can cover SIGKILL, so police
-      # ourselves: stop once the parent is gone, and in any case once the touch
-      # window has closed.
-      while [ "$SECONDS" -lt "$deadline" ]; do
-        kill -0 "$parent" 2>/dev/null || exit 0
-
-        ${afplay} -v ${volume} ${sound} >/dev/null 2>&1 &
-        child=$!
-        wait "$child" || true
-        child="" # reaped — the PID can be recycled, so never kill it again
-
-        sleep ${interval} &
-        child=$!
-        wait "$child" || true
-        child=""
-      done
+      ${lib.toShellVars beepSettings}
+      ${shellCheck.fragment ./beep.sh}
     '';
   };
 
@@ -92,18 +70,8 @@ let
   askpass = shellCheck.writeShellApplication {
     name = "yubikey-touch-askpass";
     text = ''
-      case "''${1-}" in
-      "Confirm user presence"*) ;;
-      *)
-        echo "yubikey-touch-askpass: refusing unexpected prompt: ''${1-<empty>}" >&2
-        exit 1
-        ;;
-      esac
-
-      # ssh took the askpass branch, so it did not print the notice itself.
-      echo "$1" >&2
-
-      exec ${lib.getExe beep}
+      ${lib.toShellVars { beep = lib.getExe beep; }}
+      ${shellCheck.fragment ./askpass.sh}
     '';
   };
 
@@ -121,20 +89,11 @@ let
     # so a shadowed `cat` would run inside the auth path.
     runtimeInputs = [ pkgs.coreutils ];
     text = ''
-      export SSH_ASKPASS=${lib.getExe askpass}
-      # macOS has no X server; ssh only consults DISPLAY for X11 forwarding,
-      # which is off. A real value (XQuartz) wins if one is already set.
-      export DISPLAY="''${DISPLAY:-:0}"
-
-      # Run ssh with stderr on a pipe so isatty(STDERR_FILENO) is false, while
-      # still delivering that stderr to the terminal. stdout and stdin are
-      # untouched: git owns those.
-      exec 3>&1
-      set +e
-      { ${openssh} "$@" 2>&1 1>&3 3>&-; } | cat >&2
-      rc=''${PIPESTATUS[0]}
-      set -e
-      exit "$rc"
+      ${lib.toShellVars {
+        inherit openssh;
+        askpass = lib.getExe askpass;
+      }}
+      ${shellCheck.fragment ./ssh.sh}
     '';
   };
 
@@ -144,32 +103,11 @@ let
   sshKeygen = shellCheck.writeShellApplication {
     name = "yubikey-touch-ssh-keygen";
     text = ''
-      signing=0
-      prev=""
-      for arg in "$@"; do
-        if [ "$prev" = "-Y" ] && [ "$arg" = "sign" ]; then
-          signing=1
-          break
-        fi
-        prev="$arg"
-      done
-
-      if [ "$signing" -eq 0 ]; then
-        exec ${opensshKeygen} "$@"
-      fi
-
-      # stdout carries the signature back to git — keep the alert off it, and
-      # off stdin too, which is the pipe git streams the payload down.
-      ${lib.getExe beep} </dev/null >/dev/null 2>&1 &
-      loop=$!
-      # Best-effort: an untrapped signal skips this, so beep also stops itself.
-      trap 'kill "$loop" 2>/dev/null || true' EXIT
-
-      set +e
-      ${opensshKeygen} "$@"
-      rc=$?
-      set -e
-      exit "$rc"
+      ${lib.toShellVars {
+        beep = lib.getExe beep;
+        openssh_keygen = opensshKeygen;
+      }}
+      ${shellCheck.fragment ./ssh-keygen.sh}
     '';
   };
 in
