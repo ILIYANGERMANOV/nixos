@@ -1,0 +1,6 @@
+std = "vim"
+
+[lints]
+# nixvim concatenates every fragment into one init.lua, and `_G` is how the
+# fragments reach each other. See programs/nvim/CLAUDE.md, ContextRunners.
+global_usage = "allow"
