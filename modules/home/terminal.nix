@@ -150,7 +150,7 @@ in
     ripgrep
     fd
     jq
-    # The /self-improve analyzer needs 3.10+; macOS ships 3.9.
+    # The /self-improve analyzer needs 3.13; macOS ships 3.9.
     python3
     tree
     nerd-fonts.jetbrains-mono
