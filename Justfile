@@ -1,4 +1,4 @@
-set shell := ["bash", "-eo", "pipefail", "-c"]
+set shell := ["bash", "-euo", "pipefail", "-c"]
 
 import 'just/secrets.just'
 import 'just/ssh.just'

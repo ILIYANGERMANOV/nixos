@@ -127,13 +127,15 @@ let
           exit 2
         fi
         frame=$(printf '%s/%03d.png' "$tmp" "$n")
-        ffmpeg -y -loglevel error -ss "$t" -i "$video" -frames:v 1 -vf "scale=480:-2,$(label "$t s")" "$frame"
+        tile=$(label "$t s")
+        ffmpeg -y -loglevel error -ss "$t" -i "$video" -frames:v 1 -vf "scale=480:-2,$tile" "$frame"
         if [ ! -s "$frame" ]; then
           end=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$video")
           end=$(printf '%.2f' "$end")
           echo "qa-frames: $t s is past the end of $video; using its last frame ($end s)" >&2
           # -update keeps overwriting one image, so what is left is the last frame.
-          ffmpeg -y -loglevel error -sseof -1 -i "$video" -update 1 -vf "scale=480:-2,$(label "$end s (end)")" "$frame"
+          tile=$(label "$end s (end)")
+          ffmpeg -y -loglevel error -sseof -1 -i "$video" -update 1 -vf "scale=480:-2,$tile" "$frame"
         fi
         if [ ! -s "$frame" ]; then
           echo "qa-frames: no frame in $video" >&2

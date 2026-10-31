@@ -35,6 +35,12 @@ They know nothing about hosts, users, or activation — just packages and config
 
 Designed for reuse: the same program config can be consumed by home modules and dev shells alike.
 
+A script is built with `writeShellApplication` from `programs/shell-check`, the
+one source of the optional shellcheck rules; `shell-lint` holds every `.sh` to
+the same rules. A `.sh` spliced into a script opens with a `# shellcheck
+shell=bash` directive, which `fragment` in `programs/software-factory` cuts on
+assembly: mid-script it would silence the next function.
+
 ### `modules/home/` — thin wiring into Home Manager
 
 Each module imports from `programs/` via the `root` special arg (the flake self) and wires the resulting derivations into HM options (`home.packages`, `home.activation`, etc.).

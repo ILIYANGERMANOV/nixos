@@ -428,6 +428,16 @@ echo '[{"state": "success"}]' >"$GH/statuses.json"
 factory-deploy
 not_called "nix "
 
+echo "factory-deploy: no usable answer about a deployment's statuses waits for the next tick"
+deploy_reset
+rm "$GH/statuses.json"
+factory-deploy 2>/dev/null
+not_called "nix "
+deploy_reset
+echo 'not json' >"$GH/statuses.json"
+factory-deploy 2>/dev/null
+not_called "nix "
+
 echo "factory-deploy: builds the tip of main, tests it, then makes it the boot default"
 deploy_reset
 factory-deploy >/dev/null

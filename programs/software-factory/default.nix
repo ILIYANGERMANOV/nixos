@@ -20,10 +20,10 @@ let
   # alone. Spliced mid-script that directive would silence only the function
   # below it, and for no reason: the assembled script defines everything.
   fragment =
-    file:
+    script:
     lib.concatLines (
       lib.filter (line: !lib.hasPrefix "# shellcheck shell=bash" line) (
-        lib.splitString "\n" (builtins.readFile file)
+        lib.splitString "\n" (builtins.readFile script)
       )
     );
 
