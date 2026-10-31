@@ -17,9 +17,9 @@ let
   );
 in
 rec {
-  # E501: a substituted store path alone is longer than flake8 allows.
+  # flake8 off: `python-lint` and `python-types` are the Python gate.
   bin = pkgs.writers.writePython3Bin name {
-    flakeIgnore = [ "E501" ];
+    doCheck = false;
     libraries = [ guardModules ];
   } script;
 

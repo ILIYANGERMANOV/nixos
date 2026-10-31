@@ -22,6 +22,7 @@ pkgs.treefmt.withConfig {
     pkgs.shfmt
     justFormatEach
     pkgs.biome
+    pkgs.ruff
   ];
   settings = {
     # treefmt warns by default, too loud for a repo where most files have no formatter.
@@ -59,6 +60,11 @@ pkgs.treefmt.withConfig {
           "programs/playwright/*.json"
           "programs/playwright/**/*.ts"
         ];
+      };
+      ruff = {
+        command = "ruff";
+        options = [ "format" ];
+        includes = [ "*.py" ];
       };
     };
   };

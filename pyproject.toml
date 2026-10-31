@@ -1,0 +1,37 @@
+# Tool config only: ruff and basedpyright for every .py in this repository. No
+# Python package lives here, and every script stays stdlib-only. Enforced by
+# `just tech python`; see docs/adr/0009-tech-checks.md.
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "A", "ANN", "ARG", "B", "BLE", "C4", "C90", "DTZ", "E", "ERA", "F", "FBT",
+  "FURB", "G", "I", "ISC", "LOG", "N", "PERF", "PIE", "PL", "PTH", "RET", "RUF",
+  "S", "SIM", "SLF", "T10", "TC", "TID", "TRY", "UP", "W",
+]
+ignore = [
+  "E501",   # The formatter owns width.
+  "ISC001", # Conflicts with the formatter.
+  "S603",   # These scripts call subprocess by design, always with an argv list.
+  "S607",   # Same: tools come from PATH, which the wrappers set.
+  "TRY003", # A short message at the raise beats an exception class per message.
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.system".msg = "Use subprocess.run with an argv list."
+
+[tool.basedpyright]
+typeCheckingMode = "recommended"
+pythonVersion = "3.13"
+
+# The guards import bash_commands and transcripts from site-packages at runtime
+# (bash-guard.nix), so they are absolute imports, not relative ones.
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/claude-code"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "."
