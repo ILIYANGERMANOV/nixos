@@ -68,8 +68,9 @@ quick-check: lint architecture (format "--ci") (_build-checks ".*")
 tech NAME: (_build-checks (NAME + "-.*"))
 
 # Builds this system's checks whose name matches `pattern`. Matching nothing
-# fails: a typo in a group name must not pass with nothing built. `--keep-going`
-# and `--log-lines` report every failure whole, past nix's default 25-line tail.
+# fails: a typo in a group name must not pass with nothing built. `-L` and
+# `--keep-going` report every failure whole: nix's own tail stops at 25 lines,
+# and `log-lines` is a setting only trusted users may change.
 [private]
 _build-checks pattern:
     #!/usr/bin/env bash
@@ -78,7 +79,7 @@ _build-checks pattern:
     names=$(nix eval --raw ".#checks.$system" --apply \
       'cs: toString (builtins.filter (n: builtins.match "{{ pattern }}" n != null) (builtins.attrNames cs))')
     [ -n "$names" ] || { echo "no checks match {{ pattern }} on $system" >&2; exit 1; }
-    nix build --no-link --keep-going --log-lines 100000 $(printf ".#checks.$system.%s " $names)
+    nix build --no-link --keep-going -L $(printf ".#checks.$system.%s " $names)
     echo "All good ($(wc -w <<<"$names"))"
 
 # Run all checks (lint + architecture + format + spell + flake check)

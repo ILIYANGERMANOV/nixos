@@ -64,5 +64,5 @@ can be skipped, so CI must run the check anyway.
 
 ## CI matches the hosts
 
-`modules/nix.nix` sets `allow-import-from-derivation = false`. Every job now sets
-it too, so an import from derivation cannot pass CI and then fail on a host.
+`modules/nix.nix` sets `allow-import-from-derivation = false`. Every job in
+`check.yml` sets it too, so an import from derivation cannot pass CI and then fail on a host.
