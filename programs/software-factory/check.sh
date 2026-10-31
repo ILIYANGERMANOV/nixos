@@ -574,6 +574,22 @@ rm -f "$work/stop-reading"
 [ ! -e "$work/skills-empty" ] || fail "a reader saw ~/.claude/skills empty"
 [ -z "$(find "$HOME/.claude" -maxdepth 1 -name '.skills.??????')" ] || fail "a scratch directory was left behind"
 
+echo "factory-link-skills: a reader holding the directory open still lists every skill"
+skills_reset
+factory-link-skills "$work/farm-a"
+exec 7<"$skills"
+factory-link-skills "$work/farm-b"
+factory-link-skills "$work/farm-a"
+[ -n "$(ls -A /proc/self/fd/7/ 2>/dev/null)" ] || fail "a relink emptied a directory a reader had open"
+exec 7<&-
+
+echo "factory-link-skills: keeps the directory Claude Code syncs skills into"
+skills_reset
+mkdir -p "$skills/synced/remote-skill"
+factory-link-skills "$work/farm-a"
+factory-link-skills "$work/farm-b"
+[ -d "$skills/synced/remote-skill" ] || fail "a relink deleted the synced skills"
+
 echo "factory-relink-skills: waits for the lock, and gives up without failing"
 skills_reset
 factory-relink-skills "$work/farm-a"

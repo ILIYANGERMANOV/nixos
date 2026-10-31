@@ -294,15 +294,18 @@ path and can be — which is what lets the allowlist use bare skill names that a
 searched for recursively.
 
 `~/.claude/skills` is **not** Home Manager managed. Each flavor wrapper relinks it
-at launch from its own `linkFarm`, wiping it first (`claude-factory` swaps it
-atomically, see below), so switching flavors never leaves a
+at launch from its own `linkFarm`, wiping it first (`claude-factory` updates it
+in place, see below), so switching flavors never leaves a
 stale skill behind — the same pattern `mkClaudeFlavor` already uses for
 `settings.json`, `CLAUDE.md` and `.mcpServers`. Anything hand-placed there is
 destroyed on the next launch; prototype in a project's `.claude/skills/` instead.
 
 The factory is the exception: its sessions never pass through a wrapper, so a
 home activation relinks the farm too, under `~/.claude/.factory.lock`, and
-both swap the directory atomically (`factory-link-skills`) instead of wiping it.
+both update the directory in place (`factory-link-skills`), one atomic rename
+per link. Never replace the directory: deleting one empties it under a session
+that has it open, and Claude Code keeps its own `synced/` there, so only links
+are removed.
 
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
 `programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Every flavor
