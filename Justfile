@@ -71,7 +71,8 @@ tech NAME: (_build-checks (NAME + "-.*"))
 # fails: a typo in a group name must not pass with nothing built. A pass prints
 # no build log. A failure prints nix's errors with each tail swapped for the
 # whole `nix log`: `-L` would also print the passing logs, and `log-lines` is a
-# setting only trusted users may change.
+# setting only trusted users may change. If a `nix log` fails, nix's raw errors
+# follow, tails included, so a failure never hides its error.
 [private]
 _build-checks pattern:
     #!/usr/bin/env bash
@@ -84,7 +85,9 @@ _build-checks pattern:
     trap 'rm -f "$errors"' EXIT
     nix build --no-link --keep-going --quiet $(printf ".#checks.$system.%s " $names) 2>"$errors" || {
       sed '/Last [0-9]* log lines:/,/^ *nix log \/nix\/store/d' "$errors" >&2
-      for drv in $(sed -n 's/^ *nix log //p' "$errors"); do nix log "$drv" >&2; done
+      log_lost=false
+      for drv in $(sed -n 's/^ *nix log //p' "$errors"); do nix log "$drv" >&2 || log_lost=true; done
+      if "$log_lost"; then cat "$errors" >&2; fi
       exit 1
     }
     echo "All good ($(wc -w <<<"$names"))"
