@@ -171,7 +171,9 @@ async function checkDeadline() {
 // Given a saved login the app rotates on every visit, when a script on
 // openContext closes, hangs and meets qa-node's deadline, or is interrupted
 // with SIGINT, then the file holds the rotated login and `.bak` the one before; when the app logs out,
-// then the empty state is refused and the last login stays.
+// then the empty state is refused and the last login stays. `timeout` signals
+// node and then its group, so a signal can arrive twice: `signalAgain` makes
+// the second land right after the first, with the save still running.
 async function checkLoginSaved() {
   const app = await loginApp();
   const auth = path.join(work, 'auth.json');
@@ -188,13 +190,15 @@ async function checkLoginSaved() {
   assert.strictEqual(sid(auth), 'v1');
   assert.strictEqual(sid(`${auth}.bak`), 'v0');
 
-  await assert.rejects(script('login-hang', 'rotate', 'await new Promise(() => {});'), (error) => error.code === 124);
+  const signalAgain = (signal) => `process.once('${signal}', () => process.kill(process.pid, '${signal}'));`;
+  await assert.rejects(script('login-hang', 'rotate', `${signalAgain('SIGTERM')} await new Promise(() => {});`), (error) => error.code === 124);
   assert.strictEqual(sid(auth), 'v2', 'the deadline lost the rotated login');
   assert.strictEqual(sid(`${auth}.bak`), 'v1');
 
   const interrupted = await interrupt(writeScript('login-interrupt', `const { context } = await openContext({ auth: process.argv[2] });
   const page = await context.newPage();
   await page.goto(${JSON.stringify(`${app.url}rotate`)});
+  ${signalAgain('SIGINT')}
   console.log('ready');
   await new Promise(() => {});`), auth);
   assert.strictEqual(interrupted, 130);

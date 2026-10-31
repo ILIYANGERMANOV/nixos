@@ -93,14 +93,17 @@ function readSession(runDir) {
 async function openContext({ auth, ...contextOptions }) {
   const browser = await chromium.launch({ handleSIGTERM: false, handleSIGINT: false });
   const context = await browser.newContext({ viewport: VIEWPORT, ...contextOptions, storageState: auth });
+  // `timeout` signals node and then its group, so one signal can arrive twice.
+  // The listeners stay on, as without one the next signal kills node mid-save.
+  let exiting;
   const onSignal = (signal) => {
     const code = signal === 'SIGINT' ? 130 : 143;
-    saveState(context, auth)
+    exiting ??= saveState(context, auth)
       .catch((error) => console.error(`qa-kit: could not save ${auth}: ${error.message}`))
       .finally(() => process.exit(code));
   };
-  process.once('SIGTERM', onSignal);
-  process.once('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+  process.on('SIGINT', onSignal);
   return {
     browser,
     context,
