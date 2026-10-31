@@ -61,7 +61,7 @@ last_op() {
   fi
   expires="$ops_state_dir/token-expires"
   if [ -r "$expires" ]; then
-    days=$(( ($(date -d "$(<"$expires")" +%s) - $(date +%s)) / 86400 ))
+    days=$((($(date -d "$(<"$expires")" +%s) - $(date +%s)) / 86400))
     [ "$days" -ge 30 ] || echo "WARNING: the deploy token expires in $days day(s). Renew it (docs/SOFTWARE-FACTORY.md)."
   fi
 }

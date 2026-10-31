@@ -9,4 +9,4 @@ enroll-secure-boot:
 
 # Rebuild and switch the system to the latest flake configuration.
 nixos-rebuild host:
-    sudo nixos-rebuild switch --flake .#{{host}}
+    sudo nixos-rebuild switch --flake .#{{ host }}

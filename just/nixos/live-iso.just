@@ -11,7 +11,7 @@ list-disks:
 disko host:
     sudo nix run github:nix-community/disko -- \
         --mode disko \
-        --flake .#{{host}}
+        --flake .#{{ host }}
 
 # Restore an existing age private key from BitWarden onto /mnt.
 # Paste the full keys.txt content in the terminal, then press Ctrl+D.
@@ -69,12 +69,12 @@ setup-secure-boot:
 
 # Run nixos-install against the given host config.
 nixos-install host:
-    sudo nixos-install --flake .#{{host}} --no-root-passwd
+    sudo nixos-install --flake .#{{ host }} --no-root-passwd
 
 # Full fresh install: partition → restore age key → secure boot keys → install.
 # If rotating a compromised key, run 'just generate-age-key' first instead.
 install host:
-    just disko {{host}}
+    just disko {{ host }}
     just restore-age-key
     just setup-secure-boot
-    just nixos-install {{host}}
+    just nixos-install {{ host }}

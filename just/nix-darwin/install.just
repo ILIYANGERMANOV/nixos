@@ -3,9 +3,9 @@
 
 # Set all three macOS hostname values (required before first bootstrap).
 darwin-set-hostname host:
-    sudo scutil --set LocalHostName {{host}}
-    sudo scutil --set ComputerName {{host}}
-    sudo scutil --set HostName {{host}}
+    sudo scutil --set LocalHostName {{ host }}
+    sudo scutil --set ComputerName {{ host }}
+    sudo scutil --set HostName {{ host }}
 
 # Back up /etc shell files that nix-darwin will replace (required before first bootstrap).
 darwin-backup-etc:
@@ -17,7 +17,7 @@ darwin-backup-etc:
 darwin-bootstrap host:
     sudo nix run --extra-experimental-features 'nix-command flakes' \
       'github:nix-darwin/nix-darwin/nix-darwin-25.11#darwin-rebuild' \
-      -- switch --flake .#{{host}}
+      -- switch --flake .#{{ host }}
 
 # Paste the key from Bitwarden, then press Ctrl-D on a new line. It is written
 # root-only (root:wheel, mode 600) so no process running as you can read the

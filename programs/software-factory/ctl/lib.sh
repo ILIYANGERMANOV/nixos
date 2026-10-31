@@ -30,7 +30,10 @@ is_enabled() { enabled_repos | grep -qxF "$1"; }
 
 enable_repo() {
   mkdir -p "${state_file%/*}"
-  { enabled_repos; echo "$1"; } | sort -u >"$state_file.tmp"
+  {
+    enabled_repos
+    echo "$1"
+  } | sort -u >"$state_file.tmp"
   mv "$state_file.tmp" "$state_file"
 }
 

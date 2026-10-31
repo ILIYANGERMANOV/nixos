@@ -5,6 +5,7 @@
 # Full procedures: docs/SSH.md
 
 # Look up this host's git email from either a darwin or nixos configuration.
+[private]
 _ssh_email := "HOST=$(hostname -s); nix eval --raw \".#darwinConfigurations.$HOST.config.myConfig.user.email\" 2>/dev/null || nix eval --raw \".#nixosConfigurations.$HOST.config.myConfig.user.email\""
 
 # Preflight: show YubiKey model, firmware, and FIDO2 PIN status.

@@ -40,7 +40,10 @@ deploy() {
     "github:$repo/$sha#nixosConfigurations.$host.config.system.build.toplevel") ||
     fail "Build failed, nothing changed"
   old=$(readlink -f "$current_system")
-  [ "$new" != "$old" ] || { report success "Already running $sha"; return 0; }
+  [ "$new" != "$old" ] || {
+    report success "Already running $sha"
+    return 0
+  }
 
   # A failed activation can still leave the box reachable; the gate decides.
   "$new/bin/switch-to-configuration" test || true
