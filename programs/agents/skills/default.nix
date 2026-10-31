@@ -62,6 +62,7 @@ let
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
     "qa" # /qa - plan, run and record QA proof on a PR, report-only on bugs, only when the user asks
     "refactor" # /refactor - behaviour-preserving cleanup of a diff; also invoked by engineer
+    "researcher" # /researcher - bounded research with a notes file; preloaded by the researcher agent
     "self-improve" # /self-improve - measure past sessions and fix the agent setup's bottlenecks, factory and claude-pm only
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
     "ui-coding" # UI-specific rules on top of engineering, model-invoked on UI work

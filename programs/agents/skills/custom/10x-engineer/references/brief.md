@@ -31,7 +31,7 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 # <task>
 
 Mode: delegated.
-Quality: <mode>
+Quality: <mode>, then `, Trivial` for a Trivial task
 
 ## The user's words
 

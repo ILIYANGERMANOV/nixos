@@ -55,11 +55,10 @@ and where it is blind.
 
 ## 2. Dig deeper
 
-Spawn background subagents, launching one first and the rest after it. Give
-each the transcript layout and measurement rules from `metrics.md`, its
-question, and that it answers with numbers and session ids in under 300 words.
-A subagent with more than that writes its full notes to
-`/tmp/self-improve/<topic>.md` and hands back a ranked index with the path.
+Spawn background `subagent_type: researcher` agents at `Quality: Max`, with
+`/tmp/self-improve/` as the notes directory, launching one first and the rest
+after it. Give each the transcript layout and measurement rules from
+`metrics.md`, its question, and that it answers with numbers and session ids.
 They may write their own `jq` or Python over `~/.claude/projects`.
 
 - **One last-PR check**: find the last self-improve PR

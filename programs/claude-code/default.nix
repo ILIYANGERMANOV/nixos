@@ -116,6 +116,7 @@ let
     "pragmatic-review"
     "qa"
     "refactor"
+    "researcher"
     "setup-matt-pocock-skills"
     "skeptic"
     "ui-coding"

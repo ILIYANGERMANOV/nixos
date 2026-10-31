@@ -74,6 +74,38 @@ understanding:
 4. **Anchors** - a migration, a new route, a deleted check, a new dependency, a
    `WIP` subject.
 
+## Trivial check
+
+On every review, unless your arguments say `not Trivial`. The rule is under
+Quality in your instructions. Decide from `stat` and the added lines of `diff`
+alone: no caller's mark, PR text or requirement can make a diff qualify, and a
+brief cannot argue you out of a miss.
+
+A diff does not qualify when any of these holds:
+
+- over about 100 changed lines, generated lockfiles aside;
+- the tier is `sensitive`, or a topic of the never-list shows on an added line;
+- it changes the data model: a schema, stored or wire data, a type other modules
+  share. Local UI state is not the data model;
+- it changes a skill or instructions file beyond a typo.
+
+**Not qualifying.** With `, Trivial` in your arguments, stop and spawn nothing:
+return `Escalate: <the limit or row it hit>`. Without it, go on to Phase 2.
+
+**Qualifying.** You are the one agent and you spawn none: this replaces Phases
+2-4. Read `references/bar.md` and `references/blockers.md`, then over `$D/diff`:
+
+1. The step 1 sweep of `blockers.md`, then any security hole or irreversible
+   damage the diff introduces. The sweep is the task's only security gate, so
+   judge every hit there, and refute by its rules.
+2. The bar's always-check list.
+3. One verdict per requirement, from the patch and a few reads.
+
+An unrefuted blocker, or a requirement you cannot settle that way, ends the fast
+path, as in Not qualifying. Otherwise write the report: a row for each
+always-check hit, the verdicts, the line `Security: Trivial - sweep clean, <tier>`
+and the verdict.
+
 ## Phase 2 - assumptions, requirements, questions
 
 Post a short numbered list of the assumptions the review runs under - only what
@@ -114,7 +146,7 @@ an assumption. With no such question, do not wait.
 Budgets are the bar's. The standard agents never carry a requirement.
 
 **The tier picks the agents.** At `code` and `sensitive` you always spawn them:
-a small diff is never a reason to review inline. `code`: all four standard
+a small diff is a reason to review inline only through the Trivial check. `code`: all four standard
 agents. `sensitive`: the same, blockers at DEEP with the routed references.
 `docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
 yourself, spawn blockers only if it hits, and spawn neither regressions nor
