@@ -16,7 +16,7 @@ modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill catalog)
 programs/tech-checks/ - `<tech>-<kind>` flake checks and the treefmt formatter
-programs/shell-check/ - the optional shellcheck rules and the `writeShellApplication` that applies them
+programs/shell-check/ - the optional shellcheck rules, the `writeShellApplication` that applies them and `fragment`
 shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
 secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 deslop/         - the architecture rules `deslop check .` enforces, and their baseline
@@ -40,8 +40,11 @@ A script uses `writeShellApplication` from `programs/shell-check`, never
 `pkgs.writeShellApplication`.
 A just recipe has no `{{ }}` on a sudo line: use an exported parameter.
 A `.sh` spliced into a script opens with a `# shellcheck shell=bash` directive,
-which `fragment` in `programs/software-factory` cuts on assembly: mid-script it
+which `fragment` in `programs/shell-check` cuts on assembly: mid-script it
 would silence the next function.
+A just recipe over 30 lines moves to a `.sh`. A shell string in Nix over 5 lines
+moves to a `.sh` read in with `readFile` or `fragment`. `shell-limits` enforces
+both.
 
 ### `modules/home/` — thin wiring into Home Manager
 

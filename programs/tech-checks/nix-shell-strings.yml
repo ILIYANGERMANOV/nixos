@@ -1,0 +1,34 @@
+# The `''` strings Nix hands to a shell: `shell-limits` measures these and no
+# other. An allowlist of sinks, so a config string (`initContent`, `writeText`)
+# stays free of the limit. See docs/adr/0009-tech-checks.md.
+id: nix-shell-string
+language: nix
+rule:
+  kind: indented_string_expression
+  any:
+    # `launcher` is software-factory's own alias, `entry*` Home Manager's
+    # activation DAG.
+    - inside:
+        stopBy: end
+        kind: apply_expression
+        has:
+          field: function
+          regex: \b(writeShellScript(Bin)?|writeScript(Bin)?|launcher|entry(After|Before|Between|Anywhere))\b
+    - inside:
+        stopBy: end
+        kind: binding
+        has:
+          field: attrpath
+          regex: ^text$
+        inside:
+          stopBy: end
+          kind: apply_expression
+          has:
+            field: function
+            regex: \bwriteShellApplication\b
+    - inside:
+        stopBy: end
+        kind: binding
+        has:
+          field: attrpath
+          regex: (^|\.)(script|reload|shellHook|Exec\w+|\w+Phase|(pre|post)[A-Z]\w*|activation\.\S+|activationScripts\.\S+)$

@@ -7,6 +7,12 @@ let
 
   shellCheck = import ../shell-check { inherit pkgs; };
 
+  # What `shell-limits` lets past: a recipe's name or a Nix file's stem.
+  shellLimitExempt = [
+    "statusline" # t12 removes it
+    "_cache-check" # t12 removes it
+  ];
+
   formatter = import ./formatter.nix { inherit pkgs; };
 
   typos = import ../typos { inherit pkgs; };
@@ -31,10 +37,15 @@ let
     (root + "/Justfile")
     (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
   ];
+  # A test's fakes are out, so `shell-limits-check.nix` is only ever its fixture.
+  nixFiles = lib.fileset.fileFilter (
+    file: file.hasExt "nix" && !lib.hasSuffix "check.nix" file.name
+  ) root;
 
   githubSource = source (root + "/.github");
   shellSource = source shellFiles;
   justSource = source justFiles;
+  nixSource = source nixFiles;
   formatSource = source (
     lib.fileset.unions [
       shellFiles
@@ -112,6 +123,73 @@ in
           echo 'shell-just: {{ }} on a sudo line, use an exported parameter: `recipe $x:` then "$x"' >&2
           status=1
         fi
+
+        [ "$status" -eq 0 ]
+        touch "$out"
+      '';
+
+  # Shell past a limit belongs in a `.sh`, which every other check here can see.
+  # A recipe counts all its body lines, a Nix string what nix-shell-strings.jq
+  # counts in the sinks nix-shell-strings.yml names. The fixtures prove both
+  # boundaries on every run. See docs/adr/0009-tech-checks.md.
+  shell-limits =
+    pkgs.runCommand "shell-limits"
+      {
+        nativeBuildInputs = [
+          pkgs.ast-grep
+          pkgs.jq
+          pkgs.just
+        ];
+      }
+      ''
+        recipes() {
+          just --justfile "$1" --dump --dump-format json |
+            jq '.recipes | to_entries[] | {name: .key, where: .key, lines: (.value.body | length)}'
+        }
+        strings() {
+          (cd "$1" && ast-grep scan --rule ${./nix-shell-strings.yml} --json=compact .) |
+            jq -f ${./nix-shell-strings.jq}
+        }
+        over() {
+          jq -r --argjson limit "$1" --argjson exempt ${lib.escapeShellArg (builtins.toJSON shellLimitExempt)} \
+            'select(.lines > $limit and (.name | IN($exempt[]) | not)) | "\(.where): \(.lines) lines"' |
+            sort -V
+        }
+        report() {
+          [ -s "$1" ] || return 0
+          cat "$1" >&2
+          echo "shell-limits: $2" >&2
+          status=1
+        }
+
+        recipes ${./shell-limits.just} | over 30 | diff - ${builtins.toFile "shell-limits-just.expected" ''
+          over-limit: 31 lines
+          shebang-over-limit: 31 lines
+        ''}
+
+        mkdir fixture
+        cp ${./shell-limits-check.nix} fixture/shell-limits-check.nix
+        strings fixture | over 5 | diff - ${builtins.toFile "shell-limits-nix.expected" ''
+          shell-limits-check.nix:103: 6 lines
+          shell-limits-check.nix:111: 6 lines
+          shell-limits-check.nix:119: 6 lines
+          shell-limits-check.nix:127: 6 lines
+          shell-limits-check.nix:137: 6 lines
+          shell-limits-check.nix:146: 6 lines
+          shell-limits-check.nix:154: 6 lines
+          shell-limits-check.nix:162: 6 lines
+          shell-limits-check.nix:170: 6 lines
+          shell-limits-check.nix:178: 6 lines
+          shell-limits-check.nix:186: 6 lines
+          shell-limits-check.nix:194: 6 lines
+        ''}
+
+        recipes ${justSource}/Justfile | over 30 > recipes
+        strings ${nixSource} | over 5 > strings
+
+        status=0
+        report recipes "recipe over 30 lines, move to a .sh"
+        report strings "Nix shell string over 5 lines, move to a .sh and read it in with readFile"
 
         [ "$status" -eq 0 ]
         touch "$out"

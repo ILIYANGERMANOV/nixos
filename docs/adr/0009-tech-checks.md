@@ -26,10 +26,32 @@ A tech check takes source through `lib.fileset`, evaluates no host and uses no
 import from derivation. That is what keeps a group to seconds, and a commit that
 touches none of its files reuses the store path on the box.
 
-Shell has five: `shell-actionlint` (workflows), `shell-lint` (every `.sh`),
+Shell has six: `shell-actionlint` (workflows), `shell-lint` (every `.sh`),
 `shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and no `{{ }}` on
-a sudo line) and `shell-embedded` (wrappers no other check builds). The lint
-rules live in `programs/shell-check`, shared with `writeShellApplication`.
+a sudo line), `shell-limits` (how much shell may sit outside a `.sh`) and
+`shell-embedded` (wrappers no other check builds). The lint rules live in
+`programs/shell-check`, shared with `writeShellApplication`.
+
+`shell-limits` keeps logic where the other checks can see it, in a `.sh`:
+
+| Side | Measures | Limit |
+|---|---|---|
+| Just | Every line of a recipe's body, from `just --dump` | 30 |
+| Nix | A `''` string in a shell sink, found by `ast-grep` over `nix-shell-strings.yml` | 5 |
+
+- The Nix sinks are an allowlist: `writeShellScript`, `writeScript`, the local
+  `launcher`, Home Manager's `entry*`, `text` in `writeShellApplication`, and
+  bindings such as `script`, `shellHook`, `Exec*`, `*Phase`, `pre*`, `post*` and
+  `activation.*`. So `initContent`, `writeText` and Lua stay free.
+- A Nix count is source lines between the delimiters. Blank lines and comments
+  count, and a multi-line `${ }` counts by the lines it spans.
+- One fixture per side (`shell-limits.just`, `shell-limits-check.nix`) proves the
+  boundary and the negatives on every run.
+- The one exempt list is in `shell.nix`, keyed by recipe name or Nix file stem.
+
+Known gaps: `runCommand` bodies, files named `*check.nix` (test fakes), a
+let-bound string spliced into a script by name (`${snippet}`), and multi-line
+double-quoted strings.
 
 `shell-embedded` is the one that needs flake inputs: `flake.nix` calls
 `adapters/claude-code.nix` and hands the result in, with synthetic secret paths
