@@ -87,7 +87,8 @@ wrong tool for iterating. The ladder's `x86_64-linux` is the box; CI covers both
    `claude-bash-guards` for `programs/claude-code`, `nvim-search`,
    `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
-   `playwright` and `qa` (Linux only) for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
+   `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
+   `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old`, `software-factory`) or
@@ -246,6 +247,18 @@ nixpkgs' Chromium, `viem` and the `qa-wallet` helper from any directory) and
 `qa-mp4` (ffmpeg). The environment lives inside `qa-node`, never the session,
 so a project's own Playwright keeps its own browsers. The factory's Remote
 Control units run the unwrapped binary, so its profile installs `qa` too.
+
+`qa-kit`, `qa-wallet` and the `qa-check*` scripts are strict TypeScript, compiled
+to ES modules in the derivation, because Node refuses type stripping under
+`node_modules`. A script still `require`s them: `qa-node`'s NODE_PATH finds them,
+and Node 24 loads an ES module from `require`. Libraries come from
+`pnpm-lock.yaml`, at exact versions; `tsgo` and Biome come from nixpkgs, since a
+`typescript` in the lock file becomes viem's peer and ships in the runtime. After
+changing the lock file (`pnpm install --lockfile-only` in the dev shell), update
+`pnpmDeps.hash` in `programs/playwright/default.nix`; the hash is the same on
+every system. `playwright` in `package.json` is for its types only: keep it at
+nixpkgs' `playwright-test` version. Tests sit beside the code as `*.test.ts`;
+`checks.ts-test` is the unit layer and `checks.qa` the end-to-end one.
 
 `secretFiles` maps an env var to a secret **name**, for a program that reads
 the file itself: the wrapper exports the decrypted file's **path**, never its
