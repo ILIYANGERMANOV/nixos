@@ -101,12 +101,9 @@ def polls_ci(command: str, earlier: Iterable[str]) -> bool:
         for (_, words), kind in zip(commands, kinds)
         if kind is CiRead.STATUS
     ]
-    return any((
-        CiRead.WATCH in kinds,
-        looped,
-        len(set(statuses)) < len(statuses),
-        bool(statuses) and not status_keys(earlier).isdisjoint(statuses),
-    ))
+    if CiRead.WATCH in kinds or looped or len(set(statuses)) < len(statuses):
+        return True
+    return bool(statuses) and not status_keys(earlier).isdisjoint(statuses)
 
 
 def ci_read(words: list[str]) -> CiRead:
