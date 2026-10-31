@@ -26,7 +26,7 @@ from enum import Enum
 from functools import cached_property
 from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING, assert_never, cast
+from typing import TYPE_CHECKING, NewType, assert_never, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -50,6 +50,13 @@ ROUTINE_POLLS = 2
 
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
+
+SessionId = NewType("SessionId", str)
+AgentId = NewType("AgentId", str)  # the transcript's name, unique within a session
+ToolUseId = NewType("ToolUseId", str)
+ResponseKey = NewType("ResponseKey", str)  # the message id, else the request id
+
+type ReadBound = int | str | None  # a Read's offset or limit, a string as sent
 
 
 def main() -> None:
@@ -174,11 +181,25 @@ class Failed:
 type Outcome = Ok | Failed
 
 
+@dataclass(frozen=True, slots=True)
+class ToolInput:
+    """What the analyzer reads of a tool's input: each field is "" where absent."""
+
+    command: str
+    message: str
+    file_path: str
+    notebook_path: str
+    description: str
+    pattern: str
+    offset: ReadBound
+    limit: ReadBound
+
+
 @dataclass
 class ToolCall:
-    id: str
+    id: ToolUseId
     name: str
-    input: dict[str, Json]
+    input: ToolInput
     start: float
     position: int  # in its transcript's stream; siblings can share a start
     timing: Timing = Unanswered()
@@ -188,7 +209,7 @@ class ToolCall:
 
     @property
     def command(self) -> str:
-        return str(self.input.get("command") or "")
+        return self.input.command
 
     @property
     def seconds(self) -> float | None:
@@ -205,14 +226,12 @@ class ToolCall:
 
 @dataclass
 class Agent:
-    id: str  # the transcript's name, unique within a session
+    id: AgentId
     kind: str  # "main" or the subagent's agentType
     description: str
     responses: list[Response]
     calls: list[ToolCall]
-    parent: str | None = (
-        None  # the spawning subagent's id; None when the main agent spawned it
-    )
+    parent: AgentId | None = None  # None when the main agent spawned it
     brief: str = ""  # the first user text: a subagent's prompt
     texts: list[str] = field(default_factory=list)  # assistant text blocks, in order
     start: float = 0.0
@@ -225,9 +244,7 @@ class Agent:
     @property
     def report(self) -> str:
         """What the agent handed back: its last hand-back, else its last text."""
-        handbacks = [
-            str(c.input.get("message") or "") for c in self.calls if c.name == HANDBACK
-        ]
+        handbacks = [c.input.message for c in self.calls if c.name == HANDBACK]
         return (handbacks or self.texts or [""])[-1]
 
     @property
@@ -253,7 +270,7 @@ class Prompt:
 
 @dataclass
 class Session:
-    id: str
+    id: SessionId
     path: Path
     project: str
     cwd: str
@@ -271,7 +288,7 @@ class Session:
         return [self.main, *self.subagents]
 
     @cached_property
-    def by_id(self) -> dict[str, Agent]:
+    def by_id(self) -> dict[AgentId, Agent]:
         return {a.id: a for a in self.subagents}
 
     @property
@@ -384,9 +401,9 @@ class Transcript:
 
 @dataclass(frozen=True, slots=True)
 class ToolUse:
-    id: str
+    id: ToolUseId
     name: str
-    input: dict[str, Json]
+    input: ToolInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,7 +418,7 @@ type AssistantBlock = ToolUse | Text
 class AssistantLine:
     """One content block of a model call, which can span several lines."""
 
-    key: str | None  # the message id, else the request id
+    key: ResponseKey | None
     usage: Usage
     skill: str | None
     blocks: list[AssistantBlock]
@@ -409,7 +426,7 @@ class AssistantLine:
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
-    tool_use_id: str
+    tool_use_id: ToolUseId
     text: str
     images: int
     is_error: bool
@@ -455,7 +472,7 @@ class Line:
 class SubagentMeta:
     kind: str
     description: str
-    parent: str | None  # the spawning subagent's id
+    parent: AgentId | None  # the spawning subagent's id
 
 
 SELF = "self-improve"
@@ -493,7 +510,7 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
     if not times:
         return None
     return Session(
-        id=path.stem,
+        id=SessionId(path.stem),
         path=path,
         project=project_name(main.cwd),
         cwd=main.cwd,
@@ -519,10 +536,11 @@ def parse_subagent(path: Path, until: float | None) -> Transcript:
 
 def parse_meta(path: Path) -> SubagentMeta:
     raw = as_object(parse_json(path.read_text())) if path.exists() else {}
+    parent = optional_text(raw.get("parentAgentId"))
     return SubagentMeta(
         text_of(raw.get("agentType"), "unknown"),
         text_of(raw.get("description")),
-        optional_text(raw.get("parentAgentId")),
+        None if parent is None else AgentId(parent),
     )
 
 
@@ -584,9 +602,10 @@ def subtract(interval: Interval, merged: list[Interval]) -> Iterator[Interval]:
 def parse_transcript(
     path: Path, kind: str, description: str, until: float | None
 ) -> Transcript:
-    out = Transcript(Agent(path.stem.removeprefix("agent-"), kind, description, [], []))
-    responses: dict[str, Response] = {}
-    calls: dict[str, ToolCall] = {}
+    agent_id = AgentId(path.stem.removeprefix("agent-"))
+    out = Transcript(Agent(agent_id, kind, description, [], []))
+    responses: dict[ResponseKey, Response] = {}
+    calls: dict[ToolUseId, ToolCall] = {}
     previous: float | None = None
     for line in map(parse_line, read_jsonl(path)):
         if line is None or (until is not None and line.at >= until):
@@ -616,13 +635,13 @@ def parse_transcript(
 
 
 def record_assistant(
-    responses: dict[str, Response],
-    calls: dict[str, ToolCall],
+    responses: dict[ResponseKey, Response],
+    calls: dict[ToolUseId, ToolCall],
     line: AssistantLine,
     ts: float,
     texts: list[str],
 ) -> None:
-    key = line.key or f"line-{len(responses)}"
+    key = line.key or ResponseKey(f"line-{len(responses)}")
     match responses.get(key):
         case Response(at=start, calls=response_calls):
             pass
@@ -647,7 +666,7 @@ def record_assistant(
 
 
 def record_results(
-    calls: dict[str, ToolCall], line: ToolResultsLine, ts: float
+    calls: dict[ToolUseId, ToolCall], line: ToolResultsLine, ts: float
 ) -> None:
     for result in line.results:
         call = calls.get(result.tool_use_id)
@@ -657,7 +676,7 @@ def record_results(
 
 def record_user(
     out: Transcript,
-    calls: dict[str, ToolCall],
+    calls: dict[ToolUseId, ToolCall],
     line: UserLine,
     ts: float,
     previous: float | None,
@@ -701,7 +720,7 @@ def parse_body(event: dict[str, Json]) -> LineBody:
     match event.get("type"):
         case "assistant":
             return AssistantLine(
-                text_of(message.get("id")) or text_of(event.get("requestId")) or None,
+                response_key(message.get("id"), event.get("requestId")),
                 to_usage(as_object(message.get("usage"))),
                 optional_text(event.get("attributionSkill")),
                 parse_assistant_blocks(content),
@@ -723,6 +742,14 @@ def parse_body(event: dict[str, Json]) -> LineBody:
             return OtherLine()
 
 
+def response_key(message_id: Json, request_id: Json) -> ResponseKey | None:
+    match text_of(message_id) or text_of(request_id):
+        case "":
+            return None
+        case key:
+            return ResponseKey(key)
+
+
 def parse_assistant_blocks(content: Json) -> list[AssistantBlock]:
     parsed = map(parse_assistant_block, blocks(content))
     return [block for block in parsed if block is not None]
@@ -732,12 +759,36 @@ def parse_assistant_block(block: dict[str, Json]) -> AssistantBlock | None:
     match block:
         case {"type": "tool_use", "id": str(call_id)}:
             return ToolUse(
-                call_id,
+                ToolUseId(call_id),
                 text_of(block.get("name"), "?"),
-                as_object(block.get("input")),
+                parse_tool_input(as_object(block.get("input"))),
             )
         case {"type": "text"}:
             return Text(str(block.get("text", "")))
+        case _:
+            return None
+
+
+def parse_tool_input(raw: dict[str, Json]) -> ToolInput:
+    def field_text(name: str) -> str:
+        return str(raw.get(name) or "")
+
+    return ToolInput(
+        command=field_text("command"),
+        message=field_text("message"),
+        file_path=field_text("file_path"),
+        notebook_path=field_text("notebook_path"),
+        description=field_text("description"),
+        pattern=field_text("pattern"),
+        offset=read_bound(raw.get("offset")),
+        limit=read_bound(raw.get("limit")),
+    )
+
+
+def read_bound(value: Json) -> ReadBound:
+    match value:
+        case int() | str():
+            return value
         case _:
             return None
 
@@ -751,7 +802,9 @@ def parse_tool_result(block: dict[str, Json]) -> ToolResult | None:
     match block:
         case {"type": "tool_result", "tool_use_id": str(tool_use_id)}:
             text, images = result_text(block.get("content"))
-            return ToolResult(tool_use_id, text, images, bool(block.get("is_error")))
+            return ToolResult(
+                ToolUseId(tool_use_id), text, images, bool(block.get("is_error"))
+            )
         case _:
             return None
 
@@ -831,10 +884,12 @@ def result_text(content: Json) -> tuple[str, int]:
     return text, sum(1 for b in items if b.get("type") == "image")
 
 
-def record_notifications(calls: dict[str, ToolCall], text: str, ts: float) -> None:
+def record_notifications(
+    calls: dict[ToolUseId, ToolCall], text: str, ts: float
+) -> None:
     """A background call ends at its first task notification."""
     for body in captures(NOTIFICATION, text):
-        call = calls.get(tag(body, "tool-use-id"))
+        call = calls.get(ToolUseId(tag(body, "tool-use-id")))
         if call is None or call.timing != Background(None):
             continue
         call.timing = Background(ts)
@@ -1065,7 +1120,7 @@ def is_check(s: Step) -> bool:
 
 @dataclass(frozen=True)
 class Rerun:
-    session: str
+    session: SessionId
     agent: str
     command: str
     reason: str  # "no edit" or "doc-only edit"
@@ -1076,7 +1131,7 @@ class Rerun:
 class Chain:
     """A build or test step run in front of a full check that already runs it."""
 
-    session: str
+    session: SessionId
     agent: str
     step: str
     seconds: float
@@ -1157,7 +1212,7 @@ def is_edit(call: ToolCall) -> bool:
 
 
 def is_doc_edit(call: ToolCall) -> bool:
-    path = str(call.input.get("file_path") or call.input.get("notebook_path") or "")
+    path = call.input.file_path or call.input.notebook_path
     return call.name != "Bash" and path.endswith(".md")
 
 
@@ -1194,20 +1249,25 @@ def steps_of(session: Session) -> Iterator[tuple[Agent, LoopStep]]:
         yield agent, loop_step(step_owner(agent, session.by_id))
 
 
-def step_by_id(session: Session) -> dict[str, LoopStep]:
+def step_by_id(session: Session) -> dict[AgentId, LoopStep]:
     return {a.id: step for a, step in steps_of(session)}
 
 
-def step_owner(agent: Agent, by_id: dict[str, Agent]) -> Agent:
+def step_owner(agent: Agent, by_id: dict[AgentId, Agent]) -> Agent:
     """The agent whose brief names `agent`'s step: the outermost review above it
     or itself, so a review under an orchestrator subagent stays a review, else
     its top-level subagent."""
     lineage = [agent]
-    while lineage[-1].parent in by_id:
-        lineage.append(by_id[lineage[-1].parent])
+    while (parent := spawner(lineage[-1], by_id)) is not None:
+        lineage.append(parent)
     return next(
         (a for a in reversed(lineage) if loop_step(a) in REVIEW_PASSES), lineage[-1]
     )
+
+
+def spawner(agent: Agent, by_id: dict[AgentId, Agent]) -> Agent | None:
+    """The subagent that spawned `agent`, None for one the main agent spawned."""
+    return None if agent.parent is None else by_id.get(agent.parent)
 
 
 def loop_step(agent: Agent) -> LoopStep:
@@ -1235,11 +1295,9 @@ def brief_head(brief: str) -> str:
 
 def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
     """Every agent that spawned others, with its children in spawn order."""
-    groups: dict[str, list[Agent]] = defaultdict(list)
+    groups: dict[AgentId, list[Agent]] = defaultdict(list)
     for agent in session.subagents:
-        groups[
-            agent.parent if agent.parent in session.by_id else session.main.id
-        ].append(agent)
+        groups[(spawner(agent, session.by_id) or session.main).id].append(agent)
     return [
         (session.by_id.get(key, session.main), sorted(kids, key=lambda a: a.start))
         for key, kids in groups.items()
@@ -1415,7 +1473,7 @@ OUTPUT_REDIRECT = re.compile(r">>?(?!>|\s*&|\s*/dev/null\b)")
 def follow_ups(session: Session) -> Iterator[FollowUp]:
     steps = step_by_id(session)
     for parent, children in children_by_parent(session):
-        groups: dict[str, list[ToolCall]] = defaultdict(list)
+        groups: dict[AgentId, list[ToolCall]] = defaultdict(list)
         for child, call in calls_after_handbacks(parent, children):
             groups[child.id].append(call)
         for child in children:
@@ -1453,7 +1511,7 @@ def read_files(call: ToolCall) -> set[str]:
     """The file names a read-only call looked at."""
     match call.name:
         case "Read":
-            return {Path(str(call.input.get("file_path") or "")).name}
+            return {Path(call.input.file_path).name}
         case "Bash" if is_read_only(call):
             return file_names(call.command)
         case _:
@@ -1494,14 +1552,14 @@ def resent_tokens(report: str, ended: float, parent_calls: list[ToolCall]) -> in
 
 
 def repeated_reads(session: Session) -> list[RepeatedRead]:
-    groups: dict[tuple[str, object, object], list[tuple[Agent, ToolCall]]] = (
+    groups: dict[tuple[str, ReadBound, ReadBound], list[tuple[Agent, ToolCall]]] = (
         defaultdict(list)
     )
     for agent in session.agents:
         for call in filter(is_read_only, agent.calls):
-            groups[
-                (what(call), call.input.get("offset"), call.input.get("limit"))
-            ].append((agent, call))
+            groups[(what(call), call.input.offset, call.input.limit)].append(
+                (agent, call)
+            )
     out: list[RepeatedRead] = []
     for (name, *_), runs in groups.items():
         agents = {agent.id for agent, _ in runs}
@@ -2041,14 +2099,14 @@ def largest_results(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
 
 
 def what(call: ToolCall) -> str:
+    tool_input = call.input
     value = (
-        call.input.get("command")
-        or call.input.get("file_path")
-        or call.input.get("description")
-        or call.input.get("pattern")
-        or ""
+        tool_input.command
+        or tool_input.file_path
+        or tool_input.description
+        or tool_input.pattern
     )
-    return " ".join(str(value).split())
+    return " ".join(value.split())
 
 
 def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> str:

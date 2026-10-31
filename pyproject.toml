@@ -13,10 +13,14 @@ select = [
 ignore = [
   "E501",   # The formatter owns width.
   "ISC001", # Conflicts with the formatter.
-  "S603",   # These scripts call subprocess by design, always with an argv list.
-  "S607",   # Same: tools come from PATH, which the wrappers set.
   "TRY003", # A short message at the raise beats an exception class per message.
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# The only two that call subprocess, always with an argv list. The guard's git is
+# substituted at build time; the test runs what the check puts on PATH.
+"programs/claude-code/read-guard.py" = ["S603", "S607"]
+"programs/agents/skills/checks/test_self_improve.py" = ["S603", "S607"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

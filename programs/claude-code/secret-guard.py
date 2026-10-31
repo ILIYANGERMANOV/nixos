@@ -25,10 +25,10 @@ any input this script does not understand: the guard fails open, and the Read
 deny rules beside it still hold.
 """
 
+import os
 import re
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 from hook_event import Json, parse_bash_call, parse_json
 
@@ -83,8 +83,8 @@ def names_secret(command: str, protected: Protected) -> bool:
 
 
 def names_file(command: str, path: str) -> bool:
-    file = Path(path)
-    return str(file.parent) in command or as_word(file.name).search(command) is not None
+    directory, basename = os.path.split(path)
+    return directory in command or as_word(basename).search(command) is not None
 
 
 def expands(command: str, var: str) -> bool:

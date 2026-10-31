@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from hook_event import Json, parse_json
+from hook_event import Json, parse_caller, parse_json
 from transcripts import own_transcript, parse_line
 
 WARN_AT = 150_000
@@ -39,7 +39,7 @@ STOP = (
 def main() -> None:
     try:
         event = parse_json(sys.stdin.read())
-        contexts = recent_contexts(own_transcript(event))
+        contexts = recent_contexts(own_transcript(parse_caller(event)))
     except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 

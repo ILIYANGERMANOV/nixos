@@ -68,15 +68,32 @@ def working_directory(event: Json) -> str:
 def read_tool_size(call: ReadCall, cwd: str) -> int:
     """What a Read tool call puts into context, 0 where it is bounded or exempt."""
     path = resolve(cwd, call.file_path)
-    media = Path(path).suffix.lower() in MEDIA
-    if media or call.bounded or is_exempt(path) or not Path(path).is_file():
+    # Not Path.suffix: at Python 3.13 it calls a file named `..png` an image.
+    media = os.path.splitext(path)[1].lower() in MEDIA  # noqa: PTH122
+    if media or call.bounded or is_exempt(path) or not is_file(path):
         return 0
     return Path(path).stat().st_size
 
 
 def resolve(cwd: str, path: str) -> str:
     """Normalised, with `..` collapsed lexically: links stay unfollowed."""
-    return os.path.normpath(Path(cwd) / Path(path).expanduser())
+    return os.path.normpath(Path(cwd) / expand_home(path))
+
+
+def expand_home(path: str) -> str:
+    """An unknown `~name` stays as typed, one more path that names no file.
+
+    Path.expanduser raises on it instead, and that would fail the call open.
+    """
+    return os.path.expanduser(path)  # noqa: PTH111
+
+
+def is_file(path: str) -> bool:
+    """False for any path that cannot be stat'ed.
+
+    Path.is_file raises on a denied or over-long path, which would fail open.
+    """
+    return os.path.isfile(path)  # noqa: PTH113
 
 
 def is_exempt(path: str) -> bool:
@@ -94,7 +111,7 @@ def read_sizes(command: str, cwd: str) -> Iterator[int]:
     for simple in simple_commands(command):
         match (simple.words, simple.sink):
             case (["cd"], _):
-                cwd = str(Path.home())
+                cwd = expand_home("~")
             case (["cd", target], _):
                 cwd = resolve(cwd, target)
             case (["cat", *args], Sink.SCREEN):
@@ -117,7 +134,7 @@ def file_sizes(cwd: str, pattern: str) -> Iterator[int]:
     path = resolve(cwd, pattern)
     # Path.glob refuses the absolute pattern `resolve` returns.
     for found in glob.glob(path) or [path]:  # noqa: PTH207
-        if Path(found).is_file() and not is_exempt(found):
+        if is_file(found) and not is_exempt(found):
             yield Path(found).stat().st_size
 
 

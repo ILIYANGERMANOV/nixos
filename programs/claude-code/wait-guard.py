@@ -30,7 +30,14 @@ from enum import Enum, auto
 from itertools import dropwhile, pairwise
 
 from bash_commands import simple_commands
-from hook_event import Json, parse_bash_call, parse_json
+from hook_event import (
+    Caller,
+    Json,
+    ToolUseId,
+    parse_bash_call,
+    parse_caller,
+    parse_json,
+)
 from transcripts import in_subagent, own_transcript, parse_line
 
 MIN_SLEEP = 10
@@ -83,7 +90,10 @@ def main() -> None:
         event = parse_json(sys.stdin.read())
         call = parse_bash_call(event)
         waits = is_wait(call.command)
-        polls = in_subagent(event) and polls_ci(call.command, earlier_commands(event))
+        caller = parse_caller(event)
+        polls = in_subagent(caller.agent) and polls_ci(
+            call.command, earlier_commands(caller, call.tool_use_id)
+        )
     except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
@@ -177,10 +187,9 @@ def parsed(command: str, *, looped: bool = False) -> list[Step]:
         return []
 
 
-def earlier_commands(event: Json) -> Iterator[str]:
+def earlier_commands(caller: Caller, skip: ToolUseId | None) -> Iterator[str]:
     """The agent's Bash commands so far, without the call under judgement."""
-    skip = call_id(event)
-    with own_transcript(event).open("rb") as transcript:
+    with own_transcript(caller).open("rb") as transcript:
         for line in transcript:
             match parse_line(line):
                 case {"type": "assistant", "message": {"content": list(blocks)}}:
@@ -189,15 +198,7 @@ def earlier_commands(event: Json) -> Iterator[str]:
                     pass
 
 
-def call_id(event: Json) -> str | None:
-    match event:
-        case {"tool_use_id": str(call)}:
-            return call
-        case _:
-            return None
-
-
-def bash_commands(blocks: list[Json], skip: str | None) -> Iterator[str]:
+def bash_commands(blocks: list[Json], skip: ToolUseId | None) -> Iterator[str]:
     for block in blocks:
         match block:
             case {

@@ -2,31 +2,35 @@
 
 from pathlib import Path
 
-from hook_event import Json, parse_json
+from hook_event import (
+    Agent,
+    Caller,
+    Json,
+    MainAgent,
+    Subagent,
+    UnnamedSubagent,
+    parse_json,
+)
 
 
-def own_transcript(event: Json) -> Path:
+def own_transcript(caller: Caller) -> Path:
     """The transcript of the agent that made the call.
 
     `transcript_path` always names the main session's. A subagent's, at any
     depth, sits under the session's own directory, named after its `agent_id`.
     """
-    match event:
-        case {"transcript_path": str(path), "agent_id": str(agent_id)}:
-            subagents = Path(path).with_suffix("") / "subagents"
-            return subagents / f"agent-{agent_id}.jsonl"
-        case {"transcript_path": str(path)}:
-            return Path(path)
-        case _:
-            raise ValueError("no transcript_path")
+    path = caller.transcript_path
+    if path is None:
+        raise ValueError("no transcript_path")
+    match caller.agent:
+        case Subagent(agent_id):
+            return path.with_suffix("") / "subagents" / f"agent-{agent_id}.jsonl"
+        case MainAgent() | UnnamedSubagent():
+            return path
 
 
-def in_subagent(event: Json) -> bool:
-    match event:
-        case {"agent_id": _}:
-            return True
-        case _:
-            return False
+def in_subagent(agent: Agent) -> bool:
+    return not isinstance(agent, MainAgent)
 
 
 def parse_line(line: bytes) -> Json:
