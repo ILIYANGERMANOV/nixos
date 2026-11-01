@@ -42,9 +42,10 @@ reboot_box() {
 # is all a rollback goes back to, unregisters the result links builds left in
 # temporary directories, then collects everything unreferenced. Worktree roots
 # in ~/.gcroots, profiles and home-manager's roots are never temporary, so
-# they stay.
+# they stay. A profile it cannot list keeps its generations and fails the run,
+# but only after the rest: a missed trim leaves more roots, never fewer.
 gc() {
-  local before after dir link freed
+  local before after dir link freed unlisted=0
   before=$(df -B1 --output=avail /nix/store | tail -n 1)
   nix-env -p "$profile" --delete-generations +2
   trim_profiles /root /root/.local/state/nix/profiles
@@ -63,6 +64,10 @@ gc() {
   nix-store --gc
   after=$(df -B1 --output=avail /nix/store | tail -n 1)
   freed=$(gb $((after - before)))
+  if [ "$unlisted" -eq 1 ]; then
+    record gc failure "" "Freed $freed, but could not list every profile; see journalctl -u factory-gc"
+    exit 1
+  fi
   record gc success "" "Freed $freed"
 }
 
@@ -70,7 +75,8 @@ gc() {
 # under <profiles-dir>, by its unnumbered name: the numbered *-N-link entries are
 # its generations. Root only asks whether the two are there. The listing and the
 # trims run as the owner of <owned-dir>, whose paths it is free to point anywhere,
-# so neither reaches past that account's own rights.
+# so neither reaches past that account's own rights. A failed listing sets gc's
+# $unlisted; it never runs in a condition, which would mute set -e for the trims.
 trim_profiles() {
   local owned="$1" dir="$2" p
   [ -d "$owned" ] && [ -d "$dir" ] || return 0
@@ -78,7 +84,7 @@ trim_profiles() {
   while IFS= read -r -d '' p; do
     as_owner "$owned" nix-env -p "$p" --delete-generations +2
   done < <(as_owner "$owned" find "$dir" -maxdepth 2 -type l ! -name '*-link' -print0)
-  wait "$!"
+  wait "$!" || unlisted=1
 }
 
 # as_owner <path> <command>...: runs the command as the user and group of <path>.

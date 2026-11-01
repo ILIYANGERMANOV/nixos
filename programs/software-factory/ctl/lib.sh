@@ -68,8 +68,17 @@ worktrees_of() {
   git -C "$repos_dir/$1" worktree list --porcelain | sed -n 's/^worktree //p'
 }
 
-# The checkout holding $1. Where git cannot say, $1 itself: its work reads as unknown.
-checkout_of() { git -C "$1" rev-parse --show-toplevel 2>/dev/null || echo "$1"; }
+# The checkout holding $1, a path in a repository: its longest worktree, since
+# git's own answer walks past a worktree that lost its .git to the checkout above.
+# With none, $1 itself: its work reads as unknown.
+checkout_of() {
+  local repo="${1#"$repos_dir"/}"
+  # shellcheck disable=SC2310,SC2312 # awk answers even when the listing fails
+  worktrees_of "${repo%%/*}" | awk -v dir="$1" '
+    (dir == $0 || index(dir, $0 "/") == 1) && length($0) > length(longest) { longest = $0 }
+    END { print (longest == "" ? dir : longest) }
+  ' || true
+}
 
 # What would be lost if the worktree were deleted, one phrase per line.
 local_work() { "$disk_plan" local-work "$1"; }

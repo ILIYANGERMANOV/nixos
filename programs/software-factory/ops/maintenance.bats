@@ -66,15 +66,20 @@ registered() {
   not_called "setpriv $owner nix-env -p $work/profiles/system"
 }
 
-@test "factory-maintenance gc: fails and collects nothing when it cannot list a profile as its owner" {
+@test "factory-maintenance gc: one account's unreadable profiles fail the run, after the other trims and the collection" {
+  # Sorts before $HOME, so the trim that must survive comes after the failure.
+  unreadable="$work/a-home/.local/state/nix/profiles"
+  mkdir -p "$unreadable"
+  chmod 000 "$unreadable"
   mkdir -p "$HOME/.local/state/nix/profiles"
   ln -s "$work/systems/old" "$HOME/.local/state/nix/profiles/home-manager"
-  touch "$GH/setpriv-fails"
 
   run -1 factory-maintenance gc
 
+  chmod 700 "$unreadable"
   [ "$(jq -r '.op + " " + .state' "$work/ops/last.json")" = "gc failure" ] || fail "the failure was not recorded"
-  not_called "nix-store --gc"
+  called "nix-env -p $HOME/.local/state/nix/profiles/home-manager --delete-generations +2"
+  called "nix-store --gc"
 }
 
 @test "factory-maintenance reboot: refused within 10 minutes of boot" {
