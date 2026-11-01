@@ -2097,3 +2097,72 @@ class TestCompare:
         self.sessions(home, 1, 0, 1000)
         # When / Then
         assert "Before and after" not in home.report()
+
+
+class TestBashCommandsAreReadAsBash:
+    @pytest.mark.parametrize(
+        ("command", "key"),
+        [
+            pytest.param(
+                "if just check; then echo ok; fi", "just check", id="in-an-if"
+            ),
+            pytest.param(
+                "for i in 1 2; do just test; done", "just test", id="in-a-for-loop"
+            ),
+            pytest.param("just \\\ncheck", "just check", id="over-a-line-continuation"),
+            pytest.param("just check &", "just check", id="in-the-background"),
+            pytest.param(
+                "just check &> /tmp/log",
+                "just check",
+                id="with-both-streams-redirected",
+            ),
+            pytest.param(
+                "# then; just check next\njust test", "just test", id="under-a-comment"
+            ),
+        ],
+    )
+    def test_a_check_is_counted_whatever_the_syntax_around_it(
+        self, home: Home, command: str, key: str
+    ) -> None:
+        # Given: the same call twice, with nothing changed between
+        main = Transcript().human(0, "go")
+        _ = main.bash(10, command, 70)
+        _ = main.bash(100, command, 160)
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert "Reruns with nothing changed since the same check: 1, 1m." in report
+        assert f"| {key} | no edit |" in report
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            pytest.param(
+                'git commit -m "docs; just check; done"', id="between-semicolons"
+            ),
+            pytest.param('git commit -m "docs\n\njust check\n"', id="on-its-own-line"),
+        ],
+    )
+    def test_a_quoted_operator_does_not_start_a_check(
+        self, home: Home, command: str
+    ) -> None:
+        # Given: a check named in a message, twice, with nothing changed between
+        main = Transcript().human(0, "go")
+        _ = main.bash(10, command, 70)
+        _ = main.bash(100, command, 160)
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert "Reruns with nothing changed since the same check: 0, 0m." in report
+
+    def test_a_heredoc_body_is_not_a_check(self, home: Home) -> None:
+        # Given: a check spelled in a note, not run
+        main = Transcript().human(0, "go")
+        _ = main.bash(10, "cat > notes <<'EOF'\nnix flake check\nEOF", 11)
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "Wall time per Bash command", "cat")[1] == "1"

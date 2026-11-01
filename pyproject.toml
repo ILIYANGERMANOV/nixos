@@ -36,8 +36,12 @@ ban-relative-imports = "all"
 # A companion test keeps its script's literal name, hyphens included, which only
 # importlib can import. The seed keeps hypothesis the same on every run.
 addopts = "--import-mode=importlib -p no:cacheprovider --hypothesis-seed=0 -q"
-# The guard tests import the harness and bash_commands.py from beside them.
-pythonpath = ["programs/claude-code"]
+# The guard tests import the harness and bash_commands.py from beside them, and
+# the analyzer's differential test imports both programs.
+pythonpath = [
+  "programs/claude-code",
+  "programs/agents/skills/custom/self-improve/scripts",
+]
 testpaths = ["programs"]
 
 [tool.basedpyright]
@@ -48,3 +52,7 @@ pythonVersion = "3.13"
 # (bash-guard.nix), so they are absolute imports, not relative ones.
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/agents/skills/custom/self-improve/scripts"
+extraPaths = ["programs/claude-code"]

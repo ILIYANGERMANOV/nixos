@@ -1161,6 +1161,8 @@ SUBCOMMANDS = {
     "systemctl": 1,
 }
 WRAPPERS = {"env", "time", "nice", "timeout", "sudo", "exec", "command"}
+# Reserved words a command can follow in its own segment, as in `if just check`.
+BEFORE_A_COMMAND = {"if", "elif", "then", "else", "while", "until", "do", "!"}
 NOT_A_COMMAND = {"cd", "export", "set", "source", "."}
 PLUMBING = {
     "echo",
@@ -1183,17 +1185,14 @@ PLUMBING = {
     "false",
     "sleep",
     "for",
-    "while",
-    "until",
-    "do",
     "done",
-    "if",
-    "then",
-    "else",
     "fi",
 }
-SEGMENT = re.compile(r"&&|\|\||;|\||\n")
-REDIRECT = re.compile(r"^\d*(>>?|<)&?\S*$")
+# `&` only as an operator: not in `2>&1`, `&>` or a word such as a URL's query.
+SEGMENT = re.compile(r"&&|\|\||\|&|;|\||\n|(?<=\s)&(?=\s|$)")
+QUOTED = re.compile(r"""'[^']*'|"(?:[^"\\]|\\.)*\"""", re.DOTALL)
+HEREDOC = re.compile(r"""(?<!<)<<(?!<)-?\s*['"\\]?([\w.-]+)""")
+REDIRECT = re.compile(r"^(\d*|&)(>>?|<)&?\S*$")
 FULL_CHECK = re.compile(r"^(just check|nix flake check)$")
 STEP = re.compile(
     r"^(just (build|test|lint|fmt|typecheck)|nix build|nix build \.#\S+|nix run \.#(build|test|lint|check)|cabal (build|test)|npm (test|run)|pnpm (test|run)|cargo (build|test|clippy))$"
@@ -1210,7 +1209,11 @@ MISSING_TOOL = re.compile(r"([\w.+-]+): (?:command )?not found\b")
 
 def label(command: str) -> str:
     """What a Bash call is, for grouping: its checks, else its main command."""
-    found = steps(command)
+    return label_of(command, steps(command))
+
+
+def label_of(command: str, found: list[Step]) -> str:
+    """`label`, with the steps read from `command` by the caller."""
     checks = [s.name for s in found if is_check(s)]
     if checks:
         return " && ".join(dict.fromkeys(checks))
@@ -1222,19 +1225,45 @@ def label(command: str) -> str:
 
 def check_key(command: str) -> str:
     """The identity of a check run: its check commands with arguments, no redirects."""
-    return " && ".join(s.text for s in steps(command) if is_check(s))
+    return key_of(steps(command))
+
+
+def key_of(found: list[Step]) -> str:
+    """`check_key`, with the steps read by the caller."""
+    return " && ".join(s.text for s in found if is_check(s))
 
 
 def steps(command: str) -> list[Step]:
-    found = (step(part.split()) for part in SEGMENT.split(command))
+    text = QUOTED.sub(lambda q: SEGMENT.sub(" ", q[0]), executed_lines(command))
+    found = (step(part.split()) for part in SEGMENT.split(text))
     return [s for s in found if s is not None]
+
+
+def executed_lines(command: str) -> str:
+    """`command` with line continuations joined, heredoc bodies and comment lines gone."""
+    kept: list[str] = []
+    closing: list[str] = []  # the delimiters of the heredocs still open, in order
+    for line in command.replace("\\\n", " ").split("\n"):
+        match closing:
+            case [delimiter, *rest]:
+                if line.lstrip("\t") == delimiter:
+                    closing = rest
+            case _ if line.lstrip().startswith("#"):
+                pass
+            case _:
+                kept.append(line)
+                closing = HEREDOC.findall(line)
+    return "\n".join(kept)
 
 
 def step(tokens: list[str]) -> Step | None:
     tokens = [t.strip("(){}") for t in tokens]
     tokens = [t for t in tokens if t]
     while tokens and (
-        is_assignment(tokens[0]) or tokens[0] in WRAPPERS or tokens[0].isdigit()
+        is_assignment(tokens[0])
+        or tokens[0] in WRAPPERS
+        or tokens[0] in BEFORE_A_COMMAND
+        or tokens[0].isdigit()
     ):
         tokens = tokens[1:]
     match tokens:
@@ -1271,7 +1300,7 @@ def without_redirects(args: list[str]) -> list[str]:
         if skip:
             skip = False
         elif REDIRECT.match(arg):
-            skip = re.sub(r"^\d+", "", arg) in {
+            skip = re.sub(r"^(\d+|&)", "", arg) in {
                 ">",
                 ">>",
                 "<",
