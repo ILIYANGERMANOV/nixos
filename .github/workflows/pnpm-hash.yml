@@ -1,0 +1,118 @@
+name: pnpm hash
+
+# Dependabot changes pnpm-lock.yaml but not pnpmDeps.hash in
+# programs/playwright/default.nix, so its PRs would arrive red. This computes
+# the new hash and commits it to the Dependabot branch.
+#
+# It handles PR content with a write token, so the two are split. `compute`
+# holds a read-only token and takes only the lock file and package.json from
+# the PR, as data for the base commit's flake; fetchPnpmDeps runs no package
+# scripts. `update` holds the write token, checks nothing out and runs nothing
+# of the PR's: its only input from `compute` is one value, and it refuses
+# anything but a hash, since `compute` is the side that touches PR content.
+#
+# A push with GITHUB_TOKEN starts no workflow, but a dispatch does, so `update`
+# dispatches check.yml on the branch. Its checks land on the fixed head.
+#
+# `pull_request` rather than `pull_request_target`: a fork's PR gets no write
+# token even with its own copy of this file.
+
+on:
+  pull_request:
+    paths:
+      - programs/playwright/pnpm-lock.yaml
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  compute:
+    # The PR's author alone would pass for a human pushing to Dependabot's
+    # branch, and the event's sender alone for Dependabot acting on someone
+    # else's PR.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.event.sender.login == 'dependabot[bot]'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      hash: ${{ steps.hash.outputs.hash }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            allow-import-from-derivation = false
+
+      - name: Take the lock file from the PR
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --depth=1 origin "$HEAD_SHA"
+          git checkout FETCH_HEAD -- programs/playwright/package.json programs/playwright/pnpm-lock.yaml
+
+      # A wrong hash forces the fetch, and Nix then reports the right one.
+      - name: Compute the hash
+        id: hash
+        run: |
+          # shellcheck disable=SC2016 # the ${...} are Nix's, not the shell's
+          output=$(nix build --no-link --impure --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              pkgs = flake.inputs.nixpkgs.legacyPackages.${builtins.currentSystem};
+              playwright = import ./programs/playwright { inherit pkgs; };
+            in
+            playwright.typescript.pnpmDeps.overrideAttrs { outputHash = pkgs.lib.fakeHash; }
+          ' 2>&1) || true
+          hash=$(sed -nE 's|^ *got: *([^ ]+)$|\1|p' <<<"$output")
+          [ -n "$hash" ] || {
+            echo "$output"
+            echo "::error::Nix reported no hash."
+            exit 1
+          }
+          echo "hash=$hash" >>"$GITHUB_OUTPUT"
+
+  update:
+    needs: compute
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      # To dispatch check.yml.
+      actions: write
+    steps:
+      - name: Commit the hash and run CI on it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HASH: ${{ needs.compute.outputs.hash }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          [[ $HASH =~ ^sha256-[A-Za-z0-9+/]{43}=$ ]]
+          path=programs/playwright/default.nix
+          file=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$HEAD_SHA")
+          jq -r .content <<<"$file" | base64 -d >current.nix
+          sed -E "s|^( *hash = \")sha256-[^\"]+(\";)$|\1$HASH\2|" current.nix >updated.nix
+          if cmp -s current.nix updated.nix; then
+            echo "The hash is already right; CI ran on this commit."
+            exit 0
+          fi
+          jq -n \
+            --arg message '[playwright] Update pnpmDeps hash' \
+            --arg content "$(base64 -w0 updated.nix)" \
+            --arg sha "$(jq -r .sha <<<"$file")" \
+            --arg branch "$HEAD_REF" \
+            '{$message, $content, $sha, $branch}' |
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$path" --input -
+          gh workflow run check.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF"

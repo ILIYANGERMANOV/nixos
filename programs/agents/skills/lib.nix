@@ -171,6 +171,12 @@ let
         }) names
       );
 
+  # Shell function printing everything between a markdown file's first two ---
+  # lines, for checks that parse frontmatter.
+  frontmatter = ''
+    frontmatter() { awk 'NR == 1 && $0 == "---" { next } $0 == "---" { exit } { print }' "$1"; }
+  '';
+
   # Validates every installed skill at build time, wired into `nix flake check`
   # (and therefore `just check` in CI). Duplicate names are caught earlier during
   # evaluation, so this only covers what requires reading the file.
@@ -184,6 +190,8 @@ let
         echo "      $2" >&2
         status=1
       }
+
+      ${frontmatter}
 
       check_skill() {
         local name="$1" dir="$2" md fm fmname desc len
@@ -199,8 +207,7 @@ let
           return
         fi
 
-        # Everything between the first two --- lines.
-        fm=$(awk 'NR == 1 && $0 == "---" { next } $0 == "---" { exit } { print }' "$md")
+        fm=$(frontmatter "$md")
         fmname=$(printf '%s\n' "$fm" | yq -r '.name // ""')
         desc=$(printf '%s\n' "$fm" | yq -r '.description // ""')
 
@@ -250,5 +257,6 @@ in
     mergeSources
     mkSkillFarm
     mkCheck
+    frontmatter
     ;
 }

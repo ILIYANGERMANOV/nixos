@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # pnpm-hash.yml runs CI on the commit it pushes, which no push event can do.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -59,7 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tech: [shell, ts, python]
+        tech: [shell, ts, python, lua]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

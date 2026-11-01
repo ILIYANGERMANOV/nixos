@@ -20,6 +20,13 @@ CI. You own the outcome; the user owns the decisions.
 - **Facts are yours, decisions are theirs.** Research facts with subagents.
 - **Quality** is in your instructions. It goes in every brief, the review and
   `refactor` prompts included. The branches below are all it changes here.
+- **Trivial** is in your instructions too. You assign it, and a skill may
+  activate it on its own input, whatever the mode. Judge it before
+  step 1 from the prompt and at most 5 lookups, and again at any later step. A
+  task that qualifies follows `${CLAUDE_SKILL_DIR}/references/trivial.md` instead
+  of the lifecycle below: no research agents, plan or Quality question, one
+  implementer, one fresh sweep, PR ready on green CI, notify. The user merges.
+  Ambiguity, or anything the user might want different, still gets a question.
 - **You answer the skills you invoke.** `pragmatic-review`'s pickers ask which
   findings survive and what to do with them, and its open questions what a
   test is meant to prove. Answer those yourself - unless the answer is a
@@ -47,10 +54,10 @@ CI. You own the outcome; the user owns the decisions.
 Before the first question, list what you need to know and group it into
 research topics: the code the task touches, how similar things work today,
 the external systems involved. You plan the topics yourself, also when the
-prompt only names what to research. Launch one research agent per group, in
-the background, one first and the rest after it. Each brief ends with "write
-full notes to `/tmp/<unique-dir>/research-<topic>.md`, then hand back in about
-250 words a ranked index of facts with `file:line` pointers, plus that path".
+prompt only names what to research. Launch one `subagent_type: researcher`
+agent per group, in the background, one first and the rest after it. Its prompt
+and how many agents a Quality gets: `## Callers` and `## Budget` in
+`~/.claude/skills/researcher/SKILL.md`, those sections only.
 
 ### 2. Interview
 
@@ -87,7 +94,7 @@ re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
 ordering between them. Give each the plan, its slice, "invoke `engineering`
 first", the targeted checks to run (never the full check), the research notes
-paths, and the path
+paths and the sections it needs, and the path
 `${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
 small slice itself and splits a large one across fresh sub-implementers. Add
 any security-sensitive topic an implementer reports to the plan's line.
@@ -189,6 +196,8 @@ Only when your brief says delegated. A caller did steps 1-3 and owns the user:
 the brief holds the decided plan. This section wins where it clashes with the
 rest of this skill.
 
+- A brief may say Trivial, as `Quality: <mode>, Trivial`: follow
+  `${CLAUDE_SKILL_DIR}/references/trivial.md` and its Delegated section.
 - Read the brief first. Start at step 4, on its base branch and in its worktree:
   the worktree exists, so skip the branching and open the draft PR with
   `--repo <repo> --head <branch> --base <base>`, and give both POC label

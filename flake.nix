@@ -98,6 +98,14 @@
           # ~/.claude.json structure - against a synthetic catalog and secrets.
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
+          # The real Claude Code configuration: no catalog skill hidden, and
+          # every measured size under its committed ceiling.
+          claude-config =
+            (import ./adapters/claude-code.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).check;
+
           # The /self-improve transcript analyzer against synthetic transcripts:
           # token dedupe, tool timing, redundant checks, failures and the window.
           self-improve = import ./programs/agents/skills/checks/self-improve.nix { inherit pkgs; };
