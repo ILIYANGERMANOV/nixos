@@ -68,15 +68,17 @@ gc() {
 
 # trim_profiles <owned-dir> <profiles-dir>: keeps two generations of each profile
 # under <profiles-dir>, by its unnumbered name: the numbered *-N-link entries are
-# its generations. All of it runs as the owner of <owned-dir>, whose paths it is
-# free to point anywhere, so nothing here reaches past that account's own rights.
+# its generations. Root only asks whether the two are there. The listing and the
+# trims run as the owner of <owned-dir>, whose paths it is free to point anywhere,
+# so neither reaches past that account's own rights.
 trim_profiles() {
   local owned="$1" dir="$2" p
-  [ -d "$owned" ] || return 0
-  # shellcheck disable=SC2310,SC2312 # a failed listing trims nothing
+  [ -d "$owned" ] && [ -d "$dir" ] || return 0
+  # shellcheck disable=SC2310,SC2312 # the wait below reports a failed listing
   while IFS= read -r -d '' p; do
     as_owner "$owned" nix-env -p "$p" --delete-generations +2
-  done < <(as_owner "$owned" find "$dir" -maxdepth 2 -type l ! -name '*-link' -print0 2>/dev/null || true)
+  done < <(as_owner "$owned" find "$dir" -maxdepth 2 -type l ! -name '*-link' -print0)
+  wait "$!"
 }
 
 # as_owner <path> <command>...: runs the command as the user and group of <path>.

@@ -22,6 +22,18 @@ load ../test_helper
   grep -q "No live sessions" "$work/out" || fail "terminate with nothing to end"
 }
 
+@test "terminate: a session in a subdirectory of a clean worktree has no local work" {
+  clone_repo origin
+  wt=$(add_worktree origin clean)
+  mkdir "$wt/subdirectory"
+  start_session "$wt/subdirectory"
+  session=$!
+
+  factory-ctl terminate origin
+
+  ended "$session" || fail "the session was refused"
+}
+
 @test "terminate: exits 2 when a session has local work; --force ends it" {
   clone_repo origin
   wt=$(add_worktree origin busy)

@@ -66,6 +66,17 @@ registered() {
   not_called "setpriv $owner nix-env -p $work/profiles/system"
 }
 
+@test "factory-maintenance gc: fails and collects nothing when it cannot list a profile as its owner" {
+  mkdir -p "$HOME/.local/state/nix/profiles"
+  ln -s "$work/systems/old" "$HOME/.local/state/nix/profiles/home-manager"
+  touch "$GH/setpriv-fails"
+
+  run -1 factory-maintenance gc
+
+  [ "$(jq -r '.op + " " + .state' "$work/ops/last.json")" = "gc failure" ] || fail "the failure was not recorded"
+  not_called "nix-store --gc"
+}
+
 @test "factory-maintenance reboot: refused within 10 minutes of boot" {
   echo '599.99 1000.00' >"$work/uptime"
 

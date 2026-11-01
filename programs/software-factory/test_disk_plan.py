@@ -1,5 +1,6 @@
 """The decisions behind free-disk and factory-gc. Unknown never deletes."""
 
+import subprocess
 from dataclasses import replace
 from pathlib import Path, PurePath
 
@@ -28,10 +29,13 @@ from disk_plan import (
     parse_count,
     parse_pids,
     parse_worktrees,
+    read_cache_decisions,
+    read_gc_root_decisions,
     read_local_work,
     read_newest_write,
     read_probe,
     read_result_link,
+    read_worktree_decisions,
 )
 from hypothesis import given
 from hypothesis import strategies as st
@@ -65,6 +69,14 @@ ages = st.floats(min_value=-DAY_SECONDS, max_value=10 * DAY_SECONDS)
 uids = st.integers(min_value=0, max_value=2000)
 listed_worktrees = st.builds(
     ListedWorktree, relative_paths.map(PurePath("/").joinpath), locked=st.booleans()
+)
+
+
+unreadable_heads = st.one_of(
+    names.map(lambda name: f"worktree {name}"),
+    st.sampled_from(
+        ["worktree", "worktree  /two-spaces", "Worktree /capital", "HEAD abc", "locked"]
+    ),
 )
 
 
@@ -469,11 +481,19 @@ def test_a_listing_reads_back_what_git_wrote(worktrees: list[ListedWorktree]) ->
     assert parse_worktrees(render_worktrees(worktrees)) == tuple(worktrees)
 
 
-@given(st.text())
-def test_any_listing_parses_to_absolute_worktrees_or_unknown(listing: str) -> None:
-    parsed = parse_worktrees(listing)
+@given(
+    st.lists(listed_worktrees),
+    unreadable_heads,
+    st.lists(listed_worktrees),
+)
+def test_one_unreadable_record_makes_the_whole_listing_unknown(
+    before: list[ListedWorktree], head: str, after: list[ListedWorktree]
+) -> None:
+    listing = (
+        render_worktrees(before) + f"{head}\0HEAD abc\0\0" + render_worktrees(after)
+    )
 
-    assert isinstance(parsed, Unknown) or all(w.path.is_absolute() for w in parsed)
+    assert isinstance(parse_worktrees(listing), Unknown)
 
 
 def test_pgrep_s_listing_excludes_this_process() -> None:
@@ -515,6 +535,105 @@ def test_a_directory_outside_any_repository_has_unknown_local_work(
 
     assert isinstance(work.uncommitted, Unknown)
     assert isinstance(work.unpushed, Unknown)
+
+
+def repository_with_worktree(repos_dir: Path) -> Path:
+    """A clean, pushed repository in repos_dir; returns its worktree, where a session makes one."""
+    repository = repos_dir / "shop"
+    worktree = repository / ".claude/worktrees/task"
+    git = ["git", "-C", str(repository)]
+    identity = ["-c", "user.name=test", "-c", "user.email=test@example.com"]
+    for command in (
+        ["git", "init", "--quiet", str(repository)],
+        [*git, *identity, "commit", "--quiet", "--allow-empty", "-m", "start"],
+        [*git, "update-ref", "refs/remotes/origin/main", "HEAD"],
+        [*git, "worktree", "add", "--quiet", "--detach", str(worktree)],
+    ):
+        _ = subprocess.run(command, check=True, capture_output=True)
+    return worktree
+
+
+def no_sessions() -> frozenset[PurePath]:
+    return frozenset()
+
+
+def test_a_clean_pushed_worktree_on_disk_goes(tmp_path: Path) -> None:
+    worktree = repository_with_worktree(tmp_path)
+
+    assert Remove(worktree) in read_worktree_decisions(tmp_path, no_sessions)
+
+
+def test_a_worktree_without_its_git_file_has_unknown_local_work(tmp_path: Path) -> None:
+    worktree = repository_with_worktree(tmp_path)
+    (worktree / ".git").unlink()
+
+    work = read_local_work(worktree)
+
+    assert isinstance(work.uncommitted, Unknown)
+    assert isinstance(work.unpushed, Unknown)
+
+
+def test_a_worktree_without_its_git_file_stays(tmp_path: Path) -> None:
+    worktree = repository_with_worktree(tmp_path)
+    (worktree / ".git").unlink()
+
+    decisions = list(read_worktree_decisions(tmp_path, no_sessions))
+
+    assert Remove(worktree) not in decisions
+    assert any(d.path == worktree and isinstance(d, Keep) for d in decisions)
+
+
+def test_a_session_that_starts_mid_scan_keeps_the_worktree_it_reaches(
+    tmp_path: Path,
+) -> None:
+    worktree = repository_with_worktree(tmp_path)
+    live: set[PurePath] = set()
+    decisions = read_worktree_decisions(tmp_path, lambda: frozenset(live))
+    _ = next(decisions)  # The main checkout comes first.
+
+    live.add(worktree)
+
+    assert list(decisions) == [Keep(worktree, Policy.LIVE_SESSION)]
+
+
+def not_a_directory(tmp_path: Path) -> Path:
+    path = tmp_path / "file"
+    path.touch()
+    return path
+
+
+def test_an_unreadable_repositories_directory_is_kept(tmp_path: Path) -> None:
+    path = not_a_directory(tmp_path)
+
+    decisions = list(read_worktree_decisions(path, no_sessions))
+
+    assert decisions == [Keep(path, Unknown(f"the listing of {path}"))]
+
+
+def test_an_unreadable_cache_directory_is_kept(tmp_path: Path) -> None:
+    cache = tmp_path / ".cache"
+    cache.touch()
+
+    decisions = list(read_cache_decisions(tmp_path, cache / "qa"))
+
+    assert Keep(cache, Unknown(f"the listing of {cache}")) in decisions
+    assert not any(isinstance(decision, Remove) for decision in decisions)
+
+
+def test_an_unreadable_gc_roots_directory_is_kept(tmp_path: Path) -> None:
+    path = not_a_directory(tmp_path)
+
+    decisions = list(read_gc_root_decisions(path, lambda root: Remove(root.entry)))
+
+    assert decisions == [Keep(path, Unknown(f"the listing of {path}"))]
+
+
+def test_a_missing_directory_has_nothing_to_decide(tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+
+    decisions = read_gc_root_decisions(missing, lambda root: Remove(root.entry))
+
+    assert list(decisions) == []
 
 
 def test_a_probe_describes_the_entry_not_what_it_points_at(tmp_path: Path) -> None:

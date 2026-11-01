@@ -166,6 +166,7 @@ let
   # anything it runs is recorded and then behaves as that account.
   fakeSetpriv = pkgs.writeShellScriptBin "setpriv" ''
     echo "setpriv $*" >>"$CALLS"
+    [ ! -e "$GH/setpriv-fails" ] || exit 1
     while [ "$1" != -- ]; do
       case "$1" in
         --reuid=*) export ACTING_AS="''${1#--reuid=}" ;;

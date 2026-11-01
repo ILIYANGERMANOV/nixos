@@ -60,6 +60,18 @@ load ../test_helper
   [ -e "$broken/.git" ] || fail "an unreadable worktree was removed"
 }
 
+@test "free-disk: keeps a worktree that lost its .git" {
+  clone_repo origin
+  lost=$(add_worktree origin lost)
+  rm "$lost/.git"
+
+  factory-ctl free-disk plan >"$work/out"
+  ! grep -q "worktrees/lost" "$work/out" || fail "plan lists a worktree it cannot read"
+
+  factory-ctl free-disk apply
+  [ -d "$lost" ] || fail "a worktree that lost its .git was removed"
+}
+
 @test "free-disk: keeps a locked worktree" {
   clone_repo origin
   locked=$(add_worktree origin locked)
@@ -72,14 +84,27 @@ load ../test_helper
   [ -d "$locked" ] || fail "a locked worktree was removed"
 }
 
-@test "free-disk: removes a cache whose name holds a newline, and nothing the name spells" {
+@test "free-disk: removes a cache whose name holds a newline" {
   clone_repo origin
-  mkdir -p "$HOME/.cache/odd"$'\n'"$work/spared" "$work/spared"
+  odd="$HOME/.cache/odd"$'\n'name
+  mkdir -p "$odd"
 
   factory-ctl free-disk apply
 
-  [ ! -e "$HOME/.cache/odd"$'\n'"$work/spared" ] || fail "the cache was kept"
-  [ -d "$work/spared" ] || fail "a line of the name was removed as a path"
+  [ ! -e "$odd" ] || fail "the cache was kept"
+}
+
+@test "free-disk: removes a stale GC root whose path holds a newline, and nothing the path spells" {
+  clone_repo origin
+  spelled="$work/spelled"
+  touch "$spelled"
+  odd="$work/tmp/old"$'\n'"$spelled"
+  add_root "$odd" '3 days ago'
+
+  factory-ctl free-disk apply
+
+  [ ! -L "$odd" ] || fail "the stale GC root was kept"
+  [ -e "$spelled" ] || fail "a line of the path was removed as a path"
 }
 
 @test "free-disk: deletes /qa runs untouched for a day, never login state or scripts" {

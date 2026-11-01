@@ -68,6 +68,9 @@ worktrees_of() {
   git -C "$repos_dir/$1" worktree list --porcelain | sed -n 's/^worktree //p'
 }
 
+# The checkout holding $1. Where git cannot say, $1 itself: its work reads as unknown.
+checkout_of() { git -C "$1" rev-parse --show-toplevel 2>/dev/null || echo "$1"; }
+
 # What would be lost if the worktree were deleted, one phrase per line.
 local_work() { "$disk_plan" local-work "$1"; }
 

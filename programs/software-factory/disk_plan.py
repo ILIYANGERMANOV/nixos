@@ -147,7 +147,11 @@ def main(arguments: list[str]) -> int:
     now = time.time()
     match arguments:
         case ["worktrees", repos_dir, session_pattern]:
-            report(read_worktree_decisions(Path(repos_dir), session_pattern))
+            report(
+                read_worktree_decisions(
+                    Path(repos_dir), lambda: read_sessions(session_pattern)
+                )
+            )
         case ["local-work", directory]:
             print(*local_work_phrases(read_local_work(Path(directory))), sep="\n")
         case ["caches", home, qa_dir]:
@@ -157,15 +161,19 @@ def main(arguments: list[str]) -> int:
         case ["stale-roots", gcroots_auto, *directories]:
             stale = {PurePath(directory) for directory in directories}
             report(
-                decide_stale_root(root, stale, now)
-                for root in read_gc_roots(Path(gcroots_auto))
+                read_gc_root_decisions(
+                    Path(gcroots_auto),
+                    lambda root: decide_stale_root(root, stale, now),
+                )
             )
         case ["own-stale-roots", gcroots_auto, *directories]:
             stale = {PurePath(directory) for directory in directories}
             uid = os.geteuid()
             report(
-                decide_own_stale_root(root, stale, now, uid)
-                for root in read_gc_roots(Path(gcroots_auto))
+                read_gc_root_decisions(
+                    Path(gcroots_auto),
+                    lambda root: decide_own_stale_root(root, stale, now, uid),
+                )
             )
         case _:
             print(
@@ -191,26 +199,48 @@ def report(decisions: Iterable[Decision]) -> None:
                 pass
 
 
+type Sessions = Fact[frozenset[PurePath]]
+
+
 def read_worktree_decisions(
-    repos_dir: Path, session_pattern: str
+    repos_dir: Path, read_live_sessions: Callable[[], Sessions]
 ) -> Iterator[Decision]:
-    sessions = read_sessions(session_pattern)
-    for repository in _list_directory(repos_dir):
-        if not (repository / ".git").is_dir():
-            continue
-        match read_worktrees(repository):
-            case Unknown() as unknown:
-                yield Keep(repository, unknown)
-            case listed:
-                for worktree in listed:
-                    work = read_local_work(Path(worktree.path))
-                    yield decide_worktree(
-                        Worktree(worktree.path, repository, worktree.locked, work),
-                        sessions,
-                    )
+    return _decide_entries(
+        repos_dir,
+        lambda repository: _read_repository_decisions(repository, read_live_sessions),
+    )
 
 
-def read_sessions(pattern: str) -> Fact[frozenset[PurePath]]:
+def _read_repository_decisions(
+    repository: Path, read_live_sessions: Callable[[], Sessions]
+) -> Iterator[Decision]:
+    """Sessions are read per worktree, last: one that starts mid-scan still counts."""
+    if not (repository / ".git").is_dir():
+        return
+    match read_worktrees(repository):
+        case Unknown() as unknown:
+            yield Keep(repository, unknown)
+        case listed:
+            for worktree in listed:
+                work = read_local_work(Path(worktree.path))
+                yield decide_worktree(
+                    Worktree(worktree.path, repository, worktree.locked, work),
+                    read_live_sessions(),
+                )
+
+
+def _decide_entries(
+    directory: Path, decide_entry: Callable[[Path], Iterable[Decision]]
+) -> Iterator[Decision]:
+    match _list_directory(directory):
+        case Unknown() as unknown:
+            yield Keep(directory, unknown)
+        case entries:
+            for entry in entries:
+                yield from decide_entry(entry)
+
+
+def read_sessions(pattern: str) -> Sessions:
     """The working directories of the processes matching pattern, as `sessions` in lib.sh."""
     listing = _run(
         ["pgrep", "-u", str(os.geteuid()), "-f", "--", pattern], accepted=(0, 1)
@@ -219,7 +249,7 @@ def read_sessions(pattern: str) -> Fact[frozenset[PurePath]]:
     return _and_then(pids, _read_cwds)
 
 
-def _read_cwds(pids: frozenset[int]) -> Fact[frozenset[PurePath]]:
+def _read_cwds(pids: frozenset[int]) -> Sessions:
     cwds: set[PurePath] = set()
     for pid in pids:
         match _read_cwd(pid):
@@ -249,9 +279,20 @@ def read_worktrees(repository: Path) -> Fact[tuple[ListedWorktree, ...]]:
 
 
 def read_local_work(directory: Path) -> LocalWork:
+    """Of a checkout's root only. git walks up, so a worktree that lost its .git
+    would otherwise answer for the clean checkout above it."""
+    git = ["git", "-C", str(directory)]
+    match _run([*git, "rev-parse", "--show-prefix"]):
+        case "\n":
+            return _read_checkout_work(git)
+        case _:
+            unknown = Unknown(f"whether {directory} is a checkout's root")
+            return LocalWork(uncommitted=unknown, unpushed=unknown)
+
+
+def _read_checkout_work(git: list[str]) -> LocalWork:
     """Remote Control keeps its worktrees under .claude/worktrees in the main
     checkout, untracked: they are worktrees of their own, not changes to it."""
-    git = ["git", "-C", str(directory)]
     status = _run(
         [*git, "status", "--porcelain", "--", ".", ":(exclude).claude/worktrees"]
     )
@@ -265,8 +306,13 @@ def read_local_work(directory: Path) -> LocalWork:
 def read_cache_decisions(home: Path, qa_dir: Path) -> Iterator[Decision]:
     cache = home / ".cache"
     kept_for_builds = {cache / "nix", cache / "cabal", qa_dir}
-    for path in (*_list_directory(cache), cache / "cabal/logs", home / ".npm/_cacache"):
+
+    def decide_path(path: Path) -> Iterator[Decision]:
         yield decide_cache(path, read_probe(path), kept_for_builds)
+
+    yield from _decide_entries(cache, decide_path)
+    for path in (cache / "cabal/logs", home / ".npm/_cacache"):
+        yield from decide_path(path)
 
 
 def read_qa_run_decisions(qa_dir: Path, now: float) -> Iterator[Decision]:
@@ -290,11 +336,16 @@ def _reraise(error: OSError) -> NoReturn:
     raise error
 
 
-def read_gc_roots(gcroots_auto: Path) -> Iterator[GcRoot]:
+def read_gc_root_decisions(
+    gcroots_auto: Path, decide_root: Callable[[GcRoot], Decision]
+) -> Iterator[Decision]:
     """Nix registers a build's result link as an indirect root in gcroots/auto, so a
     forgotten link pins its whole closure until it is deleted."""
-    for entry in _list_directory(gcroots_auto):
-        yield GcRoot(entry, read_result_link(entry))
+
+    def decide_entry(entry: Path) -> Iterator[Decision]:
+        yield decide_root(GcRoot(entry, read_result_link(entry)))
+
+    return _decide_entries(gcroots_auto, decide_entry)
 
 
 def read_result_link(entry: Path) -> Fact[ResultLink]:
@@ -328,12 +379,13 @@ def _kind(mode: int) -> Kind:
     return Kind.DIRECTORY if stat.S_ISDIR(mode) else Kind.FILE
 
 
-def _list_directory(directory: Path) -> tuple[Path, ...]:
-    """An unreadable listing lists nothing, so it removes nothing."""
+def _list_directory(directory: Path) -> Fact[tuple[Path, ...]]:
     try:
         return tuple(sorted(directory.iterdir()))
+    except FileNotFoundError:
+        return ()  # Nothing there, so nothing to decide.
     except OSError:
-        return ()
+        return Unknown(f"the listing of {directory}")
 
 
 def _run(argv: list[str], accepted: tuple[int, ...] = (0,)) -> Fact[str]:
@@ -359,9 +411,7 @@ def _and_then[T, U](fact: Fact[T], step: Callable[[T], Fact[U]]) -> Fact[U]:
             return step(known)
 
 
-def decide_worktree(
-    worktree: Worktree, sessions: Fact[frozenset[PurePath]]
-) -> Decision:
+def decide_worktree(worktree: Worktree, sessions: Sessions) -> Decision:
     """A secondary worktree whose deletion loses nothing goes.
 
     Only one inside its repository: a /qa run's or a /10x-engineer run's sits
@@ -371,7 +421,7 @@ def decide_worktree(
 
 
 def _worktree_keep_reasons(
-    worktree: Worktree, sessions: Fact[frozenset[PurePath]]
+    worktree: Worktree, sessions: Sessions
 ) -> Iterator[KeepReason]:
     if worktree.path == worktree.repository:
         yield Policy.MAIN_CHECKOUT
