@@ -119,8 +119,7 @@ inside a command substitution. **This is protection against accidental reads,
 not a security boundary**: every `qa-node` script must read the variable, so a
 script (or a determined session) can read the file, and no filter over command
 text can close that. `checks.qa` tests the wallet helper and the video
-pipeline headless against a generated key; `checks.claude-bash-guards` the
-guard.
+pipeline headless against a generated key; `checks.python-tests` the guard.
 
 ### Agent Skills
 
@@ -162,7 +161,7 @@ costs only its description until a task needs it. There are two exceptions.
 `self-improve` is in the `extraSkills` of `claude-factory` and `claude-pm` only:
 it measures the machine's own transcripts, and on the Macs it relies on the
 `python3` (nixpkgs', 3.13) that `modules/home/terminal.nix` installs. Its analyzer
-(`scripts/analyze.py`) is tested by `checks.self-improve` against synthetic
+(`scripts/analyze.py`) is tested by `checks.python-tests` against synthetic
 transcripts, never real ones, because this repository is public.
 `10x-engineer` is in the `extraSkills` of `claude-factory` only: it runs
 delegated `engineer` subagents and leans on the factory's PR wakes and

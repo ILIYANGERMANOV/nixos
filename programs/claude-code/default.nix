@@ -292,6 +292,14 @@ rec {
     unwrapped = claude-code;
   };
 
+  # The hook guards as they deploy, for `python-tests` to run.
+  guards = {
+    read = readGuard.bin;
+    wait = waitGuard.bin;
+    secret = (import ./secret-guard.nix { inherit pkgs; }).bin;
+    context = contextGuard.bin;
+  };
+
   # home.file entries for the subagents. Every flavor gets the same ones, so
   # unlike skills they need no per-flavor relink.
   agentFiles = lib.mapAttrs' (

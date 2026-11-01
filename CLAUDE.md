@@ -78,10 +78,10 @@ wrong tool for iterating.
 
 1. A skill, subagent or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`,
    `.#checks.x86_64-linux.claude-config` (size ceilings, `just skill-budget` prints them)
-   and `.#checks.x86_64-linux.typos`, plus `self-improve` when the analyzer under
+   and `.#checks.x86_64-linux.typos`, plus `python-tests` when the analyzer under
    its skill changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code`, `claude-config`,
-   `claude-bash-guards` and `shell-embedded` for `programs/claude-code`, `shell-tests` for `programs/skills-link`, `nvim-search`,
+   `python-tests` and `shell-embedded` for `programs/claude-code`, `shell-tests` for `programs/skills-link`, `nvim-search`,
    `nvim-typescript`, `nvim-kotlin` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `shell-tests`,
    `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.

@@ -106,14 +106,6 @@
               root = self;
             }).check;
 
-          # The /self-improve transcript analyzer against synthetic transcripts:
-          # token dedupe, tool timing, redundant checks, failures and the window.
-          self-improve = import ./programs/agents/skills/checks/self-improve.nix { inherit pkgs; };
-
-          # The factory's PreToolUse Bash guards: large multi-file reads outside
-          # the skills directory and foreground waits blocked, all else allowed.
-          claude-bash-guards = import ./programs/claude-code/bash-guards-check.nix { inherit pkgs; };
-
           # That the Playwright environment given to agent sessions resolves
           # `require('playwright')` from an empty directory and finds Chromium,
           # which on Linux it also launches headless.

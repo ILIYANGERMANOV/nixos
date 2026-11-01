@@ -82,6 +82,23 @@ can be skipped, so CI must run the check anyway.
 `modules/nix.nix` sets `allow-import-from-derivation = false`. Every job in
 `check.yml` sets it too, so an import from derivation cannot pass CI and then fail on a host.
 
+## Python tests run what deploys
+
+`python-lint`, `python-types` and `python-tests` cover every `.py`, against the
+root `pyproject.toml`. `python-tests` replaced `claude-bash-guards` and
+`self-improve`.
+
+- A test sits beside its script and keeps the name literal: `test_read-guard.py`,
+  `test_analyze.py`. Only `--import-mode=importlib` can import a hyphen, so the
+  rule costs nothing. `guard_harness.py` is the one helper with no companion.
+- A guard test feeds JSON to the built guard, whose path arrives through the
+  check's environment, so packaging stays covered. Importing `main` would not.
+- Cases are plain `(want, name, given)` tables, so a corpus can extend them.
+- `analyze.py` runs under the bare python in `STDLIB_PYTHON`. Under the check's
+  own python, an import of hypothesis would pass here and fail when deployed.
+- pytest and hypothesis live in the check's `python3.withPackages`, never in a
+  runtime closure. `customSource` filters `test_*.py` out of a deployed skill.
+
 ## TypeScript is ES modules, with its tools from nixpkgs
 
 `ts-lint`, `ts-types` and `ts-test` cover `programs/playwright`.
