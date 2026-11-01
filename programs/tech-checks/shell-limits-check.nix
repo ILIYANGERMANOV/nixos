@@ -1,6 +1,6 @@
 # Fixture for the Nix limit in `shell-limits`, never built. Each sink has a
 # string at the limit and one over it, and the strings under `free` are over it
-# in places the check must not measure. The `check.nix` suffix keeps this file
+# in places the check must not measure. `nixFiles` in shell.nix keeps this file
 # out of the real scan.
 {
   pkgs,

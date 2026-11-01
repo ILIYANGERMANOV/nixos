@@ -49,7 +49,7 @@ a sudo line), `shell-limits` (how much shell may sit outside a `.sh`) and
   boundary and the negatives on every run.
 - The one exempt list is in `shell.nix`, keyed by recipe name or Nix file stem.
 
-Known gaps: `runCommand` bodies, files named `*check.nix` (test fakes), a
+Known gaps: `runCommand` bodies, files named `check.nix` (test fakes), a
 let-bound string spliced into a script by name (`${snippet}`), and multi-line
 double-quoted strings.
 

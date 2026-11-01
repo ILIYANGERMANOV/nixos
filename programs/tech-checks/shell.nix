@@ -37,9 +37,14 @@ let
     (root + "/Justfile")
     (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
   ];
-  # A test's fakes are out, so `shell-limits-check.nix` is only ever its fixture.
+  # `check.nix` holds a program's test fakes, and the fixture is only ever that.
   nixFiles = lib.fileset.fileFilter (
-    file: file.hasExt "nix" && !lib.hasSuffix "check.nix" file.name
+    file:
+    file.hasExt "nix"
+    && !lib.elem file.name [
+      "check.nix"
+      "shell-limits-check.nix"
+    ]
   ) root;
 
   githubSource = source (root + "/.github");
