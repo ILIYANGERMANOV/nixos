@@ -1,6 +1,6 @@
 # The agent account may reach the internet - it has to test what it builds -
 # but nothing private. The rules live in programs/software-factory, where
-# checks.software-factory validates them with nft.
+# checks.shell-tests validates them with nft.
 {
   config,
   root,

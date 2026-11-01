@@ -14,8 +14,8 @@ paths:
 The ladder's `x86_64-linux` is the box; CI covers both `x86_64-linux` and
 `aarch64-linux`.
 
-`nix develop -c just tech <name>` takes seconds and evaluates no host: `shell`
-for a `.sh`, a recipe or a workflow, `python` for a script. It builds every
+`nix develop -c just tech <name>` takes under a minute and evaluates no host: `shell`
+for a `.sh`, a `.bats`, a recipe or a workflow, `python` for a script. It builds every
 `<name>-*` flake check for this system. It prints `All good (N)` and exits 0, or
 the failures verbatim and exits nonzero, so never pipe it through `grep`, and
 never run its tools by hand before it. A name with no checks fails. It sees only
