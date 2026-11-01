@@ -39,6 +39,14 @@ verifier() { stub ssh-keygen "sleep 0.2; $1"; }
   [ "$signature" = "signed payload" ]
 }
 
+@test "signing keeps the alert off stderr" {
+  signer ':'
+
+  keygen -Y sign -n git -f key 2>"$WORK/stderr"
+
+  [ ! -s "$WORK/stderr" ]
+}
+
 @test "signing hands back the signer's exit code" {
   signer 'exit 3'
 

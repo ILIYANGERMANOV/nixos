@@ -106,6 +106,13 @@ launch() {
   [ "$(cat "$HOME/.claude/settings.json")" = '{"model":"opus"}' ]
 }
 
+@test "the instructions and settings are private to the user" {
+  launch
+
+  [ "$(stat -c %a "$HOME/.claude/CLAUDE.md")" = 600 ]
+  [ "$(stat -c %a "$HOME/.claude/settings.json")" = 600 ]
+}
+
 @test "a second launch rewrites files that came from the read-only store" {
   launch
 

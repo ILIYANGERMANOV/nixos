@@ -21,8 +21,9 @@ rules:
     description: A Python script has its test beside it, keeping its name literally.
     target: "**/{{first-part}}_{{last-part}}.py"
     exclude:
+      # The tests themselves.
       - "**/test_*.py"
-      # Test helpers: only the guards' tests import them.
+      # Test helpers: only tests import them.
       - "programs/claude-code/guard_harness.py"
       - "programs/claude-code/bash_corpus.py"
     exists:
@@ -33,6 +34,7 @@ rules:
     description: A Python script's name has at most one underscore, or no rule above would see it.
     target: "**/*_*_*.py"
     exclude:
+      # The tests themselves: they carry the name of what they test.
       - "**/test_*.py"
     exists:
       - module: "a-python-name-with-one-underscore-at-most"
@@ -51,6 +53,7 @@ rules:
       # Straight-line build phases with no branch: a broken one fails its package.
       - "programs/kotlin/lsp-install.sh"
       - "programs/playwright/install-compiled.sh"
+      - "programs/tech-checks/python-tests.sh"
 
       # Exercised by a suite with another name: a rule below requires that suite.
       - "programs/software-factory/factory-rc.sh"
@@ -73,6 +76,7 @@ rules:
       - "just/scripts/factory-secrets.sh"
       # Mac only, and needs sudo.
       - "just/scripts/darwin-generate-age-key.sh"
+      # Mac only: it hands the key over through pbcopy.
       - "just/scripts/factory-generate-age-key.sh"
       # Needs a YubiKey.
       - "just/scripts/enroll-backup-yubikey.sh"
@@ -116,6 +120,7 @@ rules:
     description: The Remote Control launchers' fragments are exercised by launchers.bats.
     target: "programs/software-factory/*.sh"
     exclude:
+      # Not spliced into a launcher: space-fragment-has-its-suites covers it.
       - "programs/software-factory/space.sh"
     exists:
       - module: "programs/software-factory/launchers.bats"

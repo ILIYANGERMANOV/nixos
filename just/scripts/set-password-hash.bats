@@ -36,6 +36,12 @@ refused() {
   grep -qF '"$y$hash"' "$WORK/sops-stdin"
 }
 
+@test "a host with a digit is accepted" {
+  run set_password macos2 hunter2 hunter2
+
+  [ "$status" -eq 0 ]
+}
+
 @test "a host that could escape secrets/hosts is refused" {
   run set_password ../evil hunter2 hunter2
 
@@ -54,12 +60,18 @@ refused() {
   refused "invalid host name"
 }
 
-@test "no age key stops it before any prompt" {
+@test "no age key stops it before it reads a password" {
   rm age-key
+  printf 'hunter2\nhunter2\n' >answers
 
-  run set_password lenovo-old hunter2 hunter2
+  # A read moves the shared offset, and the prompt shows only on a terminal.
+  {
+    run bash "$BATS_TEST_DIRNAME/set-password-hash.sh" lenovo-old
+    unread=$(cat)
+  } <answers
 
   refused "no age key"
+  [ "$unread" = $'hunter2\nhunter2' ]
 }
 
 @test "an empty password is refused" {

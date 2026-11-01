@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2016,SC2312 # a stub's body expands when the stub runs, and a masked failure fails the assertion around it
 # Only what does not depend on how long a run takes: a short interval, a bounded
-# wait on each outcome, and no claim on how many times the sound played.
+# wait on each outcome, and no claim on how many times the sound played. beep
+# counts whole seconds, so a window of 2 lasts between 1 and 2: 1 can last no time.
 
 load ../shell-check/test_helper
 
@@ -19,9 +20,24 @@ setup() {
 
 beep() { timeout 10 bash -euo pipefail "$BEEP"; }
 
+stops_the_sound_on() {
+  stub afplay 'trap "kill \$!; touch \"\$WORK/afplay-stopped\"; exit 0" TERM
+    touch "$WORK/afplay-started"
+    sleep 30 &
+    wait'
+  watched-beep 3>&- &
+  beep_pid=$!
+  wait_for "$WORK/afplay-started"
+
+  kill -"$1" "$beep_pid"
+
+  wait_for "$WORK/afplay-stopped"
+  wait "$beep_pid"
+}
+
 @test "plays the sound at the volume asked" {
   stub afplay 'echo "$*" >>"$WORK/plays"'
-  timeout_seconds=1
+  timeout_seconds=2
 
   beep
 
@@ -30,7 +46,7 @@ beep() { timeout 10 bash -euo pipefail "$BEEP"; }
 
 @test "stops at the deadline while its parent lives" {
   stub afplay ':'
-  timeout_seconds=1
+  timeout_seconds=2
 
   run beep
 
@@ -39,7 +55,7 @@ beep() { timeout 10 bash -euo pipefail "$BEEP"; }
 
 @test "an afplay that fails does not end the alert" {
   stub afplay 'echo played >>"$WORK/plays"; exit 1'
-  timeout_seconds=1
+  timeout_seconds=2
 
   beep
 
@@ -58,16 +74,9 @@ beep() { timeout 10 bash -euo pipefail "$BEEP"; }
 }
 
 @test "SIGTERM takes the sound in flight down with it and exits clean" {
-  stub afplay 'trap "kill \$!; touch \"\$WORK/afplay-stopped\"; exit 0" TERM
-    touch "$WORK/afplay-started"
-    sleep 30 &
-    wait'
-  watched-beep 3>&- &
-  beep_pid=$!
-  wait_for "$WORK/afplay-started"
+  stops_the_sound_on TERM
+}
 
-  kill -TERM "$beep_pid"
-
-  wait_for "$WORK/afplay-stopped"
-  wait "$beep_pid"
+@test "SIGHUP takes the sound in flight down with it and exits clean" {
+  stops_the_sound_on HUP
 }
