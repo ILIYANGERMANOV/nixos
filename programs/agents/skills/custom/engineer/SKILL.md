@@ -88,15 +88,14 @@ plan is now visible from the phone. POC: `gh label create POC --force`, then
 
 ### 5. Implement
 
-Delegate to implementer subagents. POC: exactly one. One implementer explores and implements a
+Delegate to `subagent_type: implementer` agents. POC: exactly one. One implementer explores and implements a
 self-contained slice, because splitting exploring from implementing makes it
 re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
-ordering between them. Give each the plan, its slice, "invoke `engineering`
-first", the targeted checks to run (never the full check), the research notes
-paths and the sections it needs, and the path
-`${CLAUDE_SKILL_DIR}/references/implementer.md` to read first: it does a
-small slice itself and splits a large one across fresh sub-implementers. Add
+ordering between them. Give each the plan, its slice, the targeted checks to run
+(never the full check), and the research notes paths and the sections it needs.
+It starts with `engineering` loaded, does a small slice itself and splits a large
+one across fresh sub-implementers. Add
 any security-sensitive topic an implementer reports to the plan's line.
 
 ### 6. Refactor
@@ -113,12 +112,12 @@ a realistic task, with no push or other outside effect, and reports each step
 it could not follow or that misled it. Fix what it finds through a fixer.
 Balanced: only for a new or rewritten skill. POC: never.
 
-Run each review pass as a fresh review agent whose prompt is "invoke
+Run each review pass as a fresh `subagent_type: review-lead` agent whose prompt is "invoke
 `pragmatic-review` with: Quality: <mode> <arguments>"; never load that skill yourself. It
 returns the findings table and requirement verdicts, ending with
 `Reviewed head: <sha>`. You answer its pickers by acting on the table
-yourself: choose the rows worth fixing and hand them to a fixer subagent that
-commits and pushes. Every surviving house-rule row is fixed, or the reason for
+yourself: choose the rows worth fixing and hand them to a fixer, here and in every
+later step a `subagent_type: fixer` agent, that commits and pushes. Every surviving house-rule row is fixed, or the reason for
 leaving it is recorded in the PR body. POC: a fixer gets blockers only (security,
 irreversible damage, broken code); every other row goes in `## Follow-ups`.
 Never reply to the review agent with an action.

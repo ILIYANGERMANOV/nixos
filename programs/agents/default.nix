@@ -9,8 +9,9 @@ let
   skills = import ./skills { inherit pkgs lib externalSrcs; };
   subagents = import ./subagents {
     inherit pkgs lib;
-    inherit (skills) frontmatter;
     skillNames = skills.names;
+    core = ./core.md;
+    trivial = ./trivial.md;
   };
 in
 {
@@ -22,13 +23,20 @@ in
   # while Codex reads ~/.codex/AGENTS.md. Teaching this file either convention
   # would make the shared layer agent-shaped. Each agent program installs the
   # path its own way instead. See docs/adr/0002-agent-agnostic-configuration.md.
-  instructions = ./AGENTS.md;
+  #
+  # core.md is what every agent gets, subagent roles included; trivial.md and
+  # AGENTS.md are for the agent leading a session.
+  instructions = pkgs.concatText "agent-instructions.md" [
+    ./core.md
+    ./trivial.md
+    ./AGENTS.md
+  ];
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format, even
   # though Claude Code is currently its only consumer.
   inherit skills;
 
-  # The subagent definitions. Each agent program installs them its own way.
+  # The subagent roles, as records. Each agent program renders them its own way.
   inherit subagents;
 
   # Every build-time check over shared agent config, wired into `nix flake check`

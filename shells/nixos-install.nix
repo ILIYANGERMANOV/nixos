@@ -39,7 +39,7 @@ pkgs.mkShell {
   shellHook = ''
     export EDITOR=nvim
     export SOPS_AGE_KEY_FILE="/var/lib/sops-age/keys.txt"
-    ${claudeCode.activationScript}
+    ${claudeCode.shellActivationScript}
 
     ${shellCheck.fragment ./nixos-install-banner.sh}
   '';

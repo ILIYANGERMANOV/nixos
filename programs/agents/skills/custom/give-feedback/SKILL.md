@@ -97,9 +97,8 @@ On "adjust", take the correction and re-confirm.
 
 ### 5. Apply
 
-Spawn one fresh implementer, briefed to read
-`~/.claude/skills/engineer/references/implementer.md` first (as an absolute
-path), with the bullets, the agreed changes, their done-whens, the facts
+Spawn one fresh `subagent_type: implementer` agent, with the bullets, the
+agreed changes, their done-whens, the facts
 found and the checks to run. It verifies every done-when itself, commits and
 pushes. When the round extends the work of an implementer from this session
 that is still live, continue it with `SendMessage` instead. Several

@@ -82,8 +82,8 @@ A POC PR opens with `POC - not merge-ready.`, and its proof is the one run.
 
 ## Style
 
-The "Writing for people" rules in your instructions apply, as they do to
-`explain`: simple words, short sentences, visuals over prose. On top:
+The "Writing for people" rules in your instructions apply: simple words, short
+sentences, visuals over prose. On top:
 
 - The visuals carry the explanation; prose only fills the gaps.
 - No preamble, no restating the title, no closing summary.

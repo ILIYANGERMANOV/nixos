@@ -33,7 +33,7 @@ pkgs.mkShell {
     ]
     ++ claudeCode.packages;
   shellHook = ''
-    ${claudeCode.activationScript}
+    ${claudeCode.shellActivationScript}
     export SOPS_AGE_KEY_FILE="/var/lib/sops-age/keys.txt"
 
     ${shellCheck.fragment ./darwin-install-banner.sh}

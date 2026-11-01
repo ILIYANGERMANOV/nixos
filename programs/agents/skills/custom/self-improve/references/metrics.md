@@ -101,8 +101,9 @@ judgment. It stays offline: everything from `gh` is the subagent's.
 - **Loop steps.** Each top-level subagent gets one step from its description
   and the head of its brief; its children count under the same step. A
   `researcher` or `Explore` agent is research by its type, at any depth, unless
-  a review spawned it. A brief invoking `researcher` is research too. A review
-  is a brief that invokes `pragmatic-review`, at any depth, so a review under an
+  a review spawned it, and `implementer` and `fixer` agents are their step by
+  type. A brief invoking `researcher` is research too. A review
+  is a `review-lead` agent or a brief that invokes `pragmatic-review`, at any depth, so a review under an
   orchestrator subagent is a review with its own children: `--fixes`, "pass 2",
   "re-review" or "second" make it the second pass, "final" in the description
   `/final-review`. Agent wall adds agents up, so parallel agents overlap.

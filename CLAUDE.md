@@ -14,7 +14,7 @@ modules/nixos/  — NixOS-only system configuration (server/ - software-factory 
 modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
-programs/agents/— agent-agnostic config shared by every coding agent (AGENTS.md, skill and subagent catalogs)
+programs/agents/— agent-agnostic config shared by every coding agent (instructions, skill catalog, subagent role records)
 programs/tech-checks/ - `<tech>-<kind>` checks, treefmt
 programs/shell-check/ - `writeShellApplication` and its rules
 shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
@@ -76,7 +76,7 @@ program needs a flake input.
 `nix flake check` spends most of its time evaluating every host, so it is the
 wrong tool for iterating.
 
-1. A skill, subagent or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`,
+1. A skill, subagent role or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`,
    `.#checks.x86_64-linux.claude-config` (size ceilings, `just skill-budget` prints them)
    and `.#checks.x86_64-linux.typos`, plus `python-tests` when the analyzer under
    its skill changed.
