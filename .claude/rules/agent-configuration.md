@@ -155,13 +155,15 @@ review-lead 11.6k, implementer 13.3k.
   agents have no role yet and stay `general-purpose`, with the top-level
   instructions and the Skill tool. None needs MCP: add_repo, subscribe, CI waits
   and notifications stay top-level.
-- The factory section is `programs/claude-code/factory-core.md`. Agent files are
-  Home Manager: `home.file` installs `agentFiles` in the shared home profile and
-  `factory.agentFiles`, the same records with that section, in the factory's.
-  `factory-instructions.md` is what only its top-level sessions need.
-- `~/.claude/agents` is a normal directory. Home Manager owns only the catalog's
-  files, and leaves a hand-placed agent alone. A project's own
-  `.claude/agents/<name>.md` silently beats the user-scope file in that repo.
+- The factory section is `programs/claude-code/factory-core.md`. `home.file`
+  installs `agentFiles` in the shared home profile and `factory.agentFiles`, the
+  same records with that section, in the factory's. Install shells copy the
+  renders too, since no Home Manager runs there. `factory-instructions.md` is
+  what only its top-level sessions need.
+- `~/.claude/agents` is a normal directory. The catalog's role names (`fixer`,
+  `implementer`, `review-lead`, `reviewer`, `researcher`) are Nix-owned: a file
+  under one is replaced with no backup. Any other name is left alone. A project's
+  own `.claude/agents/<name>.md` silently beats the user-scope file in that repo.
 - `checks.claude-config` holds the renders to this: known fields only, a `tools`
   list with no MCP, every preload in `baseSkills`, the factory section in the
   factory's render alone, and each role under its ceiling. A new documented field
