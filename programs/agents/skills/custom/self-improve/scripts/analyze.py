@@ -922,44 +922,71 @@ def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
 
 # --- Quality modes -----------------------------------------------------------
 
+class Mode(Enum):
+    POC = "POC"
+    BALANCED = "Balanced"
+    MAX = "Max"
+
+
+class Trivial(Enum):
+    """The value is the brief's wire form: stating it either way is its own row."""
+
+    UNSTATED = ""
+    ON = ", Trivial"
+    OFF = ", not Trivial"
+
+
+@dataclass(frozen=True)
+class Quality:
+    mode: Mode
+    trivial: Trivial
+
+    def __str__(self) -> str:
+        return self.mode.value + self.trivial.value
+
+
 NO_QUALITY = "(none stated)"
-QUALITY = re.compile(r"\bQuality:\W*(POC|Balanced|Max)\b(, (?:not )?Trivial\b)?")
+QUALITY = re.compile(rf"\bQuality:\W*({'|'.join(m.value for m in Mode)})\b(, (?:not )?Trivial\b)?")
 SWEEP_LINE = re.compile(r"^\W*Security: Trivial\b", re.M)  # the one Trivial activation with a fixed wording
 UNCOUNTED_QUALITY = "Not counted: Trivial self-activated outside a review, which stays in its stated row, and a PR opened in another session or by a script."
 
 
-def quality_groups(session: Session) -> dict[str, list[Agent]]:
-    """The session's agents by Quality, in the brief's wire form."""
+def quality_groups(session: Session) -> dict[Quality | None, list[Agent]]:
+    """The session's agents by Quality, None where no brief states one."""
     fallback = session_quality(session)
-    groups: dict[str, list[Agent]] = defaultdict(list)
+    groups: dict[Quality | None, list[Agent]] = defaultdict(list)
     for agent in session.agents:
         groups[quality_of(agent, session.by_id) or fallback].append(agent)
     return groups
 
 
-def session_quality(session: Session) -> str:
+def session_quality(session: Session) -> Quality | None:
     """The main agent's, which rarely states one: else what most subagents
     state, the latest on a tie, so a session that left Trivial counts as left."""
     spawned = sorted(session.subagents, key=lambda a: a.start)
     stated = [q for a in reversed(spawned) if (q := stated_quality(a.brief))]
-    common = next((q for q, _ in Counter(stated).most_common(1)), NO_QUALITY)
+    common = next((q for q, _ in Counter(stated).most_common(1)), None)
     return stated_quality(session.main.brief) or common
 
 
-def quality_of(agent: Agent, by_id: dict[str, Agent]) -> str | None:
+def quality_of(agent: Agent, by_id: dict[str, Agent]) -> Quality | None:
     """What its brief states, else what the nearest subagent above it states."""
     return next((q for a in lineage(agent, by_id) if (q := stated_quality(a.brief))), None)
 
 
-def stated_quality(brief: str) -> str | None:
+def stated_quality(brief: str) -> Quality | None:
     found = QUALITY.search(brief)
-    return found.group(1) + (found.group(2) or "") if found else None
+    return Quality(Mode(found.group(1)), Trivial(found.group(2) or "")) if found else None
+
+
+def quality_label(quality: Quality | None) -> str:
+    return str(quality or NO_QUALITY)
 
 
 def self_activated_trivial(session: Session) -> Iterator[Agent]:
     """Reviews that reported a Trivial sweep though nothing briefed them Trivial."""
     for quality, group in quality_groups(session).items():
-        if not quality.endswith(", Trivial"):
+        if quality is None or quality.trivial is not Trivial.ON:
             yield from (a for a in group if SWEEP_LINE.search(a.report))
 
 
@@ -1196,7 +1223,7 @@ def render(window: Window, scope: str, split: datetime | None) -> str:
         summary(sessions),
         sessions_table(sessions),
         agent_types(agents),
-        startup_sizes(agents),
+        startup_sizes([a for _, a in agents]),
         costliest_agents(agents),
         skills(agents),
         quality_costs(sessions),
@@ -1267,9 +1294,9 @@ def agent_types(agents: list[tuple[Session, Agent]]) -> str:
     return section("Tokens by agent type", ["type", "agents", "API calls", "tokens", "peak context", "effective"], rows, len(rows))
 
 
-def startup_sizes(agents: list[tuple[Session, Agent]]) -> str:
+def startup_sizes(agents: list[Agent]) -> str:
     groups: dict[str, list[Agent]] = defaultdict(list)
-    for _, agent in agents:
+    for agent in agents:
         if agent.first_context:
             groups[agent.kind].append(agent)
     ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]))
@@ -1311,12 +1338,12 @@ def skills(agents: list[tuple[Session, Agent]]) -> str:
 
 
 def quality_costs(sessions: list[Session]) -> str:
-    groups: dict[str, list[list[Agent]]] = defaultdict(list)
+    groups: dict[Quality | None, list[list[Agent]]] = defaultdict(list)
     for s in sessions:
         for quality, group in quality_groups(s).items():
             groups[quality].append(group)
     ranked = sorted(groups.items(), key=lambda kv: -sum(effective(g) for g in kv[1]))
-    rows = [[quality, *quality_cells(parts)] for quality, parts in ranked]
+    rows = [[quality_label(quality), *quality_cells(parts)] for quality, parts in ranked]
     header = ["mode", "sessions", "PRs", "agents", "effective", "per PR, median"]
     activated = [a for s in sessions for a in self_activated_trivial(s)]
     counted = f"Reviews that activated Trivial themselves: {len(activated)}, {kilo(effective(activated))} effective."
@@ -1624,7 +1651,7 @@ def measures(sessions: list[Session]) -> defaultdict[str, list[float]]:
         for quality, group in quality_groups(s).items():
             cost = cost_per_pr(group)
             if cost is not None:
-                out[f"effective per PR, {quality}"].append(cost)
+                out[f"effective per PR, {quality_label(quality)}"].append(cost)
         for agent in s.agents:
             if agent.first_context:
                 out[f"first-call context, {agent.kind}"].append(agent.first_context)

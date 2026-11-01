@@ -1097,13 +1097,6 @@ class Window(Case):
 COSTS_1K = {"input_tokens": 1000}
 
 
-def pr_main() -> Transcript:
-    """A main agent that opened one PR."""
-    main = Transcript().human(0, "go").reply(1, COSTS_1K)
-    main.bash(2, "gh pr create --fill", 3)
-    return main
-
-
 class QualityModes(Case):
     def test_each_wire_form_is_its_own_row(self) -> None:
         # Given

@@ -149,13 +149,11 @@ let
       "google-workspace"
       "import-memory"
       "morning"
-      "pdf"
       "pptx"
       "skill-creator"
       "xlsx"
     ]
     ++ [
-      "claude-api"
       "code-review"
       "dataviz"
       "fewer-permission-prompts"

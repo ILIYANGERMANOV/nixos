@@ -108,6 +108,8 @@ Details: `.claude/rules/dependency-updates.md`, loaded when touching the flake.
 **`myConfig.secrets` is the only door to `sops.secrets`. Never write
 `sops.secrets` by hand.**
 
+**Paths only, never values.** `builtins.readFile` on a decrypted path bakes plaintext into the world-readable store.
+
 Details: `.claude/rules/secrets.md`, loaded when touching secrets or modules that
 declare them.
 
