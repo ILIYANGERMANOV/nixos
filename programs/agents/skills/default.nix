@@ -38,12 +38,6 @@ let
         "grill-me" # non-code variant of grill-with-docs
         "setup-matt-pocock-skills" # per-repo setup, run once via /setup-matt-pocock-skills
       ];
-
-      # Resolves a collision deliberately - e.g. upstream ships `code-review`,
-      # which as a personal skill would shadow Claude Code's bundled
-      # /code-review. A rename also rewrites the frontmatter `name`, keeping it
-      # in step with the directory that supplies the command name.
-      rename = { };
     };
   };
 
@@ -70,12 +64,17 @@ let
   ];
 
   # Custom skills go through the same resolution as external sources so they get
-  # the same collision detection, rename support and validation.
+  # the same collision detection and validation.
   customSource = {
-    src = ./.;
+    # A script's test sits beside it and stays out of the deployed skill.
+    src = lib.fileset.toSource {
+      root = ./.;
+      fileset = lib.fileset.difference ./custom (
+        lib.fileset.fileFilter (file: lib.hasPrefix "test_" file.name && file.hasExt "py") ./custom
+      );
+    };
     roots = [ "custom" ];
     skills = custom;
-    rename = { };
   };
 
   all = mergeSources (

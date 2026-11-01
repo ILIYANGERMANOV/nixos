@@ -1,9 +1,10 @@
-# checks.software-factory: the factory's policy, scripts and admin skills,
-# exercised without a server (the scenarios are in check.sh). git, process
-# lookup and the filesystem are real: repositories are cloned from a local bare
-# repository, and sessions are real processes. What cannot run in the build
-# sandbox is a double - an in-memory systemd, GitHub's API and CLI, Nix's
-# build and profile commands, Tailscale - and each records how it was called.
+# checks.shell-tests: the factory's policy, scripts and admin skills, exercised
+# without a server by the bats suites beside them (`ctl/disk.bats` tests
+# `ctl/disk.sh`, `test_helper.bash` is what they share). git, process lookup and
+# the filesystem are real: repositories are cloned from a local bare repository,
+# and sessions are real processes. What cannot run in the build sandbox is a
+# double - an in-memory systemd, GitHub's API and CLI, Nix's build and profile
+# commands, Tailscale - and each records how it was called.
 # On Linux the egress rules also go through `nft --check`, the same validation
 # NixOS runs when it builds the host.
 {
@@ -88,85 +89,36 @@ let
     inherit gcrootsAuto tmpDir;
     # $HOME is ${work}/home.
     homesDir = work;
+    uptimeFile = "${work}/uptime";
+    setpriv = lib.getExe fakeSetpriv;
   };
+
+  gcOnPressure = factory.mkGcOnPressure { gcBelowFreePercent = 10; };
 
   # An in-memory systemd: a unit is active while a file named after it exists.
   # Answers `is-active --quiet` for the deploy's health gate from $SSHD_UP.
-  fakeSystemctl = pkgs.writeShellScriptBin "systemctl" ''
-    echo "systemctl $*" >>"$CALLS"
-    [ "$1" != --user ] || shift
-    [ "$1" != --no-block ] || shift
-    mkdir -p "$UNITS"
-    case "$1" in
-      start | restart) touch "$UNITS/$2" ;;
-      stop) rm -f "$UNITS/$2" ;;
-      is-active)
-        if [ "$2" = --quiet ]; then [ "''${SSHD_UP:-1}" = 1 ]; exit; fi
-        if [ -e "$UNITS/$2" ]; then echo active; else echo inactive; exit 3; fi
-        ;;
-    esac
-  '';
+  fakeSystemctl = pkgs.writeShellScriptBin "systemctl" (builtins.readFile ./fakes/systemctl.sh);
 
   # GitHub's CLI, for `resolve` and `deploy`. Repositories come from
   # $GH/user-repos.json; a dispatched workflow run gets id 42, and it fails
   # when $GH/run-fails exists.
-  fakeGh = pkgs.writeShellScriptBin "gh" ''
-    echo "gh $*" >>"$CALLS"
-    case "$1 $2" in
-      "api --paginate") ${lib.getExe pkgs.jq} -r "$5" "$GH/user-repos.json" ;;
-      "workflow run") touch "$GH/dispatched" ;;
-      "run list") if [ -e "$GH/dispatched" ]; then echo 42; fi ;;
-      "run watch") [ ! -e "$GH/run-fails" ] ;;
-      "run view") echo "CI has not passed" ;;
-    esac
-  '';
+  fakeGh = pkgs.writeShellScriptBin "gh" (builtins.readFile ./fakes/gh.sh);
 
   # GitHub's REST API for the deploy script. GETs are answered from files in
   # $GH named after the endpoint; POST bodies are appended to $GH/posted. The
   # curl config arrives on stdin and is kept in $GH/config, apart from argv.
-  fakeCurl = pkgs.writeShellScriptBin "curl" ''
-    echo "curl $*" >>"$CALLS"
-    method=GET headers=/dev/null body="" url=""
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -X) method="$2"; shift ;;
-        -D) headers="$2"; shift ;;
-        --data-binary) body="''${2#@}"; shift ;;
-        -K) cat >"$GH/config"; shift ;;
-        -H | -m | -o) shift ;;
-        https://*) url="$1" ;;
-      esac
-      shift
-    done
-    printf 'HTTP/2 200\r\ngithub-authentication-token-expiration: 2027-01-01 00:00:00 UTC\r\n\r\n' >"$headers"
-    case "$method $url" in
-      "GET https://api.github.com/zen") [ ! -e "$GH/github-down" ] ;;
-      "GET "*/deployments\?*) cat "$GH/deployments.json" ;;
-      "GET "*/statuses\?*) cat "$GH/statuses.json" ;;
-      "GET "*/commits/main) cat "$GH/main.json" ;;
-      "POST "*/statuses) { cat "$body"; echo; } >>"$GH/posted"; echo '{}' ;;
-      *) echo "fake curl: unexpected $method $url" >&2; exit 22 ;;
-    esac
-  '';
+  fakeCurl = pkgs.writeShellScriptBin "curl" (builtins.readFile ./fakes/curl.sh);
 
-  fakeNix = pkgs.writeShellScriptBin "nix" ''
-    echo "nix $*" >>"$CALLS"
-    case "$1 $2" in
-      "flake archive") cat "$GH/flake-archive.json"; exit ;;
-      print-dev-env*broken*) exit 1 ;;
-      develop*) touch "$GH/shell-hook-ran" ;;
-    esac
-    [ ! -e "$GH/build-fails" ] && echo "${work}/systems/new"
-  '';
+  fakeNix = pkgs.writeShellScriptBin "nix" (builtins.readFile ./fakes/nix.sh);
 
-  # Profiles are symlinks in ${work}/profiles, as Nix keeps them.
-  fakeNixEnv = pkgs.writeShellScriptBin "nix-env" ''
-    echo "nix-env $*" >>"$CALLS"
-    case "$3" in
-      --set) ln -sfn "$4" "$2" ;;
-      --rollback) ln -sfn "${work}/systems/old" "$2" ;;
-    esac
-  '';
+  # The sandbox cannot change user, so this names the account it would become;
+  # anything it runs is recorded and then behaves as that account.
+  fakeSetpriv = pkgs.writeShellScriptBin "setpriv" (builtins.readFile ./fakes/setpriv.sh);
+
+  # Profiles are symlinks in ${work}/profiles, as Nix keeps them. Nix opens
+  # <profile>.lock, following a symlink there; with root's rights the write lands
+  # wherever it leads, while a dropped account's reaches only what it owns.
+  fakeNixEnv = pkgs.writeShellScriptBin "nix-env" (builtins.readFile ./fakes/nix-env.sh);
 
   fakeNixStore = pkgs.writeShellScriptBin "nix-store" ''
     echo "nix-store $*" >>"$CALLS"
@@ -177,6 +129,14 @@ let
   fakeTailscale = pkgs.writeShellScriptBin "tailscale" ''
     echo '{"BackendState": "Running"}'
   '';
+
+  suites = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./test_helper.bash
+      (lib.fileset.fileFilter (file: file.hasExt "bats") ./.)
+    ];
+  };
 
   skillsCheck = (import ../agents { inherit pkgs lib; }).skills.mkCheck factory.admin.skills;
 
@@ -197,9 +157,10 @@ in
 assert lib.assertMsg (failedPolicy == [ ]) (
   "software-factory managed settings: " + lib.concatMapStringsSep "; " (a: a.msg) failedPolicy
 );
-pkgs.runCommand "software-factory-check"
+pkgs.runCommand "shell-tests"
   {
     nativeBuildInputs = [
+      pkgs.bats
       pkgs.git
       pkgs.jq
       pkgs.procps
@@ -212,6 +173,7 @@ pkgs.runCommand "software-factory-check"
       boot
       deploy
       maintenance
+      gcOnPressure
       fakeSystemctl
       fakeGh
       fakeCurl
@@ -230,10 +192,11 @@ pkgs.runCommand "software-factory-check"
     # Admin skills: frontmatter, names and description length.
     echo "admin skills: ${skillsCheck}"
 
-    source ${./check.sh}
+    # One at a time: the programs have $work baked in.
+    bats --recursive --formatter tap ${suites}
 
     ${nftCheck}
 
-    echo "software-factory: all checks passed"
+    echo "shell-tests: all checks passed"
     touch "$out"
   ''

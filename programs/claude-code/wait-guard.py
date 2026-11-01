@@ -18,20 +18,35 @@ a CI read, a status read (`gh pr checks`, `gh run view`, `gh run list`) in a
 this command or an earlier one of its transcript. One status read stays allowed,
 because review agents read CI as evidence, and so does a log read, in a loop
 too: `gh run view --log` of a finished run returns the same log, and only the
-filter after it changes. A CI read inside a `$(...)` is one word to the splitter
-and goes unseen. This guards accidents, not an adversary: `gh api` goes unseen.
+filter after it changes. This guards accidents, not an adversary: `gh api` goes
+unseen.
 """
 
-import json
 import re
 import sys
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import Enum, auto
-from itertools import dropwhile
+from itertools import dropwhile, pairwise
+from typing import assert_never
 
-from bash_commands import simple_commands
-from transcripts import own_transcript, parse_line
+from bash_commands import Loop, Parsed, Simple, Unparsable, parse
+from hook_event import (
+    Json,
+    ToolUseId,
+    parse_agent,
+    parse_bash_call,
+    parse_caller,
+    parse_json,
+)
+from transcripts import (
+    BashUse,
+    OtherUse,
+    ToolUse,
+    in_subagent,
+    own_transcript,
+    parse_assistant_line,
+)
 
 MIN_SLEEP = 10
 # Past this context an agent hands a long check back: a wait over the 5 minute
@@ -50,9 +65,6 @@ CI_HINT = (
     "Blocked: a subagent never waits on CI. Hand back now and your caller waits "
     "on the PR. One plain `gh pr checks <n>` read is allowed."
 )
-LOOPS = {"until", "while"}
-# Words that may precede a command in a compound statement.
-KEYWORDS = {"do", "then", "else", "elif", "if", "{", "!", "time"} | LOOPS
 # GNU sleep: a number with an optional unit suffix.
 DURATION = re.compile(r"(\d+(?:\.\d*)?|\.\d+)([smhd]?)")
 UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -62,26 +74,38 @@ SHELL_COMMAND_FLAG = re.compile(r"-[a-z]*c[a-z]*")
 # gh flags whose value is no operand of a status read. A filter such as `--branch`
 # stays out, so its value keeps reads of two branches apart.
 GH_VALUE_FLAGS = {
-    "-R", "--repo", "-q", "--jq", "-t", "--template", "--json",
-    "-L", "--limit", "-i", "--interval",
+    "-R",
+    "--repo",
+    "-q",
+    "--jq",
+    "-t",
+    "--template",
+    "--json",
+    "-L",
+    "--limit",
+    "-i",
+    "--interval",
 }
+# Parsing an earlier command spawns shfmt, so 500 of them cost seconds on each status
+# read. No command without this holds one, but for a `gh` split by a quote or a
+# continuation, which stays unseen: this guards accidents, not an adversary.
+MAY_READ_CI = re.compile(r"\bgh\b")
 # GNU tail: `-f` or `-F`, alone or after flags that take no value.
 TAIL_FOLLOW = re.compile(r"-[\dqvz]*[fF]\w*|--follow(=.*)?")
 
 
 def main() -> None:
     try:
-        event = json.load(sys.stdin)
-        tool_input = event["tool_input"]
-        background = tool_input.get("run_in_background") is True
-        waits = is_wait(tool_input["command"])
-        polls = "agent_id" in event and polls_ci(
-            tool_input["command"], earlier_commands(event)
+        event = parse_json(sys.stdin.read())
+        call = parse_bash_call(event)
+        waits = is_wait(call.command)
+        polls = in_subagent(parse_agent(event)) and polls_ci(
+            call.command, earlier_commands(event, call.tool_use_id)
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
-    match (polls, background, waits):
+    match (polls, call.background, waits):
         case (True, _, _):
             print(CI_HINT, file=sys.stderr)
             sys.exit(2)
@@ -94,12 +118,10 @@ def main() -> None:
 
 @dataclass(frozen=True)
 class Step:
-    """A simple command: the compound keywords before it, its words, and whether
-    a loop repeats it."""
+    """A simple command with its wrappers gone, and what repeats it."""
 
-    keywords: list[str]
     words: list[str]
-    looped: bool
+    looped: Loop
 
 
 class CiRead(Enum):
@@ -111,10 +133,11 @@ class CiRead(Enum):
 
 def polls_ci(command: str, earlier: Iterable[str]) -> bool:
     """Whether a subagent's command waits on CI. Only a status read reads earlier."""
-    steps = list(split_keywords(command))
+    steps = parsed(command)
     kinds = [ci_read(step.words) for step in steps]
     looped = any(
-        step.looped and kind is CiRead.STATUS for step, kind in zip(steps, kinds)
+        step.looped is not Loop.NONE and kind is CiRead.STATUS
+        for step, kind in zip(steps, kinds, strict=True)
     )
     statuses = status_reads(steps)
     if CiRead.WATCH in kinds or looped or len(set(statuses)) < len(statuses):
@@ -122,6 +145,7 @@ def polls_ci(command: str, earlier: Iterable[str]) -> bool:
     return bool(statuses) and any(
         status in statuses
         for earlier_command in earlier
+        if MAY_READ_CI.search(earlier_command)
         for status in status_reads(parsed(earlier_command))
     )
 
@@ -156,83 +180,68 @@ def status_key(words: list[str]) -> tuple[str, ...]:
     args = words[3:]
     operands = [
         word
-        for before, word in zip(["", *args], args)
+        for before, word in pairwise(["", *args])
         if not word.startswith("-") and before not in GH_VALUE_FLAGS
     ]
     return (*words[:3], *operands[:1])
 
 
-def parsed(command: str, looped: bool = False) -> list[Step]:
+def parsed(command: str, around: Loop = Loop.NONE) -> list[Step]:
     """A command's simple commands, none for one that does not parse."""
-    try:
-        return list(split_keywords(command, looped))
-    except ValueError:
-        return []
+    match parse(command):
+        case Parsed(commands):
+            return [step for simple in commands for step in steps_of(simple, around)]
+        case Unparsable():
+            return []
 
 
-def earlier_commands(event: dict) -> Iterator[str]:
-    """The agent's Bash commands so far, without the call under judgement."""
-    with own_transcript(event).open("rb") as transcript:
+def steps_of(simple: Simple, around: Loop) -> Iterator[Step]:
+    """What a simple command runs, under the loop around its script.
+
+    The script of a `bash -c` stands in for the shell, so what it runs counts,
+    and `until bash -c ...` is still a loop. A script that does not parse stands
+    as the shell itself, so it cannot hide what the commands around it do.
+    """
+    inner = unwrap(list(simple.words))
+    looped = max(around, simple.looped)
+    if simple.background and is_tail_follow(inner):
+        return
+    match shell_script(inner):
+        case None:
+            yield Step(inner, looped)
+        case script:
+            yield from parsed(script, looped) or [Step(inner, looped)]
+
+
+def earlier_commands(event: Json, skip: ToolUseId | None) -> Iterator[str]:
+    """The agent's Bash commands so far, without the call under judgement.
+
+    Lazy, so a command that is no CI read still gets its verdict with no transcript.
+    """
+    with own_transcript(parse_caller(event)).open("rb") as transcript:
         for line in transcript:
-            match parse_line(line):
-                case {"type": "assistant", "message": {"content": list(blocks)}}:
-                    yield from bash_commands(blocks, event.get("tool_use_id"))
-                case _:
-                    pass
+            assistant = parse_assistant_line(line)
+            if assistant is not None:
+                yield from bash_commands(assistant.tool_uses, skip)
 
 
-def bash_commands(blocks: list, skip: str | None) -> Iterator[str]:
-    for block in blocks:
-        match block:
-            case {
-                "type": "tool_use",
-                "name": "Bash",
-                "id": call,
-                "input": {"command": command},
-            } if call != skip:
+def bash_commands(tool_uses: list[ToolUse], skip: ToolUseId | None) -> Iterator[str]:
+    for use in tool_uses:
+        match use:
+            case BashUse(use_id, command) if use_id != skip:
                 yield command
-            case _:
+            case BashUse() | OtherUse():
                 pass
+            case _:
+                assert_never(use)
 
 
 def is_wait(command: str) -> bool:
-    steps = list(split_keywords(command))
-    loops = any(LOOPS & set(step.keywords) for step in steps)
+    steps = parsed(command)
+    loops = any(step.looped is Loop.ON_CONDITION for step in steps)
     sleeps = [seconds(s.words[1:]) for s in steps if s.words[:1] == ["sleep"]]
     follows = any(is_tail_follow(step.words) for step in steps)
     return any(s >= MIN_SLEEP for s in sleeps) or (loops and bool(sleeps)) or follows
-
-
-def split_keywords(command: str, looped: bool = False) -> Iterator[Step]:
-    """Each simple command, and whether a loop, in it or around it, repeats it.
-
-    The script of a `bash -c` stands in for the shell, so what it runs counts,
-    under the keywords before that shell: `until bash -c ...` is still a loop.
-    A script that does not parse stands as the shell itself, so it cannot hide
-    what the commands around it do.
-    """
-    depth = 0
-    for simple in simple_commands(command):
-        words = simple.words
-        count = next(
-            (i for i, word in enumerate(words) if word not in KEYWORDS), len(words)
-        )
-        keywords, inner = words[:count], unwrap(words[count:])
-        depth += len(LOOPS.intersection(keywords)) + (inner[:1] == ["for"])
-        in_loop = looped or depth > 0
-        depth = max(0, depth - (inner[:1] == ["done"]))
-        if simple.background and is_tail_follow(inner):
-            continue
-        match shell_script(inner):
-            case None:
-                yield Step(keywords, inner, in_loop)
-            case script:
-                for step in script_steps(script, inner, in_loop):
-                    yield replace(step, keywords=keywords + step.keywords)
-
-
-def script_steps(script: str, shell: list[str], looped: bool) -> list[Step]:
-    return parsed(script, looped) or [Step([], shell, looped)]
 
 
 def unwrap(words: list[str]) -> list[str]:
@@ -260,7 +269,7 @@ def shell_script(words: list[str]) -> str | None:
             match after(SHELL_COMMAND_FLAG.fullmatch, args):
                 case [script, *_]:
                     return script
-                case []:
+                case _:
                     return None
         case _:
             return None
@@ -272,7 +281,9 @@ def after(is_flag: Callable[[str], object], args: list[str]) -> list[str]:
 
 
 def is_tail_follow(words: list[str]) -> bool:
-    return words[:1] == ["tail"] and any(TAIL_FOLLOW.fullmatch(arg) for arg in words[1:])
+    return words[:1] == ["tail"] and any(
+        TAIL_FOLLOW.fullmatch(arg) for arg in words[1:]
+    )
 
 
 def seconds(args: list[str]) -> float:

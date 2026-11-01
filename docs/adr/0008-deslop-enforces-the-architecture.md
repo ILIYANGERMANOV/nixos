@@ -26,7 +26,7 @@ flake.nix -> lib/ -> modules/, shells/ -> adapters/ -> programs/
 `lib-is-private-to-the-flake` keeps `lib/` to `flake.nix`, and
 `adapters-are-thin` allows an adapter to import only flake inputs, other
 adapters and a program's `default.nix`. Narrowing the lib rule to
-`lib/default` instead was rejected: it would have kept the loop and given the
+`lib/default.nix` instead was rejected: it would have kept the loop and given the
 glue no rule of its own.
 
 ## Packaged by Deslop's own flake
@@ -52,6 +52,9 @@ them, and every consumer gets the same derivation.
   in `deslop/baseline.yaml`, which is regenerated with `deslop baseline .`,
   never edited by hand. A new dynamic path fails the check until it is
   baselined, which is the point: someone looks at it.
+- **`deslop/rules/tests.yaml` makes every script keep its test.** Deslop lists
+  every file as a module, so `exists` rules can ask for a companion. It has no
+  baseline entries: a gap is an exclude with a reason.
 - **`deslop/rules/` holds only rule files.** Anything else there, a README
   included, breaks rule loading.
 - **Known over-approximation.** `${hostname}` in lib's builders expands to every

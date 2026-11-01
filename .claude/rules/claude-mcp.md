@@ -56,6 +56,18 @@ nixpkgs' Chromium, `viem` and the `qa-wallet` helper from any directory) and
 so a project's own Playwright keeps its own browsers. The factory's Remote
 Control units run the unwrapped binary, so its profile installs `qa` too.
 
+`qa-kit`, `qa-wallet` and the `qa-check*` scripts are strict TypeScript, compiled
+to ES modules in the derivation, because Node refuses type stripping under
+`node_modules`. A script still `require`s them: `qa-node`'s NODE_PATH finds them,
+and Node 24 loads an ES module from `require`. Libraries come from
+`pnpm-lock.yaml`, at exact versions; `tsgo` and Biome come from nixpkgs, since a
+`typescript` in the lock file becomes viem's peer and ships in the runtime. After
+changing the lock file (`pnpm install --lockfile-only` in the dev shell), update
+`pnpmDeps.hash` in `programs/playwright/default.nix`; the hash is the same on
+every system. `playwright` in `package.json` is for its types only: keep it at
+nixpkgs' `playwright-test` version. Tests sit beside the code as `*.test.ts`;
+`checks.ts-test` is the unit layer and `checks.qa` the end-to-end one.
+
 `secretFiles` maps an env var to a secret **name**, for a program that reads
 the file itself: the wrapper exports the decrypted file's **path**, never its
 value (`QA_EVM_KEY_FILE` -> `qa-sepolia-key`, declared on `macos-work` only).
@@ -68,5 +80,4 @@ inside a command substitution. **This is protection against accidental reads,
 not a security boundary**: every `qa-node` script must read the variable, so a
 script (or a determined session) can read the file, and no filter over command
 text can close that. `checks.qa` tests the wallet helper and the video
-pipeline headless against a generated key; `checks.claude-bash-guards` the
-guard.
+pipeline headless against a generated key; `checks.python-tests` the guard.

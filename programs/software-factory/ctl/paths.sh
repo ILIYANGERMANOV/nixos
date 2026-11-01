@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Where things live, and the repository-name rule. Shared by factory-ctl and
 # the Remote Control launchers.
 
@@ -15,6 +16,7 @@ check_repo_name() {
     "" | .* | *[!A-Za-z0-9._-]*)
       die "invalid repository name '$1' (expected [A-Za-z0-9._-], not starting with '.')"
       ;;
+    *) ;;
   esac
 }
 

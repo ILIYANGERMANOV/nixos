@@ -416,8 +416,8 @@ Change the configuration with a pull request, merge it, then deploy `main`:
 
 What happens:
 
-1. The workflow refuses unless `check` and `cache-guard` passed on main's tip,
-   then creates a GitHub deployment for that commit. GitHub holds no credential
+1. The workflow refuses unless `check`, `cache-guard` and `checks-x86_64` passed
+   on main's tip, then creates a GitHub deployment for that commit. GitHub holds no credential
    to the server.
 2. Within a minute the server sees it, checks the commit is still the tip of
    `main`, and builds it - on the server, with all of its cores.

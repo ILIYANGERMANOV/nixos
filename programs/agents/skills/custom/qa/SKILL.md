@@ -66,7 +66,7 @@ Every Claude session has these on PATH, whatever the project:
   `capture(context, file)` logs console, page errors and failed requests with
   credentials redacted; `VIEWPORT` is the 960x540 every page and video uses.
 - `qa-session start <run> [--url <url>] [--storage-state <auth.json>]
-  [--chain-id <n> [--rpc <url>] [--forward-rpc <regex>]...]` - one headless
+  [--chain-id <n> [--rpc <url> [--forward-rpc <regex>]...]]` - one headless
   Chromium that outlives the scripts driving it, logged in and on the page,
   with the wallet when `--chain-id` is given. It returns once the page is
   open and writes its console, redacted, to `<run>/qa-session-console.log`.

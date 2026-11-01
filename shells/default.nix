@@ -7,6 +7,7 @@ pkgs.mkShell {
     just
     statix
     deadnix
+    pnpm
     inputs.deslop.packages.${pkgs.stdenv.hostPlatform.system}.deslop
   ];
 }

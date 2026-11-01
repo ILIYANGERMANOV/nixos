@@ -219,6 +219,8 @@ let
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
 rec {
+  inherit statusline;
+
   # One entry per flavor; the attr name is the binary name. Everything is
   # optional - `claude` is the base configuration with nothing added.
   packages = mkClaudeFlavors {
@@ -314,6 +316,14 @@ rec {
     });
     unwrapped = claude-code;
     agentFiles = toHomeFiles factoryAgentSources;
+  };
+
+  # The hook guards as they deploy, for `python-tests` to run.
+  guards = {
+    read = readGuard.bin;
+    wait = waitGuard.bin;
+    secret = (import ./secret-guard.nix { inherit pkgs; }).bin;
+    context = contextGuard.bin;
   };
 
   # home.file entries for the subagents. Every flavor of a profile gets the same

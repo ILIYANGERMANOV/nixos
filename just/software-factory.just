@@ -20,38 +20,7 @@
 #
 # Generate the software-factory age key into the clipboard (for Bitwarden)
 factory-generate-age-key:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    marker='# software-factory-age-key: not generated yet'
-    grep -qF "$marker" .sops.yaml || {
-        echo "ERROR: .sops.yaml already lists a software-factory key." >&2
-        echo "A new key cannot decrypt secrets/hosts/software-factory.yaml; to rotate," >&2
-        echo "put the marker line back by hand and re-encrypt with 'sops updatekeys'." >&2
-        exit 1
-    }
-
-    if command -v age-keygen >/dev/null 2>&1; then
-        age_keygen=(age-keygen)
-    else
-        age_keygen=(nix shell --inputs-from . nixpkgs#age -c age-keygen)
-    fi
-
-    key=$("${age_keygen[@]}" 2>/dev/null)
-    public=$(printf '%s\n' "$key" | sed -n 's/^# public key: //p')
-    [ -n "$public" ] || { echo "ERROR: age-keygen produced no public key." >&2; exit 1; }
-
-    printf '%s\n' "$key" | pbcopy
-    unset key
-    echo "The private key is on the clipboard. Save it in Bitwarden as"
-    echo "'software-factory-age-key' (the whole text, both lines)."
-    read -rsp "Press Enter once saved - the clipboard is cleared in 120s either way. " -t 120 || true
-    echo
-    pbcopy </dev/null
-    echo "Clipboard cleared."
-
-    sed -i '' "s|$marker|- $public # software-factory|" .sops.yaml
-    echo "Added $public to .sops.yaml."
-    echo "Next: just factory-secrets"
+    @bash "{{ justfile_directory() }}/just/scripts/factory-generate-age-key.sh"
 
 # Fills secrets/hosts/software-factory.yaml with everything the host declares:
 # the admin password (reusing set-password-hash), the Tailscale auth key, the
@@ -59,48 +28,7 @@ factory-generate-age-key:
 #
 # Write every secret software-factory needs into its sops file
 factory-secrets:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    file=secrets/hosts/software-factory.yaml
-    key_file=/var/lib/sops-age/keys.txt
-
-    if grep -qF '# software-factory-age-key: not generated yet' .sops.yaml; then
-        echo "ERROR: run 'just factory-generate-age-key' first, or the server" >&2
-        echo "could not decrypt its own secrets." >&2
-        exit 1
-    fi
-
-    just set-password-hash software-factory
-
-    sudo -v
-    export SOPS_AGE_KEY_CMD="sudo -n cat $key_file"
-
-    if command -v jq >/dev/null 2>&1; then
-        jq_cmd=(jq)
-    else
-        jq_cmd=(nix run --inputs-from . nixpkgs#jq --)
-    fi
-
-    # sops wants the value as JSON; jq -R quotes and escapes it.
-    set_secret() {
-        local name="$1" prompt="$2" value
-        read -rsp "$prompt: " value; echo
-        [ -n "$value" ] || { echo "ERROR: $name is empty." >&2; exit 1; }
-        printf '%s' "$value" | "${jq_cmd[@]}" -R . | sops set --value-stdin "$file" "[\"$name\"]"
-        echo "Wrote $name."
-    }
-
-    echo "Tailscale admin console > Settings > Keys: a one-off, pre-approved auth key"
-    echo "tagged tag:factory. Apply tailscale/policy.hujson first (just tailscale-apply)."
-    set_secret tailscale-authkey "Tailscale auth key"
-
-    echo "Bot account > Settings > Developer settings > Tokens (classic): scope 'repo' only."
-    set_secret gh-token "Bot GitHub token"
-
-    printf '"%s"' "unused" | sops set --value-stdin "$file" '["example-global"]'
-
-    just factory-deploy-token
-    echo "Done. Commit .sops.yaml and $file."
+    @bash "{{ justfile_directory() }}/just/scripts/factory-secrets.sh"
 
 # The server pulls deploys from this repository's GitHub deployments and posts
 # the result back, with a fine-grained token of the repository owner: this
@@ -166,6 +94,7 @@ factory-install $ip:
     set -euo pipefail
     case "$ip" in
         *[!0-9.]* | "") echo "ERROR: expected an IPv4 address, got '$ip'" >&2; exit 1 ;;
+        *) ;;
     esac
 
     extra=$(mktemp -d)
@@ -208,96 +137,9 @@ factory-deploy:
 # server has to be deployed for it to change.
 #
 # Show software-factory's RAM, disk and Remote Control sessions (`detailed` adds branches, errors, top processes)
+[positional-arguments]
 factory-status $mode="concise":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "$mode" in
-        concise | detailed) ;;
-        *) echo "ERROR: expected 'concise' or 'detailed', got '$mode'" >&2; exit 1 ;;
-    esac
-
-    # The remote side runs without -e or pipefail, so one failing section
-    # still leaves the others printed. $mode is one of two fixed words by
-    # now, so it is safe in the remote command line.
-    ssh -o ConnectTimeout=10 factory@software-factory "bash -s -- $mode" <<'EOF' || {
-    set -u
-
-    main() {
-      usage
-      section "Remote Control"; remote_control
-      case "$1" in
-        concise) ;;
-        detailed)
-          section "Recent branches"; branches
-          section "Problems";        problems
-          section "Top memory";      top_memory
-          ;;
-      esac
-    }
-
-    section() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
-
-    # "Used" RAM is what cannot be reclaimed: total minus available, so page
-    # cache does not count.
-    usage() {
-      local ram disk
-      ram=$(awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { printf "%d%%", (t - a) * 100 / t }' /proc/meminfo)
-      disk=$(df --output=pcent / | tail -n 1 | tr -d ' ')
-      printf '\033[1mRAM %s used  ·  Disk %s used\033[0m\n' "$ram" "$disk"
-    }
-
-    # A session is a `claude --print --sdk-url` process; its working directory
-    # is a worktree under the repository it serves.
-    remote_control() {
-      local unit repo state sessions
-      for unit in $(systemctl --user list-units 'claude-rc@*' --all --no-legend --plain | awk '{print $1}'); do
-        repo=${unit#claude-rc@}; repo=${repo%.service}
-        state=$(systemctl --user is-active "$unit")
-        sessions=$(session_count "$repo")
-        printf '%-20s %-10s %s session(s)\n' "$repo" "$state" "$sessions"
-      done
-    }
-
-    session_count() {
-      local pid count=0
-      for pid in $(pgrep -u "$(id -u)" -f -- '--sdk-url'); do
-        case "$(readlink "/proc/$pid/cwd" 2>/dev/null)" in
-          "$HOME/repos/$1" | "$HOME/repos/$1"/*) count=$((count + 1)) ;;
-        esac
-      done
-      echo "$count"
-    }
-
-    branches() {
-      local dir
-      for dir in "$HOME"/repos/*/; do
-        printf '%s\n' "$(basename "$dir")"
-        git -C "$dir" for-each-ref --sort=-committerdate --count=3 \
-          --format='  %(committerdate:relative)  %(refname:short)  %(subject)' refs/heads
-      done
-    }
-
-    # Failed user units, and Remote Control errors from the last hour.
-    problems() {
-      local found
-      found=$(
-        systemctl --user --failed --no-legend --plain
-        journalctl --user --unit='claude-rc@*' --since -1h --no-pager -o short -q \
-          | grep -aiE 'error|fatal|denied|killed' | tail -n 10
-      )
-      printf '%s\n' "${found:-none}"
-    }
-
-    top_memory() {
-      ps -eo rss=,args= --sort=-rss | head -n 8 | awk '{ printf "%7.0fM  %s\n", $1 / 1024, substr($0, index($0, $2), 100) }'
-    }
-
-    main "$1"
-    EOF
-        status=$?
-        [ "$status" -ne 255 ] || echo "ERROR: could not reach software-factory. Is Tailscale up? (just macos-main-tailscale-up)" >&2
-        exit "$status"
-    }
+    @bash "{{ justfile_directory() }}/just/scripts/factory-status.sh" "$@"
 
 # Fail if rebuilding software-factory would build anything on the expensive-builds denylist.
 factory-cache-check: (_cache-check "factory-cache-check" ".#nixosConfigurations.software-factory.config.system.build.toplevel")

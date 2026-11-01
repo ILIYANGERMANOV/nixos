@@ -28,12 +28,19 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
 - `programs/software-factory/` holds the logic: managed settings (billing and
   permission policy), the Remote Control launchers, `factory-ctl` (`ctl/`), the
   root deploy and maintenance scripts (`ops/`), the admin agent's project
-  (`admin/`) and the egress nftables rules. `checks.software-factory`
-  (`check.nix`, scenarios in `check.sh`) tests them.
+  (`admin/`) and the egress nftables rules. What may be deleted is decided in
+  `disk_plan.py`, pure functions over read facts where unknown means keep, tested
+  by `test_disk_plan.py`; the bash around it only removes what it prints, and
+  rechecks for a live session just before removing a worktree or a /qa run.
+  `checks.shell-tests` (`check.nix`)
+  tests them with bats, one suite beside each script (`ctl/disk.bats` for
+  `ctl/disk.sh`), plus a named suite for what crosses scripts (`skills.bats`) and
+  one helper for the doubles and setup (`test_helper.bash`). A scenario goes
+  through `factory-ctl` or an ops script's entry point, never inside a script.
   `checks.software-factory-activation` reads the relink hook off the host's Home
   Manager config, a lazy partial eval.
 - **The admin agent runs the box; `factory-ctl` is its only tool.** Add an
-  admin capability as a `factory-ctl` command with a scenario in `check.sh`,
+  admin capability as a `factory-ctl` command with a scenario in its suite,
   then a skill in `admin/skills/` that calls it. Skills there are
   project-scoped to `~/admin` on purpose - never add them to the shared skill
   catalog, which every agent of the account loads.

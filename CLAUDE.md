@@ -15,6 +15,8 @@ modules/macos/  — nix-darwin-only system configuration
 modules/home/   — Home Manager configuration shared across all hosts
 programs/       — reusable, host-agnostic program configs
 programs/agents/— agent-agnostic config shared by every coding agent (instructions, skill catalog, subagent role records)
+programs/tech-checks/ - `<tech>-<kind>` checks, treefmt
+programs/shell-check/ - `writeShellApplication` and its rules
 shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
 secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 deslop/         - the architecture rules `deslop check .` enforces, and their baseline
@@ -76,24 +78,25 @@ wrong tool for iterating.
 
 1. A skill, subagent role or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`,
    `.#checks.x86_64-linux.claude-config` (size ceilings, `just skill-budget` prints them)
-   and `.#checks.x86_64-linux.typos`, plus `self-improve` when the analyzer under
+   and `.#checks.x86_64-linux.typos`, plus `python-tests` when the analyzer under
    its skill changed.
-2. A `programs/<x>` edit: build that program's check - `claude-code`, `claude-config` and
-   `claude-bash-guards` for `programs/claude-code`, `software-factory` for `programs/skills-link`, `nvim-search`,
-   `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
-   a `software-factory` host eval for `programs/kotlin`, `software-factory`,
-   `playwright` and `qa` (Linux only) for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
+2. A `programs/<x>` edit: build that program's check - `claude-code`, `claude-config`,
+   `python-tests` and `shell-embedded` for `programs/claude-code`, `shell-tests` for `programs/skills-link`, `nvim-search`,
+   `nvim-typescript`, `nvim-kotlin` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
+   a `software-factory` host eval for `programs/kotlin`, `shell-tests`,
+   `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old`, `software-factory`) or
    `nix eval --raw .#darwinConfigurations.<host>.system.drvPath` (`macos-main`, `macos-work`).
-   An added, moved or re-pointed import: `nix develop -c just architecture`
-   (Deslop, under a second).
-4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor`.
-5. `just quick-check` before handing back mid-work: lint, architecture, format and every
+   An added, moved or re-pointed import: `nix develop -c just architecture`.
+4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
+   `just tech shell`.
+5. A script or recipe: `nix develop -c just tech <name>` (`shell`, `python`).
+6. `just quick-check` before handing back mid-work: lint, architecture, format and every
    `checks` derivation for this system. On Linux that evaluates one host, for
-   `software-factory-activation`, and no other.
-6. `just check` once on the final state, run as the Checks rules in
+   `software-factory-activation`.
+7. `just check` once on the final state, run as the Checks rules in
    `programs/agents/AGENTS.md` say. Never after a docs-only edit, and never
    with a build, lint or test chained in front of it.
 

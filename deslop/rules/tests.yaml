@@ -1,0 +1,186 @@
+id: tests
+name: Every script has its test
+description: >-
+  Every file is a module, so a script without a test fails here the way a
+  Haskell module without a spec fails in Deslop's own rulebook. A script with no
+  same-named test has a rule naming the suite that exercises it, or sits in a
+  commented exclude group. Nothing from this rulebook goes in the baseline.
+rules:
+  # Glob+ has no snake_case: {{script-name}} reads only [a-z0-9-], so a variable
+  # per part reads one underscore, and the `-can-be-read` rules fail what the
+  # variables would miss instead of letting it go unseen. A capital or a dot in
+  # a name is still unseen: none exists, and a glob cannot say so.
+  - id: python-scripts-have-tests
+    description: A Python script has its test beside it, keeping its name literally.
+    target: "**/{{script-name}}.py"
+    exists:
+      - module: "{{TARGET_DIR}}/test_{{script-name}}.py"
+    fix: Add {{TARGET_DIR}}/test_{{script-name}}.py.
+
+  - id: snake-case-python-scripts-have-tests
+    description: A Python script has its test beside it, keeping its name literally.
+    target: "**/{{first-part}}_{{last-part}}.py"
+    exclude:
+      # The tests themselves.
+      - "**/test_*.py"
+      # Test helpers: only tests import them.
+      - "programs/claude-code/guard_harness.py"
+      - "programs/claude-code/bash_corpus.py"
+    exists:
+      - module: "{{TARGET_DIR}}/test_{{first-part}}_{{last-part}}.py"
+    fix: Add {{TARGET_DIR}}/test_{{first-part}}_{{last-part}}.py.
+
+  - id: python-script-names-can-be-read
+    description: A Python script's name has at most one underscore, or no rule above would see it.
+    target: "**/*_*_*.py"
+    exclude:
+      # The tests themselves: they carry the name of what they test.
+      - "**/test_*.py"
+    exists:
+      - module: "a-python-name-with-one-underscore-at-most"
+    fix: Rename the script, or add a rule for it here.
+
+  - id: shell-scripts-have-suites
+    description: A shell script has a bats suite beside it, named after it.
+    target: "**/{{script-name}}.sh"
+    exclude:
+      # Test doubles for the bats suites.
+      - "programs/software-factory/fakes/**"
+
+      # Only echo: no logic to test.
+      - "shells/*-install-banner.sh"
+
+      # Straight-line build phases with no branch: a broken one fails its package.
+      - "programs/kotlin/lsp-install.sh"
+      - "programs/playwright/install-compiled.sh"
+      - "programs/tech-checks/python-tests.sh"
+
+      # Exercised by a suite with another name: a rule below requires that suite.
+      - "programs/software-factory/factory-rc.sh"
+      - "programs/software-factory/lock.sh"
+      - "programs/software-factory/serve.sh"
+      - "programs/software-factory/space.sh"
+      - "programs/software-factory/ctl/lib.sh"
+      - "programs/software-factory/ctl/main.sh"
+      - "programs/software-factory/ctl/paths.sh"
+      - "programs/software-factory/ops/state.sh"
+      - "programs/skills-link/link-skills.sh"
+      - "programs/claude-code/budget-compare.sh"
+      - "programs/playwright/qa-frames.sh"
+      - "programs/playwright/qa-mp4.sh"
+
+      # Accepted without a test: what each needs cannot run in a check.
+      # Runs on the server, and is read by eye.
+      - "just/scripts/factory-status.sh"
+      # Interactive, writes secrets, and runs on a Mac.
+      - "just/scripts/factory-secrets.sh"
+      # Mac only, and needs sudo.
+      - "just/scripts/darwin-generate-age-key.sh"
+      # Mac only: it hands the key over through pbcopy.
+      - "just/scripts/factory-generate-age-key.sh"
+      # Needs a YubiKey.
+      - "just/scripts/enroll-backup-yubikey.sh"
+      - "just/scripts/rotate-ssh-key.sh"
+      - "just/scripts/setup-yubikey-ssh.sh"
+      - "just/scripts/ssh-common.sh"
+    exists:
+      - module: "{{TARGET_DIR}}/{{script-name}}.bats"
+    fix: Add {{TARGET_DIR}}/{{script-name}}.bats.
+
+  - id: shell-script-names-can-be-read
+    description: A shell script's name has no underscore, or no rule above would see it.
+    target: "**/*_*.sh"
+    exists:
+      - module: "a-shell-name-with-no-underscore"
+    fix: Name the script in kebab-case.
+
+  - id: typescript-modules-have-tests
+    description: A TypeScript module has a Vitest suite beside it, named after it.
+    target: "**/{{script-name}}.ts"
+    exclude:
+      # checks.qa's end-to-end scripts and what they share.
+      - "programs/playwright/qa-check*.ts"
+
+      # Exercised by a suite with another name: a rule below requires that suite.
+      - "programs/playwright/kit/session.ts"
+      - "programs/playwright/wallet/cli.ts"
+    exists:
+      - module: "{{TARGET_DIR}}/{{script-name}}.test.ts"
+    fix: Add {{TARGET_DIR}}/{{script-name}}.test.ts.
+
+  - id: typescript-module-names-can-be-read
+    description: A TypeScript module's name has no underscore, or no rule above would see it.
+    target: "**/*_*.ts"
+    exists:
+      - module: "a-typescript-name-with-no-underscore"
+    fix: Name the module in kebab-case.
+
+  # Fragments spliced into a program, so the suite is named after the program.
+  - id: launcher-fragments-have-their-suite
+    description: The Remote Control launchers' fragments are exercised by launchers.bats.
+    target: "programs/software-factory/*.sh"
+    exclude:
+      # Not spliced into a launcher: space-fragment-has-its-suites covers it.
+      - "programs/software-factory/space.sh"
+    exists:
+      - module: "programs/software-factory/launchers.bats"
+    fix: Restore launchers.bats, or give the fragment a suite of its own.
+
+  - id: ctl-fragments-have-their-suites
+    description: What factory-ctl's commands share is exercised by the suites that run those commands.
+    target: "programs/software-factory/ctl/*.sh"
+    exists:
+      - module: "programs/software-factory/ctl/repo.bats"
+      - module: "programs/software-factory/ctl/sessions.bats"
+    fix: Restore the suite, or give the fragment one of its own.
+
+  - id: space-fragment-has-its-suites
+    description: gb is exercised through what free-disk and gc report.
+    target: "programs/software-factory/space.sh"
+    exists:
+      - module: "programs/software-factory/ctl/disk.bats"
+      - module: "programs/software-factory/ops/maintenance.bats"
+    fix: Restore the suite, or add space.bats.
+
+  - id: ops-state-fragment-has-its-suites
+    description: record is exercised by the root operations that call it.
+    target: "programs/software-factory/ops/state.sh"
+    exists:
+      - module: "programs/software-factory/ops/deploy.bats"
+      - module: "programs/software-factory/ops/maintenance.bats"
+    fix: Restore the suite, or add ops/state.bats.
+
+  - id: link-skills-has-its-suite
+    description: factory-link-skills is exercised by the factory's skills.bats, which holds the runner.
+    target: "programs/skills-link/link-skills.sh"
+    exists:
+      - module: "programs/software-factory/skills.bats"
+    fix: Restore skills.bats.
+
+  - id: budget-compare-has-its-check
+    description: budget-compare is tested against bad and good sizes inside checks.claude-config.
+    target: "programs/claude-code/budget-compare.sh"
+    exists:
+      - module: "programs/claude-code/config-check.nix"
+    fix: Restore config-check.nix, or test budget-compare elsewhere and say so here.
+
+  - id: qa-evidence-tools-have-their-check
+    description: qa-mp4 and qa-frames are exercised by checks.qa through qa-check-tools.ts.
+    target: "programs/playwright/qa-*.sh"
+    exists:
+      - module: "programs/playwright/qa-check-tools.ts"
+    fix: Restore qa-check-tools.ts.
+
+  - id: qa-session-has-its-check
+    description: qa-session is exercised by checks.qa through qa-check-tools.ts.
+    target: "programs/playwright/kit/session.ts"
+    exists:
+      - module: "programs/playwright/qa-check-tools.ts"
+    fix: Restore qa-check-tools.ts.
+
+  - id: qa-wallet-cli-has-its-check
+    description: The qa-wallet command is exercised by checks.qa through qa-check.ts.
+    target: "programs/playwright/wallet/cli.ts"
+    exists:
+      - module: "programs/playwright/qa-check.ts"
+    fix: Restore qa-check.ts.

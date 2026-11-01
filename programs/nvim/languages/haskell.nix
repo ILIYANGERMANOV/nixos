@@ -42,8 +42,8 @@
     end
 
     _G.HlsRestart = function()
-      vim.lsp.stop_client(vim.lsp.get_active_clients({ name = 'hls' }))
-      vim.cmd('edit')
+      vim.lsp.stop_client(vim.lsp.get_active_clients({ name = "hls" }))
+      vim.cmd("edit")
       vim.notify("♻️  HLS Restarted", vim.log.levels.INFO)
     end
 
@@ -55,7 +55,10 @@
       local mod = nil
       for _, line in ipairs(vim.api.nvim_buf_get_lines(0, 0, 300, false)) do
         local m = line:match("^module%s+([%w%.]+)")
-        if m then mod = m; break end
+        if m then
+          mod = m
+          break
+        end
       end
       if not mod then
         mod = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t:r")
@@ -71,8 +74,7 @@
 
     _G.RegisterContextRunner({
       detect = function(cwd)
-        return vim.fn.glob(cwd .. "/*.cabal") ~= ""
-          or vim.fn.filereadable(cwd .. "/cabal.project") == 1
+        return vim.fn.glob(cwd .. "/*.cabal") ~= "" or vim.fn.filereadable(cwd .. "/cabal.project") == 1
       end,
       run = function(action)
         if action == "test" then
@@ -93,7 +95,11 @@
       ];
       pattern = [ "*.hs" ];
       callback = {
-        __raw = "function() vim.lsp.codelens.refresh() end";
+        __raw = ''
+          function()
+            vim.lsp.codelens.refresh()
+          end
+        '';
       };
     }
     {
@@ -134,7 +140,7 @@
     ];
 
     lsp = {
-      capabilities = "require('cmp_nvim_lsp').default_capabilities()";
+      capabilities = ''require("cmp_nvim_lsp").default_capabilities()'';
 
       servers.hls = {
         enable = true;

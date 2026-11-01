@@ -58,8 +58,8 @@ MCP transports, OAuth, the session runtime and secret files: `.claude/rules/clau
 **`programs/agents/skills/` owns the catalog. The Claude flavor wrappers own the disk.**
 
 - `programs/agents/skills/default.nix` - the catalog: third-party sources with an
-  explicit allowlist and rename map, plus the list of enabled custom skills.
-- `programs/agents/skills/lib.nix` - discovery, collision detection, rename, farm and
+  explicit allowlist, plus the list of enabled custom skills.
+- `programs/agents/skills/lib.nix` - discovery, collision detection, farm and
   validation. No policy.
 - `programs/agents/skills/custom/<name>/SKILL.md` - hand-written skills, committed. A
   directory is only installed once its name is added to `custom`, so drafts can
@@ -72,8 +72,8 @@ path and can be - which is what lets the allowlist use bare skill names that are
 searched for recursively.
 
 `~/.claude/skills` is **not** Home Manager managed. Each flavor wrapper relinks it
-at launch from its own `linkFarm`, wiping it first (`claude-factory` swaps it
-atomically, see below), so switching flavors never leaves a stale skill behind -
+at launch from its own `linkFarm`, wiping it first (`claude-factory` updates it
+in place, see below), so switching flavors never leaves a stale skill behind -
 the same pattern `mkClaudeFlavor` already uses for `settings.json`, `CLAUDE.md`
 and `.mcpServers`. **It is not hand-editable**: anything placed there is
 destroyed on the next launch, so prototype in a project's `.claude/skills/`
@@ -81,7 +81,10 @@ instead.
 
 The factory is the exception: its sessions never pass through a wrapper, so a
 home activation relinks the farm too, under `~/.claude/.factory.lock`, and both
-swap the directory atomically (`factory-link-skills`) instead of wiping it.
+update the directory in place (`factory-link-skills`), one atomic rename per
+link. Never replace the directory: deleting one empties it under a session that
+has it open, and Claude Code keeps its own `synced/` there, so only links are
+removed.
 
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
 `programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Every flavor
@@ -89,8 +92,8 @@ gets every shared skill, `ui-coding` included, because a model-invoked skill
 costs only its description until a task needs it. There are two exceptions.
 `self-improve` is in the `extraSkills` of `claude-factory` and `claude-pm` only:
 it measures the machine's own transcripts, and on the Macs it relies on the
-`python3` (3.10+) that `modules/home/terminal.nix` installs. Its analyzer
-(`scripts/analyze.py`) is tested by `checks.self-improve` against synthetic
+`python3` (nixpkgs', 3.13) that `modules/home/terminal.nix` installs. Its analyzer
+(`scripts/analyze.py`) is tested by `checks.python-tests` against synthetic
 transcripts, never real ones, because this repository is public.
 `10x-engineer` is in the `extraSkills` of `claude-factory` only: it runs
 delegated `engineer` subagents and leans on the factory's PR wakes and

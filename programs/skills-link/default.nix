@@ -1,24 +1,24 @@
-# factory-link-skills <farm>: rebuilds ~/.claude/skills as per-skill links into
+# factory-link-skills <farm>: updates ~/.claude/skills to per-skill links into
 # <farm>, without the wipe of the stock wrapper. Shared by the claude-factory
-# wrapper and programs/software-factory. Linux only: `mv --exchange`.
+# wrapper and programs/software-factory.
 #
-# The scratch directory is exchanged with the live one, so a path lookup never
-# misses, and the previous links stay in `old` until the next run, so a reader
-# that already opened them still lists every skill. A bare `claude-factory`
-# takes no lock, so runs overlap: each fills a scratch of its own, and an
-# exchange leaves every directory whole, so no run needs to wait for another.
+# The directory is updated in place and never replaced, for two reasons. A
+# reader lists a directory it opened earlier, and deleting a replaced directory
+# empties it under that reader, however atomic the swap of its path was.
+# Claude Code also keeps a real directory here, `synced`, which is why only
+# links are removed.
+#
+# Each link is renamed over its old self, so a path lookup never misses, and
+# stale links go last, so the directory is never empty. A bare `claude-factory`
+# takes no lock, so runs overlap: that holds because generations of the farm
+# share skills, and such a mix of two farms lasts until the next relink.
 { pkgs }:
 
-pkgs.writeShellApplication {
+let
+  shellCheck = import ../shell-check { inherit pkgs; };
+in
+shellCheck.writeShellApplication {
   name = "factory-link-skills";
   runtimeInputs = [ pkgs.coreutils ];
-  text = ''
-    live="$HOME/.claude/skills" old="$HOME/.claude/.skills.old"
-    mkdir -p "$live" "$old"
-    scratch=$(mktemp -d "$HOME/.claude/.skills.XXXXXX")
-    trap 'rm -rf "$scratch"' EXIT
-    ln -s "$1"/* "$scratch/"
-    mv --exchange --no-target-directory "$scratch" "$live"
-    mv --exchange --no-target-directory "$scratch" "$old"
-  '';
+  text = shellCheck.fragment ./link-skills.sh;
 }

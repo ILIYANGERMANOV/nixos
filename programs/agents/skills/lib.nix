@@ -5,7 +5,6 @@
 }:
 
 let
-
   # Recursively walks `dir`, returning every subdirectory that directly contains
   # a SKILL.md as { name; relative; path; }.
   #
@@ -52,35 +51,9 @@ let
       lib.concatMap (root: collect (source.src + "/${root}") root) source.roots
     );
 
-  # A renamed skill cannot be a bare symlink. Claude Code takes the command name
-  # from the directory name, so a rename must also rewrite the frontmatter `name`
-  # - inserting one if absent - or the skill's listed name and its command would
-  # disagree. Skills that are not renamed stay pure symlinks into the source and
-  # cost nothing to build.
-  renameSkill =
-    {
-      from,
-      to,
-      path,
-    }:
-    if from == to then
-      path
-    else
-      pkgs.runCommand "skill-${to}" { } ''
-        cp -r --no-preserve=mode,ownership ${path} "$out"
-        chmod -R u+w "$out"
-        awk -v new=${lib.escapeShellArg to} '
-          NR == 1 && $0 == "---" { infm = 1; print; next }
-          infm && $0 == "---"    { if (!seen) print "name: " new; infm = 0; print; next }
-          infm && /^name:/       { print "name: " new; seen = 1; next }
-                                 { print }
-        ' "$out/SKILL.md" > "$out/SKILL.md.new"
-        mv "$out/SKILL.md.new" "$out/SKILL.md"
-      '';
-
-  # Resolves one source's allowlist into an installed `name -> path` attrset,
-  # applying its rename map. Both failure modes abort evaluation with the
-  # information needed to fix the catalog.
+  # Resolves one source's allowlist into an installed `name -> path` attrset.
+  # Both failure modes abort evaluation with the information needed to fix the
+  # catalog.
   selectSource =
     sourceName: source:
     let
@@ -101,23 +74,12 @@ let
           throw ''
             skill '${name}' is ambiguous in source '${sourceName}'
               found at: ${lib.concatMapStringsSep ", " (hit: hit.relative) hits}
-              narrow `roots`, or pick one with a `rename` entry
+              narrow `roots`
           ''
         else
           (lib.head hits).path;
-
-      install =
-        name:
-        let
-          installed = source.rename.${name} or name;
-        in
-        lib.nameValuePair installed (renameSkill {
-          from = name;
-          to = installed;
-          path = resolve name;
-        });
     in
-    lib.listToAttrs (map install source.skills);
+    lib.genAttrs source.skills resolve;
 
   # Merges per-source attrsets into one namespace, aborting on any collision.
   # Skills are installed flat into ~/.claude/skills, so two sources claiming one
@@ -134,7 +96,7 @@ let
         if clashes != [ ] then
           throw ''
             skill '${clash}' is defined by both '${acc.owners.${clash}}' and '${entry.name}'
-              add a `rename` entry to one of them, or drop it from an allowlist
+              drop it from an allowlist
           ''
         else
           {

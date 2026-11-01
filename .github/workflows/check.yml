@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # pnpm-hash.yml runs CI on the commit it pushes, which no push event can do.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,6 +17,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,9 +27,56 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            allow-import-from-derivation = false
 
       - name: Run checks
         run: nix develop .#default --command just check
+
+  # The checks of the system the factory runs on: `check` covers aarch64-linux
+  # alone, and `nvim-kotlin` exists only here. In the deploy gate.
+  # See docs/adr/0009-tech-checks.md.
+  checks-x86_64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            allow-import-from-derivation = false
+
+      - name: Build this system's checks
+        run: nix develop .#default --command just quick-check
+
+  # One parallel job per technology, each a group of flake checks, so no host is
+  # evaluated and `nix flake check` in `check` still covers them.
+  tech:
+    name: ${{ matrix.tech }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        tech: [shell, ts, python, lua]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            allow-import-from-derivation = false
+
+      - name: Lint, typecheck and test
+        env:
+          TECH: ${{ matrix.tech }}
+        run: nix develop .#default --command just tech "$TECH"
 
   # Refuses a dependency bump that would make the next darwin-rebuild take
   # hours. Runs on Linux on purpose: `nix build --dry-run` only queries
@@ -34,6 +84,7 @@ jobs:
   # See docs/adr/0004-darwin-tracks-the-darwin-channel.md.
   cache-guard:
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,6 +96,7 @@ jobs:
           # anything that is only on the numtide cache.
           extra_nix_config: |
             experimental-features = nix-command flakes
+            allow-import-from-derivation = false
             extra-substituters = https://cache.numtide.com
             extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
 
