@@ -103,7 +103,7 @@ PARSE_CASES: list[Case[str, tuple[Simple, ...]]] = [
         "! a && b || c",
     ),
     (
-        (cmd(("export", "A=1$(b)")), cmd("b", "np")),
+        (cmd(("export", "A=1$(b)")), cmd("b", "ns")),
         "a declaration is a command, and its value can run one",
         "export A=1$(b)",
     ),
@@ -120,11 +120,11 @@ PARSE_CASES: list[Case[str, tuple[Simple, ...]]] = [
     ),
     ((cmd("b"), cmd("c")), "every case arm runs", "case x in a) b;; *) c;; esac"),
     (
-        (cmd("a", "np"), cmd("b", "np"), cmd("c")),
+        (cmd("a", "ns"), cmd("b", "ns"), cmd("c")),
         "a case subject and pattern can run a command",
         "case $(a) in $(b)) c;; esac",
     ),
-    ((cmd("a", "np"),), "arithmetic can run a command", "(( $(a) > 0 ))"),
+    ((cmd("a", "ns"),), "arithmetic can run a command", "(( $(a) > 0 ))"),
     # Redirections
     ((cmd("a", "f"),), "appending both to a file", "a &>> f"),
     ((cmd("a", "f"),), "the csh spelling of &>", "a >& f"),
@@ -160,13 +160,13 @@ PARSE_CASES: list[Case[str, tuple[Simple, ...]]] = [
         "(a; b) &",
     ),
     (
-        (cmd(("a", "$(b)"), "b"), cmd("b", "pbn")),
+        (cmd(("a", "$(b)"), "b"), cmd("b", "sbn")),
         "a substitution waits in the background with its command",
         "a $(b) &",
     ),
     # Substitutions
     (
-        (cmd(("echo", "$(a $(b))")), cmd(("a", "$(b)"), "np"), cmd("b", "np")),
+        (cmd(("echo", "$(a $(b))")), cmd(("a", "$(b)"), "ns"), cmd("b", "ns")),
         "substitutions nest",
         "echo $(a $(b))",
     ),
@@ -181,7 +181,7 @@ PARSE_CASES: list[Case[str, tuple[Simple, ...]]] = [
         "echo `a \\`b | c\\``",
     ),
     (
-        (cmd("a", "f"), cmd("b", "np")),
+        (cmd("a", "f"), cmd("b", "ns")),
         "a redirect target can run a command",
         "a > $(b)",
     ),
@@ -205,12 +205,12 @@ PARSE_CASES: list[Case[str, tuple[Simple, ...]]] = [
         "for i in 1; do while [[ x ]]; do a; done; done",
     ),
     (
-        (cmd("a", "np"), cmd("b", "o")),
+        (cmd("a", "ns"), cmd("b", "o")),
         "a for list runs once, before the loop",
         "for i in $(a); do b; done",
     ),
     (
-        (cmd("a", "pwn"), cmd("b", "w")),
+        (cmd("a", "swn"), cmd("b", "w")),
         "a substitution in a loop repeats",
         "until [[ $(a) ]]; do b; done",
     ),
@@ -409,16 +409,24 @@ def test_a_compound_passes_its_redirect_to_all_it_holds(
 @runs_shfmt
 @given(
     st.lists(plain_argvs, min_size=1),
-    st.sampled_from(["$({})", "`{}`", "<({})", '"$({})"']),
+    st.sampled_from(
+        [
+            ("$({})", Sink.BARE_SUBSTITUTION),
+            ("`{}`", Sink.PIPE),
+            ("<({})", Sink.PIPE),
+            ('"$({})"', Sink.PIPE),
+            ('"${{x:-$({})}}"', Sink.PIPE),
+            ("<<EOF\n$({})\nEOF", Sink.PIPE),
+        ]
+    ),
 )
-def test_a_substitution_marks_all_it_holds_as_piped_and_substituted(
-    argvs: list[list[str]], substitution: str
+def test_a_substitution_marks_all_it_holds_with_its_sink_and_substituted(
+    argvs: list[list[str]], substitution: tuple[str, Sink]
 ) -> None:
-    [_, *inner] = parsed("outer " + substitution.format(joined(argvs)))
+    template, sink = substitution
+    [_, *inner] = parsed("outer " + template.format(joined(argvs)))
 
-    assert inner == [
-        Simple(tuple(words), Sink.PIPE, substituted=True) for words in argvs
-    ]
+    assert inner == [Simple(tuple(words), sink, substituted=True) for words in argvs]
 
 
 @runs_shfmt

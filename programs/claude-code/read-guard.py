@@ -5,7 +5,9 @@ rev:path` operands total over MAX_BYTES, or a Read with no `limit` of a text
 file over MAX_BYTES, exits 2, which makes Claude Code block the call and show
 stderr to the model. Only Bash reads whose output reaches the screen count: one
 redirected to a file or piped into another command dumps nothing into context,
-and heredoc bodies are data, not commands. Files agents are told to read in
+and heredoc bodies are data, not commands. A bare `$(...)` counts as the screen.
+A quoted one, backticks and `<(...)` do not: they feed an argument far more often
+than they print, such as a PR body. Files agents are told to read in
 full are exempt: instruction files and anything in a skill. What is exempt is
 decided on the path as typed, normalised but with links unfollowed: the guard
 stops accidents, it is not a security boundary. Everything else exits 0,
@@ -24,6 +26,7 @@ from bash_commands import Parsed, Simple, Sink, Unparsable, parse
 from hook_event import Json, ReadCall, parse_bash_call, parse_json, parse_read_call
 
 MAX_BYTES = 16 * 1024
+SHOWN = {Sink.SCREEN, Sink.BARE_SUBSTITUTION}
 BASH_HINT = (
     "Blocked: this reads {size} bytes in one command. "
     "grep -n first, then read the range with sed -n."
@@ -118,17 +121,17 @@ def sizes_read(commands: tuple[Simple, ...], cwd: str) -> Iterator[int]:
     so nothing after it is found or counted: the guard fails open.
     """
     for simple in commands:
-        match (simple.words, simple.sink):
+        match (simple.words, simple.sink in SHOWN):
             case (["cd"], _):
                 cwd = expand_home("~")
             case (["cd", target], _):
                 cwd = resolve(cwd, target)
-            case (["cat", *args], Sink.SCREEN):
+            case (["cat", *args], True):
                 for pattern in operands(args):
                     yield from file_sizes(cwd, pattern)
-            case (["git", "-C", repo, "show", *args], Sink.SCREEN):
+            case (["git", "-C", repo, "show", *args], True):
                 yield from blob_sizes(str(Path(cwd) / repo), operands(args))
-            case (["git", "show", *args], Sink.SCREEN):
+            case (["git", "show", *args], True):
                 yield from blob_sizes(cwd, operands(args))
             case _:
                 pass

@@ -46,6 +46,8 @@ class Sink(Enum):
     SCREEN = auto()
     FILE = auto()
     PIPE = auto()
+    # A `$(...)` out of double quotes or a heredoc: its output becomes outer words.
+    BARE_SUBSTITUTION = auto()
 
 
 class Loop(IntEnum):
@@ -218,20 +220,39 @@ def if_clause(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
         yield from if_clause(otherwise, around, source)
 
 
-def substitutions(node: Json, around: Simple, source: bytes) -> Iterator[Simple]:
-    """The commands of each `$(...)`, backtick and `<(...)` anywhere under a node."""
+def substitutions(
+    node: Json,
+    around: Simple,
+    source: bytes,
+    command_output: Sink = Sink.BARE_SUBSTITUTION,
+) -> Iterator[Simple]:
+    """The commands of each `$(...)`, backtick and `<(...)` anywhere under a node.
+
+    `command_output` is the sink of a `$(...)` under this node.
+    """
     match node:
-        case {"Type": "CmdSubst" | "ProcSubst"}:
-            inner = replace(around, sink=Sink.PIPE, substituted=True)
-            yield from statements(children(node, "Stmts"), inner, source)
+        case {"Type": "ProcSubst"} | {"Type": "CmdSubst", "Backquotes": True}:
+            yield from substitution_body(node, around, Sink.PIPE, source)
+        case {"Type": "CmdSubst"}:
+            yield from substitution_body(node, around, command_output, source)
+        case {"Type": "DblQuoted"} | {"Hdoc": _}:
+            for value in node.values():
+                yield from substitutions(value, around, source, Sink.PIPE)
         case dict():
             for value in node.values():
-                yield from substitutions(value, around, source)
+                yield from substitutions(value, around, source, command_output)
         case list():
             for item in node:
-                yield from substitutions(item, around, source)
+                yield from substitutions(item, around, source, command_output)
         case _:
             pass
+
+
+def substitution_body(
+    node: Node, around: Simple, sink: Sink, source: bytes
+) -> Iterator[Simple]:
+    inner = replace(around, sink=sink, substituted=True)
+    yield from statements(children(node, "Stmts"), inner, source)
 
 
 def word_text(word: Node, source: bytes) -> str:

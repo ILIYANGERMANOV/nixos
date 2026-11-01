@@ -11,12 +11,18 @@ from bash_commands import Loop, Simple, Sink
 def cmd(words: str | tuple[str, ...], flags: str = "") -> Simple:
     """A wanted command: `words` split on spaces, or spelled out when one holds a space.
 
-    Flags: f stdout to a file, p to a pipe, b background, n in a substitution,
-    w in a `while` or `until`, o in a `for` or `select`.
+    Flags: f stdout to a file, p to a pipe, s to a bare `$(...)`, b background,
+    n in a substitution, w in a `while` or `until`, o in a `for` or `select`.
     """
     return Simple(
         tuple(words.split()) if isinstance(words, str) else words,
-        Sink.FILE if "f" in flags else Sink.PIPE if "p" in flags else Sink.SCREEN,
+        Sink.FILE
+        if "f" in flags
+        else Sink.PIPE
+        if "p" in flags
+        else Sink.BARE_SUBSTITUTION
+        if "s" in flags
+        else Sink.SCREEN,
         "b" in flags,
         Loop.ON_CONDITION
         if "w" in flags
@@ -84,9 +90,9 @@ PARSED: dict[str, list[Entry]] = {
         ("echo $# ${#x}; a#b", [cmd("echo $# ${#x}"), cmd("a#b")]),
     ],
     "substitutions": [
-        ("echo $(sleep 60)", [cmd(("echo", "$(sleep 60)")), cmd("sleep 60", "np")]),
+        ("echo $(sleep 60)", [cmd(("echo", "$(sleep 60)")), cmd("sleep 60", "ns")]),
         ("echo `sleep 60`", [cmd(("echo", "`sleep 60`")), cmd("sleep 60", "np")]),
-        ("x=$(gh pr checks 1)", [cmd("gh pr checks 1", "np")]),
+        ("x=$(gh pr checks 1)", [cmd("gh pr checks 1", "ns")]),
         (
             'echo "$(cat big; sleep 60)"',
             [
@@ -99,8 +105,8 @@ PARSED: dict[str, list[Entry]] = {
             "echo $(echo $(sleep 60))",
             [
                 cmd(("echo", "$(echo $(sleep 60))")),
-                cmd(("echo", "$(sleep 60)"), "np"),
-                cmd("sleep 60", "np"),
+                cmd(("echo", "$(sleep 60)"), "ns"),
+                cmd("sleep 60", "ns"),
             ],
         ),
         (
@@ -108,7 +114,7 @@ PARSED: dict[str, list[Entry]] = {
             [
                 cmd(("cat", "$(ls *.txt | head -1)")),
                 cmd("ls *.txt", "np"),
-                cmd("head -1", "np"),
+                cmd("head -1", "ns"),
             ],
         ),
         ("echo '$(sleep 60)'", [cmd(("echo", "$(sleep 60)"))]),
@@ -116,7 +122,7 @@ PARSED: dict[str, list[Entry]] = {
         ("echo $((1 + 2)) && sleep 60", [cmd(("echo", "$((1 + 2))")), cmd("sleep 60")]),
         (
             "echo ${x:-$(sleep 60)}",
-            [cmd(("echo", "${x:-$(sleep 60)}")), cmd("sleep 60", "np")],
+            [cmd(("echo", "${x:-$(sleep 60)}")), cmd("sleep 60", "ns")],
         ),
         (
             '[ "$(printenv X)" = y ]',
@@ -152,12 +158,12 @@ PARSED: dict[str, list[Entry]] = {
     ],
     "env prefixes": [
         ('A=1 B="x y" sleep 60', [cmd("sleep 60")]),
-        ("A=$(sleep 60) true", [cmd("sleep 60", "np"), cmd("true")]),
+        ("A=$(sleep 60) true", [cmd("sleep 60", "ns"), cmd("true")]),
         ("FOO=bar", []),
         ("env A=1 sleep 60", [cmd("env A=1 sleep 60")]),
         (
             "export A=$(sleep 60) B=2",
-            [cmd(("export", "A=$(sleep 60)", "B=2")), cmd("sleep 60", "np")],
+            [cmd(("export", "A=$(sleep 60)", "B=2")), cmd("sleep 60", "ns")],
         ),
         ("A=1 >f cat", [cmd("cat", "f")]),
     ],
@@ -226,16 +232,16 @@ PARSED: dict[str, list[Entry]] = {
         ("while a; do b; done > log", [cmd("a", "wf"), cmd("b", "wf")]),
         (
             'for f in $(seq 3); do cat "$f"; done',
-            [cmd(("cat", "$f"), "o"), cmd("seq 3", "np")],
+            [cmd(("cat", "$f"), "o"), cmd("seq 3", "ns")],
         ),
         ("case $x in a) sleep 60;; b|c) echo;; esac", [cmd("sleep 60"), cmd("echo")]),
         (
             "case x in $(sleep 60)) echo;; esac",
-            [cmd("sleep 60", "np"), cmd("echo")],
+            [cmd("sleep 60", "ns"), cmd("echo")],
         ),
         ("f() { sleep 60; }; f", [cmd("sleep 60"), cmd("f")]),
         ("[[ -f x ]] && sleep 60", [cmd("sleep 60")]),
-        ("[[ $(sleep 60) == x ]]", [cmd("sleep 60", "np")]),
+        ("[[ $(sleep 60) == x ]]", [cmd("sleep 60", "ns")]),
         ("(( i > 0 )) && echo y", [cmd("echo y")]),
         ("echo for while until done do", [cmd("echo for while until done do")]),
         ("echo done; sleep 5", [cmd("echo done"), cmd("sleep 5")]),
@@ -260,7 +266,7 @@ PARSED: dict[str, list[Entry]] = {
         ("cat *.md {a,b}", [cmd("cat *.md {a,b}")]),
         (
             "echo 'é' $(sleep 60) \"$x\"",
-            [cmd(("echo", "é", "$(sleep 60)", "$x")), cmd("sleep 60", "np")],
+            [cmd(("echo", "é", "$(sleep 60)", "$x")), cmd("sleep 60", "ns")],
         ),
         ('cat "$HOME/a b"', [cmd(("cat", "$HOME/a b"))]),
         ('echo "a \\"b\\" \\\\c \\d"', [cmd(("echo", 'a "b" \\c \\d'))]),
