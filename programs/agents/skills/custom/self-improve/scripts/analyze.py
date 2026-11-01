@@ -895,8 +895,8 @@ def loop_step(agent: Agent) -> LoopStep:
     """The step an agent's type, else its own description and brief, name."""
     if agent.kind in RESEARCH_TYPES:
         return LoopStep.RESEARCH
-    if agent.kind in ROLE_STEPS:
-        return ROLE_STEPS[agent.kind]
+    if role_step := ROLE_STEPS.get(agent.kind):
+        return role_step
     description = agent.description.lower()
     brief = brief_head(agent.brief)
     if agent.kind == REVIEW_LEAD or (REVIEW_BRIEF.search(brief) and not FIX_DESCRIPTION.search(description)):

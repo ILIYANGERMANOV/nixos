@@ -53,7 +53,7 @@ modules/
   nixos/            — NixOS system-level config
 programs/
   nvim/             — NixVim Neovim config (core/, languages/)
-  agents/           — agent-agnostic config (AGENTS.md + skill catalog)
+  agents/           — agent-agnostic config (instructions, skill catalog, subagent roles)
     skills/         — agent skill catalog (custom/ holds committed skills)
   claude-code/      — Claude Code flavors + statusline
 shells/             — dev shells for install workflows

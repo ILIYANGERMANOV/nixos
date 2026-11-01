@@ -2,7 +2,6 @@
 # Leading a task
 
 What the agent running a session needs on top of the instructions above.
-Trimmed subagent roles do not get this part.
 
 ## Pull requests
 

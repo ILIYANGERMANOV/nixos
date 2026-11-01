@@ -52,11 +52,9 @@ let
     ++ map (capability: "unknown capability ${capability}") (
       lib.subtractLists capabilities (record.capabilities or [ ])
     )
-    ++ map (skill: "${skill} is not in the skill catalog") (
-      lib.subtractLists skillNames (record.skills or [ ])
-    )
-    ++ lib.optional (!lib.elem (record.tier or null) tiers) "unknown tier"
-    ++ lib.optional (!lib.elem (record.effort or null) efforts) "unknown effort";
+    ++ map (skill: "${skill} is not in the skill catalog") (lib.subtractLists skillNames record.skills)
+    ++ lib.optional (!lib.elem record.tier tiers) "unknown tier"
+    ++ lib.optional (!lib.elem record.effort efforts) "unknown effort";
 in
 spec:
 let
