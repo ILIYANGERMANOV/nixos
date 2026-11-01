@@ -6,17 +6,19 @@ Reads the transcripts under ~/.claude/projects and prints a compact markdown
 report for an agent to read. Offline and read-only: it never calls `gh`.
 Standard library only.
 
-Usage: analyze.py [--since ISO] [--project SUBSTR] [--root DIR]
+Usage: analyze.py [--since ISO] [--project SUBSTR] [--compare ISO] [--root DIR]
 
 Without --since the window starts at the previous /self-improve invocation,
 or covers everything when there is none. The latest invocation is the run
 calling this script: its session is reported only up to that invocation.
+--compare splits the window at a date and adds before and after medians.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 from collections import Counter, defaultdict
@@ -28,7 +30,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Iterable, Iterator, Union
 
-TOP = 10
+TOP = 8  # rows per table, which keeps the report near 15 KB
 INPUT_WEIGHT = 1
 CACHE_READ_WEIGHT = 0.1
 CACHE_WRITE_WEIGHT = 1.25
@@ -42,21 +44,27 @@ SUBAGENT_CACHE_LIFE = 5 * 60
 MAIN_CACHE_LIFE = 60 * 60
 REWRITE_SHARE = 0.5  # of a call's context written to cache, to count as a rewrite
 TOP_REWRITERS = 5
+MIN_COMPARE_N = 5  # per side, below which a median is noise
 
 
 def main() -> None:
     args = parse_args()
     sessions = load_sessions(args.root)
     window = select_window(sessions, args.since, args.project)
-    print(render(window, describe_window(window.since, args.project)))
+    print(render(window, describe_window(window.since, args.project), args.compare))
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--since", type=lambda v: parse_iso(v).astimezone(timezone.utc), help="ISO date or time; default: the previous /self-improve run")
+    parser.add_argument("--since", type=utc_time, help="ISO date or time; default: the previous /self-improve run")
     parser.add_argument("--project", help="only sessions whose working directory contains this")
+    parser.add_argument("--compare", type=utc_time, help="ISO date or time to split the window at")
     parser.add_argument("--root", type=Path, default=Path.home() / ".claude" / "projects", help=argparse.SUPPRESS)
     return parser.parse_args()
+
+
+def utc_time(value: str) -> datetime:
+    return parse_iso(value).astimezone(timezone.utc)
 
 
 # --- Domain ------------------------------------------------------------------
@@ -180,6 +188,8 @@ class Agent:
     calls: list[ToolCall]
     parent: str | None = None  # the spawning subagent's id; None when the main agent spawned it
     brief: str = ""  # the first user text: a subagent's prompt
+    instruction_chars: int = 0  # the instructions files sent before its first call
+    listing_chars: int = 0  # the skill listing sent before its first call
     texts: list[str] = field(default_factory=list)  # assistant text blocks, in order
     start: float = 0.0
     end: float = 0.0
@@ -201,6 +211,11 @@ class Agent:
     @property
     def peak_context(self) -> int:
         return max((r.usage.context for r in self.responses), default=0)
+
+    @property
+    def first_context(self) -> int | None:
+        """Its start-up size: the context of its first real call. An API error is a line with no usage."""
+        return next((r.usage.context for r in self.responses if r.usage.context), None)
 
 
 def effective(agents: Iterable[Agent]) -> float:
@@ -491,7 +506,10 @@ def parse_transcript(path: Path, kind: str, description: str, until: float | Non
             case "queue-operation":
                 record_notifications(calls, str(event.get("content") or ""), ts)
             case "attachment":
-                record_notifications(calls, str((event.get("attachment") or {}).get("prompt") or ""), ts)
+                attachment = event.get("attachment") or {}
+                record_notifications(calls, str(attachment.get("prompt") or ""), ts)
+                if not responses:
+                    record_startup(out.agent, attachment)
         out.times.append(ts)
         previous = ts
     out.agent.responses = list(responses.values())
@@ -573,6 +591,14 @@ def record_notifications(calls: dict[str, ToolCall], text: str, ts: float) -> No
         if tag(body, "status") == "failed":
             summary = tag(body, "summary")
             call.outcome = Failed(exit_code(summary), clip(summary, 100))
+
+
+def record_startup(agent: Agent, attachment: dict) -> None:
+    match attachment.get("type"):
+        case "instructions":
+            agent.instruction_chars += sum(len(str(f.get("content") or "")) for f in attachment.get("files") or [])
+        case "skill_listing":
+            agent.listing_chars += len(str(attachment.get("content") or ""))
 
 
 def tag(body: str, name: str) -> str:
@@ -662,6 +688,7 @@ CODE_CHANGING_BASH = re.compile(
 SLEEP_LOOP = re.compile(r"\bsleep\s+\d|\buntil\b|\bwhile\b.*\bsleep\b", re.S)
 PR_CHECKS = re.compile(r"\bgh pr checks\b")
 PR_READY = re.compile(r"\bgh pr ready\b")
+PR_CREATE = re.compile(r"\bgh pr create\b")
 MISSING_TOOL = re.compile(r"([\w.+-]+): (?:command )?not found\b")
 
 
@@ -817,6 +844,7 @@ def is_doc_edit(call: ToolCall) -> bool:
 # --- Loop steps --------------------------------------------------------------
 
 BRIEF_HEAD = 700  # briefs paste long rules after their first lines
+RESEARCH_TYPES = {"researcher", "Explore"}  # read-only by their tools, whatever the brief says
 REVIEW_BRIEF = re.compile(r"(?:invoke|run)\s+(?:the\s+)?\W*pragmatic-review")
 SECOND_PASS = re.compile(r"--fixes|pass[ -]2|re-review|\bsecond\b")
 FIX_DESCRIPTION = re.compile(r"^(fix|final fix|address)")
@@ -829,7 +857,7 @@ DESCRIPTION_STEPS = (
 )
 BRIEF_STEPS = (
     (LoopStep.REFACTOR, re.compile(r"(?:invoke|run)\s+(?:the\s+)?\W*refactor")),
-    (LoopStep.RESEARCH, re.compile(r"^(research|read-only)")),
+    (LoopStep.RESEARCH, re.compile(r"^(research|read-only)|(?:invoke|run)\s+(?:the\s+)?\W*researcher")),
     (LoopStep.IMPLEMENT, re.compile(r"\bimplementer\b")),
 )
 
@@ -846,15 +874,25 @@ def step_by_id(session: Session) -> dict[str, LoopStep]:
 def step_owner(agent: Agent, by_id: dict[str, Agent]) -> Agent:
     """The agent whose brief names `agent`'s step: the outermost review above it
     or itself, so a review under an orchestrator subagent stays a review, else
-    its top-level subagent."""
-    lineage = [agent]
-    while lineage[-1].parent in by_id:
-        lineage.append(by_id[lineage[-1].parent])
-    return next((a for a in reversed(lineage) if loop_step(a) in REVIEW_PASSES), lineage[-1])
+    itself if a research type, so research under an orchestrator subagent stays
+    research, else its top-level subagent."""
+    line = lineage(agent, by_id)
+    own = agent if agent.kind in RESEARCH_TYPES else line[-1]
+    return next((a for a in reversed(line) if loop_step(a) in REVIEW_PASSES), own)
+
+
+def lineage(agent: Agent, by_id: dict[str, Agent]) -> list[Agent]:
+    """`agent`, then each subagent above it, outermost last."""
+    line = [agent]
+    while line[-1].parent in by_id:
+        line.append(by_id[line[-1].parent])
+    return line
 
 
 def loop_step(agent: Agent) -> LoopStep:
-    """The step an agent's own description and brief name."""
+    """The step an agent's type, else its own description and brief, name."""
+    if agent.kind in RESEARCH_TYPES:
+        return LoopStep.RESEARCH
     description = agent.description.lower()
     brief = brief_head(agent.brief)
     if REVIEW_BRIEF.search(brief) and not FIX_DESCRIPTION.search(description):
@@ -880,6 +918,59 @@ def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
     for agent in session.subagents:
         groups[agent.parent if agent.parent in session.by_id else session.main.id].append(agent)
     return [(session.by_id.get(key, session.main), sorted(kids, key=lambda a: a.start)) for key, kids in groups.items()]
+
+
+# --- Quality modes -----------------------------------------------------------
+
+NO_QUALITY = "(none stated)"
+QUALITY = re.compile(r"\bQuality:\W*(POC|Balanced|Max)\b(, (?:not )?Trivial\b)?")
+SWEEP_LINE = re.compile(r"^\W*Security: Trivial\b", re.M)  # the one Trivial activation with a fixed wording
+UNCOUNTED_QUALITY = "Not counted: Trivial self-activated outside a review, which stays in its stated row, and a PR opened in another session or by a script."
+
+
+def quality_groups(session: Session) -> dict[str, list[Agent]]:
+    """The session's agents by Quality, in the brief's wire form."""
+    fallback = session_quality(session)
+    groups: dict[str, list[Agent]] = defaultdict(list)
+    for agent in session.agents:
+        groups[quality_of(agent, session.by_id) or fallback].append(agent)
+    return groups
+
+
+def session_quality(session: Session) -> str:
+    """The main agent's, which rarely states one: else what most subagents
+    state, the latest on a tie, so a session that left Trivial counts as left."""
+    spawned = sorted(session.subagents, key=lambda a: a.start)
+    stated = [q for a in reversed(spawned) if (q := stated_quality(a.brief))]
+    common = next((q for q, _ in Counter(stated).most_common(1)), NO_QUALITY)
+    return stated_quality(session.main.brief) or common
+
+
+def quality_of(agent: Agent, by_id: dict[str, Agent]) -> str | None:
+    """What its brief states, else what the nearest subagent above it states."""
+    return next((q for a in lineage(agent, by_id) if (q := stated_quality(a.brief))), None)
+
+
+def stated_quality(brief: str) -> str | None:
+    found = QUALITY.search(brief)
+    return found.group(1) + (found.group(2) or "") if found else None
+
+
+def self_activated_trivial(session: Session) -> Iterator[Agent]:
+    """Reviews that reported a Trivial sweep though nothing briefed them Trivial."""
+    for quality, group in quality_groups(session).items():
+        if "Trivial" not in quality:
+            yield from (a for a in group if SWEEP_LINE.search(a.report))
+
+
+def cost_per_pr(agents: list[Agent]) -> float | None:
+    """None for agents that opened no PR: a follow-up session, or research."""
+    opened = prs_opened(agents)
+    return effective(agents) / opened if opened else None
+
+
+def prs_opened(agents: list[Agent]) -> int:
+    return sum(1 for a in agents for c in a.calls if c.name == "Bash" and PR_CREATE.search(c.command) and isinstance(c.outcome, Ok))
 
 
 # --- Reviews -----------------------------------------------------------------
@@ -1096,7 +1187,7 @@ def research_overlaps(session: Session) -> Iterator[set[str]]:
 # --- Rendering ---------------------------------------------------------------
 
 
-def render(window: Window, scope: str) -> str:
+def render(window: Window, scope: str, split: datetime | None) -> str:
     sessions = window.sessions
     agents = [(s, a) for s in sessions for a in s.agents]
     calls = [(s, a, c) for s, a in agents for c in a.calls]
@@ -1105,8 +1196,10 @@ def render(window: Window, scope: str) -> str:
         summary(sessions),
         sessions_table(sessions),
         agent_types(agents),
+        startup_sizes(agents),
         costliest_agents(agents),
         skills(agents),
+        quality_costs(sessions),
         loop_steps(sessions),
         cache_rewrites_section(sessions),
         review_yield(sessions),
@@ -1118,6 +1211,7 @@ def render(window: Window, scope: str) -> str:
         checks_section(sessions),
         polling(calls),
         failures(calls),
+        *([compare(sessions, split)] if split else []),
     ]
     return "\n\n".join(sections) + "\n"
 
@@ -1173,6 +1267,30 @@ def agent_types(agents: list[tuple[Session, Agent]]) -> str:
     return section("Tokens by agent type", ["type", "agents", "API calls", "tokens", "peak context", "effective"], rows, len(rows))
 
 
+def startup_sizes(agents: list[tuple[Session, Agent]]) -> str:
+    groups: dict[str, list[Agent]] = defaultdict(list)
+    for _, agent in agents:
+        if agent.first_context:
+            groups[agent.kind].append(agent)
+    ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+    rows = [[kind, str(len(group)), *startup_cells(group)] for kind, group in ranked[:TOP]]
+    header = ["type", "n", "p50", "p90", "instructions", "skill listing", "remainder"]
+    return section("Start-up size: first-call context, parts at p50 (chars / 4)", header, rows, len(ranked))
+
+
+def startup_cells(group: list[Agent]) -> list[str]:
+    contexts = [a.first_context or 0 for a in group]
+    instructions = [a.instruction_chars // CHARS_PER_TOKEN for a in group]
+    listings = [a.listing_chars // CHARS_PER_TOKEN for a in group]
+    remainders = [c - i - l for c, i, l in zip(contexts, instructions, listings)]
+    return [kilo(p) for p in (statistics.median(contexts), percentile(contexts, 0.9), *map(statistics.median, (instructions, listings, remainders)))]
+
+
+def percentile(values: list[int], share: float) -> int:
+    """Nearest rank, so the value is one that happened."""
+    return sorted(values)[math.ceil(share * len(values)) - 1]
+
+
 def costliest_agents(agents: list[tuple[Session, Agent]]) -> str:
     subs = sorted(((s, a) for s, a in agents if a.kind != "main"), key=lambda sa: -sa[1].usage.effective)
     rows = [
@@ -1190,6 +1308,26 @@ def skills(agents: list[tuple[Session, Agent]]) -> str:
     ranked = sorted(groups.items(), key=lambda kv: -sum(r.usage.context for r in kv[1]))
     rows = [[skill, str(len(rs)), tokens(total(r.usage for r in rs))] for skill, rs in ranked[:TOP]]
     return section("Tokens by skill (attributionSkill)", ["skill", "API calls", "tokens"], rows, len(ranked))
+
+
+def quality_costs(sessions: list[Session]) -> str:
+    groups: dict[str, list[tuple[Session, list[Agent]]]] = defaultdict(list)
+    for s in sessions:
+        for quality, group in quality_groups(s).items():
+            groups[quality].append((s, group))
+    ranked = sorted(groups.items(), key=lambda kv: -sum(effective(g) for _, g in kv[1]))
+    rows = [[quality, *quality_cells([g for _, g in parts])] for quality, parts in ranked]
+    header = ["mode", "sessions", "PRs", "agents", "effective", "per PR, median"]
+    activated = [a for s in sessions for a in self_activated_trivial(s)]
+    counted = f"Reviews that activated Trivial themselves: {len(activated)}, {kilo(effective(activated))} effective."
+    return f"{section('Cost by Quality mode', header, rows, len(rows))}\n\n{counted} {UNCOUNTED_QUALITY}"
+
+
+def quality_cells(parts: list[list[Agent]]) -> list[str]:
+    agents = [a for part in parts for a in part]
+    per_pr = [cost for part in parts if (cost := cost_per_pr(part)) is not None]
+    median = kilo(statistics.median(per_pr)) if per_pr else "-"
+    return [str(len(parts)), str(prs_opened(agents)), str(len(agents)), kilo(effective(agents)), median]
 
 
 def loop_steps(sessions: list[Session]) -> str:
@@ -1467,6 +1605,35 @@ def failures(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
     total = sum(len(cs) for cs in groups.values())
     head = f"## Failing tool calls\n\n{total} failed calls in {len(groups)} groups. Missing tools: {', '.join(f'{t} ({n})' for t, n in missing.most_common(8)) or 'none'}."
     return head + "\n\n" + table(["count", "tool", "command", "exit", "error"], rows) + omitted(len(ranked), len(rows))
+
+
+def compare(sessions: list[Session], split: datetime) -> str:
+    at = split.timestamp()
+    before = measures([s for s in sessions if s.start < at])
+    after = measures([s for s in sessions if s.start >= at])
+    ranked = sorted(before.keys() | after.keys(), key=lambda name: (-len(before[name]) - len(after[name]), name))
+    rows = [[name, *median_cells(before[name]), *median_cells(after[name])] for name in ranked[:TOP]]
+    head = f"Sessions by their start. A median needs n >= {MIN_COMPARE_N} on its side. The sides ran different tasks: a lead, never a verdict."
+    return f"## Before and after {fmt_time(at)}\n\n{head}\n\n" + table(["measure", "n before", "before", "n after", "after"], rows) + omitted(len(ranked), len(rows))
+
+
+def measures(sessions: list[Session]) -> defaultdict[str, list[float]]:
+    out: defaultdict[str, list[float]] = defaultdict(list)
+    for s in sessions:
+        out["effective per session"].append(effective(s.agents))
+        for quality, group in quality_groups(s).items():
+            cost = cost_per_pr(group)
+            if cost is not None:
+                out[f"effective per PR, {quality}"].append(cost)
+        for agent in s.agents:
+            if agent.first_context:
+                out[f"first-call context, {agent.kind}"].append(agent.first_context)
+    return out
+
+
+def median_cells(values: list[float]) -> list[str]:
+    enough = len(values) >= MIN_COMPARE_N
+    return [str(len(values)), kilo(statistics.median(values)) if enough else "not enough data"]
 
 
 # --- Formatting --------------------------------------------------------------

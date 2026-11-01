@@ -107,6 +107,12 @@ class Transcript:
     def notify(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
         return self.event(t, "queue-operation", operation="enqueue", content=notification(use_id, status, summary))
 
+    def startup(self, t: float, instructions: int, listing: int) -> Transcript:
+        """The attachments an agent gets before its first call, with `instructions` and `listing` chars."""
+        files = [{"path": "/home/dev/CLAUDE.md", "type": "User", "content": "x" * instructions}]
+        self.event(t, "attachment", attachment={"type": "instructions", "files": files})
+        return self.event(t, "attachment", attachment={"type": "skill_listing", "content": "y" * listing, "skillCount": 1})
+
     def attach_notification(self, t: float, use_id: str, status: str, summary: str) -> Transcript:
         """How a subagent's transcript carries a task notification."""
         attachment = {"type": "queued_command", "commandMode": "task-notification",
@@ -648,6 +654,42 @@ class LoopSteps(Case):
                      "fix", "pr description", "other"):
             self.assertEqual(row(report, "Loop steps", step)[1:3], ["1", "1"], step)
 
+    def test_a_research_agent_type_is_research_whatever_its_brief_says(self) -> None:
+        # Given: no description or brief pattern matches either
+        self.home.session("s1", idle_main(), {
+            "a": ("researcher", "Pagination", subagent("topic=pagination")),
+            "b": ("Explore", "Pagination", subagent("where is it")),
+        })
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Loop steps", "research")[1:3], ["2", "1"])
+
+    def test_a_brief_invoking_the_researcher_skill_is_research(self) -> None:
+        # Given
+        self.home.session("s1", idle_main(), {"a": worker("Pagination", subagent("Invoke `researcher` on pagination"))})
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Loop steps", "research")[1:3], ["1", "1"])
+
+    def test_a_researcher_under_an_orchestrator_subagent_stays_research(self) -> None:
+        # Given: a subagent no pattern matches, and the researcher it spawned
+        self.home.session("s1", idle_main(), {
+            "e": worker("Deliver issue 7", subagent("deliver it")),
+            "r": ("researcher", "Pagination", subagent("topic=pagination", parent_agent="e")),
+        })
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Loop steps", "research")[1:3], ["1", "1"])
+        self.assertEqual(row(report, "Loop steps", "other")[1:3], ["1", "1"])
+
+    def test_a_researcher_under_a_review_counts_as_the_review(self) -> None:
+        # Given
+        self.home.session("s1", idle_main(), {
+            "r": worker("Review", subagent(REVIEW_BRIEF)),
+            "c": ("researcher", "Check a claim", subagent("topic=claim", parent_agent="r")),
+        })
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Loop steps", "review 1")[1:3], ["2", "1"])
+
     def test_a_child_counts_under_its_parents_step_with_its_tokens_and_wall(self) -> None:
         # Given: a review agent and the agent it spawned, 10 minutes each
         parent = subagent(REVIEW_BRIEF, {"cache_read_input_tokens": 2000}).reply(605)
@@ -1050,6 +1092,192 @@ class Window(Case):
         report = self.home.report("--since", at(500), "--project", "demo")
         # Then
         self.assertEqual(self.sessions(report), {"work"})
+
+
+COSTS_1K = {"input_tokens": 1000}
+
+
+def pr_main() -> Transcript:
+    """A main agent that opened one PR."""
+    main = Transcript().human(0, "go").reply(1, COSTS_1K)
+    main.bash(2, "gh pr create --fill", 3)
+    return main
+
+
+class QualityModes(Case):
+    def test_each_wire_form_is_its_own_row(self) -> None:
+        # Given
+        self.home.session("s1", idle_main(), {
+            "a": worker("A", subagent("Quality: POC. Spike it.", COSTS_1K)),
+            "b": worker("B", subagent("Quality: Balanced, Trivial\nImplement it.", COSTS_1K)),
+            "c": worker("C", subagent("Quality: Max, not Trivial\nReview it.", COSTS_1K)),
+        })
+        # When
+        report = self.home.report()
+        # Then
+        for mode in ("POC", "Balanced, Trivial", "Max, not Trivial"):
+            cells = row(report, "Cost by Quality mode", mode)
+            self.assertEqual([cells[1], cells[4]], ["1", "1k"], mode)
+
+    def test_the_placeholder_in_a_pasted_rule_is_not_a_mode(self) -> None:
+        # Given
+        self.home.session("s1", idle_main(), {"a": worker("A", subagent("Every brief carries `Quality: <mode>`."))})
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Cost by Quality mode", "(none stated)")[1:4], ["1", "0", "2"])
+
+    def test_a_child_with_no_mode_takes_its_parents(self) -> None:
+        # Given: a sibling stating another mode, which the main agent takes as the session's
+        self.home.session("s1", idle_main(), {
+            "p": worker("P", subagent("Quality: POC. Go.", COSTS_1K)),
+            "c": worker("C", subagent("no mode", COSTS_1K, parent_agent="p")),
+            "m1": worker("M1", subagent("Quality: Max. Go.")),
+            "m2": worker("M2", subagent("Quality: Max. Go.")),
+            "m3": worker("M3", subagent("Quality: Max. Go.")),
+        })
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Cost by Quality mode", "POC")[3:5], ["2", "2k"])
+
+    def test_the_main_agent_takes_the_mode_most_subagents_state(self) -> None:
+        # Given
+        main = Transcript().human(0, "go").reply(1, COSTS_1K)
+        self.home.session("s1", main, {
+            "a": worker("A", subagent("Quality: Max. Go.")),
+            "b": worker("B", subagent("Quality: Max. Go.")),
+            "c": worker("C", subagent("Quality: POC. Go.")),
+        })
+        # When
+        report = self.home.report()
+        # Then
+        self.assertEqual(row(report, "Cost by Quality mode", "Max")[3:5], ["3", "1k"])
+        self.assertEqual(row(report, "Cost by Quality mode", "POC")[3:5], ["1", "0"])
+
+    def test_a_session_that_left_trivial_counts_its_main_agent_as_left(self) -> None:
+        # Given: one agent on each side of the escalation, the later one last
+        main = Transcript().human(0, "go").reply(1, COSTS_1K)
+        early = Transcript().brief(5, "Quality: Balanced, Trivial\nGo.").reply(6)
+        late = Transcript().brief(50, "Quality: Balanced, not Trivial\nGo.").reply(51)
+        self.home.session("s1", main, {"z": worker("Z", early), "a": worker("A", late)})
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Cost by Quality mode", "Balanced, not Trivial")[3:5], ["2", "1k"])
+
+    def test_the_per_pr_median_splits_a_sessions_cost_and_skips_sessions_with_no_pr(self) -> None:
+        # Given: 2k over two PRs, 4k over one PR, and a session that opened none
+        two = Transcript().human(0, "Quality: Max").reply(1, {"input_tokens": 2000})
+        two.bash(2, "gh pr create --fill", 3)
+        two.bash(4, "gh pr create --fill", 5)
+        self.home.session("s1", two)
+        one = Transcript().human(0, "Quality: Max").reply(1, {"input_tokens": 4000})
+        one.bash(2, "gh pr create --fill", 3)
+        self.home.session("s2", one)
+        self.home.session("s3", Transcript().human(0, "Quality: Max").reply(1, {"input_tokens": 90_000}))
+        # When / Then: the median of 1k and 4k
+        self.assertEqual(row(self.home.report(), "Cost by Quality mode", "Max")[1:6], ["3", "3", "3", "96k", "2k"])
+
+    def test_a_failed_gh_pr_create_opened_no_pr(self) -> None:
+        # Given
+        main = Transcript().human(0, "Quality: Max").reply(1)
+        main.bash(2, "gh pr create --fill", 3, error=True, result="Exit code 1")
+        self.home.session("s1", main)
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Cost by Quality mode", "Max")[2], "0")
+
+    def test_a_review_that_reports_a_trivial_sweep_unbriefed_counts_as_self_activated(self) -> None:
+        # Given: one review activating it, one briefed Trivial
+        report = "Security: Trivial - sweep clean, code tier\n0 raised, 0 survived."
+        self.home.session("s1", idle_main(), {
+            "a": worker("Review", subagent("Quality: Balanced. " + REVIEW_BRIEF, COSTS_1K).handback(7, report)),
+            "b": worker("Review", subagent("Quality: Balanced, Trivial. " + REVIEW_BRIEF).handback(7, report)),
+        })
+        # When / Then
+        self.assertIn("Reviews that activated Trivial themselves: 1, 1k effective.", self.home.report())
+
+    def test_the_section_says_what_it_cannot_count(self) -> None:
+        # Given
+        self.home.session("s1", idle_main())
+        # When / Then
+        self.assertIn("Not counted: Trivial self-activated outside a review", self.home.report())
+
+
+class StartUp(Case):
+    def test_the_split_adds_up_to_the_first_call(self) -> None:
+        # Given: 2k of instructions, 3k of listing in a first call of 40k, and a later larger call
+        agent = Transcript().brief(5, "go").startup(5, 8000, 12_000).reply(6, {"cache_creation_input_tokens": 40_000})
+        agent.reply(7, {"cache_read_input_tokens": 90_000})
+        self.home.session("s1", idle_main(), {"a": worker("A", agent)})
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Start-up size", "general-purpose")[1:],
+                         ["1", "40k", "40k", "2k", "3k", "35k"])
+
+    def test_p50_and_p90_rank_the_agents_of_a_type(self) -> None:
+        # Given: ten agents from 10k to 100k
+        self.home.session("s1", idle_main(), {
+            f"a{k}": ("researcher", "A", subagent("go", {"input_tokens": k * 10_000})) for k in range(1, 11)
+        })
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Start-up size", "researcher")[1:4], ["10", "55k", "90k"])
+
+    def test_a_listing_delta_after_the_first_call_is_not_start_up(self) -> None:
+        # Given
+        agent = Transcript().brief(5, "go").reply(6, {"input_tokens": 1000}).startup(7, 8000, 12_000)
+        self.home.session("s1", idle_main(), {"a": worker("A", agent)})
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Start-up size", "general-purpose")[4:6], ["0", "0"])
+
+    def test_an_api_error_line_is_not_the_first_call(self) -> None:
+        # Given: a first response with no usage
+        agent = Transcript().brief(5, "go").reply(6).reply(7, {"input_tokens": 1000})
+        self.home.session("s1", idle_main(), {"a": worker("A", agent)})
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Start-up size", "general-purpose")[1:3], ["1", "1k"])
+
+
+class Compare(Case):
+    SPLIT = 10_000
+
+    def sessions(self, n: int, start: float, tokens: int) -> None:
+        for k in range(n):
+            main = Transcript().human(start + k, "Quality: Max").reply(start + k + 1, {"input_tokens": tokens})
+            self.home.session(f"s{start:.0f}-{k}", main)
+
+    def report(self) -> str:
+        return self.home.report("--since", at(0), "--compare", at(self.SPLIT))
+
+    def test_medians_sit_side_by_side_with_n(self) -> None:
+        # Given
+        self.sessions(5, 0, 1000)
+        self.sessions(6, self.SPLIT + 1, 3000)
+        # When / Then
+        self.assertEqual(row(self.report(), "Before and after", "effective per session")[1:], ["5", "1k", "6", "3k"])
+
+    def test_a_side_below_the_minimum_says_not_enough_data(self) -> None:
+        # Given: one short of the minimum after the split
+        self.sessions(5, 0, 1000)
+        self.sessions(4, self.SPLIT + 1, 3000)
+        # When / Then
+        self.assertEqual(row(self.report(), "Before and after", "effective per session")[1:],
+                         ["5", "1k", "4", "not enough data"])
+
+    def test_a_session_starting_at_the_split_counts_after(self) -> None:
+        # Given
+        self.sessions(1, self.SPLIT, 1000)
+        # When / Then
+        self.assertEqual(row(self.report(), "Before and after", "effective per session")[1:],
+                         ["0", "not enough data", "1", "not enough data"])
+
+    def test_cost_per_pr_by_mode_and_start_up_by_type_are_compared(self) -> None:
+        # Given
+        self.home.session("s1", pr_main(), {"a": ("researcher", "A", subagent("go", {"input_tokens": 1000}))})
+        # When
+        report = self.home.report("--compare", at(self.SPLIT))
+        # Then
+        self.assertEqual(row(report, "Before and after", "first-call context, researcher")[1], "1")
+        self.assertEqual(row(report, "Before and after", "effective per PR, (none stated)")[1], "1")
+
+    def test_the_section_is_absent_without_the_flag(self) -> None:
+        # Given
+        self.sessions(1, 0, 1000)
+        # When / Then
+        self.assertNotIn("Before and after", self.home.report())
 
 
 if __name__ == "__main__":
