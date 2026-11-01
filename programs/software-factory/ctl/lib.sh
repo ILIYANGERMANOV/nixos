@@ -45,11 +45,14 @@ disable_repo() {
   mv "$state_file.tmp" "$state_file"
 }
 
-# Live sessions as "pid<TAB>cwd". A session is a `claude --print --sdk-url`
-# process; its working directory is the repository or one of its worktrees.
+# A session is a `claude --print --sdk-url` process; its working directory is
+# the repository or one of its worktrees.
+session_pattern='--sdk-url'
+
+# Live sessions as "pid<TAB>cwd".
 sessions() {
   local pid cwd
-  for pid in $(pgrep -u "$EUID" -f -- '--sdk-url'); do
+  for pid in $(pgrep -u "$EUID" -f -- "$session_pattern"); do
     cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null) || continue
     printf '%s\t%s\n' "$pid" "$cwd"
   done
@@ -65,18 +68,8 @@ worktrees_of() {
   git -C "$repos_dir/$1" worktree list --porcelain | sed -n 's/^worktree //p'
 }
 
-# What would be lost if the worktree were deleted, one phrase per line: changes
-# not committed, and commits that are on no remote-tracking branch. Remote
-# Control keeps its worktrees under .claude/worktrees in the main checkout,
-# untracked; they are worktrees of their own, not changes to it.
-local_work() {
-  local dir="$1" dirty unpushed
-  dirty=$(git -C "$dir" status --porcelain -- . ':(exclude).claude/worktrees' 2>/dev/null | wc -l)
-  unpushed=$(git -C "$dir" rev-list --count HEAD --not --remotes 2>/dev/null || echo 0)
-  [ "$dirty" -eq 0 ] || echo "$dirty uncommitted file(s)"
-  [ "$unpushed" -eq 0 ] || echo "$unpushed unpushed commit(s)"
-  return 0
-}
+# What would be lost if the worktree were deleted, one phrase per line.
+local_work() { "$disk_plan" local-work "$1"; }
 
 # Prints what stopping repository $1 would cost and fails if it costs anything:
 # live sessions, or worktrees with local work.

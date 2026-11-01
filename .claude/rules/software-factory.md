@@ -26,7 +26,10 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
 - `programs/software-factory/` holds the logic: managed settings (billing and
   permission policy), the Remote Control launchers, `factory-ctl` (`ctl/`), the
   root deploy and maintenance scripts (`ops/`), the admin agent's project
-  (`admin/`) and the egress nftables rules. `checks.shell-tests` (`check.nix`)
+  (`admin/`) and the egress nftables rules. What may be deleted is decided in
+  `disk_plan.py`, pure functions over read facts where unknown means keep, tested
+  by `test_disk_plan.py`; the bash around it only removes what it prints.
+  `checks.shell-tests` (`check.nix`)
   tests them with bats, one suite beside each script (`ctl/disk.bats` for
   `ctl/disk.sh`), plus a named suite for what crosses scripts (`skills.bats`) and
   one helper for the doubles and setup (`test_helper.bash`). A scenario goes

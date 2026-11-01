@@ -27,6 +27,12 @@ let
       )
     );
 
+  # May this be deleted: the decisions factory-ctl and factory-maintenance act on.
+  diskPlan = pkgs.writers.writePython3Bin "factory-disk-plan" {
+    # `python-lint` and `python-types` are the Python gate.
+    doCheck = false;
+  } (builtins.readFile ./disk_plan.py);
+
   # Root-owned policy, installed at /etc/claude-code/managed-settings.json.
   #
   # Billing: only a claude.ai subscription login may be used. forceLoginMethod
@@ -237,6 +243,7 @@ let
         deploy_workflow=${lib.escapeShellArg deployWorkflow}
         gcroots_auto=${lib.escapeShellArg gcrootsAuto}
         tmp_dir=${lib.escapeShellArg tmpDir}
+        disk_plan=${lib.getExe diskPlan}
 
         admin_dir="${adminDir}"
         admin_unit=${adminUnit}
@@ -298,6 +305,8 @@ let
       gcrootsAuto ? "/nix/var/nix/gcroots/auto",
       tmpDir ? "/tmp",
       homesDir ? "/home",
+      uptimeFile ? "/proc/uptime",
+      setpriv ? lib.getExe' pkgs.util-linux "setpriv",
     }:
     rootScript "factory-maintenance" ./ops/maintenance.sh ''
       state_dir=${lib.escapeShellArg stateDir}
@@ -305,6 +314,9 @@ let
       gcroots_auto=${lib.escapeShellArg gcrootsAuto}
       tmp_dir=${lib.escapeShellArg tmpDir}
       homes_dir=${lib.escapeShellArg homesDir}
+      uptime_file=${lib.escapeShellArg uptimeFile}
+      setpriv=${setpriv}
+      disk_plan=${lib.getExe diskPlan}
       ${fragment ./space.sh}
     '';
 
