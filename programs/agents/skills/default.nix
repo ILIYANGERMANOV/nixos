@@ -53,9 +53,9 @@ let
     "10x-engineer" # /10x-engineer - run delegated engineers across issues and repos, merge what the user approved, factory only
     "android" # Android and Kotlin Multiplatform builds on the factory's global toolchain, factory only
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
+    "architect" # /architect - read-only design partner led in free text, hands changes to /engineer, explicit invocation only
     "engineer" # /engineer - deliver a feature end to end; also invoked by 10x-engineer, so model-invocable
     "engineering" # coding style and engineering principles, model-invoked on any code work
-    "explain" # /explain - plain-words explanation of a PR, diff or concept, read-only, explicit invocation only
     "final-review" # /final-review - independent last review of a ready PR, the user answers the pickers
     "give-feedback" # /give-feedback - apply quick bulleted feedback to a PR in rounds, explicit invocation only
     "grilling" # fork of mattpocock's grilling, one picker question at a time; grill-me and grill-with-docs delegate to it
