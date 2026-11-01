@@ -11,6 +11,7 @@ let
     mergeSources
     mkSkillFarm
     mkCheck
+    frontmatter
     ;
 
   # Third-party skill sets. Each source says where to search and exactly which
@@ -62,6 +63,7 @@ let
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
     "qa" # /qa - plan, run and record QA proof on a PR, report-only on bugs, only when the user asks
     "refactor" # /refactor - behaviour-preserving cleanup of a diff; also invoked by engineer
+    "researcher" # /researcher - bounded research with a notes file; preloaded by the researcher agent
     "self-improve" # /self-improve - measure past sessions and fix the agent setup's bottlenecks, factory and claude-pm only
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
     "ui-coding" # UI-specific rules on top of engineering, model-invoked on UI work
@@ -110,4 +112,7 @@ in
   # The same validation for skills outside this catalog, such as the factory
   # admin agent's project-scoped ones.
   inherit mkCheck;
+
+  # For checks outside this catalog that parse a markdown file's frontmatter.
+  inherit frontmatter;
 }

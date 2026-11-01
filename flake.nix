@@ -98,6 +98,14 @@
           # ~/.claude.json structure - against a synthetic catalog and secrets.
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
+          # The real Claude Code configuration: no catalog skill hidden, and
+          # every measured size under its committed ceiling.
+          claude-config =
+            (import ./adapters/claude-code.nix {
+              inherit inputs pkgs;
+              root = self;
+            }).check;
+
           # That the Playwright environment given to agent sessions resolves
           # `require('playwright')` from an empty directory and finds Chromium,
           # which on Linux it also launches headless.

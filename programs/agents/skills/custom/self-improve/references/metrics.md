@@ -65,6 +65,28 @@ agree with the report.
 - **Chain.** A build, test or lint step run in front of `just check` or
   `nix flake check` - in the same command or earlier with no edit between -
   which the full check already runs.
+- **Start-up size.** An agent's first-call context is the context of its first
+  call with usage, p50 and nearest-rank p90 per agent type. Instructions and
+  skill listing are chars / 4 of the `instructions` (`files[].content`) and
+  `skill_listing` (`content`) attachments before that call; a listing delta
+  later on is not start-up. Remainder is the first call minus both: tool
+  schemas, the base prompt and the brief.
+- **Quality mode.** The first `Quality: <mode>` in a brief, in its wire form
+  with `, Trivial` or `, not Trivial`; a placeholder is no mode. An agent with
+  none takes the nearest subagent above it, else the session's: the main
+  agent's brief, else what most subagents state, the latest on a tie. Nothing
+  stated shows as `(none stated)`, not Balanced, so sessions older than the
+  rule stay apart. Each agent counts under its own mode, so a session that
+  left Trivial sits in two rows and the sessions column does not add up.
+- **PRs and cost per PR.** A PR is a `gh pr create` that did not fail, counted
+  under the mode of the agent that ran it. Per PR is the cost of a session's
+  agents in that mode divided by the PRs they opened, median over sessions.
+- **Self-activated Trivial.** A report with the line `Security: Trivial`, from
+  an agent whose mode does not say Trivial. It stays in its stated row.
+- **Before and after.** `--compare <ISO>` splits the window by session start,
+  so pair it with a `--since` before the date. Rows are effective per session,
+  per PR by mode, and first-call context by type. A median needs n >= 5 on its
+  side, else `not enough data`; it never names a winner.
 - **Sleep and poll loops.** Bash calls with `sleep N`, `until` or a `while`
   with `sleep`, and `gh pr checks` without `--watch`.
 
@@ -77,7 +99,9 @@ judgment. It stays offline: everything from `gh` is the subagent's.
   `SubagentHandback` tool call, not assistant text; the analyzer falls back to
   the last text. The brief is the subagent's first user line.
 - **Loop steps.** Each top-level subagent gets one step from its description
-  and the head of its brief; its children count under the same step. A review
+  and the head of its brief; its children count under the same step. A
+  `researcher` or `Explore` agent is research by its type, at any depth, unless
+  a review spawned it. A brief invoking `researcher` is research too. A review
   is a brief that invokes `pragmatic-review`, at any depth, so a review under an
   orchestrator subagent is a review with its own children: `--fixes`, "pass 2",
   "re-review" or "second" make it the second pass, "final" in the description
@@ -165,6 +189,13 @@ labels mean its counts are a starting point, not a verdict.
 - Step labels rest on hand-tuned patterns over free-form descriptions: an agent
   doing two steps counts once, and whatever matches nothing lands in `other`.
   Inner review agents the main agent ran directly land in `other` too.
+- Trivial self-activation is counted for reviews only, the one fixed wording.
+  A delegated `refactor`, `pr-description` or `researcher` activating it says
+  so in free text, so it is not counted and its cost stays in its stated row.
+- Cost per PR misses a PR opened in an earlier session, opened by a script or
+  under another tool: that work's cost has no PR, so it drops out of the median.
+  Quality changed by hand mid-session shows only through briefs.
+- A session across a `--compare` date counts wholly on the side of its start.
 - A Python edit outside a `python <<EOF` heredoc (`python -c`, a script file,
   `cat <<EOF | python3 -`) is not seen as an edit, so the reruns after it are
   overstated. Neither is a heredoc writing other than through `write_text`,
