@@ -18,19 +18,19 @@ a CI read, a status read (`gh pr checks`, `gh run view`, `gh run list`) in a
 this command or an earlier one of its transcript. One status read stays allowed,
 because review agents read CI as evidence, and so does a log read, in a loop
 too: `gh run view --log` of a finished run returns the same log, and only the
-filter after it changes. A CI read inside a `$(...)` is one word to the splitter
-and goes unseen. This guards accidents, not an adversary: `gh api` goes unseen.
+filter after it changes. This guards accidents, not an adversary: `gh api` goes
+unseen.
 """
 
 import re
 import sys
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import Enum, auto
 from itertools import dropwhile, pairwise
 from typing import assert_never
 
-from bash_commands import simple_commands
+from bash_commands import Loop, Parsed, Simple, Unparsable, parse
 from hook_event import (
     Json,
     ToolUseId,
@@ -65,9 +65,6 @@ CI_HINT = (
     "Blocked: a subagent never waits on CI. Hand back now and your caller waits "
     "on the PR. One plain `gh pr checks <n>` read is allowed."
 )
-LOOPS = {"until", "while"}
-# Words that may precede a command in a compound statement.
-KEYWORDS = {"do", "then", "else", "elif", "if", "{", "!", "time"} | LOOPS
 # GNU sleep: a number with an optional unit suffix.
 DURATION = re.compile(r"(\d+(?:\.\d*)?|\.\d+)([smhd]?)")
 UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -117,12 +114,10 @@ def main() -> None:
 
 @dataclass(frozen=True)
 class Step:
-    """A simple command: the compound keywords before it, its words, and whether
-    a loop repeats it."""
+    """A simple command with its wrappers gone, and what repeats it."""
 
-    keywords: list[str]
     words: list[str]
-    looped: bool
+    looped: Loop
 
 
 class CiRead(Enum):
@@ -134,10 +129,10 @@ class CiRead(Enum):
 
 def polls_ci(command: str, earlier: Iterable[str]) -> bool:
     """Whether a subagent's command waits on CI. Only a status read reads earlier."""
-    steps = list(split_keywords(command))
+    steps = parsed(command)
     kinds = [ci_read(step.words) for step in steps]
     looped = any(
-        step.looped and kind is CiRead.STATUS
+        step.looped is not Loop.NONE and kind is CiRead.STATUS
         for step, kind in zip(steps, kinds, strict=True)
     )
     statuses = status_reads(steps)
@@ -186,12 +181,31 @@ def status_key(words: list[str]) -> tuple[str, ...]:
     return (*words[:3], *operands[:1])
 
 
-def parsed(command: str, *, looped: bool = False) -> list[Step]:
+def parsed(command: str, around: Loop = Loop.NONE) -> list[Step]:
     """A command's simple commands, none for one that does not parse."""
-    try:
-        return list(split_keywords(command, looped=looped))
-    except ValueError:
-        return []
+    match parse(command):
+        case Parsed(commands):
+            return [step for simple in commands for step in steps_of(simple, around)]
+        case Unparsable():
+            return []
+
+
+def steps_of(simple: Simple, around: Loop) -> Iterator[Step]:
+    """What a simple command runs, under the loop around its script.
+
+    The script of a `bash -c` stands in for the shell, so what it runs counts,
+    and `until bash -c ...` is still a loop. A script that does not parse stands
+    as the shell itself, so it cannot hide what the commands around it do.
+    """
+    inner = unwrap(list(simple.words))
+    looped = max(around, simple.looped)
+    if simple.background and is_tail_follow(inner):
+        return
+    match shell_script(inner):
+        case None:
+            yield Step(inner, looped)
+        case script:
+            yield from parsed(script, looped) or [Step(inner, looped)]
 
 
 def earlier_commands(event: Json, skip: ToolUseId | None) -> Iterator[str]:
@@ -218,43 +232,11 @@ def bash_commands(tool_uses: list[ToolUse], skip: ToolUseId | None) -> Iterator[
 
 
 def is_wait(command: str) -> bool:
-    steps = list(split_keywords(command))
-    loops = any(LOOPS & set(step.keywords) for step in steps)
+    steps = parsed(command)
+    loops = any(step.looped is Loop.ON_CONDITION for step in steps)
     sleeps = [seconds(s.words[1:]) for s in steps if s.words[:1] == ["sleep"]]
     follows = any(is_tail_follow(step.words) for step in steps)
     return any(s >= MIN_SLEEP for s in sleeps) or (loops and bool(sleeps)) or follows
-
-
-def split_keywords(command: str, *, looped: bool = False) -> Iterator[Step]:
-    """Each simple command, and whether a loop, in it or around it, repeats it.
-
-    The script of a `bash -c` stands in for the shell, so what it runs counts,
-    under the keywords before that shell: `until bash -c ...` is still a loop.
-    A script that does not parse stands as the shell itself, so it cannot hide
-    what the commands around it do.
-    """
-    depth = 0
-    for simple in simple_commands(command):
-        words = simple.words
-        count = next(
-            (i for i, word in enumerate(words) if word not in KEYWORDS), len(words)
-        )
-        keywords, inner = words[:count], unwrap(words[count:])
-        depth += len(LOOPS.intersection(keywords)) + (inner[:1] == ["for"])
-        in_loop = looped or depth > 0
-        depth = max(0, depth - (inner[:1] == ["done"]))
-        if simple.background and is_tail_follow(inner):
-            continue
-        match shell_script(inner):
-            case None:
-                yield Step(keywords, inner, in_loop)
-            case script:
-                for step in script_steps(script, inner, looped=in_loop):
-                    yield replace(step, keywords=keywords + step.keywords)
-
-
-def script_steps(script: str, shell: list[str], *, looped: bool) -> list[Step]:
-    return parsed(script, looped=looped) or [Step([], shell, looped)]
 
 
 def unwrap(words: list[str]) -> list[str]:

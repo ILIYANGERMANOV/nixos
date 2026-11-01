@@ -200,6 +200,8 @@ BASH_CASES: list[Case[str]] = [
         "cat CLAUDE.md huge",
     ),
     (BLOCKED, "a single large blob is blocked", "git show HEAD:huge"),
+    (BLOCKED, "a cat after an assignment is blocked", "LC_ALL=C cat huge"),
+    (ALLOWED, "a compound piped away is allowed", "{ cat huge; } | head"),
     (
         BLOCKED,
         "an exempt blob does not exempt a blob over the limit",

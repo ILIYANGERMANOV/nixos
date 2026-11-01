@@ -5,11 +5,10 @@ never raises: whatever goes wrong is an `Unparsable`, which a guard fails open o
 """
 
 import re
-import shlex
 import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
-from enum import Enum, auto
+from enum import Enum, IntEnum, auto
 from typing import cast
 
 from hook_event import Json, parse_json
@@ -18,7 +17,7 @@ from hook_event import Json, parse_json
 SHFMT = "@shfmt@"
 SHFMT_TIMEOUT_SECONDS = 2
 # Longest first, so that `>>` is never read as `>`.
-OPERATORS_LONGEST_FIRST = (
+OPERATORS = (
     "&>>",
     "<<<",
     "&>",
@@ -38,14 +37,7 @@ OPERATORS_LONGEST_FIRST = (
 UNQUOTED_ESCAPE = re.compile(r"\\(.)", re.DOTALL)
 DOUBLE_QUOTED_ESCAPE = re.compile(r'\\([$`"\\])')
 
-OPERATORS = set(";&|()<>")
 PIPES = {"|", "|&"}
-# `<<` or `<<-`, then the delimiter, bare or quoted. `<<<` is a here-string.
-HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-# Bash starts a comment only at a word's start; shlex anywhere, so `.#ci` would
-# swallow the rest of the command. A `bash -c` script is split again with the
-# escape still on it, and a second one would escape the backslash, not the hash.
-MID_WORD_HASH = re.compile(r"(?<=[^\s;&|()<>\\])#")
 
 
 class Sink(Enum):
@@ -56,8 +48,8 @@ class Sink(Enum):
     PIPE = auto()
 
 
-class Loop(Enum):
-    """What repeats a command. A `while` around a `for`, or in one, is ON_CONDITION."""
+class Loop(IntEnum):
+    """What repeats a command. Nested, the larger wins: `max` of the two."""
 
     NONE = auto()
     OVER_LIST = auto()  # `for` and `select`
@@ -202,11 +194,7 @@ def binary(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
 
 def for_clause(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
     yield from substitutions(node["Loop"], around, source)
-    looped = (
-        around
-        if around.looped is Loop.ON_CONDITION
-        else replace(around, looped=Loop.OVER_LIST)
-    )
+    looped = replace(around, looped=max(around.looped, Loop.OVER_LIST))
     yield from statements(children(node, "Do"), looped, source)
 
 
@@ -268,7 +256,7 @@ def operator_at(node: Node, source: bytes) -> str:
     """Read from the source: shfmt 3.14 changed how its JSON encodes operators."""
     start = offset(node, "OpPos")
     text = source[start : start + 3].decode(errors="replace")
-    return next(op for op in OPERATORS_LONGEST_FIRST if text.startswith(op))
+    return next(op for op in OPERATORS if text.startswith(op))
 
 
 # These trust shfmt's shape. One it does not have raises, and `parse` reports that.
@@ -287,69 +275,3 @@ def string(node: Node, key: str) -> str:
 
 def offset(node: Node, key: str) -> int:
     return cast("int", child(node, key)["Offset"])
-
-
-@dataclass(frozen=True)
-class SimpleCommand:
-    words: list[str]
-    sink: Sink
-    background: bool = False
-
-
-def simple_commands(command: str) -> Iterator[SimpleCommand]:
-    """Each simple command, split at shell operators, with its stdout sink.
-
-    Redirection operators and their targets are not words. A digit word
-    before `>` is the fd it redirects, so `2>/dev/null` leaves stdout alone.
-    """
-    lexer = shlex.shlex(
-        MID_WORD_HASH.sub(r"\\#", strip_heredoc_bodies(command)).replace("\n", " ; "),
-        posix=True,
-        punctuation_chars=True,
-    )
-    lexer.whitespace_split = True
-    tokens = iter(lexer)
-    words: list[str] = []
-    sink = Sink.SCREEN
-    for lexeme in tokens:
-        match lexeme:
-            case _ if not set(lexeme) <= OPERATORS:
-                words.append(lexeme)
-            case _ if lexeme in PIPES:
-                yield SimpleCommand(words, Sink.PIPE)
-                words, sink = [], Sink.SCREEN
-            case _ if ">" in lexeme:
-                fd = words.pop() if words and words[-1].isdigit() else "1"
-                target = next(tokens, "")
-                if redirects_stdout_to_file(fd, lexeme, target):
-                    sink = Sink.FILE
-            case _ if "<" in lexeme:
-                _ = next(tokens, "")
-            case _:
-                yield SimpleCommand(words, sink, lexeme == "&")
-                words, sink = [], Sink.SCREEN
-    yield SimpleCommand(words, sink)
-
-
-def strip_heredoc_bodies(command: str) -> str:
-    """The command without the body lines of its heredocs."""
-    lines = iter(command.split("\n"))
-    kept: list[str] = []
-    for line in lines:
-        kept.append(line)
-        for heredoc in HEREDOC.finditer(line):
-            delimiter = heredoc.group(2)
-            for body in lines:
-                if body.strip() == delimiter:
-                    break
-    return "\n".join(kept)
-
-
-def redirects_stdout_to_file(fd: str, operator: str, target: str) -> bool:
-    match (fd, operator, target.isdigit()):
-        case ("1", ">&", True):
-            return False
-        case ("1", _, _):
-            return True
-        case _:
-            return False

@@ -216,6 +216,46 @@ FOREGROUND_CASES: list[Case[str]] = [
         "a wrapper named in a string is allowed",
         "echo \"bash -c 'sleep 30'\" && git commit -m 'tail -f log'",
     ),
+    (BLOCKED, "a sleep split by a line continuation is blocked", "sleep \\\n60"),
+    (BLOCKED, "a tail -f split by a line continuation is blocked", "tail \\\n-f log"),
+    (BLOCKED, "a sleep in backticks is blocked", "echo `sleep 60`"),
+    (
+        BLOCKED,
+        "a sleep in a quoted substitution is blocked",
+        'echo "$(cat big; sleep 60)"',
+    ),
+    (BLOCKED, "a sleep in a process substitution is blocked", "cat <(sleep 60)"),
+    (
+        BLOCKED,
+        "a substitution in an unquoted heredoc body runs, so it is blocked",
+        "cat <<EOF\n$(sleep 60)\nEOF",
+    ),
+    (
+        BLOCKED,
+        "a comment after a mid-word hash hides no next line",
+        "echo a#b # comment\nsleep 12",
+    ),
+    (BLOCKED, "a sleep in a coproc is blocked", "coproc sleep 60"),
+    (
+        ALLOWED,
+        "a substitution in a quoted heredoc body is text, so it is allowed",
+        "cat <<\\EOF\n$(sleep 60)\nEOF",
+    ),
+    (
+        ALLOWED,
+        "a short sleep in a for loop is allowed",
+        "for i in 1 2; do sleep 1; done",
+    ),
+    (
+        ALLOWED,
+        "a short sleep in an arithmetic for loop is allowed",
+        "for ((i = 0; i < 2; i++)); do sleep 1; done",
+    ),
+    (
+        ALLOWED,
+        "a short sleep in a select loop is allowed",
+        "select x in a b; do sleep 1; done",
+    ),
 ]
 
 BACKGROUND_CASES: list[Case[str]] = [
@@ -230,6 +270,11 @@ BACKGROUND_CASES: list[Case[str]] = [
 ]
 
 AGENT_CASES: list[Case[tuple[str | None, str, bool]]] = [
+    (
+        BLOCKED,
+        "a repeated read in a substitution is blocked",
+        ("fresh", 'a="$(gh pr checks 7)"; b="$(gh pr checks 7)"', False),
+    ),
     (
         BLOCKED,
         "a second read of the same checks is blocked",
