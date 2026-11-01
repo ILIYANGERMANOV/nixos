@@ -4,6 +4,7 @@
 load ../test_helper
 
 # check.nix builds factory-gc-on-pressure with a threshold of 10 percent free.
+
 fake_df() {
   mkdir -p "$work/bin"
   printf '#!/bin/sh\n%s\n' "$1" >"$work/bin/df"

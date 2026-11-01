@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from hook_event import (
+    Agent,
     AgentId,
     BashCall,
     Caller,
@@ -31,8 +32,14 @@ def test_a_bash_event_reads_as_its_command_and_tool_use() -> None:
     )
 
 
-def test_a_bash_event_with_no_flags_runs_in_the_foreground_without_an_id() -> None:
-    event: Json = {"tool_input": {"command": "ls", "run_in_background": "true"}}
+@pytest.mark.parametrize(
+    "tool_input",
+    [{"command": "ls"}, {"command": "ls", "run_in_background": "true"}],
+)
+def test_a_bash_event_with_no_true_flag_runs_in_the_foreground_without_an_id(
+    tool_input: Json,
+) -> None:
+    event: Json = {"tool_input": tool_input}
 
     assert parse_bash_call(event) == BashCall("ls", background=False, tool_use_id=None)
 
@@ -71,7 +78,7 @@ def test_a_read_event_with_no_file_path_is_refused() -> None:
         ({"agent_id": None}, UnnamedSubagent()),
     ],
 )
-def test_the_agent_is_named_by_agent_id(event: Json, agent: object) -> None:
+def test_the_agent_is_named_by_agent_id(event: Json, agent: Agent) -> None:
     assert parse_agent(event) == agent
 
 
