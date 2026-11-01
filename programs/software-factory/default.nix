@@ -242,7 +242,12 @@ let
     }:
     rootScript "factory-deploy"
       {
-        inherit repo host environment profile;
+        inherit
+          repo
+          host
+          environment
+          profile
+          ;
         token_file = tokenFile;
         state_dir = stateDir;
         current_system = currentSystem;

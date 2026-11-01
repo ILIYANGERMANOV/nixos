@@ -1,6 +1,6 @@
 # shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 parent=$PPID
-deadline=$(( SECONDS + timeout_seconds ))
+deadline=$((SECONDS + timeout_seconds))
 child=""
 
 # Take the in-flight afplay down with us instead of letting it finish.
