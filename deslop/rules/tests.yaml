@@ -66,23 +66,19 @@ rules:
       - "programs/playwright/qa-frames.sh"
       - "programs/playwright/qa-mp4.sh"
 
-      # AWAITING A DECISION: real logic with no test, and no runner for one.
-      # Not exempt on merit. Listed by name, so a new script here still fails.
-      - "just/scripts/darwin-generate-age-key.sh"
-      - "just/scripts/enroll-backup-yubikey.sh"
-      - "just/scripts/factory-generate-age-key.sh"
-      - "just/scripts/factory-secrets.sh"
+      # Accepted without a test: what each needs cannot run in a check.
+      # Runs on the server, and is read by eye.
       - "just/scripts/factory-status.sh"
+      # Interactive, writes secrets, and runs on a Mac.
+      - "just/scripts/factory-secrets.sh"
+      # Mac only, and needs sudo.
+      - "just/scripts/darwin-generate-age-key.sh"
+      - "just/scripts/factory-generate-age-key.sh"
+      # Needs a YubiKey.
+      - "just/scripts/enroll-backup-yubikey.sh"
       - "just/scripts/rotate-ssh-key.sh"
-      - "just/scripts/set-password-hash.sh"
       - "just/scripts/setup-yubikey-ssh.sh"
       - "just/scripts/ssh-common.sh"
-      - "programs/agents/skills/rename-skill.sh"
-      - "programs/claude-code/wrapper.sh"
-      - "programs/yubikey-touch-sound/askpass.sh"
-      - "programs/yubikey-touch-sound/beep.sh"
-      - "programs/yubikey-touch-sound/ssh-keygen.sh"
-      - "programs/yubikey-touch-sound/ssh.sh"
     exists:
       - module: "{{TARGET_DIR}}/{{script-name}}.bats"
     fix: Add {{TARGET_DIR}}/{{script-name}}.bats.

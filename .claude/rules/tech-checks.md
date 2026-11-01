@@ -42,4 +42,6 @@ A new script needs its test, or `just architecture` fails: `<name>.py` needs
 `test_<name>.py`, `<name>.sh` needs `<name>.bats`, `<name>.ts` needs
 `<name>.test.ts`, all beside it. The rules are `deslop/rules/tests.yaml`. To
 exempt a script, name the suite that covers it in a rule there, or add it to a
-commented exclude group, never the baseline.
+commented exclude group, never the baseline. A `.bats` outside
+`programs/software-factory` needs no wiring: `shell-script-tests` finds it, and
+`programs/shell-check/test_helper.bash` holds what those suites share.

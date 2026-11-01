@@ -51,6 +51,7 @@ let
     file: file.hasExt "nix"
   ) root) ./shell-limits-check.nix;
 
+  scriptSuites = source (lib.fileset.difference shellFiles (root + "/programs/software-factory"));
   githubSource = source (root + "/.github");
   shellSource = source shellFiles;
   justSource = source justFiles;
@@ -230,6 +231,22 @@ in
   # through `nft --check`. It evaluates no host. Linux only, like the factory:
   # darwin's procps has no pgrep, which factory-ctl needs.
   shell-tests = (import ../software-factory { inherit pkgs lib; }).shellTests;
+
+  # Every bats suite outside the factory, which runs its own. A suite runs the
+  # script beside it with stubs for what it calls, so a new one needs no wiring.
+  # Linux only: nothing in CI would see it fail on darwin.
+  shell-script-tests =
+    pkgs.runCommand "shell-script-tests"
+      {
+        nativeBuildInputs = [
+          pkgs.bats
+          pkgs.jq
+        ];
+      }
+      ''
+        bats --recursive --formatter tap ${scriptSuites}
+        touch "$out"
+      '';
 
   # The writeShellApplication derivations no other check builds, so their
   # shellcheck phase runs without a host. Every flavor is listed through
