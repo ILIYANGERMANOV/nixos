@@ -7,7 +7,7 @@
 #
 # The scripts call `systemctl` from PATH rather than bundling systemd: the
 # server's units put the system profile on PATH, and it keeps them buildable -
-# and testable by checks.software-factory - on every platform.
+# and testable by checks.shell-tests - on every platform.
 {
   pkgs,
   lib ? pkgs.lib,
@@ -389,4 +389,6 @@ in
     admin
     mkEgressRules
     ;
+
+  shellTests = import ./check.nix { inherit pkgs lib; };
 }

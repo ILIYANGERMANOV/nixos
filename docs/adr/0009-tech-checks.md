@@ -26,11 +26,12 @@ A tech check takes source through `lib.fileset`, evaluates no host and uses no
 import from derivation. That is what keeps a group to seconds, and a commit that
 touches none of its files reuses the store path on the box.
 
-Shell has six: `shell-actionlint` (workflows), `shell-lint` (every `.sh`),
-`shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and no `{{ }}` on
-a sudo line), `shell-limits` (how much shell may sit outside a `.sh`) and
-`shell-embedded` (wrappers no other check builds). The lint rules live in
-`programs/shell-check`, shared with `writeShellApplication`.
+Shell has seven: `shell-actionlint` (workflows), `shell-lint` (every `.sh`, `.bats`
+and `.bash`), `shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and
+no `{{ }}` on a sudo line), `shell-limits` (how much shell may sit outside a
+`.sh`), `shell-embedded` (wrappers no other check builds) and `shell-tests` (the
+software factory's bats suites). The lint rules live in `programs/shell-check`,
+shared with `writeShellApplication`.
 
 `shell-limits` keeps logic where the other checks can see it, in a `.sh`:
 
@@ -52,6 +53,10 @@ a sudo line), `shell-limits` (how much shell may sit outside a `.sh`) and
 Known gaps: `runCommand` bodies, files named `check.nix` (test fakes), a
 let-bound string spliced into a script by name (`${snippet}`), and multi-line
 double-quoted strings.
+
+`shell-tests` is the one that runs what it checks. It needs only `pkgs`, so it
+stays a tech check, and it replaced `checks.software-factory`. Its suites run one
+at a time and take most of a group's minute, on the commits that change them.
 
 `shell-embedded` is the one that needs flake inputs: `flake.nix` calls
 `adapters/claude-code.nix` and hands the result in, with synthetic secret paths
@@ -98,6 +103,23 @@ can be skipped, so CI must run the check anyway.
 
 `modules/nix.nix` sets `allow-import-from-derivation = false`. Every job in
 `check.yml` sets it too, so an import from derivation cannot pass CI and then fail on a host.
+
+## Python tests run what deploys
+
+`python-lint`, `python-types` and `python-tests` cover every `.py`, against the
+root `pyproject.toml`. `python-tests` replaced `claude-bash-guards` and
+`self-improve`.
+
+- A test sits beside its script and keeps the name literal: `test_read-guard.py`,
+  `test_analyze.py`. Only `--import-mode=importlib` can import a hyphen, so the
+  rule costs nothing. `guard_harness.py` is the one helper with no companion.
+- A guard test feeds JSON to the built guard, whose path arrives through the
+  check's environment, so packaging stays covered. Importing `main` would not.
+- Cases are plain `(want, name, given)` tables, so a corpus can extend them.
+- `analyze.py` runs under the bare python in `STDLIB_PYTHON`. Under the check's
+  own python, an import of hypothesis would pass here and fail when deployed.
+- pytest and hypothesis live in the check's `python3.withPackages`, never in a
+  runtime closure. `customSource` filters `test_*.py` out of a deployed skill.
 
 ## TypeScript is ES modules, with its tools from nixpkgs
 

@@ -1,6 +1,7 @@
-# Tool config only: ruff and basedpyright for every .py in this repository. No
-# Python package lives here, and every script stays stdlib-only. Enforced by
-# `just tech python`; see docs/adr/0009-tech-checks.md.
+# Tool config only: ruff, basedpyright and pytest for every .py in this repository.
+# No Python package lives here, and every script stays stdlib-only: pytest and
+# hypothesis exist only inside the checks. Enforced by `just tech python`; see
+# docs/adr/0009-tech-checks.md.
 [tool.ruff]
 target-version = "py313"
 
@@ -17,16 +18,25 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# The only two that call subprocess, always with an argv list. The guard's git is
-# substituted at build time; the test runs what the check puts on PATH.
+# The only ones that call subprocess, always with an argv list. The guard's git is
+# substituted at build time; a test runs what the check puts on PATH.
 "programs/claude-code/read-guard.py" = ["S603", "S607"]
-"programs/agents/skills/checks/test_self_improve.py" = ["S603", "S607"]
+"programs/claude-code/guard_harness.py" = ["S603"]
+"**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "os.system".msg = "Use subprocess.run with an argv list."
+
+[tool.pytest.ini_options]
+# A companion test keeps its script's literal name, hyphens included, which only
+# importlib can import. The seed keeps hypothesis the same on every run.
+addopts = "--import-mode=importlib -p no:cacheprovider --hypothesis-seed=0 -q"
+# The guard tests import the harness and bash_commands.py from beside them.
+pythonpath = ["programs/claude-code"]
+testpaths = ["programs"]
 
 [tool.basedpyright]
 typeCheckingMode = "recommended"

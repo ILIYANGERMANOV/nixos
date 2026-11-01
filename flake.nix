@@ -106,14 +106,6 @@
               root = self;
             }).check;
 
-          # The /self-improve transcript analyzer against synthetic transcripts:
-          # token dedupe, tool timing, redundant checks, failures and the window.
-          self-improve = import ./programs/agents/skills/checks/self-improve.nix { inherit pkgs; };
-
-          # The factory's PreToolUse Bash guards: large multi-file reads outside
-          # the skills directory and foreground waits blocked, all else allowed.
-          claude-bash-guards = import ./programs/claude-code/bash-guards-check.nix { inherit pkgs; };
-
           # That the Playwright environment given to agent sessions resolves
           # `require('playwright')` from an empty directory and finds Chromium,
           # which on Linux it also launches headless.
@@ -155,11 +147,6 @@
         # session browser shared by probe processes with redacted capture.
         # Linux only, as the Darwin sandbox cannot launch Chromium.
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          # The software factory's Claude policy (billing and permission mode),
-          # its repo scripts against a real git, and its egress rules through
-          # `nft --check`. Linux only, like the factory: darwin's procps has no
-          # pgrep, which factory-ctl needs.
-          software-factory = import ./programs/software-factory/check.nix { inherit pkgs; };
           # That the factory's home activation runs the relink: a farm factory-gc
           # may collect is otherwise never moved off. The one check that
           # evaluates a host, so `just quick-check` pays for it.

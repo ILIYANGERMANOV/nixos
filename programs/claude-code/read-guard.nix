@@ -1,6 +1,6 @@
 # A PreToolUse hook for Bash and Read that blocks a large file read. What it
 # blocks, and its limit, are in read-guard.py; the scenarios are in
-# bash-guards-check.nix.
+# test_read-guard.py.
 { pkgs }:
 
 import ./bash-guard.nix {
