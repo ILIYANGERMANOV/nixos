@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # What the YubiKey SSH recipes share: this host's git email, the FIDO2 PIN gate
-# and enrolling the resident credential. Sourced from the repository root.
+# and enrolling the resident credential.
 
 # Sets HOST to this machine's short name and EMAIL to its git email, from either
 # a darwin or nixos configuration. Exits when neither resolves one.
