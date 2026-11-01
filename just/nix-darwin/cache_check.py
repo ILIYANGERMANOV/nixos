@@ -9,12 +9,20 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+
+
+class Kind(Enum):
+    BUILT = "built"
+    FETCHED = "fetched"
+
 
 # What nix prints, one section per kind. Headers stay loose after the kind: the
 # fetch one reads "will be fetched (3.3 GiB download...):".
+KINDS = "|".join(kind.value for kind in Kind)
 SECTION = re.compile(
-    r"^((?:this|these) .*will be (built|fetched)\b.*)\n?((?:[ \t].*\n?)*)",
+    rf"^((?:this|these) .*will be ({KINDS})\b.*)\n?((?:[ \t].*\n?)*)",
     re.MULTILINE,
 )
 ENTRY = re.compile(r"^[ \t]+\S*/[a-z0-9]{32}-(\S+)[ \t]*$", re.MULTILINE)
@@ -52,7 +60,7 @@ type Verdict = Clean | Denied | Unusable
 @dataclass(frozen=True)
 class Section:
     header: str
-    kind: str
+    kind: Kind
     entries: str
 
 
@@ -145,16 +153,21 @@ def built_names(plan: str) -> tuple[str, ...] | Unusable:
     if stray:
         return Unusable(f"a store path outside any section: {stray[0]}")
 
-    return tuple(
-        name
-        for section in sections
-        if section.kind == "built"
-        for name in entry_names(section.entries)
-    )
+    return tuple(name for section in sections for name in names_to_build(section))
+
+
+def names_to_build(section: Section) -> list[str]:
+    match section.kind:
+        case Kind.BUILT:
+            return entry_names(section.entries)
+        case Kind.FETCHED:
+            return []
 
 
 def sections_of(plan: str) -> list[Section]:
-    return [Section(match[1], match[2], match[3]) for match in SECTION.finditer(plan)]
+    return [
+        Section(match[1], Kind(match[2]), match[3]) for match in SECTION.finditer(plan)
+    ]
 
 
 def entry_names(entries: str) -> list[str]:

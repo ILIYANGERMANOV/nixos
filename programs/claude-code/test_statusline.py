@@ -22,6 +22,8 @@ STATUSLINE = os.environ["STATUSLINE"]
 CORPUS = Path(__file__).with_name("statusline-corpus.json")
 
 NOW = 1_800_000_000
+# The longest an int gets through `json.loads`: Python refuses more digits.
+LONGEST_INT = 10**4300 - 1
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 NO_TOOLS = Path("/nonexistent")
 BRANCH_LINE = "\x1b[38;5;30mrepo\x1b[0m  \x1b[38;5;28mfeature/x\x1b[0m\n"
@@ -212,6 +214,16 @@ def test_a_huge_percentage_is_unreadable() -> None:
     assert plain(rate_limit(1e7)) == ""
 
 
+@given(st.integers(10**18, LONGEST_INT))
+def test_a_huge_window_size_is_unreadable(size: int) -> None:
+    assert plain(context(size, 99)) == ""
+
+
+@given(st.integers(10**18, LONGEST_INT))
+def test_a_huge_reset_time_loses_only_the_countdown(resets_at: int) -> None:
+    assert plain(rate_limit(1, resets_at)) == "  ░░░░░ 1%\n"
+
+
 def run(stdin: str | None, path: Path = NO_TOOLS) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [STATUSLINE],
@@ -264,7 +276,7 @@ def test_shows_only_the_directory_outside_a_repository(tmp_path: Path) -> None:
 
 def test_uses_the_clock_for_the_countdown() -> None:
     far_future = ANSI.sub("", run(json.dumps(rate_limit(1, 2**40))).stdout)
-    long_past = ANSI.sub("", run(json.dumps(rate_limit(1, 1))).stdout)
+    long_past = ANSI.sub("", run(json.dumps(rate_limit(1, 1_700_000_000))).stdout)
 
     assert "(reset " in far_future
     assert long_past == "  ░░░░░ 1%\n"
@@ -278,6 +290,15 @@ def test_uses_the_clock_for_the_countdown() -> None:
         ("{not json", ""),
         ("[1]", ""),
         ('{"context_window": {"context_window_size": "x", "used_percentage": 1}}', ""),
+        (
+            '{"context_window": {"context_window_size": 1e400, "used_percentage": 1}}',
+            "",
+        ),
+        (
+            '{"context_window": {"context_window_size": 1, "used_percentage": 1e400}}',
+            "",
+        ),
+        ('{"rate_limits": {"five_hour": {"used_percentage": 1e400}}}', ""),
     ],
 )
 def test_bad_input_exits_clean_with_no_traceback(
@@ -286,6 +307,30 @@ def test_bad_input_exits_clean_with_no_traceback(
     done = run(stdin)
 
     assert (done.returncode, done.stdout, done.stderr) == (0, stdout, "")
+
+
+def test_tokens_past_the_digits_python_prints_exit_clean() -> None:
+    done = run(json.dumps(context(LONGEST_INT, 1_000_000)))
+
+    assert (done.returncode, done.stdout, done.stderr) == (0, "", "")
+
+
+def test_a_cwd_past_the_kernels_argument_limit_prints_its_name() -> None:
+    name = "x" * 200_000
+
+    done = run(json.dumps({"cwd": f"/{name}"}))
+
+    assert (done.returncode, ANSI.sub("", done.stdout), done.stderr) == (
+        0,
+        f"{name}\n",
+        "",
+    )
+
+
+def test_a_long_cwd_the_kernel_still_resolves_shows_its_branch(repo: Path) -> None:
+    nested = f"{repo}{'/.' * ((4000 - len(str(repo))) // 2)}"
+
+    assert ANSI.sub("", run(json.dumps({"cwd": nested})).stdout) == ".  feature/x\n"
 
 
 def test_a_closed_stdin_prints_an_empty_line() -> None:

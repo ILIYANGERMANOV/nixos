@@ -10,6 +10,7 @@ was a third of its time.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,11 @@ RESET = "\033[0m"
 BAR_WIDTH = 5
 # A bar is as long as its percentage, so one this high is garbage, not a reading.
 MAX_PERCENT = 1_000_000
+# Spaces and a sign as bash read them. A count this long is garbage too, and
+# Python refuses to print an int past 4300 digits.
+WHOLE_NUMBER = re.compile(r"\s*[+-]?[0-9]{1,18}\s*")
+# The longest path the kernel resolves: git could only fail on a longer one.
+MAX_PATH_BYTES = 4096
 WARNING_PERCENT = 50
 CRITICAL_PERCENT = 80
 SECONDS_PER_MINUTE = 60
@@ -165,11 +171,17 @@ def clean(text: str) -> str:
 
 
 def parse_limit(used: str, resets_at: str) -> RateLimit | None:
-    return RateLimit(whole_percent(used), parse_reset(resets_at)) if used else None
+    return RateLimit(whole_percent(used), whole_number(resets_at)) if used else None
 
 
 def parse_context(size: str, used: str) -> ContextWindow | None:
-    return ContextWindow(int(size), whole_percent(used)) if size and used else None
+    if not (size and used):
+        return None
+    match whole_number(size):
+        case None:
+            raise ValueError(f"not a window size: {size}")
+        case int() as tokens:
+            return ContextWindow(tokens, whole_percent(used))
 
 
 def whole_percent(text: str) -> int:
@@ -179,12 +191,8 @@ def whole_percent(text: str) -> int:
     return round(value)
 
 
-def parse_reset(text: str) -> int | None:
-    """A reset time that is not a whole number loses the countdown, not the line."""
-    try:
-        return int(text)
-    except ValueError:
-        return None
+def whole_number(text: str) -> int | None:
+    return int(text) if WHOLE_NUMBER.fullmatch(text) else None
 
 
 def place_segment(cwd: str, branch: str, palette: Palette) -> str:
@@ -255,17 +263,13 @@ def truncated(numerator: int, denominator: int) -> int:
 
 
 def read_input() -> str:
-    """Stdin as text, nothing when it is closed."""
-    try:
-        with open(0, "rb", closefd=False) as stdin:
-            return stdin.read().decode(errors="replace")
-    except OSError:
-        return ""
+    """Stdin as text, nothing when it is closed: Python then sets it to None."""
+    return "" if sys.stdin is None else sys.stdin.buffer.read().decode(errors="replace")
 
 
 def current_branch(cwd: str) -> str:
     """The branch at cwd, else the short commit, else nothing outside a repository."""
-    if not cwd:
+    if not cwd or len(cwd.encode()) > MAX_PATH_BYTES:
         return ""
     return git(cwd, "symbolic-ref", "--short", "HEAD") or git(
         cwd, "rev-parse", "--short", "HEAD"
@@ -273,15 +277,12 @@ def current_branch(cwd: str) -> str:
 
 
 def git(cwd: str, *args: str) -> str:
-    try:
-        done = subprocess.run(
-            ["@git@", "-C", cwd, *args],
-            capture_output=True,
-            check=False,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
-        )
-    except OSError:  # An argument past the kernel's limit.
-        return ""
+    done = subprocess.run(
+        ["@git@", "-C", cwd, *args],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+    )
     return done.stdout.decode(errors="replace").strip() if done.returncode == 0 else ""
 
 
