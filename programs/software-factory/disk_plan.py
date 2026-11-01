@@ -11,7 +11,7 @@ import stat
 import subprocess
 import sys
 import time
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 from enum import Enum, StrEnum, auto
 from pathlib import Path, PurePath
@@ -143,230 +143,52 @@ class GcRoot:
     link: Fact[ResultLink]
 
 
-def decide(path: PurePath, reasons: Iterable[KeepReason]) -> Decision:
-    """Remove only when no reason to keep exists."""
-    match next(iter(reasons), None):
-        case None:
-            return Remove(path)
-        case reason:
-            return Keep(path, reason)
-
-
-def decide_worktree(
-    worktree: Worktree, sessions: Fact[frozenset[PurePath]]
-) -> Decision:
-    """A secondary worktree whose deletion loses nothing goes.
-
-    Only one inside its repository: a /qa run's or a /10x-engineer run's sits
-    elsewhere, is clean and pushed while it waits, and its run removes it.
-    """
-    return decide(worktree.path, _worktree_keep_reasons(worktree, sessions))
-
-
-def _worktree_keep_reasons(
-    worktree: Worktree, sessions: Fact[frozenset[PurePath]]
-) -> Iterator[KeepReason]:
-    if worktree.path == worktree.repository:
-        yield Policy.MAIN_CHECKOUT
-    if not worktree.path.is_relative_to(worktree.repository):
-        yield Policy.OUTSIDE_REPOSITORY
-    if worktree.locked:
-        yield Policy.LOCKED
-    yield from _session_keep_reasons(worktree.path, sessions)
-    yield from _local_work_keep_reasons(worktree.local_work)
-
-
-def _session_keep_reasons(
-    path: PurePath, sessions: Fact[frozenset[PurePath]]
-) -> Iterator[KeepReason]:
-    match sessions:
-        case Unknown():
-            yield sessions
-        case frozenset():
-            if any(cwd.is_relative_to(path) for cwd in sessions):
-                yield Policy.LIVE_SESSION
-
-
-def _local_work_keep_reasons(work: LocalWork) -> Iterator[KeepReason]:
-    for count in (work.uncommitted, work.unpushed):
-        match count:
-            case Unknown():
-                yield count
-            case int():
-                if count > 0:
-                    yield Policy.LOCAL_WORK
-
-
-def local_work_phrases(work: LocalWork) -> tuple[str, ...]:
-    """What would be lost, one phrase each. Unknown is named, so it reads as a risk."""
-    return (
-        *_count_phrase(work.uncommitted, "uncommitted file(s)"),
-        *_count_phrase(work.unpushed, "unpushed commit(s)"),
-    )
-
-
-def _count_phrase(count: Fact[int], noun: str) -> tuple[str, ...]:
-    match count:
-        case Unknown():
-            return (f"unknown {noun}",)
-        case int():
-            return (f"{count} {noun}",) if count > 0 else ()
-
-
-def decide_cache(
-    path: PurePath, probe: Probe, kept_for_builds: Collection[PurePath]
-) -> Decision:
-    """Throwaway caches go. A symlink here is a dev shell's profile or a build's result link."""
-    return decide(path, _cache_keep_reasons(path, probe, kept_for_builds))
-
-
-def _cache_keep_reasons(
-    path: PurePath, probe: Probe, kept_for_builds: Collection[PurePath]
-) -> Iterator[KeepReason]:
-    if path in kept_for_builds:
-        yield Policy.KEEPS_BUILDS_FAST
-    if path.name.startswith("."):
-        yield Policy.HIDDEN
-    match probe:
-        case Absent():
-            yield Policy.GONE
-        case Unknown():
-            yield probe
-        case Stat(kind=Kind.SYMLINK):
-            yield Policy.GC_ROOT
-        case Stat():
-            pass
-
-
-def decide_qa_run(run: QaRun, now: float) -> Decision:
-    """A run directory with nothing written for a day goes: its proof is on the PR."""
-    return decide(run.path, _qa_run_keep_reasons(run, now))
-
-
-def _qa_run_keep_reasons(run: QaRun, now: float) -> Iterator[KeepReason]:
-    if run.path.name.startswith("."):
-        yield Policy.HIDDEN
-    match run.probe:
-        case Absent():
-            yield Policy.GONE
-        case Unknown():
-            yield run.probe
-        case Stat(kind=Kind.DIRECTORY):
-            pass
-        case Stat():
-            yield Policy.NOT_A_RUN
-    match run.newest_write:
-        case Unknown():
-            yield run.newest_write
-        case int() | float():
-            if now - run.newest_write < QA_RUN_QUIET_SECONDS:
-                yield Policy.RECENT
-
-
-def decide_stale_root(
-    root: GcRoot, directories: Collection[PurePath], now: float
-) -> Decision:
-    """A root whose result link is stale: its registration goes, the link stays."""
-    match root.link:
-        case Unknown():
-            return Keep(root.entry, root.link)
-        case ResultLink():
-            return decide(root.entry, _stale_keep_reasons(root.link, directories, now))
-
-
-def decide_own_stale_root(
-    root: GcRoot, directories: Collection[PurePath], now: float, uid: int
-) -> Decision:
-    """The result link itself, for its owner: the only account that may delete it from /tmp."""
-    match root.link:
-        case Unknown():
-            return Keep(root.entry, root.link)
-        case ResultLink():
-            reasons = (
-                *_stale_keep_reasons(root.link, directories, now),
-                *_foreign_owner(root.link.probe, uid),
+def main(arguments: list[str]) -> int:
+    now = time.time()
+    match arguments:
+        case ["worktrees", repos_dir, session_pattern]:
+            report(read_worktree_decisions(Path(repos_dir), session_pattern))
+        case ["local-work", directory]:
+            print(*local_work_phrases(read_local_work(Path(directory))), sep="\n")
+        case ["caches", home, qa_dir]:
+            report(read_cache_decisions(Path(home), Path(qa_dir)))
+        case ["qa-runs", qa_dir]:
+            report(read_qa_run_decisions(Path(qa_dir), now))
+        case ["stale-roots", gcroots_auto, *directories]:
+            stale = {PurePath(directory) for directory in directories}
+            report(
+                decide_stale_root(root, stale, now)
+                for root in read_gc_roots(Path(gcroots_auto))
             )
-            return decide(root.link.path, reasons)
-
-
-def _stale_keep_reasons(
-    link: ResultLink, directories: Collection[PurePath], now: float
-) -> Iterator[KeepReason]:
-    if PROFILE_GENERATION.fullmatch(link.path.name):
-        yield Policy.PROFILE_GENERATION
-    if not any(link.path.parent.is_relative_to(directory) for directory in directories):
-        yield Policy.OUTSIDE_DIRECTORIES
-    yield from _link_keep_reasons(link.probe, now)
-    # The path is the agent's to choose, so its parent may lead anywhere.
-    match link.resolved_parent:
-        case Unknown():
-            yield link.resolved_parent
-        case PurePath():
-            if link.resolved_parent != link.path.parent:
-                yield Policy.SWAPPED_PARENT
-
-
-def _link_keep_reasons(probe: Probe, now: float) -> Iterator[KeepReason]:
-    match probe:
-        case Absent():
-            yield Policy.GONE
-        case Unknown():
-            yield probe
-        case Stat(kind=Kind.SYMLINK, mtime=mtime):
-            if now - mtime <= ROOT_STALE_SECONDS:
-                yield Policy.RECENT
-        case Stat():
-            yield Policy.NOT_A_LINK
-
-
-def _foreign_owner(probe: Probe, uid: int) -> Iterator[KeepReason]:
-    match probe:
-        case Stat(uid=owner):
-            if owner != uid:
-                yield Policy.OTHER_OWNER
-        case Absent():
-            yield Policy.GONE
-        case Unknown():
-            yield probe
-
-
-def parse_worktrees(listing: str) -> Fact[tuple[ListedWorktree, ...]]:
-    """Reads `git worktree list --porcelain -z`: attributes end in NUL, records in NUL NUL."""
-    records = [record for record in listing.split("\0\0") if record]
-    worktrees = [_parse_worktree(record.split("\0")) for record in records]
-    parsed = tuple(
-        worktree for worktree in worktrees if isinstance(worktree, ListedWorktree)
-    )
-    if len(parsed) != len(records) or not parsed:
-        return Unknown("the worktree listing")
-    return parsed
-
-
-def _parse_worktree(attributes: list[str]) -> ListedWorktree | None:
-    match attributes[0].split(" ", 1):
-        case ["worktree", path] if path.startswith("/"):
-            locked = any(
-                a == "locked" or a.startswith("locked ") for a in attributes[1:]
+        case ["own-stale-roots", gcroots_auto, *directories]:
+            stale = {PurePath(directory) for directory in directories}
+            uid = os.geteuid()
+            report(
+                decide_own_stale_root(root, stale, now, uid)
+                for root in read_gc_roots(Path(gcroots_auto))
             )
-            return ListedWorktree(PurePath(path), locked=locked)
         case _:
-            return None
+            print(
+                "usage: factory-disk-plan worktrees|local-work|caches|qa-runs|stale-roots|own-stale-roots ...",
+                file=sys.stderr,
+            )
+            return 2
+    return 0
 
 
-def parse_pids(listing: str, own_pid: int) -> Fact[frozenset[int]]:
-    """Reads pgrep's output. Our own argv holds the pattern, so pgrep finds this process."""
-    words = listing.split()
-    if not all(word.isascii() and word.isdecimal() for word in words):
-        return Unknown("the session processes")
-    return frozenset(int(word) for word in words) - {own_pid}
-
-
-def parse_count(output: str) -> Fact[int]:
-    """Reads the single count git printed."""
-    word = output.strip()
-    return (
-        int(word) if word.isascii() and word.isdecimal() else Unknown("a commit count")
-    )
+def report(decisions: Iterable[Decision]) -> None:
+    """Prints what to remove once every fact is in: a crash on the way removes nothing."""
+    for decision in tuple(decisions):
+        match decision:
+            case Remove(path):
+                _ = sys.stdout.buffer.write(os.fsencode(path) + b"\0")
+            case Keep(path, Unknown(fact)):
+                print(
+                    f"factory-disk-plan: kept {path}: could not read {fact}",
+                    file=sys.stderr,
+                )
+            case Keep():
+                pass
 
 
 def read_worktree_decisions(
@@ -390,18 +212,14 @@ def read_worktree_decisions(
 
 def read_sessions(pattern: str) -> Fact[frozenset[PurePath]]:
     """The working directories of the processes matching pattern, as `sessions` in lib.sh."""
-    match _run(
+    listing = _run(
         ["pgrep", "-u", str(os.geteuid()), "-f", "--", pattern], accepted=(0, 1)
-    ):
-        case Unknown() as unknown:
-            return unknown
-        case listing:
-            pass
-    match parse_pids(listing, os.getpid()):
-        case Unknown() as unknown:
-            return unknown
-        case pids:
-            pass
+    )
+    pids = _and_then(listing, lambda pgrep: parse_pids(pgrep, os.getpid()))
+    return _and_then(pids, _read_cwds)
+
+
+def _read_cwds(pids: frozenset[int]) -> Fact[frozenset[PurePath]]:
     cwds: set[PurePath] = set()
     for pid in pids:
         match _read_cwd(pid):
@@ -424,11 +242,10 @@ def _read_cwd(pid: int) -> Fact[PurePath] | Absent:
 
 
 def read_worktrees(repository: Path) -> Fact[tuple[ListedWorktree, ...]]:
-    match _run(["git", "-C", str(repository), "worktree", "list", "--porcelain", "-z"]):
-        case Unknown() as unknown:
-            return unknown
-        case listing:
-            return parse_worktrees(listing)
+    listing = _run(
+        ["git", "-C", str(repository), "worktree", "list", "--porcelain", "-z"]
+    )
+    return _and_then(listing, parse_worktrees)
 
 
 def read_local_work(directory: Path) -> LocalWork:
@@ -440,8 +257,8 @@ def read_local_work(directory: Path) -> LocalWork:
     )
     unpushed = _run([*git, "rev-list", "--count", "HEAD", "--not", "--remotes"])
     return LocalWork(
-        uncommitted=status if isinstance(status, Unknown) else len(status.splitlines()),
-        unpushed=unpushed if isinstance(unpushed, Unknown) else parse_count(unpushed),
+        uncommitted=_and_then(status, lambda lines: len(lines.splitlines())),
+        unpushed=_and_then(unpushed, parse_count),
     )
 
 
@@ -534,53 +351,230 @@ def _run(argv: list[str], accepted: tuple[int, ...] = (0,)) -> Fact[str]:
     return done.stdout if done.returncode in accepted else Unknown(described)
 
 
-def report(decisions: Iterable[Decision]) -> None:
-    """Prints what to remove once every fact is in: a crash on the way removes nothing."""
-    for decision in tuple(decisions):
-        match decision:
-            case Remove(path):
-                _ = sys.stdout.buffer.write(os.fsencode(path) + b"\0")
-            case Keep(path, Unknown(fact)):
-                print(
-                    f"factory-disk-plan: kept {path}: could not read {fact}",
-                    file=sys.stderr,
-                )
-            case Keep():
-                pass
+def _and_then[T, U](fact: Fact[T], step: Callable[[T], Fact[U]]) -> Fact[U]:
+    match fact:
+        case Unknown():
+            return fact
+        case known:
+            return step(known)
 
 
-def main(arguments: list[str]) -> int:
-    match arguments:
-        case ["worktrees", repos_dir, session_pattern]:
-            report(read_worktree_decisions(Path(repos_dir), session_pattern))
-        case ["local-work", directory]:
-            print(*local_work_phrases(read_local_work(Path(directory))), sep="\n")
-        case ["caches", home, qa_dir]:
-            report(read_cache_decisions(Path(home), Path(qa_dir)))
-        case ["qa-runs", qa_dir]:
-            report(read_qa_run_decisions(Path(qa_dir), time.time()))
-        case ["stale-roots", gcroots_auto, *directories]:
-            now = time.time()
-            stale = {PurePath(directory) for directory in directories}
-            report(
-                decide_stale_root(root, stale, now)
-                for root in read_gc_roots(Path(gcroots_auto))
+def decide_worktree(
+    worktree: Worktree, sessions: Fact[frozenset[PurePath]]
+) -> Decision:
+    """A secondary worktree whose deletion loses nothing goes.
+
+    Only one inside its repository: a /qa run's or a /10x-engineer run's sits
+    elsewhere, is clean and pushed while it waits, and its run removes it.
+    """
+    return decide(worktree.path, _worktree_keep_reasons(worktree, sessions))
+
+
+def _worktree_keep_reasons(
+    worktree: Worktree, sessions: Fact[frozenset[PurePath]]
+) -> Iterator[KeepReason]:
+    if worktree.path == worktree.repository:
+        yield Policy.MAIN_CHECKOUT
+    if not worktree.path.is_relative_to(worktree.repository):
+        yield Policy.OUTSIDE_REPOSITORY
+    if worktree.locked:
+        yield Policy.LOCKED
+    yield from _keep_if(
+        sessions,
+        lambda cwds: any(cwd.is_relative_to(worktree.path) for cwd in cwds),
+        Policy.LIVE_SESSION,
+    )
+    for count in (worktree.local_work.uncommitted, worktree.local_work.unpushed):
+        yield from _keep_if(count, lambda known: known > 0, Policy.LOCAL_WORK)
+
+
+def _keep_if[T](
+    fact: Fact[T], holds: Callable[[T], bool], reason: Policy
+) -> Iterator[KeepReason]:
+    """The reason when a known fact holds; a fact not known keeps by itself."""
+    match fact:
+        case Unknown():
+            yield fact
+        case known:
+            if holds(known):
+                yield reason
+
+
+def decide(path: PurePath, reasons: Iterable[KeepReason]) -> Decision:
+    """Remove only when no reason to keep exists."""
+    match next(iter(reasons), None):
+        case None:
+            return Remove(path)
+        case reason:
+            return Keep(path, reason)
+
+
+def local_work_phrases(work: LocalWork) -> tuple[str, ...]:
+    """What would be lost, one phrase each. Unknown is named, so it reads as a risk."""
+    return (
+        *_count_phrase(work.uncommitted, "uncommitted file(s)"),
+        *_count_phrase(work.unpushed, "unpushed commit(s)"),
+    )
+
+
+def _count_phrase(count: Fact[int], noun: str) -> tuple[str, ...]:
+    match count:
+        case Unknown():
+            return (f"unknown {noun}",)
+        case int():
+            return (f"{count} {noun}",) if count > 0 else ()
+
+
+def decide_cache(
+    path: PurePath, probe: Probe, kept_for_builds: Collection[PurePath]
+) -> Decision:
+    """Throwaway caches go. A symlink here is a dev shell's profile or a build's result link."""
+    return decide(path, _cache_keep_reasons(path, probe, kept_for_builds))
+
+
+def _cache_keep_reasons(
+    path: PurePath, probe: Probe, kept_for_builds: Collection[PurePath]
+) -> Iterator[KeepReason]:
+    if path in kept_for_builds:
+        yield Policy.KEEPS_BUILDS_FAST
+    if path.name.startswith("."):
+        yield Policy.HIDDEN
+    match probe:
+        case Absent():
+            yield Policy.GONE
+        case Unknown():
+            yield probe
+        case Stat(kind=Kind.SYMLINK):
+            yield Policy.GC_ROOT
+        case Stat():
+            pass
+
+
+def decide_qa_run(run: QaRun, now: float) -> Decision:
+    """A run directory with nothing written for a day goes: its proof is on the PR."""
+    return decide(run.path, _qa_run_keep_reasons(run, now))
+
+
+def _qa_run_keep_reasons(run: QaRun, now: float) -> Iterator[KeepReason]:
+    if run.path.name.startswith("."):
+        yield Policy.HIDDEN
+    match run.probe:
+        case Absent():
+            yield Policy.GONE
+        case Unknown():
+            yield run.probe
+        case Stat(kind=Kind.DIRECTORY):
+            pass
+        case Stat():
+            yield Policy.NOT_A_RUN
+    yield from _keep_if(
+        run.newest_write,
+        lambda written: now - written < QA_RUN_QUIET_SECONDS,
+        Policy.RECENT,
+    )
+
+
+def decide_stale_root(
+    root: GcRoot, directories: Collection[PurePath], now: float
+) -> Decision:
+    """A root whose result link is stale: its registration goes, the link stays."""
+    match root.link:
+        case Unknown():
+            return Keep(root.entry, root.link)
+        case ResultLink():
+            return decide(root.entry, _stale_keep_reasons(root.link, directories, now))
+
+
+def decide_own_stale_root(
+    root: GcRoot, directories: Collection[PurePath], now: float, uid: int
+) -> Decision:
+    """The result link itself, for its owner: the only account that may delete it from /tmp."""
+    match root.link:
+        case Unknown():
+            return Keep(root.entry, root.link)
+        case ResultLink():
+            reasons = (
+                *_stale_keep_reasons(root.link, directories, now),
+                *_foreign_owner(root.link.probe, uid),
             )
-        case ["own-stale-roots", gcroots_auto, *directories]:
-            now = time.time()
-            stale = {PurePath(directory) for directory in directories}
-            uid = os.geteuid()
-            report(
-                decide_own_stale_root(root, stale, now, uid)
-                for root in read_gc_roots(Path(gcroots_auto))
+            return decide(root.link.path, reasons)
+
+
+def _stale_keep_reasons(
+    link: ResultLink, directories: Collection[PurePath], now: float
+) -> Iterator[KeepReason]:
+    if PROFILE_GENERATION.fullmatch(link.path.name):
+        yield Policy.PROFILE_GENERATION
+    if not any(link.path.parent.is_relative_to(directory) for directory in directories):
+        yield Policy.OUTSIDE_DIRECTORIES
+    yield from _link_keep_reasons(link.probe, now)
+    # The path is the agent's to choose, so its parent may lead anywhere.
+    yield from _keep_if(
+        link.resolved_parent,
+        lambda resolved: resolved != link.path.parent,
+        Policy.SWAPPED_PARENT,
+    )
+
+
+def _link_keep_reasons(probe: Probe, now: float) -> Iterator[KeepReason]:
+    match probe:
+        case Absent():
+            yield Policy.GONE
+        case Unknown():
+            yield probe
+        case Stat(kind=Kind.SYMLINK, mtime=mtime):
+            if now - mtime <= ROOT_STALE_SECONDS:
+                yield Policy.RECENT
+        case Stat():
+            yield Policy.NOT_A_LINK
+
+
+def _foreign_owner(probe: Probe, uid: int) -> Iterator[KeepReason]:
+    match probe:
+        case Stat(uid=owner):
+            if owner != uid:
+                yield Policy.OTHER_OWNER
+        case Absent() | Unknown():
+            pass  # _link_keep_reasons keeps these.
+
+
+def parse_worktrees(listing: str) -> Fact[tuple[ListedWorktree, ...]]:
+    """Reads `git worktree list --porcelain -z`: attributes end in NUL, records in NUL NUL."""
+    records = [record for record in listing.split("\0\0") if record]
+    parsed = tuple(_parse_worktree(record.split("\0")) for record in records)
+    known = tuple(worktree for worktree in parsed if not isinstance(worktree, Unknown))
+    if len(known) != len(parsed) or not known:
+        return Unknown("the worktree listing")
+    return known
+
+
+def _parse_worktree(attributes: list[str]) -> Fact[ListedWorktree]:
+    match attributes[0].split(" ", 1):
+        case ["worktree", path] if path.startswith("/"):
+            locked = any(
+                a == "locked" or a.startswith("locked ") for a in attributes[1:]
             )
+            return ListedWorktree(PurePath(path), locked=locked)
         case _:
-            print(
-                "usage: factory-disk-plan worktrees|local-work|caches|qa-runs|stale-roots|own-stale-roots ...",
-                file=sys.stderr,
-            )
-            return 2
-    return 0
+            return Unknown("a worktree record")
+
+
+def parse_pids(listing: str, own_pid: int) -> Fact[frozenset[int]]:
+    """Reads pgrep's output. Our own argv holds the pattern, so pgrep finds this process."""
+    words = listing.split()
+    if not all(_is_natural(word) for word in words):
+        return Unknown("the session processes")
+    return frozenset(int(word) for word in words) - {own_pid}
+
+
+def parse_count(output: str) -> Fact[int]:
+    """Reads the single count git printed."""
+    word = output.strip()
+    return int(word) if _is_natural(word) else Unknown("a commit count")
+
+
+def _is_natural(word: str) -> bool:
+    return word.isascii() and word.isdecimal()
 
 
 if __name__ == "__main__":

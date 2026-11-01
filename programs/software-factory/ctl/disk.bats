@@ -48,18 +48,28 @@ load ../test_helper
   [ -d "$tenx" ] || fail "a /10x-engineer run's worktree was removed"
 }
 
-@test "free-disk: keeps a worktree whose state cannot be read, and a locked one" {
+@test "free-disk: keeps a worktree whose state cannot be read" {
   clone_repo origin
   broken=$(add_worktree origin broken)
   echo 'gitdir: /nowhere' >"$broken/.git"
+
+  factory-ctl free-disk plan >"$work/out"
+  ! grep -q "worktrees/broken" "$work/out" || fail "plan lists an unreadable worktree"
+
+  factory-ctl free-disk apply
+  [ -e "$broken/.git" ] || fail "an unreadable worktree was removed"
+}
+
+@test "free-disk: keeps a locked worktree" {
+  clone_repo origin
   locked=$(add_worktree origin locked)
   git -C "$HOME/repos/origin" worktree lock "$locked"
 
   factory-ctl free-disk plan >"$work/out"
-  ! grep -Eq "worktrees/(broken|locked)" "$work/out" || fail "plan lists a worktree that must stay"
+  ! grep -q "worktrees/locked" "$work/out" || fail "plan lists a locked worktree"
 
   factory-ctl free-disk apply
-  [ -e "$broken/.git" ] && [ -d "$locked" ] || fail "a worktree that must stay was removed"
+  [ -d "$locked" ] || fail "a locked worktree was removed"
 }
 
 @test "free-disk: removes a cache whose name holds a newline, and nothing the name spells" {

@@ -38,6 +38,8 @@ from hypothesis import strategies as st
 
 NOW = 1_000_000.0
 UID = 1000
+STALE_AGE = 3 * DAY_SECONDS
+FUTURE_NOW = 1e12  # Past the mtime of anything a test makes on disk.
 REPOSITORY = PurePath("/home/agent/repos/shop")
 WORKTREE = REPOSITORY / ".claude/worktrees/task"
 CLEAN = LocalWork(uncommitted=0, unpushed=0)
@@ -56,20 +58,22 @@ names = st.text(st.characters(exclude_characters="/\0"), min_size=1).filter(
 relative_paths = st.lists(names, max_size=3).map(lambda parts: PurePath(*parts))
 counts = st.integers(min_value=0, max_value=1000)
 facts_about_counts = st.one_of(counts, st.just(UNKNOWN))
+at_risk_work = st.tuples(facts_about_counts, facts_about_counts).filter(
+    lambda work: work != (0, 0)
+)
 ages = st.floats(min_value=-DAY_SECONDS, max_value=10 * DAY_SECONDS)
-kinds = st.sampled_from(Kind)
+uids = st.integers(min_value=0, max_value=2000)
 listed_worktrees = st.builds(
     ListedWorktree, relative_paths.map(PurePath("/").joinpath), locked=st.booleans()
-)
-probes = st.one_of(
-    st.just(Absent()),
-    st.just(UNKNOWN),
-    st.builds(Stat, kinds, st.just(NOW), st.integers(min_value=0, max_value=2000)),
 )
 
 
 def stat_of(kind: Kind, age: float = 0.0, uid: int = UID) -> Stat:
     return Stat(kind, NOW - age, uid)
+
+
+stats = st.builds(stat_of, st.sampled_from(Kind), ages, uids)
+probes = st.one_of(st.just(Absent()), st.just(UNKNOWN), stats)
 
 
 def worktree(
@@ -89,7 +93,7 @@ def gc_root(
     link = ResultLink(
         path,
         path.parent if resolved_parent is None else resolved_parent,
-        stat_of(Kind.SYMLINK, 3 * DAY_SECONDS) if probe is None else probe,
+        stat_of(Kind.SYMLINK, STALE_AGE) if probe is None else probe,
     )
     return GcRoot(ENTRY, link)
 
@@ -132,9 +136,7 @@ def test_a_session_in_a_subdirectory_keeps_the_worktree() -> None:
     assert decide_worktree(worktree(), sessions) == Keep(WORKTREE, Policy.LIVE_SESSION)
 
 
-def test_a_session_in_a_directory_sharing_the_prefix_does_not_keep_the_worktree() -> (
-    None
-):
+def test_a_session_in_a_prefix_sharing_directory_keeps_nothing() -> None:
     sessions = frozenset({WORKTREE.with_name("task-2")})
 
     assert decide_worktree(worktree(), sessions) == Remove(WORKTREE)
@@ -155,16 +157,15 @@ def test_a_live_session_s_root_is_never_removed(
     assert isinstance(decision, Keep)
 
 
-@given(relative_paths, facts_about_counts, facts_about_counts)
+@given(relative_paths, at_risk_work)
 def test_unread_or_nonzero_local_work_is_never_removed(
-    below: PurePath, uncommitted: int | Unknown, unpushed: int | Unknown
+    below: PurePath, work: tuple[int | Unknown, int | Unknown]
 ) -> None:
     decision = decide_worktree(
-        worktree(REPOSITORY / below, LocalWork(uncommitted, unpushed)), NO_SESSIONS
+        worktree(REPOSITORY / below, LocalWork(*work)), NO_SESSIONS
     )
 
-    if isinstance(decision, Remove):
-        assert (uncommitted, unpushed) == (0, 0)
+    assert isinstance(decision, Keep)
 
 
 @given(relative_paths)
@@ -240,7 +241,7 @@ def test_a_protected_cache_is_never_removed(path: PurePath, probe: Probe) -> Non
     assert isinstance(decide_cache(path, probe, KEPT_FOR_BUILDS), Keep)
 
 
-@given(names, probes)
+@given(names.filter(lambda name: CACHE / name not in KEPT_FOR_BUILDS), probes)
 def test_only_a_known_plain_visible_entry_is_removed(name: str, probe: Probe) -> None:
     decision = decide_cache(CACHE / name, probe, KEPT_FOR_BUILDS)
 
@@ -329,7 +330,7 @@ def test_a_root_whose_link_is_gone_stays() -> None:
 
 
 def test_a_root_replaced_by_a_directory_stays() -> None:
-    root = gc_root(probe=stat_of(Kind.DIRECTORY, 3 * DAY_SECONDS))
+    root = gc_root(probe=stat_of(Kind.DIRECTORY, STALE_AGE))
 
     assert decide_stale_root(root, {TMP}, NOW) == Keep(ENTRY, Policy.NOT_A_LINK)
 
@@ -349,42 +350,37 @@ def test_the_owner_gets_the_link_itself() -> None:
 
 
 def test_another_account_s_link_stays() -> None:
-    root = gc_root(probe=stat_of(Kind.SYMLINK, 3 * DAY_SECONDS, UID + 1))
+    root = gc_root(probe=stat_of(Kind.SYMLINK, STALE_AGE, UID + 1))
 
     assert decide_own_stale_root(root, {TMP}, NOW, UID) == Keep(
         LINK_PATH, Policy.OTHER_OWNER
     )
 
 
-@given(
-    names,
-    relative_paths,
-    ages,
-    probes | st.just(stat_of(Kind.SYMLINK, 3 * DAY_SECONDS)),
-)
+@given(names, relative_paths, stats)
 def test_a_parent_that_resolves_elsewhere_is_never_removed(
-    name: str, below: PurePath, age: float, probe: Probe
+    name: str, below: PurePath, probe: Stat
 ) -> None:
     root = gc_root(
-        TMP / below / name,
-        probe if isinstance(probe, Stat) else stat_of(Kind.SYMLINK, age),
-        resolved_parent=PurePath("/elsewhere") / below,
+        TMP / below / name, probe, resolved_parent=PurePath("/elsewhere") / below
     )
 
     assert isinstance(decide_stale_root(root, {TMP}, NOW), Keep)
     assert isinstance(decide_own_stale_root(root, {TMP}, NOW, UID), Keep)
 
 
-@given(ages, probes)
+@given(probes)
 def test_a_root_is_unregistered_only_when_a_known_link_older_than_two_days(
-    age: float, probe: Probe
+    probe: Probe,
 ) -> None:
-    link_probe = replace(probe, mtime=NOW - age) if isinstance(probe, Stat) else probe
+    decision = decide_stale_root(gc_root(probe=probe), {TMP}, NOW)
 
-    decision = decide_stale_root(gc_root(probe=link_probe), {TMP}, NOW)
-
-    is_link = isinstance(probe, Stat) and probe.kind is Kind.SYMLINK
-    assert isinstance(decision, Remove) == (is_link and age > 2 * DAY_SECONDS)
+    stale_link = (
+        isinstance(probe, Stat)
+        and probe.kind is Kind.SYMLINK
+        and NOW - probe.mtime > 2 * DAY_SECONDS
+    )
+    assert isinstance(decision, Remove) == stale_link
 
 
 @given(names, st.integers(min_value=0, max_value=2000))
@@ -396,13 +392,31 @@ def test_a_generation_shaped_name_is_never_unregistered(
     assert isinstance(decide_stale_root(root, {TMP}, NOW), Keep)
 
 
-@given(st.integers(min_value=0, max_value=2000))
+@given(uids)
 def test_only_the_link_s_owner_may_remove_it(uid: int) -> None:
-    root = gc_root(probe=stat_of(Kind.SYMLINK, 3 * DAY_SECONDS, uid))
+    root = gc_root(probe=stat_of(Kind.SYMLINK, STALE_AGE, uid))
 
     decision = decide_own_stale_root(root, {TMP}, NOW, UID)
 
     assert isinstance(decision, Remove) == (uid == UID)
+
+
+def test_the_owner_keeps_a_link_whose_state_cannot_be_read() -> None:
+    root = gc_root(probe=UNKNOWN)
+
+    assert decide_own_stale_root(root, {TMP}, NOW, UID) == Keep(LINK_PATH, UNKNOWN)
+
+
+def test_the_owner_has_nothing_to_remove_when_the_link_is_gone() -> None:
+    root = gc_root(probe=Absent())
+
+    assert decide_own_stale_root(root, {TMP}, NOW, UID) == Keep(LINK_PATH, Policy.GONE)
+
+
+def test_the_owner_keeps_an_unreadable_root() -> None:
+    root = GcRoot(ENTRY, UNKNOWN)
+
+    assert decide_own_stale_root(root, {TMP}, NOW, UID) == Keep(ENTRY, UNKNOWN)
 
 
 def render_worktrees(worktrees: list[ListedWorktree]) -> str:
@@ -540,5 +554,6 @@ def test_a_swapped_parent_reads_as_resolving_elsewhere(tmp_path: Path) -> None:
     link = read_result_link(entry)
 
     assert isinstance(link, ResultLink)
-    assert link.resolved_parent == outside.resolve()
-    assert decide_stale_root(GcRoot(entry, link), {tmp_path}, NOW) != Remove(entry)
+    assert decide_stale_root(GcRoot(entry, link), {tmp_path}, FUTURE_NOW) == Keep(
+        entry, Policy.SWAPPED_PARENT
+    )
