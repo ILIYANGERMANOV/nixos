@@ -128,7 +128,10 @@ nothing there names a harness. `programs/claude-code/agents.nix` renders them.
 Adding a role is one record and its prose.**
 
 A spawned general-purpose agent starts at about 43k tokens, 18k of that MCP
-schemas no subagent uses. A role starts at 5-13k, so flows spawn them freely.
+schemas no subagent uses. A role starts far lower, so flows spawn them freely.
+Approximate first-call context, factory render, "reply ok" task, measured before
+the last refactor and fixes: reviewer 6.0k, researcher 8.1k, fixer 11.2k,
+review-lead 11.6k, implementer 13.3k.
 
 - A record has `name`, `description`, `instructions` (prose paths; `core.md` goes
   in front), `capabilities` (`read edit shell web delegate`), `skills`, `tier` and

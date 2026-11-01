@@ -178,45 +178,43 @@ let
   agentSources = renderAgents agents.subagents.all [ ];
   factoryAgentSources = renderAgents agents.subagents.all [ factoryAgentInstructions ];
 
+  # `force`: a dev shell may have installed a plain copy here, see
+  # shellActivationScript. Home Manager would keep backing it up, and abort once
+  # a backup already exists.
   toHomeFiles = lib.mapAttrs' (
-    name: source: lib.nameValuePair ".claude/agents/${name}.md" { inherit source; }
+    name: source:
+    lib.nameValuePair ".claude/agents/${name}.md" {
+      inherit source;
+      force = true;
+    }
   );
 
   # What one kind of agent starts with and reads for its work, on top of what
   # every agent carries, for the size budget: files, by path. A role counts at
-  # its largest, the factory's render.
+  # its largest, the factory's render. Keyed by the records, so a new role has no
+  # ceiling in budget.json and fails the check until it gets one.
   budgetLoads =
     let
       inherit (agents.skills) all;
       review = "${all.pragmatic-review}/references";
-      roles = factoryAgentSources;
+      # A role's references, beyond the skills it preloads.
+      reads = {
+        reviewer = [
+          "${review}/bar.md"
+          "${review}/blockers.md"
+        ];
+        review-lead = [
+          "${review}/first-pass.md"
+          "${review}/bar.md"
+        ];
+      };
+      roleLoad =
+        name: role:
+        [ factoryAgentSources.${name} ]
+        ++ map (skill: "${all.${skill}}/SKILL.md") role.skills
+        ++ reads.${name} or [ ];
     in
-    {
-      reviewer = [
-        roles.reviewer
-        "${review}/bar.md"
-        "${review}/blockers.md"
-      ];
-      review-lead = [
-        roles.review-lead
-        "${all.pragmatic-review}/SKILL.md"
-        "${review}/first-pass.md"
-        "${review}/bar.md"
-      ];
-      implementer = [
-        roles.implementer
-        "${all.engineering}/SKILL.md"
-      ];
-      fixer = [
-        roles.fixer
-        "${all.engineering}/SKILL.md"
-      ];
-      researcher = [
-        roles.researcher
-        "${all.researcher}/SKILL.md"
-      ];
-      repo-instructions = [ ../../CLAUDE.md ];
-    };
+    lib.mapAttrs roleLoad agents.subagents.all // { repo-instructions = [ ../../CLAUDE.md ]; };
 
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
@@ -348,5 +346,16 @@ rec {
     mkdir -p "$HOME/.claude"
     install -m 600 ${baseSettingsFile} "$HOME/.claude/settings.json"
     install -m 600 ${baseInstructions} "$HOME/.claude/CLAUDE.md"
+  '';
+
+  # activationScript for a dev shell, where no Home Manager places `agentFiles`:
+  # the install shells run on machines that have none yet.
+  shellActivationScript = activationScript + ''
+    mkdir -p "$HOME/.claude/agents"
+    ${lib.concatStrings (
+      lib.mapAttrsToList (name: source: ''
+        install -m 600 ${source} "$HOME/.claude/agents/${name}.md"
+      '') agentSources
+    )}
   '';
 }
