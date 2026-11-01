@@ -97,7 +97,7 @@
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
           # The real Claude Code configuration: no catalog skill hidden, and
-          # instructions and skill listing under their committed ceilings.
+          # every measured size under its committed ceiling.
           claude-config =
             (import ./adapters/claude-code.nix {
               inherit inputs pkgs;

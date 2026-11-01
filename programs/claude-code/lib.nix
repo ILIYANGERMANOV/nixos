@@ -183,10 +183,10 @@ let
   #
   # The directory is replaced wholesale rather than reconciled, so switching
   # flavors can never leave a stale entry behind. The cost is that anything
-  # hand-placed there is discarded on the next launch — prototype in a project's
+  # hand-placed there is discarded on the next launch - prototype in a project's
   # .claude/skills or .claude/agents instead, then commit to programs/agents.
   #
-  # Entries are per-entry symlinks into the store rather than one symlink for the
+  # Each entry is its own symlink into the store, rather than one symlink for the
   # whole directory: per-entry symlinks are what Claude Code documents support for.
   mkApplyLinks =
     dir: farm:

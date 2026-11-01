@@ -105,5 +105,8 @@ in
 
   # The same validation for skills outside this catalog, such as the factory
   # admin agent's project-scoped ones.
-  inherit mkCheck frontmatter;
+  inherit mkCheck;
+
+  # For checks outside this catalog that parse a markdown file's frontmatter.
+  inherit frontmatter;
 }

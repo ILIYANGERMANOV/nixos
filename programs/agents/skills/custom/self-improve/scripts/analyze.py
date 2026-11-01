@@ -213,9 +213,9 @@ class Agent:
         return max((r.usage.context for r in self.responses), default=0)
 
     @property
-    def first_context(self) -> int | None:
-        """Its start-up size: the context of its first real call. An API error is a line with no usage."""
-        return next((r.usage.context for r in self.responses if r.usage.context), None)
+    def first_context(self) -> int:
+        """Its start-up size: the context of its first real call, 0 with none. An API error is a line with no usage."""
+        return next((r.usage.context for r in self.responses if r.usage.context), 0)
 
 
 def effective(agents: Iterable[Agent]) -> float:
@@ -1279,7 +1279,7 @@ def startup_sizes(agents: list[tuple[Session, Agent]]) -> str:
 
 
 def startup_cells(group: list[Agent]) -> list[str]:
-    contexts = [a.first_context or 0 for a in group]
+    contexts = [a.first_context for a in group]
     instructions = [a.instruction_chars // CHARS_PER_TOKEN for a in group]
     listings = [a.listing_chars // CHARS_PER_TOKEN for a in group]
     remainders = [c - i - l for c, i, l in zip(contexts, instructions, listings)]
@@ -1311,12 +1311,12 @@ def skills(agents: list[tuple[Session, Agent]]) -> str:
 
 
 def quality_costs(sessions: list[Session]) -> str:
-    groups: dict[str, list[tuple[Session, list[Agent]]]] = defaultdict(list)
+    groups: dict[str, list[list[Agent]]] = defaultdict(list)
     for s in sessions:
         for quality, group in quality_groups(s).items():
-            groups[quality].append((s, group))
-    ranked = sorted(groups.items(), key=lambda kv: -sum(effective(g) for _, g in kv[1]))
-    rows = [[quality, *quality_cells([g for _, g in parts])] for quality, parts in ranked]
+            groups[quality].append(group)
+    ranked = sorted(groups.items(), key=lambda kv: -sum(effective(g) for g in kv[1]))
+    rows = [[quality, *quality_cells(parts)] for quality, parts in ranked]
     header = ["mode", "sessions", "PRs", "agents", "effective", "per PR, median"]
     activated = [a for s in sessions for a in self_activated_trivial(s)]
     counted = f"Reviews that activated Trivial themselves: {len(activated)}, {kilo(effective(activated))} effective."

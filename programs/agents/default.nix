@@ -26,8 +26,10 @@ in
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format, even
   # though Claude Code is currently its only consumer.
+  inherit skills;
+
   # The subagent definitions. Each agent program installs them its own way.
-  inherit skills subagents;
+  inherit subagents;
 
   # Every build-time check over shared agent config, wired into `nix flake check`
   # as `checks.agents`.
