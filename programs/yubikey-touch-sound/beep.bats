@@ -9,7 +9,7 @@ load ../shell-check/test_helper
 setup() {
   export WORK="$BATS_TEST_TMPDIR"
   export afplay=afplay sound=/sounds/hero.aiff volume=6
-  export interval=0.01 timeout_seconds=30
+  export interval=0.01 timeout_seconds=120
   export BEEP="$BATS_TEST_DIRNAME/beep.sh"
   # beep as a program of its own, whose EXIT outlives its own traps: orphaned, its
   # end cannot be waited on.
