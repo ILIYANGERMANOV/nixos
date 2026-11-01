@@ -19,18 +19,16 @@
 # factory-install asks for it back from Bitwarden.
 #
 # Generate the software-factory age key into the clipboard (for Bitwarden)
-[positional-arguments]
 factory-generate-age-key:
-    @bash just/scripts/factory-generate-age-key.sh "$@"
+    @bash just/scripts/factory-generate-age-key.sh
 
 # Fills secrets/hosts/software-factory.yaml with everything the host declares:
 # the admin password (reusing set-password-hash), the Tailscale auth key, the
 # bot's GitHub token, and the probe modules/secrets.nix requires.
 #
 # Write every secret software-factory needs into its sops file
-[positional-arguments]
 factory-secrets:
-    @bash just/scripts/factory-secrets.sh "$@"
+    @bash just/scripts/factory-secrets.sh
 
 # The server pulls deploys from this repository's GitHub deployments and posts
 # the result back, with a fine-grained token of the repository owner: this

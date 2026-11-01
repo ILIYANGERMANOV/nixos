@@ -3,15 +3,12 @@
 # the `''` delimiters, less the blank line each delimiter leaves: blank lines and
 # comments inside count, and a multi-line `${ }` counts as many lines as it spans.
 
-# `split` gives [] for "", so a line may be null here.
-def blank: (. // "") | test("^\\s*$");
-
 def shellLines:
   ltrimstr("''")
   | rtrimstr("''")
-  | split("\n")
-  | if (.[0] | blank) then .[1:] else . end
-  | if (.[-1] | blank) then .[:-1] else . end;
+  | sub("\\A[ \t]*\n"; "")
+  | sub("\n[ \t]*\\z"; "")
+  | split("\n");
 
 .[]
 | {

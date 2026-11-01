@@ -2,10 +2,7 @@
 set -euo pipefail
 # shellcheck source=/dev/null
 source "${BASH_SOURCE[0]%/*}/ssh-common.sh"
-HOST=$(hostname -s)
-# shellcheck disable=SC2311 # as it was inline: only the status of the last eval counts
-EMAIL=$(ssh_email)
-require_email "$EMAIL" "$HOST"
+ssh_identity
 KEY="$HOME/.ssh/id_ed25519_sk_backup"
 
 require_fido_pin "the plugged-in YubiKey"

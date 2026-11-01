@@ -42,14 +42,12 @@ yubikey-verify-pin:
     echo "✓ PIN verified — you still know it, and the retry counter is reset to full."
 
 # Enroll the PRIMARY YubiKey for this host (generate the resident credential + stub).
-[positional-arguments]
 setup-yubikey-ssh:
-    @bash just/scripts/setup-yubikey-ssh.sh "$@"
+    @bash just/scripts/setup-yubikey-ssh.sh
 
 # Enroll the BACKUP YubiKey for this host (plug in the SECOND key first).
-[positional-arguments]
 enroll-backup-yubikey:
-    @bash just/scripts/enroll-backup-yubikey.sh "$@"
+    @bash just/scripts/enroll-backup-yubikey.sh
 
 # Restore the local stub file on a fresh/rebuilt machine from the plugged-in YubiKey.
 # Prompts for the FIDO2 PIN — this is why a stolen token alone is useless.

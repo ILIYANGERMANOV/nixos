@@ -56,6 +56,5 @@ alias darwin-restore-age-key := darwin-install-age-key
 # brand-new key - to reuse a key you already have, run darwin-install-age-key.
 #
 # Generate a brand-new SOPS age private key on this Mac
-[positional-arguments]
 darwin-generate-age-key:
-    @bash just/scripts/darwin-generate-age-key.sh "$@"
+    @bash just/scripts/darwin-generate-age-key.sh

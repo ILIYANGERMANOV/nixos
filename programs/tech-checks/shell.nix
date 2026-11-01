@@ -45,7 +45,8 @@ let
     (root + "/Justfile")
     (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
   ];
-  # `check.nix` holds a program's test fakes, and the fixture is only ever that.
+  # Out of the scan: a `check.nix` holds a program's test fakes, and
+  # `shell-limits-check.nix` is over the limit on purpose.
   nixFiles = lib.fileset.fileFilter (
     file:
     file.hasExt "nix"
@@ -155,13 +156,15 @@ in
         ];
       }
       ''
-        recipes() {
+        long_recipes() {
           just --justfile "$1" --dump --dump-format json |
-            jq '.recipes | to_entries[] | {name: .key, where: .key, lines: (.value.body | length)}'
+            jq '.recipes | to_entries[] | {name: .key, where: .key, lines: (.value.body | length)}' |
+            over 30
         }
-        strings() {
+        long_strings() {
           (cd "$1" && ast-grep scan --rule ${./nix-shell-strings.yml} --json=compact .) |
-            jq -f ${./nix-shell-strings.jq}
+            jq -f ${./nix-shell-strings.jq} |
+            over 5
         }
         over() {
           jq -r --argjson limit "$1" --argjson exempt ${lib.escapeShellArg (builtins.toJSON shellLimitExempt)} \
@@ -175,14 +178,14 @@ in
           status=1
         }
 
-        recipes ${./shell-limits.just} | over 30 | diff - ${builtins.toFile "shell-limits-just.expected" ''
+        long_recipes ${./shell-limits.just} | diff - ${builtins.toFile "shell-limits-just.expected" ''
           over-limit: 31 lines
           shebang-over-limit: 31 lines
         ''}
 
         mkdir fixture
         cp ${./shell-limits-check.nix} fixture/shell-limits-check.nix
-        strings fixture | over 5 | diff - ${builtins.toFile "shell-limits-nix.expected" ''
+        long_strings fixture | diff - ${builtins.toFile "shell-limits-nix.expected" ''
           shell-limits-check.nix:103: 6 lines
           shell-limits-check.nix:111: 6 lines
           shell-limits-check.nix:119: 6 lines
@@ -197,8 +200,8 @@ in
           shell-limits-check.nix:194: 6 lines
         ''}
 
-        recipes ${justSource}/Justfile | over 30 > recipes
-        strings ${nixSource} | over 5 > strings
+        long_recipes ${justSource}/Justfile > recipes
+        long_strings ${nixSource} > strings
 
         status=0
         report recipes "recipe over 30 lines, move to a .sh"
