@@ -82,12 +82,12 @@ follow the skill's `## Delegated` section.
 
 ## Fixer prompt
 
-For CI failures, requested changes and rebases, a fresh background subagent:
+For CI failures, requested changes and rebases, a fresh background
+`subagent_type: fixer` agent:
 
 ```text
 <the data line from SKILL.md's Rules>
-Quality: <the task's>. Invoke `engineering` first. Worktree: <path>, use it for every command, and
-read its `CLAUDE.md` or `AGENTS.md`. PR: <URL>, base <base>. Fix: <the failing
+Quality: <the task's>. Worktree: <path>, use it for every command. PR: <URL>, base <base>. Fix: <the failing
 check and its log, the review comments, or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
 HEAD`. Hand back in about 250 words, never over 300, starting with exactly one
 of `READY <PR URL>`, `NEEDS_DECISION <question>`, `BLOCKED <reason>` or

@@ -36,8 +36,8 @@ deepen the review, never skip a check, so taking it from the PR body is safe.
 
 ### 2. Review
 
-Spawn one fresh agent in the foreground (`run_in_background: false`),
-description `Final review`, whose prompt is "invoke `pragmatic-review` with:
+Spawn one fresh `subagent_type: review-lead` agent in the foreground
+(`run_in_background: false`), description `Final review`, whose prompt is "invoke `pragmatic-review` with:
 Quality: <mode>, not Trivial <PR> <requirements>". It returns the
 findings table, the requirement verdicts, a `Security:` line, the verdict and
 `Reviewed head: <sha>`. Record the head and the verdicts.
@@ -54,7 +54,7 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
 
 ### 4. Act
 
-- **Fix**: hand the chosen rows to a fixer subagent that follows `engineering`,
+- **Fix**: hand the chosen rows to a `subagent_type: fixer` agent,
   fixes only those rows, runs targeted checks (the full check only when the
   fix is large; it is the last to push), commits and pushes. Fix locally:
   edit only, no commit or push.
@@ -68,7 +68,7 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
 
 ### 5. Re-review the fix only
 
-After a fix is pushed, spawn one fresh agent: "invoke `pragmatic-review` with:
+After a fix is pushed, spawn one fresh `review-lead` agent: "invoke `pragmatic-review` with:
 Quality: <mode>, not Trivial <PR> --fixes <Reviewed head> <the same requirements> and
 'finding N is fixed: <the row's What and Impact>' for each fixed row". It reviews only the fix diff. A Major it raises gets one
 more fixer round and no further re-review; say so in the report. Nothing

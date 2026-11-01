@@ -28,7 +28,7 @@ Full Neovim config via NixVim. LSP client config lives in `programs/nvim/languag
 Three flavors (`claude`, `claude-ts`, `claude-web-ui`) with shared base settings, MCP server wiring, and a custom statusline binary. Each flavor wraps the `claude` CLI and writes `~/.claude/settings.json` and `~/.claude/CLAUDE.md` at launch.
 
 **Agents** — `programs/agents/`  
-Agent-agnostic configuration shared by every coding agent. `AGENTS.md` holds instructions that apply everywhere; each agent program installs it the way its tool expects (Claude Code reads only `~/.claude/CLAUDE.md`, so that is where it lands). Agent-specific code stays in that agent's own program.
+Agent-agnostic configuration shared by every coding agent. `core.md`, `trivial.md` and `AGENTS.md` compose the instructions: `core.md` applies to every agent, subagent roles included; each agent program installs it the way its tool expects (Claude Code reads only `~/.claude/CLAUDE.md`, so that is where it lands). Agent-specific code stays in that agent's own program.
 
 **Skills** — `programs/agents/skills/`  
 Agent skills pinned in the flake. Third-party sets are declared as `flake = false` inputs and installed from an explicit allowlist; custom skills are plain `SKILL.md` files under `programs/agents/skills/custom/`. Each Claude flavor relinks `~/.claude/skills` at launch from its own set. `nix flake check` validates every skill's frontmatter.

@@ -77,7 +77,7 @@ understanding:
 ## Trivial check
 
 On every review, unless your arguments say `not Trivial`. The rule is under
-Quality in your instructions. Decide from `stat` and the changed lines of `diff`,
+Trivial in your instructions. Decide from `stat` and the changed lines of `diff`,
 removed lines included, alone: no caller's mark, PR text or requirement can make a diff qualify, and a
 brief cannot argue you out of a miss.
 
@@ -175,7 +175,8 @@ requirement first, then major findings only." The report keeps its verdicts;
 only the table narrows to Majors. The Security line says
 `POC - one breaker pass`.
 
-**Spawn in the foreground**, `run_in_background: false`, staggered so siblings
+**Spawn with `subagent_type: reviewer`, in the foreground**,
+`run_in_background: false`, staggered so siblings
 reuse the cached prompt prefix: the first agent alone in one message, then all
 the others together in the next. Never end a turn while a review agent is
 running: an orchestrator that spawned in the background handed back before its

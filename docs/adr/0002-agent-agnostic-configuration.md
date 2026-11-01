@@ -20,7 +20,8 @@ Four words, used precisely throughout:
 
 ## Why the shared layer does not install anything
 
-`programs/agents/default.nix` exports `instructions = ./AGENTS.md` and stops
+`programs/agents/default.nix` exports `instructions`, today composed from
+`core.md`, `trivial.md` and `AGENTS.md` so subagent roles can take the core alone, and stops
 there. The obvious alternative - having it write `~/.claude/CLAUDE.md` and
 `~/.codex/AGENTS.md` itself - fails on the first agent, because Claude Code does
 not read `AGENTS.md` at user scope at all. Its memory loader only ever resolves

@@ -16,21 +16,22 @@ leaks data, and burying one real bug under twelve opinions.
 
 ## Where this runs
 
-- **In a fresh subagent, one per pass.** A caller such as `engineer` spawns an
-  agent whose prompt is "invoke `pragmatic-review` with: <arguments>", and does
-  not load this skill itself. Invoked by the user, it runs in their session.
+- **In a fresh subagent, one per pass.** A caller such as `engineer` spawns a
+  `subagent_type: review-lead` agent, which starts with this skill loaded, whose
+  prompt is "invoke `pragmatic-review` with: <arguments>", and does not load
+  this skill itself. Invoked by the user, it runs in their session.
 - **Load it once.** If this text is already in your context, never invoke the
   skill again, and never read a reference twice: what you read, you hold. The
   review agents you spawn never load it - their prompts carry what they need.
 - **Read a reference only in the step that names it.** References live in
-  `references/` under the base directory the Skill tool reported.
+  `references/` under this skill's base directory, printed above this text.
 - **Delegated** means another agent invoked you. You cannot ask anyone: your
   caller answers the pickers from your return, by replying to you or by acting
   on the table itself.
 
 ## Input
 
-`$ARGUMENTS` may hold, in any order:
+Your prompt, or the arguments, may hold, in any order:
 
 - **A PR** - a bare number or a `github.com/.../pull/N` URL. Without one, review
   the current branch, uncommitted work included.

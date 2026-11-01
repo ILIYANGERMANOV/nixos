@@ -33,6 +33,7 @@ let
   contextGuard = import ./context-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
+  renderAgents = import ./agents.nix { inherit pkgs lib; };
 
   model = "opus";
   effortLevel = "medium";
@@ -170,25 +171,48 @@ let
     ]
   ) (_: "user-invocable-only");
 
-  # What one kind of agent reads for its work, on top of what every agent
-  # carries, for the size budget: files, by path.
+  # The factory's subagents get this on top of the shared records, and no other
+  # host does.
+  factoryAgentInstructions = ./factory-core.md;
+
+  agentSources = renderAgents agents.subagents.all [ ];
+  factoryAgentSources = renderAgents agents.subagents.all [ factoryAgentInstructions ];
+
+  toHomeFiles = lib.mapAttrs' (
+    name: source: lib.nameValuePair ".claude/agents/${name}.md" { inherit source; }
+  );
+
+  # What one kind of agent starts with and reads for its work, on top of what
+  # every agent carries, for the size budget: files, by path. A role counts at
+  # its largest, the factory's render.
   budgetLoads =
     let
       inherit (agents.skills) all;
       review = "${all.pragmatic-review}/references";
+      roles = factoryAgentSources;
     in
     {
-      review-agent = [
-        "${review}/first-pass.md"
+      reviewer = [
+        roles.reviewer
         "${review}/bar.md"
         "${review}/blockers.md"
       ];
+      review-lead = [
+        roles.review-lead
+        "${all.pragmatic-review}/SKILL.md"
+        "${review}/first-pass.md"
+        "${review}/bar.md"
+      ];
       implementer = [
-        "${all.engineer}/references/implementer.md"
+        roles.implementer
+        "${all.engineering}/SKILL.md"
+      ];
+      fixer = [
+        roles.fixer
         "${all.engineering}/SKILL.md"
       ];
       researcher = [
-        agents.subagents.all.researcher
+        roles.researcher
         "${all.researcher}/SKILL.md"
       ];
       repo-instructions = [ ../../CLAUDE.md ];
@@ -244,7 +268,10 @@ rec {
   factory = {
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
-        extraInstructions = [ ./factory-instructions.md ];
+        extraInstructions = [
+          factoryAgentInstructions
+          ./factory-instructions.md
+        ];
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
         applySkills = farm: "${lib.getExe linkSkills} ${farm}";
@@ -288,13 +315,13 @@ rec {
       };
     });
     unwrapped = claude-code;
+    agentFiles = toHomeFiles factoryAgentSources;
   };
 
-  # home.file entries for the subagents. Every flavor gets the same ones, so
-  # unlike skills they need no per-flavor relink.
-  agentFiles = lib.mapAttrs' (
-    name: source: lib.nameValuePair ".claude/agents/${name}.md" { inherit source; }
-  ) agents.subagents.all;
+  # home.file entries for the subagents. Every flavor of a profile gets the same
+  # ones, so unlike skills they need no per-flavor relink. The factory profile
+  # installs `factory.agentFiles` instead.
+  agentFiles = toHomeFiles agentSources;
 
   # checks.claude-config: this configuration against its size ceilings. See
   # config-check.nix.
@@ -304,6 +331,8 @@ rec {
     hiddenSkills = lib.attrNames skillOverrides;
     skillNames = agents.skills.names;
     flavors = packages ++ [ factory.wrapper ];
+    inherit baseSkills agentSources factoryAgentSources;
+    roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.subagents.all);
     loads = budgetLoads;
     ceilings = ./budget.json;
   };
