@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+set -o pipefail
 if [ "$#" -ne 2 ]; then
   echo "usage: qa-mp4 <in.webm> <out.mp4>" >&2
   exit 2

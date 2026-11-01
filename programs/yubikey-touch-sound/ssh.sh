@@ -1,4 +1,4 @@
-# shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
+# shellcheck shell=bash disable=SC2154,SC2312 # set by another fragment, and PIPESTATUS reads what the pipe would mask
 export SSH_ASKPASS="$askpass"
 # macOS has no X server; ssh only consults DISPLAY for X11 forwarding,
 # which is off. A real value (XQuartz) wins if one is already set.

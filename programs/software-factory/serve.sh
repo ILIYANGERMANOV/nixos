@@ -13,7 +13,7 @@ serve() {
 
   GH_TOKEN=$(cat "$gh_token_file")
   export GH_TOKEN
-  cd "$dir"
+  cd "$dir" || exit
   exec "$claude_unwrapped" remote-control --name "$name" "$@"
 }
 
