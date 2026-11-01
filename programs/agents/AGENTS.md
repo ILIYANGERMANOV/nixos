@@ -56,11 +56,9 @@ costs rework, tech debt and bugs.
   CI has the final say.
 - Run anything expected to take over a minute with `run_in_background`. It
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
-- Foreground Bash caps at 10 minutes. If a check may pass that and a rerun
-  resumes it, the fresh small check agent runs it under `timeout 590` and
-  reruns it on exit 124, since the wait guard blocks waiting on a log. If no
-  rerun resumes it, it hands back and the top-level agent runs it with
-  `run_in_background`.
+- A check that may pass the foreground Bash cap goes to a fresh small check
+  agent. If no rerun resumes it, that agent hands back and the top-level agent
+  runs it with `run_in_background`.
 
 ## Context budget
 
