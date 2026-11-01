@@ -9,19 +9,25 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+import bash_commands
 import pytest
 from guard_harness import (
     ALLOWED,
     BLOCKED,
+    BROKEN_SHFMT,
     FAIL_OPEN_CASES,
+    BrokenShfmt,
     Case,
     bash_event,
     guard_cases,
+    guard_on,
+    guard_on_broken,
     run_guard,
     tool_event,
 )
 
 GUARD = os.environ["READ_GUARD"]
+SOURCE = "read-guard.py"
 LARGE = 9000  # Under the limit alone, over it together.
 HUGE = 20000  # Over the limit alone.
 
@@ -29,6 +35,7 @@ type ToolInput = dict[str, int]
 
 BASH_CASES: list[Case[str]] = [
     (BLOCKED, "a single large file is blocked", "cat huge"),
+    (ALLOWED, "invalid Bash is allowed, whatever it names", "cat huge && ("),
     (ALLOWED, "a file under the limit is allowed", "cat big-a"),
     (ALLOWED, "small files read together are allowed", "cat small-a small-b"),
     (BLOCKED, "large files read together are blocked", "cat big-a big-b"),
@@ -200,6 +207,8 @@ BASH_CASES: list[Case[str]] = [
         "cat CLAUDE.md huge",
     ),
     (BLOCKED, "a single large blob is blocked", "git show HEAD:huge"),
+    (BLOCKED, "a cat after an assignment is blocked", "LC_ALL=C cat huge"),
+    (ALLOWED, "a compound piped away is allowed", "{ cat huge; } | head"),
     (
         BLOCKED,
         "an exempt blob does not exempt a blob over the limit",
@@ -275,11 +284,16 @@ class Project:
     def expand(self, text: str) -> str:
         return text.replace("$DIR", str(self.root)).replace("$HOME", str(self.home))
 
-    def decide(self, event: str) -> subprocess.CompletedProcess[str]:
-        return run_guard([GUARD], event, os.environ | {"HOME": str(self.home)})
+    def decide(
+        self, event: str, guard: list[str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ | {"HOME": str(self.home)}
+        return run_guard([GUARD] if guard is None else guard, event, env)
 
-    def bash(self, command: str) -> subprocess.CompletedProcess[str]:
-        return self.decide(bash_event(self.expand(command), cwd=str(self.root)))
+    def bash(
+        self, command: str, guard: list[str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        return self.decide(bash_event(self.expand(command), cwd=str(self.root)), guard)
 
     def read(
         self, file_path: str, tool_input: ToolInput
@@ -306,6 +320,23 @@ def test_read_call(project: Project, want: int, given: tuple[str, ToolInput]) ->
 @guard_cases(RAW_CASES + FAIL_OPEN_CASES)
 def test_raw_input(project: Project, want: int, given: str) -> None:
     assert project.decide(given).returncode == want
+
+
+def test_a_working_shfmt_blocks_on_the_runner_of_the_broken_ones(
+    project: Project,
+) -> None:
+    result = project.bash("cat huge", guard_on(SOURCE, bash_commands.SHFMT))
+
+    assert result.returncode == BLOCKED
+
+
+@guard_cases(BROKEN_SHFMT)
+def test_a_broken_shfmt_allows_a_large_read(
+    project: Project, tmp_path: Path, want: int, given: BrokenShfmt
+) -> None:
+    result = project.bash("cat huge", guard_on_broken(SOURCE, given, tmp_path))
+
+    assert (result.returncode, result.stderr) == (want, "")
 
 
 def test_a_bash_block_carries_the_hint(project: Project) -> None:
