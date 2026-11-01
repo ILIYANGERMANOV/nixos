@@ -26,11 +26,34 @@ A tech check takes source through `lib.fileset`, evaluates no host and uses no
 import from derivation. That is what keeps a group to seconds, and a commit that
 touches none of its files reuses the store path on the box.
 
-Shell has six: `shell-actionlint` (workflows), `shell-lint` (every `.sh`, `.bats`
+Shell has seven: `shell-actionlint` (workflows), `shell-lint` (every `.sh`, `.bats`
 and `.bash`), `shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and
-no `{{ }}` on a sudo line), `shell-embedded` (wrappers no other check builds) and
-`shell-tests` (the software factory's bats suites). The lint rules live in
-`programs/shell-check`, shared with `writeShellApplication`.
+no `{{ }}` on a sudo line), `shell-limits` (how much shell may sit outside a
+`.sh`), `shell-embedded` (wrappers no other check builds) and `shell-tests` (the
+software factory's bats suites). The lint rules live in `programs/shell-check`,
+shared with `writeShellApplication`.
+
+`shell-limits` keeps logic where the other checks can see it, in a `.sh`:
+
+| Side | Measures | Limit |
+|---|---|---|
+| Just | Every line of a recipe's body, from `just --dump` | 30 |
+| Nix | A `''` string in a shell sink, found by `ast-grep` over `nix-shell-strings.yml` | 5 |
+
+- The Nix sinks are an allowlist: `writeShellScript`, `writeScript`, the local
+  `launcher`, Home Manager's `entry*`, `text` in `writeShellApplication`, and
+  bindings such as `script`, `shellHook`, `Exec*`, `*Phase`, `pre*`, `post*` and
+  `activation.*`. So `writeText` data and Lua stay free, and `initContent`, which
+  is zsh, is a known gap.
+- A Nix count is source lines between the delimiters. Blank lines and comments
+  count, and a multi-line `${ }` counts by the lines it spans.
+- One fixture per side (`shell-limits.just`, `shell-limits-check.nix`) proves the
+  boundary and the negatives on every run. The Nix fixture is the one file out of
+  the repo-wide scan, since it breaks the limit on purpose.
+- The one exempt list is in `shell.nix`, keyed by recipe name or Nix file stem.
+
+Known gaps: `runCommand` bodies, `initContent`, a let-bound string spliced into a
+script by name (`${snippet}`), and multi-line double-quoted strings.
 
 `shell-tests` is the one that runs what it checks. It needs only `pkgs`, so it
 stays a tech check, and it replaced `checks.software-factory`. Its suites run one

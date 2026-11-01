@@ -10,6 +10,7 @@
 { pkgs }:
 let
   inherit (pkgs) lib stdenv;
+  shellCheck = import ../shell-check { inherit pkgs; };
 
   version = "263.7084.0";
   base = "https://download.jetbrains.com/language-server/kotlin-server/${version}";
@@ -77,17 +78,7 @@ stdenv.mkDerivation {
   # Stripping would break the runtime's signed and checksummed binaries.
   dontStrip = true;
 
-  installPhase = ''
-    runHook preInstall
-    mkdir -p $out/libexec $out/bin
-    cp -r . $out/libexec/kotlin-lsp
-    # The launcher finds its jars and runtime relative to its own path, so
-    # it is wrapped, never symlinked. `intellij-server` is the name
-    # lspconfig's `kotlin_lsp` runs; `kotlin-lsp` the one people type.
-    makeWrapper $out/libexec/kotlin-lsp/bin/intellij-server $out/bin/intellij-server
-    ln -s intellij-server $out/bin/kotlin-lsp
-    runHook postInstall
-  '';
+  installPhase = shellCheck.fragment ./lsp-install.sh;
 
   meta = {
     description = "Kotlin language server by JetBrains";

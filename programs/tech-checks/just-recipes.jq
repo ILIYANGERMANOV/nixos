@@ -30,7 +30,7 @@ def sudoSplices:
 | to_entries[]
 | .key as $name
 | .value
-| (.parameters | map(select(.export) | "\(.name)=__JUST__\n") | join("")) as $prelude
+| (.parameters | map(select(.export) | "export \(.name)=__JUST__\n") | join("")) as $prelude
 | (.body | map(map(fragment) | join(""))) as $lines
 | if .shebang
   then {

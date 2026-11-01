@@ -14,22 +14,11 @@
 # share skills, and such a mix of two farms lasts until the next relink.
 { pkgs }:
 
-(import ../shell-check { inherit pkgs; }).writeShellApplication {
+let
+  shellCheck = import ../shell-check { inherit pkgs; };
+in
+shellCheck.writeShellApplication {
   name = "factory-link-skills";
   runtimeInputs = [ pkgs.coreutils ];
-  text = ''
-    live="$HOME/.claude/skills"
-    mkdir -p "$live"
-    scratch=$(mktemp -d "$HOME/.claude/.skills.XXXXXX")
-    trap 'rm -rf "$scratch"' EXIT
-    ln -s "$1"/* "$scratch/"
-    for link in "$scratch"/*; do
-      mv --no-target-directory "$link" "$live/''${link##*/}"
-    done
-    for entry in "$live"/*; do
-      if [ -L "$entry" ] && [ ! -e "$1/''${entry##*/}" ]; then
-        rm -f "$entry"
-      fi
-    done
-  '';
+  text = shellCheck.fragment ./link-skills.sh;
 }

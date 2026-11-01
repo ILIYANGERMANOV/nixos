@@ -4,6 +4,8 @@
 - architecture#darwin-is-not-nixos#programs/agents/skills/lib#unresolved#source.src
   + "/${root}"
 - architecture#darwin-is-not-nixos#programs/agents/skills/lib#unresolved#sub + "/SKILL.md"
+- architecture#darwin-is-not-nixos#programs/shell-check/default#unresolved#builtins.readFile
+  script
 - architecture#lib-is-private-to-the-flake#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
 - architecture#lib-is-private-to-the-flake#programs/agents/skills/lib#unresolved#dir
@@ -12,7 +14,7 @@
   + "/${root}"
 - architecture#lib-is-private-to-the-flake#programs/agents/skills/lib#unresolved#sub
   + "/SKILL.md"
-- architecture#lib-is-private-to-the-flake#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#lib-is-private-to-the-flake#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#lib-is-private-to-the-flake#programs/tech-checks/lua#unresolved#builtins.readFile
   file
@@ -24,7 +26,7 @@
 - architecture#nixos-is-not-darwin#programs/agents/skills/lib#unresolved#source.src
   + "/${root}"
 - architecture#nixos-is-not-darwin#programs/agents/skills/lib#unresolved#sub + "/SKILL.md"
-- architecture#nixos-is-not-darwin#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#nixos-is-not-darwin#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#nothing-imports-the-flake#programs/agents/skills/lib#unresolved#builtins.readDir
   dir
@@ -34,7 +36,7 @@
   + "/${root}"
 - architecture#nothing-imports-the-flake#programs/agents/skills/lib#unresolved#sub
   + "/SKILL.md"
-- architecture#nothing-imports-the-flake#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#nothing-imports-the-flake#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#nothing-imports-the-flake#programs/tech-checks/lua#unresolved#builtins.readFile
   file
@@ -48,7 +50,7 @@
   + "/${root}"
 - architecture#only-lib-assembles-hosts#programs/agents/skills/lib#unresolved#sub
   + "/SKILL.md"
-- architecture#only-lib-assembles-hosts#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#only-lib-assembles-hosts#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#only-lib-assembles-hosts#programs/tech-checks/lua#unresolved#builtins.readFile
   file
@@ -62,7 +64,7 @@
   + "/${root}"
 - architecture#programs-are-host-agnostic#programs/agents/skills/lib#unresolved#sub
   + "/SKILL.md"
-- architecture#programs-are-host-agnostic#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#programs-are-host-agnostic#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#programs-are-host-agnostic#programs/tech-checks/lua#unresolved#builtins.readFile
   file
@@ -74,7 +76,7 @@
 - architecture#programs-are-isolated#programs/agents/skills/lib#unresolved#source.src
   + "/${root}"
 - architecture#programs-are-isolated#programs/agents/skills/lib#unresolved#sub + "/SKILL.md"
-- architecture#programs-are-isolated#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#programs-are-isolated#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#programs-are-isolated#programs/tech-checks/lua#unresolved#builtins.readFile
   file
@@ -87,7 +89,7 @@
   + "/${root}"
 - architecture#secrets-are-read-in-one-place#programs/agents/skills/lib#unresolved#sub
   + "/SKILL.md"
-- architecture#secrets-are-read-in-one-place#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#secrets-are-read-in-one-place#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#secrets-are-read-in-one-place#programs/tech-checks/lua#unresolved#builtins.readFile
   file
@@ -101,7 +103,7 @@
   + "/${root}"
 - architecture#server-modules-are-server-only#programs/agents/skills/lib#unresolved#sub
   + "/SKILL.md"
-- architecture#server-modules-are-server-only#programs/software-factory/default#unresolved#builtins.readFile
+- architecture#server-modules-are-server-only#programs/shell-check/default#unresolved#builtins.readFile
   script
 - architecture#server-modules-are-server-only#programs/tech-checks/lua#unresolved#builtins.readFile
   file
