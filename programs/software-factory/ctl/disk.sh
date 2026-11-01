@@ -16,9 +16,6 @@
 # Where the /qa skill keeps its login state, scripts and runs, per repository.
 qa_dir="$HOME/.cache/qa"
 
-# Where /10x-engineer keeps its runs and their worktrees.
-tenx_dir="$HOME/.10x"
-
 # free-disk plan | apply: list what would go with sizes, or delete it.
 cmd_free_disk() {
   case "${1:-}" in
@@ -65,22 +62,22 @@ plan_disk() {
   local wt path store_path dead garbage
   echo "Worktrees (clean, pushed, no session):"
   # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r wt; do
+  while IFS= read -r -d '' wt; do
     plan_row "$wt" "${wt#"$repos_dir"/}"
   done < <(prunable_worktrees)
   echo "Caches:"
   # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r path; do
+  while IFS= read -r -d '' path; do
     plan_row "$path" "${path#"$HOME"/}"
   done < <(caches)
   echo "QA runs:"
   # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r path; do
+  while IFS= read -r -d '' path; do
     plan_row "$path" "${path#"$qa_dir"/}"
   done < <(qa_runs)
   echo "Stale GC roots (store path size):"
   # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r path; do
+  while IFS= read -r -d '' path; do
     store_path=$(readlink -f "$path") || true
     plan_row "$store_path" "$path"
   done < <(own_stale_roots)
@@ -101,29 +98,42 @@ apply_disk() {
   local wt path repo before after freed free
   before=$(free_bytes)
   # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r wt; do
+  while IFS= read -r -d '' wt; do
     repo="${wt#"$repos_dir"/}"
     repo="${repo%%/*}"
+    # shellcheck disable=SC2310 # a predicate
+    session_free "$wt" || {
+      echo "kept ${wt#"$repos_dir"/}"
+      continue
+    }
     # Clean and pushed was checked, so --force only covers ignored files such
     # as build output.
     git -C "$repos_dir/$repo" worktree remove --force "$wt"
     echo "removed ${wt#"$repos_dir"/}"
   done < <(prunable_worktrees)
   # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r path; do
+  while IFS= read -r -d '' path; do
     rm -rf "$path"
     echo "removed ${path#"$HOME"/}"
-  done < <(
-    caches
-    qa_runs
-  )
+  done < <(caches)
+  # A run may hold a worktree, so it gets the same last check.
+  # shellcheck disable=SC2312 # a failed listing lists nothing
+  while IFS= read -r -d '' path; do
+    # shellcheck disable=SC2310 # a predicate
+    session_free "$path" || {
+      echo "kept ${path#"$HOME"/}"
+      continue
+    }
+    rm -rf "$path"
+    echo "removed ${path#"$HOME"/}"
+  done < <(qa_runs)
   # A run's worktree that had changes outside .gitignore was deleted with its
   # run rather than by worktree remove: drop its registration.
   for repo in $(cloned_repos); do
     git -C "$repos_dir/$repo" worktree prune
   done
   # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r path; do
+  while IFS= read -r -d '' path; do
     rm -f "$path"
     echo "removed $path"
   done < <(own_stale_roots)
@@ -135,65 +145,18 @@ apply_disk() {
   echo "Free now: $free"
 }
 
+# The plan was read a while ago: a session may have started in $1 since. Exits
+# nonzero when one has, when it cannot tell, or when the check itself fails.
+session_free() { "$disk_plan" recheck-session "$1" "$session_pattern" >/dev/null; }
+
 free_bytes() { df -B1 --output=avail / | tail -n 1; }
 
-# Secondary worktrees whose deletion loses nothing.
-prunable_worktrees() {
-  local repo wt live work
-  for repo in $(cloned_repos); do
-    # shellcheck disable=SC2312 # a failed listing prunes nothing
-    while read -r wt; do
-      [ "$wt" != "$repos_dir/$repo" ] || continue
-      # A /qa run's worktree is clean while the run is live: qa_runs decides.
-      case "$wt" in
-        "$qa_dir"/* | "$tenx_dir"/*) continue ;;
-        *) ;;
-      esac
-      live=$(sessions_under "$wt")
-      [ -z "$live" ] || continue
-      work=$(local_work "$wt")
-      [ -z "$work" ] || continue
-      echo "$wt"
-    done < <(worktrees_of "$repo")
-  done
-}
-
-caches() {
-  local path
-  for path in "$HOME"/.cache/* "$HOME/.cache/cabal/logs" "$HOME/.npm/_cacache"; do
-    case "$path" in
-      "$HOME/.cache/nix" | "$HOME/.cache/cabal" | "$qa_dir") ;;
-      # A symlink here is a dev shell's profile or a build's result link, a GC
-      # root rather than a cache: stale_roots decides about those.
-      *) [ -e "$path" ] && [ ! -L "$path" ] && echo "$path" ;;
-    esac
-  done
-  return 0
-}
-
-# /qa's run directories (~/.cache/qa/<owner>/<repo>/runs/<run>) with nothing
-# written for a day, so a run in progress keeps its videos. Never auth/ or
-# scripts/, which sit beside runs/.
-qa_runs() {
-  local run recent
-  for run in "$qa_dir"/*/*/runs/*/; do
-    run="${run%/}"
-    [ -d "$run" ] || continue
-    recent=$(find "$run" -newermt '1 day ago' -print -quit) || true
-    [ -n "$recent" ] || echo "$run"
-  done
-}
-
-# The result links of the stale roots this account made, the only ones it may
-# delete from the sticky /tmp. Deleting one leaves its registration dangling,
-# which the next GC drops.
-own_stale_roots() {
-  local link
-  # shellcheck disable=SC2312 # a failed listing lists nothing
-  while read -r link; do
-    find "$(readlink "$link")" -maxdepth 0 -user "$(id -u)" 2>/dev/null || true
-  done < <(stale_roots "$tmp_dir" "$HOME/.cache")
-}
+# The paths each kind of space may go, NUL-terminated: disk_plan.py decides, and
+# a listing that fails lists nothing.
+prunable_worktrees() { "$disk_plan" worktrees "$repos_dir" "$session_pattern"; }
+caches() { "$disk_plan" caches "$HOME" "$qa_dir"; }
+qa_runs() { "$disk_plan" qa-runs "$qa_dir"; }
+own_stale_roots() { "$disk_plan" own-stale-roots "$gcroots_auto" "$tmp_dir" "$HOME/.cache"; }
 
 # du still prints a total when it fails on part of the tree.
 size_of() {
