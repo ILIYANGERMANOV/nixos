@@ -401,4 +401,6 @@ in
     admin
     mkEgressRules
     ;
+
+  shellTests = import ./check.nix { inherit pkgs lib; };
 }

@@ -148,7 +148,7 @@ in
   # scripts through their bats suites against a real git, and its egress rules
   # through `nft --check`. It evaluates no host. Linux only, like the factory:
   # darwin's procps has no pgrep, which factory-ctl needs.
-  shell-tests = import ../software-factory/check.nix { inherit pkgs; };
+  shell-tests = (import ../software-factory { inherit pkgs lib; }).shellTests;
 
   # The writeShellApplication derivations no other check builds, so their
   # shellcheck phase runs without a host. Every flavor is listed through
