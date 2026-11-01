@@ -18,6 +18,8 @@ let
       (root + "/pyproject.toml")
       # test_cache_check.py runs the real denylist.
       (root + "/just/nix-darwin/expensive-builds.deny")
+      # test_statusline.py holds the statusline to what the old scripts printed.
+      (root + "/programs/claude-code/statusline-corpus.json")
       (lib.fileset.fileFilter (file: file.hasExt "py") root)
     ];
   };
@@ -58,6 +60,7 @@ in
         WAIT_GUARD = lib.getExe claude.guards.wait;
         SECRET_GUARD = lib.getExe claude.guards.secret;
         CONTEXT_GUARD = lib.getExe claude.guards.context;
+        STATUSLINE = lib.getExe claude.statusline;
         STDLIB_PYTHON = lib.getExe pkgs.python3;
       }
       ''

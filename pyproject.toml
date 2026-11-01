@@ -18,10 +18,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# The only ones that call subprocess, always with an argv list. The guard's git is
-# substituted at build time; a test runs what the check puts on PATH.
+# The only ones that call subprocess, always with an argv list. git is substituted
+# at build time; a test runs what the check puts on PATH.
 "programs/claude-code/read-guard.py" = ["S603", "S607"]
 "programs/claude-code/guard_harness.py" = ["S603"]
+"programs/claude-code/statusline.py" = ["S603", "S607"]
 "just/nix-darwin/cache_check.py" = ["S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 

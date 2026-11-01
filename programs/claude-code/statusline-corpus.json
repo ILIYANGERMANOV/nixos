@@ -1,16 +1,18 @@
 [
  {
   "name": "full line, resets in hours",
-  "input": "{\"model\": {\"display_name\": \"Claude Sonnet 4.6\", \"id\": \"claude-sonnet\"}, \"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/plain\"}, \"rate_limits\": {\"five_hour\": {\"used_percentage\": 62.5, \"resets_at\": 1793557661}}, \"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "input": "{\"model\": {\"display_name\": \"Claude Sonnet 4.6\", \"id\": \"claude-sonnet\"}, \"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/plain\"}, \"rate_limits\": {\"five_hour\": {\"used_percentage\": 62.5, \"resets_at\": 1793557845}}, \"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 15}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116mplain\u001b[0m  \u001b[38;5;111mClaude Sonnet 4.6\u001b[0m  \u001b[38;5;215m▓▓▓░░ 62% (reset 1h30m)\u001b[0m  \u001b[38;5;114m30k / 200k (15%)\u001b[0m\n",
   "light": "\u001b[38;5;30mplain\u001b[0m  \u001b[38;5;26mClaude Sonnet 4.6\u001b[0m  \u001b[38;5;166m▓▓▓░░ 62% (reset 1h30m)\u001b[0m  \u001b[38;5;28m30k / 200k (15%)\u001b[0m\n"
  },
  {
   "name": "full line in a repo on a branch",
-  "input": "{\"model\": {\"display_name\": \"Claude Sonnet 4.6\", \"id\": \"claude-sonnet\"}, \"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/onbranch\"}, \"rate_limits\": {\"five_hour\": {\"used_percentage\": 10, \"resets_at\": 1793554061}}, \"context_window\": {\"context_window_size\": 1000000, \"used_percentage\": 55}}",
-  "now": 1793552231,
+  "input": "{\"model\": {\"display_name\": \"Claude Sonnet 4.6\", \"id\": \"claude-sonnet\"}, \"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/onbranch\"}, \"rate_limits\": {\"five_hour\": {\"used_percentage\": 10, \"resets_at\": 1793554245}}, \"context_window\": {\"context_window_size\": 1000000, \"used_percentage\": 55}}",
+  "now": 1793552415,
+  "branch": "feature/x",
   "exit": 0,
   "dark": "\u001b[38;5;116monbranch\u001b[0m  \u001b[38;5;114mfeature/x\u001b[0m  \u001b[38;5;111mClaude Sonnet 4.6\u001b[0m  \u001b[38;5;245m░░░░░ 10% (reset 30m)\u001b[0m  \u001b[1m\u001b[38;5;215m~ 550k / 1000k (55%)\u001b[0m\n",
   "light": "\u001b[38;5;30monbranch\u001b[0m  \u001b[38;5;28mfeature/x\u001b[0m  \u001b[38;5;26mClaude Sonnet 4.6\u001b[0m  \u001b[38;5;240m░░░░░ 10% (reset 30m)\u001b[0m  \u001b[1m\u001b[38;5;166m~ 550k / 1000k (55%)\u001b[0m\n"
@@ -18,7 +20,8 @@
  {
   "name": "repo subdirectory with a space",
   "input": "{\"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/onbranch/sub dir\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "feature/x",
   "exit": 0,
   "dark": "\u001b[38;5;116msub dir\u001b[0m  \u001b[38;5;114mfeature/x\u001b[0m\n",
   "light": "\u001b[38;5;30msub dir\u001b[0m  \u001b[38;5;28mfeature/x\u001b[0m\n"
@@ -26,7 +29,8 @@
  {
   "name": "detached HEAD shows the short hash",
   "input": "{\"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/detached\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "c8a69f8",
   "exit": 0,
   "dark": "\u001b[38;5;116mdetached\u001b[0m  \u001b[38;5;114mc8a69f8\u001b[0m\n",
   "light": "\u001b[38;5;30mdetached\u001b[0m  \u001b[38;5;28mc8a69f8\u001b[0m\n"
@@ -34,7 +38,8 @@
  {
   "name": "unborn branch shows its name",
   "input": "{\"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/unborn\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "feature/x",
   "exit": 0,
   "dark": "\u001b[38;5;116munborn\u001b[0m  \u001b[38;5;114mfeature/x\u001b[0m\n",
   "light": "\u001b[38;5;30munborn\u001b[0m  \u001b[38;5;28mfeature/x\u001b[0m\n"
@@ -42,7 +47,8 @@
  {
   "name": "a cwd that does not exist",
   "input": "{\"workspace\": {\"current_dir\": \"/nonexistent/gone\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116mgone\u001b[0m\n",
   "light": "\u001b[38;5;30mgone\u001b[0m\n"
@@ -50,7 +56,8 @@
  {
   "name": "cwd falls back from workspace",
   "input": "{\"cwd\": \"/tmp/statusline-corpus/plain\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116mplain\u001b[0m\n",
   "light": "\u001b[38;5;30mplain\u001b[0m\n"
@@ -58,7 +65,8 @@
  {
   "name": "workspace wins over cwd",
   "input": "{\"cwd\": \"/a\", \"workspace\": {\"current_dir\": \"/b/c\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116mc\u001b[0m\n",
   "light": "\u001b[38;5;30mc\u001b[0m\n"
@@ -66,7 +74,8 @@
  {
   "name": "model id when no display name",
   "input": "{\"model\": {\"id\": \"claude-x\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;111mclaude-x\u001b[0m\n",
   "light": "  \u001b[38;5;26mclaude-x\u001b[0m\n"
@@ -74,7 +83,8 @@
  {
   "name": "empty display name is kept as nothing",
   "input": "{\"model\": {\"display_name\": \"\", \"id\": \"claude-x\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -82,7 +92,8 @@
  {
   "name": "false display name falls to id",
   "input": "{\"model\": {\"display_name\": false, \"id\": \"claude-x\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;111mclaude-x\u001b[0m\n",
   "light": "  \u001b[38;5;26mclaude-x\u001b[0m\n"
@@ -90,7 +101,8 @@
  {
   "name": "workspace a string falls to cwd",
   "input": "{\"workspace\": \"x\", \"cwd\": \"/tmp/fallback\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -98,7 +110,8 @@
  {
   "name": "model a number",
   "input": "{\"model\": {\"display_name\": 123}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;111m123\u001b[0m\n",
   "light": "  \u001b[38;5;26m123\u001b[0m\n"
@@ -106,7 +119,8 @@
  {
   "name": "model true",
   "input": "{\"model\": {\"display_name\": true}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;111mtrue\u001b[0m\n",
   "light": "  \u001b[38;5;26mtrue\u001b[0m\n"
@@ -114,7 +128,8 @@
  {
   "name": "model with unicode",
   "input": "{\"model\": {\"display_name\": \"Клод ☃\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;111mКлод ☃\u001b[0m\n",
   "light": "  \u001b[38;5;26mКлод ☃\u001b[0m\n"
@@ -122,7 +137,8 @@
  {
   "name": "trailing slash in cwd",
   "input": "{\"cwd\": \"/a/b/\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116mb\u001b[0m\n",
   "light": "\u001b[38;5;30mb\u001b[0m\n"
@@ -130,7 +146,8 @@
  {
   "name": "root cwd",
   "input": "{\"cwd\": \"/\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116m/\u001b[0m\n",
   "light": "\u001b[38;5;30m/\u001b[0m\n"
@@ -138,7 +155,8 @@
  {
   "name": "relative cwd",
   "input": "{\"cwd\": \"rel\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116mrel\u001b[0m\n",
   "light": "\u001b[38;5;30mrel\u001b[0m\n"
@@ -146,7 +164,8 @@
  {
   "name": "dot cwd",
   "input": "{\"cwd\": \"a/.\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116m.\u001b[0m\n",
   "light": "\u001b[38;5;30m.\u001b[0m\n"
@@ -154,7 +173,8 @@
  {
   "name": "cwd ending in newline",
   "input": "{\"cwd\": \"/a/b\\n\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\u001b[38;5;116mb\u001b[0m\n",
   "light": "\u001b[38;5;30mb\u001b[0m\n"
@@ -162,7 +182,8 @@
  {
   "name": "empty object",
   "input": "{}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -170,7 +191,8 @@
  {
   "name": "empty stdin",
   "input": "",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -178,7 +200,8 @@
  {
   "name": "whitespace stdin",
   "input": "  \n",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -186,7 +209,8 @@
  {
   "name": "json null",
   "input": "null",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -194,7 +218,8 @@
  {
   "name": "json array",
   "input": "[1,2]",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -202,7 +227,8 @@
  {
   "name": "json string",
   "input": "\"hello\"",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -210,7 +236,8 @@
  {
   "name": "json number",
   "input": "42",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -218,7 +245,8 @@
  {
   "name": "json true",
   "input": "true",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -226,7 +254,8 @@
  {
   "name": "malformed json",
   "input": "{not json",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -234,7 +263,8 @@
  {
   "name": "truncated json",
   "input": "{\"cwd\":\"/a\"",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -242,7 +272,8 @@
  {
   "name": "plain text",
   "input": "hello",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -250,7 +281,8 @@
  {
   "name": "valid json then garbage",
   "input": "{\"cwd\":\"/a\"} x",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -258,7 +290,8 @@
  {
   "name": "usage 0",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 0}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 0%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 0%\u001b[0m\n"
@@ -266,7 +299,8 @@
  {
   "name": "usage 1",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 1}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 1%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 1%\u001b[0m\n"
@@ -274,7 +308,8 @@
  {
   "name": "usage 19",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 19}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 19%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 19%\u001b[0m\n"
@@ -282,7 +317,8 @@
  {
   "name": "usage 20",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 20}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 20%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 20%\u001b[0m\n"
@@ -290,7 +326,8 @@
  {
   "name": "usage 39",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 39}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 39%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 39%\u001b[0m\n"
@@ -298,7 +335,8 @@
  {
   "name": "usage 40",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 40}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓▓░░░ 40%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓▓░░░ 40%\u001b[0m\n"
@@ -306,7 +344,8 @@
  {
   "name": "usage 49",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 49}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓▓░░░ 49%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓▓░░░ 49%\u001b[0m\n"
@@ -314,7 +353,8 @@
  {
   "name": "usage 50",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 50}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓░░░ 50%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓░░░ 50%\u001b[0m\n"
@@ -322,7 +362,8 @@
  {
   "name": "usage 59",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 59}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓░░░ 59%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓░░░ 59%\u001b[0m\n"
@@ -330,7 +371,8 @@
  {
   "name": "usage 60",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 60}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓▓░░ 60%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓▓░░ 60%\u001b[0m\n"
@@ -338,7 +380,8 @@
  {
   "name": "usage 79",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 79}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓▓░░ 79%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓▓░░ 79%\u001b[0m\n"
@@ -346,7 +389,8 @@
  {
   "name": "usage 80",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 80}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓░ 80%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓░ 80%\u001b[0m\n"
@@ -354,7 +398,8 @@
  {
   "name": "usage 99",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 99}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓░ 99%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓░ 99%\u001b[0m\n"
@@ -362,7 +407,8 @@
  {
   "name": "usage 100",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 100}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓▓ 100%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓▓ 100%\u001b[0m\n"
@@ -370,7 +416,8 @@
  {
   "name": "usage 101",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 101}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓▓ 101%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓▓ 101%\u001b[0m\n"
@@ -378,7 +425,8 @@
  {
   "name": "usage 119",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 119}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓▓ 119%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓▓ 119%\u001b[0m\n"
@@ -386,7 +434,8 @@
  {
   "name": "usage 120",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 120}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓▓▓ 120%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓▓▓ 120%\u001b[0m\n"
@@ -394,7 +443,8 @@
  {
   "name": "usage 150",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 150}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓▓▓▓ 150%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓▓▓▓ 150%\u001b[0m\n"
@@ -402,7 +452,8 @@
  {
   "name": "usage rounds 0.4",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 0.4}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 0%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 0%\u001b[0m\n"
@@ -410,7 +461,8 @@
  {
   "name": "usage rounds 0.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 0.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 0%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 0%\u001b[0m\n"
@@ -418,7 +470,8 @@
  {
   "name": "usage rounds 0.6",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 0.6}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 1%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 1%\u001b[0m\n"
@@ -426,7 +479,8 @@
  {
   "name": "usage rounds 1.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 1.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 2%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 2%\u001b[0m\n"
@@ -434,7 +488,8 @@
  {
   "name": "usage rounds 2.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 2.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ 2%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ 2%\u001b[0m\n"
@@ -442,7 +497,8 @@
  {
   "name": "usage rounds 49.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 49.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓░░░ 50%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓░░░ 50%\u001b[0m\n"
@@ -450,7 +506,8 @@
  {
   "name": "usage rounds 50.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 50.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓░░░ 50%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓░░░ 50%\u001b[0m\n"
@@ -458,7 +515,8 @@
  {
   "name": "usage rounds 79.49",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 79.49}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓▓░░ 79%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓▓░░ 79%\u001b[0m\n"
@@ -466,7 +524,8 @@
  {
   "name": "usage rounds 79.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 79.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓░ 80%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓░ 80%\u001b[0m\n"
@@ -474,7 +533,8 @@
  {
   "name": "usage rounds 99.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 99.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓▓ 100%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓▓ 100%\u001b[0m\n"
@@ -482,7 +542,8 @@
  {
   "name": "usage rounds 62.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 62.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓▓░░ 62%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓▓░░ 62%\u001b[0m\n"
@@ -490,7 +551,8 @@
  {
   "name": "usage rounds 63.5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 63.5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓▓░░ 64%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓▓░░ 64%\u001b[0m\n"
@@ -498,7 +560,8 @@
  {
   "name": "usage -5",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": -5}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ -5%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░ -5%\u001b[0m\n"
@@ -506,7 +569,8 @@
  {
   "name": "usage -50",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": -50}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░░░ -50%\u001b[0m\n",
   "light": "  \u001b[38;5;240m░░░░░░░ -50%\u001b[0m\n"
@@ -514,15 +578,22 @@
  {
   "name": "usage -0.2 rounds to minus zero",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": -0.2}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m░░░░░ -0%\u001b[0m\n",
-  "light": "  \u001b[38;5;240m░░░░░ -0%\u001b[0m\n"
+  "light": "  \u001b[38;5;240m░░░░░ -0%\u001b[0m\n",
+  "differs": {
+   "reason": "A percentage is a number now, not printf's text, so it has no minus zero. Claude Code sends no negative percentage.",
+   "dark": "  \u001b[38;5;245m░░░░░ 0%\u001b[0m\n",
+   "light": "  \u001b[38;5;240m░░░░░ 0%\u001b[0m\n"
+  }
  },
  {
   "name": "usage 1e2",
   "input": "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":1e2}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;210m▓▓▓▓▓ 100%\u001b[0m\n",
   "light": "  \u001b[38;5;160m▓▓▓▓▓ 100%\u001b[0m\n"
@@ -530,7 +601,8 @@
  {
   "name": "usage as numeric string",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": \"62.5\"}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;215m▓▓▓░░ 62%\u001b[0m\n",
   "light": "  \u001b[38;5;166m▓▓▓░░ 62%\u001b[0m\n"
@@ -538,7 +610,8 @@
  {
   "name": "usage as word",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": \"abc\"}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -546,7 +619,8 @@
  {
   "name": "usage as empty string",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": \"\"}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -554,7 +628,8 @@
  {
   "name": "usage false",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": false}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -562,15 +637,17 @@
  {
   "name": "usage true",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": true}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
  },
  {
   "name": "usage null with resets",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": null, \"resets_at\": 1793557661}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": null, \"resets_at\": 1793557845}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -578,7 +655,8 @@
  {
   "name": "usage array",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": [1]}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -586,7 +664,8 @@
  {
   "name": "usage object",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": {\"a\": 1}}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -594,79 +673,89 @@
  {
   "name": "rate limits a string",
   "input": "{\"rate_limits\": \"x\"}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
  },
  {
   "name": "reset past",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793552201}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793552385}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
  },
  {
   "name": "reset under a minute",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793552261}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793552445}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
  },
  {
   "name": "reset one minute",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793552321}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793552505}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30% (reset 1m)\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30% (reset 1m)\u001b[0m\n"
  },
  {
   "name": "reset 59 minutes",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793555801}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793555985}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30% (reset 59m)\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30% (reset 59m)\u001b[0m\n"
  },
  {
   "name": "reset 60 minutes",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793555861}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793556045}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30% (reset 1h0m)\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30% (reset 1h0m)\u001b[0m\n"
  },
  {
   "name": "reset 61 minutes",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793555921}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793556105}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30% (reset 1h1m)\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30% (reset 1h1m)\u001b[0m\n"
  },
  {
   "name": "reset 2h30m",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793561261}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793561445}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30% (reset 2h30m)\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30% (reset 2h30m)\u001b[0m\n"
  },
  {
   "name": "reset 26 hours",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793645861}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793646045}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30% (reset 26h0m)\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30% (reset 26h0m)\u001b[0m\n"
  },
  {
   "name": "reset long past",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793462231}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793462415}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
@@ -674,23 +763,26 @@
  {
   "name": "reset zero",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 0}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
  },
  {
   "name": "reset as numeric string",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": \"1793557661\"}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": \"1793557845\"}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30% (reset 1h30m)\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30% (reset 1h30m)\u001b[0m\n"
  },
  {
   "name": "reset fractional",
-  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793557661.5}}}",
-  "now": 1793552231,
+  "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": 1793557845.5}}}",
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
@@ -698,7 +790,8 @@
  {
   "name": "reset iso string",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": \"2026-11-01T10:00:00Z\"}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
@@ -706,15 +799,22 @@
  {
   "name": "reset word",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": \"soon\"}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
-  "light": ""
+  "light": "",
+  "differs": {
+   "reason": "bash read a word as an unset variable and `set -u` killed the line. An unreadable countdown now only loses the countdown, as a fraction and a date always did.",
+   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
+   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
+  }
  },
  {
   "name": "reset empty string",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": \"\"}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
@@ -722,7 +822,8 @@
  {
   "name": "reset false",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": false}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
@@ -730,15 +831,22 @@
  {
   "name": "reset true",
   "input": "{\"rate_limits\": {\"five_hour\": {\"used_percentage\": 30, \"resets_at\": true}}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
-  "light": ""
+  "light": "",
+  "differs": {
+   "reason": "The same as a word: bash read `true` as an unset variable.",
+   "dark": "  \u001b[38;5;245m▓░░░░ 30%\u001b[0m\n",
+   "light": "  \u001b[38;5;240m▓░░░░ 30%\u001b[0m\n"
+  }
  },
  {
   "name": "tokens 0",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 0}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m0k / 200k (0%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m0k / 200k (0%)\u001b[0m\n"
@@ -746,7 +854,8 @@
  {
   "name": "tokens 15",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m30k / 200k (15%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m30k / 200k (15%)\u001b[0m\n"
@@ -754,7 +863,8 @@
  {
   "name": "tokens 49",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 49}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m98k / 200k (49%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m98k / 200k (49%)\u001b[0m\n"
@@ -762,7 +872,8 @@
  {
   "name": "tokens 50",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 50}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;215m~ 100k / 200k (50%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;166m~ 100k / 200k (50%)\u001b[0m\n"
@@ -770,7 +881,8 @@
  {
   "name": "tokens 79",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 79}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;215m~ 158k / 200k (79%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;166m~ 158k / 200k (79%)\u001b[0m\n"
@@ -778,7 +890,8 @@
  {
   "name": "tokens 80",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 80}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;210m⚠ 160k / 200k (80%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;160m⚠ 160k / 200k (80%)\u001b[0m\n"
@@ -786,7 +899,8 @@
  {
   "name": "tokens 100",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 100}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;210m⚠ 200k / 200k (100%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;160m⚠ 200k / 200k (100%)\u001b[0m\n"
@@ -794,7 +908,8 @@
  {
   "name": "tokens 120",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 120}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;210m⚠ 240k / 200k (120%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;160m⚠ 240k / 200k (120%)\u001b[0m\n"
@@ -802,7 +917,8 @@
  {
   "name": "tokens rounds pct first",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 49.5}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;215m~ 100k / 200k (50%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;166m~ 100k / 200k (50%)\u001b[0m\n"
@@ -810,7 +926,8 @@
  {
   "name": "tokens a million",
   "input": "{\"context_window\": {\"context_window_size\": 1000000, \"used_percentage\": 33.3}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m330k / 1000k (33%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m330k / 1000k (33%)\u001b[0m\n"
@@ -818,7 +935,8 @@
  {
   "name": "tokens under 1k",
   "input": "{\"context_window\": {\"context_window_size\": 999, \"used_percentage\": 50}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;215m~ 0k / 0k (50%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;166m~ 0k / 0k (50%)\u001b[0m\n"
@@ -826,7 +944,8 @@
  {
   "name": "tokens size zero",
   "input": "{\"context_window\": {\"context_window_size\": 0, \"used_percentage\": 50}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[1m\u001b[38;5;215m~ 0k / 0k (50%)\u001b[0m\n",
   "light": "  \u001b[1m\u001b[38;5;166m~ 0k / 0k (50%)\u001b[0m\n"
@@ -834,7 +953,8 @@
  {
   "name": "tokens pct zero size 1",
   "input": "{\"context_window\": {\"context_window_size\": 1, \"used_percentage\": 0}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m0k / 0k (0%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m0k / 0k (0%)\u001b[0m\n"
@@ -842,7 +962,8 @@
  {
   "name": "tokens size only",
   "input": "{\"context_window\": {\"context_window_size\": 200000}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -850,7 +971,8 @@
  {
   "name": "tokens pct only",
   "input": "{\"context_window\": {\"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -858,7 +980,8 @@
  {
   "name": "tokens null pct",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": null}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -866,7 +989,8 @@
  {
   "name": "tokens size word",
   "input": "{\"context_window\": {\"context_window_size\": \"big\", \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -874,7 +998,8 @@
  {
   "name": "tokens size word no pct",
   "input": "{\"context_window\": {\"context_window_size\": \"big\", \"used_percentage\": null}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "\n",
   "light": "\n"
@@ -882,7 +1007,8 @@
  {
   "name": "tokens size numeric string",
   "input": "{\"context_window\": {\"context_window_size\": \"200000\", \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m30k / 200k (15%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m30k / 200k (15%)\u001b[0m\n"
@@ -890,7 +1016,8 @@
  {
   "name": "tokens size fractional",
   "input": "{\"context_window\": {\"context_window_size\": 200000.5, \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -898,7 +1025,8 @@
  {
   "name": "tokens size whole float",
   "input": "{\"context_window\":{\"context_window_size\":200000.0,\"used_percentage\":15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -906,7 +1034,8 @@
  {
   "name": "tokens size negative",
   "input": "{\"context_window\": {\"context_window_size\": -200000, \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m-30k / -200k (15%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m-30k / -200k (15%)\u001b[0m\n"
@@ -914,7 +1043,8 @@
  {
   "name": "tokens pct negative",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": -15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 0,
   "dark": "  \u001b[38;5;114m-30k / 200k (-15%)\u001b[0m\n",
   "light": "  \u001b[38;5;28m-30k / 200k (-15%)\u001b[0m\n"
@@ -922,7 +1052,8 @@
  {
   "name": "tokens pct word",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": \"x\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -930,7 +1061,8 @@
  {
   "name": "tokens pct true",
   "input": "{\"context_window\": {\"context_window_size\": 200000, \"used_percentage\": true}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -938,7 +1070,8 @@
  {
   "name": "tokens size true",
   "input": "{\"context_window\": {\"context_window_size\": true, \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
@@ -946,7 +1079,8 @@
  {
   "name": "context a number",
   "input": "{\"context_window\": 5}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 5,
   "dark": "",
   "light": ""
@@ -954,15 +1088,119 @@
  {
   "name": "bad usage blanks a good model",
   "input": "{\"model\": {\"display_name\": \"Claude Sonnet 4.6\", \"id\": \"claude-sonnet\"}, \"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/plain\"}, \"rate_limits\": {\"five_hour\": {\"used_percentage\": \"abc\"}}, \"context_window\": {\"context_window_size\": 200000, \"used_percentage\": 15}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
  },
  {
+  "name": "model with a backslash",
+  "input": "{\"model\": {\"display_name\": \"a\\\\tb\"}}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 0,
+  "dark": "  \u001b[38;5;111ma\tb\u001b[0m\n",
+  "light": "  \u001b[38;5;26ma\tb\u001b[0m\n",
+  "differs": {
+   "reason": "printf %b read a backslash in a name as an escape, a bug: a name is now printed as it is.",
+   "dark": "  \u001b[38;5;111ma\\tb\u001b[0m\n",
+   "light": "  \u001b[38;5;26ma\\tb\u001b[0m\n"
+  }
+ },
+ {
+  "name": "cwd starting with a dash",
+  "input": "{\"cwd\": \"-x\"}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 1,
+  "dark": "",
+  "light": "",
+  "differs": {
+   "reason": "basename read the directory's name as an option and killed the line, a bug.",
+   "dark": "\u001b[38;5;116m-x\u001b[0m\n",
+   "light": "\u001b[38;5;30m-x\u001b[0m\n"
+  }
+ },
+ {
+  "name": "two documents",
+  "input": "{\"cwd\":\"/a\"} {\"cwd\":\"/b\"}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 0,
+  "dark": "\u001b[38;5;116mb\u001b[0m\n",
+  "light": "\u001b[38;5;30mb\u001b[0m\n",
+  "differs": {
+   "reason": "jq ran once per document and the last line won. Claude Code sends one, and two are now unreadable.",
+   "dark": "",
+   "light": ""
+  }
+ },
+ {
+  "name": "usage past the double range",
+  "input": "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":1e1000}}}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 0,
+  "dark": "  \u001b[38;5;245m░░░░░ 9999999999999999999731073176695623534282348575945525949258994493763287282024610367755114054811869631930666421916648220655294142520606968365335223871435017242762820794567970586973698890564071186428736691667173137634992770259851411773449256150524651659385141409430105973237502025611878801361748105745537491946144795418201484079582048538336970632673362947871910056282174622619551037453498446757329899442296892778338287437302901778820290426137049158991496035399937168855983519518959743163479471475079702696730977090171646435984524512014990041043419311272941414955013093059954497422734195248035971304504575538713459580498378850851688403171956722710850859505209579459709134510881049714360936717768295387965327621841742166516926409319653878520839067848988234948670550703227689191560316822918297610071014837999783821192315512185824993619969195605480907842303869071251516580867672072955240361703210592579426213980844789740009736221991632927085062431457550909271560663602154947063707982236377366647567795879936%\u001b[0m\n",
+  "light": "  \u001b[38;5;240m░░░░░ 9999999999999999999731073176695623534282348575945525949258994493763287282024610367755114054811869631930666421916648220655294142520606968365335223871435017242762820794567970586973698890564071186428736691667173137634992770259851411773449256150524651659385141409430105973237502025611878801361748105745537491946144795418201484079582048538336970632673362947871910056282174622619551037453498446757329899442296892778338287437302901778820290426137049158991496035399937168855983519518959743163479471475079702696730977090171646435984524512014990041043419311272941414955013093059954497422734195248035971304504575538713459580498378850851688403171956722710850859505209579459709134510881049714360936717768295387965327621841742166516926409319653878520839067848988234948670550703227689191560316822918297610071014837999783821192315512185824993619969195605480907842303869071251516580867672072955240361703210592579426213980844789740009736221991632927085062431457550909271560663602154947063707982236377366647567795879936%\u001b[0m\n",
+  "differs": {
+   "reason": "The old printed 300 digits after overflowing bash's arithmetic. Past MAX_PERCENT is now unreadable.",
+   "dark": "",
+   "light": ""
+  }
+ },
+ {
+  "name": "usage nan",
+  "input": "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":NaN}}}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 1,
+  "dark": "",
+  "light": ""
+ },
+ {
+  "name": "model with a NUL",
+  "input": "{\"model\":{\"display_name\":\"a\\u0000b\"}}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 0,
+  "dark": "  \u001b[38;5;111mab\u001b[0m\n",
+  "light": "  \u001b[38;5;26mab\u001b[0m\n"
+ },
+ {
+  "name": "model with a lone surrogate",
+  "input": "{\"model\":{\"display_name\":\"a\\ud800b\"}}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 5,
+  "dark": "",
+  "light": "",
+  "differs": {
+   "reason": "jq refused the string and blanked the line. It now prints a replacement character, like any other undecodable text.",
+   "dark": "  \u001b[38;5;111ma?b\u001b[0m\n",
+   "light": "  \u001b[38;5;26ma?b\u001b[0m\n"
+  }
+ },
+ {
+  "name": "model an array",
+  "input": "{\"model\": {\"display_name\": [1, 2]}}",
+  "now": 1793552415,
+  "branch": "",
+  "exit": 0,
+  "dark": "  \u001b[38;5;111m[\n  1,\n  2\n]\u001b[0m\n",
+  "light": "  \u001b[38;5;26m[\n  1,\n  2\n]\u001b[0m\n",
+  "differs": {
+   "reason": "jq pretty-printed the array over three lines. Now on one. Not a shape the field has.",
+   "dark": "  \u001b[38;5;111m[1, 2]\u001b[0m\n",
+   "light": "  \u001b[38;5;26m[1, 2]\u001b[0m\n"
+  }
+ },
+ {
   "name": "bad tokens blanks a good model",
   "input": "{\"model\": {\"display_name\": \"Claude Sonnet 4.6\", \"id\": \"claude-sonnet\"}, \"workspace\": {\"current_dir\": \"/tmp/statusline-corpus/plain\"}, \"rate_limits\": {\"five_hour\": {\"used_percentage\": 30}}, \"context_window\": {\"context_window_size\": 200000, \"used_percentage\": \"x\"}}",
-  "now": 1793552231,
+  "now": 1793552415,
+  "branch": "",
   "exit": 1,
   "dark": "",
   "light": ""
