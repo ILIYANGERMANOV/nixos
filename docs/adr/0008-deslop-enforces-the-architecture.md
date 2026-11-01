@@ -26,7 +26,7 @@ flake.nix -> lib/ -> modules/, shells/ -> adapters/ -> programs/
 `lib-is-private-to-the-flake` keeps `lib/` to `flake.nix`, and
 `adapters-are-thin` allows an adapter to import only flake inputs, other
 adapters and a program's `default.nix`. Narrowing the lib rule to
-`lib/default` instead was rejected: it would have kept the loop and given the
+`lib/default.nix` instead was rejected: it would have kept the loop and given the
 glue no rule of its own.
 
 ## Packaged by Deslop's own flake

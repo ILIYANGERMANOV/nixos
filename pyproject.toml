@@ -18,11 +18,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# The only ones that call subprocess, always with an argv list. git is substituted
-# at build time; a test runs what the check puts on PATH.
+# The only ones that call subprocess, always with an argv list. The guard's git is
+# substituted at build time; a test runs what the check puts on PATH, and
+# disk_plan.py what factory-ctl does.
 "programs/claude-code/read-guard.py" = ["S603", "S607"]
 "programs/claude-code/guard_harness.py" = ["S603"]
 "programs/claude-code/statusline.py" = ["S603", "S607"]
+"programs/software-factory/disk_plan.py" = ["S603", "S607"]
 "just/nix-darwin/cache_check.py" = ["S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
@@ -36,8 +38,9 @@ ban-relative-imports = "all"
 # A companion test keeps its script's literal name, hyphens included, which only
 # importlib can import. The seed keeps hypothesis the same on every run.
 addopts = "--import-mode=importlib -p no:cacheprovider --hypothesis-seed=0 -q"
-# A test imports what sits beside it: the harness, bash_commands.py, cache_check.py.
-pythonpath = ["programs/claude-code", "just/nix-darwin"]
+# A test imports what sits beside it: the harness, bash_commands.py, disk_plan.py,
+# cache_check.py.
+pythonpath = ["programs/claude-code", "programs/software-factory", "just/nix-darwin"]
 testpaths = ["programs", "just"]
 
 [tool.basedpyright]
@@ -48,6 +51,9 @@ pythonVersion = "3.13"
 # (bash-guard.nix), so they are absolute imports, not relative ones.
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/software-factory"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "just/nix-darwin"

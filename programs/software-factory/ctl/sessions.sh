@@ -8,7 +8,7 @@
 # is mid-task, unless forced. The worktrees themselves are kept.
 cmd_terminate() {
   parse_force "$@"
-  local repos=("${args[@]}") repo live cwd work count at_risk=0
+  local repos=("${args[@]}") repo live cwd checkout work count at_risk=0
   # shellcheck disable=SC2312 # cloned_repos cannot fail
   [ "${#repos[@]}" -gt 0 ] || mapfile -t repos < <(cloned_repos)
   for repo in "${repos[@]}"; do
@@ -24,7 +24,8 @@ cmd_terminate() {
   fi
 
   while IFS=$'\t' read -r _ cwd; do
-    work=$(local_work "$cwd" | paste -sd ',' | sed 's/,/, /g')
+    checkout=$(checkout_of "$cwd")
+    work=$(local_work "$checkout" | paste -sd ',' | sed 's/,/, /g')
     if [ -n "$work" ]; then
       echo "${cwd#"$repos_dir"/}: $work"
       at_risk=1

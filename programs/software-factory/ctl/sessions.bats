@@ -22,6 +22,30 @@ load ../test_helper
   grep -q "No live sessions" "$work/out" || fail "terminate with nothing to end"
 }
 
+@test "terminate: a session in a subdirectory of a clean worktree has no local work" {
+  clone_repo origin
+  wt=$(add_worktree origin clean)
+  mkdir "$wt/subdirectory"
+  start_session "$wt/subdirectory"
+  session=$!
+
+  factory-ctl terminate origin
+
+  ended "$session" || fail "the session was refused"
+}
+
+@test "terminate: exits 2 when a session's worktree lost its .git, whose work is unknown" {
+  clone_repo origin
+  wt=$(add_worktree origin lost)
+  rm "$wt/.git"
+  start_session "$wt"
+  session=$!
+
+  run -2 factory-ctl terminate origin
+
+  alive "$session" || fail "a session on unknown work was ended"
+}
+
 @test "terminate: exits 2 when a session has local work; --force ends it" {
   clone_repo origin
   wt=$(add_worktree origin busy)

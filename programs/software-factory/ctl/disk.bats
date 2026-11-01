@@ -48,6 +48,65 @@ load ../test_helper
   [ -d "$tenx" ] || fail "a /10x-engineer run's worktree was removed"
 }
 
+@test "free-disk: keeps a worktree whose state cannot be read" {
+  clone_repo origin
+  broken=$(add_worktree origin broken)
+  echo 'gitdir: /nowhere' >"$broken/.git"
+
+  factory-ctl free-disk plan >"$work/out"
+  ! grep -q "worktrees/broken" "$work/out" || fail "plan lists an unreadable worktree"
+
+  factory-ctl free-disk apply
+  [ -e "$broken/.git" ] || fail "an unreadable worktree was removed"
+}
+
+@test "free-disk: keeps a worktree that lost its .git" {
+  clone_repo origin
+  lost=$(add_worktree origin lost)
+  rm "$lost/.git"
+
+  factory-ctl free-disk plan >"$work/out"
+  ! grep -q "worktrees/lost" "$work/out" || fail "plan lists a worktree it cannot read"
+
+  factory-ctl free-disk apply
+  [ -d "$lost" ] || fail "a worktree that lost its .git was removed"
+}
+
+@test "free-disk: keeps a locked worktree" {
+  clone_repo origin
+  locked=$(add_worktree origin locked)
+  git -C "$HOME/repos/origin" worktree lock "$locked"
+
+  factory-ctl free-disk plan >"$work/out"
+  ! grep -q "worktrees/locked" "$work/out" || fail "plan lists a locked worktree"
+
+  factory-ctl free-disk apply
+  [ -d "$locked" ] || fail "a locked worktree was removed"
+}
+
+@test "free-disk: removes a cache whose name holds a newline" {
+  clone_repo origin
+  odd="$HOME/.cache/odd"$'\n'name
+  mkdir -p "$odd"
+
+  factory-ctl free-disk apply
+
+  [ ! -e "$odd" ] || fail "the cache was kept"
+}
+
+@test "free-disk: removes a stale GC root whose path holds a newline, and nothing the path spells" {
+  clone_repo origin
+  spelled="$work/spelled"
+  touch "$spelled"
+  odd="$work/tmp/old"$'\n'"$spelled"
+  add_root "$odd" '3 days ago'
+
+  factory-ctl free-disk apply
+
+  [ ! -L "$odd" ] || fail "the stale GC root was kept"
+  [ -e "$spelled" ] || fail "a line of the path was removed as a path"
+}
+
 @test "free-disk: deletes /qa runs untouched for a day, never login state or scripts" {
   clone_repo origin
   qa="$HOME/.cache/qa/owner/origin"
@@ -78,6 +137,49 @@ load ../test_helper
   [ -e "$qa/runs/13-live/happy-path.mp4" ] || fail "a live QA run was removed"
   [ -d "$qa/runs/13-live/worktree" ] || fail "a live QA run's clean worktree was removed"
   [ -e "$qa/auth/user.json" ] && [ -e "$qa/scripts/lib.cjs" ] || fail "QA login state or scripts were removed"
+}
+
+@test "free-disk: keeps a worktree whose session started after the plan decided on it" {
+  clone_repo a-first
+  clone_repo z-last
+  late=$(add_worktree a-first late)
+  session_starts_during_scan_of z-last "$late"
+
+  factory-ctl free-disk apply >"$work/out"
+
+  [ -d "$late" ] || fail "a worktree with a live session was removed"
+  grep -q "kept a-first/.claude/worktrees/late" "$work/out" || fail_showing "$work/out" "the kept worktree is not reported"
+  reports_freed_gb
+}
+
+@test "free-disk: keeps a quiet /qa run a live session works in" {
+  clone_repo origin
+  run="$HOME/.cache/qa/owner/origin/runs/12-busy"
+  git -C "$HOME/repos/origin" worktree add --quiet --detach "$run/worktree" 2>/dev/null
+  find "$run" -exec touch -d '2 days ago' {} +
+  start_session "$run/worktree"
+
+  factory-ctl free-disk apply >"$work/out"
+
+  [ -d "$run/worktree" ] || fail "a /qa run with a live session was removed"
+  grep -q "kept .cache/qa/owner/origin/runs/12-busy" "$work/out" || fail_showing "$work/out" "the kept run is not reported"
+}
+
+# A session moves into $2 while the plan reads repository $1, which sorts after
+# the repository of $2: the plan has already decided on $2. Git runs a fsmonitor
+# program from `git status`, and the program returns once the session is there.
+session_starts_during_scan_of() {
+  local arrive="$work/session-arrive" arrived="$work/session-arrived"
+  # shellcheck disable=SC2016 # expands in the session
+  in_background bash -c 'until [ -e "$2" ]; do sleep 0.01; done; cd "$3" && touch "$4" && sleep 300; true' session --sdk-url "$arrive" "$2" "$arrived"
+  cat >"$work/fsmonitor" <<EOF
+#!$BASH
+touch "$arrive"
+until [ -e "$arrived" ]; do sleep 0.01; done
+exit 1
+EOF
+  chmod +x "$work/fsmonitor"
+  git -C "$HOME/repos/$1" config core.fsmonitor "$work/fsmonitor"
 }
 
 # Clones $@ of a repository with a flake on main.

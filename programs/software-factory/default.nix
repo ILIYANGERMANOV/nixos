@@ -17,6 +17,12 @@ let
   shellCheck = import ../shell-check { inherit pkgs; };
   inherit (shellCheck) fragment;
 
+  # May this be deleted: the decisions factory-ctl and factory-maintenance act on.
+  diskPlan = pkgs.writers.writePython3Bin "factory-disk-plan" {
+    # `python-lint` and `python-types` are the Python gate.
+    doCheck = false;
+  } (builtins.readFile ./disk_plan.py);
+
   # Root-owned policy, installed at /etc/claude-code/managed-settings.json.
   #
   # Billing: only a claude.ai subscription login may be used. forceLoginMethod
@@ -183,6 +189,7 @@ let
         gcroots_auto = gcrootsAuto;
         ops_state_dir = opsStateDir;
         tmp_dir = tmpDir;
+        disk_plan = lib.getExe diskPlan;
       };
       ctlFragments = [
         ./ctl/paths.sh
@@ -266,14 +273,18 @@ let
       gcrootsAuto ? "/nix/var/nix/gcroots/auto",
       tmpDir ? "/tmp",
       homesDir ? "/home",
+      uptimeFile ? "/proc/uptime",
+      setpriv ? lib.getExe' pkgs.util-linux "setpriv",
     }:
     rootScript "factory-maintenance"
       {
-        inherit profile;
+        inherit profile setpriv;
         state_dir = stateDir;
         gcroots_auto = gcrootsAuto;
         tmp_dir = tmpDir;
         homes_dir = homesDir;
+        uptime_file = uptimeFile;
+        disk_plan = lib.getExe diskPlan;
       }
       [
         ./space.sh
