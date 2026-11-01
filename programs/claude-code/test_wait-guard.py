@@ -4,20 +4,26 @@ import json
 import os
 from pathlib import Path
 
+import bash_commands
 import pytest
 from guard_harness import (
     ALLOWED,
     BLOCKED,
+    BROKEN_SHFMT,
     FAIL_OPEN_CASES,
+    BrokenShfmt,
     Case,
     agent_fields,
     bash_event,
     guard_cases,
+    guard_on,
+    guard_on_broken,
     run_guard,
     session_with,
 )
 
 GUARD = os.environ["WAIT_GUARD"]
+SOURCE = "wait-guard.py"
 
 FOREGROUND_CASES: list[Case[str]] = [
     (BLOCKED, "a long sleep is blocked", "sleep 30"),
@@ -45,6 +51,7 @@ FOREGROUND_CASES: list[Case[str]] = [
     ),
     (BLOCKED, "a sleep as an until condition is blocked", "until sleep 3; do :; done"),
     (BLOCKED, "a long sleep as an if condition is blocked", "if sleep 30; then ls; fi"),
+    (ALLOWED, "invalid Bash is allowed, whatever it names", "sleep 30 && ("),
     (ALLOWED, "a short sleep is allowed", "sleep 2"),
     (ALLOWED, "a short sleep as an if condition is allowed", "if sleep 2; then ls; fi"),
     (
@@ -163,13 +170,14 @@ FOREGROUND_CASES: list[Case[str]] = [
     (
         BLOCKED,
         "a bash -c script that does not parse keeps the outer verdict",
-        "sleep 30; bash -c 'echo a\\'",
+        "sleep 30; bash -c 'x('",
     ),
     (
-        ALLOWED,
-        "a bash -c script that does not parse is allowed alone",
-        "bash -c 'echo a\\'",
+        BLOCKED,
+        "a loop of bash -c scripts that do not parse is still a loop",
+        "while bash -c 'x('; do bash -c 'y('; done; sleep 2",
     ),
+    (ALLOWED, "a bash -c script that does not parse is allowed alone", "bash -c 'x('"),
     (
         ALLOWED,
         "a tail -f sent to the background with & is allowed",
@@ -216,6 +224,46 @@ FOREGROUND_CASES: list[Case[str]] = [
         "a wrapper named in a string is allowed",
         "echo \"bash -c 'sleep 30'\" && git commit -m 'tail -f log'",
     ),
+    (BLOCKED, "a sleep split by a line continuation is blocked", "sleep \\\n60"),
+    (BLOCKED, "a tail -f split by a line continuation is blocked", "tail \\\n-f log"),
+    (BLOCKED, "a sleep in backticks is blocked", "echo `sleep 60`"),
+    (
+        BLOCKED,
+        "a sleep in a quoted substitution is blocked",
+        'echo "$(cat big; sleep 60)"',
+    ),
+    (BLOCKED, "a sleep in a process substitution is blocked", "cat <(sleep 60)"),
+    (
+        BLOCKED,
+        "a substitution in an unquoted heredoc body runs, so it is blocked",
+        "cat <<EOF\n$(sleep 60)\nEOF",
+    ),
+    (
+        BLOCKED,
+        "a comment after a mid-word hash hides no next line",
+        "echo a#b # comment\nsleep 12",
+    ),
+    (BLOCKED, "a sleep in a coproc is blocked", "coproc sleep 60"),
+    (
+        ALLOWED,
+        "a substitution in a quoted heredoc body is text, so it is allowed",
+        "cat <<\\EOF\n$(sleep 60)\nEOF",
+    ),
+    (
+        ALLOWED,
+        "a short sleep in a for loop is allowed",
+        "for i in 1 2; do sleep 1; done",
+    ),
+    (
+        ALLOWED,
+        "a short sleep in an arithmetic for loop is allowed",
+        "for ((i = 0; i < 2; i++)); do sleep 1; done",
+    ),
+    (
+        ALLOWED,
+        "a short sleep in a select loop is allowed",
+        "select x in a b; do sleep 1; done",
+    ),
 ]
 
 BACKGROUND_CASES: list[Case[str]] = [
@@ -230,6 +278,11 @@ BACKGROUND_CASES: list[Case[str]] = [
 ]
 
 AGENT_CASES: list[Case[tuple[str | None, str, bool]]] = [
+    (
+        BLOCKED,
+        "a repeated read in a substitution is blocked",
+        ("fresh", 'a="$(gh pr checks 7)"; b="$(gh pr checks 7)"', False),
+    ),
     (
         BLOCKED,
         "a second read of the same checks is blocked",
@@ -466,6 +519,69 @@ def test_agent_call(
 @guard_cases(RAW_CASES + FAIL_OPEN_CASES)
 def test_raw_input(want: int, given: str) -> None:
     assert run_guard([GUARD], given).returncode == want
+
+
+@pytest.mark.parametrize(
+    "earlier",
+    [
+        "cd sub && gh pr checks 7 | tail -5",
+        "gh pr \\\n  checks 7",
+        "bash -c 'gh pr checks 7'",
+        'echo "$(gh pr checks 7)"',
+        "nix develop -c gh pr checks 7",
+    ],
+)
+def test_an_earlier_status_read_counts_among_other_commands(
+    tmp_path: Path, earlier: str
+) -> None:
+    lines = "".join(
+        [
+            bash_line("ls", "before"),
+            bash_line(earlier, "old"),
+            bash_line("git status", "after"),
+            bash_line("gh pr checks 7", "now"),
+        ]
+    )
+    transcript = session_with(tmp_path, "", {"agent": lines})
+
+    result = run_guard([GUARD], agent_call(transcript, "agent", "gh pr checks 7"))
+
+    assert result.returncode == BLOCKED
+
+
+def test_a_working_shfmt_blocks_on_the_runner_of_the_broken_ones() -> None:
+    argv = guard_on(SOURCE, bash_commands.SHFMT)
+
+    assert run_guard(argv, bash_event("sleep 30")).returncode == BLOCKED
+
+
+@guard_cases(BROKEN_SHFMT)
+def test_a_broken_shfmt_allows_a_wait(
+    tmp_path: Path, want: int, given: BrokenShfmt
+) -> None:
+    result = run_guard(guard_on_broken(SOURCE, given, tmp_path), bash_event("sleep 30"))
+
+    assert (result.returncode, result.stderr) == (want, "")
+
+
+def test_a_working_shfmt_blocks_a_repeated_read_on_that_runner(session: Path) -> None:
+    argv = guard_on(SOURCE, bash_commands.SHFMT)
+
+    result = run_guard(argv, agent_call(session, "polled", "gh pr checks 7"))
+
+    assert result.returncode == BLOCKED
+
+
+@guard_cases(BROKEN_SHFMT)
+def test_a_broken_shfmt_allows_a_repeated_read(
+    tmp_path: Path, session: Path, want: int, given: BrokenShfmt
+) -> None:
+    result = run_guard(
+        guard_on_broken(SOURCE, given, tmp_path),
+        agent_call(session, "polled", "gh pr checks 7"),
+    )
+
+    assert (result.returncode, result.stderr) == (want, "")
 
 
 def test_a_block_says_to_background_and_when_to_hand_back() -> None:

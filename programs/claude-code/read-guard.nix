@@ -6,6 +6,7 @@
 import ./bash-guard.nix {
   inherit pkgs;
   name = "claude-read-guard";
+  parsesCommands = true;
   script = builtins.replaceStrings [ "@git@" ] [ "${pkgs.git}/bin/git" ] (
     builtins.readFile ./read-guard.py
   );

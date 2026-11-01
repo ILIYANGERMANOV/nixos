@@ -20,7 +20,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-from bash_commands import Sink, simple_commands
+from bash_commands import Parsed, Simple, Sink, Unparsable, parse
 from hook_event import Json, ReadCall, parse_bash_call, parse_json, parse_read_call
 
 MAX_BYTES = 16 * 1024
@@ -102,13 +102,22 @@ def is_exempt(path: str) -> bool:
 
 
 def read_sizes(command: str, cwd: str) -> Iterator[int]:
-    """The size of every file the command reads, skipping exempt and unknown ones.
+    """The size of every file the command reads, none for one that does not parse."""
+    match parse(command):
+        case Parsed(commands):
+            yield from sizes_read(commands, cwd)
+        case Unparsable():
+            pass
+
+
+def sizes_read(commands: tuple[Simple, ...], cwd: str) -> Iterator[int]:
+    """The size of every file these read, skipping exempt and unknown ones.
 
     A `cd` moves the directory for every later command, whatever operator
     joins them. A `cd` that would fail leaves a directory that does not exist,
     so nothing after it is found or counted: the guard fails open.
     """
-    for simple in simple_commands(command):
+    for simple in commands:
         match (simple.words, simple.sink):
             case (["cd"], _):
                 cwd = expand_home("~")

@@ -118,10 +118,19 @@ root `pyproject.toml`. `python-tests` replaced `claude-bash-guards` and
 
 - A test sits beside its script and keeps the name literal: `test_read-guard.py`,
   `test_analyze.py`. Only `--import-mode=importlib` can import a hyphen, so the
-  rule costs nothing. `guard_harness.py` is the one helper with no companion.
+  rule costs nothing. `guard_harness.py` and `bash_corpus.py` are the helpers with
+  no companion.
 - A guard test feeds JSON to the built guard, whose path arrives through the
   check's environment, so packaging stays covered. Importing `main` would not.
 - Cases are plain `(want, name, given)` tables, so a corpus can extend them.
+- `bash_corpus.py` holds what `bash_commands.parse` must read, and `bash -n` judges
+  each parse verdict. shfmt's JSON is no stable format and a guard fails open on a
+  broken adapter, so this table, not the guard, is what catches a shfmt change. It
+  needs real shfmt: `python-tests` substitutes `@shfmt@` as `bash-guard.nix` does.
+- `analyze.py` reads Bash with regexes, since a single stdlib file cannot import the
+  adapter. A differential test in `test_analyze.py` compares `label` and `check_key`
+  with shfmt's reading. A difference is allowlisted with its reason, and an entry
+  that stops differing fails.
 - `analyze.py` runs under the bare python in `STDLIB_PYTHON`. Under the check's
   own python, an import of hypothesis would pass here and fail when deployed.
 - pytest and hypothesis live in the check's `python3.withPackages`, never in a
