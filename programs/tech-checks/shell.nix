@@ -10,7 +10,6 @@ let
   # What `shell-limits` lets past: a recipe's name or a Nix file's stem.
   shellLimitExempt = [
     "statusline" # t12 removes it
-    "_cache-check" # t12 removes it
   ];
 
   formatter = import ./formatter.nix { inherit pkgs; };

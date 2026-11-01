@@ -16,6 +16,8 @@ let
     inherit root;
     fileset = lib.fileset.unions [
       (root + "/pyproject.toml")
+      # test_cache_check.py runs the real denylist.
+      (root + "/just/nix-darwin/expensive-builds.deny")
       (lib.fileset.fileFilter (file: file.hasExt "py") root)
     ];
   };
