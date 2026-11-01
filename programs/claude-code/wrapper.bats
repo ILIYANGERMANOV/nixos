@@ -17,7 +17,7 @@ setup() {
   chmod 444 "$WORK/instructions" "$WORK/settings" "$WORK/mcp.json"
 
   export instructions_file="$WORK/instructions" settings_file="$WORK/settings"
-  export mcp_static_file="$WORK/mcp.json" claude_bin="$WORK/bin/claude"
+  export mcp_static_file="$WORK/mcp.json" claude_bin=claude
   export runtime_path="$WORK/runtime"
   mcp_secrets=()
   declare -gA secret_files=()
@@ -55,9 +55,9 @@ launch() {
 
 @test "puts the flavor's runtime first on PATH" {
   mkdir "$WORK/runtime"
+  stub tool 'echo the-flavors'
+  mv "$WORK/bin/tool" "$WORK/runtime/tool"
   stub tool 'echo the-callers'
-  printf '#!%s\necho the-flavors\n' "$BASH" >"$WORK/runtime/tool"
-  chmod +x "$WORK/runtime/tool"
   stub claude 'tool'
 
   run launch
@@ -95,10 +95,10 @@ launch() {
   [ "$output" = "$WORK/token" ]
 }
 
-@test "the instructions and settings replace what the last launch left" {
+@test "the instructions and settings replace what is there" {
   mkdir "$HOME/.claude"
   echo "by hand" >"$HOME/.claude/CLAUDE.md"
-  launch
+  echo "by hand" >"$HOME/.claude/settings.json"
 
   launch
 

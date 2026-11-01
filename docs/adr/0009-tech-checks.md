@@ -30,8 +30,9 @@ Shell has eight: `shell-actionlint` (workflows), `shell-lint` (every `.sh`, `.ba
 and `.bash`), `shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and
 no `{{ }}` on a sudo line), `shell-limits` (how much shell may sit outside a
 `.sh`), `shell-embedded` (wrappers no other check builds), `shell-tests` (the
-software factory's bats suites) and `shell-script-tests` (every other bats suite). The lint rules live in `programs/shell-check`,
-shared with `writeShellApplication`.
+software factory's bats suites) and `shell-script-tests` (every other bats
+suite). The lint rules live in `programs/shell-check`, shared with
+`writeShellApplication`.
 
 `shell-limits` keeps logic where the other checks can see it, in a `.sh`:
 

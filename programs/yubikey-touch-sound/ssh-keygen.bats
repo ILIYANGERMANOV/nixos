@@ -1,11 +1,11 @@
 #!/usr/bin/env bats
-# shellcheck disable=SC2016,SC2119,SC2120,SC2312 # a stub's body expands when the stub runs, not every test passes arguments, and a masked failure fails the assertion around it
+# shellcheck disable=SC2016 # a stub's body expands when the stub runs
 
 load ../shell-check/test_helper
 
 setup() {
   export WORK="$BATS_TEST_TMPDIR"
-  export beep="$WORK/bin/beep" openssh_keygen="$WORK/bin/ssh-keygen"
+  export beep=beep openssh_keygen=ssh-keygen
   # Noisy on the streams it must stay off, and it stops only when told to.
   stub beep 'trap "kill \$!; touch \"\$WORK/beep-stopped\"; exit 0" TERM
     echo alert

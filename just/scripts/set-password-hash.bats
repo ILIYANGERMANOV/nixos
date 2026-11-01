@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# shellcheck disable=SC2016,SC2119,SC2120,SC2312 # a stub's body expands when the stub runs, not every test passes arguments, and a masked failure fails the assertion around it
+# shellcheck disable=SC2016 # a stub's body expands when the stub runs
 # Only what stands between bad input and the secrets file. Nothing here says how
 # the file is seeded.
 
@@ -21,6 +21,13 @@ setup() {
 # Answers the prompt and its repeat.
 set_password() { printf '%s\n' "$2" "$3" | bash "$BATS_TEST_DIRNAME/set-password-hash.sh" "$1"; }
 
+# It failed saying $1, and the secrets file was never opened.
+refused() {
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"$1"* ]]
+  [ ! -e "$WORK/sops-calls" ]
+}
+
 @test "matching passwords write the hash, off argv" {
   run set_password lenovo-old hunter2 hunter2
 
@@ -32,25 +39,19 @@ set_password() { printf '%s\n' "$2" "$3" | bash "$BATS_TEST_DIRNAME/set-password
 @test "a host that could escape secrets/hosts is refused" {
   run set_password ../evil hunter2 hunter2
 
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"invalid host name '../evil'"* ]]
-  [ ! -e "$WORK/sops-calls" ]
+  refused "invalid host name '../evil'"
 }
 
 @test "a host with a capital is refused" {
   run set_password Lenovo hunter2 hunter2
 
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"invalid host name"* ]]
-  [ ! -e "$WORK/sops-calls" ]
+  refused "invalid host name"
 }
 
 @test "an empty host is refused" {
   run set_password "" hunter2 hunter2
 
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"invalid host name"* ]]
-  [ ! -e "$WORK/sops-calls" ]
+  refused "invalid host name"
 }
 
 @test "no age key stops it before any prompt" {
@@ -58,23 +59,17 @@ set_password() { printf '%s\n' "$2" "$3" | bash "$BATS_TEST_DIRNAME/set-password
 
   run set_password lenovo-old hunter2 hunter2
 
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"no age key"* ]]
-  [ ! -e "$WORK/sops-calls" ]
+  refused "no age key"
 }
 
 @test "an empty password is refused" {
   run set_password lenovo-old "" ""
 
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"empty password"* ]]
-  [ ! -e "$WORK/sops-calls" ]
+  refused "empty password"
 }
 
 @test "passwords that differ are refused" {
   run set_password lenovo-old hunter2 hunter3
 
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"passwords do not match"* ]]
-  [ ! -e "$WORK/sops-calls" ]
+  refused "passwords do not match"
 }

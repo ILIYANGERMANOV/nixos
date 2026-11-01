@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# shellcheck disable=SC2016,SC2119,SC2120,SC2312 # a stub's body expands when the stub runs, not every test passes arguments, and a masked failure fails the assertion around it
+# shellcheck disable=SC2016,SC2312 # a stub's body expands when the stub runs, and a masked failure fails the assertion around it
 # Only what does not depend on how long a run takes: a short interval, a bounded
 # wait on each outcome, and no claim on how many times the sound played.
 
@@ -7,7 +7,7 @@ load ../shell-check/test_helper
 
 setup() {
   export WORK="$BATS_TEST_TMPDIR"
-  export afplay="$WORK/bin/afplay" sound=/sounds/hero.aiff volume=6
+  export afplay=afplay sound=/sounds/hero.aiff volume=6
   export interval=0.01 timeout_seconds=30
   export BEEP="$BATS_TEST_DIRNAME/beep.sh"
   # beep as a program of its own, whose EXIT outlives its own traps: orphaned, its

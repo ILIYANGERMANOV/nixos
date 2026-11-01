@@ -1,11 +1,10 @@
 #!/usr/bin/env bats
-# shellcheck disable=SC2016,SC2119,SC2120,SC2312 # a stub's body expands when the stub runs, not every test passes arguments, and a masked failure fails the assertion around it
+# shellcheck disable=SC2016,SC2119,SC2120 # a stub's body expands when the stub runs, and not every test passes arguments
 
 load ../shell-check/test_helper
 
 setup() {
-  export WORK="$BATS_TEST_TMPDIR" askpass=/nix/store/askpass
-  export openssh="$WORK/bin/ssh"
+  export WORK="$BATS_TEST_TMPDIR" askpass=/nix/store/askpass openssh=ssh
   unset DISPLAY
 }
 

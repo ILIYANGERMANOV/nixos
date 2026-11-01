@@ -4,8 +4,8 @@
 load ../shell-check/test_helper
 
 setup() {
+  export beep=beep
   stub beep 'echo beeping'
-  export beep="$BATS_TEST_TMPDIR/bin/beep"
 }
 
 askpass() { bash -euo pipefail "$BATS_TEST_DIRNAME/askpass.sh" "$@"; }
