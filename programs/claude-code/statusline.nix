@@ -4,8 +4,7 @@
 
 # flake8 off: `python-lint` and `python-types` are the Python gate.
 pkgs.writers.writePython3Bin "claude-statusline" { doCheck = false; } (
-  builtins.replaceStrings
-    [ "@git@" "@theme@" ]
-    [ "${pkgs.git}/bin/git" theme ]
-    (builtins.readFile ./statusline.py)
+  builtins.replaceStrings [ "@git@" "@theme@" ] [ "${pkgs.git}/bin/git" theme ] (
+    builtins.readFile ./statusline.py
+  )
 )
