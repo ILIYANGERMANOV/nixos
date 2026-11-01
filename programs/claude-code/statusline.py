@@ -3,6 +3,9 @@
 `parse` and `render` decide everything and are pure. `main` reads what they depend
 on: stdin, the clock, the git branch and the system appearance. Input that cannot
 be read prints nothing, so a broken field blanks the line rather than lying.
+
+Records are NamedTuples: this runs on every message, and importing `dataclasses`
+was a third of its time.
 """
 
 import json
@@ -11,8 +14,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
-from typing import cast
+from typing import NamedTuple, cast
 
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
@@ -36,8 +38,7 @@ CONTEXT_SIZE = (("context_window", "context_window_size"),)
 CONTEXT_PERCENT = (("context_window", "used_percentage"),)
 
 
-@dataclass(frozen=True, slots=True)
-class Palette:
+class Palette(NamedTuple):
     cyan: str
     green: str
     blue: str
@@ -66,27 +67,23 @@ LIGHT = Palette(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class RateLimit:
+class RateLimit(NamedTuple):
     percent: int
     resets_at: int | None
 
 
-@dataclass(frozen=True, slots=True)
-class ContextWindow:
+class ContextWindow(NamedTuple):
     size: int
     percent: int
 
 
-@dataclass(frozen=True, slots=True)
-class Status:
+class Status(NamedTuple):
     cwd: str
     model: str
     limit: RateLimit | None
     context: ContextWindow | None
 
 
-@dataclass(frozen=True, slots=True)
 class Unreadable:
     pass
 
