@@ -7,12 +7,6 @@ let
 
   shellCheck = import ../shell-check { inherit pkgs; };
 
-  # What `shell-limits` lets past: a recipe's name or a Nix file's stem.
-  shellLimitExempt = [
-    "statusline" # t12 removes it
-    "_cache-check" # t12 removes it
-  ];
-
   formatter = import ./formatter.nix { inherit pkgs; };
 
   typos = import ../typos { inherit pkgs; };
@@ -154,7 +148,7 @@ in
       ''
         long_recipes() {
           just --justfile "$1" --dump --dump-format json |
-            jq '.recipes | to_entries[] | {name: .key, where: .key, lines: (.value.body | length)}' |
+            jq '.recipes | to_entries[] | {where: .key, lines: (.value.body | length)}' |
             over 30
         }
         long_strings() {
@@ -163,8 +157,7 @@ in
             over 5
         }
         over() {
-          jq -r --argjson limit "$1" --argjson exempt ${lib.escapeShellArg (builtins.toJSON shellLimitExempt)} \
-            'select(.lines > $limit and (.name | IN($exempt[]) | not)) | "\(.where): \(.lines) lines"' |
+          jq -r --argjson limit "$1" 'select(.lines > $limit) | "\(.where): \(.lines) lines"' |
             sort -V
         }
         report() {
@@ -250,12 +243,11 @@ in
 
   # The writeShellApplication derivations no other check builds, so their
   # shellcheck phase runs without a host. Every flavor is listed through
-  # `claude`, and the statusline's and yubikey's private scripts are reached
-  # through references, which is why those two build for real.
+  # `claude`, and yubikey's private scripts are reached through references, which
+  # is why those build for real.
   shell-embedded = pkgs.linkFarmFromDrvs "shell-embedded" (
     map dry (claude.packages ++ [ claude.factory.wrapper ])
     ++ [
-      claude.statusline
       typos.cli
       yubikey.ssh
       yubikey.sshKeygen

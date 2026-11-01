@@ -24,7 +24,9 @@ ignore = [
 "programs/claude-code/read-guard.py" = ["S603", "S607"]
 "programs/claude-code/bash_commands.py" = ["S603"]
 "programs/claude-code/guard_harness.py" = ["S603"]
+"programs/claude-code/statusline.py" = ["S603", "S607"]
 "programs/software-factory/disk_plan.py" = ["S603", "S607"]
+"just/nix-darwin/cache_check.py" = ["S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
 [tool.ruff.lint.flake8-tidy-imports]
@@ -37,15 +39,15 @@ ban-relative-imports = "all"
 # A companion test keeps its script's literal name, hyphens included, which only
 # importlib can import. The seed keeps hypothesis the same on every run.
 addopts = "--import-mode=importlib -p no:cacheprovider --hypothesis-seed=0 -q"
-# The guard tests import the harness and bash_commands.py from beside them, the
-# analyzer's differential test imports both programs, and test_disk_plan.py
-# imports disk_plan.py.
+# A test imports what sits beside it: the harness, bash_commands.py, disk_plan.py,
+# cache_check.py. The analyzer's differential test imports both programs.
 pythonpath = [
   "programs/claude-code",
   "programs/agents/skills/custom/self-improve/scripts",
   "programs/software-factory",
+  "just/nix-darwin",
 ]
-testpaths = ["programs"]
+testpaths = ["programs", "just"]
 
 [tool.basedpyright]
 typeCheckingMode = "recommended"
@@ -62,3 +64,6 @@ extraPaths = ["programs/claude-code"]
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/software-factory"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "just/nix-darwin"
