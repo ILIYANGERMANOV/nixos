@@ -116,22 +116,42 @@ let
       mcpStaticFile = pkgs.writeText "${name}-mcp-static.json" (
         builtins.toJSON (mcp.mkMcpStructure servers)
       );
+
+      # server, variable, path of every secret, flat: bash has no list of lists.
+      mcpSecrets = lib.concatLists (
+        lib.concatLists (
+          lib.mapAttrsToList (
+            server:
+            { env, ... }:
+            lib.mapAttrsToList (var: path: [
+              server
+              var
+              path
+            ]) env
+          ) servers
+        )
+      );
+
+      values = lib.toShellVars {
+        claude_bin = "${claude-code}/bin/claude";
+        instructions_file = "${instructions}";
+        mcp_secrets = mcpSecrets;
+        mcp_static_file = "${mcpStaticFile}";
+        runtime_path = lib.makeBinPath runtime;
+        secret_files = files;
+        settings_file = "${settingsFile}";
+      };
     in
     shellCheck.writeShellApplication {
       inherit name;
       runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
       passthru = { inherit skillFarm instructions; };
       text = ''
-        mkdir -p "$HOME/.claude"
-        ${applySkills skillFarm}
-        ${mkApplyInstructions instructions}
-        install -m 600 "${settingsFile}" "$HOME/.claude/settings.json"
-        ${mkApplyMcp { inherit mcpStaticFile servers; }}
-        export PATH="${lib.makeBinPath runtime}:$PATH"
-        ${lib.concatStrings (
-          lib.mapAttrsToList (var: path: "export ${var}=${lib.escapeShellArg path}\n") files
-        )}
-        exec ${claude-code}/bin/claude "$@"
+        ${values}
+        apply_skills() {
+          ${applySkills skillFarm}
+        }
+        ${shellCheck.fragment ./wrapper.sh}
       '';
     };
 
@@ -196,69 +216,6 @@ let
       mkdir -p "$HOME/.claude/skills"
       ln -s ${skillFarm}/* "$HOME/.claude/skills/"
     '';
-
-  # Shell snippet: rewrite ~/.claude/CLAUDE.md from the store on every launch.
-  #
-  # User-scope memory is Nix-owned, on the same terms as ~/.claude/skills: the
-  # file is replaced wholesale, so anything written into it by hand or by the `#`
-  # memory shortcut is discarded on the next launch. Machine-local rules belong
-  # in a project's own CLAUDE.md, which still stacks on top of this one.
-  #
-  # `install -m 600`, not `cp`: store paths are mode 444 and Claude Code never
-  # rewrites CLAUDE.md, so a plain `cp` would succeed once and then fail with
-  # EACCES on every later launch - fatal under `set -o errexit`.
-  mkApplyInstructions = instructionsFile: ''
-    install -m 600 "${instructionsFile}" "$HOME/.claude/CLAUDE.md"
-  '';
-
-  # Shell snippet: atomically update ~/.claude.json with this flavor's MCP servers.
-  # mcpStaticFile is a Nix store path with the static JSON (env var references only).
-  # Replaces mcpServers entirely so switching flavors is always clean.
-  mkApplyMcp =
-    { mcpStaticFile, servers }:
-    ''
-      ${mkReadSecrets servers}
-      [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
-      _claude_tmp=$(mktemp "$HOME/.claude.json.XXXXXX")
-      trap 'rm -f "$_claude_tmp"' EXIT
-      jq --slurpfile mcp "${mcpStaticFile}" ".mcpServers = \$mcp[0]" \
-        "$HOME/.claude.json" > "$_claude_tmp"
-      mv "$_claude_tmp" "$HOME/.claude.json"
-    '';
-
-  # Shell snippet: validate each secret file exists, then export it as an env var.
-  # Secrets are NOT written to any file. Claude Code's expandVars (confirmed enabled
-  # for user scope in source) resolves ${VAR} references in ~/.claude.json from the
-  # process environment inherited via exec.
-  #
-  # A missing file is fatal, not a reason to drop the server: this server is only
-  # here because the host DECLARED its secret, so a missing file means the
-  # promise is broken (no age key, or a rebuild that never ran) rather than that
-  # the feature is off. Hosts that genuinely lack the secret never get this far.
-  #
-  # Servers that name no secrets contribute nothing, so the empty case needs no
-  # guard of its own.
-  mkReadSecrets =
-    servers:
-    lib.concatStrings (
-      lib.concatLists (
-        lib.mapAttrsToList (
-          serverName:
-          { env, ... }:
-          lib.mapAttrsToList (envVar: path: ''
-            if [ ! -f "${path}" ]; then
-              echo "Error: MCP server '${serverName}' needs ${path}, which does not exist." >&2
-              # shellcheck disable=SC2312 # A failed hostname costs one word of a fatal message.
-              echo "$(hostname -s) declares this secret via myConfig.secrets, so it should be there." >&2
-              echo "Check the age key (just darwin-install-age-key) and re-run darwin-rebuild switch." >&2
-              exit 1
-            fi
-            ${envVar}=$(cat "${path}")
-            export ${envVar}
-          '') env
-        ) servers
-      )
-    );
 in
 {
   inherit (mcp) mkStdioServer mkHttpServer;

@@ -15,17 +15,7 @@
 
 let
   shellCheck = import ../shell-check { inherit pkgs; };
-
-  # A fragment opens with a directive for the shell-lint check, which sees it
-  # alone. Spliced mid-script that directive would silence only the function
-  # below it, and for no reason: the assembled script defines everything.
-  fragment =
-    script:
-    lib.concatLines (
-      lib.filter (line: !lib.hasPrefix "# shellcheck shell=bash" line) (
-        lib.splitString "\n" (builtins.readFile script)
-      )
-    );
+  inherit (shellCheck) fragment;
 
   # May this be deleted: the decisions factory-ctl and factory-maintenance act on.
   diskPlan = pkgs.writers.writePython3Bin "factory-disk-plan" {
@@ -78,11 +68,6 @@ let
   # shared files, so concurrent starts would race. The wrapper therefore runs
   # once under a lock with --version, and the server is started from the
   # unwrapped binary the wrapper would have exec'd.
-  # The launchers and the skill relink serialise on this lock, held on fd 9.
-  openFactoryLock = ''
-    mkdir -p "$HOME/.claude"
-    exec 9>"$HOME/.claude/.factory.lock"
-  '';
 
   mkRemoteControl =
     {
@@ -91,6 +76,11 @@ let
       ghToken,
     }:
     let
+      settings = lib.toShellVars {
+        claude_bin = lib.getExe claude;
+        claude_unwrapped = lib.getExe claudeUnwrapped;
+        gh_token_file = ghToken;
+      };
       launcher =
         name: text:
         shellCheck.writeShellApplication {
@@ -101,52 +91,18 @@ let
           ];
           text = ''
             ${text}
-
-            # Applies the flavor, trusts the directory and replaces this process
-            # with a Remote Control server for it.
-            serve() {
-              local dir="$1" name="$2"
-              shift 2
-
-              ${openFactoryLock}
-              flock 9
-              ${lib.getExe claude} --version >/dev/null
-              trust "$dir"
-              exec 9>&-
-
-              GH_TOKEN=$(cat "${ghToken}")
-              export GH_TOKEN
-              cd "$dir"
-              exec ${lib.getExe claudeUnwrapped} remote-control --name "$name" "$@"
-            }
-
-            # Remote Control refuses an untrusted directory when nobody is at a
-            # terminal to confirm it, and on its first run it waits on stdin for
-            # "Enable Remote Control? (y/n)" - forever, under systemd, while the
-            # unit reports active. These are the records the two answers write.
-            trust() {
-              local config="$HOME/.claude.json" tmp
-              [ -f "$config" ] || echo '{}' >"$config"
-              tmp=$(mktemp "$config.XXXXXX")
-              jq --arg dir "$1" '.projects[$dir].hasTrustDialogAccepted = true | .remoteDialogSeen = true' "$config" >"$tmp"
-              mv "$tmp" "$config"
-            }
-
+            ${settings}
+            ${fragment ./lock.sh}
+            ${fragment ./serve.sh}
             main "$@"
           '';
         };
     in
     {
       repo = launcher "factory-rc" ''
+        remote_control_args=(${lib.escapeShellArgs remoteControlArgs.repo})
         ${fragment ./ctl/paths.sh}
-
-        main() {
-          local name="''${1:?usage: factory-rc <repo>}"
-          check_repo_name "$name"
-          # shellcheck disable=SC2310 # a predicate
-          is_cloned "$name" || die "$repos_dir/$name is not a git repository"
-          serve "$repos_dir/$name" "$name" ${lib.escapeShellArgs remoteControlArgs.repo}
-        }
+        ${fragment ./factory-rc.sh}
       '';
 
       admin = launcher "factory-rc-admin" ''
@@ -174,7 +130,8 @@ let
         (import ../skills-link { inherit pkgs; })
       ];
       text = ''
-        ${openFactoryLock}
+        ${fragment ./lock.sh}
+        open_factory_lock
         if ! { flock --wait ${toString lockSeconds} 9 && factory-link-skills "$1"; }; then
           echo "factory-relink-skills: left ~/.claude/skills as it was" >&2
         fi
@@ -224,6 +181,28 @@ let
       gcrootsAuto ? "/nix/var/nix/gcroots/auto",
       tmpDir ? "/tmp",
     }:
+    let
+      settings = lib.toShellVars {
+        admin_unit = adminUnit;
+        deploy_repo = deployRepo;
+        deploy_workflow = deployWorkflow;
+        gcroots_auto = gcrootsAuto;
+        ops_state_dir = opsStateDir;
+        tmp_dir = tmpDir;
+        disk_plan = lib.getExe diskPlan;
+      };
+      ctlFragments = [
+        ./ctl/paths.sh
+        ./ctl/lib.sh
+        ./ctl/repo.sh
+        ./ctl/sessions.sh
+        ./space.sh
+        ./ctl/status.sh
+        ./ctl/disk.sh
+        ./ctl/ops.sh
+        ./ctl/main.sh
+      ];
+    in
     shellCheck.writeShellApplication {
       name = "factory-ctl";
       runtimeInputs = with pkgs; [
@@ -238,27 +217,9 @@ let
         util-linux
       ];
       text = ''
-        ops_state_dir=${lib.escapeShellArg opsStateDir}
-        deploy_repo=${lib.escapeShellArg deployRepo}
-        deploy_workflow=${lib.escapeShellArg deployWorkflow}
-        gcroots_auto=${lib.escapeShellArg gcrootsAuto}
-        tmp_dir=${lib.escapeShellArg tmpDir}
-        disk_plan=${lib.getExe diskPlan}
-
+        ${settings}
         admin_dir="${adminDir}"
-        admin_unit=${adminUnit}
-
-        ${lib.concatMapStrings fragment [
-          ./ctl/paths.sh
-          ./ctl/lib.sh
-          ./ctl/repo.sh
-          ./ctl/sessions.sh
-          ./space.sh
-          ./ctl/status.sh
-          ./ctl/disk.sh
-          ./ctl/ops.sh
-          ./ctl/main.sh
-        ]}
+        ${lib.concatMapStrings fragment ctlFragments}
       '';
     };
 
@@ -286,16 +247,23 @@ let
       currentSystem ? "/run/current-system",
       healthAttempts ? 18,
     }:
-    rootScript "factory-deploy" ./ops/deploy.sh ''
-      repo=${lib.escapeShellArg repo}
-      host=${lib.escapeShellArg host}
-      environment=${lib.escapeShellArg environment}
-      token_file=${lib.escapeShellArg tokenFile}
-      state_dir=${lib.escapeShellArg stateDir}
-      profile=${lib.escapeShellArg profile}
-      current_system=${lib.escapeShellArg currentSystem}
-      health_attempts=${toString healthAttempts}
-    '';
+    rootScript "factory-deploy"
+      {
+        inherit
+          repo
+          host
+          environment
+          profile
+          ;
+        token_file = tokenFile;
+        state_dir = stateDir;
+        current_system = currentSystem;
+        health_attempts = healthAttempts;
+      }
+      [
+        ./ops/state.sh
+        ./ops/deploy.sh
+      ];
 
   # rollback | reboot | gc, run as root by fixed units.
   mkMaintenance =
@@ -308,20 +276,24 @@ let
       uptimeFile ? "/proc/uptime",
       setpriv ? lib.getExe' pkgs.util-linux "setpriv",
     }:
-    rootScript "factory-maintenance" ./ops/maintenance.sh ''
-      state_dir=${lib.escapeShellArg stateDir}
-      profile=${lib.escapeShellArg profile}
-      gcroots_auto=${lib.escapeShellArg gcrootsAuto}
-      tmp_dir=${lib.escapeShellArg tmpDir}
-      homes_dir=${lib.escapeShellArg homesDir}
-      uptime_file=${lib.escapeShellArg uptimeFile}
-      setpriv=${setpriv}
-      disk_plan=${lib.getExe diskPlan}
-      ${fragment ./space.sh}
-    '';
+    rootScript "factory-maintenance"
+      {
+        inherit profile setpriv;
+        state_dir = stateDir;
+        gcroots_auto = gcrootsAuto;
+        tmp_dir = tmpDir;
+        homes_dir = homesDir;
+        uptime_file = uptimeFile;
+        disk_plan = lib.getExe diskPlan;
+      }
+      [
+        ./space.sh
+        ./ops/state.sh
+        ./ops/maintenance.sh
+      ];
 
   rootScript =
-    name: script: settings:
+    name: settings: fragments:
     shellCheck.writeShellApplication {
       inherit name;
       runtimeInputs = with pkgs; [
@@ -332,9 +304,21 @@ let
         util-linux
       ];
       text = ''
-        ${settings}
-        ${fragment ./ops/state.sh}
-        ${fragment script}
+        ${lib.toShellVars settings}
+        ${lib.concatMapStrings fragment fragments}
+      '';
+    };
+
+  # Starts factory-gc when less than `gcBelowFreePercent` of / is free. Strict
+  # mode here makes a failed reading a failed run rather than a silent pass; df,
+  # tail and systemctl come from the unit's PATH.
+  mkGcOnPressure =
+    { gcBelowFreePercent }:
+    shellCheck.writeShellApplication {
+      name = "factory-gc-on-pressure";
+      text = ''
+        ${lib.toShellVars { gc_below_free_percent = gcBelowFreePercent; }}
+        ${fragment ./ops/gc-on-pressure.sh}
       '';
     };
 
@@ -363,21 +347,23 @@ let
   #   repos - attrset of directory name -> clone URL
   mkBoot =
     ctl: repos:
+    let
+      args = lib.escapeShellArgs (
+        lib.concatLists (
+          lib.mapAttrsToList (name: url: [
+            name
+            url
+          ]) repos
+        )
+      );
+    in
     shellCheck.writeShellApplication {
       name = "factory-boot";
       text = ''
-        exec ${lib.getExe ctl} boot ${
-          lib.escapeShellArgs (
-            lib.concatLists (
-              lib.mapAttrsToList (name: url: [
-                name
-                url
-              ]) repos
-            )
-          )
-        }
+        exec ${lib.getExe ctl} boot ${args}
       '';
     };
+
   # nftables table that keeps the agent account (`uid`) away from everything
   # private while leaving the internet open: the tailnet, private networks and
   # the cloud metadata service. Matching the uid covers every process the
@@ -410,6 +396,7 @@ in
     mkBoot
     mkDeploy
     mkMaintenance
+    mkGcOnPressure
     admin
     mkEgressRules
     ;

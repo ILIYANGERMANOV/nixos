@@ -5,6 +5,7 @@
 }:
 
 let
+  shellCheck = import ../../shell-check { inherit pkgs; };
 
   # Recursively walks `dir`, returning every subdirectory that directly contains
   # a SKILL.md as { name; relative; path; }.
@@ -67,15 +68,11 @@ let
       path
     else
       pkgs.runCommand "skill-${to}" { } ''
-        cp -r --no-preserve=mode,ownership ${path} "$out"
-        chmod -R u+w "$out"
-        awk -v new=${lib.escapeShellArg to} '
-          NR == 1 && $0 == "---" { infm = 1; print; next }
-          infm && $0 == "---"    { if (!seen) print "name: " new; infm = 0; print; next }
-          infm && /^name:/       { print "name: " new; seen = 1; next }
-                                 { print }
-        ' "$out/SKILL.md" > "$out/SKILL.md.new"
-        mv "$out/SKILL.md.new" "$out/SKILL.md"
+        ${lib.toShellVars {
+          new_name = to;
+          skill_source = "${path}";
+        }}
+        ${shellCheck.fragment ./rename-skill.sh}
       '';
 
   # Resolves one source's allowlist into an installed `name -> path` attrset,
