@@ -104,9 +104,9 @@ let
   # that flavor's `extraSkills`.
   baseSkills = [
     "address-pr-feedback"
+    "architect"
     "engineer"
     "engineering"
-    "explain"
     "final-review"
     "give-feedback"
     "grill-with-docs"
