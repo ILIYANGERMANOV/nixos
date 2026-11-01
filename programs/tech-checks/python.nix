@@ -59,7 +59,12 @@ in
         STDLIB_PYTHON = lib.getExe pkgs.python3;
       }
       ''
-        cd ${pythonSource}
+        # A test imports bash_commands.py from source, so it gets what a guard gets.
+        cp -r ${pythonSource} source
+        chmod -R u+w source
+        cd source
+        substituteInPlace programs/claude-code/bash_commands.py \
+          --replace-fail @shfmt@ ${lib.getExe pkgs.shfmt}
         HOME=$TMPDIR HYPOTHESIS_STORAGE_DIRECTORY=$TMPDIR/hypothesis PYTHONDONTWRITEBYTECODE=1 pytest
         touch "$out"
       '';
