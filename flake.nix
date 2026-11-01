@@ -162,12 +162,8 @@
           # may collect is otherwise never moved off. The one check that
           # evaluates a host, so `just quick-check` pays for it.
           software-factory-activation =
-            let
-              relink =
-                self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaude.data;
-            in
-            assert pkgs.lib.hasInfix "/factory-relink skills " relink;
-            assert pkgs.lib.hasInfix "/factory-relink agents " relink;
+            assert pkgs.lib.hasInfix "factory-relink-skills"
+              self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaudeSkills.data;
             pkgs.emptyFile;
           qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
         }

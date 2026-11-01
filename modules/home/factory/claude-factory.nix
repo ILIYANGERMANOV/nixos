@@ -36,7 +36,7 @@ let
         or (throw "software-factory: the host must declare myConfig.secrets.gh-token for gh");
   };
 
-  relink = factory.mkRelink { };
+  relinkSkills = factory.mkRelinkSkills { };
 
   ctl = factory.mkCtl {
     opsStateDir = "/var/lib/factory-ops";
@@ -91,17 +91,20 @@ in
 
   # The flavor wrapper puts /qa's runtime on PATH, but Remote Control sessions
   # run the unwrapped binary, so the factory installs it in the profile.
-  home.packages = [
-    claude.factory.wrapper
-    ctl
-    playwright.qa
-  ];
+  home = {
+    packages = [
+      claude.factory.wrapper
+      ctl
+      playwright.qa
+    ];
 
-  # After home.packages, whose generation keeps these farms alive.
-  home.activation.relinkClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    run ${lib.getExe relink} skills ${claude.factory.wrapper.skillFarm}
-    run ${lib.getExe relink} agents ${claude.factory.wrapper.agentFarm}
-  '';
+    file = claude.agentFiles;
+
+    # After home.packages, whose generation keeps this farm alive.
+    activation.relinkClaudeSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      run ${lib.getExe relinkSkills} ${claude.factory.wrapper.skillFarm}
+    '';
+  };
 
   systemd.user.services = {
     "claude-rc@" = {

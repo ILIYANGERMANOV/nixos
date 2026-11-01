@@ -516,26 +516,26 @@ status_reports() {
   grep -qxF "$1" "$work/out" || { cat "$work/out" >&2; fail "status does not report: $1"; }
 }
 
-echo "factory-relink: replaces links a GC left dangling; status counts them, then none"
+echo "factory-relink-skills: replaces links a GC left dangling; status counts them, then none"
 skills_reset
 ln -s "$work/collected/alpha" "$skills/alpha"
 ln -s "$work/collected/gamma" "$skills/gamma"
 ln -s "$work/farm-a/beta" "$skills/beta"
 status_reports "Skills: 2 dangling link(s): alpha gamma"
-factory-relink skills "$work/farm-a"
+factory-relink-skills "$work/farm-a"
 [ "$(readlink "$skills/alpha")" = "$work/farm-a/alpha" ] || fail "alpha was not relinked"
 [ ! -L "$skills/gamma" ] || fail "a link of the old farm survived"
 status_reports "Skills: 0 dangling links"
 
-echo "factory-relink: works on a first run with no ~/.claude"
+echo "factory-relink-skills: works on a first run with no ~/.claude"
 skills_reset
 rm -rf "$HOME/.claude"
-factory-relink skills "$work/farm-a"
+factory-relink-skills "$work/farm-a"
 [ "$(readlink "$skills/beta")" = "$work/farm-a/beta" ] || fail "the first run linked nothing"
 
-echo "factory-relink: a skill never goes missing while it swaps farms"
+echo "factory-relink-skills: a skill never goes missing while it swaps farms"
 skills_reset
-factory-relink skills "$work/farm-a"
+factory-relink-skills "$work/farm-a"
 (
   while [ ! -e "$work/stop-reading" ]; do
     [ -e "$skills/alpha" ] || touch "$work/skill-missing"
@@ -543,17 +543,17 @@ factory-relink skills "$work/farm-a"
 ) &
 reader=$!
 for _ in $(seq 40); do
-  factory-relink skills "$work/farm-b"
-  factory-relink skills "$work/farm-a"
+  factory-relink-skills "$work/farm-b"
+  factory-relink-skills "$work/farm-a"
 done
 touch "$work/stop-reading"
 wait "$reader"
 rm -f "$work/stop-reading"
 [ ! -e "$work/skill-missing" ] || fail "a reader saw the skill missing during a relink"
 
-echo "factory-link-farm: overlapping runs all succeed, and a reader never sees none"
+echo "factory-link-skills: overlapping runs all succeed, and a reader never sees none"
 skills_reset
-factory-link-farm skills "$work/farm-a"
+factory-link-skills "$work/farm-a"
 (
   while [ ! -e "$work/stop-reading" ]; do
     [ -n "$(ls -A "$skills")" ] || touch "$work/skills-empty"
@@ -562,8 +562,8 @@ factory-link-farm skills "$work/farm-a"
 reader=$!
 (
   for _ in $(seq 200); do
-    { factory-link-farm skills "$work/farm-a" || touch "$work/link-failed"; } 2>/dev/null &
-    { factory-link-farm skills "$work/farm-b" || touch "$work/link-failed"; } 2>/dev/null &
+    { factory-link-skills "$work/farm-a" || touch "$work/link-failed"; } 2>/dev/null &
+    { factory-link-skills "$work/farm-b" || touch "$work/link-failed"; } 2>/dev/null &
   done
   wait
 )
@@ -574,39 +574,17 @@ rm -f "$work/stop-reading"
 [ ! -e "$work/skills-empty" ] || fail "a reader saw ~/.claude/skills empty"
 [ -z "$(find "$HOME/.claude" -maxdepth 1 -name '.skills.??????')" ] || fail "a scratch directory was left behind"
 
-echo "factory-link-farm: moves a hand-placed directory aside once, then swaps as usual"
+echo "factory-relink-skills: waits for the lock, and gives up without failing"
 skills_reset
-rm -rf "$HOME/.claude/agents" "$HOME/.claude/.agents.old"
-mkdir "$HOME/.claude/agents"
-echo mine >"$HOME/.claude/agents/mine.md"
-factory-link-farm agents "$work/farm-a"
-touch "$HOME/.claude/agents/stray.md"
-factory-link-farm agents "$work/farm-a"
-[ "$(cat "$HOME"/.claude/agents.backup-*/mine.md)" = mine ] || fail "the hand-placed file was lost"
-[ "$(find "$HOME/.claude" -maxdepth 1 -name 'agents.backup-*' | wc -l)" = 1 ] || fail "backed up more than once"
-[ ! -e "$HOME/.claude/agents/stray.md" ] || fail "a later entry outlived the swap"
-[ "$(readlink "$HOME/.claude/agents/alpha")" = "$work/farm-a/alpha" ] || fail "the farm was not linked"
-rm -rf "$HOME/.claude/agents" "$HOME/.claude/.agents.old" "$HOME"/.claude/agents.backup-*
-
-echo "factory-relink: waits for the lock, and gives up without failing"
-skills_reset
-factory-relink skills "$work/farm-a"
+factory-relink-skills "$work/farm-a"
 exec 8>"$HOME/.claude/.factory.lock"
 flock 8
-factory-relink skills "$work/farm-b" 2>"$work/out"
+factory-relink-skills "$work/farm-b" 2>"$work/out"
 exec 8>&-
 grep -q "left ~/.claude/skills as it was" "$work/out" || fail "the skipped relink says nothing"
 [ "$(readlink "$skills/alpha")" = "$work/farm-a/alpha" ] || fail "relinked without holding the lock"
-factory-relink skills "$work/farm-b"
+factory-relink-skills "$work/farm-b"
 [ "$(readlink "$skills/alpha")" = "$work/farm-b/alpha" ] || fail "did not relink once the lock was free"
-
-echo "factory-relink: links ~/.claude/agents the same way, leaving the skills alone"
-skills_reset
-factory-relink skills "$work/farm-a"
-touch "$work/farm-b/researcher.md"
-factory-relink agents "$work/farm-b"
-[ "$(readlink "$HOME/.claude/agents/researcher.md")" = "$work/farm-b/researcher.md" ] || fail "the agents were not linked"
-[ "$(readlink "$skills/beta")" = "$work/farm-a/beta" ] || fail "relinking agents moved the skills"
 
 # ─── Root: factory-maintenance ───────────────────────────────────────────────
 

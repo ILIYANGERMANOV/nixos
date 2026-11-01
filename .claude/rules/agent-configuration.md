@@ -2,7 +2,7 @@
 paths:
   - "programs/agents/**"
   - "programs/claude-code/**"
-  - "programs/farm-link/**"
+  - "programs/skills-link/**"
   - "adapters/**"
   - "docs/adr/0002-*"
   - "modules/home/claude*"
@@ -127,19 +127,17 @@ fetched derivation could not be `readDir`'d, but a flake input is a plain store
 path and can be - which is what lets the allowlist use bare skill names that are
 searched for recursively.
 
-`~/.claude/skills` and `~/.claude/agents` are **not** Home Manager managed. Each
-flavor wrapper relinks them at launch from `linkFarm`s, wiping them first
-(`claude-factory` swaps them atomically, see below), so switching flavors never
-leaves a stale entry behind - the same pattern `mkClaudeFlavor` already uses for
-`settings.json`, `CLAUDE.md` and `.mcpServers`. **Neither directory is
-hand-editable**: anything placed there is destroyed on the next launch, so
-prototype in a project's `.claude/skills/` or `.claude/agents/` instead. The one
-exception is the first relink: a real directory that is not yet our farm is
-moved once to `<dir>.backup-<timestamp>` beside it.
+`~/.claude/skills` is **not** Home Manager managed. Each flavor wrapper relinks it
+at launch from its own `linkFarm`, wiping it first (`claude-factory` swaps it
+atomically, see below), so switching flavors never leaves a stale skill behind -
+the same pattern `mkClaudeFlavor` already uses for `settings.json`, `CLAUDE.md`
+and `.mcpServers`. **It is not hand-editable**: anything placed there is
+destroyed on the next launch, so prototype in a project's `.claude/skills/`
+instead.
 
 The factory is the exception: its sessions never pass through a wrapper, so a
-home activation relinks both farms too, under `~/.claude/.factory.lock`, and
-both swap each directory atomically (`factory-link-farm`) instead of wiping it.
+home activation relinks the farm too, under `~/.claude/.factory.lock`, and both
+swap the directory atomically (`factory-link-skills`) instead of wiping it.
 
 Skills are assigned with `baseSkills` (shared by every flavor, declared in
 `programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Every flavor
@@ -182,8 +180,12 @@ root `CLAUDE.md` small: detail belongs in a `.claude/rules/` file.
 ### Subagents
 
 **`programs/agents/subagents/` owns the catalog, one `<name>.md` per agent type.
-Every flavor installs all of it, the same way as skills, one farm for every
-flavor.**
+Skills relink, agents are Home Manager: every flavor gets the same files, so
+`home.file` installs them from `agentFiles` in `programs/claude-code/default.nix`
+in both home profiles.**
+
+`~/.claude/agents` is a normal directory. Home Manager owns only the catalog's
+files, and leaves a hand-placed agent alone.
 
 - `researcher.md` is read-only by its `tools:` allowlist, which has no Write,
   Edit, MCP or `Skill`. `omitClaudeMd: true` removes every CLAUDE.md, so its body
@@ -194,8 +196,10 @@ flavor.**
   a spawned `engineer` needs `claude-code-remote`.
 - A project's own `.claude/agents/<name>.md` silently beats the user-scope file
   in that repo.
-- `checks.agents` validates the frontmatter, rejects an unknown field, and
-  requires each `skills:` entry to be in the skill catalog.
+- `checks.agents` validates the name and description, rejects a frontmatter
+  field outside a short list, because Claude Code ignores a misspelled `tools`
+  and the agent runs wider, and requires each `skills:` entry to be in the skill
+  catalog. A definition using another documented field adds it to that list.
 
 Trivial tasks spawn no researcher and skip the process skills, by the shared
 definition in `programs/agents/AGENTS.md`. It keeps skill and instruction edits

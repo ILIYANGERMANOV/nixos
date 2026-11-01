@@ -138,25 +138,25 @@ let
       '';
     };
 
-  # factory-relink <dir> <farm>, the home activation's relink of ~/.claude/<dir>.
-  # Sessions spawn from a Remote Control server without going through the
-  # wrapper, so nothing else moves the links off a farm factory-gc is about to
-  # collect. Skipping is the safe failure: a deploy must not hang or fail over
-  # skills or agents, and the next deploy or server start links them again.
-  mkRelink =
+  # factory-relink-skills <farm>, the home activation's relink. Sessions spawn
+  # from a Remote Control server without going through the wrapper, so nothing
+  # else moves the links off a farm factory-gc is about to collect. Skipping is
+  # the safe failure: a deploy must not hang or fail over skills, and the next
+  # deploy or server start links them again.
+  mkRelinkSkills =
     {
       lockSeconds ? 30,
     }:
     pkgs.writeShellApplication {
-      name = "factory-relink";
+      name = "factory-relink-skills";
       runtimeInputs = [
         pkgs.flock
-        (import ../farm-link { inherit pkgs; })
+        (import ../skills-link { inherit pkgs; })
       ];
       text = ''
         ${openFactoryLock}
-        if ! { flock --wait ${toString lockSeconds} 9 && factory-link-farm "$1" "$2"; }; then
-          echo "factory-relink: left ~/.claude/$1 as it was" >&2
+        if ! { flock --wait ${toString lockSeconds} 9 && factory-link-skills "$1"; }; then
+          echo "factory-relink-skills: left ~/.claude/skills as it was" >&2
         fi
       '';
     };
@@ -379,7 +379,7 @@ in
     managedSettingsValue
     remoteControlArgs
     mkRemoteControl
-    mkRelink
+    mkRelinkSkills
     mkCtl
     mkBoot
     mkDeploy

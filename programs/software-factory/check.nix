@@ -57,7 +57,7 @@ let
     ghToken = "${work}/gh-token";
   };
 
-  relink = factory.mkRelink { lockSeconds = 1; };
+  relinkSkills = factory.mkRelinkSkills { lockSeconds = 1; };
 
   ctl = factory.mkCtl {
     opsStateDir = "${work}/ops";
@@ -206,8 +206,8 @@ pkgs.runCommand "software-factory-check"
       pkgs.flock
       remoteControl.repo
       remoteControl.admin
-      relink
-      (import ../farm-link { inherit pkgs; })
+      relinkSkills
+      (import ../skills-link { inherit pkgs; })
       ctl
       boot
       deploy

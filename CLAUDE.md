@@ -79,7 +79,7 @@ wrong tool for iterating.
    and `.#checks.x86_64-linux.typos`, plus `self-improve` when the analyzer under
    its skill changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code`, `claude-config` and
-   `claude-bash-guards` for `programs/claude-code`, `software-factory` for `programs/farm-link`, `nvim-search`,
+   `claude-bash-guards` for `programs/claude-code`, `software-factory` for `programs/skills-link`, `nvim-search`,
    `nvim-typescript` and `nvim-kotlin` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `software-factory`,
    `playwright` and `qa` (Linux only) for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.

@@ -32,7 +32,7 @@ let
   waitGuard = import ./wait-guard.nix { inherit pkgs; };
   contextGuard = import ./context-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
-  linkFarm = import ../farm-link { inherit pkgs; };
+  linkSkills = import ../skills-link { inherit pkgs; };
 
   model = "opus";
   effortLevel = "medium";
@@ -131,7 +131,6 @@ let
       runtime
       secretFiles
       ;
-    agentFarm = agents.subagents.farm;
   };
 
   # The skill listing goes out on every call, and nothing here was ever invoked
@@ -250,7 +249,7 @@ rec {
         extraInstructions = [ ./factory-instructions.md ];
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
-        applyLinks = dir: farm: "${lib.getExe linkFarm} ${dir} ${farm}";
+        applySkills = farm: "${lib.getExe linkSkills} ${farm}";
         # self-improve measures this box's own transcripts; android describes
         # the toolchain only the factory has; 10x-engineer relies on its session
         # tools and unattended rules.
@@ -292,6 +291,12 @@ rec {
     });
     unwrapped = claude-code;
   };
+
+  # home.file entries for the subagents. Every flavor gets the same ones, so
+  # unlike skills they need no per-flavor relink.
+  agentFiles = lib.mapAttrs' (
+    name: source: lib.nameValuePair ".claude/agents/${name}.md" { inherit source; }
+  ) agents.subagents.all;
 
   # checks.claude-config: this configuration against its size ceilings. See
   # config-check.nix.
