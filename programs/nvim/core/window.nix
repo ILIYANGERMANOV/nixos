@@ -86,7 +86,7 @@ _:
       settings = {
         direction = "horizontal";
         size = ''
-          function(term)
+          function()
             return vim.o.lines * 0.3
           end
         '';

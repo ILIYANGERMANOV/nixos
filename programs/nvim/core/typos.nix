@@ -26,7 +26,7 @@ in
     {
       mode = "n";
       key = "<leader>ad";
-      action = "<cmd>lua TyposAddWord()<CR>";
+      action = "<cmd>lua _G.TyposAddWord()<CR>";
       options.desc = "Add word to typos allowlist";
     }
   ];
@@ -124,7 +124,7 @@ in
       return root .. "/.typos.toml"
     end
 
-    function TyposAddWord()
+    _G.TyposAddWord = function()
       local word = flagged_word()
       if not word then
         vim.notify("typos: no typo under the cursor", vim.log.levels.WARN)

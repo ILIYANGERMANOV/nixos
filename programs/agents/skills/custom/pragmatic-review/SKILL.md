@@ -38,7 +38,9 @@ leaks data, and burying one real bug under twelve opinions.
   review whose head was `<sha>`, the `Reviewed head` line of its return. Without
   it, this is a first review.
 - **`Quality: <mode>`** - your instructions define it; `first-pass.md` and
-  `fixes.md` branch on it.
+  `fixes.md` branch on it. `, Trivial` after the mode says the caller runs the
+  fast track; `, not Trivial` turns the Trivial check off. Neither makes a diff
+  qualify: the check reads the diff.
 - **`--requirements <path>`** - a file holding the requirements, the form every
   calling agent uses; a re-review's adds the "finding N is fixed" lines. Read
   it once.
@@ -98,11 +100,12 @@ violation**. Balanced checks this only on the diffs `first-pass.md` names.
 ## The flow
 
 - **First review:** follow `references/first-pass.md` - write the diff once,
-  pick the tier, route, group the requirements, spawn, judge.
+  pick the tier, route, check for Trivial, group the requirements, spawn, judge.
 - **Re-review (`--fixes`):** follow `references/fixes.md` - one agent on the fix
   diff, unless the fixes are large.
 
-Both end in the report below, then the pickers.
+Both end in the report below, then the pickers. `Escalate` ends the review
+instead: it is the whole return, with the `Reviewed head` line.
 
 ## The report
 
@@ -148,6 +151,8 @@ your own sweep: `Security: <tier> - <what was checked>`.
 > restored in release job
 >
 > Security: docs-only - sweep clean on 4 files
+>
+> Security: Trivial - sweep clean, code tier
 
 **The verdict**, one line, last. It names the rows that drive it and what each
 is, and carries the arithmetic - raised versus survived, Met verdicts not

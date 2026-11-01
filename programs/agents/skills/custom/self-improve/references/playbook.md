@@ -24,8 +24,8 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
 
 ## Agent communication
 
-- **Notes file, ranked hand-back.** A research agent writes its full notes to
-  `/tmp/<dir>/<topic>.md` and hands back a ranked index with the path. The
+- **Notes file, ranked hand-back.** A `researcher` agent writes its full notes
+  to a file and hands back a ranked index with the path. The
   parent carries the index, and the agent that needs a section reads only that
   section. Use it when findings exceed the hand-back limit.
 - **One agent explores and implements.** When exploring feeds directly into a

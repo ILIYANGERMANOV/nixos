@@ -145,7 +145,7 @@ let
     shellCheck.writeShellApplication {
       inherit name;
       runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
-      passthru = { inherit skillFarm; };
+      passthru = { inherit skillFarm instructions; };
       text = ''
         ${values}
         apply_skills() {

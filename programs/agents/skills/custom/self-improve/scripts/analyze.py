@@ -6,17 +6,19 @@ Reads the transcripts under ~/.claude/projects and prints a compact markdown
 report for an agent to read. Offline and read-only: it never calls `gh`.
 Standard library only.
 
-Usage: analyze.py [--since ISO] [--project SUBSTR] [--root DIR]
+Usage: analyze.py [--since ISO] [--project SUBSTR] [--compare ISO] [--root DIR]
 
 Without --since the window starts at the previous /self-improve invocation,
 or covers everything when there is none. The latest invocation is the run
 calling this script: its session is reported only up to that invocation.
+--compare splits the window at a date and adds before and after medians.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 from collections import Counter, defaultdict
@@ -26,12 +28,12 @@ from enum import Enum
 from functools import cached_property
 from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, NewType, assert_never, cast
+from typing import TYPE_CHECKING, ClassVar, NewType, assert_never, cast, override
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-TOP = 10
+TOP = 8  # rows per table, which keeps the report near 15 KB
 INPUT_WEIGHT = 1
 CACHE_READ_WEIGHT = 0.1
 CACHE_WRITE_WEIGHT = 1.25
@@ -47,6 +49,7 @@ REWRITE_SHARE = 0.5  # of a call's context written to cache, to count as a rewri
 TOP_REWRITERS = 5
 # A watch-less `gh pr checks` above this many in one agent is reported.
 ROUTINE_POLLS = 2
+MIN_COMPARE_N = 5  # per side, below which a median is noise
 
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
@@ -63,12 +66,13 @@ def main() -> None:
     args = parse_args()
     sessions = load_sessions(args.root)
     window = select_window(sessions, args.since, args.project)
-    print(render(window, describe_window(window.since, args.project)))
+    print(render(window, describe_window(window.since, args.project), args.compare))
 
 
 class Args(argparse.Namespace):
     since: datetime | None = None
     project: str | None = None
+    compare: datetime | None = None
     root: Path = Path.home() / ".claude" / "projects"
 
 
@@ -78,11 +82,14 @@ def parse_args() -> Args:
     )
     _ = parser.add_argument(
         "--since",
-        type=parse_since,
+        type=utc_time,
         help="ISO date or time; default: the previous /self-improve run",
     )
     _ = parser.add_argument(
         "--project", help="only sessions whose working directory contains this"
+    )
+    _ = parser.add_argument(
+        "--compare", type=utc_time, help="ISO date or time to split the window at"
     )
     _ = parser.add_argument(
         "--root",
@@ -92,7 +99,7 @@ def parse_args() -> Args:
     return parser.parse_args(namespace=Args())
 
 
-def parse_since(value: str) -> datetime:
+def utc_time(value: str) -> datetime:
     return datetime.fromisoformat(value).astimezone(UTC)
 
 
@@ -300,6 +307,8 @@ class Agent:
     calls: list[ToolCall]
     parent: AgentId | None = None  # None when the main agent spawned it
     brief: str = ""  # the first user text: a subagent's prompt
+    instruction_chars: int = 0  # the instructions files sent before its first call
+    listing_chars: int = 0  # the skill listing sent before its first call
     texts: list[str] = field(default_factory=list)  # assistant text blocks, in order
     start: float = 0.0
     end: float = 0.0
@@ -323,6 +332,11 @@ class Agent:
     @property
     def peak_context(self) -> int:
         return max((r.usage.context for r in self.responses), default=0)
+
+    @property
+    def first_context(self) -> int:
+        """Its start-up size: the context of its first real call, 0 with none. An API error is a line with no usage."""
+        return next((r.usage.context for r in self.responses if r.usage.context), 0)
 
 
 def handback_message(tool: Tool) -> str | None:
@@ -538,12 +552,38 @@ class NotificationLine:
 
 
 @dataclass(frozen=True, slots=True)
+class InstructionFiles:
+    chars: int
+
+
+@dataclass(frozen=True, slots=True)
+class SkillListing:
+    chars: int
+
+
+type StartupPart = InstructionFiles | SkillListing
+
+
+@dataclass(frozen=True, slots=True)
+class AttachmentLine:
+    """Text the harness attached: task notifications, or a part of the start-up."""
+
+    prompt: str
+    startup: StartupPart | None
+
+
+@dataclass(frozen=True, slots=True)
 class OtherLine:
     """A line of a type nothing reads: it only moves the clock."""
 
 
 type LineBody = (
-    AssistantLine | ToolResultsLine | UserLine | NotificationLine | OtherLine
+    AssistantLine
+    | ToolResultsLine
+    | UserLine
+    | NotificationLine
+    | AttachmentLine
+    | OtherLine
 )
 
 
@@ -705,6 +745,10 @@ def parse_transcript(
                 record_user(out, calls, body, line.at, previous)
             case NotificationLine(text):
                 record_notifications(calls, text, line.at)
+            case AttachmentLine(prompt, startup):
+                record_notifications(calls, prompt, line.at)
+                if not responses:
+                    record_startup(out.agent, startup)
             case OtherLine():
                 pass
             case _:
@@ -822,9 +866,24 @@ def parse_body(event: dict[str, Json]) -> LineBody:
             return NotificationLine(str(event.get("content") or ""))
         case "attachment":
             attachment = as_object(event.get("attachment"))
-            return NotificationLine(str(attachment.get("prompt") or ""))
+            return AttachmentLine(
+                str(attachment.get("prompt") or ""), parse_startup_part(attachment)
+            )
         case _:
             return OtherLine()
+
+
+def parse_startup_part(attachment: dict[str, Json]) -> StartupPart | None:
+    match attachment.get("type"):
+        case "instructions":
+            files = blocks(attachment.get("files"))
+            return InstructionFiles(
+                sum(len(str(f.get("content") or "")) for f in files)
+            )
+        case "skill_listing":
+            return SkillListing(len(str(attachment.get("content") or "")))
+        case _:
+            return None
 
 
 def response_key(message_id: Json, request_id: Json) -> ResponseKey | None:
@@ -1001,6 +1060,18 @@ def captures(pattern: re.Pattern[str], text: str) -> list[str]:
     return [found.group(1) for found in pattern.finditer(text)]
 
 
+def record_startup(agent: Agent, startup: StartupPart | None) -> None:
+    match startup:
+        case InstructionFiles(chars):
+            agent.instruction_chars += chars
+        case SkillListing(chars):
+            agent.listing_chars += chars
+        case None:
+            pass
+        case _:
+            assert_never(startup)
+
+
 def tag(body: str, name: str) -> str:
     found = re.search(rf"<{name}>(.*?)</{name}>", body, re.DOTALL)
     return found.group(1) if found else ""
@@ -1133,6 +1204,7 @@ CODE_CHANGING_BASH = re.compile(f"{SHELL_EDIT}|{PYTHON_WRITE}", re.DOTALL)
 SLEEP_LOOP = re.compile(r"\bsleep\s+\d|\buntil\b|\bwhile\b.*\bsleep\b", re.DOTALL)
 PR_CHECKS = re.compile(r"\bgh pr checks\b")
 PR_READY = re.compile(r"\bgh pr ready\b")
+PR_CREATE = re.compile(r"\bgh pr create\b")
 MISSING_TOOL = re.compile(r"([\w.+-]+): (?:command )?not found\b")
 
 
@@ -1331,6 +1403,10 @@ def is_doc_edit(call: ToolCall) -> bool:
 # --- Loop steps --------------------------------------------------------------
 
 BRIEF_HEAD = 700  # briefs paste long rules after their first lines
+RESEARCH_TYPES = {
+    "researcher",
+    "Explore",
+}  # read-only by their tools, whatever the brief says
 REVIEW_BRIEF = re.compile(r"(?:invoke|run)\s+(?:the\s+)?\W*pragmatic-review")
 SECOND_PASS = re.compile(r"--fixes|pass[ -]2|re-review|\bsecond\b")
 FIX_DESCRIPTION = re.compile(r"^(fix|final fix|address)")
@@ -1351,7 +1427,10 @@ DESCRIPTION_STEPS = (
 )
 BRIEF_STEPS = (
     (LoopStep.REFACTOR, re.compile(r"(?:invoke|run)\s+(?:the\s+)?\W*refactor")),
-    (LoopStep.RESEARCH, re.compile(r"^(research|read-only)")),
+    (
+        LoopStep.RESEARCH,
+        re.compile(r"^(research|read-only)|(?:invoke|run)\s+(?:the\s+)?\W*researcher"),
+    ),
     (LoopStep.IMPLEMENT, re.compile(r"\bimplementer\b")),
 )
 
@@ -1368,13 +1447,19 @@ def step_by_id(session: Session) -> dict[AgentId, LoopStep]:
 def step_owner(agent: Agent, by_id: dict[AgentId, Agent]) -> Agent:
     """The agent whose brief names `agent`'s step: the outermost review above it
     or itself, so a review under an orchestrator subagent stays a review, else
-    its top-level subagent."""
-    lineage = [agent]
-    while (parent := spawner(lineage[-1], by_id)) is not None:
-        lineage.append(parent)
-    return next(
-        (a for a in reversed(lineage) if loop_step(a) in REVIEW_PASSES), lineage[-1]
-    )
+    itself if a research type, so research under an orchestrator subagent stays
+    research, else its top-level subagent."""
+    line = lineage(agent, by_id)
+    own = agent if agent.kind in RESEARCH_TYPES else line[-1]
+    return next((a for a in reversed(line) if loop_step(a) in REVIEW_PASSES), own)
+
+
+def lineage(agent: Agent, by_id: dict[AgentId, Agent]) -> list[Agent]:
+    """`agent`, then each subagent above it, outermost last."""
+    line = [agent]
+    while (parent := spawner(line[-1], by_id)) is not None:
+        line.append(parent)
+    return line
 
 
 def spawner(agent: Agent, by_id: dict[AgentId, Agent]) -> Agent | None:
@@ -1383,7 +1468,9 @@ def spawner(agent: Agent, by_id: dict[AgentId, Agent]) -> Agent | None:
 
 
 def loop_step(agent: Agent) -> LoopStep:
-    """The step an agent's own description and brief name."""
+    """The step an agent's type, else its own description and brief, name."""
+    if agent.kind in RESEARCH_TYPES:
+        return LoopStep.RESEARCH
     description = agent.description.lower()
     brief = brief_head(agent.brief)
     if REVIEW_BRIEF.search(brief) and not FIX_DESCRIPTION.search(description):
@@ -1414,6 +1501,103 @@ def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
         (session.by_id.get(key, session.main), sorted(kids, key=lambda a: a.start))
         for key, kids in groups.items()
     ]
+
+
+# --- Quality modes -----------------------------------------------------------
+
+
+class Mode(Enum):
+    POC = "POC"
+    BALANCED = "Balanced"
+    MAX = "Max"
+
+
+class Trivial(Enum):
+    """The value is the brief's wire form: stating it either way is its own row."""
+
+    UNSTATED = ""
+    ON = ", Trivial"
+    OFF = ", not Trivial"
+
+
+@dataclass(frozen=True)
+class Quality:
+    mode: Mode
+    trivial: Trivial
+
+    @override
+    def __str__(self) -> str:
+        return self.mode.value + self.trivial.value
+
+
+NO_QUALITY = "(none stated)"
+QUALITY = re.compile(
+    rf"\bQuality:\W*({'|'.join(m.value for m in Mode)})\b(, (?:not )?Trivial\b)?"
+)
+SWEEP_LINE = re.compile(
+    r"^\W*Security: Trivial\b", re.MULTILINE
+)  # the one Trivial activation with a fixed wording
+UNCOUNTED_QUALITY = "Not counted: Trivial self-activated outside a review, which stays in its stated row, and a PR opened in another session or by a script."
+
+
+def quality_groups(session: Session) -> dict[Quality | None, list[Agent]]:
+    """The session's agents by Quality, None where no brief states one."""
+    fallback = session_quality(session)
+    groups: dict[Quality | None, list[Agent]] = defaultdict(list)
+    for agent in session.agents:
+        groups[quality_of(agent, session.by_id) or fallback].append(agent)
+    return groups
+
+
+def session_quality(session: Session) -> Quality | None:
+    """The main agent's, which rarely states one: else what most subagents
+    state, the latest on a tie, so a session that left Trivial counts as left."""
+    spawned = sorted(session.subagents, key=lambda a: a.start)
+    stated = [q for a in reversed(spawned) if (q := stated_quality(a.brief))]
+    common = next((q for q, _ in Counter(stated).most_common(1)), None)
+    return stated_quality(session.main.brief) or common
+
+
+def quality_of(agent: Agent, by_id: dict[AgentId, Agent]) -> Quality | None:
+    """What its brief states, else what the nearest subagent above it states."""
+    return next(
+        (q for a in lineage(agent, by_id) if (q := stated_quality(a.brief))), None
+    )
+
+
+def stated_quality(brief: str) -> Quality | None:
+    found = QUALITY.search(brief)
+    return (
+        Quality(Mode(found.group(1)), Trivial(found.group(2) or "")) if found else None
+    )
+
+
+def quality_label(quality: Quality | None) -> str:
+    return str(quality or NO_QUALITY)
+
+
+def self_activated_trivial(session: Session) -> Iterator[Agent]:
+    """Reviews that reported a Trivial sweep though nothing briefed them Trivial."""
+    for quality, group in quality_groups(session).items():
+        if quality is None or quality.trivial is not Trivial.ON:
+            yield from (a for a in group if SWEEP_LINE.search(a.report))
+
+
+def cost_per_pr(agents: list[Agent]) -> float | None:
+    """None for agents that opened no PR: a follow-up session, or research."""
+    opened = prs_opened(agents)
+    return effective(agents) / opened if opened else None
+
+
+def prs_opened(agents: list[Agent]) -> int:
+    return sum(
+        1
+        for a in agents
+        for c in a.calls
+        if isinstance(c.tool, BashTool)
+        and PR_CREATE.search(c.tool.command)
+        and isinstance(c.outcome, Ok)
+    )
 
 
 # --- Reviews -----------------------------------------------------------------
@@ -1738,7 +1922,7 @@ def research_overlaps(session: Session) -> Iterator[set[str]]:
 # --- Rendering ---------------------------------------------------------------
 
 
-def render(window: Window, scope: str) -> str:
+def render(window: Window, scope: str, split: datetime | None) -> str:
     sessions = window.sessions
     agents = [(s, a) for s in sessions for a in s.agents]
     calls = [(s, a, c) for s, a in agents for c in a.calls]
@@ -1747,8 +1931,10 @@ def render(window: Window, scope: str) -> str:
         summary(sessions),
         sessions_table(sessions),
         agent_types(agents),
+        startup_sizes([a for _, a in agents]),
         costliest_agents(agents),
         skills(agents),
+        quality_costs(sessions),
         loop_steps(sessions),
         cache_rewrites_section(sessions),
         review_yield(sessions),
@@ -1760,6 +1946,7 @@ def render(window: Window, scope: str) -> str:
         checks_section(sessions),
         polling(calls),
         failures(calls),
+        *([compare(sessions, split)] if split else []),
     ]
     return "\n\n".join(sections) + "\n"
 
@@ -1839,6 +2026,49 @@ def agent_types(agents: list[tuple[Session, Agent]]) -> str:
     )
 
 
+def startup_sizes(agents: list[Agent]) -> str:
+    groups: dict[str, list[Agent]] = defaultdict(list)
+    for agent in agents:
+        if agent.first_context:
+            groups[agent.kind].append(agent)
+    ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+    rows = [
+        [kind, str(len(group)), *startup_cells(group)] for kind, group in ranked[:TOP]
+    ]
+    header = ["type", "n", "p50", "p90", "instructions", "skill listing", "remainder"]
+    return section(
+        "Start-up size: first-call context, parts at p50 (chars / 4)",
+        header,
+        rows,
+        len(ranked),
+    )
+
+
+def startup_cells(group: list[Agent]) -> list[str]:
+    contexts = [a.first_context for a in group]
+    instructions = [a.instruction_chars // CHARS_PER_TOKEN for a in group]
+    listings = [a.listing_chars // CHARS_PER_TOKEN for a in group]
+    remainders = [
+        context - instruction - listing
+        for context, instruction, listing in zip(
+            contexts, instructions, listings, strict=True
+        )
+    ]
+    return [
+        kilo(p)
+        for p in (
+            statistics.median(contexts),
+            percentile(contexts, 0.9),
+            *map(statistics.median, (instructions, listings, remainders)),
+        )
+    ]
+
+
+def percentile(values: list[int], share: float) -> int:
+    """Nearest rank, so the value is one that happened."""
+    return sorted(values)[math.ceil(share * len(values)) - 1]
+
+
 def costliest_agents(agents: list[tuple[Session, Agent]]) -> str:
     subs = sorted(
         ((s, a) for s, a in agents if a.kind != "main"),
@@ -1888,6 +2118,34 @@ def skills(agents: list[tuple[Session, Agent]]) -> str:
         rows,
         len(ranked),
     )
+
+
+def quality_costs(sessions: list[Session]) -> str:
+    groups: dict[Quality | None, list[list[Agent]]] = defaultdict(list)
+    for s in sessions:
+        for quality, group in quality_groups(s).items():
+            groups[quality].append(group)
+    ranked = sorted(groups.items(), key=lambda kv: -sum(effective(g) for g in kv[1]))
+    rows = [
+        [quality_label(quality), *quality_cells(parts)] for quality, parts in ranked
+    ]
+    header = ["mode", "sessions", "PRs", "agents", "effective", "per PR, median"]
+    activated = [a for s in sessions for a in self_activated_trivial(s)]
+    counted = f"Reviews that activated Trivial themselves: {len(activated)}, {kilo(effective(activated))} effective."
+    return f"{section('Cost by Quality mode', header, rows, len(rows))}\n\n{counted} {UNCOUNTED_QUALITY}"
+
+
+def quality_cells(parts: list[list[Agent]]) -> list[str]:
+    agents = [a for part in parts for a in part]
+    per_pr = [cost for part in parts if (cost := cost_per_pr(part)) is not None]
+    median = kilo(statistics.median(per_pr)) if per_pr else "-"
+    return [
+        str(len(parts)),
+        str(prs_opened(agents)),
+        str(len(agents)),
+        kilo(effective(agents)),
+        median,
+    ]
 
 
 def loop_steps(sessions: list[Session]) -> str:
@@ -2416,6 +2674,48 @@ def failures(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
         + table(["count", "tool", "command", "exit", "error"], rows)
         + omitted(len(ranked), len(rows))
     )
+
+
+def compare(sessions: list[Session], split: datetime) -> str:
+    at = split.timestamp()
+    before = measures([s for s in sessions if s.start < at])
+    after = measures([s for s in sessions if s.start >= at])
+    ranked = sorted(
+        before.keys() | after.keys(),
+        key=lambda name: (-len(before[name]) - len(after[name]), name),
+    )
+    rows = [
+        [name, *median_cells(before[name]), *median_cells(after[name])]
+        for name in ranked[:TOP]
+    ]
+    head = f"Sessions by their start. A median needs n >= {MIN_COMPARE_N} on its side. The sides ran different tasks: a lead, never a verdict."
+    return (
+        f"## Before and after {fmt_time(at)}\n\n{head}\n\n"
+        + table(["measure", "n before", "before", "n after", "after"], rows)
+        + omitted(len(ranked), len(rows))
+    )
+
+
+def measures(sessions: list[Session]) -> defaultdict[str, list[float]]:
+    out: defaultdict[str, list[float]] = defaultdict(list)
+    for s in sessions:
+        out["effective per session"].append(effective(s.agents))
+        for quality, group in quality_groups(s).items():
+            cost = cost_per_pr(group)
+            if cost is not None:
+                out[f"effective per PR, {quality_label(quality)}"].append(cost)
+        for agent in s.agents:
+            if agent.first_context:
+                out[f"first-call context, {agent.kind}"].append(agent.first_context)
+    return out
+
+
+def median_cells(values: list[float]) -> list[str]:
+    enough = len(values) >= MIN_COMPARE_N
+    return [
+        str(len(values)),
+        kilo(statistics.median(values)) if enough else "not enough data",
+    ]
 
 
 # --- Formatting --------------------------------------------------------------

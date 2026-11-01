@@ -24,7 +24,7 @@
 # `picker` options, so a misspelled key is silently ignored rather than
 # failing the build. `checks.nvim-search` asserts the *resolved* config, so
 # add an assertion there for anything set below.
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 let
   # <Tab>/<S-Tab> walk the candidate list, as they do in fff and telescope.
@@ -44,11 +44,18 @@ let
   #
   # Selection is rehomed rather than dropped, onto the <C-Space> that ./file.nix
   # gives fff's `toggle_select`: it is what feeds <C-q> and so `:cfdo`.
-  navKeys = modes: {
-    "<Tab>".__raw = ''{ "list_down", mode = ${modes} }'';
-    "<S-Tab>".__raw = ''{ "list_up", mode = ${modes} }'';
-    "<C-Space>".__raw = ''{ "select_and_next", mode = ${modes} }'';
-  };
+  navKeys =
+    mode:
+    lib.mapAttrs
+      (_: action: {
+        __unkeyed-1 = action;
+        inherit mode;
+      })
+      {
+        "<Tab>" = "list_down";
+        "<S-Tab>" = "list_up";
+        "<C-Space>" = "select_and_next";
+      };
 in
 {
   keymaps = [
@@ -109,8 +116,14 @@ in
       limit_live = 1000;
 
       win = {
-        input.keys = navKeys ''{ "i", "n" }'';
-        list.keys = navKeys ''{ "n", "x" }'';
+        input.keys = navKeys [
+          "i"
+          "n"
+        ];
+        list.keys = navKeys [
+          "n"
+          "x"
+        ];
       };
     };
   };
