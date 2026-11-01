@@ -155,7 +155,9 @@ every tier, requirement agents as usual.
 
 **Balanced.** Blockers, routing and DEEP stay. House rules runs only when the
 diff changes types, a schema or a piece of state, so another diff gets no
-house-rule or DRY check. Tests runs only when it changes tests. Phase 2 makes
+house-rule or DRY check. If you spawn no agent at all, you run the bar's
+always-check list over `$D/diff` yourself, rows in the report, as the Trivial
+path does. Tests runs only when it changes tests. Phase 2 makes
 at most 2 requirement groups. At `code` and `sensitive` no regressions agent
 runs while a group exists: the first group's prompt adds its brief, at the
 normal bar, and that agent returns those findings under `regressions`. They are

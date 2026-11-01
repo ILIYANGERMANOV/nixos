@@ -20,7 +20,8 @@ CI. You own the outcome; the user owns the decisions.
 - **Facts are yours, decisions are theirs.** Research facts with subagents.
 - **Quality** is in your instructions. It goes in every brief, the review and
   `refactor` prompts included. The branches below are all it changes here.
-- **Trivial** is in your instructions too, and you assign it. Judge it before
+- **Trivial** is in your instructions too. You assign it, and a skill may
+  activate it on its own input, whatever the mode. Judge it before
   step 1 from the prompt and at most 5 lookups, and again at any later step. A
   task that qualifies follows `${CLAUDE_SKILL_DIR}/references/trivial.md` instead
   of the lifecycle below: no research agents, plan or Quality question, one
