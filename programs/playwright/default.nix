@@ -53,7 +53,7 @@ let
         ];
       };
       fetcherVersion = 4;
-      hash = "sha256-Vh1yscy6wQf5rzib+NLlzDQYmgepz8KBsrpwupULqCA=";
+      hash = "sha256-Kb3qZkna1GFqEBGtpC5QepRhPoXSea6YhLY8j7soTqU=";
     };
     tsc = pkgs.typescript-go;
     # What a derivation needs to get `node_modules` from `pnpmDeps`.
