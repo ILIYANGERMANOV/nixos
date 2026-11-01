@@ -95,7 +95,7 @@ def test_the_real_denylist_lets_a_cheap_lookalike_through(name: str) -> None:
     assert judge(plan([name]), real_denylist()) == Clean()
 
 
-def test_the_old_self_test_plan_flags_only_what_it_builds() -> None:
+def test_a_denied_name_counts_only_when_built_not_fetched() -> None:
     given_plan = plan([SWIFT, CARGO_TARBALL], [GHC])
 
     assert judge(given_plan, real_denylist()) == Denied((SWIFT,))

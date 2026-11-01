@@ -121,7 +121,7 @@ def render(status: Status, branch: str, now: int, palette: Palette) -> str:
     return "".join(
         (
             place_segment(status.cwd, branch, palette),
-            model_segment(status.model, palette),
+            model_segment(status.model, palette.blue),
             limit_segment(status.limit, now, palette),
             context_segment(status.context, palette),
         )
@@ -174,7 +174,7 @@ def parse_context(size: str, used: str) -> ContextWindow | None:
 
 def whole_percent(text: str) -> int:
     value = float(text)
-    if not abs(value) <= MAX_PERCENT:
+    if abs(value) > MAX_PERCENT:
         raise ValueError(f"not a percentage: {text}")
     return round(value)
 
@@ -198,8 +198,8 @@ def base_name(path: str) -> str:
     return path.rstrip("/").rpartition("/")[2] or "/"
 
 
-def model_segment(model: str, palette: Palette) -> str:
-    return f"  {palette.blue}{model}{RESET}" if model else ""
+def model_segment(model: str, color: str) -> str:
+    return f"  {color}{model}{RESET}" if model else ""
 
 
 def limit_segment(limit: RateLimit | None, now: int, palette: Palette) -> str:
@@ -223,11 +223,11 @@ def context_segment(context: ContextWindow | None, palette: Palette) -> str:
                 f"{BOLD}{palette.yellow}~ ",
                 f"{BOLD}{palette.red}⚠ ",
             )
-            used_k = truncated(truncated(size * percent, 100), 1000)
+            used_k = truncated(size * percent, 100_000)
             return f"  {lead}{used_k}k / {truncated(size, 1000)}k ({percent}%){RESET}"
 
 
-def tone[T](percent: int, calm: T, warning: T, critical: T) -> T:
+def tone(percent: int, calm: str, warning: str, critical: str) -> str:
     if percent >= CRITICAL_PERCENT:
         return critical
     return warning if percent >= WARNING_PERCENT else calm

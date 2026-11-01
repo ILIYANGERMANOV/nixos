@@ -19,7 +19,8 @@ let
       # test_cache_check.py runs the real denylist.
       (root + "/just/nix-darwin/expensive-builds.deny")
       # test_statusline.py holds the statusline to what the old scripts printed.
-      (lib.fileset.fileFilter (file: file.hasExt "py" || file.name == "statusline-corpus.json") root)
+      (root + "/programs/claude-code/statusline-corpus.json")
+      (lib.fileset.fileFilter (file: file.hasExt "py") root)
     ];
   };
 in

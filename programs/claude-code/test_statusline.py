@@ -105,7 +105,7 @@ def test_the_bar_never_shrinks_as_usage_grows(a: float, b: float) -> None:
     assert plain(rate_limit(low)).count("▓") <= plain(rate_limit(high)).count("▓")
 
 
-@given(st.integers(0, 1000), st.integers(0, 59))
+@given(st.integers(1, 1000), st.integers(0, 59))
 def test_a_countdown_adds_up_to_the_whole_minutes_left(
     minutes: int, spare_seconds: int
 ) -> None:
@@ -113,12 +113,14 @@ def test_a_countdown_adds_up_to_the_whole_minutes_left(
 
     shown = re.search(r"\(reset (?:(\d+)h)?(\d+)m\)", plain(rate_limit(1, resets_at)))
 
-    if minutes == 0:
-        assert shown is None
-    else:
-        assert shown is not None
-        assert int(shown[1] or 0) * 60 + int(shown[2]) == minutes
-        assert int(shown[2]) < 60 or shown[1] is None
+    assert shown is not None
+    assert int(shown[1] or 0) * 60 + int(shown[2]) == minutes
+    assert int(shown[2]) < 60 or shown[1] is None
+
+
+@given(st.integers(0, 59))
+def test_under_a_minute_left_shows_no_countdown(spare_seconds: int) -> None:
+    assert "reset" not in plain(rate_limit(1, NOW + spare_seconds))
 
 
 @given(st.integers(-(10**9), NOW))
@@ -188,7 +190,7 @@ def test_no_text_raises(raw: str) -> None:
 
 
 @given(st.dictionaries(fields, json_values))
-def test_no_shape_of_a_top_level_field_raises(doc: dict[str, object]) -> None:
+def test_no_shape_of_a_top_level_field_raises(doc: Doc) -> None:
     assert isinstance(printed(json.dumps(doc), DARK), str)
 
 

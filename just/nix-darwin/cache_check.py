@@ -118,7 +118,7 @@ def judge(plan: str, denylist: Denylist) -> Verdict:
     match built_names(plan):
         case Unusable() as unusable:
             return unusable
-        case names:
+        case tuple() as names:
             denied = tuple(
                 name
                 for name in names
@@ -135,11 +135,8 @@ def built_names(plan: str) -> tuple[str, ...] | Unusable:
     """
     sections = sections_of(plan)
     for section in sections:
-        if (
-            not 0
-            < len(entry_names(section.entries))
-            == len(section.entries.splitlines())
-        ):
+        names = entry_names(section.entries)
+        if not names or len(names) != len(section.entries.splitlines()):
             return Unusable(
                 f"a section that is not a list of store paths: {section.header}"
             )
