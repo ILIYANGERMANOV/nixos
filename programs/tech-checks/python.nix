@@ -45,22 +45,19 @@ in
         touch "$out"
       '';
 
-  python-tests =
-    pkgs.runCommand "python-tests"
-      {
-        nativeBuildInputs = [
-          pkgs.git
-          testPython
-        ];
-        READ_GUARD = lib.getExe claude.guards.read;
-        WAIT_GUARD = lib.getExe claude.guards.wait;
-        SECRET_GUARD = lib.getExe claude.guards.secret;
-        CONTEXT_GUARD = lib.getExe claude.guards.context;
-        STDLIB_PYTHON = lib.getExe pkgs.python3;
-      }
-      ''
-        cd ${pythonSource}
-        HOME=$TMPDIR HYPOTHESIS_STORAGE_DIRECTORY=$TMPDIR/hypothesis PYTHONDONTWRITEBYTECODE=1 pytest
-        touch "$out"
-      '';
+  python-tests = pkgs.runCommand "python-tests" {
+    nativeBuildInputs = [
+      pkgs.git
+      testPython
+    ];
+    READ_GUARD = lib.getExe claude.guards.read;
+    WAIT_GUARD = lib.getExe claude.guards.wait;
+    SECRET_GUARD = lib.getExe claude.guards.secret;
+    CONTEXT_GUARD = lib.getExe claude.guards.context;
+    STDLIB_PYTHON = lib.getExe pkgs.python3;
+    # Not `BASH`: bash itself sets that one.
+    BASH_ORACLE = lib.getExe pkgs.bash;
+    PYTHON_SOURCE = pythonSource;
+    SHFMT = lib.getExe pkgs.shfmt;
+  } (builtins.readFile ./python-tests.sh);
 }

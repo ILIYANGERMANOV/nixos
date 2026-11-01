@@ -5,5 +5,6 @@
 import ./bash-guard.nix {
   inherit pkgs;
   name = "claude-wait-guard";
+  parsesCommands = true;
   script = builtins.readFile ./wait-guard.py;
 }
