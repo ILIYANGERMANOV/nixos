@@ -45,27 +45,33 @@ runpy.run_path(guard, run_name="__main__")
 
 
 @dataclass(frozen=True)
-class BrokenShfmt:
-    """A fake's script, None for no binary at all, and the parser's timeout."""
+class MissingShfmt:
+    pass
 
-    script: str | None
+
+@dataclass(frozen=True)
+class FakeShfmt:
+    script: str
     timeout_seconds: float = 2
+
+
+type BrokenShfmt = MissingShfmt | FakeShfmt
 
 
 # A real timeout would cost 2 s a call. Short, a hang still always exceeds it.
 BROKEN_SHFMT: list[Case[BrokenShfmt]] = [
-    (ALLOWED, "a missing shfmt allows the call", BrokenShfmt(None)),
-    (ALLOWED, "a crashing shfmt allows the call", BrokenShfmt("exit 3")),
+    (ALLOWED, "a missing shfmt allows the call", MissingShfmt()),
+    (ALLOWED, "a crashing shfmt allows the call", FakeShfmt("exit 3")),
     (
         ALLOWED,
         "a hanging shfmt allows the call",
-        BrokenShfmt("exec sleep 30", timeout_seconds=0.05),
+        FakeShfmt("exec sleep 30", timeout_seconds=0.05),
     ),
-    (ALLOWED, "shfmt printing no JSON allows the call", BrokenShfmt("echo not json")),
+    (ALLOWED, "shfmt printing no JSON allows the call", FakeShfmt("echo not json")),
     (
         ALLOWED,
         "a renamed shfmt field allows the call",
-        BrokenShfmt("""echo '{"Stmts": [{"Cmd": {"Kind": "CallExpr"}}]}'"""),
+        FakeShfmt("""echo '{"Stmts": [{"Cmd": {"Kind": "CallExpr"}}]}'"""),
     ),
 ]
 
@@ -78,12 +84,11 @@ def guard_on(script: str, shfmt: str, timeout_seconds: float = 2) -> list[str]:
 
 
 def guard_on_broken(script: str, broken: BrokenShfmt, directory: Path) -> list[str]:
-    match broken.script:
-        case None:
-            shfmt = str(directory / "missing")
-        case fake:
-            shfmt = fake_shfmt(directory, fake)
-    return guard_on(script, shfmt, broken.timeout_seconds)
+    match broken:
+        case MissingShfmt():
+            return guard_on(script, str(directory / "missing"))
+        case FakeShfmt(fake, timeout_seconds):
+            return guard_on(script, fake_shfmt(directory, fake), timeout_seconds)
 
 
 def fake_shfmt(directory: Path, script: str) -> str:

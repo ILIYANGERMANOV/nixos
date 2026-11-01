@@ -2108,6 +2108,12 @@ class TestCompare:
 
 
 class TestBashCommandsAreReadAsBash:
+    def ran_twice(self, home: Home, command: str) -> None:
+        main = Transcript().human(0, "go")
+        _ = main.bash(10, command, 70)
+        _ = main.bash(100, command, 160)
+        home.session("s1", main)
+
     @pytest.mark.parametrize(
         ("command", "key"),
         [
@@ -2133,10 +2139,7 @@ class TestBashCommandsAreReadAsBash:
         self, home: Home, command: str, key: str
     ) -> None:
         # Given: the same call twice, with nothing changed between
-        main = Transcript().human(0, "go")
-        _ = main.bash(10, command, 70)
-        _ = main.bash(100, command, 160)
-        home.session("s1", main)
+        self.ran_twice(home, command)
         # When
         report = home.report()
         # Then
@@ -2156,10 +2159,7 @@ class TestBashCommandsAreReadAsBash:
         self, home: Home, command: str
     ) -> None:
         # Given: a check named in a message, twice, with nothing changed between
-        main = Transcript().human(0, "go")
-        _ = main.bash(10, command, 70)
-        _ = main.bash(100, command, 160)
-        home.session("s1", main)
+        self.ran_twice(home, command)
         # When
         report = home.report()
         # Then
