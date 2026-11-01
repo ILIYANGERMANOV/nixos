@@ -460,9 +460,9 @@ PARSE_CASES: list[Case[str, tuple[Simple, ...]]] = [
         "echo 'a b' 'c$d' \"$e f\"",
     ),
     (
-        (Simple(("cp", "caf\u00e9 \u00e0", "${x}")),),
+        (Simple(("cp", "th\u00e9 \u00e0", "${x}")),),
         "offsets count bytes, so text after unicode reads true",
-        "cp 'caf\u00e9 \u00e0' ${x}",
+        "cp 'th\u00e9 \u00e0' ${x}",
     ),
 ]
 
