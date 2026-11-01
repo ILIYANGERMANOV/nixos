@@ -24,7 +24,7 @@ rules:
       - import: "programs/**"
     allows:
       - import: "programs/{{program-name}}/**"
-      - import: "programs/*/default"
+      - import: "programs/*/default.nix"
     fix: Expose it from the other program's default.nix, or move the shared code.
 
   - id: adapters-are-thin
@@ -32,7 +32,7 @@ rules:
     target: "adapters/**"
     allows-only:
       - import: "adapters/**"
-      - import: "programs/*/default"
+      - import: "programs/*/default.nix"
       - import: "inputs/**"
     fix: >-
       Adapters only pass flake inputs to a program's default.nix. Move the
@@ -50,15 +50,15 @@ rules:
   - id: only-lib-assembles-hosts
     description: lib's builders are the one place that turns a host directory into a system.
     target: "**"
-    exclude: ["lib/default", "hosts/**"]
+    exclude: ["lib/default.nix", "hosts/**"]
     forbids:
-      - import: "hosts/*/configuration"
+      - import: "hosts/*/configuration.nix"
     fix: Add the host through lib's builders in flake.nix.
 
   - id: lib-is-private-to-the-flake
     description: Only flake.nix and lib itself import lib; everything else is handed what it needs as an argument.
     target: "**"
-    exclude: ["flake", "lib/**"]
+    exclude: ["flake.nix", "lib/**"]
     forbids:
       - import: "lib/**"
     fix: Move what binds flake inputs to a program into adapters/, what is shared into programs/, or pass it in through specialArgs.
@@ -90,7 +90,7 @@ rules:
   - id: server-modules-are-server-only
     description: Only lib's server builder and the server modules themselves import modules/nixos/server.
     target: "**"
-    exclude: ["lib/default", "modules/nixos/server/**"]
+    exclude: ["lib/default.nix", "modules/nixos/server/**"]
     forbids:
       - import: "modules/nixos/server/**"
     fix: Move what other machines need too out of modules/nixos/server.
@@ -98,7 +98,7 @@ rules:
   - id: secrets-are-read-in-one-place
     description: modules/secrets.nix is the one module that knows where ciphertext lives.
     target: "**"
-    exclude: ["modules/secrets"]
+    exclude: ["modules/secrets.nix"]
     forbids:
       - import: "secrets/**"
     fix: Declare the secret through myConfig.secrets and read its path from config.
@@ -107,5 +107,5 @@ rules:
     description: flake.nix is the entry point, so nothing imports it.
     target: "**"
     forbids:
-      - import: "flake"
+      - import: "flake.nix"
     fix: Import what flake.nix imports instead.
