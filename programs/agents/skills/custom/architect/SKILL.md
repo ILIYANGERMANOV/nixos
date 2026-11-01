@@ -49,9 +49,9 @@ phone screen or two. When it designs code, invoke `engineering` first.
 
 ### Permalinks
 
-Link code as `https://github.com/<owner>/<repo>/blob/<sha>/<path>#L<n>`, never
-as a bare `file:line`. Convert a researcher's `file:line` results before the
-user sees them.
+Link code with short text, never a raw URL or a bare `file:line`:
+`[lib.nix:126](https://github.com/<owner>/<repo>/blob/<sha>/<path>#L<n>)`.
+Convert a researcher's `file:line` results before the user sees them.
 
 - **owner and repo**: from `git remote get-url origin`.
 - **sha**: a commit on GitHub. HEAD if `git branch -r --contains HEAD` lists a
