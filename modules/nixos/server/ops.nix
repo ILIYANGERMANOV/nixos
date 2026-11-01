@@ -83,7 +83,9 @@ in
       factory-rollback = oneshot "Roll back to the previous system generation" "${lib.getExe maintenance} rollback";
       factory-reboot = oneshot "Reboot, unless booted less than 10 minutes ago" "${lib.getExe maintenance} reboot";
       factory-gc = oneshot "Keep two generations per profile and collect garbage" "${lib.getExe maintenance} gc";
-      factory-gc-pressure = oneshot "Collect garbage when less than ${toString gcBelowFreePercent}% of / is free" (lib.getExe gcOnPressure);
+      factory-gc-pressure = oneshot "Collect garbage when less than ${toString gcBelowFreePercent}% of / is free" (
+        lib.getExe gcOnPressure
+      );
     };
 
     systemd.timers = {
