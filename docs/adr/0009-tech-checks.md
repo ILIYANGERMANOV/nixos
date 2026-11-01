@@ -50,7 +50,7 @@ shared with `writeShellApplication`.
 - One fixture per side (`shell-limits.just`, `shell-limits-check.nix`) proves the
   boundary and the negatives on every run. The Nix fixture is the one file out of
   the repo-wide scan, since it breaks the limit on purpose.
-- The one exempt list is in `shell.nix`, keyed by recipe name or Nix file stem.
+- No exemption list: what breaks a limit moves out.
 
 Known gaps: `runCommand` bodies, `initContent`, a let-bound string spliced into a
 script by name (`${snippet}`), and multi-line double-quoted strings.

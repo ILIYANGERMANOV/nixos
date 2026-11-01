@@ -73,9 +73,10 @@ distinguished from the rust-overlay toolchain herdr pulls in, which is only a
 tarball unpack and is built every single time.
 
 Both of the guard's failure modes are silent - a denylist that matches nothing
-and an extractor that yields nothing both report every plan as clean - so the
-recipe runs its own pipeline over a synthetic plan with known answers before it
-will vouch for a real one. That self-test earned its place immediately: the
+and an extractor that yields nothing both report every plan as clean. So
+`test_cache_check.py` runs the real denylist over plans with known answers on
+every PR, and the guard refuses a plan that looks like one but does not parse.
+An inline self-test did this job first and earned its place immediately: the
 first version terminated its range on `/will be fetched:/` while nix actually
 prints `will be fetched (3.3 GiB download, ...):`, so the fetch list was being
 scanned as if it were the build list.

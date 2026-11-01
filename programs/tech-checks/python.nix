@@ -16,7 +16,10 @@ let
     inherit root;
     fileset = lib.fileset.unions [
       (root + "/pyproject.toml")
-      (lib.fileset.fileFilter (file: file.hasExt "py") root)
+      # test_cache_check.py runs the real denylist.
+      (root + "/just/nix-darwin/expensive-builds.deny")
+      # test_statusline.py holds the statusline to what the old scripts printed.
+      (lib.fileset.fileFilter (file: file.hasExt "py" || file.name == "statusline-corpus.json") root)
     ];
   };
 in
@@ -54,6 +57,7 @@ in
     WAIT_GUARD = lib.getExe claude.guards.wait;
     SECRET_GUARD = lib.getExe claude.guards.secret;
     CONTEXT_GUARD = lib.getExe claude.guards.context;
+    STATUSLINE = lib.getExe claude.statusline;
     STDLIB_PYTHON = lib.getExe pkgs.python3;
     # Not `BASH`: bash itself sets that one.
     BASH_ORACLE = lib.getExe pkgs.bash;

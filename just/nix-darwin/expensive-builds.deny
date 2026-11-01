@@ -1,10 +1,11 @@
 # Derivations that must never be built locally: each one is hours, not minutes.
 #
-# Extended regexes, one per line, anchored at the start of the derivation NAME
+# Regexes, one per line, anchored at the start of the derivation NAME
 # (`darwin-cache-check` strips the /nix/store/<hash>- prefix before matching).
-# Blank lines and lines starting with # are ignored. Edit freely - the recipe
-# canary-tests the matcher on every run, so a broken regex fails loudly instead
-# of silently passing every plan.
+# Python reads them, so an extended regex works, but a POSIX class like
+# [[:digit:]] is refused. Blank lines and lines starting with # are ignored. Edit
+# freely - test_cache_check.py runs this file on every PR, and the guard refuses
+# a broken regex, so neither fails silently by passing every plan.
 #
 # Anchor with ^ or a pattern will match mid-name: an unanchored `go-1\.` also
 # matches car`go-1.9`6.1-aarch64-apple-darwin, which is a cheap tarball unpack.
