@@ -51,14 +51,50 @@ registered() {
   not_called "home-manager-1-link"
 }
 
-# The gate reads the real /proc/uptime, which a sandbox cannot set, so this pins
-# whichever side of it the build machine is on.
-@test "factory-maintenance reboot: refused within 10 minutes of boot, runs after" {
-  if [ "$(cut -d . -f 1 /proc/uptime)" -lt 600 ]; then
-    run -1 factory-maintenance reboot
-    not_called "systemctl reboot"
-  else
-    factory-maintenance reboot
-    called "systemctl reboot"
-  fi
+@test "factory-maintenance gc: runs a home's profile operations as its owner, so a path planted there gains no rights" {
+  profiles="$HOME/.local/state/nix/profiles"
+  mkdir -p "$profiles"
+  ln -s "$work/systems/old" "$profiles/home-manager"
+  echo intact >"$work/root-only"
+  ln -s "$work/root-only" "$profiles/home-manager.lock"
+
+  factory-maintenance gc
+
+  owner="--reuid=$(id -u) --regid=$(id -g) --clear-groups --"
+  called "setpriv $owner nix-env -p $profiles/home-manager --delete-generations +2"
+  [ "$(cat "$work/root-only")" = intact ] || fail "a profile operation wrote through a path in the home"
+  not_called "setpriv $owner nix-env -p $work/profiles/system"
+}
+
+@test "factory-maintenance gc: one account's unreadable profiles fail the run, after the other trims and the collection" {
+  # Sorts before $HOME, so the trim that must survive comes after the failure.
+  unreadable="$work/a-home/.local/state/nix/profiles"
+  mkdir -p "$unreadable"
+  chmod 000 "$unreadable"
+  mkdir -p "$HOME/.local/state/nix/profiles"
+  ln -s "$work/systems/old" "$HOME/.local/state/nix/profiles/home-manager"
+
+  run -1 factory-maintenance gc
+
+  chmod 700 "$unreadable"
+  [ "$(jq -r '.op + " " + .state' "$work/ops/last.json")" = "gc failure" ] || fail "the failure was not recorded"
+  called "nix-env -p $HOME/.local/state/nix/profiles/home-manager --delete-generations +2"
+  called "nix-store --gc"
+}
+
+@test "factory-maintenance reboot: refused within 10 minutes of boot" {
+  echo '599.99 1000.00' >"$work/uptime"
+
+  run -1 factory-maintenance reboot
+
+  not_called "systemctl reboot"
+  [ "$(jq -r '.op + " " + .state' "$work/ops/last.json")" = "reboot failure" ] || fail "the refusal was not recorded"
+}
+
+@test "factory-maintenance reboot: runs once 10 minutes have passed" {
+  echo '600.00 1000.00' >"$work/uptime"
+
+  factory-maintenance reboot
+
+  called "systemctl reboot"
 }

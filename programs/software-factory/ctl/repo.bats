@@ -113,6 +113,14 @@ stop_refuses_until_forced() {
   stop_refuses_until_forced
 }
 
+@test "stop: exits 2 on a worktree that lost its .git; --force stops" {
+  clone_repo origin
+  wt=$(add_worktree origin work)
+  rm "$wt/.git"
+
+  stop_refuses_until_forced
+}
+
 @test "restart: restarts an enabled repository" {
   clone_repo origin
   factory-ctl start origin

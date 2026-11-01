@@ -180,7 +180,8 @@ and taking no input (`modules/nixos/server/ops.nix`):
   credential to the server out of GitHub.
 - `factory-rollback`, `factory-reboot` and `factory-gc` may be started by
   `factory` through one polkit rule. GC keeps the current and previous
-  generation of every profile, which is all a rollback reaches.
+  generation of every profile, which is all a rollback reaches. It trims a
+  user's profiles as that user, since the paths there are that user's to choose.
   `factory-ctl root-shells` runs daily and roots, in `~/.gcroots/<repo>`, the
   default dev shell and flake inputs of each repository's `origin/main`, one
   generation each, so a GC does not send the next `nix develop` back to the

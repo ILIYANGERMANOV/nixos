@@ -19,9 +19,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # The only ones that call subprocess, always with an argv list. The guard's git is
-# substituted at build time; a test runs what the check puts on PATH.
+# substituted at build time; a test runs what the check puts on PATH, and
+# disk_plan.py what factory-ctl does.
 "programs/claude-code/read-guard.py" = ["S603", "S607"]
 "programs/claude-code/guard_harness.py" = ["S603"]
+"programs/software-factory/disk_plan.py" = ["S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
 [tool.ruff.lint.flake8-tidy-imports]
@@ -34,8 +36,9 @@ ban-relative-imports = "all"
 # A companion test keeps its script's literal name, hyphens included, which only
 # importlib can import. The seed keeps hypothesis the same on every run.
 addopts = "--import-mode=importlib -p no:cacheprovider --hypothesis-seed=0 -q"
-# The guard tests import the harness and bash_commands.py from beside them.
-pythonpath = ["programs/claude-code"]
+# The guard tests import the harness and bash_commands.py from beside them, as
+# test_disk_plan.py does disk_plan.py.
+pythonpath = ["programs/claude-code", "programs/software-factory"]
 testpaths = ["programs"]
 
 [tool.basedpyright]
@@ -46,3 +49,6 @@ pythonVersion = "3.13"
 # (bash-guard.nix), so they are absolute imports, not relative ones.
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/software-factory"
