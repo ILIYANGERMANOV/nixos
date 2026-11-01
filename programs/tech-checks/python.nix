@@ -57,6 +57,8 @@ in
         SECRET_GUARD = lib.getExe claude.guards.secret;
         CONTEXT_GUARD = lib.getExe claude.guards.context;
         STDLIB_PYTHON = lib.getExe pkgs.python3;
+        # Not `BASH`: bash itself sets that one.
+        BASH_ORACLE = lib.getExe pkgs.bash;
       }
       ''
         # A test imports bash_commands.py from source, so it gets what a guard gets.

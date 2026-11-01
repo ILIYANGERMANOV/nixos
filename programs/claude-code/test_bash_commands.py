@@ -5,16 +5,19 @@ compares what went in with what came out. `python-tests` substitutes the real
 shfmt into `bash_commands`, as a guard's build does.
 """
 
+import os
 import re
 import shlex
-import stat
+import subprocess
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
 import bash_commands
 import pytest
 from bash_commands import Loop, Parsed, Simple, Sink, Unparsable, parse
-from guard_harness import Case, guard_cases
+from bash_corpus import INVALID, PARSED, STRICTER
+from guard_harness import Case, fake_shfmt, guard_cases
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
@@ -67,12 +70,22 @@ def joined(argvs: list[list[str]]) -> str:
     return " ; ".join(map(shlex.join, argvs))
 
 
-def fake_shfmt(directory: Path, script: str) -> str:
-    """An executable to stand in for shfmt, for what the real one will not do."""
-    fake = directory / "shfmt"
-    _ = fake.write_text(f"#!/bin/sh\n{script}\n")
-    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
-    return str(fake)
+def bash_accepts(command: str) -> bool:
+    bash = subprocess.run(
+        [os.environ["BASH_ORACLE"], "-n", "-c", command],
+        capture_output=True,
+        check=False,
+    )
+    return bash.returncode == 0
+
+
+def shfmt_rejects(command: str) -> bool:
+    """Only shfmt's own `line:col: reason`: a broken adapter is no rejection."""
+    match parse(command):
+        case Unparsable(reason):
+            return re.match(r"\d+:\d+: ", reason) is not None
+        case Parsed():
+            return False
 
 
 PARSE_CASES: list[Case[str, tuple[Simple, ...]]] = [
@@ -464,10 +477,35 @@ def test_parse(want: tuple[Simple, ...], given: str) -> None:
     ["if", "fi", "done", "cat <(", "(", 'echo "a', "echo 'a", "a |", "a && ", "$("],
 )
 def test_invalid_bash_is_unparsable_and_says_why(command: str) -> None:
-    script = parse(command)
+    assert shfmt_rejects(command)
 
-    assert isinstance(script, Unparsable)
-    assert re.match(r"\d+:\d+: ", script.reason)
+
+@guard_cases(
+    [
+        (Counter(want), f"{group}: {command}", command)
+        for group, entries in PARSED.items()
+        for command, want in entries
+    ]
+)
+def test_corpus_what_bash_accepts_reads_as_its_commands(
+    want: Counter[Simple], given: str
+) -> None:
+    assert bash_accepts(given)
+    assert Counter(parsed(given)) == want
+
+
+@pytest.mark.parametrize("command", INVALID)
+def test_corpus_what_bash_rejects_shfmt_rejects(command: str) -> None:
+    assert not bash_accepts(command)
+    assert shfmt_rejects(command)
+
+
+@pytest.mark.parametrize(
+    "command", [command for command, _ in STRICTER], ids=[why for _, why in STRICTER]
+)
+def test_corpus_shfmt_is_stricter_than_bash_only_where_named(command: str) -> None:
+    assert bash_accepts(command)
+    assert shfmt_rejects(command)
 
 
 def test_an_unencodable_command_is_unparsable() -> None:

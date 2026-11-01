@@ -86,6 +86,10 @@ GH_VALUE_FLAGS = {
     "-i",
     "--interval",
 }
+# Parsing an earlier command spawns shfmt, so 500 of them cost seconds on each status
+# read. No command without this holds one, but for a `gh` split by a quote or a
+# continuation, which stays unseen: this guards accidents, not an adversary.
+MAY_READ_CI = re.compile(r"\bgh\b")
 # GNU tail: `-f` or `-F`, alone or after flags that take no value.
 TAIL_FOLLOW = re.compile(r"-[\dqvz]*[fF]\w*|--follow(=.*)?")
 
@@ -141,6 +145,7 @@ def polls_ci(command: str, earlier: Iterable[str]) -> bool:
     return bool(statuses) and any(
         status in statuses
         for earlier_command in earlier
+        if MAY_READ_CI.search(earlier_command)
         for status in status_reads(parsed(earlier_command))
     )
 

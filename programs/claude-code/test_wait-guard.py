@@ -4,20 +4,26 @@ import json
 import os
 from pathlib import Path
 
+import bash_commands
 import pytest
 from guard_harness import (
     ALLOWED,
     BLOCKED,
+    BROKEN_SHFMT,
     FAIL_OPEN_CASES,
+    BrokenShfmt,
     Case,
     agent_fields,
     bash_event,
     guard_cases,
+    guard_on,
+    guard_on_broken,
     run_guard,
     session_with,
 )
 
 GUARD = os.environ["WAIT_GUARD"]
+SOURCE = "wait-guard.py"
 
 FOREGROUND_CASES: list[Case[str]] = [
     (BLOCKED, "a long sleep is blocked", "sleep 30"),
@@ -45,6 +51,7 @@ FOREGROUND_CASES: list[Case[str]] = [
     ),
     (BLOCKED, "a sleep as an until condition is blocked", "until sleep 3; do :; done"),
     (BLOCKED, "a long sleep as an if condition is blocked", "if sleep 30; then ls; fi"),
+    (ALLOWED, "invalid Bash is allowed, whatever it names", "sleep 30 && ("),
     (ALLOWED, "a short sleep is allowed", "sleep 2"),
     (ALLOWED, "a short sleep as an if condition is allowed", "if sleep 2; then ls; fi"),
     (
@@ -511,6 +518,69 @@ def test_agent_call(
 @guard_cases(RAW_CASES + FAIL_OPEN_CASES)
 def test_raw_input(want: int, given: str) -> None:
     assert run_guard([GUARD], given).returncode == want
+
+
+@pytest.mark.parametrize(
+    "earlier",
+    [
+        "cd sub && gh pr checks 7 | tail -5",
+        "gh pr \\\n  checks 7",
+        "bash -c 'gh pr checks 7'",
+        'echo "$(gh pr checks 7)"',
+        "nix develop -c gh pr checks 7",
+    ],
+)
+def test_an_earlier_status_read_counts_among_other_commands(
+    tmp_path: Path, earlier: str
+) -> None:
+    lines = "".join(
+        [
+            bash_line("ls", "before"),
+            bash_line(earlier, "old"),
+            bash_line("git status", "after"),
+            bash_line("gh pr checks 7", "now"),
+        ]
+    )
+    transcript = session_with(tmp_path, "", {"agent": lines})
+
+    result = run_guard([GUARD], agent_call(transcript, "agent", "gh pr checks 7"))
+
+    assert result.returncode == BLOCKED
+
+
+def test_a_working_shfmt_blocks_on_the_runner_of_the_broken_ones() -> None:
+    argv = guard_on(SOURCE, bash_commands.SHFMT)
+
+    assert run_guard(argv, bash_event("sleep 30")).returncode == BLOCKED
+
+
+@guard_cases(BROKEN_SHFMT)
+def test_a_broken_shfmt_allows_a_wait(
+    tmp_path: Path, want: int, given: BrokenShfmt
+) -> None:
+    result = run_guard(guard_on_broken(SOURCE, given, tmp_path), bash_event("sleep 30"))
+
+    assert (result.returncode, result.stderr) == (want, "")
+
+
+def test_a_working_shfmt_blocks_a_repeated_read_on_that_runner(session: Path) -> None:
+    argv = guard_on(SOURCE, bash_commands.SHFMT)
+
+    result = run_guard(argv, agent_call(session, "polled", "gh pr checks 7"))
+
+    assert result.returncode == BLOCKED
+
+
+@guard_cases(BROKEN_SHFMT)
+def test_a_broken_shfmt_allows_a_repeated_read(
+    tmp_path: Path, session: Path, want: int, given: BrokenShfmt
+) -> None:
+    result = run_guard(
+        guard_on_broken(SOURCE, given, tmp_path),
+        agent_call(session, "polled", "gh pr checks 7"),
+    )
+
+    assert (result.returncode, result.stderr) == (want, "")
 
 
 def test_a_block_says_to_background_and_when_to_hand_back() -> None:

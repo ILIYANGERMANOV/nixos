@@ -7,8 +7,10 @@ Cases are plain tables, `(want, name, given)`, for a corpus to extend.
 
 import json
 import os
+import stat
 import subprocess
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,67 @@ FAIL_OPEN_CASES: list[Case[str]] = [
         '{"tool_input": {"command": "cat \\"unterminated; sleep 30"}}',
     ),
 ]
+
+# A guard's source on another shfmt: a built one holds its store path for good.
+ON_SHFMT = """
+import pathlib, runpy, sys
+guard, shfmt, timeout = sys.argv[1:]
+sys.path.insert(0, str(pathlib.Path(guard).parent))
+import bash_commands
+bash_commands.SHFMT = shfmt
+bash_commands.SHFMT_TIMEOUT_SECONDS = float(timeout)
+runpy.run_path(guard, run_name="__main__")
+"""
+
+
+@dataclass(frozen=True)
+class BrokenShfmt:
+    """A fake's script, None for no binary at all, and the parser's timeout."""
+
+    script: str | None
+    timeout_seconds: float = 2
+
+
+# A real timeout would cost 2 s a call. Short, a hang still always exceeds it.
+BROKEN_SHFMT: list[Case[BrokenShfmt]] = [
+    (ALLOWED, "a missing shfmt allows the call", BrokenShfmt(None)),
+    (ALLOWED, "a crashing shfmt allows the call", BrokenShfmt("exit 3")),
+    (
+        ALLOWED,
+        "a hanging shfmt allows the call",
+        BrokenShfmt("exec sleep 30", timeout_seconds=0.05),
+    ),
+    (ALLOWED, "shfmt printing no JSON allows the call", BrokenShfmt("echo not json")),
+    (
+        ALLOWED,
+        "a renamed shfmt field allows the call",
+        BrokenShfmt("""echo '{"Stmts": [{"Cmd": {"Kind": "CallExpr"}}]}'"""),
+    ),
+]
+
+
+def guard_on(script: str, shfmt: str, timeout_seconds: float = 2) -> list[str]:
+    """Argv for the guard source beside this file, parsing with `shfmt`."""
+    source = Path(__file__).with_name(script)
+    python = os.environ["STDLIB_PYTHON"]
+    return [python, "-c", ON_SHFMT, str(source), shfmt, str(timeout_seconds)]
+
+
+def guard_on_broken(script: str, broken: BrokenShfmt, directory: Path) -> list[str]:
+    match broken.script:
+        case None:
+            shfmt = str(directory / "missing")
+        case fake:
+            shfmt = fake_shfmt(directory, fake)
+    return guard_on(script, shfmt, broken.timeout_seconds)
+
+
+def fake_shfmt(directory: Path, script: str) -> str:
+    """An executable to stand in for shfmt, for what the real one will not do."""
+    fake = directory / "shfmt"
+    _ = fake.write_text(f"#!/bin/sh\n{script}\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    return str(fake)
 
 
 def guard_cases[T, W](rows: list[Case[T, W]]) -> pytest.MarkDecorator:
