@@ -170,13 +170,14 @@ FOREGROUND_CASES: list[Case[str]] = [
     (
         BLOCKED,
         "a bash -c script that does not parse keeps the outer verdict",
-        "sleep 30; bash -c 'echo a\\'",
+        "sleep 30; bash -c 'x('",
     ),
     (
-        ALLOWED,
-        "a bash -c script that does not parse is allowed alone",
-        "bash -c 'echo a\\'",
+        BLOCKED,
+        "a loop of bash -c scripts that do not parse is still a loop",
+        "while bash -c 'x('; do bash -c 'y('; done; sleep 2",
     ),
+    (ALLOWED, "a bash -c script that does not parse is allowed alone", "bash -c 'x('"),
     (
         ALLOWED,
         "a tail -f sent to the background with & is allowed",

@@ -121,16 +121,20 @@ def statement(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
     sink = around.sink
     for redirect in children(node, "Redirs"):
         sink = sink_after(sink, redirect, source)
-    if "Cmd" in node:
-        yield from compound(child(node, "Cmd"), replace(around, sink=sink), source)
+    command = optional_child(node, "Cmd")
+    if command is not None:
+        yield from compound(command, replace(around, sink=sink), source)
     yield from substitutions(node.get("Redirs"), around, source)
 
 
 def sink_after(sink: Sink, redirect: Node, source: bytes) -> Sink:
     """Where stdout goes after one redirection."""
     operator = operator_at(redirect, source)
-    default_fd = "0" if operator.startswith("<") else "1"
-    fd = string(child(redirect, "N"), "Value") if "N" in redirect else default_fd
+    descriptor = optional_child(redirect, "N")
+    if descriptor is not None:
+        fd = string(descriptor, "Value")
+    else:
+        fd = "0" if operator.startswith("<") else "1"
     match (fd, operator):
         case ("1", ">&") if word_text(child(redirect, "Word"), source).isdigit():
             return sink
@@ -171,8 +175,8 @@ def compound(  # noqa: C901 - one arm per shfmt node type
                 yield from statements(children(item, "Stmts"), around, source)
         case "FuncDecl":
             yield from statement(child(node, "Body"), around, source)
-        case "TimeClause" | "CoprocClause" if "Stmt" in node:
-            yield from statement(child(node, "Stmt"), around, source)
+        case "TimeClause" | "CoprocClause":
+            yield from prefixed(node, around, source)
         case _:
             yield from substitutions(node, around, source)
 
@@ -192,6 +196,13 @@ def binary(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
     yield from statement(child(node, "Y"), around, source)
 
 
+def prefixed(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
+    """`time` and `coproc` run one statement, and a bare `time` holds none."""
+    body = optional_child(node, "Stmt")
+    if body is not None:
+        yield from statement(body, around, source)
+
+
 def for_clause(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
     yield from substitutions(node["Loop"], around, source)
     looped = replace(around, looped=max(around.looped, Loop.OVER_LIST))
@@ -202,8 +213,9 @@ def if_clause(node: Node, around: Simple, source: bytes) -> Iterator[Simple]:
     """An `elif` or `else` is an `Else` node of the same shape, without a `Type`."""
     body = children(node, "Cond") + children(node, "Then")
     yield from statements(body, around, source)
-    if "Else" in node:
-        yield from if_clause(child(node, "Else"), around, source)
+    otherwise = optional_child(node, "Else")
+    if otherwise is not None:
+        yield from if_clause(otherwise, around, source)
 
 
 def substitutions(node: Json, around: Simple, source: bytes) -> Iterator[Simple]:
@@ -259,9 +271,15 @@ def operator_at(node: Node, source: bytes) -> str:
     return next(op for op in OPERATORS if text.startswith(op))
 
 
-# These trust shfmt's shape. One it does not have raises, and `parse` reports that.
+# These trust shfmt's shape. A renamed required field raises, and `parse` reports
+# that. shfmt omits an empty list and an absent child, so a renamed one reads as
+# empty: a `Parsed` of too little, seen by the corpus in CI and never at runtime.
 def child(node: Node, key: str) -> Node:
     return cast("Node", node[key])
+
+
+def optional_child(node: Node, key: str) -> Node | None:
+    return cast("Node | None", node.get(key))
 
 
 def children(node: Node, key: str) -> list[Node]:

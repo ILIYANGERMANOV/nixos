@@ -229,6 +229,10 @@ PARSED: dict[str, list[Entry]] = {
             [cmd(("cat", "$f"), "o"), cmd("seq 3", "np")],
         ),
         ("case $x in a) sleep 60;; b|c) echo;; esac", [cmd("sleep 60"), cmd("echo")]),
+        (
+            "case x in $(sleep 60)) echo;; esac",
+            [cmd("sleep 60", "np"), cmd("echo")],
+        ),
         ("f() { sleep 60; }; f", [cmd("sleep 60"), cmd("f")]),
         ("[[ -f x ]] && sleep 60", [cmd("sleep 60")]),
         ("[[ $(sleep 60) == x ]]", [cmd("sleep 60", "np")]),
