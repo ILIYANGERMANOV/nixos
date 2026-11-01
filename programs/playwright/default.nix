@@ -86,17 +86,8 @@ let
       runHook postBuild
     '';
     installPhase = ''
-      runHook preInstall
-      modules="$out/lib/node_modules"
-      mkdir -p "$out/lib" "$check"
-      mv node_modules "$modules"
-      ln -s ${pkgs.playwright-test}/lib/node_modules/playwright "$modules/playwright"
-      mv dist/kit "$modules/qa-kit"
-      mv dist/wallet "$modules/qa-wallet"
-      echo '{"type":"module","main":"index.js"}' | tee "$modules/qa-kit/package.json" "$modules/qa-wallet/package.json" > "$check/package.json"
-      mv dist/qa-check*.js "$check/"
-      ln -s "$modules" "$check/node_modules"
-      runHook postInstall
+      ${lib.toShellVars { playwright = "${pkgs.playwright-test}/lib/node_modules/playwright"; }}
+      ${shellCheck.fragment ./install-compiled.sh}
     '';
   };
   modules = "${compiled}/lib/node_modules";
@@ -139,20 +130,7 @@ let
   qaMp4 = shellCheck.writeShellApplication {
     name = "qa-mp4";
     runtimeInputs = [ pkgs.ffmpeg-headless ];
-    text = ''
-      if [ "$#" -ne 2 ]; then
-        echo "usage: qa-mp4 <in.webm> <out.mp4>" >&2
-        exit 2
-      fi
-      offset=$(ffmpeg -hide_banner -nostats -i "$1" -map 0:v:0 -vf freezedetect=d=1 -f null - 2>&1 | awk '
-        /freeze_start/ && !started { started = 1; start = $NF; next }
-        /freeze_end/ && started && !ended { ended = 1; end = $NF }
-        END { if (started && ended && start <= 1.5 && end > 0.5) printf "%.2f", end - 0.5; else print "0" }')
-      ffmpeg -y -loglevel error -ss "$offset" -i "$1" \
-        -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' \
-        -c:v libx264 -pix_fmt yuv420p -movflags +faststart "$2"
-      echo "qa-mp4: trimmed a ''${offset}s static lead-in; cite timestamps from $2"
-    '';
+    text = shellCheck.fragment ./qa-mp4.sh;
   };
 
   # One contact sheet of labelled frames, three to a row at 480 px wide, so
@@ -164,44 +142,8 @@ let
     name = "qa-frames";
     runtimeInputs = [ pkgs.ffmpeg-headless ];
     text = ''
-      if [ "$#" -ne 3 ]; then
-        echo "usage: qa-frames <video> <t1,t2,...> <out.png>   (t in seconds, e.g. 3,7.5,12)" >&2
-        exit 2
-      fi
-      video=$1 out=$3
-      IFS=, read -ra times <<< "$2"
-      label() {
-        echo "drawtext=fontfile=${font}:text='$1':x=8:y=8:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=6"
-      }
-      tmp=$(mktemp -d)
-      trap 'rm -rf "$tmp"' EXIT
-      n=0
-      for t in "''${times[@]}"; do
-        if ! [[ $t =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-          echo "qa-frames: '$t' is not a time in seconds" >&2
-          exit 2
-        fi
-        frame=$(printf '%s/%03d.png' "$tmp" "$n")
-        tile=$(label "$t s")
-        ffmpeg -y -loglevel error -ss "$t" -i "$video" -frames:v 1 -vf "scale=480:-2,$tile" "$frame"
-        if [ ! -s "$frame" ]; then
-          end=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$video")
-          end=$(printf '%.2f' "$end")
-          echo "qa-frames: $t s is past the end of $video; using its last frame ($end s)" >&2
-          # -update keeps overwriting one image, so what is left is the last frame.
-          tile=$(label "$end s (end)")
-          ffmpeg -y -loglevel error -sseof -1 -i "$video" -update 1 -vf "scale=480:-2,$tile" "$frame"
-        fi
-        if [ ! -s "$frame" ]; then
-          echo "qa-frames: no frame in $video" >&2
-          exit 1
-        fi
-        n=$((n + 1))
-      done
-      cols=$((n < 3 ? n : 3))
-      rows=$(((n + cols - 1) / cols))
-      ffmpeg -y -loglevel error -framerate 1 -i "$tmp/%03d.png" -vf "tile=''${cols}x''${rows}:padding=4:color=white" -frames:v 1 "$out"
-      echo "qa-frames: $n tiles ($2 s) in $out"
+      ${lib.toShellVars { inherit font; }}
+      ${shellCheck.fragment ./qa-frames.sh}
     '';
   };
   font = "${pkgs.dejavu_fonts.minimal}/share/fonts/truetype/DejaVuSans.ttf";

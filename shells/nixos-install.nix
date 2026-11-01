@@ -14,6 +14,7 @@ let
       root = self;
     };
   };
+  shellCheck = import "${self}/programs/shell-check" { inherit pkgs; };
   claudeCode = import "${self}/adapters/claude-code.nix" {
     root = self;
     inherit pkgs inputs;
@@ -40,16 +41,6 @@ pkgs.mkShell {
     export SOPS_AGE_KEY_FILE="/var/lib/sops-age/keys.txt"
     ${claudeCode.activationScript}
 
-    echo "NixOS install shell loaded."
-    echo ""
-    echo "Quick reference:"
-    echo "  just list-disks              — identify the target disk"
-    echo "  just install <host>          — full install (disko + age key + secure boot + nixos-install)"
-    echo "  just generate-age-key        — generate a fresh age key (key rotation only)"
-    echo "  just enroll-secure-boot      — post-boot: enroll keys into UEFI firmware"
-    echo "  just rebuild <host>          — post-boot: rebuild and switch"
-    echo "  just set-password-hash <host> — hash a password straight into that host's secrets"
-    echo ""
-    echo "Run 'just' to list all available recipes."
+    ${shellCheck.fragment ./nixos-install-banner.sh}
   '';
 }
