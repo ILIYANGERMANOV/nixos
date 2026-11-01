@@ -20,7 +20,7 @@
 #
 # Generate the software-factory age key into the clipboard (for Bitwarden)
 factory-generate-age-key:
-    @bash just/scripts/factory-generate-age-key.sh
+    @bash "{{ justfile_directory() }}/just/scripts/factory-generate-age-key.sh"
 
 # Fills secrets/hosts/software-factory.yaml with everything the host declares:
 # the admin password (reusing set-password-hash), the Tailscale auth key, the
@@ -28,7 +28,7 @@ factory-generate-age-key:
 #
 # Write every secret software-factory needs into its sops file
 factory-secrets:
-    @bash just/scripts/factory-secrets.sh
+    @bash "{{ justfile_directory() }}/just/scripts/factory-secrets.sh"
 
 # The server pulls deploys from this repository's GitHub deployments and posts
 # the result back, with a fine-grained token of the repository owner: this
@@ -139,7 +139,7 @@ factory-deploy:
 # Show software-factory's RAM, disk and Remote Control sessions (`detailed` adds branches, errors, top processes)
 [positional-arguments]
 factory-status $mode="concise":
-    @bash just/scripts/factory-status.sh "$@"
+    @bash "{{ justfile_directory() }}/just/scripts/factory-status.sh" "$@"
 
 # Fail if rebuilding software-factory would build anything on the expensive-builds denylist.
 factory-cache-check: (_cache-check "factory-cache-check" ".#nixosConfigurations.software-factory.config.system.build.toplevel")

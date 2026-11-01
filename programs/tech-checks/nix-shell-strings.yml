@@ -1,10 +1,18 @@
 # The `''` strings Nix hands to a shell: `shell-limits` measures these and no
-# other. An allowlist of sinks, so a config string (`initContent`, `writeText`)
-# stays free of the limit. See docs/adr/0009-tech-checks.md.
+# other. An allowlist of sinks, so anything else stays free of the limit: Lua,
+# `writeText` data, and `initContent`, which is zsh and a known gap. See
+# docs/adr/0009-tech-checks.md.
 id: nix-shell-string
 language: nix
 rule:
   kind: indented_string_expression
+  # `script = pkgs.writeText "x.lua" ...` is data that happens to be named script.
+  not:
+    inside:
+      kind: apply_expression
+      has:
+        field: function
+        regex: \bwriteText\b
   any:
     # `launcher` is software-factory's own alias, `entry*` Home Manager's
     # activation DAG.

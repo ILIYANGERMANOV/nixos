@@ -43,16 +43,17 @@ shared with `writeShellApplication`.
 - The Nix sinks are an allowlist: `writeShellScript`, `writeScript`, the local
   `launcher`, Home Manager's `entry*`, `text` in `writeShellApplication`, and
   bindings such as `script`, `shellHook`, `Exec*`, `*Phase`, `pre*`, `post*` and
-  `activation.*`. So `initContent`, `writeText` and Lua stay free.
+  `activation.*`. So `writeText` data and Lua stay free, and `initContent`, which
+  is zsh, is a known gap.
 - A Nix count is source lines between the delimiters. Blank lines and comments
   count, and a multi-line `${ }` counts by the lines it spans.
 - One fixture per side (`shell-limits.just`, `shell-limits-check.nix`) proves the
-  boundary and the negatives on every run.
+  boundary and the negatives on every run. The Nix fixture is the one file out of
+  the repo-wide scan, since it breaks the limit on purpose.
 - The one exempt list is in `shell.nix`, keyed by recipe name or Nix file stem.
 
-Known gaps: `runCommand` bodies, files named `check.nix` (test fakes), a
-let-bound string spliced into a script by name (`${snippet}`), and multi-line
-double-quoted strings.
+Known gaps: `runCommand` bodies, `initContent`, a let-bound string spliced into a
+script by name (`${snippet}`), and multi-line double-quoted strings.
 
 `shell-tests` is the one that runs what it checks. It needs only `pkgs`, so it
 stays a tech check, and it replaced `checks.software-factory`. Its suites run one

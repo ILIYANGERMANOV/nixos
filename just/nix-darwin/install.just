@@ -57,4 +57,4 @@ alias darwin-restore-age-key := darwin-install-age-key
 #
 # Generate a brand-new SOPS age private key on this Mac
 darwin-generate-age-key:
-    @bash just/scripts/darwin-generate-age-key.sh
+    @bash "{{ justfile_directory() }}/just/scripts/darwin-generate-age-key.sh"

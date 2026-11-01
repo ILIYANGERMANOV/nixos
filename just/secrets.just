@@ -31,7 +31,7 @@
 # Hash a password with yescrypt into <host>'s secrets file as `password-hash`
 [positional-arguments]
 set-password-hash $host:
-    @bash just/scripts/set-password-hash.sh "$@"
+    @bash "{{ justfile_directory() }}/just/scripts/set-password-hash.sh" "$@"
 
 # Open a secrets file: no argument for the global one, a hostname for that host's.
 edit-secrets $host="":

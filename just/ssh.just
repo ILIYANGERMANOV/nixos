@@ -32,7 +32,7 @@ yubikey-verify-pin:
     #!/usr/bin/env bash
     set -euo pipefail
     # shellcheck source=/dev/null
-    source just/scripts/ssh-common.sh
+    source "{{ justfile_directory() }}/just/scripts/ssh-common.sh"
     require_fido_pin "this YubiKey"
     echo "Enter your FIDO2 PIN to confirm you still know it."
     echo "A correct PIN resets the retry counter; wrong tries count toward the 8-strike wipe."
@@ -43,11 +43,11 @@ yubikey-verify-pin:
 
 # Enroll the PRIMARY YubiKey for this host (generate the resident credential + stub).
 setup-yubikey-ssh:
-    @bash just/scripts/setup-yubikey-ssh.sh
+    @bash "{{ justfile_directory() }}/just/scripts/setup-yubikey-ssh.sh"
 
 # Enroll the BACKUP YubiKey for this host (plug in the SECOND key first).
 enroll-backup-yubikey:
-    @bash just/scripts/enroll-backup-yubikey.sh
+    @bash "{{ justfile_directory() }}/just/scripts/enroll-backup-yubikey.sh"
 
 # Restore the local stub file on a fresh/rebuilt machine from the plugged-in YubiKey.
 # Prompts for the FIDO2 PIN — this is why a stolen token alone is useless.
@@ -85,7 +85,7 @@ restore-ssh-stubs $which="primary":
 # which: primary | backup (required) — selects the local stub file to replace.
 [positional-arguments]
 rotate-ssh-key $which:
-    @bash just/scripts/rotate-ssh-key.sh "$@"
+    @bash "{{ justfile_directory() }}/just/scripts/rotate-ssh-key.sh" "$@"
 
 # Verify the audible touch alert on both paths: SSH auth and commit signing.
 yubikey-test-sound:

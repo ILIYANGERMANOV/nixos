@@ -45,16 +45,11 @@ let
     (root + "/Justfile")
     (lib.fileset.fileFilter (file: file.hasExt "just") (root + "/just"))
   ];
-  # Out of the scan: a `check.nix` holds a program's test fakes, and
-  # `shell-limits-check.nix` is over the limit on purpose.
-  nixFiles = lib.fileset.fileFilter (
-    file:
-    file.hasExt "nix"
-    && !lib.elem file.name [
-      "check.nix"
-      "shell-limits-check.nix"
-    ]
-  ) root;
+  # All but the fixture, whose deliberate violations `shell-limits` scans on their
+  # own against an expected list.
+  nixFiles = lib.fileset.difference (lib.fileset.fileFilter (
+    file: file.hasExt "nix"
+  ) root) ./shell-limits-check.nix;
 
   githubSource = source (root + "/.github");
   shellSource = source shellFiles;

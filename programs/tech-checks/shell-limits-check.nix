@@ -1,7 +1,7 @@
 # Fixture for the Nix limit in `shell-limits`, never built. Each sink has a
 # string at the limit and one over it, and the strings under `free` are over it
-# in places the check must not measure. `nixFiles` in shell.nix keeps this file
-# out of the real scan.
+# in places the check must not measure. `nixFiles` in shell.nix keeps this file,
+# and only this file, out of the real scan.
 {
   pkgs,
   lib,
@@ -212,6 +212,14 @@
       echo 6
     '';
     file = pkgs.writeText "x" ''
+      echo 1
+      echo 2
+      echo 3
+      echo 4
+      echo 5
+      echo 6
+    '';
+    script = pkgs.writeText "x.lua" ''
       echo 1
       echo 2
       echo 3
