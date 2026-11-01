@@ -18,8 +18,9 @@ skipped: say so and stop. Delegated at POC, one quick pass: step 3's items 1-3
 only, item 3 as one read of the diff, and skip `references/tests.md`. Invoked by the user, it runs in any mode.
 
 **Trivial.** Delegated in any mode, unless `$ARGUMENTS` says `not Trivial`: before
-step 1, read `git diff --shortstat` and the added lines of step 2's target. A diff
-that qualifies by the Trivial rule in your instructions is skipped: say so and stop.
+step 1, read `git diff --shortstat` and the changed lines, removed included, of
+step 2's target. A diff that qualifies by the Trivial rule in your instructions
+is skipped: say so and stop.
 
 ## 1. Load the rules
 

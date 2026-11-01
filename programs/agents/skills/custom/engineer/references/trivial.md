@@ -25,7 +25,7 @@ report file and a resume read the same. No step here relaxes a gate.
    left after that pass leaves the track.
 6. **Hand over, step 10.** Wait for CI the non-blocking way your instructions
    describe. CI failures go to a fixer, and its diff gets one `--fixes` sweep as
-   under Fix before ready. On green, answer any review comments, `gh pr ready`,
+   in step 5. On green, answer any review comments, `gh pr ready`,
    and notify. The user merges. No app, QA or `/final-review`
    offers.
 
