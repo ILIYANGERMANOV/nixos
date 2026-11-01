@@ -51,7 +51,8 @@ designs code, invoke `engineering` first.
 - No edits, commits, builds or test runs. Cheap read-only probes are fine,
   `git fetch origin main` included.
 - A bigger experiment goes to a fresh subagent. Experiments never change the
-  repo or the installed config, and their outputs go under `/tmp`.
+  repo or the installed config, never run code from a PR or branch by anyone
+  else, and their outputs go under `/tmp`.
 - A request to change anything, a plan or a PR included: start nothing yourself.
   Hand over a short brief to paste into `/engineer`, normally in a fresh
   session: the goal, the decisions made, the files that matter, what is open.
