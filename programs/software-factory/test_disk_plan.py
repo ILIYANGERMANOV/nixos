@@ -23,9 +23,11 @@ from disk_plan import (
     decide_cache,
     decide_own_stale_root,
     decide_qa_run,
+    decide_session_free,
     decide_stale_root,
     decide_worktree,
     local_work_phrases,
+    main,
     parse_count,
     parse_pids,
     parse_worktrees,
@@ -167,6 +169,35 @@ def test_a_live_session_s_root_is_never_removed(
     decision = decide_worktree(worktree(work=work), frozenset({WORKTREE / below}))
 
     assert isinstance(decision, Keep)
+
+
+def test_a_path_with_no_session_passes_the_last_check() -> None:
+    assert decide_session_free(WORKTREE, NO_SESSIONS) == Remove(WORKTREE)
+
+
+def test_a_session_elsewhere_passes_the_last_check() -> None:
+    sessions = frozenset({WORKTREE.with_name("task-2")})
+
+    assert decide_session_free(WORKTREE, sessions) == Remove(WORKTREE)
+
+
+def test_a_last_check_that_cannot_tell_keeps_the_path() -> None:
+    assert decide_session_free(WORKTREE, UNKNOWN) == Keep(WORKTREE, UNKNOWN)
+
+
+@given(relative_paths)
+def test_a_session_at_or_below_a_path_always_fails_the_last_check(
+    below: PurePath,
+) -> None:
+    sessions = frozenset({WORKTREE / below})
+
+    assert decide_session_free(WORKTREE, sessions) == Keep(
+        WORKTREE, Policy.LIVE_SESSION
+    )
+
+
+def test_a_recheck_that_fails_exits_nonzero() -> None:
+    assert main(["recheck-session", str(WORKTREE), "["]) != 0
 
 
 @given(relative_paths, at_risk_work)

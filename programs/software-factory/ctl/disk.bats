@@ -139,6 +139,49 @@ load ../test_helper
   [ -e "$qa/auth/user.json" ] && [ -e "$qa/scripts/lib.cjs" ] || fail "QA login state or scripts were removed"
 }
 
+@test "free-disk: keeps a worktree whose session started after the plan decided on it" {
+  clone_repo a-first
+  clone_repo z-last
+  late=$(add_worktree a-first late)
+  session_starts_during_scan_of z-last "$late"
+
+  factory-ctl free-disk apply >"$work/out"
+
+  [ -d "$late" ] || fail "a worktree with a live session was removed"
+  grep -q "kept a-first/.claude/worktrees/late" "$work/out" || fail_showing "$work/out" "the kept worktree is not reported"
+  reports_freed_gb
+}
+
+@test "free-disk: keeps a quiet /qa run a live session works in" {
+  clone_repo origin
+  run="$HOME/.cache/qa/owner/origin/runs/12-busy"
+  git -C "$HOME/repos/origin" worktree add --quiet --detach "$run/worktree" 2>/dev/null
+  find "$run" -exec touch -d '2 days ago' {} +
+  start_session "$run/worktree"
+
+  factory-ctl free-disk apply >"$work/out"
+
+  [ -d "$run/worktree" ] || fail "a /qa run with a live session was removed"
+  grep -q "kept .cache/qa/owner/origin/runs/12-busy" "$work/out" || fail_showing "$work/out" "the kept run is not reported"
+}
+
+# A session moves into $2 while the plan reads repository $1, which sorts after
+# the repository of $2: the plan has already decided on $2. Git runs a fsmonitor
+# program from `git status`, and the program returns once the session is there.
+session_starts_during_scan_of() {
+  local arrive="$work/session-arrive" arrived="$work/session-arrived"
+  # shellcheck disable=SC2016 # expands in the session
+  in_background bash -c 'until [ -e "$2" ]; do sleep 0.01; done; cd "$3" && touch "$4" && sleep 300; true' session --sdk-url "$arrive" "$2" "$arrived"
+  cat >"$work/fsmonitor" <<EOF
+#!$BASH
+touch "$arrive"
+until [ -e "$arrived" ]; do sleep 0.01; done
+exit 1
+EOF
+  chmod +x "$work/fsmonitor"
+  git -C "$HOME/repos/$1" config core.fsmonitor "$work/fsmonitor"
+}
+
 # Clones $@ of a repository with a flake on main.
 clone_flaked() {
   git init --quiet --bare --initial-branch main "$work/flaked.git"

@@ -111,29 +111,12 @@ let
 
   # The sandbox cannot change user, so this names the account it would become;
   # anything it runs is recorded and then behaves as that account.
-  fakeSetpriv = pkgs.writeShellScriptBin "setpriv" ''
-    echo "setpriv $*" >>"$CALLS"
-    while [ "$1" != -- ]; do
-      case "$1" in
-        --reuid=*) export ACTING_AS="''${1#--reuid=}" ;;
-      esac
-      shift
-    done
-    shift
-    exec "$@"
-  '';
+  fakeSetpriv = pkgs.writeShellScriptBin "setpriv" (builtins.readFile ./fakes/setpriv.sh);
 
   # Profiles are symlinks in ${work}/profiles, as Nix keeps them. Nix opens
   # <profile>.lock, following a symlink there; with root's rights the write lands
   # wherever it leads, while a dropped account's reaches only what it owns.
-  fakeNixEnv = pkgs.writeShellScriptBin "nix-env" ''
-    echo "nix-env $*" >>"$CALLS"
-    [ -n "''${ACTING_AS:-}" ] || : >"$2.lock"
-    case "$3" in
-      --set) ln -sfn "$4" "$2" ;;
-      --rollback) ln -sfn "${work}/systems/old" "$2" ;;
-    esac
-  '';
+  fakeNixEnv = pkgs.writeShellScriptBin "nix-env" (builtins.readFile ./fakes/nix-env.sh);
 
   fakeNixStore = pkgs.writeShellScriptBin "nix-store" ''
     echo "nix-store $*" >>"$CALLS"

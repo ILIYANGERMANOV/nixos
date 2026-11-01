@@ -101,6 +101,11 @@ apply_disk() {
   while IFS= read -r -d '' wt; do
     repo="${wt#"$repos_dir"/}"
     repo="${repo%%/*}"
+    # shellcheck disable=SC2310 # a predicate
+    session_free "$wt" || {
+      echo "kept ${wt#"$repos_dir"/}"
+      continue
+    }
     # Clean and pushed was checked, so --force only covers ignored files such
     # as build output.
     git -C "$repos_dir/$repo" worktree remove --force "$wt"
@@ -110,10 +115,18 @@ apply_disk() {
   while IFS= read -r -d '' path; do
     rm -rf "$path"
     echo "removed ${path#"$HOME"/}"
-  done < <(
-    caches
-    qa_runs
-  )
+  done < <(caches)
+  # A run may hold a worktree, so it gets the same last check.
+  # shellcheck disable=SC2312 # a failed listing lists nothing
+  while IFS= read -r -d '' path; do
+    # shellcheck disable=SC2310 # a predicate
+    session_free "$path" || {
+      echo "kept ${path#"$HOME"/}"
+      continue
+    }
+    rm -rf "$path"
+    echo "removed ${path#"$HOME"/}"
+  done < <(qa_runs)
   # A run's worktree that had changes outside .gitignore was deleted with its
   # run rather than by worktree remove: drop its registration.
   for repo in $(cloned_repos); do
@@ -131,6 +144,10 @@ apply_disk() {
   echo "Freed $freed"
   echo "Free now: $free"
 }
+
+# The plan was read a while ago: a session may have started in $1 since. Exits
+# nonzero when one has, when it cannot tell, or when the check itself fails.
+session_free() { "$disk_plan" recheck-session "$1" "$session_pattern" >/dev/null; }
 
 free_bytes() { df -B1 --output=avail / | tail -n 1; }
 

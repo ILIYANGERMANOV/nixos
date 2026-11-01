@@ -152,6 +152,12 @@ def main(arguments: list[str]) -> int:
                     Path(repos_dir), lambda: read_sessions(session_pattern)
                 )
             )
+        case ["recheck-session", path, session_pattern]:
+            decision = decide_session_free(
+                PurePath(path), read_sessions(session_pattern)
+            )
+            report((decision,))
+            return 0 if isinstance(decision, Remove) else 1
         case ["local-work", directory]:
             print(*local_work_phrases(read_local_work(Path(directory))), sep="\n")
         case ["caches", home, qa_dir]:
@@ -177,7 +183,7 @@ def main(arguments: list[str]) -> int:
             )
         case _:
             print(
-                "usage: factory-disk-plan worktrees|local-work|caches|qa-runs|stale-roots|own-stale-roots ...",
+                "usage: factory-disk-plan worktrees|recheck-session|local-work|caches|qa-runs|stale-roots|own-stale-roots ...",
                 file=sys.stderr,
             )
             return 2
@@ -429,13 +435,22 @@ def _worktree_keep_reasons(
         yield Policy.OUTSIDE_REPOSITORY
     if worktree.locked:
         yield Policy.LOCKED
-    yield from _keep_if(
-        sessions,
-        lambda cwds: any(cwd.is_relative_to(worktree.path) for cwd in cwds),
-        Policy.LIVE_SESSION,
-    )
+    yield from _session_keep_reasons(worktree.path, sessions)
     for count in (worktree.local_work.uncommitted, worktree.local_work.unpushed):
         yield from _keep_if(count, lambda known: known > 0, Policy.LOCAL_WORK)
+
+
+def decide_session_free(path: PurePath, sessions: Sessions) -> Decision:
+    """The last check before removal: a plan is old by the time it is applied."""
+    return decide(path, _session_keep_reasons(path, sessions))
+
+
+def _session_keep_reasons(path: PurePath, sessions: Sessions) -> Iterator[KeepReason]:
+    yield from _keep_if(
+        sessions,
+        lambda cwds: any(cwd.is_relative_to(path) for cwd in cwds),
+        Policy.LIVE_SESSION,
+    )
 
 
 def _keep_if[T](

@@ -28,7 +28,8 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   root deploy and maintenance scripts (`ops/`), the admin agent's project
   (`admin/`) and the egress nftables rules. What may be deleted is decided in
   `disk_plan.py`, pure functions over read facts where unknown means keep, tested
-  by `test_disk_plan.py`; the bash around it only removes what it prints.
+  by `test_disk_plan.py`; the bash around it only removes what it prints, and
+  rechecks for a live session just before removing a worktree or a /qa run.
   `checks.shell-tests` (`check.nix`)
   tests them with bats, one suite beside each script (`ctl/disk.bats` for
   `ctl/disk.sh`), plus a named suite for what crosses scripts (`skills.bats`) and
