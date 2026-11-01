@@ -37,3 +37,9 @@ would silence the next function.
 A just recipe over 30 lines moves to a `.sh`. A shell string in Nix over 5 lines
 moves to a `.sh` read in with `readFile` or `fragment`. `shell-limits` enforces
 both.
+
+A new script needs its test, or `just architecture` fails: `<name>.py` needs
+`test_<name>.py`, `<name>.sh` needs `<name>.bats`, `<name>.ts` needs
+`<name>.test.ts`, all beside it. The rules are `deslop/rules/tests.yaml`. To
+exempt a script, name the suite that covers it in a rule there, or add it to a
+commented exclude group, never the baseline.
