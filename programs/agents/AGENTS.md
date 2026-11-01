@@ -27,7 +27,7 @@ costs rework, tech debt and bugs.
 - Research before you ask. Never ask what the code, the docs or a tool can
   answer, and never re-ask what the user decided. When a prompt only names
   what to research, plan the research topics yourself, group the questions,
-  and launch one research agent per group before your first question.
+  and launch one `researcher` agent per group before your first question.
 - Ask with `AskUserQuestion`, one question per call: 2-4 concrete options,
   your recommendation first with `(Recommended)` in its label, context in the
   option descriptions. Never ask permission to run builds, tests, installs or
@@ -40,7 +40,7 @@ costs rework, tech debt and bugs.
 
 Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
 agent may lower or raise it for a subtask. A skill's text is Max: it names only
-what Balanced and POC change, and no branch means as written.
+what Balanced, POC and Trivial change, and no branch means as written.
 
 - **POC**: prove the idea cheaply. One quick refactor and one quick review with
   no DEEP security pass, then a PR labelled `POC`, not merge-ready and never
@@ -48,6 +48,23 @@ what Balanced and POC change, and no branch means as written.
 - **Balanced** (default): fewer review agents, a fix pass, one `--fixes`
   re-review and one final small fix. Security depth stays.
 - **Max**: every step.
+
+**Trivial** is automatic and per task, with no picker. While a task qualifies
+it overrides POC, Balanced and Max, and the result is still merge-ready.
+
+- It qualifies by judgment, not by a list of kinds: clear, a revert undoes it,
+  about 100 changed lines, generated lockfiles aside. Local UI state, any
+  dependency bump and a small fix with a red test qualify.
+- Never: auth, CI, database, secrets, deploy, the data model, or skills and
+  instructions beyond a typo. A bump is CI, so never, when it changes a GitHub
+  Actions `uses:`, or `flake.nix` or `flake.lock` while a workflow holds push
+  credentials: check before implementing.
+- Engineers assign it. A skill reads its own input and brief, may activate it at
+  any point, also mid-run, and skips its expensive work. A brief says
+  `Quality: <mode>, Trivial`.
+- Anything that stops qualifying moves to the user's Quality, Balanced if they
+  named none, and never comes back: its prompts say `Quality: <mode>, not Trivial`.
+- Steps: `~/.claude/skills/engineer/references/trivial.md`, read only when used.
 
 ## Subagents
 

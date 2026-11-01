@@ -14,10 +14,15 @@ Run targeted checks only: the lint, format and tests that cover your diff.
 Never the full check, unless your brief asks for it. POC: the only test is one
 happy-path proof that runs.
 
+Research notes: read the sections your brief names. A note's `path:line` is your
+starting range: re-read only what you edit. At a different `sha`, check the
+pointer first.
+
 ## Small slice: do it yourself
 
 A slice you can finish well inside the context budget: implement it, run its
-targeted checks, and commit.
+targeted checks, and commit. A Trivial slice is always this one and spawns no
+sub-implementers, and a fixer on a small fix takes the same path.
 
 ## Large slice: be a mini-engineer
 

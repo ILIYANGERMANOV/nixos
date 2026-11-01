@@ -63,7 +63,10 @@ it as the template has it.
   sit, the trade-offs taken, and what the reviewer cannot see in the diff.
   Never a file-by-file walkthrough; name a file only when the reader must
   look at it.
-- Omit the whole How section only for a trivial diff.
+- **Trivial short form** - a brief saying `Trivial`, or a diff that qualifies by
+  the Trivial rule in your instructions, read from the facts above, unless the
+  brief says `not Trivial`: What & Why, Proofs and Merge Danger. Omit the whole
+  How section only here.
 - **Proofs / Reproducible** - the tests added or run, each with a pointer
   (a test name, a `just` recipe). Where a change has none, one line saying why.
 - **Proofs / Manual** - what was actually run and observed: the commands and

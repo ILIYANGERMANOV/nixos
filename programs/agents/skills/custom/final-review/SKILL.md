@@ -17,7 +17,8 @@ You run `pragmatic-review` in a fresh agent and relay what it finds. You never
 load that skill yourself, never judge the table on the user's behalf, and never
 fix a row they did not pick. Requirements, from the user or a file /engineer
 wrote, are authoritative: passed through unchanged, a `--requirements <path>` too. So is
-`Quality: <mode>`, Balanced by default; POC runs as Balanced, a real review.
+`Quality: <mode>`, Balanced by default; POC and Trivial run as Balanced, a real
+review, so its prompts below always say `not Trivial`.
 
 ## Each round
 
@@ -37,7 +38,7 @@ deepen the review, never skip a check, so taking it from the PR body is safe.
 
 Spawn one fresh agent in the foreground (`run_in_background: false`),
 description `Final review`, whose prompt is "invoke `pragmatic-review` with:
-Quality: <mode> <PR> <requirements>". It returns the
+Quality: <mode>, not Trivial <PR> <requirements>". It returns the
 findings table, the requirement verdicts, a `Security:` line, the verdict and
 `Reviewed head: <sha>`. Record the head and the verdicts.
 
@@ -68,7 +69,7 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
 ### 5. Re-review the fix only
 
 After a fix is pushed, spawn one fresh agent: "invoke `pragmatic-review` with:
-Quality: <mode> <PR> --fixes <Reviewed head> <the same requirements> and
+Quality: <mode>, not Trivial <PR> --fixes <Reviewed head> <the same requirements> and
 'finding N is fixed: <the row's What and Impact>' for each fixed row". It reviews only the fix diff. A Major it raises gets one
 more fixer round and no further re-review; say so in the report. Nothing
 fixed, nothing to re-review.

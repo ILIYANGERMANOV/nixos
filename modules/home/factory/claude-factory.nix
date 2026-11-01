@@ -91,16 +91,20 @@ in
 
   # The flavor wrapper puts /qa's runtime on PATH, but Remote Control sessions
   # run the unwrapped binary, so the factory installs it in the profile.
-  home.packages = [
-    claude.factory.wrapper
-    ctl
-    playwright.qa
-  ];
+  home = {
+    packages = [
+      claude.factory.wrapper
+      ctl
+      playwright.qa
+    ];
 
-  # After home.packages, whose generation keeps this farm alive.
-  home.activation.relinkClaudeSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    run ${lib.getExe relinkSkills} ${claude.factory.wrapper.skillFarm}
-  '';
+    file = claude.agentFiles;
+
+    # After home.packages, whose generation keeps this farm alive.
+    activation.relinkClaudeSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      run ${lib.getExe relinkSkills} ${claude.factory.wrapper.skillFarm}
+    '';
+  };
 
   systemd.user.services = {
     "claude-rc@" = {

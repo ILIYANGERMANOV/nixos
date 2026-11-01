@@ -21,9 +21,12 @@ let
   };
 in
 {
-  home.packages = claude.packages;
+  home = {
+    inherit (claude) packages;
+    file = claude.agentFiles;
 
-  home.activation.claudeCodeSettings = lib.hm.dag.entryAfter [
-    "writeBoundary"
-  ] claude.activationScript;
+    activation.claudeCodeSettings = lib.hm.dag.entryAfter [
+      "writeBoundary"
+    ] claude.activationScript;
+  };
 }

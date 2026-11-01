@@ -113,4 +113,4 @@ rg -n -i '^\+.*([?&](token|key|api_key|secret|password|access_token)=|--password
 - https://github.com/Mic92/sops-nix
 - https://github.com/getsops/sops
 - https://nextjs.org/docs/app/guides/environment-variables
-- `CLAUDE.md`, section Secrets (paths only, never values; declaration is a promise)
+- `.claude/rules/secrets.md` (paths only, never values; declaration is a promise)

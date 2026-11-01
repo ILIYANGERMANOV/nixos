@@ -40,6 +40,13 @@ branch, and say in one line under the assumptions why. Otherwise continue here.
 Balanced: size alone does not widen this pass, only rewritten history does.
 POC has no re-review.
 
+**Trivial.** Unless your arguments say `not Trivial`, run the Trivial check of
+`first-pass.md` over the fix diff, at the higher of its tier and any tier the
+caller names; "finding N is fixed" is one more requirement. Its size limit reads
+the whole branch, `--shortstat` from the merge base. A fix diff that
+qualifies takes that fast path instead of section 3. One that does not returns
+`Escalate` when your arguments say `, Trivial`, else goes on to section 3.
+
 ## 3. Review the fix diff yourself
 
 Read `references/bar.md` - it is your bar too - and `references/blockers.md`.
