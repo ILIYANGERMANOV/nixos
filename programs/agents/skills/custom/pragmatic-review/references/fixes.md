@@ -2,7 +2,7 @@
 
 The first review covered the branch. This pass covers only what changed since
 its head, `<pass1-head>` from `--fixes`. You are the one reviewing agent: spawn
-none unless the fixes are large. Your budgets are the bar's
+none, unless the fixes are large, then `subagent_type: reviewer`. Your budgets are the bar's
 (`references/bar.md`); batch every independent command.
 
 ## 1. Write the fix diff

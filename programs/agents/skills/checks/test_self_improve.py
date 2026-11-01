@@ -654,6 +654,29 @@ class LoopSteps(Case):
                      "fix", "pr description", "other"):
             self.assertEqual(row(report, "Loop steps", step)[1:3], ["1", "1"], step)
 
+    def test_a_role_agent_type_is_its_step_whatever_its_brief_says(self) -> None:
+        # Given: no description or brief pattern matches any of them
+        self.home.session("s1", idle_main(), {
+            "a": ("implementer", "Parser", subagent("build it")),
+            "b": ("fixer", "Parser", subagent("row 1")),
+            "c": ("review-lead", "Parser", subagent("the branch")),
+            "d": ("review-lead", "Parser", subagent("the branch --fixes abc123")),
+        })
+        # When
+        report = self.home.report()
+        # Then
+        for step in ("implement", "fix", "review 1", "review 2"):
+            self.assertEqual(row(report, "Loop steps", step)[1:3], ["1", "1"], step)
+
+    def test_a_reviewer_under_a_review_lead_counts_under_its_pass(self) -> None:
+        # Given: a review lead and the leaf reviewer it spawned, whose brief names no review
+        self.home.session("s1", idle_main(), {
+            "a": ("review-lead", "Parser", subagent("the branch")),
+            "b": ("reviewer", "Blockers", subagent("read the bar", parent_agent="a")),
+        })
+        # When / Then
+        self.assertEqual(row(self.home.report(), "Loop steps", "review 1")[1:3], ["2", "1"])
+
     def test_a_research_agent_type_is_research_whatever_its_brief_says(self) -> None:
         # Given: no description or brief pattern matches either
         self.home.session("s1", idle_main(), {

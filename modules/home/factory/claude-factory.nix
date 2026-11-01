@@ -98,7 +98,7 @@ in
       playwright.qa
     ];
 
-    file = claude.agentFiles;
+    file = claude.factory.agentFiles;
 
     # After home.packages, whose generation keeps this farm alive.
     activation.relinkClaudeSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

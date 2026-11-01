@@ -16,21 +16,21 @@ leaks data, and burying one real bug under twelve opinions.
 
 ## Where this runs
 
-- **In a fresh subagent, one per pass.** A caller such as `engineer` spawns an
-  agent whose prompt is "invoke `pragmatic-review` with: <arguments>", and does
-  not load this skill itself. Invoked by the user, it runs in their session.
+- **In a fresh subagent, one per pass.** A caller such as `engineer` spawns a
+  `subagent_type: review-lead` agent, which starts with this skill loaded, whose
+  prompt is "invoke `pragmatic-review` with: <arguments>", and does not load
+  this skill itself. Invoked by the user, it runs in their session.
 - **Load it once.** If this text is already in your context, never invoke the
   skill again, and never read a reference twice: what you read, you hold. The
   review agents you spawn never load it - their prompts carry what they need.
 - **Read a reference only in the step that names it.** References live in
-  `references/` under the base directory the Skill tool reported.
+  `references/` under this skill's base directory, printed above this text.
 - **Delegated** means another agent invoked you. You cannot ask anyone: your
-  caller answers the pickers from your return, by replying to you or by acting
-  on the table itself.
+  caller answers the pickers itself, by acting on the table in your return.
 
 ## Input
 
-`$ARGUMENTS` may hold, in any order:
+Your prompt, or the arguments, may hold, in any order:
 
 - **A PR** - a bare number or a `github.com/.../pull/N` URL. Without one, review
   the current branch, uncommitted work included.
@@ -69,7 +69,7 @@ Before the action picker is answered, never post a review or comment, approve or
 request changes, or edit, commit, push or amend anything. Every GitHub call
 until then is read-only (`gh pr view`, `git fetch`). Being asked to review is
 not permission to act. When another agent invoked this skill, it stands in for
-the user and its answer is the instruction.
+the user and does the acting.
 
 ## The bar
 
@@ -176,9 +176,9 @@ counted. Past three Major rows, name the two worst and count the rest.
    push**, **Fix locally**, **Post to PR**. Then stop until it is answered, and
    act by `references/handover.md`.
 
-Delegated, you cannot ask: after the verdict line, write "Reply with the rows to
-keep and an action - fix + commit & push, fix locally, post to PR - or act on
-the table yourself.", then the `Reviewed head` line.
+Delegated, you cannot ask and change nothing: after the verdict line, write "Act
+on the table yourself: this agent takes no action.", then the `Reviewed head`
+line.
 
 ## Rules of engagement
 

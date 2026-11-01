@@ -78,8 +78,8 @@ let
         instructions =
           if extraInstructions == [ ] then
             # A flavor with nothing to add installs the shared file as-is, so the
-            # common case costs no build and ~/.claude/CLAUDE.md is
-            # byte-identical to programs/agents/AGENTS.md.
+            # common case costs no second build and ~/.claude/CLAUDE.md is
+            # byte-identical to the shared instructions.
             baseInstructions
           else
             pkgs.concatText "${name}-instructions.md" ([ baseInstructions ] ++ extraInstructions);

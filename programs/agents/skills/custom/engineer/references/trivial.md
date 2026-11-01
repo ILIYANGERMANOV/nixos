@@ -1,6 +1,6 @@
 # Trivial fast track
 
-The rule is under Quality in your instructions: what qualifies, and the
+The rule is under `## Trivial` in your instructions: what qualifies, and the
 never-list. These are its steps. Numbers are `engineer`'s lifecycle steps, so a
 report file and a resume read the same. No step here relaxes a gate.
 
@@ -10,17 +10,15 @@ report file and a resume read the same. No step here relaxes a gate.
    agent, no plan, no Quality question. Ambiguity, or anything the user might
    want different, gets one question, and the track goes on if the answer keeps
    it small.
-2. **Implement, step 5.** One implementer, briefed `Quality: <mode>, Trivial`,
-   with the task, its branch from `origin/main`, "invoke `engineering` first",
-   `ui-coding` for UI, its targeted checks, "commit and push" and
-   `~/.claude/skills/engineer/references/implementer.md`. A bug fix comes with a
-   test that was red before it.
+2. **Implement, step 5.** One `implementer` agent, briefed `Quality: <mode>,
+   Trivial`, with the task, its branch from `origin/main`, its targeted checks
+   and "commit and push". A bug fix comes with a test that was red before it.
 3. **Open, step 4.** A draft PR, with the `pr-description` short form and the
    line `Quality: <mode>, Trivial`.
-4. **Sweep, step 7.** One fresh agent, no children: "invoke `pragmatic-review`
+4. **Sweep, step 7.** One fresh `review-lead` agent, no children: "invoke `pragmatic-review`
    with: Quality: <mode>, Trivial <PR URL> <the task in one line>". There is no
    refactor.
-5. **Fix.** An always-check row or a Not met goes to one fixer, briefed the same
+5. **Fix.** An always-check row or a Not met goes to one `fixer` agent, briefed the same
    way. Its small fix gets one `--fixes` pass, the same way. A row or Not met
    left after that pass leaves the track.
 6. **Hand over, step 10.** Wait for CI the non-blocking way your instructions

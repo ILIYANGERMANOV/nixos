@@ -48,7 +48,8 @@ Read `${CLAUDE_SKILL_DIR}/checklist.md` before starting.
 ```
 
 To read another skill's file, invoke that skill with the Skill tool and read the
-file from the base directory it reports. Never reach for a sibling through
+file from the base directory it reports, or, for a subagent role, which has no
+Skill tool, read `~/.claude/skills/<name>/` by path. Never reach for a sibling through
 `${CLAUDE_SKILL_DIR}/..`: every skill is its own store path, so `..` resolves to
 `/nix/store`, not to `~/.claude/skills`. `refactor` and `pragmatic-review` load
 `engineering/references/tests.md` this way.

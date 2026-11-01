@@ -38,7 +38,7 @@ pkgs.mkShell {
   shellHook = ''
     export EDITOR=nvim
     export SOPS_AGE_KEY_FILE="/var/lib/sops-age/keys.txt"
-    ${claudeCode.activationScript}
+    ${claudeCode.shellActivationScript}
 
     echo "NixOS install shell loaded."
     echo ""

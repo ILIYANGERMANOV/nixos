@@ -845,6 +845,8 @@ def is_doc_edit(call: ToolCall) -> bool:
 
 BRIEF_HEAD = 700  # briefs paste long rules after their first lines
 RESEARCH_TYPES = {"researcher", "Explore"}  # read-only by their tools, whatever the brief says
+REVIEW_LEAD = "review-lead"  # its brief says which pass it runs
+ROLE_STEPS = {"implementer": LoopStep.IMPLEMENT, "fixer": LoopStep.FIX}  # the role is the step, whatever the brief says
 REVIEW_BRIEF = re.compile(r"(?:invoke|run)\s+(?:the\s+)?\W*pragmatic-review")
 SECOND_PASS = re.compile(r"--fixes|pass[ -]2|re-review|\bsecond\b")
 FIX_DESCRIPTION = re.compile(r"^(fix|final fix|address)")
@@ -893,9 +895,11 @@ def loop_step(agent: Agent) -> LoopStep:
     """The step an agent's type, else its own description and brief, name."""
     if agent.kind in RESEARCH_TYPES:
         return LoopStep.RESEARCH
+    if role_step := ROLE_STEPS.get(agent.kind):
+        return role_step
     description = agent.description.lower()
     brief = brief_head(agent.brief)
-    if REVIEW_BRIEF.search(brief) and not FIX_DESCRIPTION.search(description):
+    if agent.kind == REVIEW_LEAD or (REVIEW_BRIEF.search(brief) and not FIX_DESCRIPTION.search(description)):
         return review_pass(description, brief)
     by_description = (step for step, pattern in DESCRIPTION_STEPS if pattern.search(description))
     by_brief = (step for step, pattern in BRIEF_STEPS if pattern.search(brief))

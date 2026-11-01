@@ -33,6 +33,7 @@ let
   contextGuard = import ./context-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
+  renderAgents = import ./agents.nix { inherit pkgs lib; };
 
   model = "opus";
   effortLevel = "medium";
@@ -170,29 +171,50 @@ let
     ]
   ) (_: "user-invocable-only");
 
-  # What one kind of agent reads for its work, on top of what every agent
-  # carries, for the size budget: files, by path.
+  # The factory's subagents get this on top of the shared records, and no other
+  # host does.
+  factoryAgentInstructions = ./factory-core.md;
+
+  agentSources = renderAgents agents.subagents.all [ ];
+  factoryAgentSources = renderAgents agents.subagents.all [ factoryAgentInstructions ];
+
+  # `force`: a dev shell may have installed a plain copy here, see
+  # shellActivationScript. Home Manager would keep backing it up, and abort once
+  # a backup already exists.
+  toHomeFiles = lib.mapAttrs' (
+    name: source:
+    lib.nameValuePair ".claude/agents/${name}.md" {
+      inherit source;
+      force = true;
+    }
+  );
+
+  # What one kind of agent starts with and reads for its work, on top of what
+  # every agent carries, for the size budget: files, by path. A role counts at
+  # its largest, the factory's render. Keyed by the records, so a new role has no
+  # ceiling in budget.json and fails the check until it gets one.
   budgetLoads =
     let
       inherit (agents.skills) all;
       review = "${all.pragmatic-review}/references";
+      # A role's references, beyond the skills it preloads.
+      reads = {
+        reviewer = [
+          "${review}/bar.md"
+          "${review}/blockers.md"
+        ];
+        review-lead = [
+          "${review}/first-pass.md"
+          "${review}/bar.md"
+        ];
+      };
+      roleLoad =
+        name: role:
+        [ factoryAgentSources.${name} ]
+        ++ map (skill: "${all.${skill}}/SKILL.md") role.skills
+        ++ reads.${name} or [ ];
     in
-    {
-      review-agent = [
-        "${review}/first-pass.md"
-        "${review}/bar.md"
-        "${review}/blockers.md"
-      ];
-      implementer = [
-        "${all.engineer}/references/implementer.md"
-        "${all.engineering}/SKILL.md"
-      ];
-      researcher = [
-        agents.subagents.all.researcher
-        "${all.researcher}/SKILL.md"
-      ];
-      repo-instructions = [ ../../CLAUDE.md ];
-    };
+    lib.mapAttrs roleLoad agents.subagents.all // { repo-instructions = [ ../../CLAUDE.md ]; };
 
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
 in
@@ -244,7 +266,10 @@ rec {
   factory = {
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
-        extraInstructions = [ ./factory-instructions.md ];
+        extraInstructions = [
+          factoryAgentInstructions
+          ./factory-instructions.md
+        ];
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
         applySkills = farm: "${lib.getExe linkSkills} ${farm}";
@@ -288,13 +313,13 @@ rec {
       };
     });
     unwrapped = claude-code;
+    agentFiles = toHomeFiles factoryAgentSources;
   };
 
-  # home.file entries for the subagents. Every flavor gets the same ones, so
-  # unlike skills they need no per-flavor relink.
-  agentFiles = lib.mapAttrs' (
-    name: source: lib.nameValuePair ".claude/agents/${name}.md" { inherit source; }
-  ) agents.subagents.all;
+  # home.file entries for the subagents. Every flavor of a profile gets the same
+  # ones, so unlike skills they need no per-flavor relink. The factory profile
+  # installs `factory.agentFiles` instead.
+  agentFiles = toHomeFiles agentSources;
 
   # checks.claude-config: this configuration against its size ceilings. See
   # config-check.nix.
@@ -304,6 +329,8 @@ rec {
     hiddenSkills = lib.attrNames skillOverrides;
     skillNames = agents.skills.names;
     flavors = packages ++ [ factory.wrapper ];
+    inherit baseSkills agentSources factoryAgentSources;
+    roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.subagents.all);
     loads = budgetLoads;
     ceilings = ./budget.json;
   };
@@ -319,5 +346,16 @@ rec {
     mkdir -p "$HOME/.claude"
     install -m 600 ${baseSettingsFile} "$HOME/.claude/settings.json"
     install -m 600 ${baseInstructions} "$HOME/.claude/CLAUDE.md"
+  '';
+
+  # activationScript for a dev shell, where no Home Manager places `agentFiles`:
+  # the install shells run on machines that have none yet.
+  shellActivationScript = activationScript + ''
+    mkdir -p "$HOME/.claude/agents"
+    ${lib.concatStrings (
+      lib.mapAttrsToList (name: source: ''
+        install -m 600 ${source} "$HOME/.claude/agents/${name}.md"
+      '') agentSources
+    )}
   '';
 }

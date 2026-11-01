@@ -2,7 +2,9 @@
 paths:
   - "programs/software-factory/**"
   - "programs/skills-link/**"
-  - "programs/claude-code/**"
+  - "programs/claude-code/default.nix"
+  - "programs/claude-code/factory*"
+  - "programs/claude-code/*-guard*"
   - "programs/kotlin/**"
   - "modules/nixos/server/**"
   - "modules/home/factory/**"

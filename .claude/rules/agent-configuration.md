@@ -20,13 +20,16 @@ what it needs the way its tool expects. See
 `docs/adr/0002-agent-agnostic-configuration.md`, which also documents how to add
 a second agent such as Codex.
 
-- `programs/agents/AGENTS.md` - the shared instructions, plain committed
-  markdown. Exposed as `instructions`.
+- `programs/agents/core.md` - what every agent gets, subagent roles included.
+  `trivial.md` and `AGENTS.md` are for the agent leading a session, with
+  `trivial.md` also in `review-lead`. Plain committed markdown, composed into
+  `instructions`.
 - `programs/agents/default.nix` - the shared surface: `instructions`, `skills`,
   `subagents` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
   inputs as `externalSrcs`.
 - `programs/claude-code/` - installs `instructions` as `~/.claude/CLAUDE.md`,
-  the only user-scope memory file Claude Code reads. It does **not** read
+  the only user-scope memory file Claude Code reads, and renders the subagent
+  records. It does **not** read
   `AGENTS.md` at user scope. A project's own `CLAUDE.md` still stacks on top.
 
 ### Claude Code: config in `default.nix`, plumbing in `lib.nix`
@@ -48,66 +51,7 @@ a second agent such as Codex.
 - `check.nix` - `checks.claude-code`, running `mcp.nix` against a synthetic
   catalog and a synthetic `secrets` attrset.
 
-#### Two transports, two auth stories
-
-A catalog entry is a **local** server or a **remote** one, tagged by `type`. The
-tag is the same field Claude Code reads from `~/.claude.json`, so writing an
-entry out is a projection rather than a translation, and `toWire` dispatches on
-it through an attrset - an unhandled transport aborts evaluation instead of
-falling through to a wrong shape.
-
-**Local (`mkStdioServer`)** - Claude Code spawns a subprocess. Its `env` maps an
-environment variable to the **name** of the secret that fills it. Omitting `env`
-means the server needs no secrets - an empty attrset, not a special case, so
-availability is simply "every secret this server names is declared" and holds
-vacuously for none. This is the only mechanism that gates a server to a host.
-
-**Remote (`mkHttpServer`)** - Claude Code connects over HTTP and authenticates
-**out-of-band**: `/mcp` inside a running session opens the OAuth flow, once per
-machine. There is no secret to inject, so a remote server carries `env = { }`
-and is available on every host. **A remote server cannot be host-gated by the
-secrets mechanism.** Keeping one off a machine means not running a flavor that
-lists it - which is why `claude-pm` exists on `macos-main` but is simply not
-used there.
-
-The OAuth grant lives in the **macOS Keychain** (on Linux,
-`~/.claude/.credentials.json`) under a key derived from the server's `name`,
-`type`, `url` and `headers`. Nothing about it is in `~/.claude.json`, which is
-why the wrapper replacing `.mcpServers` wholesale on every launch cannot lose
-it, and why switching flavors never forces a re-login. Two things do orphan a
-grant: **renaming a catalog entry or changing its `url`** (one re-login), and
-logging out of the Claude account, which wipes every MCP grant at once
-([claude-code#90647](https://github.com/anthropics/claude-code/issues/90647)).
-
-`mkHttpServer` takes only a `url`. Claude Code expands `${VAR}` references in
-`headers` exactly as it does in `env` on a local server, so a remote server
-that ever wants a static bearer token - both Linear and Superhuman Docs accept
-one - is a small addition here rather than a redesign. Nothing needs it yet,
-and a static token is what would let a remote server be host-gated after all.
-
-#### Session runtime and secret files
-
-`runtime` in `default.nix` is put on PATH by every flavor wrapper: today
-`programs/playwright`'s `qa` - `qa-node` (Node resolving `playwright` with
-nixpkgs' Chromium, `viem` and the `qa-wallet` helper from any directory) and
-`qa-mp4` (ffmpeg). The environment lives inside `qa-node`, never the session,
-so a project's own Playwright keeps its own browsers. The factory's Remote
-Control units run the unwrapped binary, so its profile installs `qa` too.
-
-`secretFiles` maps an env var to a secret **name**, for a program that reads
-the file itself: the wrapper exports the decrypted file's **path**, never its
-value (`QA_EVM_KEY_FILE` -> `qa-sepolia-key`, declared on `macos-work` only).
-A host without the secret gets no variable. Where one is exported,
-`withSecretFileGuard` in `lib.nix` adds `Read` deny rules over the secrets
-directory (`/run/secrets` and the `/run/secrets.d` it resolves to) and the
-`claude-secret-guard` Bash hook, which blocks a command naming that directory
-or the file's basename, expanding the variable, or running `printenv`/`env`
-inside a command substitution. **This is protection against accidental reads,
-not a security boundary**: every `qa-node` script must read the variable, so a
-script (or a determined session) can read the file, and no filter over command
-text can close that. `checks.qa` tests the wallet helper and the video
-pipeline headless against a generated key; `checks.claude-bash-guards` the
-guard.
+MCP transports, OAuth, the session runtime and secret files: `.claude/rules/claude-mcp.md`.
 
 ### Agent Skills
 
@@ -172,37 +116,63 @@ lands on the hidden list.
 **`programs/claude-code/budget.json` is a ceiling, in bytes, on what every agent
 carries.** `checks.claude-config` fails above it; `just skill-budget` prints the
 table. It counts each flavor's instructions and model-invocable skill listing,
-plus `budgetLoads` in `programs/claude-code/default.nix`: what a review agent, an
-implementer or a researcher reads, and this repo's root `CLAUDE.md`. Raising a
+plus `budgetLoads` in `programs/claude-code/default.nix`: each subagent role's
+factory render with what it preloads and reads, and this repo's root `CLAUDE.md`. Raising a
 ceiling is allowed, and is the visible diff that makes the cost a decision. Keep
 root `CLAUDE.md` small: detail belongs in a `.claude/rules/` file.
 
 ### Subagents
 
-**`programs/agents/subagents/` owns the catalog, one `<name>.md` per agent type.
-Skills relink, agents are Home Manager: every flavor gets the same files, so
-`home.file` installs them from `agentFiles` in `programs/claude-code/default.nix`
-in both home profiles.**
+**`programs/agents/subagents/default.nix` holds one `mkAgent` record per role, and
+nothing there names a harness. `programs/claude-code/agents.nix` renders them.
+Adding a role is one record and its prose.**
 
-`~/.claude/agents` is a normal directory. Home Manager owns only the catalog's
-files, and leaves a hand-placed agent alone.
+A spawned general-purpose agent starts at about 43k tokens, 18k of that MCP
+schemas no subagent uses. A role starts far lower, so flows spawn them freely.
+Approximate first-call context, factory render, "reply ok" task, measured before
+the last refactor and fixes: reviewer 6.0k, researcher 8.1k, fixer 11.2k,
+review-lead 11.6k, implementer 13.3k.
 
-- `researcher.md` is read-only by its `tools:` allowlist, which has no Write,
-  Edit, MCP or `Skill`. `omitClaudeMd: true` removes every CLAUDE.md, so its body
-  restates the few house rules and boundaries it needs. `skills: [researcher]` preloads the skill
-  body: a preload needs no `Skill` tool. It sets no `model:`, so it runs on the
-  session's model.
-- Default subagents stay the built-in `general-purpose`, with every MCP server:
-  a spawned `engineer` needs `claude-code-remote`.
-- A project's own `.claude/agents/<name>.md` silently beats the user-scope file
-  in that repo.
-- `checks.agents` validates the name and description, rejects a frontmatter
-  field outside a short list, because Claude Code ignores a misspelled `tools`
-  and the agent runs wider, and requires each `skills:` entry to be in the skill
-  catalog. A definition using another documented field adds it to that list.
+- A record has `name`, `description`, `instructions` (prose paths; `core.md` goes
+  in front), `capabilities` (`read edit shell web delegate`), `skills`, `tier` and
+  `effort`. `record.nix` throws on anything unknown, and `checks.agents` proves
+  it does: Claude Code ignores a misspelled field, and a misspelled `tools` would
+  run the agent with every tool.
+- The renderer turns capabilities into a `tools:` allowlist, which also removes
+  MCP and the Skill listing, and sets `omitClaudeMd`. Never add `ToolSearch` to a
+  deny list: that inlines every deferred tool. Path-scoped `.claude/rules` still
+  load on a Read.
+- **A role has no Skill tool.** `skills:` preloads what it always needs, and
+  `core.md` says invoking a skill means reading its `SKILL.md`. A preload prints
+  its base directory and expands `${CLAUDE_SKILL_DIR}`, but `$ARGUMENTS` becomes
+  empty: a preloaded skill must not depend on it.
+- **A role has no root `CLAUDE.md`.** The brief names its checks, and `build.md`
+  and the house-rules brief read the repo's file on demand.
+- A role gets `delegate` only if its flow spawns agents: `implementer` splits a
+  large slice and `review-lead` spawns `reviewer`s. `fixer` and `reviewer` spawn
+  nobody.
+- `refactor`, the dry run, a fresh check, a delegated `engineer` and the `/qa`
+  agents have no role yet and stay `general-purpose`, with the top-level
+  instructions and the Skill tool. None needs MCP: add_repo, subscribe, CI waits
+  and notifications stay top-level.
+- The factory section is `programs/claude-code/factory-core.md`. `home.file`
+  installs `agentFiles` in the shared home profile and `factory.agentFiles`, the
+  same records with that section, in the factory's. Install shells copy the
+  renders too, since no Home Manager runs there. `factory-instructions.md` is
+  what only its top-level sessions need.
+- `~/.claude/agents` is a normal directory. The catalog's role names (`fixer`,
+  `implementer`, `review-lead`, `reviewer`, `researcher`) are Nix-owned: a file
+  under one is replaced with no backup. Any other name is left alone. A project's
+  own `.claude/agents/<name>.md` silently beats the user-scope file in that repo.
+- `checks.claude-config` holds the renders to this: known fields only, a `tools`
+  list with no MCP, every preload in `baseSkills`, the factory section in the
+  factory's render alone, and each role under its ceiling. A new documented field
+  goes in its list and in `record.nix`.
+- `self-improve` names a role's loop step from its agent type, so a spawn site
+  that names a role needs no matching brief.
 
 Trivial tasks spawn no researcher and skip the process skills, by the shared
-definition in `programs/agents/AGENTS.md`. It keeps skill and instruction edits
+definition in `programs/agents/trivial.md`. It keeps skill and instruction edits
 out of Trivial unless they are typos, so a change here is never Trivial.
 
 ### Adding a skill
