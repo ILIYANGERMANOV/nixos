@@ -1,9 +1,10 @@
-# checks.software-factory: the factory's policy, scripts and admin skills,
-# exercised without a server (the scenarios are in check.sh). git, process
-# lookup and the filesystem are real: repositories are cloned from a local bare
-# repository, and sessions are real processes. What cannot run in the build
-# sandbox is a double - an in-memory systemd, GitHub's API and CLI, Nix's
-# build and profile commands, Tailscale - and each records how it was called.
+# checks.shell-tests: the factory's policy, scripts and admin skills, exercised
+# without a server by the bats suites beside them (`ctl/disk.bats` tests
+# `ctl/disk.sh`, `test_helper.bash` is what they share). git, process lookup and
+# the filesystem are real: repositories are cloned from a local bare repository,
+# and sessions are real processes. What cannot run in the build sandbox is a
+# double - an in-memory systemd, GitHub's API and CLI, Nix's build and profile
+# commands, Tailscale - and each records how it was called.
 # On Linux the egress rules also go through `nft --check`, the same validation
 # NixOS runs when it builds the host.
 {
@@ -178,6 +179,14 @@ let
     echo '{"BackendState": "Running"}'
   '';
 
+  suites = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./test_helper.bash
+      (lib.fileset.fileFilter (file: file.hasExt "bats") ./.)
+    ];
+  };
+
   skillsCheck = (import ../agents { inherit pkgs lib; }).skills.mkCheck factory.admin.skills;
 
   nftCheck = ''
@@ -197,9 +206,10 @@ in
 assert lib.assertMsg (failedPolicy == [ ]) (
   "software-factory managed settings: " + lib.concatMapStringsSep "; " (a: a.msg) failedPolicy
 );
-pkgs.runCommand "software-factory-check"
+pkgs.runCommand "shell-tests"
   {
     nativeBuildInputs = [
+      pkgs.bats
       pkgs.git
       pkgs.jq
       pkgs.procps
@@ -230,10 +240,11 @@ pkgs.runCommand "software-factory-check"
     # Admin skills: frontmatter, names and description length.
     echo "admin skills: ${skillsCheck}"
 
-    source ${./check.sh}
+    # One at a time: the programs have $work baked in.
+    bats --recursive --formatter tap ${suites}
 
     ${nftCheck}
 
-    echo "software-factory: all checks passed"
+    echo "shell-tests: all checks passed"
     touch "$out"
   ''

@@ -10,7 +10,7 @@ changes and reading the result. Start from a checkout of the PR on Linux.
 | --- | --- | --- |
 | `programs/nvim` | the real editor, below | `nvim --version` prints and the headless start ends cleanly |
 | `programs/<x>` | `nix build --no-link .#checks.x86_64-linux.<x>`, names in the `CLAUDE.md` Checks ladder | the build exits 0 |
-| `programs/software-factory`, `factory-ctl` | `nix build --no-link .#checks.x86_64-linux.software-factory`: the scenarios in `check.sh`, against a real git and doubles | the build exits 0 |
+| `programs/software-factory`, `factory-ctl` | `nix build --no-link .#checks.x86_64-linux.shell-tests`: the bats suites beside the scripts, against a real git and doubles | the build exits 0 |
 | `.github/` | `nix build --no-link .#checks.x86_64-linux.zizmor` | the build exits 0 |
 | `modules/`, `hosts/` | the host evaluation in the `CLAUDE.md` Checks ladder | it prints a store path |
 
