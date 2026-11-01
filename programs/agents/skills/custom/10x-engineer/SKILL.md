@@ -60,11 +60,13 @@ leave that repo out and tell the user.
 
 ### 2. Research
 
-List what you need to know and group it into topics, as /engineer step 1 does.
-One research subagent per group, in the background, given each repo's clone
-path. Notes go to `/tmp/<unique-dir>/`; each hands back a ranked index plus the
-path. Check that each repo's CI runs on PRs to `epic/*` before planning an epic
-there; if it does not, say so in the breakdown.
+List what you need to know and group it into topics; you plan them yourself. A
+task that plainly qualifies as Trivial needs none. One `subagent_type: researcher`
+agent per group, in the background, given each repo's clone path, with notes
+under `/tmp/<unique-dir>/`. Its prompt and how many agents a Quality gets:
+`## Callers` and `## Budget` in `~/.claude/skills/researcher/SKILL.md`, those
+sections only. Check that each repo's CI runs on PRs to `epic/*` before planning
+an epic there; if it does not, say so in the breakdown.
 
 ### 3. Spikes
 
@@ -84,7 +86,8 @@ breakdown in the ledger and show it, phone-sized:
 | Task | one deliverable, its issues, acceptance criteria |
 | Repo, deps, wave | what must merge first |
 | Shape | independent PR to `main`, or child of `epic/<name>` |
-| Quality | POC, Balanced or Max; ask unless told, Balanced recommended |
+| Quality | POC, Balanced or Max; ask unless told, Balanced recommended; a Trivial task needs no question |
+| Trivial | yes when it qualifies by your instructions' rule: your call, never a question |
 | QA | yes or no |
 | Heavy | Gradle or Next.js build: yes or no |
 | Security-sensitive | topics from `ci`, `auth`, `database`, `secrets`, or none |
@@ -96,7 +99,8 @@ signal: sequence tasks only for a real semantic dependency. An interface two
 tasks share is written into both briefs before they start.
 
 Use an epic when children depend on each other or must ship together;
-otherwise independent PRs. Confirm with one `AskUserQuestion` ("Yes, start
+otherwise independent PRs. A Trivial task stays in the table, the pre-flight and
+the confirmation. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
 before this, except a base fix (section 7). Record the confirmation in the
 ledger.
@@ -110,6 +114,8 @@ Dispatch by wave, dependencies first:
   only when both caps hold; the rest stay `queued`. A task with an unmerged
   dependency or an open decision waits.
 - Worktree, brief and spawn prompt: `${CLAUDE_SKILL_DIR}/references/brief.md`.
+- A Trivial task is one engineer on the fast track, under the same caps. A fix
+  that qualifies gets `, Trivial` too, whatever its task's Quality.
 
 ### 6. Triage hand-backs
 
@@ -122,6 +128,9 @@ task's `Held` notes, and fill the free slot.
 | `NEEDS_DECISION <question>` | Rule or escalate, below |
 | `BLOCKED <reason>` | Clear it if the brief or a tool can, else escalate |
 | `FAILED <reason>` | Failures |
+
+A hand-back saying `Trivial dropped: <why>` is not a decision: set the task's
+`Trivial` to no, one way, and put the why in its queue entry.
 
 **Rule** only when both hold: the brief, plan, repo rules or an earlier user
 answer settle it, and it is cheap to undo. Log
@@ -149,7 +158,8 @@ later status never closes it. Other tasks keep moving.
 
 For each `READY` PR, the steps /engineer leaves to a session that can ask. Read
 `### 10. Hand over` in `~/.claude/skills/engineer/SKILL.md` once for the exact
-gates; do not invoke that skill.
+gates; do not invoke that skill. A Trivial task takes every step here and section
+9's gates unchanged.
 
 1. `subscribe_pr_activity`, then `gh pr checks <n> --repo <owner>/<repo>` once,
    because events before the subscription never arrive. Pending: end the turn.

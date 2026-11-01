@@ -94,6 +94,17 @@ _build-checks pattern:
     }
     echo "All good (${#checks[@]})"
 
+# The ceilings live in programs/claude-code/budget.json; checks.claude-config
+# fails above them.
+#
+# Print instruction, skill listing and per-agent sizes against their ceilings
+skill-budget:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    report=$(nix build --no-link --print-out-paths ".#checks.$system.claude-config.report")
+    cat "$report"
+
 # Run all checks (lint + architecture + format + spell + flake check)
 check:
     just lint
