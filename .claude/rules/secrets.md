@@ -7,6 +7,13 @@ paths:
   - "docs/SOPS.md"
   - "docs/adr/0005-*"
   - "programs/claude-code/**"
+  - "modules/home-manager.nix"
+  - "modules/home/claude-code.nix"
+  - "modules/home/factory/claude-factory.nix"
+  - "modules/nixos/user.nix"
+  - "modules/nixos/server/ops.nix"
+  - "modules/nixos/server/tailscale.nix"
+  - "modules/nixos/server/users.nix"
 ---
 
 ## Secrets

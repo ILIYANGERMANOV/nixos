@@ -1191,6 +1191,15 @@ class QualityModes(Case):
         # When / Then
         self.assertIn("Reviews that activated Trivial themselves: 1, 1k effective.", self.home.report())
 
+    def test_a_review_briefed_not_trivial_can_still_activate_it(self) -> None:
+        # Given: a review that reports a sweep though its brief left Trivial
+        report = "Security: Trivial - sweep clean, code tier\n0 raised, 0 survived."
+        self.home.session("s1", idle_main(), {
+            "a": worker("Review", subagent("Quality: Balanced, not Trivial. " + REVIEW_BRIEF, COSTS_1K).handback(7, report)),
+        })
+        # When / Then
+        self.assertIn("Reviews that activated Trivial themselves: 1, 1k effective.", self.home.report())
+
     def test_the_section_says_what_it_cannot_count(self) -> None:
         # Given
         self.home.session("s1", idle_main())
@@ -1264,14 +1273,22 @@ class Compare(Case):
         self.assertEqual(row(self.report(), "Before and after", "effective per session")[1:],
                          ["0", "not enough data", "1", "not enough data"])
 
+    def pr_sessions(self, n: int, start: float, tokens: int) -> None:
+        for k in range(n):
+            main = Transcript().human(start, "go").reply(start + 1, {"input_tokens": tokens})
+            main.bash(start + 2, "gh pr create --fill", start + 3)
+            researcher = Transcript().brief(start + 5, "go").reply(start + 6, {"input_tokens": tokens})
+            self.home.session(f"pr{start:.0f}-{k}", main, {"a": ("researcher", "A", researcher)})
+
     def test_cost_per_pr_by_mode_and_start_up_by_type_are_compared(self) -> None:
         # Given
-        self.home.session("s1", pr_main(), {"a": ("researcher", "A", subagent("go", {"input_tokens": 1000}))})
+        self.pr_sessions(5, 0, 1000)
+        self.pr_sessions(5, self.SPLIT + 1, 3000)
         # When
-        report = self.home.report("--compare", at(self.SPLIT))
-        # Then
-        self.assertEqual(row(report, "Before and after", "first-call context, researcher")[1], "1")
-        self.assertEqual(row(report, "Before and after", "effective per PR, (none stated)")[1], "1")
+        report = self.report()
+        # Then: a PR costs the main agent plus its researcher
+        self.assertEqual(row(report, "Before and after", "first-call context, researcher")[1:], ["5", "1k", "5", "3k"])
+        self.assertEqual(row(report, "Before and after", "effective per PR, (none stated)")[1:], ["5", "2k", "5", "6k"])
 
     def test_the_section_is_absent_without_the_flag(self) -> None:
         # Given

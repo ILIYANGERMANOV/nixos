@@ -9,15 +9,11 @@
 
 let
   all = {
-    # Overrides the built-in, which callers use for nearly every spawn, to drop
-    # the MCP schemas. `disallowedTools` only: a `tools:` list would silently
-    # take `Skill` too, and with it the skill listing every implementer needs.
-    general-purpose = ./general-purpose.md;
     researcher = ./researcher.md;
   };
 
   # Every field Claude Code documents for a subagent. It ignores a misspelled
-  # one, and a misspelled `disallowedTools` would quietly put MCP back.
+  # one, and a misspelled `tools` would quietly widen what the agent may do.
   fields = [
     "name"
     "description"
@@ -69,10 +65,6 @@ let
         esac
       done
 
-      if [ "$name" = general-purpose ] && [ "$(yq 'has("tools")' <<<"$fm")" = true ]; then
-        die "a tools list silently drops Skill, use disallowedTools only"
-      fi
-
       for skill in $(yq -r '.skills // [] | .[]' <<<"$fm"); do
         grep -qxF "$skill" "$known" || die "preloads '$skill', which is not in the skill catalog"
       done
@@ -81,13 +73,6 @@ let
 
   # A definition each rule must reject, proving the rule can fail.
   rejected = {
-    general-purpose = ''
-      ---
-      name: general-purpose
-      description: Gained a tools list.
-      tools: Read
-      ---
-    '';
     no-description = ''
       ---
       name: no-description
@@ -103,7 +88,7 @@ let
       ---
       name: typo
       description: A misspelled field.
-      disallowedTool: mcp__*
+      tool: Read
       ---
     '';
     unknown-skill = ''

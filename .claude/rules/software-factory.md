@@ -2,6 +2,7 @@
 paths:
   - "programs/software-factory/**"
   - "programs/farm-link/**"
+  - "programs/claude-code/**"
   - "programs/kotlin/**"
   - "modules/nixos/server/**"
   - "modules/home/factory/**"

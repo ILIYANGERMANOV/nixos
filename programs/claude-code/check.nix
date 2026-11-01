@@ -5,6 +5,7 @@
 # runs against a synthetic catalog and a synthetic `secrets` attrset rather than
 # against whatever the machine running CI happens to provide. The guard is
 # lib.nix's `withSecretFileGuard`, the settings a flavor gets per secret file.
+# The relink is lib.nix's `mkApplyLinks`, run against a throwaway home.
 {
   pkgs,
   lib ? pkgs.lib,
@@ -64,6 +65,7 @@ let
       mkSkillFarm = throw "the secret file guard builds no skills";
     })
     withSecretFileGuard
+    mkApplyLinks
     ;
   flavorSettings = {
     model = "opus";
@@ -251,14 +253,52 @@ let
         printf '      actual:   %s\n' ${lib.escapeShellArg (toPretty { } actual)} >&2
         status=1
       '';
+
+  relink = pkgs.writeShellScript "relink-agents" (
+    mkApplyLinks "agents" (
+      pkgs.linkFarm "relink-check-farm" [
+        {
+          name = "researcher.md";
+          path = pkgs.writeText "researcher.md" "";
+        }
+      ]
+    )
+  );
 in
 pkgs.runCommand "claude-code-check" { } ''
   status=0
 
   ${lib.concatMapStringsSep "\n" report cases}
 
+  # Given: agents placed by hand, before this flavor ever ran.
+  export HOME=$PWD/home
+  live=$HOME/.claude/agents
+  backups() { find "$HOME/.claude" -maxdepth 1 -name 'agents.backup-*'; }
+  mkdir -p "$live"
+  ${relink}
+  [ -z "$(backups)" ] || {
+    echo "relink: backed up an empty directory" >&2
+    status=1
+  }
+  rm -rf "$live"
+  mkdir -p "$live"
+  echo mine >"$live/mine.md"
+
+  # When: the first relink, then a stray file and a second one.
+  ${relink}
+  echo stray >"$live/stray.md"
+  ${relink}
+
+  # Then: the hand-placed file survives once, and the farm is the directory.
+  if [ "$(cat "$live".backup-*/mine.md)" != mine ] ||
+    [ "$(backups | wc -l)" -ne 1 ] ||
+    [ -e "$live/stray.md" ] || [ ! -L "$live/researcher.md" ]; then
+    echo "relink: a hand-placed directory must be moved aside once, then replaced" >&2
+    status=1
+  fi
+
   if [ "$status" -ne 0 ]; then
-    echo "claude-code: MCP catalog or secret file guard logic is wrong" >&2
+    echo "claude-code: MCP catalog, secret file guard or relink logic is wrong" >&2
     exit 1
   fi
 

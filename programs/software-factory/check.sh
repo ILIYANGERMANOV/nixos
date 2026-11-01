@@ -574,6 +574,20 @@ rm -f "$work/stop-reading"
 [ ! -e "$work/skills-empty" ] || fail "a reader saw ~/.claude/skills empty"
 [ -z "$(find "$HOME/.claude" -maxdepth 1 -name '.skills.??????')" ] || fail "a scratch directory was left behind"
 
+echo "factory-link-farm: moves a hand-placed directory aside once, then swaps as usual"
+skills_reset
+rm -rf "$HOME/.claude/agents" "$HOME/.claude/.agents.old"
+mkdir "$HOME/.claude/agents"
+echo mine >"$HOME/.claude/agents/mine.md"
+factory-link-farm agents "$work/farm-a"
+touch "$HOME/.claude/agents/stray.md"
+factory-link-farm agents "$work/farm-a"
+[ "$(cat "$HOME"/.claude/agents.backup-*/mine.md)" = mine ] || fail "the hand-placed file was lost"
+[ "$(find "$HOME/.claude" -maxdepth 1 -name 'agents.backup-*' | wc -l)" = 1 ] || fail "backed up more than once"
+[ ! -e "$HOME/.claude/agents/stray.md" ] || fail "a later entry outlived the swap"
+[ "$(readlink "$HOME/.claude/agents/alpha")" = "$work/farm-a/alpha" ] || fail "the farm was not linked"
+rm -rf "$HOME/.claude/agents" "$HOME/.claude/.agents.old" "$HOME"/.claude/agents.backup-*
+
 echo "factory-relink: waits for the lock, and gives up without failing"
 skills_reset
 factory-relink skills "$work/farm-a"
@@ -589,9 +603,9 @@ factory-relink skills "$work/farm-b"
 echo "factory-relink: links ~/.claude/agents the same way, leaving the skills alone"
 skills_reset
 factory-relink skills "$work/farm-a"
-touch "$work/farm-b/general-purpose.md"
+touch "$work/farm-b/researcher.md"
 factory-relink agents "$work/farm-b"
-[ "$(readlink "$HOME/.claude/agents/general-purpose.md")" = "$work/farm-b/general-purpose.md" ] || fail "the agents were not linked"
+[ "$(readlink "$HOME/.claude/agents/researcher.md")" = "$work/farm-b/researcher.md" ] || fail "the agents were not linked"
 [ "$(readlink "$skills/beta")" = "$work/farm-a/beta" ] || fail "relinking agents moved the skills"
 
 # ─── Root: factory-maintenance ───────────────────────────────────────────────

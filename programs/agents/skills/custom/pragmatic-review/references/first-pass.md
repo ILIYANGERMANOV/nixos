@@ -77,14 +77,15 @@ understanding:
 ## Trivial check
 
 On every review, unless your arguments say `not Trivial`. The rule is under
-Quality in your instructions. Decide from `stat` and the added lines of `diff`
-alone: no caller's mark, PR text or requirement can make a diff qualify, and a
+Quality in your instructions. Decide from `stat` and the changed lines of `diff`,
+removed lines included, alone: no caller's mark, PR text or requirement can make a diff qualify, and a
 brief cannot argue you out of a miss.
 
 A diff does not qualify when any of these holds:
 
 - over about 100 changed lines, generated lockfiles aside;
-- the tier is `sensitive`, or a topic of the never-list shows on an added line;
+- the tier is `sensitive`, or a topic of the never-list shows on a changed line:
+  a deleted auth check counts as much as an added one;
 - it changes the data model: a schema, stored or wire data, a type other modules
   share. Local UI state is not the data model;
 - it changes a skill or instructions file beyond a typo.

@@ -96,7 +96,7 @@ pkgs.runCommand "claude-config-check"
   }
   ''
     # Given synthetic sizes, each way to break the budget must fail.
-    echo '{"a": 10}' >ceilings.json
+    echo '{"a": 10, "b": 10}' >ceilings.json
     rejects() {
       printf '%s' "$1" >bad-sizes
       if budget-compare bad-sizes ceilings.json >/dev/null 2>&1; then
@@ -104,10 +104,10 @@ pkgs.runCommand "claude-config-check"
         exit 1
       fi
     }
-    rejects $'a x 11\n'
-    rejects $'a x 10\nb x 1\n'
-    rejects $'c x 1\n'
-    printf 'a x 10\n' >good-sizes
+    rejects $'a x 11\nb x 10\n'
+    rejects $'a x 10\nb x 10\nc x 1\n'
+    rejects $'a x 10\n'
+    printf 'a x 10\nb x 10\n' >good-sizes
     budget-compare good-sizes ceilings.json >/dev/null
 
     budget-compare ${sizes} ${ceilings} >"$out"

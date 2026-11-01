@@ -185,13 +185,20 @@ let
   # flavors can never leave a stale entry behind. The cost is that anything
   # hand-placed there is discarded on the next launch - prototype in a project's
   # .claude/skills or .claude/agents instead, then commit to programs/agents.
+  # Only a directory with no link into the store has never been our farm, so it
+  # is moved aside once rather than lost.
   #
   # Each entry is its own symlink into the store, rather than one symlink for the
   # whole directory: per-entry symlinks are what Claude Code documents support for.
   mkApplyLinks =
     dir: farm:
     ''
-      rm -rf "$HOME/.claude/${dir}"
+      _live="$HOME/.claude/${dir}"
+      if [ -d "$_live" ] && [ ! -L "$_live" ] && [ -n "$(ls -A "$_live")" ] &&
+        [ -z "$(${pkgs.findutils}/bin/find "$_live" -mindepth 1 -maxdepth 1 -lname '${builtins.storeDir}/*' -print -quit)" ]; then
+        mv "$_live" "$_live.backup-$(date +%Y%m%d-%H%M%S)"
+      fi
+      rm -rf "$_live"
     ''
     + lib.optionalString (farm != null) ''
       mkdir -p "$HOME/.claude/${dir}"
@@ -262,5 +269,5 @@ let
 in
 {
   inherit (mcp) mkStdioServer mkHttpServer;
-  inherit mkFlavorBuilder withSecretFileGuard;
+  inherit mkFlavorBuilder withSecretFileGuard mkApplyLinks;
 }

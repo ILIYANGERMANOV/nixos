@@ -959,7 +959,7 @@ def stated_quality(brief: str) -> str | None:
 def self_activated_trivial(session: Session) -> Iterator[Agent]:
     """Reviews that reported a Trivial sweep though nothing briefed them Trivial."""
     for quality, group in quality_groups(session).items():
-        if "Trivial" not in quality:
+        if not quality.endswith(", Trivial"):
             yield from (a for a in group if SWEEP_LINE.search(a.report))
 
 

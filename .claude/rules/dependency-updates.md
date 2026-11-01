@@ -2,6 +2,7 @@
 paths:
   - "flake.nix"
   - "flake.lock"
+  - "modules/nix.nix"
   - "just/nix-darwin/**"
   - ".github/dependabot.yml"
   - ".github/workflows/**"

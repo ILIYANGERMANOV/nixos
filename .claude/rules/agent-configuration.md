@@ -131,9 +131,11 @@ searched for recursively.
 flavor wrapper relinks them at launch from `linkFarm`s, wiping them first
 (`claude-factory` swaps them atomically, see below), so switching flavors never
 leaves a stale entry behind - the same pattern `mkClaudeFlavor` already uses for
-`settings.json`, `CLAUDE.md` and `.mcpServers`. Anything hand-placed there is
-destroyed on the next launch; prototype in a project's `.claude/skills/` or
-`.claude/agents/` instead.
+`settings.json`, `CLAUDE.md` and `.mcpServers`. **Neither directory is
+hand-editable**: anything placed there is destroyed on the next launch, so
+prototype in a project's `.claude/skills/` or `.claude/agents/` instead. The one
+exception is the first relink: a real directory that is not yet our farm is
+moved once to `<dir>.backup-<timestamp>` beside it.
 
 The factory is the exception: its sessions never pass through a wrapper, so a
 home activation relinks both farms too, under `~/.claude/.factory.lock`, and
@@ -183,17 +185,15 @@ root `CLAUDE.md` small: detail belongs in a `.claude/rules/` file.
 Every flavor installs all of it, the same way as skills, one farm for every
 flavor.**
 
-- `general-purpose.md` overrides the built-in, which nearly every spawn uses, to
-  drop MCP with `disallowedTools: mcp__*`. Its body is the built-in's text. **It
-  must never gain a `tools:` list**: that silently drops `Skill` and the skill
-  listing. `checks.agents` fails if it does.
 - `researcher.md` is read-only by its `tools:` allowlist, which has no Write,
   Edit, MCP or `Skill`. `omitClaudeMd: true` removes every CLAUDE.md, so its body
-  restates the few house rules it needs. `skills: [researcher]` preloads the skill
+  restates the few house rules and boundaries it needs. `skills: [researcher]` preloads the skill
   body: a preload needs no `Skill` tool. It sets no `model:`, so it runs on the
   session's model.
-- A project's own `.claude/agents/<name>.md` beats the user-scope file, silently
-  giving those savings back in that repo.
+- Default subagents stay the built-in `general-purpose`, with every MCP server:
+  a spawned `engineer` needs `claude-code-remote`.
+- A project's own `.claude/agents/<name>.md` silently beats the user-scope file
+  in that repo.
 - `checks.agents` validates the frontmatter, rejects an unknown field, and
   requires each `skills:` entry to be in the skill catalog.
 

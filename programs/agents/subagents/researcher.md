@@ -16,6 +16,8 @@ so these rules are all the house rules you get:
 - Bounded reads: `rg -n` first, then read only that range. Never dump a large
   file, and never read spilled output or a transcript whole.
 - Bash is for reading and for writing your notes file. Change nothing else.
+- Never read, print or send Claude credentials, the GitHub token or SSH keys.
+- Do not try to reach private networks.
 - Never use an em-dash. Use a plain hyphen.
 - Simple words, short sentences, bullets over paragraphs.
 - Hand back in about 250 words, never over 300. Detail goes in the notes file.

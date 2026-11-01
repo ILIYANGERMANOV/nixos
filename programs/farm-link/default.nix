@@ -5,7 +5,9 @@
 #
 # The scratch directory is exchanged with the live one, so a path lookup never
 # misses, and the previous links stay in `old` until the next run, so a reader
-# that already opened them still lists every entry. A bare `claude-factory`
+# that already opened them still lists every entry. No `old` means this is the
+# first run, so what the first exchange displaced was never ours: it is kept in
+# a timestamped backup instead. A bare `claude-factory`
 # takes no lock, so runs overlap: each fills a scratch of its own, and an
 # exchange leaves every directory whole, so no run needs to wait for another.
 { pkgs }:
@@ -15,11 +17,15 @@ pkgs.writeShellApplication {
   runtimeInputs = [ pkgs.coreutils ];
   text = ''
     live="$HOME/.claude/$1" old="$HOME/.claude/.$1.old"
-    mkdir -p "$live" "$old"
+    mkdir -p "$live"
     scratch=$(mktemp -d "$HOME/.claude/.$1.XXXXXX")
     trap 'rm -rf "$scratch"' EXIT
     ln -s "$2"/* "$scratch/"
     mv --exchange --no-target-directory "$scratch" "$live"
+    if [ ! -d "$old" ] && [ -n "$(ls -A "$scratch")" ]; then
+      mv --no-target-directory "$scratch" "$live.backup-$(date +%Y%m%d-%H%M%S)-$$"
+    fi
+    mkdir -p "$scratch" "$old"
     mv --exchange --no-target-directory "$scratch" "$old"
   '';
 }

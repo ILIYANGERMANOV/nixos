@@ -24,8 +24,9 @@ report file and a resume read the same. No step here relaxes a gate.
    way. Its small fix gets one `--fixes` pass, the same way. A row or Not met
    left after that pass leaves the track.
 6. **Hand over, step 10.** Wait for CI the non-blocking way your instructions
-   describe. CI failures go to a fixer. On green, answer any review comments,
-   `gh pr ready`, and notify. The user merges. No app, QA or `/final-review`
+   describe. CI failures go to a fixer, and its diff gets one `--fixes` sweep as
+   under Fix before ready. On green, answer any review comments, `gh pr ready`,
+   and notify. The user merges. No app, QA or `/final-review`
    offers.
 
 ## Leaving the track
