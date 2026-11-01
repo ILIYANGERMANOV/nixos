@@ -93,8 +93,8 @@ SILENT_CASES: list[Case[str, str]] = [
         "an empty synthetic call is skipped",
         transcript(
             usage_line("a", 100, 150000),
-            AT_150K,
             usage_line("c", 0, 0, cache_creation=0),
+            AT_150K,
         ),
     ),
     (

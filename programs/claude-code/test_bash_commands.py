@@ -130,3 +130,8 @@ def test_a_redirect_of_another_descriptor_never_moves_stdout(
     fd: str, operator: str, target: str
 ) -> None:
     assert not redirects_stdout_to_file(fd, operator, target)
+
+
+@given(st.integers(min_value=0).map(str))
+def test_stdout_duplicated_onto_a_descriptor_is_no_file_redirect(target: str) -> None:
+    assert not redirects_stdout_to_file("1", ">&", target)
