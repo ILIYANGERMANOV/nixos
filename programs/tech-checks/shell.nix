@@ -146,15 +146,18 @@ in
         ];
       }
       ''
+        recipe_limit=30
+        string_limit=5
+
         long_recipes() {
           just --justfile "$1" --dump --dump-format json |
             jq '.recipes | to_entries[] | {where: .key, lines: (.value.body | length)}' |
-            over 30
+            over "$recipe_limit"
         }
         long_strings() {
           (cd "$1" && ast-grep scan --rule ${./nix-shell-strings.yml} --json=compact .) |
             jq -f ${./nix-shell-strings.jq} |
-            over 5
+            over "$string_limit"
         }
         over() {
           jq -r --argjson limit "$1" 'select(.lines > $limit) | "\(.where): \(.lines) lines"' |
@@ -193,8 +196,8 @@ in
         long_strings ${nixSource} > strings
 
         status=0
-        report recipes "recipe over 30 lines, move to a .sh"
-        report strings "Nix shell string over 5 lines, move to a .sh and read it in with readFile"
+        report recipes "recipe over $recipe_limit lines, move to a .sh"
+        report strings "Nix shell string over $string_limit lines, move to a .sh and read it in with readFile"
 
         [ "$status" -eq 0 ]
         touch "$out"
