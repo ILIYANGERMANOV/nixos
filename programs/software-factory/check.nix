@@ -93,6 +93,8 @@ let
     setpriv = lib.getExe fakeSetpriv;
   };
 
+  gcOnPressure = factory.mkGcOnPressure { gcBelowFreePercent = 10; };
+
   # An in-memory systemd: a unit is active while a file named after it exists.
   # Answers `is-active --quiet` for the deploy's health gate from $SSHD_UP.
   fakeSystemctl = pkgs.writeShellScriptBin "systemctl" (builtins.readFile ./fakes/systemctl.sh);
@@ -171,6 +173,7 @@ pkgs.runCommand "shell-tests"
       boot
       deploy
       maintenance
+      gcOnPressure
       fakeSystemctl
       fakeGh
       fakeCurl

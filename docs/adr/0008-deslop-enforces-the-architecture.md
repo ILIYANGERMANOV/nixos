@@ -52,6 +52,9 @@ them, and every consumer gets the same derivation.
   in `deslop/baseline.yaml`, which is regenerated with `deslop baseline .`,
   never edited by hand. A new dynamic path fails the check until it is
   baselined, which is the point: someone looks at it.
+- **`deslop/rules/tests.yaml` makes every script keep its test.** Deslop lists
+  every file as a module, so `exists` rules can ask for a companion. It has no
+  baseline entries: a gap is an exclude with a reason.
 - **`deslop/rules/` holds only rule files.** Anything else there, a README
   included, breaks rule loading.
 - **Known over-approximation.** `${hostname}` in lib's builders expands to every

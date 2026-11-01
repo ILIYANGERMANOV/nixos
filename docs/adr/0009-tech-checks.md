@@ -26,12 +26,13 @@ A tech check takes source through `lib.fileset`, evaluates no host and uses no
 import from derivation. That is what keeps a group to seconds, and a commit that
 touches none of its files reuses the store path on the box.
 
-Shell has seven: `shell-actionlint` (workflows), `shell-lint` (every `.sh`, `.bats`
+Shell has eight: `shell-actionlint` (workflows), `shell-lint` (every `.sh`, `.bats`
 and `.bash`), `shell-format` (shfmt and `just --fmt`), `shell-just` (recipes, and
 no `{{ }}` on a sudo line), `shell-limits` (how much shell may sit outside a
-`.sh`), `shell-embedded` (wrappers no other check builds) and `shell-tests` (the
-software factory's bats suites). The lint rules live in `programs/shell-check`,
-shared with `writeShellApplication`.
+`.sh`), `shell-embedded` (wrappers no other check builds), `shell-tests` (the
+software factory's bats suites) and `shell-script-tests` (every other bats
+suite). The lint rules live in `programs/shell-check`, shared with
+`writeShellApplication`.
 
 `shell-limits` keeps logic where the other checks can see it, in a `.sh`:
 
@@ -58,6 +59,10 @@ script by name (`${snippet}`), and multi-line double-quoted strings.
 `shell-tests` is the one that runs what it checks. It needs only `pkgs`, so it
 stays a tech check, and it replaced `checks.software-factory`. Its suites run one
 at a time and take most of a group's minute, on the commits that change them.
+`shell-script-tests` runs the same way for suites that need no built program: each
+runs the `.sh` beside it, with the values Nix would splice in as variables and
+stubs for what it calls. A renamed value still fails, in the assembled script's
+shellcheck phase.
 
 `shell-embedded` is the one that needs flake inputs: `flake.nix` calls
 `adapters/claude-code.nix` and hands the result in, with synthetic secret paths

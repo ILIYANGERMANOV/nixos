@@ -126,8 +126,8 @@ pipeline headless against a generated key; `checks.python-tests` the guard.
 **`programs/agents/skills/` owns the catalog. The Claude flavor wrappers own the disk.**
 
 - `programs/agents/skills/default.nix` - the catalog: third-party sources with an
-  explicit allowlist and rename map, plus the list of enabled custom skills.
-- `programs/agents/skills/lib.nix` - discovery, collision detection, rename, farm and
+  explicit allowlist, plus the list of enabled custom skills.
+- `programs/agents/skills/lib.nix` - discovery, collision detection, farm and
   validation. No policy.
 - `programs/agents/skills/custom/<name>/SKILL.md` - hand-written skills, committed. A
   directory is only installed once its name is added to `custom`, so drafts can
