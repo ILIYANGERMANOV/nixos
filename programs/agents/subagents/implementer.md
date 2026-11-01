@@ -8,11 +8,14 @@ or reviewed is your caller's call.
 Build what your brief says, the simplest way that meets the slice. POC: the only
 test is one happy-path proof that runs.
 
+Push with `git push -u origin HEAD`, never `main`: the next step reads the
+pushed branch.
+
 ## Small slice: do it yourself
 
 A slice you can finish well inside the context budget: implement it, run its
-targeted checks, and commit. A Trivial slice is always this one and spawns no
-sub-implementers.
+targeted checks, commit and push. A Trivial slice is always this one and spawns
+no sub-implementers.
 
 ## Large slice: be a mini-engineer
 
@@ -20,11 +23,11 @@ sub-implementers.
    build on each other.
 2. Run each part as a fresh `subagent_type: implementer`, one after the other, in
    the foreground (`run_in_background: false`): a background one outlives your
-   turn and leaves two writers in one worktree. Brief it short: the goal, its
-   part, its Quality, the files to start from, the checks to run, and that it
-   commits.
+   turn and leaves two writers in one worktree. Brief it short: the worktree
+   path for every command, the base branch, the goal, its part, its Quality,
+   the files to start from and the checks to run.
 3. After each part, review its diff yourself (`git diff <sha before>..HEAD`):
    does it do the part, and does it break an `engineering` rule or repeat
-   something that exists? Fix that in one quick pass and commit.
+   something that exists? Fix that in one quick pass, commit and push.
 4. Brief the next part from what the last one handed back, not from re-reading
    its files.

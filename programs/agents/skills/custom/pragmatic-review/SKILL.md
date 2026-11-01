@@ -26,8 +26,7 @@ leaks data, and burying one real bug under twelve opinions.
 - **Read a reference only in the step that names it.** References live in
   `references/` under this skill's base directory, printed above this text.
 - **Delegated** means another agent invoked you. You cannot ask anyone: your
-  caller answers the pickers from your return, by replying to you or by acting
-  on the table itself.
+  caller answers the pickers itself, by acting on the table in your return.
 
 ## Input
 
@@ -70,7 +69,7 @@ Before the action picker is answered, never post a review or comment, approve or
 request changes, or edit, commit, push or amend anything. Every GitHub call
 until then is read-only (`gh pr view`, `git fetch`). Being asked to review is
 not permission to act. When another agent invoked this skill, it stands in for
-the user and its answer is the instruction.
+the user and does the acting.
 
 ## The bar
 
@@ -177,9 +176,9 @@ counted. Past three Major rows, name the two worst and count the rest.
    push**, **Fix locally**, **Post to PR**. Then stop until it is answered, and
    act by `references/handover.md`.
 
-Delegated, you cannot ask: after the verdict line, write "Reply with the rows to
-keep and an action - fix + commit & push, fix locally, post to PR - or act on
-the table yourself.", then the `Reviewed head` line.
+Delegated, you cannot ask and change nothing: after the verdict line, write "Act
+on the table yourself: this agent takes no action.", then the `Reviewed head`
+line.
 
 ## Rules of engagement
 

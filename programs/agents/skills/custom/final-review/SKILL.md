@@ -54,10 +54,10 @@ unchanged. Then run the review's two pickers yourself with `AskUserQuestion`:
 
 ### 4. Act
 
-- **Fix**: hand the chosen rows to a `subagent_type: fixer` agent,
-  fixes only those rows, runs targeted checks (the full check only when the
+- **Fix**: hand the chosen rows to a `subagent_type: fixer` agent
+  that fixes only those rows, runs targeted checks (the full check only when the
   fix is large; it is the last to push), commits and pushes. Fix locally:
-  edit only, no commit or push.
+  brief it edit only, no commit or push.
 - **Post to PR**: post the chosen rows, verbatim from the table, as one
   review (`gh api .../pulls/<n>/reviews`, `event=COMMENT`) with inline
   comments anchored to `file:line`, falling back to one `gh pr comment`

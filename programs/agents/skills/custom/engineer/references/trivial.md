@@ -1,6 +1,6 @@
 # Trivial fast track
 
-The rule is under Quality in your instructions: what qualifies, and the
+The rule is under `## Trivial` in your instructions: what qualifies, and the
 never-list. These are its steps. Numbers are `engineer`'s lifecycle steps, so a
 report file and a resume read the same. No step here relaxes a gate.
 

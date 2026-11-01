@@ -26,7 +26,7 @@ let
     };
 
     implementer = {
-      description = "Implements one slice of a plan and commits. Splits a large slice across fresh implementers.";
+      description = "Implements one slice of a plan, commits and pushes. Splits a large slice across fresh implementers.";
       instructions = [
         ./implementer.md
         ./build.md
