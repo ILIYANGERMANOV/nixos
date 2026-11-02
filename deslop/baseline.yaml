@@ -1,3 +1,22 @@
+- architecture#agents-name-no-vendor#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#agents-name-no-vendor#programs/agents/lib/role.nix#unresolved#dir +
+  "/${name}/role.nix"
+- architecture#agents-name-no-vendor#programs/agents/roles/default.nix#unresolved#import
+  file
+- architecture#agents-name-no-vendor#programs/agents/skills/lib.nix#unresolved#builtins.readDir
+  dir
+- architecture#agents-name-no-vendor#programs/agents/skills/lib.nix#unresolved#dir
+  + "/${name}"
+- architecture#agents-name-no-vendor#programs/agents/skills/lib.nix#unresolved#source.src
+  + "/${root}"
+- architecture#agents-name-no-vendor#programs/agents/skills/lib.nix#unresolved#sub
+  + "/SKILL.md"
+- architecture#darwin-is-not-nixos#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#darwin-is-not-nixos#programs/agents/lib/role.nix#unresolved#dir + "/${name}/role.nix"
+- architecture#darwin-is-not-nixos#programs/agents/roles/default.nix#unresolved#import
+  file
 - architecture#darwin-is-not-nixos#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
 - architecture#darwin-is-not-nixos#programs/agents/skills/lib.nix#unresolved#dir +
@@ -8,6 +27,12 @@
   "/SKILL.md"
 - architecture#darwin-is-not-nixos#programs/shell-check/default.nix#unresolved#builtins.readFile
   script
+- architecture#lib-is-private-to-the-flake#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#lib-is-private-to-the-flake#programs/agents/lib/role.nix#unresolved#dir
+  + "/${name}/role.nix"
+- architecture#lib-is-private-to-the-flake#programs/agents/roles/default.nix#unresolved#import
+  file
 - architecture#lib-is-private-to-the-flake#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
 - architecture#lib-is-private-to-the-flake#programs/agents/skills/lib.nix#unresolved#dir
@@ -22,6 +47,11 @@
   file
 - architecture#lib-is-private-to-the-flake#programs/tech-checks/lua.nix#unresolved#import
   file
+- architecture#nixos-is-not-darwin#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#nixos-is-not-darwin#programs/agents/lib/role.nix#unresolved#dir + "/${name}/role.nix"
+- architecture#nixos-is-not-darwin#programs/agents/roles/default.nix#unresolved#import
+  file
 - architecture#nixos-is-not-darwin#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
 - architecture#nixos-is-not-darwin#programs/agents/skills/lib.nix#unresolved#dir +
@@ -32,6 +62,12 @@
   "/SKILL.md"
 - architecture#nixos-is-not-darwin#programs/shell-check/default.nix#unresolved#builtins.readFile
   script
+- architecture#nothing-imports-the-flake#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#nothing-imports-the-flake#programs/agents/lib/role.nix#unresolved#dir
+  + "/${name}/role.nix"
+- architecture#nothing-imports-the-flake#programs/agents/roles/default.nix#unresolved#import
+  file
 - architecture#nothing-imports-the-flake#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
 - architecture#nothing-imports-the-flake#programs/agents/skills/lib.nix#unresolved#dir
@@ -45,6 +81,12 @@
 - architecture#nothing-imports-the-flake#programs/tech-checks/lua.nix#unresolved#builtins.readFile
   file
 - architecture#nothing-imports-the-flake#programs/tech-checks/lua.nix#unresolved#import
+  file
+- architecture#only-lib-assembles-hosts#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#only-lib-assembles-hosts#programs/agents/lib/role.nix#unresolved#dir
+  + "/${name}/role.nix"
+- architecture#only-lib-assembles-hosts#programs/agents/roles/default.nix#unresolved#import
   file
 - architecture#only-lib-assembles-hosts#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
@@ -60,6 +102,12 @@
   file
 - architecture#only-lib-assembles-hosts#programs/tech-checks/lua.nix#unresolved#import
   file
+- architecture#programs-are-host-agnostic#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#programs-are-host-agnostic#programs/agents/lib/role.nix#unresolved#dir
+  + "/${name}/role.nix"
+- architecture#programs-are-host-agnostic#programs/agents/roles/default.nix#unresolved#import
+  file
 - architecture#programs-are-host-agnostic#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
 - architecture#programs-are-host-agnostic#programs/agents/skills/lib.nix#unresolved#dir
@@ -73,6 +121,12 @@
 - architecture#programs-are-host-agnostic#programs/tech-checks/lua.nix#unresolved#builtins.readFile
   file
 - architecture#programs-are-host-agnostic#programs/tech-checks/lua.nix#unresolved#import
+  file
+- architecture#programs-are-isolated#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#programs-are-isolated#programs/agents/lib/role.nix#unresolved#dir +
+  "/${name}/role.nix"
+- architecture#programs-are-isolated#programs/agents/roles/default.nix#unresolved#import
   file
 - architecture#programs-are-isolated#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
@@ -88,6 +142,14 @@
   file
 - architecture#programs-are-isolated#programs/tech-checks/lua.nix#unresolved#import
   file
+- architecture#roles-climb-the-ladder#programs/agents/roles/default.nix#unresolved#import
+  file
+- architecture#secrets-are-read-in-one-place#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#secrets-are-read-in-one-place#programs/agents/lib/role.nix#unresolved#dir
+  + "/${name}/role.nix"
+- architecture#secrets-are-read-in-one-place#programs/agents/roles/default.nix#unresolved#import
+  file
 - architecture#secrets-are-read-in-one-place#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
 - architecture#secrets-are-read-in-one-place#programs/agents/skills/lib.nix#unresolved#dir
@@ -101,6 +163,12 @@
 - architecture#secrets-are-read-in-one-place#programs/tech-checks/lua.nix#unresolved#builtins.readFile
   file
 - architecture#secrets-are-read-in-one-place#programs/tech-checks/lua.nix#unresolved#import
+  file
+- architecture#server-modules-are-server-only#programs/agents/lib/role.nix#unresolved#builtins.readDir
+  dir
+- architecture#server-modules-are-server-only#programs/agents/lib/role.nix#unresolved#dir
+  + "/${name}/role.nix"
+- architecture#server-modules-are-server-only#programs/agents/roles/default.nix#unresolved#import
   file
 - architecture#server-modules-are-server-only#programs/agents/skills/lib.nix#unresolved#builtins.readDir
   dir
