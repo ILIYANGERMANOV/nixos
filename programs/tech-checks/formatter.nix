@@ -3,6 +3,7 @@
 { pkgs }:
 let
   shellCheck = import ../shell-check { inherit pkgs; };
+  tools = import ./tools.nix { inherit pkgs; };
 
   # `just --fmt` at the root formats that one file and skips its imports, so an
   # imported file only gets formatted by naming it.
@@ -21,8 +22,8 @@ pkgs.treefmt.withConfig {
     pkgs.nixfmt
     pkgs.shfmt
     justFormatEach
-    pkgs.biome
-    pkgs.ruff
+    tools.biome
+    tools.ruff
   ];
   settings = {
     # treefmt warns by default, too loud for a repo where most files have no formatter.

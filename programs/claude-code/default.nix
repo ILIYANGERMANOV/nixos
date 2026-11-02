@@ -248,7 +248,7 @@ rec {
         "superhuman-docs"
       ];
       # self-improve measures this Mac's own sessions; its analyzer needs the
-      # python3 that modules/home/terminal.nix installs.
+      # python3 that modules/home/languages/python.nix installs.
       extraSkills = [ "self-improve" ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
