@@ -8,6 +8,15 @@
 let
   instructionsLib = import ./lib/instructions.nix { inherit pkgs lib; };
   inherit (instructionsLib) mkFragment mkInstructions;
+  profileLib = import ./lib/profile.nix {
+    inherit pkgs lib;
+    instructions = instructionsLib;
+    skillNames = skills.names;
+  };
+  dedupLib = import ./lib/passes/dedup.nix {
+    inherit pkgs lib;
+    instructions = instructionsLib;
+  };
 
   topics.trivial = mkFragment {
     layer = "topic";
@@ -23,58 +32,32 @@ let
     inherit lib mkFragment topics;
     inherit (roleLib) mkRole discover;
   };
+  profiles = import ./profiles {
+    inherit (profileLib) mkProfile;
+    inherit
+      lib
+      mkFragment
+      mkInstructions
+      topics
+      ;
+  };
 in
 {
-  # Agent-agnostic instructions, loaded at user scope by every agent: a value of
-  # lib/instructions.nix, rendered with `renderLead` and `renderRole`.
+  # The profiles, by name: the vendor-free part of each setup. A harness lists
+  # the ones a setup gets and folds them with `fold`.
   #
-  # This layer only provides the content. It deliberately knows nothing about
-  # where any agent expects to find it, because the agents disagree: Claude Code
-  # hardcodes CLAUDE.md discovery and does not read AGENTS.md at user scope,
-  # while Codex reads ~/.codex/AGENTS.md. Teaching this file either convention
-  # would make the shared layer agent-shaped. Each agent program installs the
-  # path its own way instead. See docs/adr/0002-agent-agnostic-configuration.md.
-  #
-  # agent.md is what every agent gets, subagent roles included; lead.md is the
-  # lead's own role, and the lead also gets the trivial topic.
-  instructions = mkInstructions {
-    forAll = [
-      (mkFragment {
-        layer = "agent";
-        file = ./instructions/agent.md;
-      })
-    ];
-    forLead = [
-      (mkFragment {
-        layer = "role";
-        file = ./instructions/lead.md;
-      })
-      topics.trivial
-    ];
-  };
-  inherit (instructionsLib)
-    append
-    empty
-    renderLead
-    renderRole
-    ;
+  # Their instructions are only the content, rendered with `renderLead` and
+  # `renderRole`. This layer deliberately knows nothing about where any agent
+  # expects to find them, because the agents disagree: Claude Code hardcodes
+  # CLAUDE.md discovery and does not read AGENTS.md at user scope, while Codex
+  # reads ~/.codex/AGENTS.md. Teaching this file either convention would make
+  # the shared layer agent-shaped. Each agent program installs the path its own
+  # way instead. See docs/adr/0002-agent-agnostic-configuration.md.
+  inherit profiles;
+  inherit (instructionsLib) renderLead renderRole;
 
-  # The profiles' instructions, appended to `instructions` on the hosts that run
-  # them. The factory's agent.md reaches every role there, lead.md only the lead.
-  profiles.factory.instructions = mkInstructions {
-    forAll = [
-      (mkFragment {
-        layer = "context";
-        file = ./profiles/factory/agent.md;
-      })
-    ];
-    forLead = [
-      (mkFragment {
-        layer = "context";
-        file = ./profiles/factory/lead.md;
-      })
-    ];
-  };
+  # Profiles appended in order, refused if the result still holds a duplicate.
+  fold = selected: dedupLib.dedup (profileLib.fold selected);
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format, even
   # though Claude Code is currently its only consumer.
@@ -94,6 +77,14 @@ in
     {
       name = "instructions";
       path = instructionsLib.check;
+    }
+    {
+      name = "profiles";
+      path = builtins.deepSeq profiles profileLib.check;
+    }
+    {
+      name = "dedup";
+      path = dedupLib.check;
     }
     {
       name = "roles";

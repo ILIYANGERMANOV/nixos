@@ -1,0 +1,139 @@
+# Profiles as a monoid. A profile is the vendor-free part of one setup: the
+# skills it adds and its instructions (lib/instructions.nix). Profiles are small
+# deltas that never import each other; whoever selects them lists them and folds
+# them with `append`.
+#
+# `append` merges field by field, so `empty` is its identity: lists union keeping
+# the first occurrence, instructions use their own `append`, and keyed sets
+# union where one key with two different values is an eval error, never
+# last-writer-wins.
+#
+# A selector writes a profile to a format that ignores what it does not know, so
+# a misspelled field would quietly drop what it holds. Anything unknown throws.
+{
+  pkgs,
+  lib,
+  instructions,
+  skillNames,
+}:
+
+let
+  # How each field combines. skills: catalog skill names. instructions: a value
+  # of lib/instructions.nix.
+  fields = {
+    skills = union;
+    instructions = instructions.append;
+  };
+
+  # Lists: concatenated, keeping the first occurrence.
+  union = a: b: lib.unique (a ++ b);
+
+  # Keyed sets: one key may only hold one value. For the keyed fields to come
+  # (MCP servers, secret files).
+  merge =
+    a: b:
+    let
+      conflicts = lib.filter (key: a.${key} != b.${key}) (
+        lib.intersectLists (lib.attrNames a) (lib.attrNames b)
+      );
+    in
+    if conflicts == [ ] then
+      a // b
+    else
+      throw "profile: ${lib.concatStringsSep ", " conflicts} set to two different values";
+
+  mkProfile =
+    spec:
+    let
+      unknown = lib.subtractLists (lib.attrNames fields) (lib.attrNames spec);
+      profile = empty // spec // { skills = lib.unique (spec.skills or [ ]); };
+      uncatalogued = lib.subtractLists skillNames profile.skills;
+    in
+    if unknown != [ ] then
+      throw "profile: unknown field(s) ${toString unknown}"
+    else if uncatalogued != [ ] then
+      throw "profile: ${toString uncatalogued} not in the skill catalog"
+    else
+      profile;
+
+  empty = {
+    skills = [ ];
+    instructions = instructions.empty;
+  };
+
+  append = a: b: lib.mapAttrs (field: combine: combine a.${field} b.${field}) fields;
+
+  fold = lib.foldl' append empty;
+
+  # Laws, over profiles sharing a skill and a fragment, plus the throws.
+  check =
+    let
+      at =
+        layer: name:
+        instructions.mkFragment {
+          inherit layer;
+          file = "/${name}.md";
+        };
+      skill = builtins.elemAt skillNames;
+      a = mkProfile {
+        skills = [
+          (skill 0)
+          (skill 1)
+        ];
+        instructions = instructions.mkInstructions { forAll = [ (at "agent" "a") ]; };
+      };
+      b = mkProfile {
+        skills = [
+          (skill 1)
+          (skill 2)
+        ];
+        instructions = instructions.mkInstructions { forLead = [ (at "context" "b") ]; };
+      };
+      c = mkProfile {
+        skills = [ (skill 0) ];
+        instructions = instructions.mkInstructions { forAll = [ (at "agent" "a") ]; };
+      };
+      throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+    in
+    assert lib.assertMsg (append empty a == a) "profile: empty is not a left identity";
+    assert lib.assertMsg (append a empty == a) "profile: empty is not a right identity";
+    assert lib.assertMsg (
+      append (append a b) c == append a (append b c)
+    ) "profile: append is not associative";
+    assert lib.assertMsg (
+      fold [
+        a
+        b
+        c
+      ] == append (append a b) c
+    ) "profile: fold is not append";
+    assert lib.assertMsg (
+      (append a b).skills == [
+        (skill 0)
+        (skill 1)
+        (skill 2)
+      ]
+    ) "profile: append did not union the skills keeping the first occurrence";
+    assert lib.assertMsg (
+      merge { x = 1; } { x = 1; } == { x = 1; }
+    ) "profile: one key set to one value twice threw";
+    assert lib.assertMsg (throws (
+      merge { x = 1; } { x = 2; }
+    )) "profile: one key set to two values did not throw";
+    assert lib.assertMsg (throws (mkProfile {
+      skils = [ ];
+    })) "profile: mkProfile accepted a misspelled field";
+    assert lib.assertMsg (throws (mkProfile {
+      skills = [ "no-such-skill" ];
+    })) "profile: mkProfile accepted an unknown skill";
+    pkgs.writeText "profile-check" "";
+in
+{
+  inherit
+    mkProfile
+    empty
+    append
+    fold
+    check
+    ;
+}

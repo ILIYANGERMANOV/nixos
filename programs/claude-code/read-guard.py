@@ -35,7 +35,11 @@ READ_HINT = (
     "Blocked: this Read takes the whole {size} byte file. "
     "grep -n first, then Read with offset and limit."
 )
-INSTRUCTIONS = {"AGENTS.md", "CLAUDE.md", "SKILL.md", "factory-instructions.md"}
+INSTRUCTIONS = {"AGENTS.md", "CLAUDE.md", "SKILL.md"}
+# programs/agents' instruction prose, and each profile's.
+INSTRUCTION_FILE = re.compile(
+    r"(?:.*/)?(?:instructions|profiles/[^/]+)/(?:agent|lead)\.md"
+)
 SKILL_FILE = re.compile(r"(?:.*/)?skills/[^/]+/.+")
 # The Read tool renders these for the model: their bytes are not text in context.
 MEDIA = {".gif", ".jpeg", ".jpg", ".pdf", ".png", ".webp"}
@@ -101,7 +105,11 @@ def is_file(path: str) -> bool:
 
 def is_exempt(path: str) -> bool:
     """Whether agents are told to read this normalised path in full."""
-    return Path(path).name in INSTRUCTIONS or bool(SKILL_FILE.fullmatch(path))
+    return (
+        Path(path).name in INSTRUCTIONS
+        or bool(INSTRUCTION_FILE.fullmatch(path))
+        or bool(SKILL_FILE.fullmatch(path))
+    )
 
 
 def read_sizes(command: str, cwd: str) -> Iterator[int]:

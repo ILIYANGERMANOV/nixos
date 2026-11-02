@@ -3,9 +3,8 @@
   lib ? pkgs.lib,
   claude-code,
   mkSkillFarm,
-  # The instructions monoid of programs/agents/lib/instructions.nix.
-  append,
-  empty,
+  # programs/agents: profiles folded into one, and the lead's instruction render.
+  fold,
   renderLead,
   # name -> decrypted-file path, for the secrets THIS host provides.
   secrets ? { },
@@ -18,21 +17,21 @@ let
   mcp = import ./mcp.nix { inherit lib secrets; };
   secretGuard = import ./secret-guard.nix { inherit pkgs; };
 
-  # Binds one Claude Code configuration - the settings, skills, instructions and
-  # MCP catalog authored in default.nix - and returns the function that turns an
+  # Binds one Claude Code configuration - the settings and MCP catalog authored
+  # in default.nix - and returns the function that turns an
   # attrset of flavors into their wrapper derivations.
   #
   # Everything derived from that configuration is computed once, here, rather
   # than per flavor: the catalog is filtered against this host's secrets exactly
   # once, and the list of defined names never has to be passed alongside it.
   #
-  # Flavor options, all optional (the attr key is the binary name):
-  #   extraSettings     - Nix attrset deep-merged onto baseSettings
-  #   mcpServers        - names from the catalog to activate for this flavor
-  #   extraSkills       - skill names this flavor adds to baseSkills
-  #   extraInstructions - instructions appended to baseInstructions
-  #   applySkills       - farm -> shell snippet that links ~/.claude/skills,
-  #                       for a flavor mkApplySkills is not safe for
+  # Flavor options (the attr key is the binary name):
+  #   profiles      - the programs/agents profiles it gets, folded in order:
+  #                   its skills and instructions
+  #   extraSettings - Nix attrset deep-merged onto baseSettings
+  #   mcpServers    - names from the catalog to activate for this flavor
+  #   applySkills   - farm -> shell snippet that links ~/.claude/skills,
+  #                   for a flavor mkApplySkills is not safe for
   #
   # Every flavor also gets `runtime` on PATH and, of `secretFiles` (env var ->
   # secret name), each one this host declares exported as its decrypted
@@ -40,8 +39,6 @@ let
   mkFlavorBuilder =
     {
       baseSettings,
-      baseSkills,
-      baseInstructions,
       mcpCatalog,
       runtime,
       secretFiles,
@@ -58,13 +55,13 @@ let
     lib.mapAttrsToList (
       name:
       {
+        profiles,
         extraSettings ? { },
         mcpServers ? [ ],
-        extraSkills ? [ ],
-        extraInstructions ? empty,
         applySkills ? mkApplySkills,
       }:
       let
+        profile = fold profiles;
         servers = mcp.selectServers {
           flavor = name;
           inherit known available;
@@ -80,8 +77,8 @@ let
           applySkills
           ;
         settings = guardSecretFiles (lib.recursiveUpdate baseSettings extraSettings);
-        skills = lib.unique (baseSkills ++ extraSkills);
-        instructions = mkLeadInstructions name (append baseInstructions extraInstructions);
+        inherit (profile) skills;
+        instructions = mkLeadInstructions name profile.instructions;
       }
     );
 

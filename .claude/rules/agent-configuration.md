@@ -30,11 +30,22 @@ a second agent such as Codex.
   `empty` is its identity. `renderLead` gives the lead `forAll` and `forLead`,
   `renderRole` a role `forAll` and its own fragments, both sorted stably by
   layer. `checks.agents` proves the laws.
-- `programs/agents/profiles/factory/` - the factory's `agent.md` (context, in
-  `forAll`: every factory session and role) and `lead.md` (context, lead only).
-- `programs/agents/default.nix` - the shared surface: `instructions`, the
-  monoid's `append`, `empty`, `renderLead` and `renderRole`,
-  `profiles.factory.instructions`, `skills`, `roles` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
+- `programs/agents/lib/profile.nix` - the profile monoid. A profile is the
+  vendor-free part of one setup: `skills` and `instructions`; `mkProfile` throws
+  on an unknown field or a skill not in the catalog. `append` unions lists
+  keeping the first occurrence, appends instructions, and throws when one key
+  gets two values; `empty` is its identity, `fold` appends a list.
+- `programs/agents/lib/passes/dedup.nix` - a guard, not a transformer: it
+  throws if a folded profile still holds a skill twice or one file at two layers.
+- `programs/agents/profiles/<name>/profile.nix` - one folder per profile, found
+  by `readDir`: `base` (every flavor: the shared skills, `agent.md`, `lead.md`,
+  `trivial.md`), `web-ui` (empty for now), `pm` (`self-improve`) and `factory`
+  (`10x-engineer`, `self-improve`, `android`, and its `agent.md`, context in
+  `forAll`, and `lead.md`, context for the lead only). Profiles are deltas and
+  never import each other.
+- `programs/agents/default.nix` - the shared surface: `profiles`, `fold`
+  (profile `fold` behind the dedup guard), `renderLead`, `renderRole`,
+  `skills`, `roles` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
   inputs as `externalSrcs`.
 - `programs/claude-code/` - installs the lead's render as `~/.claude/CLAUDE.md`,
   the only user-scope memory file Claude Code reads, and renders the subagent
@@ -45,8 +56,8 @@ a second agent such as Codex.
 
 **Changing the Claude Code setup means editing `default.nix` and nothing else.**
 
-- `default.nix` - the configuration: `baseSettings`, `baseSkills`,
-  `baseInstructions`, the `mcpCatalog`, and the flavors. Nothing derived lives
+- `default.nix` - the configuration: `baseSettings`, the `mcpCatalog`, and the
+  flavors, each its list of profiles plus Claude settings. Nothing derived lives
   here.
 - `lib.nix` - `mkFlavorBuilder`, applied once to that configuration and
   returning the function from an attrset of flavors to their wrapper
@@ -95,21 +106,20 @@ link. Never replace the directory: deleting one empties it under a session that
 has it open, and Claude Code keeps its own `synced/` there, so only links are
 removed.
 
-Skills are assigned with `baseSkills` (shared by every flavor, declared in
-`programs/claude-code/default.nix`) plus per-flavor `extraSkills`. Every flavor
+Skills and instructions come from the profiles a flavor lists: `claude` and
+`claude-ts` get `base`, `claude-web-ui` `base web-ui`, `claude-pm`
+`base web-ui pm`, `claude-factory` `base factory`. Every flavor
 gets every shared skill, `ui-coding` included, because a model-invoked skill
 costs only its description until a task needs it. There are two exceptions.
-`self-improve` is in the `extraSkills` of `claude-factory` and `claude-pm` only:
+`self-improve` is in the `pm` and `factory` profiles only:
 it measures the machine's own transcripts, and on the Macs it relies on the
 `python3` (nixpkgs', 3.13) that `modules/home/terminal.nix` installs. Its analyzer
 (`scripts/analyze.py`) is tested by `checks.python-tests` against synthetic
 transcripts, never real ones, because this repository is public.
-`10x-engineer` is in the `extraSkills` of `claude-factory` only: it runs
+`10x-engineer` is in the `factory` profile only: it runs
 delegated `engineer` subagents and leans on the factory's PR wakes and
 notifications. It invokes `engineer` with the Skill tool, so `engineer` must
 never set `disable-model-invocation`.
-Instructions work the same way: `baseInstructions` `append` per-flavor
-`extraInstructions`, which only `claude-factory` uses (the factory profile's).
 
 `nix flake check` - and therefore `just check` in CI - validates every installed
 skill: frontmatter present, `name` matching the installed directory, and a
@@ -188,7 +198,7 @@ review-lead 11.6k, implementer 13.3k.
   under one is replaced with no backup. Any other name is left alone. A project's
   own `.claude/agents/<name>.md` silently beats the user-scope file in that repo.
 - `checks.claude-config` holds the renders to this: known fields only, a `tools`
-  list with no MCP, every preload in `baseSkills`, the factory section in the
+  list with no MCP, every preload in the `base` profile, the factory section in the
   factory's render alone, and each role under its ceiling. A new documented field
   goes in its list and in `lib/role.nix`.
 - `self-improve` names a role's loop step from its agent type, so a spawn site
@@ -203,6 +213,6 @@ out of Trivial unless they are typos, so a change here is never Trivial.
 - **Third-party**: add the repo as a `flake = false` input in `flake.nix`,
   forward it through `adapters/agents.nix` as `externalSrcs.<name>`, add a source
   entry in `programs/agents/skills/default.nix`, then add the skill name to
-  `baseSkills` or a flavor's `extraSkills`.
+  a profile's `skills`.
 - **Custom**: create `programs/agents/skills/custom/<name>/SKILL.md`, add `<name>` to
-  `custom`, then add it to `baseSkills` or a flavor's `extraSkills`.
+  `custom`, then add it to a profile's `skills`.

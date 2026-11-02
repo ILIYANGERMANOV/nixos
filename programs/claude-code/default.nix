@@ -1,5 +1,5 @@
-# The Claude Code configuration itself: settings, skills, instructions, the MCP
-# catalog and the flavors built from them. Everything mechanical - merging,
+# The Claude Code configuration itself: settings, the MCP catalog and the
+# flavors, each the programs/agents profiles it gets plus Claude settings. Everything mechanical - merging,
 # resolving secrets, writing the wrappers - lives in lib.nix, so adding a server
 # or a flavor is a change to this file alone.
 {
@@ -22,7 +22,7 @@ let
         secrets
         ;
       inherit (agents.skills) mkSkillFarm;
-      inherit (agents) append empty renderLead;
+      inherit (agents) fold renderLead;
     })
     mkFlavorBuilder
     mkLeadInstructions
@@ -97,43 +97,24 @@ let
     QA_EVM_KEY_FILE = "qa-sepolia-key";
   };
 
-  # The agent-agnostic instructions, installed the way Claude Code expects them:
-  # the lead's render as user-scope memory at ~/.claude/CLAUDE.md, each role's
-  # in its agents/<role>.md. Claude Code does not read AGENTS.md at user scope,
-  # so the file is copied under the name it does read.
-  # A project's own CLAUDE.md still stacks on top of this - user and project
-  # memory are separate entries, not competing ones.
-  baseInstructions = agents.instructions;
-
-  # Skills every flavor gets. Names must be installed by programs/agents/skills -
-  # requesting an unknown one aborts evaluation. Flavor-specific additions go in
-  # that flavor's `extraSkills`.
-  baseSkills = [
-    "address-pr-feedback"
-    "architect"
-    "engineer"
-    "engineering"
-    "final-review"
-    "give-feedback"
-    "grill-with-docs"
-    "grilling"
-    "domain-modeling"
-    "grill-me"
-    "pr-description"
-    "pragmatic-review"
-    "qa"
-    "refactor"
-    "researcher"
-    "setup-matt-pocock-skills"
-    "skeptic"
-    "ui-coding"
+  # The profiles every flavor starts from, and the factory's. A profile's
+  # instructions are installed the way Claude Code expects them: the lead's
+  # render as user-scope memory at ~/.claude/CLAUDE.md, each role's in its
+  # agents/<role>.md. Claude Code does not read AGENTS.md at user scope, so the
+  # file is copied under the name it does read. A project's own CLAUDE.md still
+  # stacks on top of this - user and project memory are separate entries, not
+  # competing ones.
+  inherit (agents.profiles) base web-ui pm;
+  baseProfiles = [ base ];
+  factoryProfiles = [
+    base
+    agents.profiles.factory
   ];
+  baseProfile = agents.fold baseProfiles;
 
   mkClaudeFlavors = mkFlavorBuilder {
     inherit
       baseSettings
-      baseSkills
-      baseInstructions
       mcpCatalog
       runtime
       secretFiles
@@ -179,10 +160,8 @@ let
 
   # The factory's sessions and subagents get its profile's instructions on top
   # of the shared ones, and no other host does.
-  factoryInstructions = agents.append baseInstructions agents.profiles.factory.instructions;
-
-  agentSources = renderAgents agents.roles baseInstructions;
-  factoryAgentSources = renderAgents agents.roles factoryInstructions;
+  agentSources = renderAgents agents.roles baseProfile.instructions;
+  factoryAgentSources = renderAgents agents.roles (agents.fold factoryProfiles).instructions;
 
   # `force`: a dev shell may have installed a plain copy here, see
   # shellActivationScript. Home Manager would keep backing it up, and abort once
@@ -223,21 +202,28 @@ let
     lib.mapAttrs roleLoad agents.roles // { repo-instructions = [ ../../CLAUDE.md ]; };
 
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
-  baseInstructionsFile = mkLeadInstructions "agent" baseInstructions;
+  baseInstructionsFile = mkLeadInstructions "agent" baseProfile.instructions;
 in
 rec {
   inherit statusline;
 
-  # One entry per flavor; the attr name is the binary name. Everything is
-  # optional - `claude` is the base configuration with nothing added.
+  # One entry per flavor; the attr name is the binary name. Only `profiles` is
+  # required - `claude` is the base profile with nothing added.
   packages = mkClaudeFlavors {
-    claude = { };
+    claude.profiles = baseProfiles;
 
-    claude-ts.extraSettings.enabledPlugins = {
-      "typescript-lsp@claude-plugins-official" = true;
+    claude-ts = {
+      profiles = baseProfiles;
+      extraSettings.enabledPlugins = {
+        "typescript-lsp@claude-plugins-official" = true;
+      };
     };
 
     claude-web-ui = {
+      profiles = [
+        base
+        web-ui
+      ];
       mcpServers = [ "figma" ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
@@ -249,14 +235,16 @@ rec {
     # derived from claude-web-ui: flavors are flat by design, and one shared
     # `let` binding for a single pair would hide which binary gets what.
     claude-pm = {
+      profiles = [
+        base
+        web-ui
+        pm
+      ];
       mcpServers = [
         "figma"
         "linear"
         "superhuman-docs"
       ];
-      # self-improve measures this Mac's own sessions; its analyzer needs the
-      # python3 that modules/home/languages/python.nix installs.
-      extraSkills = [ "self-improve" ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
         "frontend-design@claude-plugins-official" = true;
@@ -275,18 +263,10 @@ rec {
   factory = {
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
-        extraInstructions = agents.profiles.factory.instructions;
+        profiles = factoryProfiles;
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
         applySkills = farm: "${lib.getExe linkSkills} ${farm}";
-        # self-improve measures this box's own transcripts; android describes
-        # the toolchain only the factory has; 10x-engineer relies on its session
-        # tools and unattended rules.
-        extraSkills = [
-          "10x-engineer"
-          "self-improve"
-          "android"
-        ];
         # Unattended agents dumped whole files with `cat` and Read, and
         # subagents blocked on foreground sleeps and polling loops despite
         # the instructions; the hooks make them read ranges and background
@@ -343,7 +323,8 @@ rec {
     hiddenSkills = lib.attrNames skillOverrides;
     skillNames = agents.skills.names;
     flavors = packages ++ [ factory.wrapper ];
-    inherit baseSkills agentSources factoryAgentSources;
+    baseProfileSkills = base.skills;
+    inherit agentSources factoryAgentSources;
     roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
     loads = budgetLoads;
     ceilings = ./budget.json;
