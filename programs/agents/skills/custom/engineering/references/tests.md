@@ -214,8 +214,28 @@ it is a false one. Delete it, or rewrite it to assert the observable outcome:
 - It pins internals: see *Black box*.
 - Its oracle is weak: it checks only existence, non-null, truthiness or a call.
   Compare the specific value or error.
-- It was never seen red: break the code a new test covers once by hand, watch
-  it fail for the right reason, restore.
+- It was never seen red: see *Proving a test can fail*.
+
+## Proving a test can fail
+
+Never edit code by hand to hunt for mutants: a mutation tool does it cheaper
+and better.
+
+- **Harness.** Where the repo has `just mutation-diff`, run it once near the
+  end of a slice, on the final diff. It mutates only the changed lines, prints
+  a short report and never fails the build. A run expected to take long goes
+  to a fresh small check agent, as the Checks rules say.
+- **Survivors.** A `survived` mutant is a change on a changed line that no test
+  caught; `uncovered` means no test runs the line at all; `timedOut` counts as
+  caught. Decide each: add or sharpen an assertion when the mutant changes
+  behavior a caller can observe. Dismiss it in one line when it is equivalent
+  (the same observable behavior, such as a bound no input reaches) or the
+  behavior does not matter. Never chase a score.
+- **No harness.** See each new test red once - write it before the code, or
+  break the line it covers once, watch it fail for the right reason, restore.
+  Nothing more, and never add a harness on your own.
+- **Bugs.** A bug still gets its red test first (*Bugs are red first*): a
+  killed mutant does not prove the bug was reproduced.
 
 ## Wrong tests - contradict the intent
 
