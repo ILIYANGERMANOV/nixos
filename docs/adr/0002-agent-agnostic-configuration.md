@@ -76,14 +76,20 @@ Nothing in `programs/agents/` changes. Using Codex as the worked example:
 
 1. Add the package. `llm-agents.nix` is already an input and exposes `codex`.
 2. Create `programs/codex/default.nix`, a plain function taking `pkgs` and
-   `agents`, returning a wrapper that installs what Codex expects and execs it:
+   `agents`, returning a wrapper that installs what Codex expects and execs it.
+   `agents.instructions` is a value, not a file: render it with
+   `agents.renderLead` and concatenate, as `mkLeadInstructions` does in
+   `programs/claude-code/lib.nix`:
 
    ```nix
+   let
+     instructions = pkgs.concatText "codex-instructions.md" (agents.renderLead agents.instructions);
+   in
    pkgs.writeShellApplication {
      name = "codex";
      text = ''
        mkdir -p "$HOME/.codex"
-       install -m 600 ${agents.instructions} "$HOME/.codex/AGENTS.md"
+       install -m 600 ${instructions} "$HOME/.codex/AGENTS.md"
        exec ${codex}/bin/codex "$@"
      '';
    }
