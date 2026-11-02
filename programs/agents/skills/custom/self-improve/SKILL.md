@@ -103,7 +103,7 @@ They may write their own `jq` or Python over `~/.claude/projects`.
   steps, the slowest steps, and what the repository's `QA.md` notes were
   missing. It proposes edits to the `qa` skill or a `QA.md`.
 - **One skill audit** of the installed skills and shared instructions
-  (`programs/agents/AGENTS.md`, `programs/claude-code/factory-instructions.md`,
+  (`programs/agents/instructions/`, `programs/agents/profiles/factory/`,
   `programs/agents/skills/custom/*`): unclear or ambiguous wording, token cost
   (lines, description length, text repeated across files) and rules that
   contradict each other. Each finding quotes the lines and, where it can,
@@ -115,7 +115,7 @@ They may write their own `jq` or Python over `~/.claude/projects`.
 Present the confirmed bottlenecks ranked by net value, each with its numbers,
 its quality impact and the sessions they came from, grouped as:
 
-1. **nixos skills** - `programs/agents/skills`, `AGENTS.md`.
+1. **nixos skills** - `programs/agents/skills`, `programs/agents/instructions/`.
 2. **software-factory config** - `programs/software-factory`, `modules/nixos/server`.
 3. **A repository's own flake and tooling** - its dev shell, `Justfile`,
    `CLAUDE.md`, test commands.

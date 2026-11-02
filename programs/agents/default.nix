@@ -6,16 +6,28 @@
 }:
 
 let
+  instructionsLib = import ./lib/instructions.nix { inherit pkgs lib; };
+  inherit (instructionsLib) mkFragment mkInstructions;
+
+  topics.trivial = mkFragment {
+    layer = "topic";
+    file = ./instructions/topics/trivial.md;
+  };
+
   skills = import ./skills { inherit pkgs lib externalSrcs; };
   subagents = import ./subagents {
-    inherit pkgs lib;
+    inherit
+      pkgs
+      lib
+      mkFragment
+      topics
+      ;
     skillNames = skills.names;
-    core = ./core.md;
-    trivial = ./trivial.md;
   };
 in
 {
-  # Agent-agnostic instructions, loaded at user scope by every agent.
+  # Agent-agnostic instructions, loaded at user scope by every agent: a value of
+  # lib/instructions.nix, rendered with `renderLead` and `renderRole`.
   #
   # This layer only provides the content. It deliberately knows nothing about
   # where any agent expects to find it, because the agents disagree: Claude Code
@@ -24,13 +36,46 @@ in
   # would make the shared layer agent-shaped. Each agent program installs the
   # path its own way instead. See docs/adr/0002-agent-agnostic-configuration.md.
   #
-  # core.md is what every agent gets, subagent roles included; trivial.md and
-  # AGENTS.md are for the agent leading a session.
-  instructions = pkgs.concatText "agent-instructions.md" [
-    ./core.md
-    ./trivial.md
-    ./AGENTS.md
-  ];
+  # agent.md is what every agent gets, subagent roles included; lead.md is the
+  # lead's own role, and the lead also gets the trivial topic.
+  instructions = mkInstructions {
+    forAll = [
+      (mkFragment {
+        layer = "agent";
+        file = ./instructions/agent.md;
+      })
+    ];
+    forLead = [
+      (mkFragment {
+        layer = "role";
+        file = ./instructions/lead.md;
+      })
+      topics.trivial
+    ];
+  };
+  inherit (instructionsLib)
+    append
+    empty
+    renderLead
+    renderRole
+    ;
+
+  # The profiles' instructions, appended to `instructions` on the hosts that run
+  # them. The factory's agent.md reaches every role there, lead.md only the lead.
+  profiles.factory.instructions = mkInstructions {
+    forAll = [
+      (mkFragment {
+        layer = "context";
+        file = ./profiles/factory/agent.md;
+      })
+    ];
+    forLead = [
+      (mkFragment {
+        layer = "context";
+        file = ./profiles/factory/lead.md;
+      })
+    ];
+  };
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format, even
   # though Claude Code is currently its only consumer.
@@ -45,6 +90,10 @@ in
     {
       name = "skills";
       path = skills.check;
+    }
+    {
+      name = "instructions";
+      path = instructionsLib.check;
     }
     {
       name = "subagents";

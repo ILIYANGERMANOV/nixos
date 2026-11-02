@@ -20,14 +20,23 @@ what it needs the way its tool expects. See
 `docs/adr/0002-agent-agnostic-configuration.md`, which also documents how to add
 a second agent such as Codex.
 
-- `programs/agents/core.md` - what every agent gets, subagent roles included.
-  `trivial.md` and `AGENTS.md` are for the agent leading a session, with
-  `trivial.md` also in `review-lead`. Plain committed markdown, composed into
-  `instructions`.
-- `programs/agents/default.nix` - the shared surface: `instructions`, `skills`,
-  `subagents` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
+- `programs/agents/instructions/agent.md` - what every agent gets, subagent
+  roles included. `lead.md` and `topics/trivial.md` are for the agent leading a
+  session, with `trivial.md` also in `review-lead`. Plain committed markdown.
+- `programs/agents/lib/instructions.nix` - the instructions monoid. `mkFragment
+  { layer; file; }` is one file at a layer: `agent < context < role < topic`;
+  an unknown layer throws. `mkInstructions { forAll; forLead; }` holds two
+  ordered sets, `append` concatenates each keeping the first occurrence, and
+  `empty` is its identity. `renderLead` gives the lead `forAll` and `forLead`,
+  `renderRole` a role `forAll` and its own fragments, both sorted stably by
+  layer. `checks.agents` proves the laws.
+- `programs/agents/profiles/factory/` - the factory's `agent.md` (context, in
+  `forAll`: every factory session and role) and `lead.md` (context, lead only).
+- `programs/agents/default.nix` - the shared surface: `instructions`, the
+  monoid's `append`, `empty`, `renderLead` and `renderRole`,
+  `profiles.factory.instructions`, `skills`, `subagents` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
   inputs as `externalSrcs`.
-- `programs/claude-code/` - installs `instructions` as `~/.claude/CLAUDE.md`,
+- `programs/claude-code/` - installs the lead's render as `~/.claude/CLAUDE.md`,
   the only user-scope memory file Claude Code reads, and renders the subagent
   records. It does **not** read
   `AGENTS.md` at user scope. A project's own `CLAUDE.md` still stacks on top.
@@ -99,8 +108,8 @@ transcripts, never real ones, because this repository is public.
 delegated `engineer` subagents and leans on the factory's PR wakes and
 notifications. It invokes `engineer` with the Skill tool, so `engineer` must
 never set `disable-model-invocation`.
-Instructions work the same way: `baseInstructions` plus per-flavor
-`extraInstructions`, which only `claude-factory` uses.
+Instructions work the same way: `baseInstructions` `append` per-flavor
+`extraInstructions`, which only `claude-factory` uses (the factory profile's).
 
 `nix flake check` - and therefore `just check` in CI - validates every installed
 skill: frontmatter present, `name` matching the installed directory, and a
@@ -136,8 +145,8 @@ Approximate first-call context, factory render, "reply ok" task, measured before
 the last refactor and fixes: reviewer 6.0k, researcher 8.1k, fixer 11.2k,
 review-lead 11.6k, implementer 13.3k.
 
-- A record has `name`, `description`, `instructions` (prose paths; `core.md` goes
-  in front), `capabilities` (`read edit shell web delegate`), `skills`, `tier` and
+- A record has `name`, `description`, `instructions` (role and topic fragments;
+  the renderer puts `forAll` in front), `capabilities` (`read edit shell web delegate`), `skills`, `tier` and
   `effort`. `record.nix` throws on anything unknown, and `checks.agents` proves
   it does: Claude Code ignores a misspelled field, and a misspelled `tools` would
   run the agent with every tool.
@@ -146,7 +155,7 @@ review-lead 11.6k, implementer 13.3k.
   deny list: that inlines every deferred tool. Path-scoped `.claude/rules` still
   load on a Read.
 - **A role has no Skill tool.** `skills:` preloads what it always needs, and
-  `core.md` says invoking a skill means reading its `SKILL.md`. A preload prints
+  `agent.md` says invoking a skill means reading its `SKILL.md`. A preload prints
   its base directory and expands `${CLAUDE_SKILL_DIR}`, but `$ARGUMENTS` becomes
   empty: a preloaded skill must not depend on it.
 - **A role has no root `CLAUDE.md`.** The brief names its checks, and `build.md`
@@ -158,10 +167,10 @@ review-lead 11.6k, implementer 13.3k.
   agents have no role yet and stay `general-purpose`, with the top-level
   instructions and the Skill tool. None needs MCP: add_repo, subscribe, CI waits
   and notifications stay top-level.
-- The factory section is `programs/claude-code/factory-core.md`. `home.file`
+- The factory section is `programs/agents/profiles/factory/agent.md`. `home.file`
   installs `agentFiles` in the shared home profile and `factory.agentFiles`, the
   same records with that section, in the factory's. Install shells copy the
-  renders too, since no Home Manager runs there. `factory-instructions.md` is
+  renders too, since no Home Manager runs there. `profiles/factory/lead.md` is
   what only its top-level sessions need.
 - `~/.claude/agents` is a normal directory. The catalog's role names (`fixer`,
   `implementer`, `review-lead`, `reviewer`, `researcher`) are Nix-owned: a file
@@ -175,7 +184,7 @@ review-lead 11.6k, implementer 13.3k.
   that names a role needs no matching brief.
 
 Trivial tasks spawn no researcher and skip the process skills, by the shared
-definition in `programs/agents/trivial.md`. It keeps skill and instruction edits
+definition in `programs/agents/instructions/topics/trivial.md`. It keeps skill and instruction edits
 out of Trivial unless they are typos, so a change here is never Trivial.
 
 ### Adding a skill

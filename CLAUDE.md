@@ -106,7 +106,7 @@ program needs a flake input.
    `checks` derivation for this system. On Linux that evaluates one host, for
    `software-factory-activation`.
 7. `just check` once on the final state, run as the Checks rules in
-   `programs/agents/AGENTS.md` say. Never after a docs-only edit, and never
+   `programs/agents/instructions/lead.md` say. Never after a docs-only edit, and never
    with a build, lint or test chained in front of it.
 
 ## Dependency Updates

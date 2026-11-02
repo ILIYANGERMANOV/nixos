@@ -13,7 +13,7 @@ Four words, used precisely throughout:
 - **Flavor** - a named wrapper binary around one agent with a fixed
   settings/MCP/skills profile (`claude`, `claude-ts`, `claude-web-ui`). A
   Claude-specific concept; nothing in `programs/agents/` knows the word.
-- **Instructions** - the agent-agnostic prose in `programs/agents/AGENTS.md`,
+- **Instructions** - the agent-agnostic prose in `programs/agents/instructions/`,
   loaded at user scope so it applies in every repository.
 - **Skill** - a `SKILL.md` directory. Agent-agnostic because the format is
   shared, even though Claude Code is currently its only consumer.
@@ -21,8 +21,8 @@ Four words, used precisely throughout:
 ## Why the shared layer does not install anything
 
 `programs/agents/default.nix` exports `instructions`, today composed from
-`core.md`, `trivial.md` and `AGENTS.md` so subagent roles can take the core alone, and stops
-there. The obvious alternative - having it write `~/.claude/CLAUDE.md` and
+`instructions/agent.md`, `instructions/lead.md` and `instructions/topics/trivial.md`
+so subagent roles can take `agent.md` alone, and stops there. The obvious alternative - having it write `~/.claude/CLAUDE.md` and
 `~/.codex/AGENTS.md` itself - fails on the first agent, because Claude Code does
 not read `AGENTS.md` at user scope at all. Its memory loader only ever resolves
 `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` and `.claude/rules/`; every
@@ -105,7 +105,7 @@ layer is kept free of.
 
 - **`~/.claude/CLAUDE.md` is not editable.** Hand-edits and `#` memory writes are
   discarded at the next launch. The file to edit is
-  `programs/agents/AGENTS.md`, followed by a rebuild.
+  `programs/agents/instructions/lead.md`, followed by a rebuild.
 - **The instructions are not enforced.** They tell an agent what to write; no
   check verifies the result, and the existing repository was deliberately not
   swept to match. Mixed punctuation in older files is expected and is not a

@@ -6,13 +6,13 @@
 # typo here could quietly widen what the role may do. Anything unknown throws.
 {
   lib,
-  core,
   skillNames,
 }:
 
 let
   # name, description: what the role is, for whoever spawns it.
-  # instructions: paths of the prose, in order. `core` goes in front of them.
+  # instructions: fragments of its prose and topics (lib/instructions.nix). A
+  # renderer puts the instructions every agent gets in front of them.
   # capabilities: what it may do, from `capabilities` below.
   # skills: catalog skills it starts with loaded.
   # tier, effort: null inherits from whoever spawns it.
@@ -70,6 +70,3 @@ if found != [ ] then
   throw "agent ${spec.name or "?"}: ${lib.concatStringsSep ", " found}"
 else
   record
-  // {
-    instructions = [ core ] ++ spec.instructions;
-  }

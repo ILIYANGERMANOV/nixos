@@ -4,18 +4,26 @@
 {
   pkgs,
   lib ? pkgs.lib,
+  mkFragment,
+  topics,
   skillNames,
-  core,
-  trivial,
 }:
 
 let
-  mkAgent = import ./record.nix { inherit lib core skillNames; };
+  mkAgent = import ./record.nix { inherit lib skillNames; };
+
+  # A role's own prose.
+  role =
+    file:
+    mkFragment {
+      layer = "role";
+      inherit file;
+    };
 
   roles = {
     researcher = {
       description = "Read-only research on one topic. Answers listed questions with bounded reads, writes a notes file and hands back a ranked file:line index. Changes nothing else.";
-      instructions = [ ./researcher.md ];
+      instructions = [ (role ./researcher.md) ];
       capabilities = [
         "read"
         "shell"
@@ -28,8 +36,8 @@ let
     implementer = {
       description = "Implements one slice of a plan, commits and pushes. Splits a large slice across fresh implementers.";
       instructions = [
-        ./implementer.md
-        ./build.md
+        (role ./implementer.md)
+        (role ./build.md)
       ];
       capabilities = [
         "read"
@@ -43,8 +51,8 @@ let
     fixer = {
       description = "Fixes the review rows, failing check or rebase its brief names, and commits. Spawns nobody.";
       instructions = [
-        ./fixer.md
-        ./build.md
+        (role ./fixer.md)
+        (role ./build.md)
       ];
       capabilities = [
         "read"
@@ -58,8 +66,8 @@ let
     review-lead = {
       description = "Runs one pass of pragmatic-review: aims reviewer agents at a diff, judges what they bring back and reports. Changes no code.";
       instructions = [
-        trivial
-        ./review-lead.md
+        (role ./review-lead.md)
+        topics.trivial
       ];
       capabilities = [
         "read"
@@ -71,7 +79,7 @@ let
 
     reviewer = {
       description = "One review agent under a review-lead: reads a diff against its brief and returns findings. Changes nothing.";
-      instructions = [ ./reviewer.md ];
+      instructions = [ (role ./reviewer.md) ];
       capabilities = [
         "read"
         "shell"
