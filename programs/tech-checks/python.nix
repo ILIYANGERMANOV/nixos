@@ -7,10 +7,8 @@ let
   # A path literal, not the flake's `self`: fileset refuses a store path string.
   root = ../..;
 
-  testPython = pkgs.python3.withPackages (ps: [
-    ps.hypothesis
-    ps.pytest
-  ]);
+  # mutmut too, so the mutation runner's tests import what it imports.
+  testPython = (import ../mutation { inherit pkgs; }).python;
 
   pythonSource = lib.fileset.toSource {
     inherit root;
