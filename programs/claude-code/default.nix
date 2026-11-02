@@ -181,8 +181,8 @@ let
   # of the shared ones, and no other host does.
   factoryInstructions = agents.append baseInstructions agents.profiles.factory.instructions;
 
-  agentSources = renderAgents agents.subagents.all baseInstructions;
-  factoryAgentSources = renderAgents agents.subagents.all factoryInstructions;
+  agentSources = renderAgents agents.roles baseInstructions;
+  factoryAgentSources = renderAgents agents.roles factoryInstructions;
 
   # `force`: a dev shell may have installed a plain copy here, see
   # shellActivationScript. Home Manager would keep backing it up, and abort once
@@ -220,7 +220,7 @@ let
         ++ map (skill: "${all.${skill}}/SKILL.md") role.skills
         ++ reads.${name} or [ ];
     in
-    lib.mapAttrs roleLoad agents.subagents.all // { repo-instructions = [ ../../CLAUDE.md ]; };
+    lib.mapAttrs roleLoad agents.roles // { repo-instructions = [ ../../CLAUDE.md ]; };
 
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
   baseInstructionsFile = mkLeadInstructions "agent" baseInstructions;
@@ -344,7 +344,7 @@ rec {
     skillNames = agents.skills.names;
     flavors = packages ++ [ factory.wrapper ];
     inherit baseSkills agentSources factoryAgentSources;
-    roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.subagents.all);
+    roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
     loads = budgetLoads;
     ceilings = ./budget.json;
   };

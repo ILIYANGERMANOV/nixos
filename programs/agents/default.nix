@@ -15,14 +15,13 @@ let
   };
 
   skills = import ./skills { inherit pkgs lib externalSrcs; };
-  subagents = import ./subagents {
-    inherit
-      pkgs
-      lib
-      mkFragment
-      topics
-      ;
+  roleLib = import ./lib/role.nix {
+    inherit pkgs lib;
     skillNames = skills.names;
+  };
+  roles = import ./roles {
+    inherit lib mkFragment topics;
+    inherit (roleLib) mkRole discover;
   };
 in
 {
@@ -81,8 +80,9 @@ in
   # though Claude Code is currently its only consumer.
   inherit skills;
 
-  # The subagent roles, as records. Each agent program renders them its own way.
-  inherit subagents;
+  # The subagent roles, by name, as records. Each agent program renders them its
+  # own way.
+  inherit roles;
 
   # Every build-time check over shared agent config, wired into `nix flake check`
   # as `checks.agents`.
@@ -96,8 +96,8 @@ in
       path = instructionsLib.check;
     }
     {
-      name = "subagents";
-      path = subagents.check;
+      name = "roles";
+      path = builtins.deepSeq roles roleLib.check;
     }
   ];
 }

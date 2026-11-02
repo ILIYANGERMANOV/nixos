@@ -34,7 +34,7 @@ a second agent such as Codex.
   `forAll`: every factory session and role) and `lead.md` (context, lead only).
 - `programs/agents/default.nix` - the shared surface: `instructions`, the
   monoid's `append`, `empty`, `renderLead` and `renderRole`,
-  `profiles.factory.instructions`, `skills`, `subagents` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
+  `profiles.factory.instructions`, `skills`, `roles` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
   inputs as `externalSrcs`.
 - `programs/claude-code/` - installs the lead's render as `~/.claude/CLAUDE.md`,
   the only user-scope memory file Claude Code reads, and renders the subagent
@@ -135,9 +135,10 @@ root `CLAUDE.md` small: detail belongs in a `.claude/rules/` file.
 
 ### Subagents
 
-**`programs/agents/subagents/default.nix` holds one `mkAgent` record per role, and
-nothing there names a harness. `programs/claude-code/agents.nix` renders them.
-Adding a role is one record and its prose.**
+**`programs/agents/roles/<name>/` holds one role: `role.nix`, its record, and
+`role.md`, its prose. Nothing there names a harness.
+`programs/claude-code/agents.nix` renders them. Adding a role is adding its
+folder.**
 
 A spawned general-purpose agent starts at about 43k tokens, 18k of that MCP
 schemas no subagent uses. A role starts far lower, so flows spawn them freely.
@@ -145,11 +146,21 @@ Approximate first-call context, factory render, "reply ok" task, measured before
 the last refactor and fixes: reviewer 6.0k, researcher 8.1k, fixer 11.2k,
 review-lead 11.6k, implementer 13.3k.
 
+- `roles/default.nix` finds every folder with `builtins.readDir`; `shared/` is
+  not a role. A `role.nix` is a function of `{ role, topics }` returning a plain
+  record; its name is the folder's.
 - A record has `name`, `description`, `instructions` (role and topic fragments;
   the renderer puts `forAll` in front), `capabilities` (`read edit shell web delegate`), `skills`, `tier` and
-  `effort`. `record.nix` throws on anything unknown, and `checks.agents` proves
-  it does: Claude Code ignores a misspelled field, and a misspelled `tools` would
-  run the agent with every tool.
+  `effort`. `mkRole` in `lib/role.nix` throws on anything unknown, and
+  `checks.agents` proves it does, and that discovery skips `shared/`: Claude
+  Code ignores a misspelled field, and a misspelled `tools` would run the agent
+  with every tool.
+- **The ladder.** A role reads only its own folder and any `shared/` at or above
+  it, never another role (Deslop `roles-climb-the-ladder`). Prose moves to
+  `shared/` at its second reader, never in anticipation, and back out when one
+  is left: `shared/building.md` serves `implementer` and `fixer`. Nothing in
+  `programs/agents` may reach `programs/claude-code`, `opencode` or `codex`,
+  even through another program (`agents-name-no-vendor`).
 - The renderer turns capabilities into a `tools:` allowlist, which also removes
   MCP and the Skill listing, and sets `omitClaudeMd`. Never add `ToolSearch` to a
   deny list: that inlines every deferred tool. Path-scoped `.claude/rules` still
@@ -158,7 +169,7 @@ review-lead 11.6k, implementer 13.3k.
   `agent.md` says invoking a skill means reading its `SKILL.md`. A preload prints
   its base directory and expands `${CLAUDE_SKILL_DIR}`, but `$ARGUMENTS` becomes
   empty: a preloaded skill must not depend on it.
-- **A role has no root `CLAUDE.md`.** The brief names its checks, and `build.md`
+- **A role has no root `CLAUDE.md`.** The brief names its checks, and `building.md`
   and the house-rules brief read the repo's file on demand.
 - A role gets `delegate` only if its flow spawns agents: `implementer` splits a
   large slice and `review-lead` spawns `reviewer`s. `fixer` and `reviewer` spawn
@@ -179,7 +190,7 @@ review-lead 11.6k, implementer 13.3k.
 - `checks.claude-config` holds the renders to this: known fields only, a `tools`
   list with no MCP, every preload in `baseSkills`, the factory section in the
   factory's render alone, and each role under its ceiling. A new documented field
-  goes in its list and in `record.nix`.
+  goes in its list and in `lib/role.nix`.
 - `self-improve` names a role's loop step from its agent type, so a spawn site
   that names a role needs no matching brief.
 
