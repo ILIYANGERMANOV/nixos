@@ -25,6 +25,12 @@ from itertools import dropwhile
 from pathlib import Path
 from typing import Literal, assert_never, cast
 
+import libcst as cst
+from libcst.metadata import MetadataWrapper, PositionProvider
+from mutmut.mutation.diff_apply import get_diff_for_mutant
+from mutmut.stats import status_by_exit_code
+from mutmut.utils.format_utils import orig_function_and_class_names_from_key
+
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 
@@ -203,7 +209,10 @@ def changed_lines(diff: str) -> dict[str, tuple[LineRange, ...]]:
                 body_left = line_count(old_count) + added
                 if added > 0:
                     first = int(new_start)
-                    changed[path] = (*changed.get(path, ()), LineRange(first, first + added - 1))
+                    changed[path] = (
+                        *changed.get(path, ()),
+                        LineRange(first, first + added - 1),
+                    )
             case _:
                 pass
     return changed
@@ -251,7 +260,9 @@ def mutation_diff(
         tool=tool,
         head=head,
         base=base,
-        totals={status: sum(m.status == status for m in selected) for status in STATUSES},
+        totals={
+            status: sum(m.status == status for m in selected) for status in STATUSES
+        },
         listed=tuple(
             sorted(
                 (m for m in selected if m.status in LISTED),
@@ -294,7 +305,9 @@ def render_markdown(report: Report) -> str:
     each of its lines starting with `@@`, `-` or `+`, so none can close the fence.
     """
     scope_line = (
-        f"the lines changed since `{report.base[:7]}`" if report.base else "every mutated line"
+        f"the lines changed since `{report.base[:7]}`"
+        if report.base
+        else "every mutated line"
     )
     intro = f"**Mutation diff** (advisory): {scope_line}, at `{report.head[:7]}`.\n"
     if not report.assessed:
@@ -323,7 +336,7 @@ def fenced(sign: str, code: str) -> list[str]:
 
 
 # Control and line-separator characters, which could end a fenced line.
-UNSAFE = re.compile("[\x00-\x1f\x7f\x85  ]")
+UNSAFE = re.compile("[\x00-\x1f\x7f\x85\u2028\u2029]")
 
 
 def one_line(text: str) -> str:
@@ -331,7 +344,9 @@ def one_line(text: str) -> str:
 
 
 def tool() -> str:
-    package = cast("dict[str, dict[str, str]]", json.loads((TS_ROOT / "package.json").read_text()))
+    package = cast(
+        "dict[str, dict[str, str]]", json.loads((TS_ROOT / "package.json").read_text())
+    )
     stryker = package["devDependencies"]["@stryker-mutator/core"]
     return f"mutmut {version('mutmut')} + StrykerJS {stryker}"
 
@@ -341,8 +356,13 @@ def tool() -> str:
 
 def python_mutants(modules: Sequence[str], shfmt: str) -> list[Mutant]:
     build_scratch(PYTHON_SCRATCH, shfmt)
-    run([sys.executable, "-m", "mutmut", "run", *(f"{m}.*" for m in modules)], PYTHON_SCRATCH)
-    return [mutant for module in modules for mutant in read_mutmut(PYTHON_SCRATCH, module)]
+    run(
+        [sys.executable, "-m", "mutmut", "run", *(f"{m}.*" for m in modules)],
+        PYTHON_SCRATCH,
+    )
+    return [
+        mutant for module in modules for mutant in read_mutmut(PYTHON_SCRATCH, module)
+    ]
 
 
 # Hypothesis' deadline would time the trampoline mutmut wraps every function in,
@@ -374,12 +394,17 @@ def build_scratch(scratch: Path, shfmt: str) -> None:
     for path in PYTHON_TEST_SUPPORT:
         _ = shutil.copy(path, tests)
     _ = (tests / "conftest.py").write_text(CONFTEST)
-    _ = (scratch / "pyproject.toml").write_text(scratch_pyproject(Path("pyproject.toml").read_text()))
+    _ = (scratch / "pyproject.toml").write_text(
+        scratch_pyproject(Path("pyproject.toml").read_text())
+    )
 
 
 def scratch_pyproject(repository_pyproject: str) -> str:
     """The repository's pytest options, under the mutation profile, for the flat copy."""
-    pytest = cast("dict[str, dict[str, dict[str, str]]]", tomllib.loads(repository_pyproject))
+    pytest = cast(
+        "dict[str, dict[str, dict[str, dict[str, str]]]]",
+        tomllib.loads(repository_pyproject),
+    )
     addopts = pytest["tool"]["pytest"]["ini_options"]["addopts"]
     return f"""\
 [tool.pytest.ini_options]
@@ -395,11 +420,6 @@ pytest_add_cli_args_test_selection = ["tests"]
 
 def read_mutmut(scratch: Path, module: str) -> list[Mutant]:
     """Each mutant of `module` from mutmut's results, located in its source."""
-    # Imported here: only the runner's Python has mutmut, not the scripts'.
-    from mutmut.mutation.diff_apply import get_diff_for_mutant  # noqa: PLC0415
-    from mutmut.stats import status_by_exit_code  # noqa: PLC0415
-    from mutmut.utils.format_utils import orig_function_and_class_names_from_key  # noqa: PLC0415
-
     path = PYTHON_MODULES[module]
     meta = cast(
         "dict[str, dict[str, int | None]]",
@@ -410,9 +430,14 @@ def read_mutmut(scratch: Path, module: str) -> list[Mutant]:
     with chdir(scratch):
         for name, exit_code in meta["exit_code_by_key"].items():
             function, cls = orig_function_and_class_names_from_key(name)
-            span = mutmut_span(get_diff_for_mutant(name, path=f"src/{module}.py"), starts[cls, function])
+            span = mutmut_span(
+                get_diff_for_mutant(name, path=f"src/{module}.py"),
+                starts[cls, function],
+            )
             status = mutmut_status(status_by_exit_code[exit_code])
-            mutants.append(Mutant(path, span.lines, status, name, span.original, span.replacement))
+            mutants.append(
+                Mutant(path, span.lines, status, name, span.original, span.replacement)
+            )
     return mutants
 
 
@@ -422,18 +447,22 @@ def function_lines(source: str) -> dict[tuple[str | None, str], int]:
     mutmut prints a function as libcst holds it, stripped: from the first comment
     directly above it, else its first decorator, else its `def`.
     """
-    import libcst as cst  # noqa: PLC0415
-    from libcst.metadata import MetadataWrapper, PositionProvider  # noqa: PLC0415
-
     wrapper = MetadataWrapper(cst.parse_module(source))
     positions = wrapper.resolve(PositionProvider)
 
     def first_line(function: cst.FunctionDef) -> int:
-        comments = list(dropwhile(lambda line: line.comment is None, function.leading_lines))
-        return positions[function].start.line - len(comments)
+        comments = list(
+            dropwhile(lambda line: line.comment is None, function.leading_lines)
+        )
+        first = function.decorators[0] if function.decorators else function
+        return positions[first].start.line - len(comments)
 
     body = wrapper.module.body
-    top = {(None, node.name.value): first_line(node) for node in body if isinstance(node, cst.FunctionDef)}
+    top: dict[tuple[str | None, str], int] = {
+        (None, node.name.value): first_line(node)
+        for node in body
+        if isinstance(node, cst.FunctionDef)
+    }
     methods = {
         (cls.name.value, node.name.value): first_line(node)
         for cls in body
@@ -469,7 +498,9 @@ def mutmut_span(diff: str, function_line: int) -> MutmutSpan:
     removed = [line[1:].strip() for line in body if line.startswith("-")]
     added = [line[1:].strip() for line in body if line.startswith("+")]
     first = function_line + hunk_line - 1 + context
-    return MutmutSpan(LineRange(first, first + len(removed) - 1), "\n".join(removed), "\n".join(added))
+    return MutmutSpan(
+        LineRange(first, first + len(removed) - 1), "\n".join(removed), "\n".join(added)
+    )
 
 
 def mutmut_status(status: str) -> Status:
@@ -536,9 +567,13 @@ def stryker_mutant(path: str, source: str, mutant: Json) -> Mutant:
         }:
             lines = LineRange(start_line, end_line)
             original = span_text(source, lines, start_column, end_column)
-            return Mutant(path, lines, stryker_status(status), operator, original, replacement)
+            return Mutant(
+                path, lines, stryker_status(status), operator, original, replacement
+            )
         case _:
-            raise RunFailedError(f"a mutant of {path} that Stryker's schema does not have")
+            raise RunFailedError(
+                f"a mutant of {path} that Stryker's schema does not have"
+            )
 
 
 def span_text(source: str, lines: LineRange, start_column: int, end_column: int) -> str:
@@ -574,7 +609,9 @@ def run(argv: Sequence[str], cwd: Path) -> None:
     with LOG.open("a") as log:
         _ = log.write(f"$ {' '.join(argv)}\n")
         log.flush()
-        result = subprocess.run(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, check=False)
+        result = subprocess.run(
+            argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, check=False
+        )
     if result.returncode != 0:
         raise RunFailedError(f"`{' '.join(argv)}` exited {result.returncode}")
 
