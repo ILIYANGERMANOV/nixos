@@ -28,7 +28,8 @@ Read the current checkout unless told otherwise.
   only. A question that only feeds understanding counts: name "the user's
   understanding" as its decision.
 - **External facts** (libraries, APIs, products, versions, standards): verify
-  them, never answer from memory. One known page: fetch it yourself.
+  them, never answer from memory. Look for the standards, formal or de facto,
+  that apply. One known page: fetch it yourself.
 - **A PR number or URL**: `gh pr view <n>`, `gh pr diff <n>`. **"This branch" or
   "the diff"**: diff against `git merge-base HEAD origin/main`. Read it inline
   if small, then the code around it. If big, a read-only `researcher` agent
