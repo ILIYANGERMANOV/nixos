@@ -162,6 +162,7 @@ def test_killed_and_skipped_mutants_are_counted_but_not_listed() -> None:
 
     report = mutation_diff(mutants, CHANGED, tool="t", head="h", base="b")
 
+    assert (report.totals["killed"], report.totals["skipped"]) == (1, 1)
     assert report.listed == ()
 
 
