@@ -130,9 +130,8 @@ declare them.
 **`programs/agents/` is the vendor-free frontend; each agent's own program is a
 thin backend.**
 
-Details: `.claude/rules/agents-frontend.md`, `agents-backend.md` and
-`claude-code.md`, loaded under `programs/agents` and `programs/claude-code`;
-why: `docs/adr/0011-agent-compiler.md`.
+Details: `.claude/rules/agents-*.md` and `claude-code-*.md`, each loaded only
+under the folder it covers; why: `docs/adr/0011-agent-compiler.md`.
 
 ## Software factory
 

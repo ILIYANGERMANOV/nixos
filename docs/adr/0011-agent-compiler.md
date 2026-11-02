@@ -60,8 +60,9 @@ programs/<vendor>  default.nix: flavors (profile list + vendor settings)
 
 - A new vendor is `programs/<vendor>/{default.nix,codegen,link,load}` and
   `adapters/<vendor>.nix`; `programs/agents` does not change.
-- `.claude/rules/agents-frontend.md`, `agents-backend.md` and `claude-code.md`
-  hold the working detail, path-scoped.
+- `.claude/rules/agents-*.md`, `claude-code-*.md` and `qa.md` hold the
+  working detail, one rule per folder, so an agent loads only the rules for
+  what it is working on.
 
 Follow-ups, not done:
 
