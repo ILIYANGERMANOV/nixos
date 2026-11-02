@@ -18,6 +18,29 @@
 }:
 
 let
+  mkProfile =
+    spec:
+    let
+      unknown = lib.subtractLists (lib.attrNames fields) (lib.attrNames spec);
+      profile = empty // spec // { skills = lib.unique (spec.skills or [ ]); };
+      unknownSkills = lib.subtractLists skillNames profile.skills;
+    in
+    if unknown != [ ] then
+      throw "profile: unknown field(s) ${toString unknown}"
+    else if unknownSkills != [ ] then
+      throw "profile: ${toString unknownSkills} not in the skill catalog"
+    else
+      profile;
+
+  empty = {
+    skills = [ ];
+    instructions = instructions.empty;
+  };
+
+  append = a: b: lib.mapAttrs (field: combine: combine a.${field} b.${field}) fields;
+
+  fold = lib.foldl' append empty;
+
   # How each field combines. skills: catalog skill names. instructions: a value
   # of lib/instructions.nix.
   fields = {
@@ -41,29 +64,6 @@ let
       a // b
     else
       throw "profile: ${lib.concatStringsSep ", " conflicts} set to two different values";
-
-  mkProfile =
-    spec:
-    let
-      unknown = lib.subtractLists (lib.attrNames fields) (lib.attrNames spec);
-      profile = empty // spec // { skills = lib.unique (spec.skills or [ ]); };
-      unknownSkills = lib.subtractLists skillNames profile.skills;
-    in
-    if unknown != [ ] then
-      throw "profile: unknown field(s) ${toString unknown}"
-    else if unknownSkills != [ ] then
-      throw "profile: ${toString unknownSkills} not in the skill catalog"
-    else
-      profile;
-
-  empty = {
-    skills = [ ];
-    instructions = instructions.empty;
-  };
-
-  append = a: b: lib.mapAttrs (field: combine: combine a.${field} b.${field}) fields;
-
-  fold = lib.foldl' append empty;
 
   # Laws, over profiles sharing a skill and a fragment, plus the throws.
   check =

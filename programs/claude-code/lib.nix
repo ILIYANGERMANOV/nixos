@@ -18,8 +18,8 @@ let
   secretGuard = import ./secret-guard.nix { inherit pkgs; };
 
   # Binds one Claude Code configuration - the settings and MCP catalog authored
-  # in default.nix - and returns the function that turns an
-  # attrset of flavors into their wrapper derivations.
+  # in default.nix - and returns the function that turns an attrset of flavors
+  # into their wrapper derivations.
   #
   # Everything derived from that configuration is computed once, here, rather
   # than per flavor: the catalog is filtered against this host's secrets exactly

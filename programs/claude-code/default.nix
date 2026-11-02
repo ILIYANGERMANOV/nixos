@@ -1,7 +1,8 @@
 # The Claude Code configuration itself: settings, the MCP catalog and the
-# flavors, each the programs/agents profiles it gets plus Claude settings. Everything mechanical - merging,
-# resolving secrets, writing the wrappers - lives in lib.nix, so adding a server
-# or a flavor is a change to this file alone.
+# flavors, each the programs/agents profiles it gets plus Claude settings.
+# Everything mechanical - merging, resolving secrets, writing the wrappers -
+# lives in lib.nix, so adding a server or a flavor is a change to this file
+# alone.
 {
   pkgs,
   lib ? pkgs.lib,
@@ -323,7 +324,7 @@ rec {
     hiddenSkills = lib.attrNames skillOverrides;
     skillNames = agents.skills.names;
     flavors = packages ++ [ factory.wrapper ];
-    baseProfileSkills = base.skills;
+    baseProfileSkills = baseProfile.skills;
     inherit agentSources factoryAgentSources;
     roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
     loads = budgetLoads;
