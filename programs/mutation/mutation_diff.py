@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from importlib.metadata import version
 from itertools import dropwhile
 from pathlib import Path
-from typing import Literal, assert_never, cast
+from typing import ClassVar, Literal, assert_never, cast
 
 import libcst as cst
 from libcst.metadata import MetadataWrapper, PositionProvider
@@ -59,9 +59,9 @@ TS_ROOT = Path("programs/playwright")
 TS_FILES = ("kit/index.ts", "wallet/index.ts")
 
 NOT_ASSESSED = (
-    "Not assessed: this diff adds or edits no line of the mutated logic, the six "
-    "Python modules and the /qa wallet and kit. Deleted lines, tests, shell and Nix "
-    "are not mutated, so this says nothing about the tests."
+    "Not assessed: this diff adds or edits no line of the mutated logic, the "
+    f"{len(PYTHON_MODULES)} Python modules and the /qa wallet and kit. Deleted lines, "
+    "tests, shell and Nix are not mutated, so this says nothing about the tests."
 )
 
 type Status = Literal["killed", "survived", "uncovered", "timedOut", "skipped"]
@@ -96,18 +96,10 @@ class Mutant:
 
 
 @dataclass(frozen=True, slots=True)
-class Report:
-    tool: str
-    head: str
-    base: str
-    totals: Mapping[Status, int]
-    listed: tuple[Mutant, ...]
-    assessed: bool
-
-
-@dataclass(frozen=True, slots=True)
 class Diff:
-    base_ref: str
+    """The lines changed since `base`: the user's ref, the merge-base once resolved."""
+
+    base: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,24 +110,50 @@ class Full:
 type Mode = Diff | Full
 
 
+@dataclass(frozen=True, slots=True)
+class Assessed:
+    totals: Mapping[Status, int]
+    listed: tuple[Mutant, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NotAssessed:
+    """No changed line lies in a mutated file, so no mutant was selected."""
+
+    sentence: ClassVar[str] = NOT_ASSESSED
+
+
+type Outcome = Assessed | NotAssessed
+
+
+@dataclass(frozen=True, slots=True)
+class Report:
+    tool: str
+    head: str
+    mode: Mode
+    outcome: Outcome
+
+
 class RunFailedError(Exception):
     """A tool failed, or gave no result where one was due."""
 
 
 def main(argv: Sequence[str]) -> int:
-    mode = parse_mode(argv)
+    requested = parse_mode(argv)
     shfmt = os.environ["SHFMT"]
     os.chdir(git("rev-parse", "--show-toplevel"))
     head = git("rev-parse", "HEAD")
-    match mode:
-        case Diff(base_ref):
-            base = git("merge-base", base_ref, "HEAD")
+    mode: Mode
+    match requested:
+        case Diff(ref):
+            base = git("merge-base", ref, "HEAD")
+            mode = Diff(base)
             changed = checkout_changes(base)
         case Full():
-            base = ""
+            mode = requested
             changed = dict.fromkeys(scope(), (WHOLE_FILE,))
         case _:
-            assert_never(mode)
+            assert_never(requested)
 
     OUT_DIR.mkdir(exist_ok=True)
     _ = LOG.write_text("")
@@ -146,7 +164,7 @@ def main(argv: Sequence[str]) -> int:
         print(f"Mutation testing failed: {failure}. See {LOG}", file=sys.stderr)
         return 1
 
-    report = mutation_diff(mutants, changed, tool=tool(), head=head, base=base)
+    report = mutation_diff(mutants, changed, tool=tool(), head=head, mode=mode)
     markdown = render_markdown(report)
     json_path = OUT_DIR / "mutation-diff.json"
     _ = json_path.write_text(json.dumps(report_json(report), indent=2) + "\n")
@@ -158,8 +176,8 @@ def main(argv: Sequence[str]) -> int:
 
 def parse_mode(argv: Sequence[str]) -> Mode:
     match argv:
-        case ["diff", base_ref]:
-            return Diff(base_ref)
+        case ["diff", ref]:
+            return Diff(ref)
         case ["full"]:
             return Full()
         case _:
@@ -248,18 +266,26 @@ def run_tools(changed: ChangedLines, shfmt: str) -> list[Mutant]:
 
 
 def mutation_diff(
-    mutants: Iterable[Mutant], changed: ChangedLines, *, tool: str, head: str, base: str
+    mutants: Iterable[Mutant],
+    changed: ChangedLines,
+    *,
+    tool: str,
+    head: str,
+    mode: Mode,
 ) -> Report:
+    return Report(tool=tool, head=head, mode=mode, outcome=outcome(mutants, changed))
+
+
+def outcome(mutants: Iterable[Mutant], changed: ChangedLines) -> Outcome:
     """The mutants whose span overlaps a changed line, counted and listed."""
+    if not any(path in changed for path in scope()):
+        return NotAssessed()
     selected = [
         mutant
         for mutant in mutants
         if any(overlaps(mutant.span, lines) for lines in changed.get(mutant.file, ()))
     ]
-    return Report(
-        tool=tool,
-        head=head,
-        base=base,
+    return Assessed(
         totals={
             status: sum(m.status == status for m in selected) for status in STATUSES
         },
@@ -269,7 +295,6 @@ def mutation_diff(
                 key=lambda m: (m.file, m.span.first),
             )
         ),
-        assessed=any(path in changed for path in scope()),
     )
 
 
@@ -279,12 +304,20 @@ def overlaps(a: LineRange, b: LineRange) -> bool:
 
 def report_json(report: Report) -> Json:
     """`mutation-diff.json`, schema 1 of the mutation diff contract."""
+    match report.outcome:
+        case Assessed(totals, listed):
+            not_assessed = ""
+        case NotAssessed():
+            totals, listed = dict.fromkeys(STATUSES, 0), ()
+            not_assessed = NotAssessed.sentence
+        case _:
+            assert_never(report.outcome)
     return {
         "schema": 1,
         "tool": report.tool,
         "head": report.head,
-        "base": report.base,
-        "totals": {"mutants": sum(report.totals.values()), **report.totals},
+        "base": json_base(report.mode),
+        "totals": {"mutants": sum(totals.values()), **totals},
         "mutants": [
             {
                 "file": m.file,
@@ -294,35 +327,54 @@ def report_json(report: Report) -> Json:
                 "original": m.original,
                 "replacement": m.replacement,
             }
-            for m in report.listed
+            for m in listed
         ],
-        "notAssessed": "" if report.assessed else NOT_ASSESSED,
+        "notAssessed": not_assessed,
     }
+
+
+def json_base(mode: Mode) -> str:
+    match mode:
+        case Diff(base):
+            return base
+        case Full():
+            return ""
+        case _:
+            assert_never(mode)
 
 
 def render_markdown(report: Report) -> str:
     """The compact report. Every repository-derived string sits in one diff fence,
     each of its lines starting with `@@`, `-` or `+`, so none can close the fence.
     """
-    scope_line = (
-        f"the lines changed since `{report.base[:7]}`"
-        if report.base
-        else "every mutated line"
-    )
+    match report.mode:
+        case Diff(base):
+            scope_line = f"the lines changed since `{base[:7]}`"
+        case Full():
+            scope_line = "every mutated line"
+        case _:
+            assert_never(report.mode)
     intro = f"**Mutation diff** (advisory): {scope_line}, at `{report.head[:7]}`.\n"
-    if not report.assessed:
-        return f"{intro}\n{NOT_ASSESSED}\n"
-    t = report.totals
+    match report.outcome:
+        case Assessed(totals, listed):
+            return f"{intro}\n{assessed_markdown(totals, listed)}"
+        case NotAssessed():
+            return f"{intro}\n{NotAssessed.sentence}\n"
+        case _:
+            assert_never(report.outcome)
+
+
+def assessed_markdown(t: Mapping[Status, int], listed: tuple[Mutant, ...]) -> str:
     table = (
         "| Mutants | Killed | Survived | Uncovered | Timed out | Skipped |\n"
         "| --- | --- | --- | --- | --- | --- |\n"
         f"| {sum(t.values())} | {t['killed']} | {t['survived']} | {t['uncovered']} "
         f"| {t['timedOut']} | {t['skipped']} |\n"
     )
-    if not report.listed:
-        return f"{intro}\n{table}"
-    blocks = "".join(mutant_block(m) for m in report.listed)
-    return f"{intro}\n{table}\n```diff\n{blocks}```\n"
+    if not listed:
+        return table
+    blocks = "".join(mutant_block(m) for m in listed)
+    return f"{table}\n```diff\n{blocks}```\n"
 
 
 def mutant_block(mutant: Mutant) -> str:

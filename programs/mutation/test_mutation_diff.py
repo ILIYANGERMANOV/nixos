@@ -7,9 +7,13 @@ from hypothesis import given
 from hypothesis import strategies as st
 from mutation_diff import (
     NOT_ASSESSED,
+    Assessed,
+    Diff,
+    Full,
     Json,
     LineRange,
     Mutant,
+    Report,
     RunFailedError,
     Status,
     changed_lines,
@@ -129,6 +133,11 @@ def mutant(file: str, line: int, status: Status, last: int | None = None) -> Mut
     return Mutant(file, LineRange(line, last or line), status, "Op", "a < b", "a <= b")
 
 
+def assessed(report: Report) -> Assessed:
+    assert isinstance(report.outcome, Assessed)
+    return report.outcome
+
+
 CHANGED = {DISK_PLAN: (LineRange(10, 12),), KIT: (LineRange(5, 5),)}
 
 
@@ -142,16 +151,16 @@ def test_only_mutants_overlapping_a_changed_line_are_counted() -> None:
         mutant("programs/claude-code/hook_event.py", 10, "survived"),
     ]
 
-    report = mutation_diff(mutants, CHANGED, tool="t", head="h", base="b")
+    report = mutation_diff(mutants, CHANGED, tool="t", head="h", mode=Diff("b"))
 
-    assert report.totals == {
+    assert assessed(report).totals == {
         "killed": 1,
         "survived": 1,
         "uncovered": 1,
         "timedOut": 0,
         "skipped": 0,
     }
-    assert [(m.file, m.span.first) for m in report.listed] == [
+    assert [(m.file, m.span.first) for m in assessed(report).listed] == [
         (KIT, 5),
         (DISK_PLAN, 12),
     ]
@@ -160,10 +169,13 @@ def test_only_mutants_overlapping_a_changed_line_are_counted() -> None:
 def test_killed_and_skipped_mutants_are_counted_but_not_listed() -> None:
     mutants = [mutant(DISK_PLAN, 10, "killed"), mutant(DISK_PLAN, 11, "skipped")]
 
-    report = mutation_diff(mutants, CHANGED, tool="t", head="h", base="b")
+    report = mutation_diff(mutants, CHANGED, tool="t", head="h", mode=Diff("b"))
 
-    assert (report.totals["killed"], report.totals["skipped"]) == (1, 1)
-    assert report.listed == ()
+    assert (assessed(report).totals["killed"], assessed(report).totals["skipped"]) == (
+        1,
+        1,
+    )
+    assert assessed(report).listed == ()
 
 
 def test_the_json_is_schema_1_with_every_contract_key() -> None:
@@ -172,7 +184,7 @@ def test_the_json_is_schema_1_with_every_contract_key() -> None:
         CHANGED,
         tool="mutmut + StrykerJS",
         head="f" * 40,
-        base="e" * 40,
+        mode=Diff("e" * 40),
     )
 
     assert report_json(report) == {
@@ -202,9 +214,30 @@ def test_the_json_is_schema_1_with_every_contract_key() -> None:
     }
 
 
+def test_a_full_report_has_an_empty_base_in_the_json() -> None:
+    report = mutation_diff([], CHANGED, tool="t", head="h", mode=Full())
+
+    assert report_json(report) == {
+        "schema": 1,
+        "tool": "t",
+        "head": "h",
+        "base": "",
+        "totals": {
+            "mutants": 0,
+            "killed": 0,
+            "survived": 0,
+            "uncovered": 0,
+            "timedOut": 0,
+            "skipped": 0,
+        },
+        "mutants": [],
+        "notAssessed": "",
+    }
+
+
 def test_a_diff_outside_the_mutated_files_is_not_assessed() -> None:
     report = mutation_diff(
-        [], {"README.md": (LineRange(1, 3),)}, tool="t", head="h", base="b"
+        [], {"README.md": (LineRange(1, 3),)}, tool="t", head="h", mode=Diff("b")
     )
 
     assert report_json(report) == {
@@ -226,6 +259,60 @@ def test_a_diff_outside_the_mutated_files_is_not_assessed() -> None:
     assert NOT_ASSESSED in render_markdown(report)
 
 
+def test_a_diff_report_renders_its_base_head_totals_and_mutants() -> None:
+    report = mutation_diff(
+        [mutant(KIT, 5, "survived"), mutant(DISK_PLAN, 10, "killed")],
+        CHANGED,
+        tool="t",
+        head="1234567" + "f" * 33,
+        mode=Diff("abcdef0" + "e" * 33),
+    )
+
+    assert (
+        render_markdown(report)
+        == f"""\
+**Mutation diff** (advisory): the lines changed since `abcdef0`, at `1234567`.
+
+| Mutants | Killed | Survived | Uncovered | Timed out | Skipped |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 1 | 1 | 0 | 0 | 0 |
+
+```diff
+@@ survived {KIT}:5 Op @@
+- a < b
++ a <= b
+```
+"""
+    )
+
+
+def test_a_full_report_renders_every_mutated_line_and_its_totals() -> None:
+    report = mutation_diff(
+        [mutant(DISK_PLAN, 3, "killed"), mutant(KIT, 7, "timedOut")],
+        {DISK_PLAN: (LineRange(1, 99),), KIT: (LineRange(1, 99),)},
+        tool="t",
+        head="1234567" + "f" * 33,
+        mode=Full(),
+    )
+
+    assert (
+        render_markdown(report)
+        == f"""\
+**Mutation diff** (advisory): every mutated line, at `1234567`.
+
+| Mutants | Killed | Survived | Uncovered | Timed out | Skipped |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 1 | 0 | 0 | 1 | 0 |
+
+```diff
+@@ timedOut {KIT}:7 Op @@
+- a < b
++ a <= b
+```
+"""
+    )
+
+
 def fence(markdown: str) -> list[str]:
     """The lines a markdown viewer shows inside the diff fence: up to the first
     line that is a closing fence, as CommonMark reads it."""
@@ -240,7 +327,9 @@ def test_the_markdown_lists_each_mutant_with_its_place_and_both_sides() -> None:
     hostile = Mutant(
         KIT, LineRange(5, 6), "survived", "Op\n```", "a\n```\n<b>", "x\u2028y"
     )
-    report = mutation_diff([hostile], CHANGED, tool="t", head="h" * 40, base="b" * 40)
+    report = mutation_diff(
+        [hostile], CHANGED, tool="t", head="h" * 40, mode=Diff("b" * 40)
+    )
 
     markdown = render_markdown(report)
 
@@ -260,7 +349,7 @@ def test_every_fenced_line_starts_with_a_diff_marker(text: str) -> None:
         CHANGED,
         tool="t",
         head="h",
-        base="b",
+        mode=Diff("b"),
     )
 
     assert all(line[:1] in {"@", "-", "+"} for line in fence(render_markdown(report)))
