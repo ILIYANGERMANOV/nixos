@@ -8,6 +8,10 @@ export default {
   plugins: [import.meta.resolve("@stryker-mutator/vitest-runner")],
   ignoreStatic: true,
   incremental: true,
+  // A file that does not exist, so Stryker leaves tsconfig.json alone: it would
+  // import `typescript` to rewrite its paths, which this one needs no rewrite of
+  // and which the lock file must not hold (see default.nix).
+  tsconfigFile: "no-tsconfig-to-rewrite.json",
   // Advisory: a score is reported, never enforced.
   thresholds: { high: 90, low: 80, break: null },
   reporters: ["json", "progress-append-only"],
