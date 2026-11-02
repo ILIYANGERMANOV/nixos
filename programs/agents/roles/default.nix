@@ -15,7 +15,7 @@
 }:
 
 let
-  # A role's own prose.
+  # A role's prose, from its own folder or shared/.
   role =
     file:
     mkFragment {
