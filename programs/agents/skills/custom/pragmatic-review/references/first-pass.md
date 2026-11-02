@@ -28,7 +28,7 @@ With a PR argument, fetch it instead of reading the working tree: set `BASE` to
 `HEAD_SHA=$(git rev-parse FETCH_HEAD)`, diff `"$MB" "$HEAD_SHA"`, and write an
 empty `status`. Also read `gh pr view <n> --json title,body,comments,reviews,commits`.
 
-**Mutation report**, for the tests agent. With a PR (the argument, or the
+**Mutation report**, for the tests agent or breaker. With a PR (the argument, or the
 branch's own from `gh pr view`), take the run id from the newest comment
 holding `<!-- mutation-report -->`. Only when `gh run view <id> --json headSha`
 equals `$HEAD_SHA`, run `gh run download <id> -n mutation-diff -D "$D/mutation"`.
@@ -205,7 +205,7 @@ absolute path of `engineering`'s `references/tests.md`: this skill's base
 directory with `pragmatic-review` replaced by `engineering`, never a `..`
 path, which does not resolve between installed skills, and
 `$D/mutation/mutation-diff.json` or `no mutant data: <stale|missing>`. The
-breaker gets both paths too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
+breaker gets that `tests.md` path and mutation input too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
 
 **Regressions brief**, pasted:
 

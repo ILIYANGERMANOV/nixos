@@ -144,8 +144,8 @@ Every ❌ is also a row, Major by default.
 > lives in another repo the agent could not read.
 
 **The security line**, one line, from the blockers agent's `checked` line or
-your own sweep: `Security: <tier> - <what was checked>`. With a tests agent,
-one more under it: `Mutants: CI report at <sha7>` or `Mutants: no data
+your own sweep: `Security: <tier> - <what was checked>`. With a tests agent or
+breaker, one more under it: `Mutants: CI report at <sha7>` or `Mutants: no data
 (<stale|missing>) - tests reviewed by reading`.
 
 > Security: sensitive (DEEP) - sweep clean; 2 workflows checked for pwn
