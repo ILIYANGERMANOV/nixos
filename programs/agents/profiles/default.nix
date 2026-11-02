@@ -10,13 +10,19 @@
   mkFragment,
   mkInstructions,
   topics,
+  qa,
 }:
 
 lib.mapAttrs (
   name: _:
   mkProfile (
     import ./${name}/profile.nix {
-      inherit mkFragment mkInstructions topics;
+      inherit
+        mkFragment
+        mkInstructions
+        topics
+        qa
+        ;
     }
   )
 ) (lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./.))

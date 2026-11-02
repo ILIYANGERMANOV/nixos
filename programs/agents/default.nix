@@ -2,16 +2,25 @@
   pkgs,
   lib ? pkgs.lib,
   externalSrcs ? { },
+  # The /qa skill's runtime package, put on PATH by the base profile.
+  qa,
+  # name -> decrypted-file path, for the secrets THIS host provides. Paths only,
+  # never values. A server or secret file whose secret is absent is dropped.
+  secrets ? { },
   ...
 }:
 
 let
   instructionsLib = import ./lib/instructions.nix { inherit pkgs lib; };
   inherit (instructionsLib) mkFragment mkInstructions;
+  mcpLib = import ./lib/mcp.nix { inherit pkgs lib; };
+  mcpCatalog = import ./mcp { inherit (mcpLib) mkLocal mkRemote; };
   profileLib = import ./lib/profile.nix {
     inherit pkgs lib;
     instructions = instructionsLib;
     skillNames = skills.names;
+    selectServers = mcpLib.selectServers mcpCatalog;
+    serverNames = lib.attrNames mcpCatalog;
   };
   dedupLib = import ./lib/passes/dedup.nix {
     inherit pkgs lib;
@@ -39,8 +48,19 @@ let
       mkFragment
       mkInstructions
       topics
+      qa
       ;
   };
+
+  # A folded profile narrowed to what this host can run: servers whose secrets it
+  # lacks dropped, secret names resolved to their paths.
+  forHost =
+    profile:
+    profile
+    // {
+      mcp = mcpLib.availableServers secrets profile.mcp;
+      secretFiles = mcpLib.provided secrets profile.secretFiles;
+    };
 in
 {
   # The profiles, by name: the vendor-free part of each setup. A harness lists
@@ -56,8 +76,9 @@ in
   inherit profiles;
   inherit (instructionsLib) renderLead renderRole;
 
-  # Profiles appended in order, refused if the result still holds a duplicate.
-  fold = selected: dedupLib.dedup (profileLib.fold selected);
+  # Profiles appended in order, refused if the result still holds a duplicate,
+  # then narrowed to this host's secrets: `mcp` and `secretFiles` hold paths.
+  fold = selected: forHost (dedupLib.dedup (profileLib.fold selected));
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format, even
   # though Claude Code is currently its only consumer.
@@ -80,11 +101,18 @@ in
     }
     {
       name = "profiles";
-      path = builtins.deepSeq profiles profileLib.check;
+      # Packages are left out: deepSeq on a derivation walks all of nixpkgs.
+      path = builtins.deepSeq (lib.mapAttrs (
+        _: profile: removeAttrs profile [ "runtime" ]
+      ) profiles) profileLib.check;
     }
     {
       name = "dedup";
       path = dedupLib.check;
+    }
+    {
+      name = "mcp";
+      path = mcpLib.check;
     }
     {
       name = "roles";

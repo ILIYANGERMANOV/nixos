@@ -1,15 +1,13 @@
-# The Claude Code configuration itself: settings, the MCP catalog and the
-# flavors, each the programs/agents profiles it gets plus Claude settings.
-# Everything mechanical - merging, resolving secrets, writing the wrappers -
-# lives in lib.nix, so adding a server or a flavor is a change to this file
-# alone.
+# The Claude Code configuration itself: settings and the flavors, each the
+# programs/agents profiles it gets plus Claude settings. Everything mechanical -
+# merging, writing the wrappers - lives in lib.nix. MCP servers, the session
+# runtime and secret files come with the profiles.
 {
   pkgs,
   lib ? pkgs.lib,
   claude-code,
   agents,
   theme ? "auto",
-  secrets ? { },
   ...
 }:
 
@@ -20,21 +18,17 @@ let
         pkgs
         lib
         claude-code
-        secrets
         ;
       inherit (agents.skills) mkSkillFarm;
       inherit (agents) fold renderLead;
     })
     mkFlavorBuilder
     mkLeadInstructions
-    mkStdioServer
-    mkHttpServer
     ;
   statusline = import ./statusline.nix { inherit pkgs theme; };
   readGuard = import ./read-guard.nix { inherit pkgs; };
   waitGuard = import ./wait-guard.nix { inherit pkgs; };
   contextGuard = import ./context-guard.nix { inherit pkgs; };
-  playwright = import ../playwright { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
   renderAgents = import ./agents.nix {
     inherit pkgs lib;
@@ -57,47 +51,6 @@ let
     theme = "auto";
   };
 
-  # Local servers name the SECRETS they need, never a path. Which hosts provide
-  # them is decided by modules/secrets.nix; a server whose secret this host does
-  # not declare is dropped before any flavor sees it, and a flavor naming a
-  # server that is not in this catalog at all aborts evaluation.
-  #
-  # Remote servers name no secrets and are therefore available everywhere: they
-  # authenticate out-of-band, once per machine, via `/mcp` inside Claude Code.
-  # A host that should not reach one simply does not run a flavor that lists it.
-  mcpCatalog = {
-    figma = mkStdioServer {
-      command = "npx";
-      args = [
-        "-y"
-        "figma-developer-mcp"
-        "--stdio"
-      ];
-      env.FIGMA_API_KEY = "figma-token";
-    };
-
-    # Read-write. Linear also serves /mcp/readonly, but the point of claude-pm
-    # is filing and updating issues, not only reading them.
-    linear = mkHttpServer { url = "https://mcp.linear.app/mcp"; };
-
-    # Coda's docs product, renamed after the Superhuman acquisition. The old
-    # coda.io/apis/mcp endpoint still answers but is documented as deprecated.
-    superhuman-docs = mkHttpServer { url = "https://docs.superhuman.com/apis/mcp"; };
-  };
-
-  # On PATH in every session, whatever the project: /qa's `qa-node` (Playwright,
-  # Chromium, viem and the qa-wallet helper) and `qa-mp4` (ffmpeg).
-  runtime = [ playwright.qa ];
-
-  # Secrets a session gets as a file PATH in an env var, never as a value, for
-  # a program that reads the file itself. Like the MCP catalog, an entry whose
-  # secret this host does not declare is dropped: the variable is then absent.
-  # The session is blocked from reading the file (see withSecretFileGuard).
-  secretFiles = {
-    # /qa's wallet key, read by qa-wallet in Node.
-    QA_EVM_KEY_FILE = "qa-sepolia-key";
-  };
-
   # The profiles every flavor starts from, and the factory's. A profile's
   # instructions are installed the way Claude Code expects them: the lead's
   # render as user-scope memory at ~/.claude/CLAUDE.md, each role's in its
@@ -113,14 +66,7 @@ let
   ];
   baseProfile = agents.fold baseProfiles;
 
-  mkClaudeFlavors = mkFlavorBuilder {
-    inherit
-      baseSettings
-      mcpCatalog
-      runtime
-      secretFiles
-      ;
-  };
+  mkClaudeFlavors = mkFlavorBuilder { inherit baseSettings; };
 
   # The skill listing goes out on every call, and nothing here was ever invoked
   # by a factory agent. user-invocable-only hides a skill from the model and
@@ -225,7 +171,6 @@ rec {
         base
         web-ui
       ];
-      mcpServers = [ "figma" ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
         "frontend-design@claude-plugins-official" = true;
@@ -240,11 +185,6 @@ rec {
         base
         web-ui
         pm
-      ];
-      mcpServers = [
-        "figma"
-        "linear"
-        "superhuman-docs"
       ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;

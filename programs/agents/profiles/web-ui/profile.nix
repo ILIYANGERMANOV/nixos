@@ -1,2 +1,4 @@
-# Building web UIs. Empty until its MCP server (figma) moves into profiles.
-_: { }
+# Building web UIs.
+_: {
+  mcp = [ "figma" ];
+}

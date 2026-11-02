@@ -94,8 +94,8 @@
               root = self;
             }).check;
 
-          # The MCP catalog logic - availability, secret resolution, and the
-          # ~/.claude.json structure - against a synthetic catalog and secrets.
+          # The ~/.claude.json MCP structure and the secret file guard, against
+          # synthetic servers and secret paths.
           claude-code = import ./programs/claude-code/check.nix { inherit pkgs; };
 
           # The real Claude Code configuration: no catalog skill hidden, and

@@ -31,22 +31,30 @@ a second agent such as Codex.
   `renderRole` a role `forAll` and its own fragments, both sorted stably by
   layer. `checks.agents` proves the laws.
 - `programs/agents/lib/profile.nix` - the profile monoid. A profile is the
-  vendor-free part of one setup: `skills` and `instructions`; `mkProfile` throws
-  on an unknown field or a skill not in the catalog. `append` unions lists
+  vendor-free part of one setup: `skills`, `instructions`, `mcp` (server names,
+  held as name -> server), `runtime` (packages on PATH) and `secretFiles`
+  (variable -> secret name); `mkProfile` throws on an unknown field, or a skill
+  or MCP server not in its catalog. `append` unions lists
   keeping the first occurrence, appends instructions, and throws when one key
   gets two values; `empty` is its identity, `fold` appends a list.
 - `programs/agents/lib/passes/dedup.nix` - a guard, not a transformer: it
   throws if a folded profile still holds a skill twice or one file at two layers.
 - `programs/agents/profiles/<name>/profile.nix` - one folder per profile, found
   by `readDir`: `base` (every flavor: the shared skills, `agent.md`, `lead.md`,
-  `trivial.md`), `web-ui` (empty for now), `pm` (`self-improve`) and `factory`
+  `trivial.md`, `runtime` and `secretFiles`), `web-ui` (figma), `pm`
+  (`self-improve`, linear, superhuman-docs) and `factory`
   (`10x-engineer`, `self-improve`, `android`, and its `agent.md`, context in
   `forAll`, and `lead.md`, context for the lead only). Profiles are deltas and
   never import each other.
+- `programs/agents/lib/mcp.nix` - MCP without a wire format: `mkLocal`,
+  `mkRemote`, `selectServers` (an unknown name throws), `availableServers` (a
+  server whose secret the host lacks is dropped silently) and `provided` (the
+  same for secret files). `programs/agents/mcp/default.nix` is the catalog.
 - `programs/agents/default.nix` - the shared surface: `profiles`, `fold`
-  (profile `fold` behind the dedup guard), `renderLead`, `renderRole`,
+  (profile `fold` behind the dedup guard, then narrowed to this host's
+  `secrets`: `mcp` and `secretFiles` hold paths), `renderLead`, `renderRole`,
   `skills`, `roles` and `check`. `adapters/agents.nix` is its only adapter; it injects `flake = false`
-  inputs as `externalSrcs`.
+  inputs as `externalSrcs` and forwards `secrets`.
 - `programs/claude-code/` - installs the lead's render as `~/.claude/CLAUDE.md`,
   the only user-scope memory file Claude Code reads, and renders the subagent
   records. It does **not** read
@@ -56,20 +64,16 @@ a second agent such as Codex.
 
 **Changing the Claude Code setup means editing `default.nix` and nothing else.**
 
-- `default.nix` - the configuration: `baseSettings`, the `mcpCatalog`, and the
-  flavors, each its list of profiles plus Claude settings. Nothing derived lives
-  here.
-- `lib.nix` - `mkFlavorBuilder`, applied once to that configuration and
-  returning the function from an attrset of flavors to their wrapper
-  derivations. The attr key is the binary name, so a flavor's name is written
-  once. Everything derived from the configuration - the available catalog, the
-  list of defined server names, the merged settings - is computed once in that
-  closure rather than per flavor.
-- `mcp.nix` - the pure MCP logic: `mkStdioServer` and `mkHttpServer`,
-  availability against this host's secrets, per-flavor selection, and the
-  `~/.claude.json` structure. No derivations, which is what makes it testable.
-- `check.nix` - `checks.claude-code`, running `mcp.nix` against a synthetic
-  catalog and a synthetic `secrets` attrset.
+- `default.nix` - the configuration: `baseSettings` and the flavors, each its
+  list of profiles plus Claude settings. Nothing derived lives here.
+- `lib.nix` - `mkFlavorBuilder`, applied once to `baseSettings` and returning
+  the function from an attrset of flavors to their wrapper derivations. The
+  attr key is the binary name, so a flavor's name is written once.
+- `mcp.nix` - `toWire` and `mkMcpStructure`: the servers a profile hands over,
+  written as `~/.claude.json` expects. No derivations, which is what makes it
+  testable.
+- `check.nix` - `checks.claude-code`: that shape, and `withSecretFileGuard`.
+  Server gating is tested in `checks.agents`.
 
 MCP transports, OAuth, the session runtime and secret files: `.claude/rules/claude-mcp.md`.
 
