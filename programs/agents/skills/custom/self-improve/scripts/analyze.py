@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, NewType, assert_never, cast, override
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Sequence
 
 TOP = 8  # rows per table, which keeps the report near 15 KB
 INPUT_WEIGHT = 1
@@ -62,8 +62,8 @@ ResponseKey = NewType("ResponseKey", str)  # the message id, else the request id
 type ReadBound = int | str | None  # a Read's offset or limit, a string as sent
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
     sessions = load_sessions(args.root)
     window = select_window(sessions, args.since, args.project)
     print(render(window, describe_window(window.since, args.project), args.compare))
@@ -76,7 +76,7 @@ class Args(argparse.Namespace):
     root: Path = Path.home() / ".claude" / "projects"
 
 
-def parse_args() -> Args:
+def parse_args(argv: Sequence[str] | None) -> Args:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -96,7 +96,7 @@ def parse_args() -> Args:
         type=Path,
         help=argparse.SUPPRESS,
     )
-    return parser.parse_args(namespace=Args())
+    return parser.parse_args(argv, namespace=Args())
 
 
 def utc_time(value: str) -> datetime:
