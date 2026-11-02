@@ -23,7 +23,7 @@ let
   codegen = import ./codegen/profile.nix {
     inherit pkgs lib;
     inherit (agents.skills) mkSkillFarm;
-    inherit (agents) renderLead;
+    inherit (agents) renderLead foldTargets;
     inherit (settings) withSecretFileGuard;
   };
   renderAgents = import ./codegen/role.nix {
@@ -84,6 +84,7 @@ let
 
   activation = import ./link/activation.nix {
     inherit lib agentSources;
+    inherit (agents) foldTargets;
     settingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON settings.base);
     instructionsFile = codegen.mkLeadInstructions "agent" baseProfile.instructions;
   };

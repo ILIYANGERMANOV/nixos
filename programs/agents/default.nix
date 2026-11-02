@@ -22,6 +22,7 @@ let
     selectServers = mcpLib.selectServers mcpCatalog;
     serverNames = lib.attrNames mcpCatalog;
   };
+  targets = import ./lib/targets.nix { inherit pkgs lib; };
   dedupLib = import ./lib/passes/dedup.nix {
     inherit pkgs lib;
     instructions = instructionsLib;
@@ -91,6 +92,11 @@ in
   # own way.
   inherit roles;
 
+  # What one setup places under $HOME, target path -> store path, combined
+  # only through this fold: two sources for one target throw. See
+  # lib/targets.nix.
+  foldTargets = targets.fold;
+
   # The size budget every agent program shares: `sizes` to measure and their
   # `ceilings`. See lib/passes/budget.nix.
   inherit budget;
@@ -120,6 +126,10 @@ in
     {
       name = "mcp";
       path = mcpLib.check;
+    }
+    {
+      name = "targets";
+      path = targets.check;
     }
     {
       name = "roles";
