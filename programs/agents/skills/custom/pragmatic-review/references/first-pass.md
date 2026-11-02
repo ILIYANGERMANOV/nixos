@@ -28,6 +28,12 @@ With a PR argument, fetch it instead of reading the working tree: set `BASE` to
 `HEAD_SHA=$(git rev-parse FETCH_HEAD)`, diff `"$MB" "$HEAD_SHA"`, and write an
 empty `status`. Also read `gh pr view <n> --json title,body,comments,reviews,commits`.
 
+**Mutation report**, for the tests agent or breaker. With a PR (the argument, or the
+branch's own from `gh pr view`), take the run id from the newest comment
+holding `<!-- mutation-report -->`. Only when `gh run view <id> --json headSha`
+equals `$HEAD_SHA`, run `gh run download <id> -n mutation-diff -D "$D/mutation"`.
+Stale, missing or still running: no mutant data. Never wait for CI.
+
 **Fail fast.** If the base does not resolve, the PR does not exist, or the diff
 and the untracked list are both empty, stop and say so - not inside the agents.
 
@@ -158,7 +164,8 @@ every tier, requirement agents as usual.
 diff changes types, a schema or a piece of state, so another diff gets no
 house-rule or DRY check. If you spawn no agent at all, you run the bar's
 always-check list over `$D/diff` yourself, rows in the report, as the Trivial
-path does. Tests runs only when it changes tests. Phase 2 makes
+path does. Tests runs only when it changes tests or the mutation report lists
+a mutant. Phase 2 makes
 at most 2 requirement groups. At `code` and `sensitive` no regressions agent
 runs while a group exists: the first group's prompt adds its brief, at the
 normal bar, and that agent returns those findings under `regressions`. They are
@@ -196,8 +203,9 @@ angle with their line ranges in `diff`, and for a brief file the absolute path
 of this skill's `references/` directory. The tests agent also gets the
 absolute path of `engineering`'s `references/tests.md`: this skill's base
 directory with `pragmatic-review` replaced by `engineering`, never a `..`
-path, which does not resolve between installed skills. The breaker gets both
-paths too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
+path, which does not resolve between installed skills, and
+`$D/mutation/mutation-diff.json` or `no mutant data: <stale|missing>`. The
+breaker gets that `tests.md` path and mutation input too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
 
 **Regressions brief**, pasted:
 
@@ -249,9 +257,10 @@ Four exceptions:
   breaks, for whom and when; without either, correct it to Minor. A scream
   quotes no rule, so judge it on that `trigger`.
 - **Test findings** are judged the same way, on the quoted rule or the quoted
-  intent. A Major also needs its `trigger` to name the break the test misses,
-  the intent it rejects or the old code it passes on; without one, correct it
-  to Minor if a quoted rule backs it, else drop it. Never raise a coverage wish.
+  intent. A Major also needs its `trigger` to name the survivor or break the
+  test misses, the intent it rejects or the old code it passes on; without
+  one, correct it to Minor if a quoted rule backs it, else drop it. A survivor
+  alone is Minor. Never raise a coverage wish.
 - **Requirement findings** skip step 2. A `not met` verdict is a Major row by
   default. Carry every verdict through intact, Met included - they answer a
   question and are not findings.

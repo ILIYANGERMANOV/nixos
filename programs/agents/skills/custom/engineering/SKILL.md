@@ -180,9 +180,11 @@ a test - it is the detailed statement of every rule below, with examples.
   real network.
 - Every test must be able to fail: delete or rewrite a test that asserts
   nothing, cannot fail, re-implements the code to compute its expectation,
-  duplicates another or pins internals. Break the code a new test covers once,
-  see it go red, restore. Never weaken an assertion to make a test pass. A test
-  you cannot pass honestly is reported, never special-cased.
+  duplicates another or pins internals. Never hand-make mutants: where the repo
+  has `just mutation-diff`, run it near the end of a slice and decide which
+  survivors to address; without one, see each new test red once. Never weaken
+  an assertion to make a test pass. A test you cannot pass honestly is
+  reported, never special-cased.
 - Test placement: the code placement rule above applies to tests. Follow the
   layout the project already uses for test files.
 - Reviewing tests: judge tests against the reference and against what the
