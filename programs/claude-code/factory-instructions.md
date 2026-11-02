@@ -1,12 +1,12 @@
 
 ## Factory sessions
 
-- Right after opening a pull request, draft included, call `add_repo`
-  (owner/repo of `origin`, `access: "read"`), then `subscribe_pr_activity`,
-  so CI, reviews and comments wake you. You are authorised to: do not ask,
-  clone or call `register_repo_root`. Never schedule check-ins or
-  other tasks (`send_later`, scheduled tasks, `/loop`) and never watch CI in
-  the foreground. Report the work as done only once CI is green.
+- As the top-level session, right after opening a PR, draft too, call
+  `add_repo` (owner/repo of `origin`, `access: "read"`), then
+  `subscribe_pr_activity`, so CI, reviews and comments wake you. You are
+  authorised to: do not ask, clone or call `register_repo_root`. Never
+  schedule check-ins or other tasks (`send_later`, scheduled tasks, `/loop`)
+  and never watch CI in the foreground. Report the work as done only once CI is green.
 - Never call `unsubscribe_pr_activity`: this server always refuses it, since
   it needs a trusted device. The subscription ends with the session.
 
