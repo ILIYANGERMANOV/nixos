@@ -1,7 +1,6 @@
 # Build-time tests for the Neovim config, wired into `nix flake check` (and
-# therefore `just check` in CI) as `checks.nvim-typescript`, `checks.nvim-search`,
-# `checks.nvim-python` and `checks.nvim-kotlin`. Returns an attrset so they all
-# share the one real editor derivation rather than building it again.
+# therefore `just check` in CI) as the `checks.nvim-*`. Returns an attrset so
+# they all share the one real editor derivation rather than building it again.
 #
 # What prompts a check here: a config that Nix is perfectly happy with but
 # that is wrong at runtime. Two shapes of that have bitten this config.
@@ -18,7 +17,7 @@
 # And a picker key that does the wrong thing only shows up when the keys are
 # actually pressed, so `checks.nvim-search` presses them.
 #
-# No language server is started by either check: nothing is `:edit`ed, no
+# No language server is started by any check: nothing is `:edit`ed, no
 # filetype is set, and the `root_dir` hooks are called directly on named
 # buffers. That keeps them hermetic and fast, and is also their limit - the
 # TypeScript one proves which server claims a root, not that the server then
