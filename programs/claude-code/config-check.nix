@@ -15,7 +15,8 @@
   frontmatter,
   hiddenSkills,
   skillNames,
-  baseSkills,
+  # Skills every flavor gets: the base profile's.
+  baseProfileSkills,
   roleSkills,
   agentSources,
   factoryAgentSources,
@@ -30,7 +31,7 @@ let
   hiddenCatalogSkills = lib.intersectLists hiddenSkills skillNames;
 
   # A preload Claude Code cannot find is skipped with only a debug-log line.
-  uninstalledPreloads = lib.subtractLists baseSkills roleSkills;
+  uninstalledPreloads = lib.subtractLists baseProfileSkills roleSkills;
 
   # budget-compare <sizes> <ceilings.json>: prints sizes as a table and fails on
   # one over its ceiling. Sizes are `<ceiling key> <subject> <bytes>` lines. A
@@ -84,7 +85,7 @@ assert lib.assertMsg (
 ) "skillOverrides hides catalog skill(s): ${toString hiddenCatalogSkills}";
 assert lib.assertMsg (
   uninstalledPreloads == [ ]
-) "subagents preload skill(s) not in baseSkills: ${toString uninstalledPreloads}";
+) "subagents preload skill(s) not in the base profile: ${toString uninstalledPreloads}";
 pkgs.runCommand "claude-config-check"
   {
     nativeBuildInputs = [

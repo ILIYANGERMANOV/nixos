@@ -199,7 +199,17 @@ BASH_CASES: list[Case[str]] = [
     (
         ALLOWED,
         "instruction files read together are allowed",
-        "cat AGENTS.md CLAUDE.md SKILL.md factory-instructions.md",
+        "cat AGENTS.md CLAUDE.md SKILL.md",
+    ),
+    (
+        ALLOWED,
+        "the agents' instruction prose is allowed",
+        "cat repo-docs/instructions/agent.md repo-docs/instructions/lead.md",
+    ),
+    (
+        ALLOWED,
+        "a profile's instruction prose is allowed",
+        "cat repo-docs/profiles/factory/agent.md repo-docs/profiles/factory/lead.md",
     ),
     (
         ALLOWED,
@@ -265,6 +275,16 @@ BASH_CASES: list[Case[str]] = [
         BLOCKED,
         "a name that only ends like an instruction file is counted",
         "cat NOTCLAUDE.md big-a",
+    ),
+    (
+        BLOCKED,
+        "agent.md outside instructions or a profile is counted",
+        "cat repo-docs/notes/agent.md big-a",
+    ),
+    (
+        BLOCKED,
+        "the retired factory-instructions.md is counted",
+        "cat factory-instructions.md big-a",
     ),
 ]
 
@@ -401,13 +421,17 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Project]:
         "SKILL.md",
         "factory-instructions.md",
         "NOTCLAUDE.md",
+        "repo-docs/instructions/agent.md",
+        "repo-docs/instructions/lead.md",
+        "repo-docs/profiles/factory/agent.md",
+        "repo-docs/profiles/factory/lead.md",
+        "repo-docs/notes/agent.md",
         "admin/hm_CLAUDE.md",
         "skills-store/big-skill/SKILL.md",
         "skills-store/big-skill/references/ref.md",
         "repo-docs/AGENTS.md",
         "repo-docs/CLAUDE.md",
         "repo-docs/SKILL.md",
-        "repo-docs/factory-instructions.md",
         "repo-docs/notskills/bar/lib.py",
         "repo-docs/skills/default.nix",
         "repo-docs/skills/custom/foo/references/a.md",

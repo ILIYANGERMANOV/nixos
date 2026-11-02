@@ -62,8 +62,7 @@ let
       inherit pkgs lib secrets;
       claude-code = throw "the secret file guard builds no wrapper";
       mkSkillFarm = throw "the secret file guard builds no skills";
-      append = throw "the secret file guard builds no instructions";
-      empty = throw "the secret file guard builds no instructions";
+      fold = throw "the secret file guard folds no profiles";
       renderLead = throw "the secret file guard builds no instructions";
     })
     withSecretFileGuard

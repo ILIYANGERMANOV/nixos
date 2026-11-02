@@ -7,8 +7,8 @@ installed into `~/.claude/skills/` by the Claude flavor wrappers.
 
 1. Create `programs/agents/skills/custom/<name>/SKILL.md`.
 2. Add `"<name>"` to the `custom` list in `../default.nix`.
-3. Add it to `baseSkills` (or a flavor's `extraSkills`) in
-   `programs/claude-code/default.nix`.
+3. Add it to the `skills` of a profile in
+   `programs/agents/profiles/<profile>/profile.nix`: `base` for every flavor.
 4. `darwin-rebuild switch --flake .` - then restart Claude Code if
    `~/.claude/skills` did not exist when the session started.
 
