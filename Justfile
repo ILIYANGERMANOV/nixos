@@ -105,6 +105,17 @@ skill-budget:
     report=$(nix build --no-link --print-out-paths ".#checks.$system.claude-config.report")
     cat "$report"
 
+# Advisory, and never part of `check`: see docs/adr/0010-mutation-testing.md.
+# Writes .mutation/mutation-diff.{json,md}; tool output goes to .mutation/mutation.log.
+#
+# List the mutants on the lines changed since the merge-base with `base`
+mutation-diff $base="origin/main":
+    nix run .#mutation -- diff "$base"
+
+# List every mutant of the mutated Python and TypeScript logic
+mutation:
+    nix run .#mutation -- full
+
 # Run all checks (lint + architecture + format + spell + flake check)
 check:
     just lint

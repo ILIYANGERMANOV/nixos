@@ -171,6 +171,12 @@
         }
       );
 
+      # `just mutation-diff` and `just mutation` run it. Not a check: see
+      # programs/mutation/default.nix.
+      packages = lib.forAllSystems (pkgs: {
+        mutation = (import ./programs/mutation { inherit pkgs; }).runner;
+      });
+
       devShells = lib.forAllSystems (pkgs: {
         default = import ./shells/default.nix { inherit pkgs inputs; };
         nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };

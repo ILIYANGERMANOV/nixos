@@ -7,10 +7,9 @@ let
   # A path literal, not the flake's `self`: fileset refuses a store path string.
   root = ../..;
 
-  testPython = pkgs.python3.withPackages (ps: [
-    ps.hypothesis
-    ps.pytest
-  ]);
+  mutation = import ../mutation { inherit pkgs; };
+  # mutmut too, so the mutation runner's tests import what it imports.
+  testPython = mutation.python;
 
   pythonSource = lib.fileset.toSource {
     inherit root;
@@ -48,20 +47,19 @@ in
         touch "$out"
       '';
 
-  python-tests = pkgs.runCommand "python-tests" {
-    nativeBuildInputs = [
-      pkgs.git
-      testPython
-    ];
-    READ_GUARD = lib.getExe claude.guards.read;
-    WAIT_GUARD = lib.getExe claude.guards.wait;
-    SECRET_GUARD = lib.getExe claude.guards.secret;
-    CONTEXT_GUARD = lib.getExe claude.guards.context;
-    STATUSLINE = lib.getExe claude.statusline;
-    STDLIB_PYTHON = lib.getExe pkgs.python3;
-    # Not `BASH`: bash itself sets that one.
-    BASH_ORACLE = lib.getExe pkgs.bash;
-    PYTHON_SOURCE = pythonSource;
-    SHFMT = lib.getExe pkgs.shfmt;
-  } (builtins.readFile ./python-tests.sh);
+  python-tests = pkgs.runCommand "python-tests" (
+    mutation.testEnv
+    // {
+      nativeBuildInputs = [
+        pkgs.git
+        testPython
+      ];
+      READ_GUARD = lib.getExe claude.guards.read;
+      WAIT_GUARD = lib.getExe claude.guards.wait;
+      SECRET_GUARD = lib.getExe claude.guards.secret;
+      CONTEXT_GUARD = lib.getExe claude.guards.context;
+      STATUSLINE = lib.getExe claude.statusline;
+      PYTHON_SOURCE = pythonSource;
+    }
+  ) (builtins.readFile ./python-tests.sh);
 }

@@ -1,7 +1,9 @@
 """Black-box tests for the self-improve analyzer, run by `python-tests`.
 
 Each test writes synthetic transcripts in Claude Code's on-disk layout, runs
-the analyzer's CLI on them and asserts on the report it prints. Synthetic on
+the analyzer's CLI entry point `main(argv)` on them in-process and asserts on the
+report it prints. One smoke test runs the script as a bare-python subprocess, so an
+import outside the stdlib or a broken entry point still fails here. Synthetic on
 purpose: this repository is public and real transcripts are private.
 
 The last section is the exception, differential rather than black-box: real shfmt
@@ -12,9 +14,11 @@ and nothing else. It compares `label` and `check_key`, never the steps.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
+from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -271,6 +275,14 @@ class Home:
             _ = base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
     def report(self, *args: str) -> str:
+        """The report the CLI prints for `args`, run in-process so mutation testing sees it."""
+        out = io.StringIO()
+        with redirect_stdout(out):
+            analyze.main(["--root", str(self.root), *args])
+        return out.getvalue()
+
+    def cli_report(self, *args: str) -> str:
+        """The report the deployed script prints, run as its own bare-python process."""
         run = subprocess.run(
             [PYTHON, "-I", str(ANALYZER), "--root", str(self.root), *args],
             capture_output=True,
@@ -306,6 +318,21 @@ def row(report: str, title: str, first_cell: str) -> list[str]:
 @pytest.fixture
 def home(tmp_path: Path) -> Home:
     return Home(tmp_path)
+
+
+class TestCli:
+    def test_the_bare_python_script_prints_the_in_process_report(
+        self, home: Home
+    ) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.reply(1, {"input_tokens": 10, "output_tokens": 5})
+        home.session("s1", main)
+        # When
+        printed = home.cli_report("--since", at(0))
+        # Then
+        assert printed == home.report("--since", at(0))
+        assert "s1" in printed
 
 
 class TestTokens:

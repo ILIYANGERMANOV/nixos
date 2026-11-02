@@ -85,6 +85,12 @@ just format
 # Lint + format check + flake check
 just check
 
+# Mutants no test kills on the lines changed since origin/main (advisory)
+just mutation-diff
+
+# Every mutant of the mutated Python and TypeScript (advisory)
+just mutation
+
 # Rebuild and switch (macOS)
 darwin-rebuild switch --flake .#macos-main
 
