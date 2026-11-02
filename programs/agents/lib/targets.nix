@@ -11,6 +11,8 @@
 }:
 
 let
+  fold = lib.foldl' append empty;
+
   empty = { };
 
   append =
@@ -28,8 +30,6 @@ let
           path: "~/${path} has two sources: ${a.${path}} and ${b.${path}}"
         ) conflicts
       }";
-
-  fold = lib.foldl' append empty;
 
   check =
     let
@@ -77,10 +77,5 @@ let
     pkgs.writeText "targets-check" "";
 in
 {
-  inherit
-    empty
-    append
-    fold
-    check
-    ;
+  inherit fold check;
 }
