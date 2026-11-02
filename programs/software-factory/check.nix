@@ -34,8 +34,8 @@ let
       msg = "sessions must start in auto mode";
     }
     {
-      ok = lib.elem "$defaults" policy.autoMode.allow && !(policy.autoMode ? soft_deny);
-      msg = "autoMode may only extend the built-in allow exceptions, never replace the block rules";
+      ok = lib.all (lib.elem "$defaults") (lib.attrValues policy.autoMode);
+      msg = "every autoMode list must keep \"$defaults\", or it drops the built-in rules";
     }
   ];
   failedPolicy = lib.filter (a: !a.ok) policyAssertions;
