@@ -83,8 +83,9 @@ goals, decisions, out of scope, `Quality: <mode>` and the **acceptance criteria*
 a checkable statement, input to observable outcome. When the plan touches
 auth, sessions, authorization, databases, secrets or CI, it also states
 `Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
-plan is now visible from the phone. POC: `gh label create POC --force`, then
-`gh pr edit <n> --add-label POC`.
+plan is now visible from the phone. Attach the PR to the session as your
+instructions say (`add_repo`, `subscribe_pr_activity`). POC:
+`gh label create POC --force`, then `gh pr edit <n> --add-label POC`.
 
 ### 5. Implement
 
@@ -200,7 +201,8 @@ rest of this skill.
 - Read the brief first. Start at step 4, on its base branch and in its worktree:
   the worktree exists, so skip the branching and open the draft PR with
   `--repo <repo> --head <branch> --base <base>`, and give both POC label
-  commands `--repo <repo>`. A brief naming an open PR skips
+  commands `--repo <repo>`. Do not attach it to the session: your caller
+  does. A brief naming an open PR skips
   step 4 and starts at the step it names.
 - Run steps 5-9 as written, with every agent in the foreground (`run_in_background: false`). You are a subagent: you wait
   for what you spawned, and ending your turn is your hand-back.
