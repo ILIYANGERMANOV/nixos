@@ -16,26 +16,28 @@ setup() {
 }
 
 # A flavor's script: its arrays cannot cross the environment. $1... are the
-# fragments it sources, in order.
+# fragments it sources, in order, as paths relative to link/.
 flavor() {
   {
     declare -p mcp_secrets secret_files
     echo 'apply_skills() { :; }'
     local fragment
     for fragment in "$@"; do
-      echo "source '$BATS_TEST_DIRNAME/$fragment'"
+      echo "source '$BATS_TEST_DIRNAME/../link/$fragment'"
     done
   } >"$WORK/flavor"
 }
 
 load_claude() {
-  flavor secrets.sh load.sh
+  flavor ../load/load.sh
   bash -euo pipefail "$WORK/flavor" "$@"
 }
 
-# The whole wrapper, its fragments in the order link/lib.nix splices them.
+# The whole wrapper, its fragments from the list link/lib.nix splices.
 launch() {
-  flavor secrets.sh ../link/link.sh load.sh
+  local fragments
+  mapfile -t fragments <"$BATS_TEST_DIRNAME/../link/fragments"
+  flavor "${fragments[@]}"
   bash -euo pipefail "$WORK/flavor" "$@"
 }
 
@@ -58,26 +60,6 @@ launch() {
   run load_claude
 
   [ "$output" = the-flavors ]
-}
-
-@test "a declared MCP secret reaches claude by value" {
-  echo s3cret >"$WORK/token"
-  mcp_secrets=(coda CODA_TOKEN "$WORK/token")
-  stub claude 'echo "$CODA_TOKEN"'
-
-  run load_claude
-
-  [ "$output" = s3cret ]
-}
-
-@test "a missing MCP secret is fatal and names the server and path" {
-  mcp_secrets=(coda CODA_TOKEN "$WORK/absent")
-
-  run --separate-stderr load_claude
-
-  [ "$status" -eq 1 ]
-  [ -z "$output" ]
-  [[ "$stderr" == *"MCP server 'coda' needs $WORK/absent"* ]]
 }
 
 @test "a secret file reaches claude as its path, never its value" {

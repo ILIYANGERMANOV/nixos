@@ -17,6 +17,13 @@
 let
   shellCheck = import ../../shell-check { inherit pkgs; };
 
+  # The wrapper's fragments in run order, as paths relative to this directory.
+  # load.bats assembles its launch from the same file, so the order it tests is
+  # this one: secrets first, so a missing one stops before ~/.claude changes.
+  fragments = map (path: shellCheck.fragment (./. + "/${path}")) (
+    lib.filter (line: line != "") (lib.splitString "\n" (builtins.readFile ./fragments))
+  );
+
   # applySkills: farm -> shell snippet that links ~/.claude/skills.
   mkWrapper =
     {
@@ -39,17 +46,17 @@ let
       inherit name;
       runtimeInputs = [ pkgs.jq ]; # always needed for ~/.claude.json management
       passthru = { inherit (target) skillFarm instructions; };
-      text = lib.concatLines [
-        values
-        ''
-          apply_skills() {
-            ${applySkills target.skillFarm}
-          }
-        ''
-        (shellCheck.fragment ../load/secrets.sh)
-        (shellCheck.fragment ./link.sh)
-        (shellCheck.fragment ../load/load.sh)
-      ];
+      text = lib.concatLines (
+        [
+          values
+          ''
+            apply_skills() {
+              ${applySkills target.skillFarm}
+            }
+          ''
+        ]
+        ++ fragments
+      );
     };
 
   # Shell snippet: rebuild ~/.claude/skills from this flavor's farm.
