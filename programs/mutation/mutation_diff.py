@@ -10,7 +10,6 @@ output goes to a log file. Exit 0 whatever survives: advisory. Non-zero only
 when a run fails. The JSON is schema 1 of the mutation diff contract.
 """
 
-import ast
 import json
 import os
 import re
@@ -22,6 +21,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from contextlib import chdir
 from dataclasses import dataclass
 from importlib.metadata import version
+from itertools import dropwhile
 from pathlib import Path
 from typing import Literal, assert_never, cast
 
@@ -417,16 +417,29 @@ def read_mutmut(scratch: Path, module: str) -> list[Mutant]:
 
 
 def function_lines(source: str) -> dict[tuple[str | None, str], int]:
-    """The `def` line of each top-level function and method, the ones mutmut mutates."""
-    tree = ast.parse(source)
-    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
-    top = {(None, node.name): node.lineno for node in tree.body if isinstance(node, functions)}
+    """Where line 1 of mutmut's diff sits, for each top-level function and method.
+
+    mutmut prints a function as libcst holds it, stripped: from the first comment
+    directly above it, else its first decorator, else its `def`.
+    """
+    import libcst as cst  # noqa: PLC0415
+    from libcst.metadata import MetadataWrapper, PositionProvider  # noqa: PLC0415
+
+    wrapper = MetadataWrapper(cst.parse_module(source))
+    positions = wrapper.resolve(PositionProvider)
+
+    def first_line(function: cst.FunctionDef) -> int:
+        comments = list(dropwhile(lambda line: line.comment is None, function.leading_lines))
+        return positions[function].start.line - len(comments)
+
+    body = wrapper.module.body
+    top = {(None, node.name.value): first_line(node) for node in body if isinstance(node, cst.FunctionDef)}
     methods = {
-        (cls.name, node.name): node.lineno
-        for cls in tree.body
-        if isinstance(cls, ast.ClassDef)
-        for node in cls.body
-        if isinstance(node, functions)
+        (cls.name.value, node.name.value): first_line(node)
+        for cls in body
+        if isinstance(cls, cst.ClassDef)
+        for node in cls.body.body
+        if isinstance(node, cst.FunctionDef)
     }
     return top | methods
 
@@ -442,7 +455,7 @@ def mutmut_span(diff: str, function_line: int) -> MutmutSpan:
     """Where in the source a mutant applies, from mutmut's diff of its function.
 
     The diff compares the function's code with the mutant's, so its line 1 is
-    the function's `def` line, at `function_line` in the source.
+    the function's first line, at `function_line` in the source.
     """
     lines = diff.split("\n")
     hunk = next(i for i, line in enumerate(lines) if line.startswith("@@"))
