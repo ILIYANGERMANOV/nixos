@@ -17,7 +17,6 @@ let
     "role"
     "topic"
   ];
-  rank = layer: lib.lists.findFirstIndex (l: l == layer) null layers;
 
   mkFragment =
     { layer, file }:
@@ -45,6 +44,12 @@ let
       forLead = a.forLead ++ b.forLead;
     };
 
+  # The agent leading a session.
+  renderLead = instructions: render (instructions.forAll ++ instructions.forLead);
+
+  # A subagent role: `forAll`, then its own fragments (its prose and topics).
+  renderRole = instructions: fragments: render (instructions.forAll ++ fragments);
+
   # The files of these fragments, in layer order. builtins.sort is stable.
   render =
     fragments:
@@ -52,11 +57,7 @@ let
       builtins.sort (a: b: rank a.layer < rank b.layer) (lib.unique fragments)
     );
 
-  # The agent leading a session.
-  renderLead = instructions: render (instructions.forAll ++ instructions.forLead);
-
-  # A subagent role: `forAll`, then its own fragments (its prose and topics).
-  renderRole = instructions: fragments: render (instructions.forAll ++ fragments);
+  rank = layer: lib.lists.findFirstIndex (l: l == layer) null layers;
 
   # Laws, over fragments at every layer with one duplicate across values.
   check =
