@@ -7,11 +7,13 @@
   lib,
   mkSkillFarm,
   renderLead,
+  foldTargets,
   withSecretFileGuard,
 }:
 
 let
   mcp = import ./mcp.nix { inherit lib; };
+  home = import ./home.nix { inherit lib; };
 
   # The lead's ~/.claude/CLAUDE.md, `<name>-instructions.md`.
   mkLeadInstructions =
@@ -25,12 +27,23 @@ let
       profile,
       settings,
     }:
-    {
+    let
       settingsFile = pkgs.writeText "${name}-settings.json" (
         builtins.toJSON (withSecretFileGuard profile.secretFiles settings)
       );
-      instructions = mkLeadInstructions name profile.instructions;
       skillFarm = if profile.skills == [ ] then null else mkSkillFarm "${name}-skills" profile.skills;
+
+      # Everything the link step places. The files are read back from this one
+      # fold, so no wrapper builds past a target with two sources.
+      files = foldTargets (
+        [ (home.lead settingsFile (mkLeadInstructions name profile.instructions)) ]
+        ++ lib.optionals (skillFarm != null) (home.skills skillFarm profile.skills)
+      );
+    in
+    {
+      settingsFile = files.${home.settings};
+      instructions = files.${home.instructions};
+      inherit skillFarm;
 
       # Env fields hold ${VAR} references, not secret values: safe to bake into
       # the store.
