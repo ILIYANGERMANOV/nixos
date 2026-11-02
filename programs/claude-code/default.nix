@@ -22,8 +22,10 @@ let
         secrets
         ;
       inherit (agents.skills) mkSkillFarm;
+      inherit (agents) append empty renderLead;
     })
     mkFlavorBuilder
+    mkLeadInstructions
     mkStdioServer
     mkHttpServer
     ;
@@ -33,7 +35,10 @@ let
   contextGuard = import ./context-guard.nix { inherit pkgs; };
   playwright = import ../playwright { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
-  renderAgents = import ./agents.nix { inherit pkgs lib; };
+  renderAgents = import ./agents.nix {
+    inherit pkgs lib;
+    inherit (agents) renderRole;
+  };
 
   model = "opus";
   effortLevel = "medium";
@@ -93,8 +98,9 @@ let
   };
 
   # The agent-agnostic instructions, installed the way Claude Code expects them:
-  # as user-scope memory at ~/.claude/CLAUDE.md. Claude Code does not read
-  # AGENTS.md at user scope, so the file is copied under the name it does read.
+  # the lead's render as user-scope memory at ~/.claude/CLAUDE.md, each role's
+  # in its agents/<role>.md. Claude Code does not read AGENTS.md at user scope,
+  # so the file is copied under the name it does read.
   # A project's own CLAUDE.md still stacks on top of this - user and project
   # memory are separate entries, not competing ones.
   baseInstructions = agents.instructions;
@@ -171,12 +177,12 @@ let
     ]
   ) (_: "user-invocable-only");
 
-  # The factory's subagents get this on top of the shared records, and no other
-  # host does.
-  factoryAgentInstructions = ./factory-core.md;
+  # The factory's sessions and subagents get its profile's instructions on top
+  # of the shared ones, and no other host does.
+  factoryInstructions = agents.append baseInstructions agents.profiles.factory.instructions;
 
-  agentSources = renderAgents agents.subagents.all [ ];
-  factoryAgentSources = renderAgents agents.subagents.all [ factoryAgentInstructions ];
+  agentSources = renderAgents agents.subagents.all baseInstructions;
+  factoryAgentSources = renderAgents agents.subagents.all factoryInstructions;
 
   # `force`: a dev shell may have installed a plain copy here, see
   # shellActivationScript. Home Manager would keep backing it up, and abort once
@@ -217,6 +223,7 @@ let
     lib.mapAttrs roleLoad agents.subagents.all // { repo-instructions = [ ../../CLAUDE.md ]; };
 
   baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
+  baseInstructionsFile = mkLeadInstructions "agent" baseInstructions;
 in
 rec {
   inherit statusline;
@@ -268,10 +275,7 @@ rec {
   factory = {
     wrapper = builtins.head (mkClaudeFlavors {
       claude-factory = {
-        extraInstructions = [
-          factoryAgentInstructions
-          ./factory-instructions.md
-        ];
+        extraInstructions = agents.profiles.factory.instructions;
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
         applySkills = farm: "${lib.getExe linkSkills} ${farm}";
@@ -355,7 +359,7 @@ rec {
   activationScript = ''
     mkdir -p "$HOME/.claude"
     install -m 600 ${baseSettingsFile} "$HOME/.claude/settings.json"
-    install -m 600 ${baseInstructions} "$HOME/.claude/CLAUDE.md"
+    install -m 600 ${baseInstructionsFile} "$HOME/.claude/CLAUDE.md"
   '';
 
   # activationScript for a dev shell, where no Home Manager places `agentFiles`:

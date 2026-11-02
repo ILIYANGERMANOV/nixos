@@ -3,6 +3,10 @@
   lib ? pkgs.lib,
   claude-code,
   mkSkillFarm,
+  # The instructions monoid of programs/agents/lib/instructions.nix.
+  append,
+  empty,
+  renderLead,
   # name -> decrypted-file path, for the secrets THIS host provides.
   secrets ? { },
   ...
@@ -26,7 +30,7 @@ let
   #   extraSettings     - Nix attrset deep-merged onto baseSettings
   #   mcpServers        - names from the catalog to activate for this flavor
   #   extraSkills       - skill names this flavor adds to baseSkills
-  #   extraInstructions - markdown files appended to baseInstructions
+  #   extraInstructions - instructions appended to baseInstructions
   #   applySkills       - farm -> shell snippet that links ~/.claude/skills,
   #                       for a flavor mkApplySkills is not safe for
   #
@@ -57,7 +61,7 @@ let
         extraSettings ? { },
         mcpServers ? [ ],
         extraSkills ? [ ],
-        extraInstructions ? [ ],
+        extraInstructions ? empty,
         applySkills ? mkApplySkills,
       }:
       let
@@ -77,16 +81,13 @@ let
           ;
         settings = guardSecretFiles (lib.recursiveUpdate baseSettings extraSettings);
         skills = lib.unique (baseSkills ++ extraSkills);
-        instructions =
-          if extraInstructions == [ ] then
-            # A flavor with nothing to add installs the shared file as-is, so the
-            # common case costs no second build and ~/.claude/CLAUDE.md is
-            # byte-identical to the shared instructions.
-            baseInstructions
-          else
-            pkgs.concatText "${name}-instructions.md" ([ baseInstructions ] ++ extraInstructions);
+        instructions = mkLeadInstructions name (append baseInstructions extraInstructions);
       }
     );
+
+  # The lead's ~/.claude/CLAUDE.md, `<name>-instructions.md`.
+  mkLeadInstructions =
+    name: instructions: pkgs.concatText "${name}-instructions.md" (renderLead instructions);
 
   # Builds a named Claude wrapper binary that owns ~/.claude/settings.json,
   # ~/.claude/CLAUDE.md, the mcpServers key in ~/.claude.json, and the
@@ -219,5 +220,5 @@ let
 in
 {
   inherit (mcp) mkStdioServer mkHttpServer;
-  inherit mkFlavorBuilder withSecretFileGuard;
+  inherit mkFlavorBuilder mkLeadInstructions withSecretFileGuard;
 }

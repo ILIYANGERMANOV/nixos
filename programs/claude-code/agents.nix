@@ -3,7 +3,11 @@
 #
 # Only documented fields, and every one is checked in config-check.nix: Claude
 # Code ignores what it does not know.
-{ pkgs, lib }:
+{
+  pkgs,
+  lib,
+  renderRole,
+}:
 
 let
   # Named, because a role must never inherit every tool: that brings each MCP
@@ -30,7 +34,7 @@ let
   };
 
   render =
-    extraInstructions: agent:
+    instructions: agent:
     let
       header = [
         "name: ${agent.name}"
@@ -53,9 +57,8 @@ let
 
         '')
       ]
-      ++ agent.instructions
-      ++ extraInstructions
+      ++ renderRole instructions agent.instructions
     );
 in
-# The roles' files, by name, each with `extraInstructions` appended.
-agents: extraInstructions: lib.mapAttrs (_: render extraInstructions) agents
+# The roles' files, by name, each given `instructions`' forAll on top of its own.
+agents: instructions: lib.mapAttrs (_: render instructions) agents
