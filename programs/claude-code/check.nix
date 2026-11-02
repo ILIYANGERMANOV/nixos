@@ -32,12 +32,13 @@ let
     env = { };
   };
 
+  secretGuard = import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; };
+
   # Given: a flavor's own settings, already holding a deny rule and a Bash hook.
   inherit
     (import ./codegen/settings.nix {
-      inherit lib;
+      inherit lib secretGuard;
       statusline = throw "the secret file guard sets no status line";
-      secretGuard = import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; };
     })
     withSecretFileGuard
     ;
@@ -118,9 +119,7 @@ let
         }
         {
           matcher = "Bash";
-          commands = [
-            "${(import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; }).bin}/bin/claude-secret-guard"
-          ];
+          commands = [ "${secretGuard.bin}/bin/claude-secret-guard" ];
         }
       ];
     }

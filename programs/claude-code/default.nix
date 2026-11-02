@@ -51,6 +51,7 @@ let
     agents.profiles.factory
   ];
   baseProfile = agents.fold baseProfiles;
+  factoryProfile = agents.fold factoryProfiles;
 
   # Flavors as their wrappers; the attr key is the binary name.
   #   profiles      - the programs/agents profiles it gets, folded in order:
@@ -79,7 +80,7 @@ let
   # The factory's sessions and subagents get its profile's instructions on top
   # of the shared ones, and no other host does.
   agentSources = renderAgents agents.roles baseProfile.instructions;
-  factoryAgentSources = renderAgents agents.roles (agents.fold factoryProfiles).instructions;
+  factoryAgentSources = renderAgents agents.roles factoryProfile.instructions;
 
   activation = import ./link/activation.nix {
     inherit lib agentSources;
@@ -217,7 +218,7 @@ rec {
         # A role counts at its largest, the factory's render.
         (agents.budget.sizes {
           leads = lib.listToAttrs (map (flavor: lib.nameValuePair flavor.name flavor.instructions) flavors);
-          roleInstructions = (agents.fold factoryProfiles).instructions;
+          roleInstructions = factoryProfile.instructions;
           repoInstructions = ../../CLAUDE.md;
         })
         (budget.sizes {

@@ -26,7 +26,7 @@ let
     inherit pkgs lib;
     instructions = instructionsLib;
   };
-  budgetLib = import ./lib/passes/budget.nix {
+  budget = import ./lib/passes/budget.nix {
     inherit pkgs lib roles;
     inherit (instructionsLib) renderRole;
     skills = skills.all;
@@ -93,9 +93,7 @@ in
 
   # The size budget every agent program shares: `sizes` to measure and their
   # `ceilings`. See lib/passes/budget.nix.
-  budget = {
-    inherit (budgetLib) sizes ceilings;
-  };
+  inherit budget;
 
   # Every build-time check over shared agent config, wired into `nix flake check`
   # as `checks.agents`.
