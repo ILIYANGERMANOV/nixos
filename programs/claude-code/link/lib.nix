@@ -46,6 +46,7 @@ let
             ${applySkills target.skillFarm}
           }
         ''
+        (shellCheck.fragment ../load/secrets.sh)
         (shellCheck.fragment ./link.sh)
         (shellCheck.fragment ../load/load.sh)
       ];

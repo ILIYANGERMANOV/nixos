@@ -15,12 +15,27 @@ setup() {
   stub hostname 'echo testhost'
 }
 
-# A flavor's script: its arrays cannot cross the environment.
-load_claude() {
+# A flavor's script: its arrays cannot cross the environment. $1... are the
+# fragments it sources, in order.
+flavor() {
   {
     declare -p mcp_secrets secret_files
-    echo "source '$BATS_TEST_DIRNAME/load.sh'"
+    echo 'apply_skills() { :; }'
+    local fragment
+    for fragment in "$@"; do
+      echo "source '$BATS_TEST_DIRNAME/$fragment'"
+    done
   } >"$WORK/flavor"
+}
+
+load_claude() {
+  flavor secrets.sh load.sh
+  bash -euo pipefail "$WORK/flavor" "$@"
+}
+
+# The whole wrapper, its fragments in the order link/lib.nix splices them.
+launch() {
+  flavor secrets.sh ../link/link.sh load.sh
   bash -euo pipefail "$WORK/flavor" "$@"
 }
 
@@ -73,4 +88,20 @@ load_claude() {
   run load_claude
 
   [ "$output" = "$WORK/token" ]
+}
+
+@test "a missing MCP secret stops the launch before ~/.claude.json changes" {
+  export HOME="$WORK/home" instructions_file="$WORK/instructions"
+  export settings_file="$WORK/settings" mcp_static_file="$WORK/mcp.json"
+  mkdir "$HOME"
+  echo instructions >"$instructions_file"
+  echo '{}' >"$settings_file"
+  echo '{"coda":{}}' >"$mcp_static_file"
+  echo '{"mcpServers":{"old":{}}}' >"$HOME/.claude.json"
+  mcp_secrets=(coda CODA_TOKEN "$WORK/absent")
+
+  run --separate-stderr launch
+
+  [ "$status" -eq 1 ]
+  [ "$(<"$HOME/.claude.json")" = '{"mcpServers":{"old":{}}}' ]
 }
