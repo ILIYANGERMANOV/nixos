@@ -17,11 +17,12 @@
 # And a picker key that does the wrong thing only shows up when the keys are
 # actually pressed, so `checks.nvim-search` presses them.
 #
-# No language server is started by any check: nothing is `:edit`ed, no
-# filetype is set, and the `root_dir` hooks are called directly on named
-# buffers. That keeps them hermetic and fast, and is also their limit - the
-# TypeScript one proves which server claims a root, not that the server then
-# starts.
+# Only `checks.nvim-python` starts a language server, basedpyright, because
+# what it asserts (the client capabilities sent at initialize) exists only on
+# an attached client. Elsewhere nothing is `:edit`ed, no filetype is set, and
+# the `root_dir` hooks are called directly on named buffers. That keeps them
+# hermetic and fast, and is also their limit - the TypeScript one proves which
+# server claims a root, not that the server then starts.
 {
   pkgs,
   inputs,
@@ -79,7 +80,7 @@ let
           finished = true
 
           -- Then: nothing raised an error along the way. This catches a broken
-          -- Lua chunk, not a server that fails to start - none is started here.
+          -- Lua chunk, not a server that fails to start.
           local messages = vim.api.nvim_exec2("messages", { output = true }).output
           if messages:match("E%d+:") or messages:lower():match("error") then
             table.insert(failures, "messages: " .. messages)
@@ -422,6 +423,26 @@ in
       vim.api.nvim_set_current_buf(buffer)
       _G.SmartRun("test")
       expect("pytest command", ran, { { "pytest 'tests/test_app.py'", 1 } })
+
+      -- Given: the same file opened for real, so basedpyright starts and
+      -- attaches. Then: it was told the client takes no work-done progress,
+      -- so it sends no `$/progress` for noice to pop up on every edit; it
+      -- still got the shared completion capabilities; and edits are
+      -- debounced 500 ms.
+      vim.cmd.edit("tests/test_app.py")
+      local attached = vim.wait(20000, function()
+        local clients = vim.lsp.get_clients({ bufnr = 0, name = "basedpyright" })
+        return clients[1] ~= nil and clients[1].initialized
+      end)
+      expect("basedpyright attached", attached, true)
+      local pyright = vim.lsp.get_clients({ bufnr = 0, name = "basedpyright" })[1] or {}
+      expect("basedpyright no work-done progress", vim.tbl_get(pyright, "capabilities", "window", "workDoneProgress"), false)
+      expect(
+        "basedpyright keeps shared capabilities",
+        vim.tbl_get(pyright, "capabilities", "textDocument", "completion", "completionItem", "preselectSupport"),
+        true
+      )
+      expect("basedpyright debounce", vim.tbl_get(pyright, "flags", "debounce_text_changes"), 500)
 
       finish()
     '';

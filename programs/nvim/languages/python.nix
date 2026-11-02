@@ -34,11 +34,26 @@
     # basedpyright owns types and hover, the same checker CI runs; ruff owns
     # lint, imports and formatting, so each side of the overlap is switched off
     # once.
+    # basedpyright wraps every diagnostic pull, so every edit, in `$/progress`,
+    # and noice pops each one up. Without the client's workDoneProgress it sends
+    # `pyright/beginProgress` instead, which Neovim ignores; no server setting
+    # turns it off. A separate call, after the servers' own, because
+    # vim.lsp.config deep-merges it, while a `capabilities` on the server above
+    # would replace the shared ones wholesale.
+    lsp.postConfig = ''
+      vim.lsp.config("basedpyright", { capabilities = { window = { workDoneProgress = false } } })
+    '';
+
     lsp.servers = {
       basedpyright = {
         enable = true;
         package = null;
         settings.basedpyright.disableOrganizeImports = true;
+        # Neovim re-analyses on every change it sends; 500 ms instead of 150
+        # batches a burst of typing into one run. Neovim debounces a buffer by
+        # the smallest value among its clients, so typos_lsp's default 150
+        # still wins in a buffer it shares.
+        extraOptions.flags.debounce_text_changes = 500;
       };
 
       ruff = {
