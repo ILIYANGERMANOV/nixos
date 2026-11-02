@@ -21,10 +21,9 @@ one applies. A finished answer notifies nobody.
 Read the current checkout unless told otherwise.
 
 - **Small lookup**: read the code yourself.
-- **Design question**: research before proposing. Spawn `researcher` agents in
-  parallel over the local code and the vendor docs.
-- **Broad question or several outside sources**: spawn `researcher` agents,
-  `Quality: Balanced` unless the user names one. Brief them from `## Callers`
+- **Design question, broad question or several outside sources**: research
+  before proposing. Spawn `researcher` agents in parallel over the local code
+  and the vendor docs, `Quality: Balanced` unless the user names one. Brief them from `## Callers`
   and `## Budget` in `~/.claude/skills/researcher/SKILL.md`, those sections
   only. A question that only feeds understanding counts: name "the user's
   understanding" as its decision.
@@ -57,8 +56,7 @@ Cover what the topic needs, no more:
 - **File tree**: shown as a tree.
 - **Naming**: in the domain's own terms.
 - **Data model**: the types and the laws they obey.
-- **Data flow**: typed stages, each marked pure or effect. Pure core,
-  effects at the edge: effects are the last stages.
+- **Data flow**: typed stages, each marked pure or effect, effects last.
 
 Pseudo-code stays language-neutral.
 

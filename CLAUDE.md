@@ -28,10 +28,6 @@ deslop/         - the architecture rules `deslop check .` enforces, and their ba
 **Config plus any prior state gives the same result on what Nix owns.
 Everything else is untouched. Applying twice equals applying once.**
 
-- Owned: Nix replaces it fully.
-- Keyed: Nix sets only its keys in a file the tool also writes.
-- Untouched: never written.
-
 Effect scripts never branch on prior state or on run order. Details:
 `.claude/rules/reproducibility.md`, loaded under `programs/` and `modules/`.
 
