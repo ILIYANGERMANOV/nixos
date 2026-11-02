@@ -4,6 +4,7 @@
 let
   inherit (pkgs) lib;
   inherit (import ../playwright { inherit pkgs; }) typescript;
+  tools = import ./tools.nix { inherit pkgs; };
 
   lintSource = lib.fileset.toSource {
     root = ../..;
@@ -34,7 +35,7 @@ in
   ts-lint =
     pkgs.runCommand "ts-lint"
       {
-        nativeBuildInputs = [ pkgs.biome ];
+        nativeBuildInputs = [ tools.biome ];
       }
       ''
         cd ${lintSource}

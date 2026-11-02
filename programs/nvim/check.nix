@@ -1,7 +1,6 @@
 # Build-time tests for the Neovim config, wired into `nix flake check` (and
-# therefore `just check` in CI) as `checks.nvim-typescript` and
-# `checks.nvim-search`. Returns an attrset so both share the one real editor
-# derivation rather than building it twice.
+# therefore `just check` in CI) as the `checks.nvim-*`. Returns an attrset so
+# they all share the one real editor derivation rather than building it again.
 #
 # What prompts a check here: a config that Nix is perfectly happy with but
 # that is wrong at runtime. Two shapes of that have bitten this config.
@@ -18,11 +17,12 @@
 # And a picker key that does the wrong thing only shows up when the keys are
 # actually pressed, so `checks.nvim-search` presses them.
 #
-# No language server is started by either check: nothing is `:edit`ed, no
-# filetype is set, and the `root_dir` hooks are called directly on named
-# buffers. That keeps them hermetic and fast, and is also their limit - the
-# TypeScript one proves which server claims a root, not that the server then
-# starts.
+# Only `checks.nvim-python` starts a language server, basedpyright, because
+# what it asserts (the client capabilities sent at initialize) exists only on
+# an attached client. Elsewhere nothing is `:edit`ed, no filetype is set, and
+# the `root_dir` hooks are called directly on named buffers. That keeps them
+# hermetic and fast, and is also their limit - the TypeScript one proves which
+# server claims a root, not that the server then starts.
 {
   pkgs,
   inputs,
@@ -80,7 +80,7 @@ let
           finished = true
 
           -- Then: nothing raised an error along the way. This catches a broken
-          -- Lua chunk, not a server that fails to start - none is started here.
+          -- Lua chunk, not a server that fails to start.
           local messages = vim.api.nvim_exec2("messages", { output = true }).output
           if messages:match("E%d+:") or messages:lower():match("error") then
             table.insert(failures, "messages: " .. messages)
@@ -360,6 +360,96 @@ in
 
       -- Start once startup has settled, so <leader>ss is mapped and snacks is up.
       vim.defer_fn(function() run(1) end, 200)
+    '';
+  };
+
+  # basedpyright and ruff run nixpkgs binaries under the names lspconfig picks,
+  # and their overlap (hover, organize imports) is split by settings no build
+  # step reads, so a rename or a dropped key only shows once a .py is open.
+  python = mkCheck {
+    name = "python";
+
+    fixtures = ''
+      export PATH="${lib.getBin pkgs.basedpyright}/bin:${lib.getBin pkgs.ruff}/bin:$PATH"
+      # A Python project that also has a package.json, so the TypeScript runner
+      # would claim it if the Python one did not come first.
+      mkdir -p mixed-project/tests
+      touch mixed-project/pyproject.toml mixed-project/package.json mixed-project/tests/test_app.py
+    '';
+
+    body = ''
+      -- Then: both servers are on, run binaries that exist, and serve Python.
+      local basedpyright = vim.lsp.config.basedpyright
+      expect("basedpyright enabled", vim.lsp.is_enabled("basedpyright"), true)
+      expect("basedpyright cmd", basedpyright.cmd, { "basedpyright-langserver", "--stdio" })
+      expect("basedpyright binary on PATH", vim.fn.executable(basedpyright.cmd[1]), 1)
+      expect("basedpyright filetypes", basedpyright.filetypes, { "python" })
+
+      local ruff = vim.lsp.config.ruff
+      expect("ruff enabled", vim.lsp.is_enabled("ruff"), true)
+      expect("ruff cmd", ruff.cmd, { "ruff", "server" })
+      expect("ruff binary on PATH", vim.fn.executable(ruff.cmd[1]), 1)
+      expect("ruff filetypes", ruff.filetypes, { "python" })
+
+      -- Then: ruff alone organizes imports, and basedpyright alone hovers.
+      expect(
+        "basedpyright organize imports off",
+        vim.tbl_get(basedpyright, "settings", "basedpyright", "disableOrganizeImports"),
+        true
+      )
+      local client = { server_capabilities = { hoverProvider = true } }
+      ruff.on_attach(client, 0)
+      expect("ruff hover off", client.server_capabilities.hoverProvider, false)
+
+      -- Then: ruff sorts imports, then formats; treesitter has the grammar.
+      expect(
+        "python formatters",
+        require("conform").formatters_by_ft.python,
+        { "ruff_organize_imports", "ruff_format" }
+      )
+      expect("python treesitter grammar", vim.treesitter.language.add("python"), true)
+
+      -- Given: a test file open in a project root that has a package.json too.
+      -- When: <leader>tt's runner is asked to test.
+      -- Then: it runs pytest on that file, relative to the root, in the test
+      -- terminal.
+      local ran = {}
+      require("toggleterm").exec = function(cmd, term)
+        table.insert(ran, { cmd, term })
+      end
+      vim.cmd.cd("mixed-project")
+      local buffer = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_name(buffer, vim.fn.getcwd() .. "/tests/test_app.py")
+      vim.api.nvim_set_current_buf(buffer)
+      _G.SmartRun("test")
+      expect("pytest command", ran, { { "pytest 'tests/test_app.py'", 1 } })
+
+      -- Given: the same file opened for real, so basedpyright starts and
+      -- attaches. Then: it was told the client takes no work-done progress,
+      -- so it sends no `$/progress` for noice to pop up on every edit; it
+      -- still got the shared completion capabilities; and edits are
+      -- debounced 500 ms by both clients on the buffer, since Neovim uses the
+      -- smallest.
+      vim.cmd.edit("tests/test_app.py")
+      local function attached(name)
+        return vim.lsp.get_clients({ bufnr = 0, name = name })[1]
+      end
+      local both = vim.wait(20000, function()
+        local pyright, typos = attached("basedpyright"), attached("typos_lsp")
+        return pyright ~= nil and pyright.initialized and typos ~= nil and typos.initialized
+      end)
+      expect("basedpyright and typos_lsp attached", both, true)
+      local pyright = attached("basedpyright") or {}
+      expect("basedpyright no work-done progress", vim.tbl_get(pyright, "capabilities", "window", "workDoneProgress"), false)
+      expect(
+        "basedpyright keeps shared capabilities",
+        vim.tbl_get(pyright, "capabilities", "textDocument", "completion", "completionItem", "preselectSupport"),
+        true
+      )
+      expect("basedpyright debounce", vim.tbl_get(pyright, "flags", "debounce_text_changes"), 500)
+      expect("typos_lsp debounce", vim.tbl_get(attached("typos_lsp") or {}, "flags", "debounce_text_changes"), 500)
+
+      finish()
     '';
   };
 }

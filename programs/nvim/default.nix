@@ -19,6 +19,7 @@
     ./languages/typescript.nix
     ./languages/haskell.nix
     ./languages/kotlin.nix
+    ./languages/python.nix
     ./languages/yaml.nix
     ./languages/elixir.nix
     ./languages/d2.nix
