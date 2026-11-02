@@ -1,5 +1,8 @@
 # Agent-agnostic configuration provides content, never installation
 
+Refined by ADR 0011, the agent compiler: `programs/agents` is now a frontend of
+profiles and roles, and each agent program a thin backend.
+
 Coding agents are converging on the same ideas - a user-scope instructions file,
 a directory of skills - and diverging on every detail of where those live. This
 repo therefore splits the two: `programs/agents/` owns config that is true
@@ -20,9 +23,10 @@ Four words, used precisely throughout:
 
 ## Why the shared layer does not install anything
 
-`programs/agents/default.nix` exports `instructions`, today composed from
-`instructions/agent.md`, `instructions/lead.md` and `instructions/topics/trivial.md`
-so subagent roles can take `agent.md` alone, and stops there. The obvious alternative - having it write `~/.claude/CLAUDE.md` and
+`programs/agents/default.nix` exports profiles whose instructions are
+fragments of `instructions/agent.md`, `instructions/lead.md` and
+`instructions/topics/trivial.md` (so subagent roles can take `agent.md` alone)
+plus `renderLead` and `renderRole`, and stops there. The obvious alternative - having it write `~/.claude/CLAUDE.md` and
 `~/.codex/AGENTS.md` itself - fails on the first agent, because Claude Code does
 not read `AGENTS.md` at user scope at all. Its memory loader only ever resolves
 `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` and `.claude/rules/`; every
@@ -53,10 +57,8 @@ is already `false`, and per-repository rules belong in a project's own
 Claude Code's loader, so a store-owned user file does not displace anything a
 repository says.
 
-Flavors can append their own prose through `extraInstructions`, concatenated onto
-`baseInstructions`. It is empty for all three flavors today and should stay that
-way unless a rule is genuinely Claude-only - anything in there is a rule Codex
-will never see.
+A flavor's prose comes only from the profiles it lists; the Claude backend holds
+none of its own, so every rule reaches every vendor. See ADR 0011.
 
 ## Why `install -m 600` and not `cp`
 
@@ -77,13 +79,15 @@ Nothing in `programs/agents/` changes. Using Codex as the worked example:
 1. Add the package. `llm-agents.nix` is already an input and exposes `codex`.
 2. Create `programs/codex/default.nix`, a plain function taking `pkgs` and
    `agents`, returning a wrapper that installs what Codex expects and execs it.
-   `agents.instructions` is a value, not a file: render it with
-   `agents.renderLead` and concatenate, as `mkLeadInstructions` does in
-   `programs/claude-code/codegen/profile.nix`:
+   A flavor's instructions are a value, not a file: fold its profiles and
+   render them with `agents.renderLead`, as `mkLeadInstructions` does in
+   `programs/claude-code/codegen/profile.nix`. ADR 0011 gives the backend's
+   `codegen`, `link` and `load` split:
 
    ```nix
    let
-     instructions = pkgs.concatText "codex-instructions.md" (agents.renderLead agents.instructions);
+     profile = agents.fold [ agents.profiles.base ];
+     instructions = pkgs.concatText "codex-instructions.md" (agents.renderLead profile.instructions);
    in
    pkgs.writeShellApplication {
      name = "codex";
