@@ -14,7 +14,7 @@ report file and a resume read the same. No step here relaxes a gate.
    Trivial`, with the task, its branch from `origin/main`, its targeted checks
    and "commit and push". A bug fix comes with a test that was red before it.
 3. **Open, step 4.** A draft PR, with the `pr-description` short form and the
-   line `Quality: <mode>, Trivial`.
+   line `Quality: <mode>, Trivial`, attached to the session as step 4 says.
 4. **Sweep, step 7.** One fresh `review-lead` agent, no children: "invoke `pragmatic-review`
    with: Quality: <mode>, Trivial <PR URL> <the task in one line>". There is no
    refactor.

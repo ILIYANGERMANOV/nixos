@@ -66,7 +66,8 @@ costs rework, tech debt and bugs.
 - The prompt cache expires after about 5 minutes idle. Never resume a large
   agent after a gap; spawn a fresh one from a summary.
 - Wait on a pull request's CI without blocking: after your final push, call
-  `subscribe_pr_activity` and end your turn, so CI results wake you. An event
+  `subscribe_pr_activity` if not yet subscribed and end your turn, so CI
+  results wake you. An event
   for a commit that is not the branch head, or for your own action (your
   push, `ready_for_review`), needs nothing: end the turn without a tool call.
   Where subscribing is unavailable or refused, run `gh pr checks <n> --watch`
