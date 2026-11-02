@@ -3,7 +3,7 @@
 #
 # Local servers name the SECRETS they need, never a path. Which hosts provide
 # them is decided by modules/secrets.nix; a server whose secret a host does not
-# declare is dropped there silently.
+# declare is dropped silently when the profiles are folded for that host.
 #
 # Remote servers name no secrets and are therefore available everywhere: they
 # authenticate out-of-band, once per machine. A host that should not reach one

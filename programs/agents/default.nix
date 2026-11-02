@@ -2,6 +2,8 @@
   pkgs,
   lib ? pkgs.lib,
   externalSrcs ? { },
+  # The /qa skill's runtime package, put on PATH by the base profile.
+  qa,
   # name -> decrypted-file path, for the secrets THIS host provides. Paths only,
   # never values. A server or secret file whose secret is absent is dropped.
   secrets ? { },
@@ -46,8 +48,8 @@ let
       mkFragment
       mkInstructions
       topics
+      qa
       ;
-    playwright = import ../playwright { inherit pkgs; };
   };
 
   # A folded profile narrowed to what this host can run: servers whose secrets it

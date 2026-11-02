@@ -4,7 +4,7 @@
   mkFragment,
   mkInstructions,
   topics,
-  playwright,
+  qa,
 }:
 {
   # Every skill is here, ui-coding included, because a model-invoked skill costs
@@ -46,7 +46,7 @@
   };
   # On PATH in every session, whatever the project: /qa's `qa-node` (Playwright,
   # Chromium, viem and the qa-wallet helper) and `qa-mp4` (ffmpeg).
-  runtime = [ playwright.qa ];
+  runtime = [ qa ];
   # /qa's wallet key, handed out as the decrypted file's PATH for qa-wallet to
   # read, never as a value. A host without the secret gets no variable.
   secretFiles.QA_EVM_KEY_FILE = "qa-sepolia-key";

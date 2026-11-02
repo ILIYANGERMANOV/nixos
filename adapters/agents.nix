@@ -9,5 +9,6 @@
 
 import "${root}/programs/agents" {
   inherit pkgs lib secrets;
+  inherit (import "${root}/programs/playwright" { inherit pkgs; }) qa;
   externalSrcs.mattpocock = inputs.mattpocock-skills;
 }

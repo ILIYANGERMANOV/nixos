@@ -10,7 +10,7 @@
   mkFragment,
   mkInstructions,
   topics,
-  playwright,
+  qa,
 }:
 
 lib.mapAttrs (
@@ -21,7 +21,7 @@ lib.mapAttrs (
         mkFragment
         mkInstructions
         topics
-        playwright
+        qa
         ;
     }
   )

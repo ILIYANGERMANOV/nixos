@@ -12,8 +12,6 @@
   + "/${root}"
 - architecture#agents-name-no-vendor#programs/agents/skills/lib.nix#unresolved#sub
   + "/SKILL.md"
-- architecture#agents-name-no-vendor#programs/shell-check/default.nix#unresolved#builtins.readFile
-  script
 - architecture#darwin-is-not-nixos#programs/agents/lib/role.nix#unresolved#builtins.readDir
   dir
 - architecture#darwin-is-not-nixos#programs/agents/lib/role.nix#unresolved#dir + "/${name}/role.nix"
