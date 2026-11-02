@@ -112,7 +112,7 @@ let
       # When: a setup asks for servers by name.
       select = requested: availableServers secrets (selectServers catalog requested);
       names = lib.attrNames;
-      throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+      throws = import ./throws.nix;
     in
     assert lib.assertMsg (
       names available == [

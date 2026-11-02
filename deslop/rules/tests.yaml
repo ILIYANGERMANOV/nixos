@@ -65,7 +65,7 @@ rules:
       - "programs/software-factory/ctl/paths.sh"
       - "programs/software-factory/ops/state.sh"
       - "programs/skills-link/link-skills.sh"
-      - "programs/claude-code/budget-compare.sh"
+      - "programs/claude-code/budget/budget-compare.sh"
       - "programs/playwright/qa-frames.sh"
       - "programs/playwright/qa-mp4.sh"
 
@@ -159,7 +159,7 @@ rules:
 
   - id: budget-compare-has-its-check
     description: budget-compare is tested against bad and good sizes inside checks.claude-config.
-    target: "programs/claude-code/budget-compare.sh"
+    target: "programs/claude-code/budget/budget-compare.sh"
     exists:
       - module: "programs/claude-code/config-check.nix"
     fix: Restore config-check.nix, or test budget-compare elsewhere and say so here.

@@ -79,7 +79,7 @@ Nothing in `programs/agents/` changes. Using Codex as the worked example:
    `agents`, returning a wrapper that installs what Codex expects and execs it.
    `agents.instructions` is a value, not a file: render it with
    `agents.renderLead` and concatenate, as `mkLeadInstructions` does in
-   `programs/claude-code/lib.nix`:
+   `programs/claude-code/codegen/profile.nix`:
 
    ```nix
    let

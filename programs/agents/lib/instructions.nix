@@ -79,7 +79,7 @@ let
         ];
       };
       c = mkInstructions { forLead = [ (at "context" "c") ]; };
-      throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+      throws = import ./throws.nix;
     in
     assert lib.assertMsg (append empty a == a) "instructions: empty is not a left identity";
     assert lib.assertMsg (append a empty == a) "instructions: empty is not a right identity";

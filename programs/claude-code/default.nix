@@ -1,7 +1,7 @@
-# The Claude Code configuration itself: settings and the flavors, each the
-# programs/agents profiles it gets plus Claude settings. Everything mechanical -
-# merging, writing the wrappers - lives in lib.nix. MCP servers, the session
-# runtime and secret files come with the profiles.
+# The Claude Code configuration itself: the flavors, each the programs/agents
+# profiles it gets plus Claude settings. codegen/ turns them into Claude's
+# files, link/ writes them into ~/.claude and load/ starts Claude Code. MCP
+# servers, the session runtime and secret files come with the profiles.
 {
   pkgs,
   lib ? pkgs.lib,
@@ -12,44 +12,30 @@
 }:
 
 let
-  inherit
-    (import ./lib.nix {
-      inherit
-        pkgs
-        lib
-        claude-code
-        ;
-      inherit (agents.skills) mkSkillFarm;
-      inherit (agents) fold renderLead;
-    })
-    mkFlavorBuilder
-    mkLeadInstructions
-    ;
   statusline = import ./statusline/statusline.nix { inherit pkgs theme; };
   readGuard = import ./hooks/read-guard/read-guard.nix { inherit pkgs; };
   waitGuard = import ./hooks/wait-guard/wait-guard.nix { inherit pkgs; };
   contextGuard = import ./hooks/context-guard/context-guard.nix { inherit pkgs; };
+  secretGuard = import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
-  renderAgents = import ./agents.nix {
+
+  settings = import ./codegen/settings.nix { inherit lib statusline secretGuard; };
+  codegen = import ./codegen/profile.nix {
+    inherit pkgs lib;
+    inherit (agents.skills) mkSkillFarm;
+    inherit (agents) renderLead;
+    inherit (settings) withSecretFileGuard;
+  };
+  renderAgents = import ./codegen/role.nix {
     inherit pkgs lib;
     inherit (agents) renderRole;
   };
-
-  model = "opus";
-  effortLevel = "medium";
-
-  baseSettings = {
-    statusLine = {
-      type = "command";
-      command = "${statusline}/bin/claude-statusline";
-    };
-    autoMemoryEnabled = false;
-    # In user settings the top-level key only reaches a fixed list of older
-    # models. Opus 5.5 and later read modelSettings, which also takes an alias.
-    inherit effortLevel model;
-    modelSettings.${model} = { inherit effortLevel; };
-    theme = "auto";
+  link = import ./link/lib.nix { inherit pkgs lib claude-code; };
+  budget = import ./budget {
+    inherit pkgs lib;
+    inherit (agents.skills) frontmatter;
   };
+  inherit (budget) skillOverrides;
 
   # The profiles every flavor starts from, and the factory's. A profile's
   # instructions are installed the way Claude Code expects them: the lead's
@@ -66,93 +52,49 @@ let
   ];
   baseProfile = agents.fold baseProfiles;
 
-  mkClaudeFlavors = mkFlavorBuilder { inherit baseSettings; };
-
-  # The skill listing goes out on every call, and nothing here was ever invoked
-  # by a factory agent. user-invocable-only hides a skill from the model and
-  # keeps /name. Claude.ai's synced skills are keyed with their anthropic-skills:
-  # prefix, bundled ones without. checks.claude-config fails if a catalog skill
-  # lands on this list.
-  skillOverrides = lib.genAttrs (
-    map (name: "anthropic-skills:${name}") [
-      "built-in-browser"
-      "chrome-browser"
-      "computer-use"
-      "deep-research"
-      "docs"
-      "docx"
-      "google-workspace"
-      "import-memory"
-      "morning"
-      "pptx"
-      "skill-creator"
-      "xlsx"
-    ]
-    ++ [
-      "code-review"
-      "dataviz"
-      "fewer-permission-prompts"
-      "init"
-      "keybindings-help"
-      "loop"
-      "plugin-authoring"
-      "run"
-      "schedule"
-      "security-review"
-      "simplify"
-      "update-config"
-      "workflow-authoring"
-    ]
-  ) (_: "user-invocable-only");
+  # Flavors as their wrappers; the attr key is the binary name.
+  #   profiles      - the programs/agents profiles it gets, folded in order:
+  #                   its skills, instructions, MCP servers, runtime and
+  #                   secret files, already narrowed to this host's secrets
+  #   extraSettings - Nix attrset deep-merged onto the base settings
+  #   applySkills   - farm -> shell snippet that links ~/.claude/skills,
+  #                   for a flavor mkApplySkills is not safe for
+  mkClaudeFlavors = lib.mapAttrsToList (
+    name:
+    {
+      profiles,
+      extraSettings ? { },
+      applySkills ? link.mkApplySkills,
+    }:
+    link.mkWrapper {
+      inherit name applySkills;
+      target = codegen.mkTarget {
+        inherit name;
+        profile = agents.fold profiles;
+        settings = lib.recursiveUpdate settings.base extraSettings;
+      };
+    }
+  );
 
   # The factory's sessions and subagents get its profile's instructions on top
   # of the shared ones, and no other host does.
   agentSources = renderAgents agents.roles baseProfile.instructions;
   factoryAgentSources = renderAgents agents.roles (agents.fold factoryProfiles).instructions;
 
-  # `force`: a dev shell may have installed a plain copy here, see
-  # shellActivationScript. Home Manager would keep backing it up, and abort once
-  # a backup already exists.
-  toHomeFiles = lib.mapAttrs' (
-    name: source:
-    lib.nameValuePair ".claude/agents/${name}.md" {
-      inherit source;
-      force = true;
-    }
-  );
+  activation = import ./link/activation.nix {
+    inherit lib agentSources;
+    settingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON settings.base);
+    instructionsFile = codegen.mkLeadInstructions "agent" baseProfile.instructions;
+  };
+  inherit (activation) toHomeFiles;
 
-  # What one kind of agent starts with and reads for its work, on top of what
-  # every agent carries, for the size budget: files, by path. A role counts at
-  # its largest, the factory's render. Keyed by the records, so a new role has no
-  # ceiling in budget.json and fails the check until it gets one.
-  budgetLoads =
-    let
-      inherit (agents.skills) all;
-      review = "${all.pragmatic-review}/references";
-      # A role's references, beyond the skills it preloads.
-      reads = {
-        reviewer = [
-          "${review}/bar.md"
-          "${review}/blockers.md"
-        ];
-        review-lead = [
-          "${review}/first-pass.md"
-          "${review}/bar.md"
-        ];
-      };
-      roleLoad =
-        name: role:
-        [ factoryAgentSources.${name} ]
-        ++ map (skill: "${all.${skill}}/SKILL.md") role.skills
-        ++ reads.${name} or [ ];
-    in
-    lib.mapAttrs roleLoad agents.roles // { repo-instructions = [ ../../CLAUDE.md ]; };
-
-  baseSettingsFile = pkgs.writeText "claude-base-settings.json" (builtins.toJSON baseSettings);
-  baseInstructionsFile = mkLeadInstructions "agent" baseProfile.instructions;
 in
 rec {
   inherit statusline;
+
+  # When a changed file reaches a running Claude Code, by path. See
+  # load/applies.nix.
+  applies = import ./load/applies.nix { inherit lib; };
 
   # One entry per flavor; the attr name is the binary name. Only `profiles` is
   # required - `claude` is the base profile with nothing added.
@@ -247,7 +189,7 @@ rec {
   guards = {
     read = readGuard.bin;
     wait = waitGuard.bin;
-    secret = (import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; }).bin;
+    secret = secretGuard.bin;
     context = contextGuard.bin;
   };
 
@@ -258,40 +200,36 @@ rec {
 
   # checks.claude-config: this configuration against its size ceilings. See
   # config-check.nix.
-  check = import ./config-check.nix {
-    inherit pkgs lib;
-    inherit (agents.skills) frontmatter;
-    hiddenSkills = lib.attrNames skillOverrides;
-    skillNames = agents.skills.names;
-    flavors = packages ++ [ factory.wrapper ];
-    baseProfileSkills = baseProfile.skills;
-    inherit agentSources factoryAgentSources;
-    roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
-    loads = budgetLoads;
-    ceilings = ./budget.json;
-  };
+  check =
+    let
+      flavors = packages ++ [ factory.wrapper ];
+    in
+    import ./config-check.nix {
+      inherit pkgs lib;
+      inherit (agents.skills) frontmatter;
+      inherit (budget) compare;
+      hiddenSkills = lib.attrNames skillOverrides;
+      skillNames = agents.skills.names;
+      baseProfileSkills = baseProfile.skills;
+      inherit agentSources factoryAgentSources;
+      roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
+      sizes = [
+        # A role counts at its largest, the factory's render.
+        (agents.budget.sizes {
+          leads = lib.listToAttrs (map (flavor: lib.nameValuePair flavor.name flavor.instructions) flavors);
+          roleInstructions = (agents.fold factoryProfiles).instructions;
+          repoInstructions = ../../CLAUDE.md;
+        })
+        (budget.sizes {
+          inherit flavors;
+          agentSources = factoryAgentSources;
+        })
+      ];
+      ceilings = [
+        agents.budget.ceilings
+        budget.ceilings
+      ];
+    };
 
-  # Writes the base settings and instructions on every rebuild so both files
-  # exist before the first `claude` invocation. Each wrapper then overwrites
-  # them at launch time.
-  #
-  # `install -m 600`, not `cp`: store paths are mode 444, so copying one over a
-  # previous copy of itself fails with EACCES. `install` sets the mode on the
-  # destination it writes, which makes the operation repeatable.
-  activationScript = ''
-    mkdir -p "$HOME/.claude"
-    install -m 600 ${baseSettingsFile} "$HOME/.claude/settings.json"
-    install -m 600 ${baseInstructionsFile} "$HOME/.claude/CLAUDE.md"
-  '';
-
-  # activationScript for a dev shell, where no Home Manager places `agentFiles`:
-  # the install shells run on machines that have none yet.
-  shellActivationScript = activationScript + ''
-    mkdir -p "$HOME/.claude/agents"
-    ${lib.concatStrings (
-      lib.mapAttrsToList (name: source: ''
-        install -m 600 ${source} "$HOME/.claude/agents/${name}.md"
-      '') agentSources
-    )}
-  '';
+  inherit (activation) activationScript shellActivationScript;
 }

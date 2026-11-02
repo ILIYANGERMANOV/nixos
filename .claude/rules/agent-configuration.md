@@ -60,20 +60,25 @@ a second agent such as Codex.
   records. It does **not** read
   `AGENTS.md` at user scope. A project's own `CLAUDE.md` still stacks on top.
 
-### Claude Code: config in `default.nix`, plumbing in `lib.nix`
+### Claude Code: config in `default.nix`, the backend beside it
 
 **Changing the Claude Code setup means editing `default.nix` and nothing else.**
 
-- `default.nix` - the configuration: `baseSettings` and the flavors, each its
-  list of profiles plus Claude settings. Nothing derived lives here.
-- `lib.nix` - `mkFlavorBuilder`, applied once to `baseSettings` and returning
-  the function from an attrset of flavors to their wrapper derivations. The
-  attr key is the binary name, so a flavor's name is written once.
-- `mcp.nix` - `toWire` and `mkMcpStructure`: the servers a profile hands over,
-  written as `~/.claude.json` expects. No derivations, which is what makes it
-  testable.
-- `check.nix` - `checks.claude-code`: that shape, and `withSecretFileGuard`.
-  Server gating is tested in `checks.agents`.
+- `default.nix` - the configuration: the flavors, each its list of profiles
+  plus Claude settings. The attr key is the binary name, so a flavor's name is
+  written once.
+- `codegen/` - pure, Claude's format: `settings.nix` (base settings,
+  `withSecretFileGuard`), `profile.nix` (a folded profile as a flavor's files),
+  `role.nix` (a role as `agents/<name>.md`), `mcp.nix` (`toWire`, no
+  derivations, which is what makes it testable).
+- `link/` - effects that write `~/.claude`: `lib.nix` builds the flavor wrapper,
+  `link.sh` is its first half, `activation.nix` what a rebuild writes.
+- `load/` - `load.sh`, the wrapper's second half (environment, secrets, exec),
+  and `applies.nix`, when each written file reaches a running session.
+- `hooks/`, `statusline/` - the programs the settings point at.
+- `budget/` - the sizes only Claude's format adds, and `skillOverrides`.
+- `check.nix` - `checks.claude-code`: the MCP shape, `withSecretFileGuard` and
+  `applies.nix`. Server gating is tested in `checks.agents`.
 
 MCP transports, OAuth, the session runtime and secret files: `.claude/rules/claude-mcp.md`.
 
@@ -139,11 +144,14 @@ lands on the hidden list.
 
 ### Size budget
 
-**`programs/claude-code/budget.json` is a ceiling, in bytes, on what every agent
-carries.** `checks.claude-config` fails above it; `just skill-budget` prints the
-table. It counts each flavor's instructions and model-invocable skill listing,
-plus `budgetLoads` in `programs/claude-code/default.nix`: each subagent role's
-factory render with what it preloads and reads, and this repo's root `CLAUDE.md`. Raising a
+**`programs/agents/budget.json` and `programs/claude-code/budget/budget.json`
+are ceilings, in bytes, on what every agent carries.** `checks.claude-config`
+fails above them; `just skill-budget` prints the table. The first is the budget
+pass (`programs/agents/lib/passes/budget.nix`), naming no vendor: each flavor's
+instructions, each subagent role's factory instructions with what it preloads
+and reads, and this repo's root `CLAUDE.md`. The second is what Claude Code's
+format adds (`programs/claude-code/budget/`): each flavor's model-invocable
+skill listing and each rendered subagent's frontmatter. Raising a
 ceiling is allowed, and is the visible diff that makes the cost a decision. Keep
 root `CLAUDE.md` small: detail belongs in a `.claude/rules/` file.
 
@@ -151,7 +159,7 @@ root `CLAUDE.md` small: detail belongs in a `.claude/rules/` file.
 
 **`programs/agents/roles/<name>/` holds one role: `role.nix`, its record, and
 `role.md`, its prose. Nothing there names a harness.
-`programs/claude-code/agents.nix` renders them. Adding a role is adding its
+`programs/claude-code/codegen/role.nix` renders them. Adding a role is adding its
 folder.**
 
 A spawned general-purpose agent starts at about 43k tokens, 18k of that MCP
