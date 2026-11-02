@@ -42,9 +42,17 @@ let
     ps.pytest
     (mutmut ps)
   ]);
+
+  # What the Python tests read from the environment, here and in python-tests.
+  testEnv = {
+    STDLIB_PYTHON = lib.getExe pkgs.python3;
+    # Not `BASH`: bash itself sets that one.
+    BASH_ORACLE = lib.getExe pkgs.bash;
+    SHFMT = lib.getExe pkgs.shfmt;
+  };
 in
 {
-  inherit python;
+  inherit python testEnv;
 
   runner = shellCheck.writeShellApplication {
     name = "mutation";
@@ -53,12 +61,7 @@ in
       pkgs.nodejs
       pkgs.pnpm
     ];
-    # What python-tests gives the tests, as python-tests.sh does.
-    runtimeEnv = {
-      STDLIB_PYTHON = lib.getExe pkgs.python3;
-      BASH_ORACLE = lib.getExe pkgs.bash;
-      SHFMT = lib.getExe pkgs.shfmt;
-    };
+    runtimeEnv = testEnv;
     text = ''exec ${lib.getExe python} ${./mutation_diff.py} "$@"'';
   };
 }
