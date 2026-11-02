@@ -428,14 +428,18 @@ in
       -- attaches. Then: it was told the client takes no work-done progress,
       -- so it sends no `$/progress` for noice to pop up on every edit; it
       -- still got the shared completion capabilities; and edits are
-      -- debounced 500 ms.
+      -- debounced 500 ms by both clients on the buffer, since Neovim uses the
+      -- smallest.
       vim.cmd.edit("tests/test_app.py")
-      local attached = vim.wait(20000, function()
-        local clients = vim.lsp.get_clients({ bufnr = 0, name = "basedpyright" })
-        return clients[1] ~= nil and clients[1].initialized
+      local function attached(name)
+        return vim.lsp.get_clients({ bufnr = 0, name = name })[1]
+      end
+      local both = vim.wait(20000, function()
+        local pyright, typos = attached("basedpyright"), attached("typos_lsp")
+        return pyright ~= nil and pyright.initialized and typos ~= nil and typos.initialized
       end)
-      expect("basedpyright attached", attached, true)
-      local pyright = vim.lsp.get_clients({ bufnr = 0, name = "basedpyright" })[1] or {}
+      expect("basedpyright and typos_lsp attached", both, true)
+      local pyright = attached("basedpyright") or {}
       expect("basedpyright no work-done progress", vim.tbl_get(pyright, "capabilities", "window", "workDoneProgress"), false)
       expect(
         "basedpyright keeps shared capabilities",
@@ -443,6 +447,7 @@ in
         true
       )
       expect("basedpyright debounce", vim.tbl_get(pyright, "flags", "debounce_text_changes"), 500)
+      expect("typos_lsp debounce", vim.tbl_get(attached("typos_lsp") or {}, "flags", "debounce_text_changes"), 500)
 
       finish()
     '';

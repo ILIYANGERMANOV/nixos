@@ -51,8 +51,8 @@
         settings.basedpyright.disableOrganizeImports = true;
         # Neovim re-analyses on every change it sends; 500 ms instead of 150
         # batches a burst of typing into one run. Neovim debounces a buffer by
-        # the smallest value among its clients, so typos_lsp's default 150
-        # still wins in a buffer it shares.
+        # the smallest value among its clients, so typos_lsp is set to 500 too
+        # (programs/nvim/core/typos.nix).
         extraOptions.flags.debounce_text_changes = 500;
       };
 
