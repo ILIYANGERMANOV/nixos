@@ -3,6 +3,8 @@ paths:
   - "programs/claude-code/default.nix"
   - "programs/claude-code/mcp.nix"
   - "programs/claude-code/check.nix"
+  - "programs/agents/lib/mcp.nix"
+  - "programs/agents/mcp/**"
   - "programs/claude-code/lib.nix"
   - "programs/claude-code/secret-guard*"
   - "programs/playwright/**"
@@ -18,13 +20,15 @@ entry out is a projection rather than a translation, and `toWire` dispatches on
 it through an attrset - an unhandled transport aborts evaluation instead of
 falling through to a wrong shape.
 
-**Local (`mkStdioServer`)** - Claude Code spawns a subprocess. Its `env` maps an
+The catalog is `programs/agents/mcp/default.nix`; a profile names its servers.
+
+**Local (`mkLocal`, Claude's `stdio`)** - Claude Code spawns a subprocess. Its `env` maps an
 environment variable to the **name** of the secret that fills it. Omitting `env`
 means the server needs no secrets - an empty attrset, not a special case, so
 availability is simply "every secret this server names is declared" and holds
 vacuously for none. This is the only mechanism that gates a server to a host.
 
-**Remote (`mkHttpServer`)** - Claude Code connects over HTTP and authenticates
+**Remote (`mkRemote`, Claude's `http`)** - Claude Code connects over HTTP and authenticates
 **out-of-band**: `/mcp` inside a running session opens the OAuth flow, once per
 machine. There is no secret to inject, so a remote server carries `env = { }`
 and is available on every host. **A remote server cannot be host-gated by the
@@ -41,7 +45,7 @@ grant: **renaming a catalog entry or changing its `url`** (one re-login), and
 logging out of the Claude account, which wipes every MCP grant at once
 ([claude-code#90647](https://github.com/anthropics/claude-code/issues/90647)).
 
-`mkHttpServer` takes only a `url`. Claude Code expands `${VAR}` references in
+`mkRemote` takes only a `url`. Claude Code expands `${VAR}` references in
 `headers` exactly as it does in `env` on a local server, so a remote server
 that ever wants a static bearer token - both Linear and Superhuman Docs accept
 one - is a small addition here rather than a redesign. Nothing needs it yet,
@@ -49,7 +53,8 @@ and a static token is what would let a remote server be host-gated after all.
 
 ### Session runtime and secret files
 
-`runtime` in `default.nix` is put on PATH by every flavor wrapper: today
+A profile's `runtime` is put on PATH by the flavor wrapper; the `base` profile,
+so every flavor, has
 `programs/playwright`'s `qa` - `qa-node` (Node resolving `playwright` with
 nixpkgs' Chromium, `viem` and the `qa-wallet` helper from any directory) and
 `qa-mp4` (ffmpeg). The environment lives inside `qa-node`, never the session,
@@ -68,7 +73,7 @@ every system. `playwright` in `package.json` is for its types only: keep it at
 nixpkgs' `playwright-test` version. Tests sit beside the code as `*.test.ts`;
 `checks.ts-test` is the unit layer and `checks.qa` the end-to-end one.
 
-`secretFiles` maps an env var to a secret **name**, for a program that reads
+A profile's `secretFiles` maps an env var to a secret **name**, for a program that reads
 the file itself: the wrapper exports the decrypted file's **path**, never its
 value (`QA_EVM_KEY_FILE` -> `qa-sepolia-key`, declared on `macos-work` only).
 A host without the secret gets no variable. Where one is exported,

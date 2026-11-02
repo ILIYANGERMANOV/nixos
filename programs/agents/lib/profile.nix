@@ -1,5 +1,6 @@
 # Profiles as a monoid. A profile is the vendor-free part of one setup: the
-# skills it adds and its instructions (lib/instructions.nix). Profiles are small
+# skills it adds, its instructions (lib/instructions.nix), its MCP servers, the
+# programs on its PATH and its secret files. Profiles are small
 # deltas that never import each other; whoever selects them lists them and folds
 # them with `append`.
 #
@@ -15,6 +16,10 @@
   lib,
   instructions,
   skillNames,
+  # MCP server names -> name -> server, from the catalog; throws on an unknown
+  # name. lib/mcp.nix's selectServers bound to programs/agents/mcp.
+  selectServers,
+  serverNames,
 }:
 
 let
@@ -22,7 +27,13 @@ let
     spec:
     let
       unknown = lib.subtractLists (lib.attrNames fields) (lib.attrNames spec);
-      profile = empty // spec // { skills = lib.unique (spec.skills or [ ]); };
+      profile =
+        empty
+        // spec
+        // {
+          skills = lib.unique (spec.skills or [ ]);
+          mcp = selectServers (spec.mcp or [ ]);
+        };
       unknownSkills = lib.subtractLists skillNames profile.skills;
     in
     if unknown != [ ] then
@@ -35,6 +46,9 @@ let
   empty = {
     skills = [ ];
     instructions = instructions.empty;
+    mcp = { };
+    runtime = [ ];
+    secretFiles = { };
   };
 
   append = a: b: lib.mapAttrs (field: combine: combine a.${field} b.${field}) fields;
@@ -42,17 +56,21 @@ let
   fold = lib.foldl' append empty;
 
   # How each field combines. skills: catalog skill names. instructions: a value
-  # of lib/instructions.nix.
+  # of lib/instructions.nix. mcp: server name -> server, written as a list of
+  # names. runtime: packages put on PATH. secretFiles: variable -> secret name,
+  # for a program that reads the file itself.
   fields = {
     skills = union;
     instructions = instructions.append;
+    mcp = merge;
+    runtime = union;
+    secretFiles = merge;
   };
 
   # Lists: concatenated, keeping the first occurrence.
   union = a: b: lib.unique (a ++ b);
 
-  # Keyed sets: one key may only hold one value. For the keyed fields to come
-  # (MCP servers, secret files).
+  # Keyed sets: one key may only hold one value.
   merge =
     a: b:
     let
@@ -75,12 +93,15 @@ let
           file = "/${name}.md";
         };
       skill = builtins.elemAt skillNames;
+      server = builtins.elemAt serverNames;
       a = mkProfile {
         skills = [
           (skill 0)
           (skill 1)
         ];
         instructions = instructions.mkInstructions { forAll = [ (at "agent" "a") ]; };
+        mcp = [ (server 0) ];
+        secretFiles.A_FILE = "a-secret";
       };
       b = mkProfile {
         skills = [
@@ -88,6 +109,10 @@ let
           (skill 2)
         ];
         instructions = instructions.mkInstructions { forLead = [ (at "context" "b") ]; };
+        mcp = [
+          (server 0)
+          (server 1)
+        ];
       };
       c = mkProfile {
         skills = [ (skill 0) ];
@@ -115,6 +140,17 @@ let
       ]
     ) "profile: append did not union the skills keeping the first occurrence";
     assert lib.assertMsg (
+      lib.attrNames (append a b).mcp == lib.sort lib.lessThan [
+        (server 0)
+        (server 1)
+      ]
+    ) "profile: append did not merge the MCP servers";
+    assert lib.assertMsg (throws (
+      append a (mkProfile {
+        secretFiles.A_FILE = "another-secret";
+      })
+    )) "profile: one secret file variable bound to two secrets did not throw";
+    assert lib.assertMsg (
       merge { x = 1; } { x = 1; } == { x = 1; }
     ) "profile: one key set to one value twice threw";
     assert lib.assertMsg (throws (
@@ -126,6 +162,9 @@ let
     assert lib.assertMsg (throws (mkProfile {
       skills = [ "no-such-skill" ];
     })) "profile: mkProfile accepted an unknown skill";
+    assert lib.assertMsg (throws (mkProfile {
+      mcp = [ "no-such-server" ];
+    })) "profile: mkProfile accepted an unknown MCP server";
     pkgs.writeText "profile-check" "";
 in
 {

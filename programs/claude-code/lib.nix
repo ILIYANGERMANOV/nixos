@@ -3,81 +3,50 @@
   lib ? pkgs.lib,
   claude-code,
   mkSkillFarm,
-  # programs/agents: profiles folded into one, and the lead's instruction render.
+  # programs/agents: profiles folded into one for this host, and the lead's
+  # instruction render.
   fold,
   renderLead,
-  # name -> decrypted-file path, for the secrets THIS host provides.
-  secrets ? { },
   ...
 }:
 
 let
   shellCheck = import ../shell-check { inherit pkgs; };
 
-  mcp = import ./mcp.nix { inherit lib secrets; };
+  mcp = import ./mcp.nix { inherit lib; };
   secretGuard = import ./secret-guard.nix { inherit pkgs; };
 
-  # Binds one Claude Code configuration - the settings and MCP catalog authored
-  # in default.nix - and returns the function that turns an attrset of flavors
-  # into their wrapper derivations.
-  #
-  # Everything derived from that configuration is computed once, here, rather
-  # than per flavor: the catalog is filtered against this host's secrets exactly
-  # once, and the list of defined names never has to be passed alongside it.
+  # Binds the base settings authored in default.nix and returns the function that
+  # turns an attrset of flavors into their wrapper derivations.
   #
   # Flavor options (the attr key is the binary name):
   #   profiles      - the programs/agents profiles it gets, folded in order:
-  #                   its skills and instructions
+  #                   its skills, instructions, MCP servers, runtime and
+  #                   secret files, already narrowed to this host's secrets
   #   extraSettings - Nix attrset deep-merged onto baseSettings
-  #   mcpServers    - names from the catalog to activate for this flavor
   #   applySkills   - farm -> shell snippet that links ~/.claude/skills,
   #                   for a flavor mkApplySkills is not safe for
   #
-  # Every flavor also gets `runtime` on PATH and, of `secretFiles` (env var ->
-  # secret name), each one this host declares exported as its decrypted
-  # file's PATH, guarded against being read from the session.
+  # A flavor puts its `runtime` on PATH and exports each of its secret files as
+  # the decrypted file's PATH, guarded against being read from the session.
   mkFlavorBuilder =
-    {
-      baseSettings,
-      mcpCatalog,
-      runtime,
-      secretFiles,
-    }:
-    let
-      known = lib.attrNames mcpCatalog;
-      available = mcp.availableServers mcpCatalog;
-      # env var -> decrypted-file path, for the secret files this host provides.
-      files = lib.mapAttrs (_: secret: secrets.${secret}) (
-        lib.filterAttrs (_: secret: secrets ? ${secret}) secretFiles
-      );
-      guardSecretFiles = withSecretFileGuard files;
-    in
+    { baseSettings }:
     lib.mapAttrsToList (
       name:
       {
         profiles,
         extraSettings ? { },
-        mcpServers ? [ ],
         applySkills ? mkApplySkills,
       }:
       let
         profile = fold profiles;
-        servers = mcp.selectServers {
-          flavor = name;
-          inherit known available;
-          requested = mcpServers;
-        };
       in
       mkFlavor {
-        inherit
-          name
-          servers
-          runtime
-          files
-          applySkills
-          ;
-        settings = guardSecretFiles (lib.recursiveUpdate baseSettings extraSettings);
-        inherit (profile) skills;
+        inherit name applySkills;
+        servers = profile.mcp;
+        files = profile.secretFiles;
+        settings = withSecretFileGuard profile.secretFiles (lib.recursiveUpdate baseSettings extraSettings);
+        inherit (profile) skills runtime;
         instructions = mkLeadInstructions name profile.instructions;
       }
     );
@@ -216,6 +185,5 @@ let
     '';
 in
 {
-  inherit (mcp) mkStdioServer mkHttpServer;
   inherit mkFlavorBuilder mkLeadInstructions withSecretFileGuard;
 }

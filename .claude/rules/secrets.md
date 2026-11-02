@@ -44,8 +44,8 @@ pass. That placeholder is exactly what this design removed.
 Home Manager receives `secretsConfig` (`name -> path`, declared secrets only)
 through `extraSpecialArgs`, alongside `userConfig` and `themeConfig`.
 `programs/` takes it as a plain parameter and stays host-agnostic: it gates on
-what it was handed, it never looks a host up. `programs/claude-code` is the
-worked example - catalog entries name the secrets they need
+what it was handed, it never looks a host up. `programs/agents` (`lib/mcp.nix`)
+is the worked example - catalog entries name the secrets they need
 (`env.FIGMA_API_KEY = "figma-token"`), unavailable entries are dropped before
 any flavor sees them, and names are validated against the full catalog so a typo
 still aborts while an unavailable server stays silent.

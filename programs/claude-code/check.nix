@@ -1,10 +1,8 @@
-# Build-time tests for the MCP catalog logic and the secret file guard, wired into `nix flake check` (and
-# therefore `just check` in CI) as `checks.claude-code`.
-#
-# mcp.nix is pure - no derivations, no wrappers, no hosts - so every case here
-# runs against a synthetic catalog and a synthetic `secrets` attrset rather than
-# against whatever the machine running CI happens to provide. The guard is
-# lib.nix's `withSecretFileGuard`, the settings a flavor gets per secret file.
+# Build-time tests for the ~/.claude.json MCP shape and the secret file guard,
+# wired into `nix flake check` (and therefore `just check` in CI) as
+# `checks.claude-code`. Which servers a host gets is programs/agents' logic and
+# is tested in `checks.agents`; here the servers are the records it hands over,
+# secrets already resolved to paths.
 {
   pkgs,
   lib ? pkgs.lib,
@@ -13,53 +11,31 @@
 let
   inherit (lib.generators) toPretty;
 
-  # Given: a host that declares two of the three secrets this catalog names.
-  secrets = {
-    figma-token = "/run/secrets/figma-token";
-    shared-token = "/run/secrets/shared-token";
+  mcp = import ./mcp.nix { inherit lib; };
+
+  # Given: servers as programs/agents hands them over for one host.
+  figma = {
+    type = "local";
+    command = "npx";
+    args = [ "figma-developer-mcp" ];
+    env.FIGMA_API_KEY = "/run/secrets/figma-token";
   };
-
-  mcp = import ./mcp.nix { inherit lib secrets; };
-
-  catalog = {
-    figma = mcp.mkStdioServer {
-      command = "npx";
-      args = [ "figma-developer-mcp" ];
-      env.FIGMA_API_KEY = "figma-token";
-    };
-
-    secretless = mcp.mkStdioServer {
-      command = "uvx";
-      args = [ "mcp-server-time" ];
-    };
-
-    twoSecrets = mcp.mkStdioServer {
-      command = "node";
-      args = [ "two-secret-server" ];
-      env = {
-        A_TOKEN = "shared-token";
-        B_TOKEN = "undeclared-token";
-      };
-    };
-
-    remote = mcp.mkHttpServer { url = "https://mcp.example.com/mcp"; };
+  secretless = {
+    type = "local";
+    command = "uvx";
+    args = [ "mcp-server-time" ];
+    env = { };
   };
-
-  known = lib.attrNames catalog;
-  available = mcp.availableServers catalog;
-
-  # When: a flavor asks for a set of servers by name.
-  select =
-    requested:
-    mcp.selectServers {
-      flavor = "test-flavor";
-      inherit known available requested;
-    };
+  remote = {
+    type = "remote";
+    url = "https://mcp.example.com/mcp";
+    env = { };
+  };
 
   # Given: a flavor's own settings, already holding a deny rule and a Bash hook.
   inherit
     (import ./lib.nix {
-      inherit pkgs lib secrets;
+      inherit pkgs lib;
       claude-code = throw "the secret file guard builds no wrapper";
       mkSkillFarm = throw "the secret file guard builds no skills";
       fold = throw "the secret file guard folds no profiles";
@@ -83,62 +59,12 @@ let
     ];
   };
   # When: the flavor is handed the secret file this host declares.
-  guarded = withSecretFileGuard { FIGMA_TOKEN_FILE = secrets.figma-token; } flavorSettings;
-
-  # `throw` is lazy, so the value has to be forced inside tryEval to be caught.
-  evalFails = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+  guarded = withSecretFileGuard { FIGMA_TOKEN_FILE = "/run/secrets/figma-token"; } flavorSettings;
 
   cases = [
     {
-      name = "a server is available only when every secret it names is declared";
-      actual = lib.attrNames available;
-      expected = [
-        "figma"
-        "remote"
-        "secretless"
-      ];
-    }
-    {
-      name = "an available server has its secret names resolved to paths";
-      actual = available.figma.env;
-      expected = {
-        FIGMA_API_KEY = "/run/secrets/figma-token";
-      };
-    }
-    {
-      name = "a server naming no secrets is available with an empty env";
-      actual = available.secretless.env;
-      expected = { };
-    }
-    {
-      name = "a flavor asking for nothing gets no servers";
-      actual = select [ ];
-      expected = { };
-    }
-    {
-      name = "a flavor gets exactly the available servers it asked for";
-      actual = lib.attrNames (select [
-        "figma"
-        "secretless"
-      ]);
-      expected = [
-        "figma"
-        "secretless"
-      ];
-    }
-    {
-      name = "a flavor asking for a known but unavailable server gets nothing";
-      actual = select [ "twoSecrets" ];
-      expected = { };
-    }
-    {
-      name = "a flavor asking for a server outside the catalog aborts evaluation";
-      actual = evalFails (select [ "figmaa" ]);
-      expected = true;
-    }
-    {
       name = "a server with a secret is written as an env var reference, never a path";
-      actual = mcp.mkMcpStructure (select [ "figma" ]);
+      actual = mcp.mkMcpStructure { inherit figma; };
       expected = {
         figma = {
           type = "stdio";
@@ -150,7 +76,7 @@ let
     }
     {
       name = "a server with no secrets is written with an empty env";
-      actual = mcp.mkMcpStructure (select [ "secretless" ]);
+      actual = mcp.mkMcpStructure { inherit secretless; };
       expected = {
         secretless = {
           type = "stdio";
@@ -161,41 +87,14 @@ let
       };
     }
     {
-      # A remote server authenticates out-of-band, so there is nothing for a
-      # host to declare and nothing to gate on. `secrets` above deliberately
-      # holds no key this entry could match.
-      name = "a remote server is available on a host that declares none of its secrets";
-      actual = available ? remote;
-      expected = true;
-    }
-    {
       name = "a remote server is written as a url, with no env and no command";
-      actual = mcp.mkMcpStructure (select [ "remote" ]);
+      actual = mcp.mkMcpStructure { inherit remote; };
       expected = {
         remote = {
           type = "http";
           url = "https://mcp.example.com/mcp";
         };
       };
-    }
-    {
-      name = "a flavor mixing transports gets both";
-      actual = lib.attrNames (select [
-        "figma"
-        "remote"
-      ]);
-      expected = [
-        "figma"
-        "remote"
-      ];
-    }
-    {
-      name = "an unavailable local server is still dropped when a remote one is requested alongside";
-      actual = lib.attrNames (select [
-        "remote"
-        "twoSecrets"
-      ]);
-      expected = [ "remote" ];
     }
     {
       name = "a secret file's directory, its sops-nix .d and their macOS spellings are denied after the flavor's own rules";
@@ -260,7 +159,7 @@ pkgs.runCommand "claude-code-check" { } ''
   ${lib.concatMapStringsSep "\n" report cases}
 
   if [ "$status" -ne 0 ]; then
-    echo "claude-code: MCP catalog or secret file guard logic is wrong" >&2
+    echo "claude-code: the MCP shape or the secret file guard is wrong" >&2
     exit 1
   fi
 
