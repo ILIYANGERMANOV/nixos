@@ -118,7 +118,7 @@ let
         skills = [ (skill 0) ];
         instructions = instructions.mkInstructions { forAll = [ (at "agent" "a") ]; };
       };
-      throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+      throws = import ./throws.nix;
     in
     assert lib.assertMsg (append empty a == a) "profile: empty is not a left identity";
     assert lib.assertMsg (append a empty == a) "profile: empty is not a right identity";

@@ -1,0 +1,85 @@
+#!/usr/bin/env bats
+# shellcheck disable=SC2016,SC2312 # a stub's body expands when the stub runs, and a masked failure fails the assertion around it
+# lib.nix splices in these values and apply_skills. If a name here stops matching
+# it, the assembled script fails its own shellcheck phase.
+
+load ../../shell-check/test_helper
+
+setup() {
+  export WORK="$BATS_TEST_TMPDIR"
+  export HOME="$WORK/home"
+  mkdir -p "$HOME"
+
+  # Read-only, as in the store.
+  echo instructions >"$WORK/instructions"
+  echo '{"model":"opus"}' >"$WORK/settings"
+  echo '{"coda":{"url":"https://example.com"}}' >"$WORK/mcp.json"
+  chmod 444 "$WORK/instructions" "$WORK/settings" "$WORK/mcp.json"
+
+  export instructions_file="$WORK/instructions" settings_file="$WORK/settings"
+  export mcp_static_file="$WORK/mcp.json"
+}
+
+link() {
+  {
+    echo 'apply_skills() { touch "$WORK/skills-applied"; }'
+    echo "source '$BATS_TEST_DIRNAME/link.sh'"
+  } >"$WORK/flavor"
+  bash -euo pipefail "$WORK/flavor"
+}
+
+@test "applies the skills" {
+  link
+
+  [ -e "$WORK/skills-applied" ]
+}
+
+@test "the instructions and settings replace what is there" {
+  mkdir "$HOME/.claude"
+  echo "by hand" >"$HOME/.claude/CLAUDE.md"
+  echo "by hand" >"$HOME/.claude/settings.json"
+
+  link
+
+  [ "$(cat "$HOME/.claude/CLAUDE.md")" = instructions ]
+  [ "$(cat "$HOME/.claude/settings.json")" = '{"model":"opus"}' ]
+}
+
+@test "the instructions and settings are private to the user" {
+  link
+
+  [ "$(stat -c %a "$HOME/.claude/CLAUDE.md")" = 600 ]
+  [ "$(stat -c %a "$HOME/.claude/settings.json")" = 600 ]
+}
+
+@test "a second link rewrites files that came from the read-only store" {
+  link
+
+  run link
+
+  [ "$status" -eq 0 ]
+}
+
+@test "the MCP servers are replaced and the rest of ~/.claude.json stays" {
+  echo '{"projects":{"a":1},"mcpServers":{"old":{}}}' >"$HOME/.claude.json"
+
+  link
+
+  [ "$(jq -cS . "$HOME/.claude.json")" = '{"mcpServers":{"coda":{"url":"https://example.com"}},"projects":{"a":1}}' ]
+}
+
+@test "a first link creates ~/.claude.json" {
+  link
+
+  [ "$(jq -c . "$HOME/.claude.json")" = '{"mcpServers":{"coda":{"url":"https://example.com"}}}' ]
+}
+
+@test "an unreadable ~/.claude.json stops the link, untouched and with no temp file" {
+  echo 'not json' >"$HOME/.claude.json"
+
+  run --separate-stderr link
+
+  [ "$status" -ne 0 ]
+  [ "$(cat "$HOME/.claude.json")" = "not json" ]
+  [ "$(find "$HOME" -maxdepth 1 -name '.claude.json.*' | wc -l)" -eq 0 ]
+}

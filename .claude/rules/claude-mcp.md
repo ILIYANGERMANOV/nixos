@@ -1,12 +1,14 @@
 ---
 paths:
   - "programs/claude-code/default.nix"
-  - "programs/claude-code/mcp.nix"
+  - "programs/claude-code/codegen/mcp.nix"
+  - "programs/claude-code/codegen/profile.nix"
   - "programs/claude-code/check.nix"
   - "programs/agents/lib/mcp.nix"
   - "programs/agents/mcp/**"
-  - "programs/claude-code/lib.nix"
-  - "programs/claude-code/secret-guard*"
+  - "programs/claude-code/link/**"
+  - "programs/claude-code/load/**"
+  - "programs/claude-code/hooks/secret-guard/**"
   - "programs/playwright/**"
 ---
 
@@ -77,7 +79,7 @@ A profile's `secretFiles` maps an env var to a secret **name**, for a program th
 the file itself: the wrapper exports the decrypted file's **path**, never its
 value (`QA_EVM_KEY_FILE` -> `qa-sepolia-key`, declared on `macos-work` only).
 A host without the secret gets no variable. Where one is exported,
-`withSecretFileGuard` in `lib.nix` adds `Read` deny rules over the secrets
+`withSecretFileGuard` in `codegen/settings.nix` adds `Read` deny rules over the secrets
 directory (`/run/secrets` and the `/run/secrets.d` it resolves to) and the
 `claude-secret-guard` Bash hook, which blocks a command naming that directory
 or the file's basename, expanding the variable, or running `printenv`/`env`

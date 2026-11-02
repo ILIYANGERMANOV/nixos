@@ -40,7 +40,7 @@ let
           ];
         };
       };
-      throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+      throws = import ../throws.nix;
     in
     assert lib.assertMsg (dedup clean == clean) "dedup: changed a profile with no duplicates";
     assert lib.assertMsg (throws (

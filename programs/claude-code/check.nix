@@ -1,6 +1,6 @@
-# Build-time tests for the ~/.claude.json MCP shape and the secret file guard,
-# wired into `nix flake check` (and therefore `just check` in CI) as
-# `checks.claude-code`. Which servers a host gets is programs/agents' logic and
+# Build-time tests for the ~/.claude.json MCP shape, the secret file guard and
+# load/applies.nix, wired into `nix flake check` (and therefore `just check` in
+# CI) as `checks.claude-code`. Which servers a host gets is programs/agents' logic and
 # is tested in `checks.agents`; here the servers are the records it hands over,
 # secrets already resolved to paths.
 {
@@ -11,7 +11,7 @@
 let
   inherit (lib.generators) toPretty;
 
-  mcp = import ./mcp.nix { inherit lib; };
+  mcp = import ./codegen/mcp.nix { inherit lib; };
 
   # Given: servers as programs/agents hands them over for one host.
   figma = {
@@ -32,14 +32,13 @@ let
     env = { };
   };
 
+  secretGuard = import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; };
+
   # Given: a flavor's own settings, already holding a deny rule and a Bash hook.
   inherit
-    (import ./lib.nix {
-      inherit pkgs lib;
-      claude-code = throw "the secret file guard builds no wrapper";
-      mkSkillFarm = throw "the secret file guard builds no skills";
-      fold = throw "the secret file guard folds no profiles";
-      renderLead = throw "the secret file guard builds no instructions";
+    (import ./codegen/settings.nix {
+      inherit lib secretGuard;
+      statusline = throw "the secret file guard sets no status line";
     })
     withSecretFileGuard
     ;
@@ -120,7 +119,7 @@ let
         }
         {
           matcher = "Bash";
-          commands = [ "${(import ./secret-guard.nix { inherit pkgs; }).bin}/bin/claude-secret-guard" ];
+          commands = [ "${secretGuard.bin}/bin/claude-secret-guard" ];
         }
       ];
     }
@@ -153,15 +152,18 @@ let
         status=1
       '';
 in
-pkgs.runCommand "claude-code-check" { } ''
-  status=0
+# applies.nix asserts its own cases when forced.
+builtins.deepSeq (import ./load/applies.nix { inherit lib; }) pkgs.runCommand "claude-code-check"
+  { }
+  ''
+    status=0
 
-  ${lib.concatMapStringsSep "\n" report cases}
+    ${lib.concatMapStringsSep "\n" report cases}
 
-  if [ "$status" -ne 0 ]; then
-    echo "claude-code: the MCP shape or the secret file guard is wrong" >&2
-    exit 1
-  fi
+    if [ "$status" -ne 0 ]; then
+      echo "claude-code: the MCP shape or the secret file guard is wrong" >&2
+      exit 1
+    fi
 
-  touch "$out"
-''
+    touch "$out"
+  ''

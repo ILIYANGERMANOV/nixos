@@ -27,7 +27,7 @@ from guard_harness import (
 )
 
 GUARD = os.environ["READ_GUARD"]
-SOURCE = "read-guard.py"
+SOURCE = Path(__file__).with_name("read-guard.py")
 LARGE = 9000  # Under the limit alone, over it together.
 HUGE = 20000  # Over the limit alone.
 

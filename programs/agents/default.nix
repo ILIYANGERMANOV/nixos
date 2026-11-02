@@ -26,6 +26,11 @@ let
     inherit pkgs lib;
     instructions = instructionsLib;
   };
+  budget = import ./lib/passes/budget.nix {
+    inherit pkgs lib roles;
+    inherit (instructionsLib) renderRole;
+    skills = skills.all;
+  };
 
   topics.trivial = mkFragment {
     layer = "topic";
@@ -68,11 +73,10 @@ in
   #
   # Their instructions are only the content, rendered with `renderLead` and
   # `renderRole`. This layer deliberately knows nothing about where any agent
-  # expects to find them, because the agents disagree: Claude Code hardcodes
-  # CLAUDE.md discovery and does not read AGENTS.md at user scope, while Codex
-  # reads ~/.codex/AGENTS.md. Teaching this file either convention would make
-  # the shared layer agent-shaped. Each agent program installs the path its own
-  # way instead. See docs/adr/0002-agent-agnostic-configuration.md.
+  # expects to find them, because the agents disagree on the file name and its
+  # directory. Teaching this file one convention would make the shared layer
+  # agent-shaped. Each agent program installs the path its own way instead. See
+  # docs/adr/0002-agent-agnostic-configuration.md.
   inherit profiles;
   inherit (instructionsLib) renderLead renderRole;
 
@@ -80,13 +84,16 @@ in
   # then narrowed to this host's secrets: `mcp` and `secretFiles` hold paths.
   fold = selected: forHost (dedupLib.dedup (profileLib.fold selected));
 
-  # The skill catalog. Agent-agnostic because SKILL.md is a shared format, even
-  # though Claude Code is currently its only consumer.
+  # The skill catalog. Agent-agnostic because SKILL.md is a shared format.
   inherit skills;
 
   # The subagent roles, by name, as records. Each agent program renders them its
   # own way.
   inherit roles;
+
+  # The size budget every agent program shares: `sizes` to measure and their
+  # `ceilings`. See lib/passes/budget.nix.
+  inherit budget;
 
   # Every build-time check over shared agent config, wired into `nix flake check`
   # as `checks.agents`.

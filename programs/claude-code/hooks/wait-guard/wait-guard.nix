@@ -2,7 +2,7 @@
 # in wait-guard.py; the scenarios are in test_wait-guard.py.
 { pkgs }:
 
-import ./bash-guard.nix {
+import ../shared/bash-guard.nix {
   inherit pkgs;
   name = "claude-wait-guard";
   parsesCommands = true;

@@ -21,10 +21,10 @@ ignore = [
 # The only ones that call subprocess, always with an argv list. The guard's git and
 # the parser's shfmt are substituted at build time; a test runs what the check puts
 # on PATH, and disk_plan.py what factory-ctl does.
-"programs/claude-code/read-guard.py" = ["S603", "S607"]
-"programs/claude-code/bash_commands.py" = ["S603"]
-"programs/claude-code/guard_harness.py" = ["S603"]
-"programs/claude-code/statusline.py" = ["S603", "S607"]
+"programs/claude-code/hooks/read-guard/read-guard.py" = ["S603", "S607"]
+"programs/claude-code/hooks/shared/bash_commands.py" = ["S603"]
+"programs/claude-code/hooks/shared/guard_harness.py" = ["S603"]
+"programs/claude-code/statusline/statusline.py" = ["S603", "S607"]
 "programs/software-factory/disk_plan.py" = ["S603", "S607"]
 "just/nix-darwin/cache_check.py" = ["S603", "S607"]
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
@@ -43,7 +43,8 @@ addopts = "--import-mode=importlib -p no:cacheprovider --hypothesis-seed=0 -q"
 # A test imports what sits beside it: the harness, bash_commands.py, disk_plan.py,
 # cache_check.py. The analyzer's differential test imports both programs.
 pythonpath = [
-  "programs/claude-code",
+  "programs/claude-code/hooks/shared",
+  "programs/claude-code/statusline",
   "programs/agents/skills/custom/self-improve/scripts",
   "programs/software-factory",
   "just/nix-darwin",
@@ -58,11 +59,15 @@ pythonVersion = "3.13"
 # The guards import their sibling modules from site-packages at runtime
 # (bash-guard.nix), so they are absolute imports, not relative ones.
 [[tool.basedpyright.executionEnvironments]]
-root = "programs/claude-code"
+root = "programs/claude-code/hooks"
+extraPaths = ["programs/claude-code/hooks/shared"]
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/claude-code/statusline"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/skills/custom/self-improve/scripts"
-extraPaths = ["programs/claude-code"]
+extraPaths = ["programs/claude-code/hooks/shared"]
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/software-factory"
