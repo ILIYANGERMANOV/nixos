@@ -23,8 +23,10 @@ A Python mutant's `operator` is mutmut's mutant id, as mutmut names no operator.
 
 ## Scope
 
-- Python, by mutmut: the six modules whose tests import them, listed in
-  `PYTHON_MODULES` in `programs/mutation/mutation_diff.py`.
+- Python, by mutmut: the modules whose tests import them, listed in
+  `PYTHON_MODULES` in `programs/mutation/mutation_diff.py`. A diff runs only
+  the top-level functions and methods holding a changed line, selected by
+  mutmut's name glob (`<module>.x_<function>__mutmut_*`); `full` runs them all.
 - TypeScript, by Stryker: `kit/index.ts` and `wallet/index.ts` under
   `programs/playwright`. The rest there is Playwright drivers, which only `qa` runs.
 
@@ -32,8 +34,12 @@ A Python mutant's `operator` is mutmut's mutant id, as mutmut names no operator.
 
 - Shell is deferred to later work, and Nix is not mutated.
 - Code its tests reach only through a subprocess shows as uncovered, as no
-  mutant there can be killed: the guards, the statusline, most of `analyze.py`,
-  whose tests run its CLI, and `cache_check`'s `main`.
+  mutant there can be killed: the guards, the statusline and `cache_check`'s
+  `main`. `analyze.py`'s tests call its `main(argv)` in-process for this reason.
+- mutmut mutates no module-level code, nested function or method of a nested
+  class, so a change there selects nothing.
+- A diff touching only functions mutmut finds no mutant in fails the run, as
+  mutmut rejects a selection that matches nothing. Rare, and left so.
 - Deleted lines and test-only diffs are not assessed, and the report says so.
 
 ## Advisory, outside the checks

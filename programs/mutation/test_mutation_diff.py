@@ -16,6 +16,7 @@ from mutation_diff import (
     Report,
     RunFailedError,
     Status,
+    changed_functions,
     changed_lines,
     function_lines,
     mutation_diff,
@@ -421,7 +422,7 @@ WINDOW_DIFF = (
 
 
 def test_a_method_mutant_sits_on_the_lines_it_replaces() -> None:
-    span = mutmut_span(ADD_DIFF, function_lines(USAGE)["Usage", "__add__"])
+    span = mutmut_span(ADD_DIFF, function_lines(USAGE)["Usage", "__add__"].first)
 
     assert (span.lines, span.original, span.replacement) == (
         LineRange(16, 17),
@@ -431,7 +432,7 @@ def test_a_method_mutant_sits_on_the_lines_it_replaces() -> None:
 
 
 def test_a_mutant_of_a_function_below_a_comment_sits_on_its_own_line() -> None:
-    span = mutmut_span(WINDOW_DIFF, function_lines(USAGE)[None, "select_window"])
+    span = mutmut_span(WINDOW_DIFF, function_lines(USAGE)[None, "select_window"].first)
 
     assert (span.lines, span.original, span.replacement) == (
         LineRange(28, 28),
@@ -443,7 +444,31 @@ def test_a_mutant_of_a_function_below_a_comment_sits_on_its_own_line() -> None:
 def test_a_decorated_method_starts_at_its_first_decorator() -> None:
     source = "class C:\n    # why\n\n    @staticmethod\n    def m() -> int:\n        return 1\n"
 
-    assert function_lines(source) == {("C", "m"): 2}
+    assert function_lines(source)["C", "m"].first == 2
+
+
+def test_only_the_functions_holding_a_changed_line_are_selected() -> None:
+    # Line 16 is in Usage.__add__, line 28 in select_window.
+    assert changed_functions(USAGE, (LineRange(16, 16), LineRange(28, 28))) == [
+        (None, "select_window"),
+        ("Usage", "__add__"),
+    ]
+
+
+def test_a_change_outside_every_function_selects_none() -> None:
+    # Line 1 is the import, 6-9 Usage's fields, 18-19 the blanks after __add__.
+    changes = (LineRange(1, 1), LineRange(6, 9), LineRange(18, 19))
+
+    assert changed_functions(USAGE, changes) == []
+
+
+def test_a_method_of_a_nested_class_is_never_selected() -> None:
+    # mutmut mutates no nested class, so there is nothing to run for it.
+    source = (
+        "class A:\n    class B:\n        def m(self) -> int:\n            return 1\n"
+    )
+
+    assert changed_functions(source, (LineRange(4, 4),)) == []
 
 
 KIT_SOURCE = 'export function sizeLabel(size: number): string {\n  if (size > 1024) {\n    return "big";\n  }\n}\n'

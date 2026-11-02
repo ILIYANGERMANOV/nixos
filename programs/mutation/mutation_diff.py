@@ -2,7 +2,7 @@
 
 `diff BASE` lists the mutants on the new-side lines this checkout adds or edits
 since its merge-base with BASE; `full` lists every mutant. mutmut runs the
-changed Python modules by name, Stryker the TypeScript files whole and
+changed Python functions by name, Stryker the TypeScript files whole and
 incrementally, and each report is then cut to the changed lines.
 
 stdout is the markdown report and, on its last line, the JSON's path. Tool
@@ -29,7 +29,10 @@ import libcst as cst
 from libcst.metadata import MetadataWrapper, PositionProvider
 from mutmut.mutation.diff_apply import get_diff_for_mutant
 from mutmut.stats import status_by_exit_code
-from mutmut.utils.format_utils import orig_function_and_class_names_from_key
+from mutmut.utils.format_utils import (
+    make_mutant_key,
+    orig_function_and_class_names_from_key,
+)
 
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
@@ -81,6 +84,8 @@ class LineRange:
 WHOLE_FILE = LineRange(1, sys.maxsize)
 
 type ChangedLines = Mapping[str, tuple[LineRange, ...]]
+# (class, function) of a top-level function or a method, as mutmut names them.
+type FunctionKey = tuple[str | None, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,15 +257,21 @@ def scope() -> list[str]:
 
 
 def run_tools(changed: ChangedLines, shfmt: str) -> list[Mutant]:
-    """Every mutant of the files the changes reach, from each tool that mutates them."""
-    modules = [name for name, path in PYTHON_MODULES.items() if path in changed]
-    typescript = any(str(TS_ROOT / file) in changed for file in TS_FILES)
+    """Every mutant of the Python functions and TypeScript files the changes reach."""
+    selected = {
+        module: functions
+        for module, path in PYTHON_MODULES.items()
+        if path in changed
+        and (functions := changed_functions(Path(path).read_text(), changed[path]))
+    }
+    typescript = [path for file in TS_FILES if (path := str(TS_ROOT / file)) in changed]
     mutants = [
-        *(python_mutants(modules, shfmt) if modules else []),
+        *(python_mutants(selected, shfmt) if selected else []),
         *(typescript_mutants() if typescript else []),
     ]
+    # mutmut fails on its own when no selected function has a mutant.
     mutated = {mutant.file for mutant in mutants}
-    if empty := [path for path in scope() if path in changed and path not in mutated]:
+    if empty := [path for path in typescript if path not in mutated]:
         raise RunFailedError(f"no mutants at all in {', '.join(empty)}")
     return mutants
 
@@ -406,14 +417,38 @@ def tool() -> str:
 # ---- Python: mutmut ----
 
 
-def python_mutants(modules: Sequence[str], shfmt: str) -> list[Mutant]:
+def python_mutants(
+    selected: Mapping[str, Sequence[FunctionKey]], shfmt: str
+) -> list[Mutant]:
+    """The mutants of the `selected` functions, by module: mutmut runs no others."""
     build_scratch(PYTHON_SCRATCH, shfmt)
     run(
-        [sys.executable, "-m", "mutmut", "run", *(f"{m}.*" for m in modules)],
+        [
+            sys.executable,
+            "-m",
+            "mutmut",
+            "run",
+            *(
+                f"{module}.{make_mutant_key(function, cls)}__mutmut_*"
+                for module, functions in selected.items()
+                for cls, function in functions
+            ),
+        ],
         PYTHON_SCRATCH,
     )
     return [
-        mutant for module in modules for mutant in read_mutmut(PYTHON_SCRATCH, module)
+        mutant
+        for module, functions in selected.items()
+        for mutant in read_mutmut(PYTHON_SCRATCH, module, functions)
+    ]
+
+
+def changed_functions(source: str, changed: tuple[LineRange, ...]) -> list[FunctionKey]:
+    """The functions and methods of `source` that hold a changed line."""
+    return [
+        key
+        for key, lines in function_lines(source).items()
+        if any(overlaps(lines, change) for change in changed)
     ]
 
 
@@ -470,21 +505,25 @@ pytest_add_cli_args_test_selection = ["tests"]
 """
 
 
-def read_mutmut(scratch: Path, module: str) -> list[Mutant]:
-    """Each mutant of `module` from mutmut's results, located in its source."""
+def read_mutmut(
+    scratch: Path, module: str, functions: Sequence[FunctionKey]
+) -> list[Mutant]:
+    """Each mutant of `functions` in `module` from mutmut's results, located in its source."""
     path = PYTHON_MODULES[module]
     meta = cast(
         "dict[str, dict[str, int | None]]",
         json.loads((scratch / "mutants" / "src" / f"{module}.py.meta").read_text()),
     )
-    starts = function_lines(Path(path).read_text())
+    lines = function_lines(Path(path).read_text())
     mutants: list[Mutant] = []
     with chdir(scratch):
         for name, exit_code in meta["exit_code_by_key"].items():
             function, cls = orig_function_and_class_names_from_key(name)
+            if (cls, function) not in functions:
+                continue
             span = mutmut_span(
                 get_diff_for_mutant(name, path=f"src/{module}.py"),
-                starts[cls, function],
+                lines[cls, function].first,
             )
             status = mutmut_status(status_by_exit_code[exit_code])
             mutants.append(
@@ -493,30 +532,35 @@ def read_mutmut(scratch: Path, module: str) -> list[Mutant]:
     return mutants
 
 
-def function_lines(source: str) -> dict[tuple[str | None, str], int]:
-    """Where line 1 of mutmut's diff sits, for each top-level function and method.
+def function_lines(source: str) -> dict[FunctionKey, LineRange]:
+    """The lines of each top-level function and method, first where mutmut's diff starts.
 
     mutmut prints a function as libcst holds it, stripped: from the first comment
-    directly above it, else its first decorator, else its `def`.
+    directly above it, else its first decorator, else its `def`. It mutates only
+    these: a nested function or a method of a nested class has no mutant, so it
+    needs no place here.
     """
     wrapper = MetadataWrapper(cst.parse_module(source))
     positions = wrapper.resolve(PositionProvider)
 
-    def first_line(function: cst.FunctionDef) -> int:
+    def span(function: cst.FunctionDef) -> LineRange:
         comments = list(
             dropwhile(lambda line: line.comment is None, function.leading_lines)
         )
         first = function.decorators[0] if function.decorators else function
-        return positions[first].start.line - len(comments)
+        return LineRange(
+            positions[first].start.line - len(comments),
+            positions[function].end.line,
+        )
 
     body = wrapper.module.body
-    top: dict[tuple[str | None, str], int] = {
-        (None, node.name.value): first_line(node)
+    top: dict[FunctionKey, LineRange] = {
+        (None, node.name.value): span(node)
         for node in body
         if isinstance(node, cst.FunctionDef)
     }
     methods = {
-        (cls.name.value, node.name.value): first_line(node)
+        (cls.name.value, node.name.value): span(node)
         for cls in body
         if isinstance(cls, cst.ClassDef)
         for node in cls.body.body
