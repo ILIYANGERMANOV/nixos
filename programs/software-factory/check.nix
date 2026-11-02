@@ -142,7 +142,12 @@ let
     ];
   };
 
-  skillsCheck = (import ../agents { inherit pkgs lib; }).skills.mkCheck factory.admin.skills;
+  skillsCheck =
+    (import ../agents {
+      inherit pkgs lib;
+      inherit (import ../playwright { inherit pkgs; }) qa;
+    }).skills.mkCheck
+      factory.admin.skills;
 
   nftCheck = ''
     echo "nft --check: egress rules"
