@@ -113,6 +113,8 @@ def parse_denylist(text: str) -> Denylist | Unusable:
 
     if len(patterns) > 10000:
         return Unusable("the denylist is too long")
+    if any(len(pattern) > 1000 for pattern in patterns):
+        return Unusable("a denylist pattern is too long")
 
     posix = [pattern for pattern in patterns if POSIX_CLASS.search(pattern)]
     if posix:
