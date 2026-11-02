@@ -33,6 +33,11 @@ let
   # Permissions: auto mode is the default and bypass mode cannot be entered at
   # all. The deny rules are a backstop against the obvious form of each action,
   # not a boundary - see docs/adr/0007-software-factory.md.
+  #
+  # Rebasing a pull request's branch ends in `git push --force-with-lease`,
+  # which the classifier's default "Git Destructive" rule blocks. The autoMode
+  # allow entry is an exception to that rule only, so the classifier still
+  # judges where the push goes. "$defaults" keeps the built-in exceptions.
   managedSettingsValue = {
     forceLoginMethod = "claudeai";
     allowedProviders = [ "anthropic" ];
@@ -44,11 +49,16 @@ let
         "Bash(git push * main:*)"
         "Bash(git push * HEAD:main)"
         "Bash(git push --force *)"
+        "Bash(git push -f *)"
         "Read(~/.claude/.credentials.json)"
         "Read(~/.ssh/id_*)"
         "Read(//run/secrets/**)"
       ];
     };
+    autoMode.allow = [
+      "$defaults"
+      "Git Force-With-Lease: `git push --force-with-lease` in any form, `--force-with-lease=<branch>:<sha>` included, to a feature branch of the working repository's own remote is allowed: the factory's workflow rebases its own pull request branches and the lease refuses to overwrite work it has not seen. It never covers the default branch (`main`), plain `--force` or `-f`, a `+<refspec>`, deleting a branch, or any other remote."
+    ];
   };
 
   managedSettings = pkgs.writeText "claude-managed-settings.json" (

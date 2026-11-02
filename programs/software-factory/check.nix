@@ -33,6 +33,10 @@ let
       ok = policy.permissions.defaultMode == "auto";
       msg = "sessions must start in auto mode";
     }
+    {
+      ok = lib.all (lib.elem "$defaults") (lib.attrValues policy.autoMode);
+      msg = "every autoMode list must keep \"$defaults\", or it drops the built-in rules";
+    }
   ];
   failedPolicy = lib.filter (a: !a.ok) policyAssertions;
 
