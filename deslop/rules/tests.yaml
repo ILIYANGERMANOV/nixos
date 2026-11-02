@@ -24,8 +24,8 @@ rules:
       # The tests themselves.
       - "**/test_*.py"
       # Test helpers: only tests import them.
-      - "programs/claude-code/guard_harness.py"
-      - "programs/claude-code/bash_corpus.py"
+      - "programs/claude-code/hooks/shared/guard_harness.py"
+      - "programs/claude-code/hooks/shared/bash_corpus.py"
     exists:
       - module: "{{TARGET_DIR}}/test_{{first-part}}_{{last-part}}.py"
     fix: Add {{TARGET_DIR}}/test_{{first-part}}_{{last-part}}.py.

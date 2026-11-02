@@ -14,7 +14,7 @@ let
   shellCheck = import ../shell-check { inherit pkgs; };
 
   mcp = import ./mcp.nix { inherit lib; };
-  secretGuard = import ./secret-guard.nix { inherit pkgs; };
+  secretGuard = import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; };
 
   # Binds the base settings authored in default.nix and returns the function that
   # turns an attrset of flavors into their wrapper derivations.

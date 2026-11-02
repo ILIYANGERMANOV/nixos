@@ -120,7 +120,9 @@ let
         }
         {
           matcher = "Bash";
-          commands = [ "${(import ./secret-guard.nix { inherit pkgs; }).bin}/bin/claude-secret-guard" ];
+          commands = [
+            "${(import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; }).bin}/bin/claude-secret-guard"
+          ];
         }
       ];
     }

@@ -25,10 +25,10 @@ let
     mkFlavorBuilder
     mkLeadInstructions
     ;
-  statusline = import ./statusline.nix { inherit pkgs theme; };
-  readGuard = import ./read-guard.nix { inherit pkgs; };
-  waitGuard = import ./wait-guard.nix { inherit pkgs; };
-  contextGuard = import ./context-guard.nix { inherit pkgs; };
+  statusline = import ./statusline/statusline.nix { inherit pkgs theme; };
+  readGuard = import ./hooks/read-guard/read-guard.nix { inherit pkgs; };
+  waitGuard = import ./hooks/wait-guard/wait-guard.nix { inherit pkgs; };
+  contextGuard = import ./hooks/context-guard/context-guard.nix { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
   renderAgents = import ./agents.nix {
     inherit pkgs lib;
@@ -247,7 +247,7 @@ rec {
   guards = {
     read = readGuard.bin;
     wait = waitGuard.bin;
-    secret = (import ./secret-guard.nix { inherit pkgs; }).bin;
+    secret = (import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; }).bin;
     context = contextGuard.bin;
   };
 

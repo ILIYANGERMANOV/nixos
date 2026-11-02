@@ -23,7 +23,7 @@ from guard_harness import (
 )
 
 GUARD = os.environ["WAIT_GUARD"]
-SOURCE = "wait-guard.py"
+SOURCE = Path(__file__).with_name("wait-guard.py")
 
 FOREGROUND_CASES: list[Case[str]] = [
     (BLOCKED, "a long sleep is blocked", "sleep 30"),

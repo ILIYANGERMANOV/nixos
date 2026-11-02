@@ -149,7 +149,7 @@ def test_only_mutants_overlapping_a_changed_line_are_counted() -> None:
         mutant(DISK_PLAN, 12, "survived"),
         mutant(DISK_PLAN, 13, "survived"),
         mutant(KIT, 5, "uncovered"),
-        mutant("programs/claude-code/hook_event.py", 10, "survived"),
+        mutant("programs/claude-code/hooks/shared/hook_event.py", 10, "survived"),
     ]
 
     report = mutation_diff(mutants, CHANGED, tool="t", head="h", mode=Diff("b"))

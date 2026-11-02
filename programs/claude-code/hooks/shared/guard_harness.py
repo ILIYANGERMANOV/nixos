@@ -33,10 +33,11 @@ FAIL_OPEN_CASES: list[Case[str]] = [
 ]
 
 # A guard's source on another shfmt: a built one holds its store path for good.
+# The guard imports its shared modules from beside this file.
 ON_SHFMT = """
-import pathlib, runpy, sys
-guard, shfmt, timeout = sys.argv[1:]
-sys.path.insert(0, str(pathlib.Path(guard).parent))
+import runpy, sys
+shared, guard, shfmt, timeout = sys.argv[1:]
+sys.path.insert(0, shared)
 import bash_commands
 bash_commands.SHFMT = shfmt
 bash_commands.SHFMT_TIMEOUT_SECONDS = float(timeout)
@@ -76,19 +77,19 @@ BROKEN_SHFMT: list[Case[BrokenShfmt]] = [
 ]
 
 
-def guard_on(script: str, shfmt: str, timeout_seconds: float = 2) -> list[str]:
-    """Argv for the guard source beside this file, parsing with `shfmt`."""
-    source = Path(__file__).with_name(script)
+def guard_on(source: Path, shfmt: str, timeout_seconds: float = 2) -> list[str]:
+    """Argv for the guard source `source`, parsing with `shfmt`."""
+    shared = str(Path(__file__).parent)
     python = os.environ["STDLIB_PYTHON"]
-    return [python, "-c", ON_SHFMT, str(source), shfmt, str(timeout_seconds)]
+    return [python, "-c", ON_SHFMT, shared, str(source), shfmt, str(timeout_seconds)]
 
 
-def guard_on_broken(script: str, broken: BrokenShfmt, directory: Path) -> list[str]:
+def guard_on_broken(source: Path, broken: BrokenShfmt, directory: Path) -> list[str]:
     match broken:
         case MissingShfmt():
-            return guard_on(script, str(directory / "missing"))
+            return guard_on(source, str(directory / "missing"))
         case FakeShfmt(fake, timeout_seconds):
-            return guard_on(script, fake_shfmt(directory, fake), timeout_seconds)
+            return guard_on(source, fake_shfmt(directory, fake), timeout_seconds)
 
 
 def fake_shfmt(directory: Path, script: str) -> str:

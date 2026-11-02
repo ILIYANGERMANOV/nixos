@@ -5,7 +5,7 @@
 { pkgs }:
 
 let
-  guard = import ./bash-guard.nix {
+  guard = import ../shared/bash-guard.nix {
     inherit pkgs;
     name = "claude-secret-guard";
     script = builtins.readFile ./secret-guard.py;

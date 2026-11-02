@@ -2,7 +2,7 @@
 # limits are in context-guard.py; the scenarios are in test_context-guard.py.
 { pkgs }:
 
-import ./bash-guard.nix {
+import ../shared/bash-guard.nix {
   inherit pkgs;
   name = "claude-context-guard";
   script = builtins.readFile ./context-guard.py;

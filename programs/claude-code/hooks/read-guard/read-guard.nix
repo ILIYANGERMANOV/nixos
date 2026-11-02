@@ -3,7 +3,7 @@
 # test_read-guard.py.
 { pkgs }:
 
-import ./bash-guard.nix {
+import ../shared/bash-guard.nix {
   inherit pkgs;
   name = "claude-read-guard";
   parsesCommands = true;
