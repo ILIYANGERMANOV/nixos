@@ -203,9 +203,13 @@ BASH_CASES: list[Case[str]] = [
     ),
     (
         ALLOWED,
-        "the agents' and profiles' instruction prose is allowed",
-        "cat repo-docs/instructions/agent.md repo-docs/instructions/lead.md"
-        " repo-docs/profiles/factory/agent.md repo-docs/profiles/factory/lead.md",
+        "the agents' instruction prose is allowed",
+        "cat repo-docs/instructions/agent.md repo-docs/instructions/lead.md",
+    ),
+    (
+        ALLOWED,
+        "a profile's instruction prose is allowed",
+        "cat repo-docs/profiles/factory/agent.md repo-docs/profiles/factory/lead.md",
     ),
     (
         ALLOWED,

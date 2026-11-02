@@ -47,12 +47,12 @@ let
     let
       unknown = lib.subtractLists (lib.attrNames fields) (lib.attrNames spec);
       profile = empty // spec // { skills = lib.unique (spec.skills or [ ]); };
-      uncatalogued = lib.subtractLists skillNames profile.skills;
+      unknownSkills = lib.subtractLists skillNames profile.skills;
     in
     if unknown != [ ] then
       throw "profile: unknown field(s) ${toString unknown}"
-    else if uncatalogued != [ ] then
-      throw "profile: ${toString uncatalogued} not in the skill catalog"
+    else if unknownSkills != [ ] then
+      throw "profile: ${toString unknownSkills} not in the skill catalog"
     else
       profile;
 
