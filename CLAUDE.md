@@ -5,23 +5,35 @@ Mono-repo for NixOS, nix-darwin, and dev-shell configs. Entry point: `flake.nix`
 ## Directory Structure
 
 ```
-flake.nix       — outputs: devShells, nixosConfigurations, darwinConfigurations
-lib/            — system builder helpers (NixOS, Darwin, dev shells)
+flake.nix       - outputs: devShells, nixosConfigurations, darwinConfigurations
+lib/            - system builder helpers (NixOS, Darwin, dev shells)
 adapters/       - bind flake inputs to host-agnostic programs (agents.nix, claude-code.nix)
-hosts/          — per-host identity (hostname, user)
-modules/*.nix   — cross-platform modules imported by both NixOS and Darwin (e.g. nix.nix, home-manager.nix, theme.nix, secrets.nix)
-modules/nixos/  — NixOS-only system configuration (server/ - software-factory only)
-modules/macos/  — nix-darwin-only system configuration
-modules/home/   — Home Manager configuration shared across all hosts
-programs/       — reusable, host-agnostic program configs
-programs/agents/— agent-agnostic config shared by every coding agent (instructions, skill catalog, subagent role records)
+hosts/          - per-host identity (hostname, user)
+modules/*.nix   - modules shared by NixOS and Darwin
+modules/nixos/  - NixOS-only system configuration (server/ - software-factory only)
+modules/macos/  - nix-darwin-only system configuration
+modules/home/   - Home Manager configuration shared across all hosts
+programs/       - reusable, host-agnostic program configs
+programs/agents/- agent-agnostic config shared by every coding agent (instructions, skill catalog, subagent role records)
 programs/tech-checks/ - `<tech>-<kind>` checks, treefmt
 programs/shell-check/ - `writeShellApplication` and its rules
-shells/         — dev shells (default for repo recipes, nixos-install, darwin-install)
-secrets/        — sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
+shells/         - dev shells (default for repo recipes, nixos-install, darwin-install)
+secrets/        - sops-encrypted: common.yaml (global) + hosts/<hostname>.yaml
 deslop/         - the architecture rules `deslop check .` enforces, and their baseline
 .claude/rules/  - path-scoped detail for agents: each file's `paths:` says when it loads
 ```
+
+## Reproducibility
+
+**Config plus any prior state gives the same result on what Nix owns.
+Everything else is untouched. Applying twice equals applying once.**
+
+- Owned: Nix replaces it fully.
+- Keyed: Nix sets only its keys in a file the tool also writes.
+- Untouched: never written.
+
+Effect scripts never branch on prior state or on run order. Details:
+`.claude/rules/reproducibility.md`, loaded under `programs/` and `modules/`.
 
 ## Architecture
 
@@ -30,29 +42,27 @@ Imports flow one way: `flake.nix` -> `lib/` -> `modules/` and `shells/` ->
 [Deslop](https://github.com/Ivy-Apps/deslop) against `deslop/rules/architecture.yaml`;
 see `docs/adr/0008-deslop-enforces-the-architecture.md`.
 
-### `programs/` — program logic lives here
+### `programs/` - program logic lives here
 
-Plain Nix functions (not NixOS/HM modules) that build derivations and return an attrset.
-They know nothing about hosts, users, or activation — just packages and configuration artifacts.
+Plain Nix functions (not NixOS/HM modules) returning an attrset of derivations.
+They know nothing of hosts, users or activation, so home modules and dev shells reuse them.
 
-Designed for reuse: the same program config can be consumed by home modules and dev shells alike.
+### `modules/home/` - thin wiring into Home Manager
 
-### `modules/home/` — thin wiring into Home Manager
+Each imports from `programs/` via the `root` special arg (the flake self) and wires
+the derivations into HM options. Keep them minimal: logic belongs in `programs/`.
 
-Each module imports from `programs/` via the `root` special arg (the flake self) and wires the resulting derivations into HM options (`home.packages`, `home.activation`, etc.).
-Keep these minimal — business logic belongs in `programs/`.
+### `shells/` - dev shells
 
-### `shells/` — dev shells
+Import from `programs/` directly using `self`, composing the program configs home modules use.
 
-Import from `programs/` directly using `self`, composing the same program configs used by home modules into standalone developer environments.
+### `hosts/` - identity only
 
-### `hosts/` — identity only
+Hostname and user only. All real configuration lives in `modules/`.
 
-Hosts declare only their hostname and user identity. All real configuration lives in `modules/`.
+### `lib/` - system assembly
 
-### `lib/` — system assembly
-
-Helpers that compose inputs, modules, and hosts into complete NixOS/Darwin system configurations.
+Compose inputs, modules and hosts into NixOS/Darwin systems.
 Only `flake.nix` imports `lib/`; everything else is handed what it needs.
 
 ### `adapters/` - flake inputs into programs
@@ -73,8 +83,7 @@ program needs a flake input.
 ## Checks
 
 **Run the narrowest rung that covers the edit; `just check` runs once, at the end.**
-`nix flake check` spends most of its time evaluating every host, so it is the
-wrong tool for iterating.
+`nix flake check` evaluates every host: never iterate with it.
 
 1. A skill, subagent role or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`,
    `.#checks.x86_64-linux.claude-config` (size ceilings, `just skill-budget` prints them)
