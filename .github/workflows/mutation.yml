@@ -1,0 +1,166 @@
+name: Mutation
+
+# Mutation testing of the Python modules and the /qa wallet and kit. Advisory:
+# outside `just check` and never a required check. A pull request runs
+# `just mutation-diff` against its own base branch, so a stacked one diffs
+# against its parent, and a failed run does not fail it. The weekly and manual
+# runs test every mutant, and fail when the run does, as nobody reads them
+# otherwise. See docs/adr/0010-mutation-testing.md.
+
+on:
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  mutation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # The run step's outcome: on a pull request the job succeeds even when the
+    # run fails, so the comment reads this, not the job's result.
+    outputs:
+      outcome: ${{ steps.run.outcome }}
+    steps:
+      # The PR's head, as a local run would see it, with the history its
+      # merge-base with the base branch needs. Empty off a PR: the default ref.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            allow-import-from-derivation = false
+
+      - name: Run mutation testing
+        id: run
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            nix develop .#default --command just mutation-diff "origin/$BASE_REF"
+          else
+            nix develop .#default --command just mutation
+          fi
+
+      # GitHub refuses a step summary over 1 MiB, which a full run can reach.
+      - name: Write the report to the job summary
+        if: ${{ !cancelled() && steps.run.outcome == 'success' }}
+        run: |
+          md=.mutation/mutation-diff.md
+          if [ "$(wc -c <"$md")" -le 1000000 ]; then
+            cat "$md"
+          else
+            echo 'The report is too long for a summary: see the mutation-diff artifact.'
+          fi >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        if: ${{ !cancelled() && steps.run.outcome == 'success' }}
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-diff
+          path: |
+            .mutation/mutation-diff.json
+            .mutation/mutation-diff.md
+          include-hidden-files: true
+          retention-days: 30
+          if-no-files-found: error
+
+  # The only job with a write token, so it checks nothing out and runs no PR
+  # code: it reads the artifact's JSON as data and renders the comment itself,
+  # never trusting the PR-built markdown. Every PR-derived string sits in a
+  # fence with its control characters replaced, so none can close it. Forks and
+  # Dependabot get a read-only token: they keep the job summary.
+  comment:
+    needs: mutation
+    if: >-
+      !cancelled() && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      # A failed run uploads nothing: the comment says so.
+      - name: Download the report
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mutation-diff
+          path: mutation-diff
+
+      - name: Comment
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OUTCOME: ${{ needs.mutation.outputs.outcome }}
+        run: |
+          marker='<!-- mutation-report -->'
+          report=mutation-diff/mutation-diff.json
+          body="$RUNNER_TEMP/body.md"
+          # A GitHub comment holds 65536 characters; the rest is the header.
+          budget=58000
+          fence='```'
+          {
+            # shellcheck disable=SC2016 # Markdown backticks, not an expansion.
+            printf '%s\n### Mutation testing (advisory)\n\nAt `%s`, [run](%s/%s/actions/runs/%s).\n\n' \
+              "$marker" "$HEAD_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            if [ "$OUTCOME" != success ]; then
+              echo 'The run failed, so there is no report for this push: see the run.'
+            elif [ ! -f "$report" ]; then
+              echo 'The run uploaded no report, so there is none for this push: see the run.'
+            elif ! jq -j --argjson budget "$budget" '
+              def num: if type == "number" then tostring else error("not a number") end;
+              def clean: tostring | gsub("[[:cntrl:]\u2028\u2029]"; "\ufffd");
+              def mutant:
+                "@@ \(.status | clean) \(.file | clean):\(.line | num) \(.operator | clean) @@\n"
+                + "- \(.original | clean)\n+ \(.replacement | clean)\n";
+              (.mutants | map(mutant)) as $all
+              | (reduce $all[] as $m ({text: "", bytes: 0, shown: 0, full: false};
+                  ($m | utf8bytelength) as $size
+                  | if .full or .bytes + $size > $budget then .full = true
+                    else .text += $m | .bytes += $size | .shown += 1 end)) as $cut
+              | .totals as $t
+              | "| Mutants | Killed | Survived | Uncovered | Timed out | Skipped |\n"
+              + "| --- | --- | --- | --- | --- | --- |\n"
+              + "| \($t.mutants | num) | \($t.killed | num) | \($t.survived | num) "
+              + "| \($t.uncovered | num) | \($t.timedOut | num) | \($t.skipped | num) |\n"
+              + ((.notAssessed // "") | clean
+                  | if . == "" then "" else "\n```text\n# \(.)\n```\n" end)
+              + if $all == [] then "\nNo survived, uncovered or timed out mutant on the changed lines.\n"
+                else "\n```diff\n\($cut.text)```\n"
+                  + if $cut.shown < ($all | length)
+                    then "\n\(($all | length) - $cut.shown) more not shown: see the artifact.\n"
+                    else "" end
+                end
+            ' "$report"; then
+              echo 'The report could not be read: see the run.'
+            else
+              printf '\nThe whole report, uncut:\n\n%sbash\ngh run download %s -R %s -n mutation-diff -D /tmp/mutation-diff\n%s\n' \
+                "$fence" "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$fence"
+            fi
+          } >"$body"
+          payload="$(jq -n --rawfile body "$body" '{body: $body}')"
+          id="$(MARKER="$marker" gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith(env.MARKER))) | .id' | head -n 1)"
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" --input - <<<"$payload" >/dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input - <<<"$payload" >/dev/null
+          fi
