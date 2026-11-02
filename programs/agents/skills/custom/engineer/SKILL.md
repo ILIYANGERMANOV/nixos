@@ -53,10 +53,10 @@ CI. You own the outcome; the user owns the decisions.
 
 Before the first question, list what you need to know and group it into
 research topics: the code the task touches, how similar things work today,
-the external systems involved. You plan the topics yourself, also when the
-prompt only names what to research. Launch one `subagent_type: researcher`
-agent per group, in the background, one first and the rest after it. Its prompt
-and how many agents a Quality gets: `## Callers` and `## Budget` in
+the external systems involved, the standards that apply. You plan the topics
+yourself, also when the prompt only names what to research. Launch one
+`subagent_type: researcher` agent per group, in the background, one first and
+the rest after it. Its prompt and how many agents a Quality gets: `## Callers` and `## Budget` in
 `~/.claude/skills/researcher/SKILL.md`, those sections only.
 
 ### 2. Interview
@@ -69,9 +69,9 @@ failure modes, what is out of scope. Fold in research results as they land.
 ### 3. Confirm the plan
 
 Unless told, ask Quality first with one `AskUserQuestion`, Balanced recommended.
-Show the plan in a few lines: goals, the approach, decisions, out of scope,
-Quality. A POC touching a `Security-sensitive` topic says it gets no DEEP
-review. Ask with one `AskUserQuestion` whether it matches the user's understanding
+Show the plan in a few lines: goals, the approach and the standards it follows,
+decisions, out of scope, Quality. A POC touching a `Security-sensitive` topic
+says it gets no DEEP review. Ask with one `AskUserQuestion` whether it matches the user's understanding
 ("Yes, build it (Recommended)" / "No, adjust"). On "adjust", take the
 correction and ask again. Done when the user confirms.
 

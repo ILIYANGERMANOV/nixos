@@ -60,7 +60,8 @@ leave that repo out and tell the user.
 
 ### 2. Research
 
-List what you need to know and group it into topics; you plan them yourself. A
+List what you need to know, the standards that apply included, and group it
+into topics; you plan them yourself. A
 task that plainly qualifies as Trivial needs none. One `subagent_type: researcher`
 agent per group, in the background, given each repo's clone path, with notes
 under `/tmp/<unique-dir>/`. Its prompt and how many agents a Quality gets:
@@ -83,7 +84,7 @@ breakdown in the ledger and show it, phone-sized:
 
 | Field | Value |
 |---|---|
-| Task | one deliverable, its issues, acceptance criteria |
+| Task | one deliverable, its issues, acceptance criteria, the standards it follows |
 | Repo, deps, wave | what must merge first |
 | Shape | independent PR to `main`, or child of `epic/<name>` |
 | Quality | POC, Balanced or Max; ask unless told, Balanced recommended; a Trivial task needs no question |
