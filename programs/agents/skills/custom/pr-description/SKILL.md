@@ -27,8 +27,9 @@ Look for a PR template: `.github/pull_request_template.md`,
 `docs/`, or a `PULL_REQUEST_TEMPLATE/` directory. If one exists, fill in its
 sections in its order and ignore the default format below, except that the
 Approach TL;DR and the data flow open the template's "how" section if it has
-one, and `## Follow-ups` closes the body when it has entries. Never fill a section that asks for secrets, credentials or tokens; leave
-it as the template has it.
+one, and `## Follow-ups` closes the body when it has entries. The Style rules
+still apply inside a template. Never fill a section that asks for secrets,
+credentials, tokens or what CI already shows; leave it as the template has it.
 
 ## Otherwise, the default format
 
@@ -71,7 +72,8 @@ it as the template has it.
   How section only here.
 - **Proofs / Reproducible** - each test added or changed: its type (unit,
   property, differential, end-to-end), where it lives and what it covers. Where
-  a change has none, one line saying why.
+  a change has none, one line saying why. A test neither CI nor you ran is
+  marked `not run`.
 - **Proofs / Manual** - what was driven and observed that CI cannot show, with
   its trimmed output: a QA run, a real host, a scratch-copy experiment,
   before/after numbers. Omit it when there is none.
