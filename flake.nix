@@ -81,7 +81,7 @@
       checks = lib.forAllSystems (
         pkgs:
         let
-          # Both Neovim checks share one build of the real editor.
+          # Every Neovim check shares one build of the real editor.
           nvimChecks = import ./programs/nvim/check.nix {
             inherit pkgs inputs;
             root = self;
@@ -121,6 +121,11 @@
           # to it. `plugins.snacks.settings` types no picker options, so a
           # misspelled key would otherwise ship silently.
           nvim-search = nvimChecks.search;
+
+          # That a .py file gets basedpyright and ruff running nixpkgs' binaries,
+          # ruff's hover and basedpyright's organize imports off, ruff as its
+          # formatter, and that <leader>tt runs `pytest <file>`.
+          nvim-python = nvimChecks.python;
 
           # Spell check. Pinned to the locked nixpkgs deliberately: typos' dictionary
           # is its product and grows with every release, so a floating version could

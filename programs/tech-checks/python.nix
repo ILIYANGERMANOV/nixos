@@ -1,5 +1,4 @@
-# Every .py in the repository against the root pyproject.toml. Test dependencies
-# stay in `testPython`: every script that ships runs on the stdlib alone.
+# Every .py in the repository against the root pyproject.toml.
 { pkgs, claude }:
 let
   inherit (pkgs) lib;
@@ -8,8 +7,7 @@ let
   root = ../..;
 
   mutation = import ../mutation { inherit pkgs; };
-  # mutmut too, so the mutation runner's tests import what it imports.
-  testPython = mutation.python;
+  tools = import ./tools.nix { inherit pkgs; };
 
   pythonSource = lib.fileset.toSource {
     inherit root;
@@ -27,7 +25,7 @@ in
   python-lint =
     pkgs.runCommand "python-lint"
       {
-        nativeBuildInputs = [ pkgs.ruff ];
+        nativeBuildInputs = [ tools.ruff ];
       }
       ''
         cd ${pythonSource}
@@ -39,11 +37,11 @@ in
   python-types =
     pkgs.runCommand "python-types"
       {
-        nativeBuildInputs = [ pkgs.basedpyright ];
+        nativeBuildInputs = [ tools.basedpyright ];
       }
       ''
         cd ${pythonSource}
-        HOME=$TMPDIR basedpyright --pythonpath ${lib.getExe testPython}
+        HOME=$TMPDIR basedpyright --pythonpath ${lib.getExe tools.python}
         touch "$out"
       '';
 
@@ -52,7 +50,7 @@ in
     // {
       nativeBuildInputs = [
         pkgs.git
-        testPython
+        tools.python
       ];
       READ_GUARD = lib.getExe claude.guards.read;
       WAIT_GUARD = lib.getExe claude.guards.wait;

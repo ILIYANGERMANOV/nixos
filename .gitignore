@@ -7,3 +7,4 @@ programs/playwright/dist/
 .mutation/
 programs/playwright/reports/
 programs/playwright/.stryker-tmp/
+.direnv/

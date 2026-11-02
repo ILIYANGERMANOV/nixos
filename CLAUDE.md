@@ -82,7 +82,7 @@ wrong tool for iterating.
    its skill changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code`, `claude-config`,
    `python-tests` and `shell-embedded` for `programs/claude-code`, `shell-tests` for `programs/skills-link`, `nvim-search`,
-   `nvim-typescript`, `nvim-kotlin` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
+   `nvim-typescript`, `nvim-kotlin`, `nvim-python` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `shell-tests`,
    `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with

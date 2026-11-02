@@ -10,6 +10,7 @@
     ../languages/typescript.nix
     ../languages/haskell.nix
     ../languages/kotlin.nix
+    ../languages/python.nix
     ../languages/nix.nix
     ./git.nix
     ./ssh.nix
@@ -30,7 +31,6 @@
       htop
       jq
       just
-      python3
       ripgrep
       fd
       tree

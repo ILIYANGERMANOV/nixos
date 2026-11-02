@@ -8,6 +8,7 @@ let
   shellCheck = import ../shell-check { inherit pkgs; };
 
   formatter = import ./formatter.nix { inherit pkgs; };
+  tools = import ./tools.nix { inherit pkgs; };
 
   typos = import ../typos { inherit pkgs; };
   yubikey = import ../yubikey-touch-sound { inherit pkgs; };
@@ -63,7 +64,7 @@ in
   shell-actionlint =
     pkgs.runCommand "shell-actionlint"
       {
-        nativeBuildInputs = [ pkgs.actionlint ];
+        nativeBuildInputs = [ tools.actionlint ];
       }
       ''
         cd ${githubSource}
@@ -76,7 +77,7 @@ in
   shell-lint =
     pkgs.runCommand "shell-lint"
       {
-        nativeBuildInputs = [ pkgs.shellcheck ];
+        nativeBuildInputs = [ tools.shellcheck ];
       }
       ''
         cd ${shellSource}
@@ -95,7 +96,7 @@ in
         nativeBuildInputs = [
           pkgs.jq
           pkgs.just
-          pkgs.shellcheck
+          tools.shellcheck
         ];
       }
       ''
@@ -140,7 +141,7 @@ in
     pkgs.runCommand "shell-limits"
       {
         nativeBuildInputs = [
-          pkgs.ast-grep
+          tools.ast-grep
           pkgs.jq
           pkgs.just
         ];
@@ -235,7 +236,7 @@ in
     pkgs.runCommand "shell-script-tests"
       {
         nativeBuildInputs = [
-          pkgs.bats
+          tools.bats
           pkgs.jq
         ];
       }

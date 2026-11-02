@@ -5,6 +5,7 @@
 { pkgs }:
 let
   inherit (pkgs) lib;
+  tools = import ./tools.nix { inherit pkgs; };
 
   # Floors at and just under today's count: below either the walk has lost something,
   # whatever the markers say. Removing Lua on purpose means lowering them.
@@ -153,8 +154,8 @@ in
     pkgs.runCommand "lua-lint"
       {
         nativeBuildInputs = [
-          pkgs.selene
-          pkgs.stylua
+          tools.selene
+          tools.stylua
         ];
       }
       ''

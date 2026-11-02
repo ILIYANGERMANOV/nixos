@@ -1,7 +1,7 @@
 # Build-time tests for the Neovim config, wired into `nix flake check` (and
-# therefore `just check` in CI) as `checks.nvim-typescript` and
-# `checks.nvim-search`. Returns an attrset so both share the one real editor
-# derivation rather than building it twice.
+# therefore `just check` in CI) as `checks.nvim-typescript`, `checks.nvim-search`,
+# `checks.nvim-python` and `checks.nvim-kotlin`. Returns an attrset so they all
+# share the one real editor derivation rather than building it again.
 #
 # What prompts a check here: a config that Nix is perfectly happy with but
 # that is wrong at runtime. Two shapes of that have bitten this config.
@@ -360,6 +360,71 @@ in
 
       -- Start once startup has settled, so <leader>ss is mapped and snacks is up.
       vim.defer_fn(function() run(1) end, 200)
+    '';
+  };
+
+  # basedpyright and ruff run nixpkgs binaries under the names lspconfig picks,
+  # and their overlap (hover, organize imports) is split by settings no build
+  # step reads, so a rename or a dropped key only shows once a .py is open.
+  python = mkCheck {
+    name = "python";
+
+    fixtures = ''
+      export PATH="${lib.getBin pkgs.basedpyright}/bin:${lib.getBin pkgs.ruff}/bin:$PATH"
+      # A Python project that also has a package.json, so the TypeScript runner
+      # would claim it if the Python one did not come first.
+      mkdir -p mixed-project/tests
+      touch mixed-project/pyproject.toml mixed-project/package.json mixed-project/tests/test_app.py
+    '';
+
+    body = ''
+      -- Then: both servers are on, run binaries that exist, and serve Python.
+      local basedpyright = vim.lsp.config.basedpyright
+      expect("basedpyright enabled", vim.lsp.is_enabled("basedpyright"), true)
+      expect("basedpyright cmd", basedpyright.cmd, { "basedpyright-langserver", "--stdio" })
+      expect("basedpyright binary on PATH", vim.fn.executable(basedpyright.cmd[1]), 1)
+      expect("basedpyright filetypes", basedpyright.filetypes, { "python" })
+
+      local ruff = vim.lsp.config.ruff
+      expect("ruff enabled", vim.lsp.is_enabled("ruff"), true)
+      expect("ruff cmd", ruff.cmd, { "ruff", "server" })
+      expect("ruff binary on PATH", vim.fn.executable(ruff.cmd[1]), 1)
+      expect("ruff filetypes", ruff.filetypes, { "python" })
+
+      -- Then: ruff alone organizes imports, and basedpyright alone hovers.
+      expect(
+        "basedpyright organize imports off",
+        vim.tbl_get(basedpyright, "settings", "basedpyright", "disableOrganizeImports"),
+        true
+      )
+      local client = { server_capabilities = { hoverProvider = true } }
+      ruff.on_attach(client, 0)
+      expect("ruff hover off", client.server_capabilities.hoverProvider, false)
+
+      -- Then: ruff sorts imports, then formats; treesitter has the grammar.
+      expect(
+        "python formatters",
+        require("conform").formatters_by_ft.python,
+        { "ruff_organize_imports", "ruff_format" }
+      )
+      expect("python treesitter grammar", vim.treesitter.language.add("python"), true)
+
+      -- Given: a test file open in a project root that has a package.json too.
+      -- When: <leader>tt's runner is asked to test.
+      -- Then: it runs pytest on that file, relative to the root, in the test
+      -- terminal.
+      local ran = {}
+      require("toggleterm").exec = function(cmd, term)
+        table.insert(ran, { cmd, term })
+      end
+      vim.cmd.cd("mixed-project")
+      local buffer = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_name(buffer, vim.fn.getcwd() .. "/tests/test_app.py")
+      vim.api.nvim_set_current_buf(buffer)
+      _G.SmartRun("test")
+      expect("pytest command", ran, { { "pytest 'tests/test_app.py'", 1 } })
+
+      finish()
     '';
   };
 }
