@@ -42,7 +42,8 @@ hand back the rest as Unknown and say the task may not be Trivial.
 
 1. Questions become a checklist. None given: derive them from the decisions the
    topic feeds, or hand back asking the caller to name them, whichever is
-   shorter. A question that feeds no decision is dropped. Done means each is
+   shorter. Add one: which standard (RFC, W3C, ...) applies? A question that
+   feeds no decision is dropped. Done means each is
    answered, or `Unknown` with what would settle it.
 2. Locate before reading: `rg -n`, `rg --files`, `gh`. Then read ranges, never
    whole large files. Batch independent calls in one turn.

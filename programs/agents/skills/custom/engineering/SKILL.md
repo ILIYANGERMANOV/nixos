@@ -27,6 +27,9 @@ meet the objective correctly and sanely.
   checks, retries or fallbacks for states the types or callers rule out.
 - Boring code: the standard library over a new dependency, a direct
   expression over a clever one.
+- Standards first: follow an existing standard (RFC, W3C, OpenTelemetry
+  conventions) over a home-grown format, protocol or name. A deviation states
+  its reason in a comment where it deviates; an ADR only when architectural.
 - Grow from a working simple version; a complex system built from scratch
   rarely works (Gall's law).
 - Before finishing, ask what you can delete and still meet the goal: freely

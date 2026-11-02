@@ -27,8 +27,8 @@ Read the current checkout unless told otherwise.
   and `## Budget` in `~/.claude/skills/researcher/SKILL.md`, those sections
   only. A question that only feeds understanding counts: name "the user's
   understanding" as its decision.
-- **External facts** (libraries, APIs, products, versions): verify them, never
-  answer from memory. One known page: fetch it yourself.
+- **External facts** (libraries, APIs, products, versions, standards): verify
+  them, never answer from memory. One known page: fetch it yourself.
 - **A PR number or URL**: `gh pr view <n>`, `gh pr diff <n>`. **"This branch" or
   "the diff"**: diff against `git merge-base HEAD origin/main`. Read it inline
   if small, then the code around it. If big, a read-only `researcher` agent
@@ -46,6 +46,7 @@ phone screen or two. When it designs code, invoke `engineering` first.
 - Separate what you **verified** from what you **inferred**.
 - A choice on the table, asked for or not: one recommendation, plus the
   alternatives worth weighing, each with its trade-offs. The user decides.
+  Where a standard applies, recommend the option that follows it.
 - Restate the decisions the user confirmed; never re-ask them.
 - Assumption wrong: say so plainly, with the evidence.
 
