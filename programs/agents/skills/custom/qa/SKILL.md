@@ -189,9 +189,10 @@ repo in the set without a `QA.md`, a draft at `<run>/QA-<repo>.md`.
 ### 3. Unblock
 
 Research before you ask, as your instructions say: plan the open questions
-yourself, group them, and launch one research agent per group (start the
-app, read the code, check a URL) before your first question, each a
-`subagent_type: researcher` agent. When the
+yourself, group them, and launch one research agent per group (read the
+code, check a URL on the app step 1 started) before your first question, each a
+`subagent_type: researcher` agent. It stays read-only, so it never starts or
+builds the app. When the
 instructions only name what to QA, the topics are yours to plan. Ask the rest
 one per `AskUserQuestion`, with concrete options. A missing `QA.md`, the PR
 repo's or a host's, is a blocker: show the draft, ask about each gap it lists

@@ -104,16 +104,13 @@ tasks share is written into both briefs before they start.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-**Simplify pass.** One background `subagent_type: researcher` agent per task
-that is not Trivial gets its plan and the notes paths and looks for an
-equivalent design that is simpler or follows an industry standard, never a
-naive one. Revise each task with what it finds. You pick among its
-alternatives where section 6's Rule test holds; a real trade-off is the
-user's, asked as section 6 escalates.
+**Simplify pass.** Run the one in `### 3. Confirm the plan` of
+`~/.claude/skills/engineer/SKILL.md` per task that is not Trivial, with its
+plan and the notes paths. You pick among its alternatives where section 6's
+Rule test holds; a real trade-off is the user's, asked as section 6 escalates.
 
 Show the breakdown, phone-sized, with a file tree of what each task adds or
-changes and, per task, one alternative, two at most, each with its trade-off
-and your recommendation. A Trivial task stays in the table, the pre-flight and
+changes and, per task, the alternatives as that step shows them. A Trivial task stays in the table, the pre-flight and
 the confirmation. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
 before this, except a base fix (section 7). Record the confirmation in the
