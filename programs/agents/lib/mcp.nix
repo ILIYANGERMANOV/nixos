@@ -95,8 +95,8 @@ let
           env.FIGMA_API_KEY = "figma-token";
         };
         secretless = mkLocal {
-          command = "uvx";
-          args = [ "mcp-server-time" ];
+          command = "node";
+          args = [ "time-server" ];
         };
         twoSecrets = mkLocal {
           command = "node";

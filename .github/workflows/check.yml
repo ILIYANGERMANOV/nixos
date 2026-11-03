@@ -104,7 +104,7 @@ jobs:
         run: nix shell nixpkgs#just --command just darwin-cache-check
 
   # The same guard for the Linux server. The darwin pin promises nothing about
-  # the Linux cache: a deploy of c68bbbc compiled uv for ~50 min on the server.
+  # the Linux cache: a deploy of c68bbbc compiled a package from source for ~50 min on the server.
   # deploy-factory.yml requires this job, so it gates the deploy.
   cache-guard-factory:
     runs-on: ubuntu-24.04
