@@ -177,8 +177,8 @@ planner; the plan shows the pick, and the user confirms it at approval.
 
 ### 2. Plan
 
-Spawn a fresh planner subagent in the foreground. Brief: read
-`${CLAUDE_SKILL_DIR}/references/planner.md` and follow it; the PR; the
+Spawn a fresh planner, a `subagent_type: researcher` agent, in the
+foreground. Brief: read `${CLAUDE_SKILL_DIR}/references/planner.md` and follow it; the PR; the
 instructions verbatim (or "none: derive scope from the acceptance criteria and
 diff"); `<run>/repos.md`, `<run>/pr.diff` and the `QA.md` sections it needs;
 any conflict between them; the test data step 1 resolved; whether the wallet
@@ -190,7 +190,8 @@ repo in the set without a `QA.md`, a draft at `<run>/QA-<repo>.md`.
 
 Research before you ask, as your instructions say: plan the open questions
 yourself, group them, and launch one research agent per group (start the
-app, read the code, check a URL) before your first question. When the
+app, read the code, check a URL) before your first question, each a
+`subagent_type: researcher` agent. When the
 instructions only name what to QA, the topics are yours to plan. Ask the rest
 one per `AskUserQuestion`, with concrete options. A missing `QA.md`, the PR
 repo's or a host's, is a blocker: show the draft, ask about each gap it lists
@@ -203,7 +204,8 @@ screen for the app's own. A shortfall is a blocker: ask the user to top up or
 say where the token comes from.
 
 When the user picks a draft host PR for a new API the host does not consume
-yet, spawn a background agent, in parallel with login: on its own branch in a
+yet, spawn a background `subagent_type: implementer` agent, in parallel with
+login: on its own branch in a
 scratch worktree of the host, it wires the API in and opens a draft PR. QA
 then runs on that PR's head; record it in `<run>/repos.md`. Its from-source
 install of the subject is never committed.
@@ -239,7 +241,7 @@ Right before each executor spawn, `gh pr view <n> --json headRefOid` must
 still match step 1's. If the head moved, tell the user and ask whether to
 restart from step 1.
 
-Spawn a fresh executor subagent. Brief: read
+Spawn a fresh executor, a `subagent_type: qa-runner` agent. Brief: read
 `${CLAUDE_SKILL_DIR}/references/executor.md` and follow it; the approved plan,
 `<run>/plan.md`; `<run>/repos.md` (each repo's path and the commit it must be
 at), `<run>/pr.diff` and the `QA.md` sections it needs; the URL the app is
@@ -256,7 +258,7 @@ and tell it to start from the scripts directory.
 
 ### 7. Check the evidence
 
-Spawn a fresh evidence-checker subagent, never the executor. Brief: read
+Spawn a fresh evidence checker, a `subagent_type: reviewer` agent, never the executor. Brief: read
 `${CLAUDE_SKILL_DIR}/references/evidence-checker.md` and follow it; the plan;
 every repo's commit from `<run>/repos.md`; the executor's verdicts, the
 commits it reported and `<run>/results.md`. It returns the verdicts with every

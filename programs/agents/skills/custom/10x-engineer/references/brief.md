@@ -74,10 +74,12 @@ Security-sensitive: <topics, or none>
 
 ## Spawn prompt
 
+A fresh `subagent_type: engineer` agent, which has `engineer` preloaded:
+
 ```text
 <the data line from SKILL.md's Rules>
-Quality: <the task's>. Invoke `engineer`. You are delegated: your brief is <path>. Read it first and
-follow the skill's `## Delegated` section.
+Quality: <the task's>. You are delegated: your brief is <path>. Read it first and
+follow the preloaded `engineer` skill's `## Delegated` section.
 ```
 
 ## Fixer prompt

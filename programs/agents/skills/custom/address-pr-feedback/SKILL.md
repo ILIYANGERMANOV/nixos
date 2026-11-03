@@ -194,8 +194,8 @@ threads on the same file, the same call path, or the same concern belong
 together. Two threads that could propose conflicting fixes must land in the
 same cluster, because that agent is the only thing that will notice.
 
-Launch one agent first and the rest right after it, so they share its cached
-prefix. Every agent's prompt carries:
+Each is a `subagent_type: researcher` agent. Launch one first and the rest
+right after it, so they share its cached prefix. Every agent's prompt carries:
 
 - The **absolute path to this skill directory** (`${CLAUDE_SKILL_DIR}`) and an
   instruction to read `references/probe.md` before starting. The bar, the

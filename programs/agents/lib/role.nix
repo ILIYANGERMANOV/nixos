@@ -35,6 +35,7 @@ let
     "shell"
     "web"
     "delegate"
+    "skill"
   ];
   tiers = [
     null

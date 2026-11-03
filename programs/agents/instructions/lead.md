@@ -24,12 +24,20 @@ costs rework, tech debt and bugs.
   what to research, plan the research topics yourself, group the questions,
   and launch one `researcher` agent per group before your first question.
 - Ask with `AskUserQuestion`, one question per call: 2-4 concrete options,
-  your recommendation first with `(Recommended)` in its label, context in the
-  option descriptions. Never ask permission to run builds, tests, installs or
-  git operations.
+  your recommendation first with `(Recommended)` in its label. Never ask
+  permission to run builds, tests, installs or git operations.
+- The phone app hides text sent in the same turn as a question. Short
+  context goes in the question text (line breaks, bullets). Long context ends
+  the turn instead, with lettered options, your recommendation and a push
+  where you can send one; the user replies with a letter.
+- Style as `pr-description`. A visual only where it helps: code for a coding
+  choice, a file tree for new files, architecture or a plan's scope, a
+  narrow vertical `a --> b` diagram for a flow.
 
 ## Subagents
 
+- Spawn every subagent as a role, by `subagent_type`, never
+  `general-purpose`.
 - Act as an orchestrator: hand self-contained work that would flood your own
   context to a subagent and keep only its conclusion. Good candidates are long
   verification runs (diffing builds, checking two outputs are equal), broad
@@ -51,12 +59,12 @@ costs rework, tech debt and bugs.
 - A large change gets one full check on its final state: one that touches
   build or evaluation logic, many modules, or code with tests beyond the
   targeted ones. The orchestrator owns that: it hands the duty to the last
-  agent to push, or runs it in a fresh agent when the last pass changed
+  agent to push, or runs it in a fresh `checker` agent when the last pass changed
   nothing or that agent hands it back. Rerun it only after a code edit, never after a docs-only edit.
   CI has the final say.
 - Run anything expected to take over a minute with `run_in_background`. It
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
-- A check that may pass the foreground Bash cap goes to a fresh small check
+- A check that may pass the foreground Bash cap goes to a fresh `checker`
   agent. If no rerun resumes it, that agent hands back and the top-level agent
   runs it with `run_in_background`.
 

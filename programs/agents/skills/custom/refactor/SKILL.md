@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then derivable state and data modeling, rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, a schema or stored-data change included, when run by the user (delegated, big items are reported as out of scope), then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
+description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then derivable state and data modeling, rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, a schema or stored-data change included, when run by the user (delegated, big items come back as proposals), then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
 argument-hint: "[Quality: <mode>] [scope notes] [PR number or base ref]"
 ---
 
@@ -11,13 +11,14 @@ changing what it does. Behaviour-preserving only: a refactor that changes
 behaviour is a bug hiding in a cleanup commit.
 
 **Delegated** means another agent - an orchestrator such as `engineer` -
-invoked this skill, so there is nobody to ask.
+invoked this skill, or a `refactorer` agent runs it preloaded, so there is
+nobody to ask. Your input is `$ARGUMENTS`, or your prompt when preloaded.
 
 **Quality.** Delegated at Balanced, a diff under about 100 changed lines is
 skipped: say so and stop. Delegated at POC, one quick pass: step 3's items 1-3
 only, item 3 as one read of the diff, and skip `references/tests.md`. Invoked by the user, it runs in any mode.
 
-**Trivial.** Delegated in any mode, unless `$ARGUMENTS` says `not Trivial`: before
+**Trivial.** Delegated in any mode, unless your input says `not Trivial`: before
 step 1, read `git diff --shortstat` and the changed lines, removed included, of
 step 2's target. A diff that qualifies by the Trivial rule in your instructions
 is skipped: say so and stop.
@@ -25,14 +26,14 @@ is skipped: say so and stop.
 ## 1. Load the rules
 
 Invoke the `engineering` skill, and `ui-coding` when the diff touches UI, with
-the Skill tool. They are the yardstick; nothing else is. When the diff touches
-tests, also read `references/tests.md` from the base directory the Skill tool
-reports for `engineering` - the detailed test rules. It is not in this skill's
+the Skill tool, unless already loaded. They are the yardstick; nothing else
+is. When the diff touches tests, also read `references/tests.md` from
+`engineering`'s base directory - the detailed test rules. It is not in this skill's
 directory, and a `..` path does not resolve between installed skills.
 
 ## 2. Read the diff
 
-`$ARGUMENTS` may carry `Quality: <mode>`, scope notes (anything else that is
+Your input may carry `Quality: <mode>`, scope notes (anything else that is
 not a ref) and a target:
 
 - A PR number or URL - `gh pr diff <n>`. Check the PR's branch out first if it
@@ -114,13 +115,15 @@ Look at the diff, in this order:
 Write the plan as a short numbered list, one line per item: what changes, why
 (the rule it serves), and its size - **small** (inside the diff, a few files) or
 **big** (touches code outside the diff, restructures across many files, or
-changes a public interface or persisted data). Skip taste: an item no rule backs
-is not in the plan. An empty plan is a good outcome; say so and stop.
+changes a public interface or persisted data). The diff is your focus, but you
+may read past it to spot a bigger refactor it points at: a better
+generalization, DRY across modules, a cleaner design needing a larger rework.
+That is a big item. Skip taste: an item no rule backs is not in the plan. An empty plan is a good outcome; say so and stop.
 
 ## 4. Ask about the big items
 
-Small items are in scope. Delegated, every big item is out of scope: do not
-ask, list them in the report. Invoked by the user, ask about each **big** item
+Small items are in scope. Delegated, do not ask: every big item is a
+**proposal** in the report, with its scope (files, interfaces) and payoff. Invoked by the user, ask about each **big** item
 on its own, the way your instructions say to ask: options "In scope" and
 "Out of scope", and the item's cost in the option descriptions. Wait for each
 answer.
@@ -145,5 +148,6 @@ answer.
 ## 6. Report
 
 Briefly: what was applied, the check that proved it, and the commit. Then the
-**out-of-scope items** - the big ones declined and anything noticed outside the
+**proposals** (delegated: each big item, its scope and payoff) and the
+**out-of-scope items** - big ones declined and anything noticed outside the
 plan, including bugs - as a list for later.

@@ -48,7 +48,7 @@ let
     "android" # Android and Kotlin Multiplatform builds on the factory's global toolchain, factory only
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
     "architect" # /architect - read-only design partner led in free text, hands changes to /engineer, explicit invocation only
-    "engineer" # /engineer - deliver a feature end to end; also invoked by 10x-engineer, so model-invocable
+    "engineer" # /engineer - deliver a feature end to end; preloaded by the engineer agent
     "engineering" # coding style and engineering principles, model-invoked on any code work
     "final-review" # /final-review - independent last review of a ready PR, the user answers the pickers
     "give-feedback" # /give-feedback - apply quick bulleted feedback to a PR in rounds, explicit invocation only
@@ -56,7 +56,7 @@ let
     "pr-description" # PR body from the repo template or a default format, model-invoked before gh pr create
     "pragmatic-review" # /pragmatic-review - diff and PR review; also invoked by engineer
     "qa" # /qa - plan, run and record QA proof on a PR, report-only on bugs, only when the user asks
-    "refactor" # /refactor - behaviour-preserving cleanup of a diff; also invoked by engineer
+    "refactor" # /refactor - behaviour-preserving cleanup of a diff; preloaded by the refactorer agent
     "researcher" # /researcher - bounded research with a notes file; preloaded by the researcher agent
     "self-improve" # /self-improve - measure past sessions and fix the agent setup's bottlenecks, factory and claude-pm only
     "skeptic" # /skeptic - fail-fast feasibility review, explicit invocation only
