@@ -17,7 +17,7 @@ paths:
 - A role gets `delegate` only if its flow spawns agents: `implementer` splits a
   large slice, `review-lead` spawns `reviewer`s and `engineer` runs the whole
   delegated lifecycle. Only `engineer` gets `skill`: it invokes skills it does
-  not preload, such as `pr-description`.
+  not preload.
 - Every spawn site in a skill or shared instruction names a role, never
   `general-purpose`: research, spikes and probes `researcher`; slices
   `implementer`; `refactor` `refactorer`; a delegated `engineer` `engineer`;

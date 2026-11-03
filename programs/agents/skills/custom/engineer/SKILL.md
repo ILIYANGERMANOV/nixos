@@ -117,8 +117,8 @@ Spawn a fresh `subagent_type: refactorer` agent, which has `refactor`
 preloaded, whose prompt is "run `refactor` with: Quality: <mode>", so its
 reading stays out of your context. Keep only its hand-back. Bring its
 proposals, the bigger refactors past the diff, to the user as one question
-with their scope and payoff: in this PR, a follow-up, or drop. Delegated, they
-go in your hand-back. Balanced: skip this step below about 100 changed lines. POC: one quick pass, never skipped.
+with their scope and payoff: in this PR, a follow-up, or drop. Balanced: skip
+this step below about 100 changed lines. POC: one quick pass, never skipped.
 
 ### 7. Review
 
