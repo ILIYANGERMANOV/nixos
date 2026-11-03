@@ -1,7 +1,7 @@
 # Derivations that must never be built locally: each one is hours, not minutes.
 #
 # Regexes, one per line, anchored at the start of the derivation NAME
-# (`darwin-cache-check` and `factory-cache-check` strip the /nix/store/<hash>-
+# (the `cache-check-<system>` recipes strip the /nix/store/<hash>-
 # prefix before matching).
 # Python reads them, so an extended regex works, but a POSIX class like
 # [[:digit:]] is refused. Blank lines and lines starting with # are ignored. Edit

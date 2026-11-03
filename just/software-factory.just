@@ -141,9 +141,6 @@ factory-deploy:
 factory-status $mode="concise":
     @bash "{{ justfile_directory() }}/just/scripts/factory-status.sh" "$@"
 
-# Fail if rebuilding software-factory would build anything on the expensive-builds denylist.
-factory-cache-check: (_cache-check "factory-cache-check" ".#nixosConfigurations.software-factory.config.system.build.toplevel")
-
 # ─── GitHub and Tailscale ────────────────────────────────────────────────────
 
 # Generates the bot's SSH key on the server, as the agent account, so the

@@ -82,7 +82,7 @@ jobs:
   # hours. Runs on Linux on purpose: `nix build --dry-run` only queries
   # substituters, so an aarch64-darwin plan needs no darwin builder.
   # See docs/adr/0004-darwin-tracks-the-darwin-channel.md.
-  cache-guard:
+  cache-guard-aarch64-darwin:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
@@ -101,12 +101,12 @@ jobs:
             extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
 
       - name: Guard against expensive local rebuilds
-        run: nix shell nixpkgs#just --command just darwin-cache-check
+        run: nix shell nixpkgs#just --command just cache-check-aarch64-darwin
 
   # The same guard for the Linux server. The darwin pin promises nothing about
   # the Linux cache: a deploy of c68bbbc compiled a package from source for ~50 min on the server.
   # deploy-factory.yml requires this job, so it gates the deploy.
-  cache-guard-factory:
+  cache-guard-x86_64-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -116,7 +116,7 @@ jobs:
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
-          # Must mirror modules/nix.nix, like cache-guard above.
+          # Must mirror modules/nix.nix, like cache-guard-aarch64-darwin above.
           extra_nix_config: |
             experimental-features = nix-command flakes
             allow-import-from-derivation = false
@@ -124,4 +124,4 @@ jobs:
             extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
 
       - name: Guard against expensive local rebuilds
-        run: nix shell nixpkgs#just --command just factory-cache-check
+        run: nix shell nixpkgs#just --command just cache-check-x86_64-linux

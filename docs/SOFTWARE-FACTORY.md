@@ -416,7 +416,7 @@ Change the configuration with a pull request, merge it, then deploy `main`:
 
 What happens:
 
-1. The workflow refuses unless `check`, `cache-guard`, `cache-guard-factory` and
+1. The workflow refuses unless `check`, `cache-guard-aarch64-darwin`, `cache-guard-x86_64-linux` and
    `checks-x86_64` passed on main's tip, then creates a GitHub deployment for that commit. GitHub holds no credential
    to the server.
 2. Within a minute the server sees it, checks the commit is still the tip of
@@ -441,8 +441,8 @@ directly, committed or not, any branch:
 
 ```sh
 just macos-main-tailscale-up
-just factory-cache-check   # fails if this nixpkgs rev would compile something expensive (CI runs it too)
-just factory-deploy        # YubiKey touch, then the admin password for sudo
+just cache-check-x86_64-linux   # fails if this nixpkgs rev would compile something expensive (CI runs it too)
+just factory-deploy             # YubiKey touch, then the admin password for sudo
 ```
 
 ## Part 5 - Recovery

@@ -83,8 +83,8 @@ them too. That duplicates a few seconds of lint.
 ## The deploy gate names four jobs
 
 `deploy-factory.yml` compares an exact string of job conclusions, so a job
-outside it does not gate a deploy. The four are `check`, `cache-guard`,
-`cache-guard-factory` and `checks-x86_64`.
+outside it does not gate a deploy. The four are `check`, `cache-guard-aarch64-darwin`,
+`cache-guard-x86_64-linux` and `checks-x86_64`.
 
 - `checks-x86_64` is in the gate. `check` runs on aarch64-linux, which is not the
   factory's system, and `nvim-kotlin` exists only on x86_64. A check red on

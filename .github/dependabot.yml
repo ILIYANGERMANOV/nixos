@@ -11,7 +11,7 @@ updates:
     ignore:
       - dependency-name: "lanzaboote"
     # Three groups, not one. A nixpkgs rev whose darwin closure is not cached
-    # fails `just darwin-cache-check`, and under a single group that red PR
+    # fails `just cache-check-aarch64-darwin`, and under a single group that red PR
     # would also hold back the cheap tool bumps - which is exactly what forced
     # the wholesale revert in 58f2f8e. Splitting lets the rest land while
     # nixpkgs waits for a rev the guard accepts.

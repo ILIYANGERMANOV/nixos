@@ -46,7 +46,7 @@ LOG = OUT_DIR / "mutation.log"
 PYTHON_MODULES = {
     "analyze": "programs/agents/skills/custom/self-improve/scripts/analyze.py",
     "bash_commands": "programs/claude-code/hooks/shared/bash_commands.py",
-    "cache_check": "just/nix-darwin/cache_check.py",
+    "cache_check": "just/cache-check/cache_check.py",
     "disk_plan": "programs/software-factory/disk_plan.py",
     "hook_event": "programs/claude-code/hooks/shared/hook_event.py",
     "transcripts": "programs/claude-code/hooks/shared/transcripts.py",
@@ -55,7 +55,7 @@ PYTHON_MODULES = {
 PYTHON_TEST_SUPPORT = (
     "programs/claude-code/hooks/shared/bash_corpus.py",
     "programs/claude-code/hooks/shared/guard_harness.py",
-    "just/nix-darwin/expensive-builds.deny",
+    "just/cache-check/expensive-builds.deny",
 )
 TS_ROOT = Path("programs/playwright")
 # The rest of TS_ROOT is Playwright drivers, which only checks.qa runs.

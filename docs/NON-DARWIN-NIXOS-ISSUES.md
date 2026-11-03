@@ -21,14 +21,14 @@ x86_64-linux closure at a darwin channel head has no guarantee of being in
       and read the "will be built" list. `--dry-run` only queries substituters,
       so this needs no Linux builder and can run from macOS.
       `software-factory` (x86_64-linux, headless) was measured with
-      `just factory-cache-check` on the 2026-09-26 pin: the only expensive
+      `just cache-check-x86_64-linux` on the 2026-09-26 pin: the only expensive
       local build was `nodejs-24.21.0`, from `languages/typescript.nix`.
       nodejs is not on the denylist, so it builds locally when uncached.
-      CI runs the guard in the `cache-guard-factory` job.
+      CI runs the guard in the `cache-guard-x86_64-linux` job.
 - [ ] If the list is small and cheap, close this out and record the number here.
 - [x] The guard is factored out as the private `_cache-check` recipe in
-      `just/nix-darwin/cache-check.just`; `factory-cache-check` uses it. A
-      `nixos-cache-check` for `lenovo-old` is one more line.
+      `just/cache-check/cache-check.just`; `cache-check-x86_64-linux` uses it.
+      `lenovo-old` is also x86_64-linux, so its guard is one more line there.
 - [ ] Only if the misses are genuinely expensive: split the input. Add
       `nixpkgs-linux.url = "github:NixOS/nixpkgs/nixos-26.05"`, have
       `mkNixosSystem` pass it as `nixpkgs.pkgs`, and repoint the `follows` of
@@ -46,5 +46,5 @@ x86_64-linux closure at a darwin channel head has no guarantee of being in
       'nixosConfigurations.lenovo-old'"), so breakage there is caught. It does
       *not* descend into `darwinConfigurations`, which is not an output type it
       knows - the darwin hosts are only evaluated because
-      `just darwin-cache-check` builds a plan for `macos-main`. Nothing
+      `just cache-check-aarch64-darwin` builds a plan for `macos-main`. Nothing
       evaluates `macos-work`, though it shares every module with `macos-main`.

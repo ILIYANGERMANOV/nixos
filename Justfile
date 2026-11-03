@@ -6,7 +6,7 @@ import 'just/nixos/live-iso.just'
 import 'just/nixos/post-boot.just'
 import 'just/nix-darwin/install.just'
 import 'just/nix-darwin/post-install.just'
-import 'just/nix-darwin/cache-check.just'
+import 'just/cache-check/cache-check.just'
 import 'just/software-factory.just'
 
 # Show available recipes

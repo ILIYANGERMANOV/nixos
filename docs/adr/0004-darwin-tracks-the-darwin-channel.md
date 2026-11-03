@@ -59,13 +59,13 @@ evaluated.
 
 The channel switch removes the common case, not every case. A package can still
 fail to build in the darwin jobset, and anything reachable only through our own
-flake inputs was never in any jobset. `just darwin-cache-check` dry-runs the
+flake inputs was never in any jobset. `just cache-check-aarch64-darwin` dry-runs the
 `macos-main` closure and fails on a denylist of derivations that cost hours:
 Swift, .NET, the GHC/HLS set, LLVM, browser engines. It runs on the Linux CI
 runner, because `--dry-run` only queries substituters and never needs a darwin
 builder.
 
-The denylist is `just/nix-darwin/expensive-builds.deny`, a plain
+The denylist is `just/cache-check/expensive-builds.deny`, a plain
 pattern-per-line file meant to be edited by hand. Two traps are recorded in it:
 patterns must be anchored, or `go-1\.` also matches
 car`go-1.9`6.1-aarch64-apple-darwin, and nixpkgs' own `rustc`/`cargo` must be

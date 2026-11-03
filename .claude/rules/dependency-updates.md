@@ -3,7 +3,7 @@ paths:
   - "flake.nix"
   - "flake.lock"
   - "modules/nix.nix"
-  - "just/nix-darwin/**"
+  - "just/cache-check/**"
   - ".github/dependabot.yml"
   - ".github/workflows/**"
   - "docs/adr/0004-*"
@@ -16,7 +16,7 @@ paths:
 
 Both branches fast-forward along `release-26.05`, but different Hydra jobsets advance them, so they land on different revisions. A rev from `nixos-26.05` is guaranteed to have *Linux* binaries in `cache.nixos.org`; darwin coverage is incidental. One such rev cost hours of Swift and .NET compilation and had to be reverted (`987b09a` → `58f2f8e`). See `docs/adr/0004-darwin-tracks-the-darwin-channel.md`; `lenovo-old`'s side of that trade is tracked in `docs/NON-DARWIN-NIXOS-ISSUES.md`.
 
-`just darwin-cache-check` dry-runs the `macos-main` closure and fails if anything in `just/nix-darwin/expensive-builds.deny` would be built locally. Run it before pulling a dependency bump; CI runs it on every PR in the `cache-guard` job. `just factory-cache-check` does the same for the `software-factory` closure in the `cache-guard-factory` job, which also gates the deploy. It runs on Linux because `--dry-run` only queries substituters and never needs a darwin builder, but the substituter list in the workflow must stay in sync with `modules/nix.nix`, or it reports false misses.
+`just cache-check-aarch64-darwin` dry-runs the `macos-main` closure and fails if anything in `just/cache-check/expensive-builds.deny` would be built locally. Run it before pulling a dependency bump; CI runs it on every PR in the `cache-guard-aarch64-darwin` job. `just cache-check-x86_64-linux` does the same for the `software-factory` closure in the `cache-guard-x86_64-linux` job, which also gates the deploy. It runs on Linux because `--dry-run` only queries substituters and never needs a darwin builder, but the substituter list in the workflow must stay in sync with `modules/nix.nix`, or it reports false misses.
 
 The denylist is a plain pattern-per-line file, edited by hand. Anchor every pattern with `^`: unanchored, `go-1\.` also matches car`go-1.9`6.1-aarch64-apple-darwin, which herdr's rust-overlay toolchain builds every time. `test_cache_check.py` runs the real denylist over synthetic plans on every PR, and the guard refuses a plan it cannot parse, because both of its failure modes report a bad plan as clean.
 
