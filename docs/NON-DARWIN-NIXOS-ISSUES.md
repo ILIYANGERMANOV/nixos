@@ -23,8 +23,8 @@ x86_64-linux closure at a darwin channel head has no guarantee of being in
       `software-factory` (x86_64-linux, headless) was measured with
       `just factory-cache-check` on the 2026-09-26 pin: the only expensive
       local build was `nodejs-24.21.0`, from `languages/typescript.nix`.
-      It is exempted by exact version in the denylist, and CI runs the guard
-      in the `cache-guard-factory` job.
+      nodejs is not on the denylist, so it builds locally when uncached.
+      CI runs the guard in the `cache-guard-factory` job.
 - [ ] If the list is small and cheap, close this out and record the number here.
 - [x] The guard is factored out as the private `_cache-check` recipe in
       `just/nix-darwin/cache-check.just`; `factory-cache-check` uses it. A

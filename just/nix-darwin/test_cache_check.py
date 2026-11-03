@@ -62,7 +62,6 @@ def real_denylist() -> Denylist:
         "llvm-19.1.7.drv",
         "clang-unwrapped-19.1.7.drv",
         "clang-19.1.7.drv",
-        "nodejs-24.22.0.drv",
         "uv-0.11.21.drv",
         "uv-0.12.0.drv",
         "go-1.24.3.drv",
@@ -99,10 +98,10 @@ def test_the_real_denylist_lets_a_cheap_lookalike_through(name: str) -> None:
     assert judge(plan([name]), real_denylist()) == Clean()
 
 
-def test_the_real_denylist_exempts_only_the_exact_nodejs_on_the_server() -> None:
-    given_plan = plan(["nodejs-24.21.0.drv", "nodejs-24.21.01.drv"])
+def test_the_real_denylist_allows_any_nodejs() -> None:
+    given_plan = plan(["nodejs-24.21.0.drv", "nodejs-25.0.0.drv"])
 
-    assert judge(given_plan, real_denylist()) == Denied(("nodejs-24.21.01.drv",))
+    assert judge(given_plan, real_denylist()) == Clean()
 
 
 def test_a_denied_name_counts_only_when_built_not_fetched() -> None:

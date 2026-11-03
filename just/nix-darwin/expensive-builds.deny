@@ -30,11 +30,6 @@
 ^llvm-[0-9]
 ^clang-unwrapped
 ^clang-[0-9]
-# Temporary: the lookahead exempts the exact nodejs that today's
-# software-factory plan builds, because its output is already on the server.
-# The next nixpkgs bump changes the version and re-arms the pattern; delete
-# the lookahead to make it strict again.
-^nodejs-(?!24\.21\.0\.drv$)[0-9]
 ^uv-[0-9]
 ^go-1\.
 ^zig-[0-9]
