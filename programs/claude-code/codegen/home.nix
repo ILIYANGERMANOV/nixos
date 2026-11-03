@@ -7,8 +7,11 @@
 rec {
   settings = ".claude/settings.json";
   instructions = ".claude/CLAUDE.md";
-  role = name: ".claude/agents/${name}.md";
-  skill = name: ".claude/skills/${name}";
+  # The directories Claude Code reads subagents and skills from.
+  agentsDir = ".claude/agents";
+  skillsDir = ".claude/skills";
+  role = name: "${agentsDir}/${name}.md";
+  skill = name: "${skillsDir}/${name}";
 
   # The settings and the lead's user-scope memory.
   lead = settingsFile: instructionsFile: {
