@@ -85,7 +85,9 @@ files it adds or changes. Add one alternative, two at most, each with its
 trade-off, and your recommendation. A POC touching a `Security-sensitive` topic
 says it gets no DEEP review. Ask with one `AskUserQuestion` whether it matches
 the user's understanding ("Yes, build it (Recommended)" / "No, adjust"). On
-"adjust", take the correction and ask again. Done when the user confirms.
+"adjust", reopen the correction as an open decision and go back to step 2,
+keeping all you learned. Keep Quality, rerun the simplify pass only if the
+approach changed, then confirm again. Done when the user confirms.
 
 ### 4. Open a draft PR
 
