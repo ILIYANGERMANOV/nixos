@@ -138,7 +138,7 @@ These are deliberate, and recorded so they are not mistaken for oversights.
   binary, so concurrent starts cannot race.
 - Workspace trust is written into `~/.claude.json` by the launcher, because a
   server without a terminal cannot ask for it.
-- `factory-cache-check` reuses the darwin cache guard against this host.
+- `cache-check-x86_64-linux` runs the cache guard against this host.
 
 ## The admin agent
 

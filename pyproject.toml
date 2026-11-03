@@ -26,7 +26,7 @@ ignore = [
 "programs/claude-code/hooks/shared/guard_harness.py" = ["S603"]
 "programs/claude-code/statusline/statusline.py" = ["S603", "S607"]
 "programs/software-factory/disk_plan.py" = ["S603", "S607"]
-"just/nix-darwin/cache_check.py" = ["S603", "S607"]
+"just/cache-check/cache_check.py" = ["S603", "S607"]
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
@@ -47,7 +47,7 @@ pythonpath = [
   "programs/claude-code/statusline",
   "programs/agents/skills/custom/self-improve/scripts",
   "programs/software-factory",
-  "just/nix-darwin",
+  "just/cache-check",
   "programs/mutation",
 ]
 testpaths = ["programs", "just"]
@@ -73,7 +73,7 @@ extraPaths = ["programs/claude-code/hooks/shared"]
 root = "programs/software-factory"
 
 [[tool.basedpyright.executionEnvironments]]
-root = "just/nix-darwin"
+root = "just/cache-check"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/mutation"

@@ -22,8 +22,8 @@ let
   };
   secretless = {
     type = "local";
-    command = "uvx";
-    args = [ "mcp-server-time" ];
+    command = "node";
+    args = [ "time-server" ];
     env = { };
   };
   remote = {
@@ -79,8 +79,8 @@ let
       expected = {
         secretless = {
           type = "stdio";
-          command = "uvx";
-          args = [ "mcp-server-time" ];
+          command = "node";
+          args = [ "time-server" ];
           env = { };
         };
       };

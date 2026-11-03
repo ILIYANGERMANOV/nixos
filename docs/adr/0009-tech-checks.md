@@ -80,10 +80,11 @@ them too. That duplicates a few seconds of lint.
 | B: alias existing tests into groups too | `qa` runs twice, about 68 s | Only if per-technology failure signal proves worth it |
 | C: split `check`, replacing `nix flake check` with host evals plus groups | fastest, but the deploy gate must be rewritten | Later, separately |
 
-## The deploy gate names three jobs
+## The deploy gate names four jobs
 
 `deploy-factory.yml` compares an exact string of job conclusions, so a job
-outside it does not gate a deploy.
+outside it does not gate a deploy. The four are `check`, `cache-guard-aarch64-darwin`,
+`cache-guard-x86_64-linux` and `checks-x86_64`.
 
 - `checks-x86_64` is in the gate. `check` runs on aarch64-linux, which is not the
   factory's system, and `nvim-kotlin` exists only on x86_64. A check red on
@@ -92,7 +93,7 @@ outside it does not gate a deploy.
 - The `tech` jobs are not in the gate, and need not be. Every tech check is a
   flake check, so `check` and `checks-x86_64` already build it. A tech check
   outside `checks` would gate nothing, which is why none may live anywhere else.
-- A new job must never reuse one of these three names: it would break the
+- A new job must never reuse one of these four names: it would break the
   string compare.
 
 No job is a required check in the ruleset. The gate and convention enforce CI.

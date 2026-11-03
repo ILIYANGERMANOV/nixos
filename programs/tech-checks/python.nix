@@ -14,7 +14,7 @@ let
     fileset = lib.fileset.unions [
       (root + "/pyproject.toml")
       # test_cache_check.py runs the real denylist.
-      (root + "/just/nix-darwin/expensive-builds.deny")
+      (root + "/just/cache-check/expensive-builds.deny")
       # test_statusline.py holds the statusline to what the old scripts printed.
       (lib.fileset.fileFilter (file: file.hasExt "py" || file.name == "statusline-corpus.json") root)
     ];

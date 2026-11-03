@@ -162,7 +162,7 @@ fall through to its cwd fallback and the whole check pass vacuously. And a Lua
 error inside `-c luafile` aborts the chunk while leaving Neovim's exit code at
 `0`, so the check writes a sentinel file as its last statement and the builder
 fails when that file is absent. Both failure modes report a broken config as
-clean, which is the same hazard `just darwin-cache-check` guards against.
+clean, which is the same hazard `just cache-check-aarch64-darwin` guards against.
 
 ## Revisiting
 
