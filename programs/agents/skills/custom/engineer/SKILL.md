@@ -1,6 +1,6 @@
 ---
 name: engineer
-description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews the user, confirms the plan and its Quality, opens a draft PR with it, implements through subagents, refactors and reviews as that Quality says, and hands over a ready PR with green CI. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills, and offers QA at hand-over on a UI or runtime change. Use when asked to build, fix or change something end to end and deliver it as a PR.
+description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews the user, confirms the plan and its Quality, opens a draft PR with it, implements through subagents, refactors and reviews as that Quality says, and hands over a ready PR with green CI. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills, triages every question a subagent hands back, and lists QA as an optional next step. Use when asked to build, fix or change something end to end and deliver it as a PR.
 argument-hint: "[feature or task]"
 ---
 
@@ -19,14 +19,22 @@ CI. You own the outcome; the user owns the decisions.
   the user has said to use your own judgment do you decide the rest yourself -
   and then record each such decision, with its reason, in the PR body.
 - **Facts are yours, decisions are theirs.** Research facts with subagents.
+  Only you spawn researchers; workers never do.
+- **Workers stop on a blocker.** Every implementer, refactorer and fixer
+  brief carries the stop rule in `${CLAUDE_SKILL_DIR}/references/blockers.md`,
+  and every review-lead brief its plan-wrong line. A `NEEDS_DECISION`
+  hand-back, at any step, goes to that file's triage.
+- **Notes directory.** `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug being
+  the branch name, from step 1: research notes, proposals, requirements and,
+  from step 4, the progress file `blockers.md` describes, in every mode.
 - **Quality** is in your instructions. It goes in every brief, the review and
-  `refactor` prompts included. The branches below are all it changes here.
+  `refactor` prompts included. The mode table below and the branches in the
+  steps are all it changes here.
 - **Trivial** is in your instructions too. You assign it, and a skill may
   activate it on its own input, whatever the mode. Judge it before
   step 1 from the prompt and at most 5 lookups, and again at any later step. A
   task that qualifies follows `${CLAUDE_SKILL_DIR}/references/trivial.md` instead
-  of the lifecycle below: no research agents, plan or Quality question, one
-  implementer, one fresh sweep, PR ready on green CI, notify. The user merges.
+  of the steps below.
   Ambiguity, or anything the user might want different, still gets a question.
 - **You answer the skills you invoke.** `pragmatic-review`'s pickers ask which
   findings survive and what to do with them, and its open questions what a
@@ -48,7 +56,35 @@ CI. You own the outcome; the user owns the decisions.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
 
-## Lifecycle
+## States
+
+Each step is a state. A mode skips arrows, never adds them.
+
+| Step | State | Arrows out |
+|---|---|---|
+| 1-2 | Ctx | research and ask on demand, any order, then a plan: 3 |
+| 3 | Prop, Prop', Plan | simplify, alternative, then ask: first or second plan: 4; adjust: 2 |
+| 4 | DraftPlan | draft PR with the plan: 5 |
+| 5 | Impl | implement: 6 |
+| 6 | Impl' | refactor: 7 |
+| 7 | ImplR | first review: rows to fix: 8; none: 9 |
+| 8 | Impl'' | fix, then a `--fixes` review: 8 while rounds remain; cap: final small fix, 9 |
+| 9 | DraftPR | `pr-description` and notify: 10 |
+| 10 | PR | green CI: ready and notify; CI issues: `review.md`'s CI fix, then CI again |
+| any | blocker | a worker's `NEEDS_DECISION`: triage in `blockers.md` |
+
+| Mode | Proposals (3) | Refactor (6) | Re-reviews (8) |
+|---|---|---|---|
+| Max | simplify, then alternative | yes | up to 3 |
+| Balanced | simplify, then alternative | above about 100 changed lines | up to 2 |
+| POC | simplify only | one quick pass | 1, blockers only fixed |
+| Trivial | none, plan inline | no | 0, one quick review with security |
+
+Every mode keeps the quick security review, the blocker arrows, fact-gap
+research and the final small fix. A re-plan from a blocker follows this table
+too.
+
+## Steps
 
 ### 1. Research
 
@@ -58,7 +94,8 @@ the external systems involved, the standards that apply. You plan the topics
 yourself, also when the prompt only names what to research. Launch one
 `subagent_type: researcher` agent per group, in the background, one first and
 the rest after it. Its prompt and how many agents a Quality gets: `## Callers` and `## Budget` in
-`~/.claude/skills/researcher/SKILL.md`, those sections only.
+`~/.claude/skills/researcher/SKILL.md`, those sections only. An answer in step
+2 that opens a new fact gap gets research too, on demand.
 
 ### 2. Interview
 
@@ -70,24 +107,29 @@ Skip grilling's last confirmation: step 3 is the only one.
 
 ### 3. Confirm the plan
 
-Unless told, ask Quality first with one `AskUserQuestion`, Balanced recommended.
+Unless told, or on a re-plan, ask Quality first with one `AskUserQuestion`,
+Balanced recommended.
 
-**Simplify pass**, at every Quality but Trivial: one background
-`subagent_type: researcher` agent gets the plan and the research notes paths
-and looks for an equivalent design that is simpler or follows an industry
-standard. Not a naive one: it must still meet every goal. It hands back
-the alternatives it found, each with its trade-off. Revise the plan with what
-it finds.
+Write the plan: goals, the approach and the standards it follows, decisions,
+out of scope, Quality, and a file tree of the files it adds or changes.
 
-Then confirm once. Show the plan in a few lines: goals, the approach and the
-standards it follows, decisions, out of scope, Quality, and a file tree of the
-files it adds or changes. Add one alternative, two at most, each with its
-trade-off, and your recommendation. A POC touching a `Security-sensitive` topic
-says it gets no DEEP review. Ask with one `AskUserQuestion` whether it matches
-the user's understanding ("Yes, build it (Recommended)" / "No, adjust"). On
-"adjust", reopen the correction as an open decision and go back to step 2,
-keeping all you learned. Keep Quality, rerun the simplify pass only if the
-approach changed, then confirm again. Done when the user confirms.
+**Simplify pass**, then **alternative**, as the mode table says: one
+background `subagent_type: researcher` agent each, one after the other, whose
+prompt names `~/.claude/skills/researcher/references/proposal.md`, the mode
+(`simplify`, then `alternative`), `Quality: <mode>`, the plan path, the notes
+paths and the notes directory. The alternative gets the simplified plan's path.
+Take the simplified plan as your first plan; the alternative is the second, or
+the identity when none exists.
+
+Then confirm once. Show the first plan in a few lines, and the second with its
+trade-off against the first, with your recommendation. A POC touching a
+`Security-sensitive` topic says it gets no DEEP review. Ask with one
+`AskUserQuestion`: "First plan", "Second plan", "Adjust", the recommended one
+first and marked `(Recommended)`. Identity or POC: "Yes, build it
+(Recommended)" / "No, adjust". On adjust, reopen the correction as an open
+decision and go back to step 2, keeping all you learned. Keep Quality, rerun the proposals only if the
+approach changed, then confirm again. Done when the user picks a plan. Both
+`Considered options` tables, merged into one, go into the PR body's decisions.
 
 ### 4. Open a draft PR
 
@@ -99,7 +141,8 @@ auth, sessions, authorization, databases, secrets or CI, it also states
 `Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
 plan is now visible from the phone. Attach the PR to the session as your
 instructions say (`add_repo`, `subscribe_pr_activity`). POC:
-`gh label create POC --force`, then `gh pr edit <n> --add-label POC`.
+`gh label create POC --force`, then `gh pr edit <n> --add-label POC`. Start the
+progress file.
 
 ### 5. Implement
 
@@ -108,7 +151,8 @@ self-contained slice, because splitting exploring from implementing makes it
 re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
 ordering between them. Give each the plan, its slice, the targeted checks to run
-(never the full check), and the research notes paths and the sections it needs.
+(never the full check), the stop rule, and the research notes paths and the
+sections it needs.
 It starts with `engineering` loaded, does a small slice itself and splits a large
 one across fresh sub-implementers. Add
 any security-sensitive topic an implementer reports to the plan's line.
@@ -116,99 +160,53 @@ any security-sensitive topic an implementer reports to the plan's line.
 ### 6. Refactor
 
 Spawn a fresh `subagent_type: refactorer` agent, which has `refactor`
-preloaded, whose prompt is "run `refactor` with: Quality: <mode>", so its
-reading stays out of your context. Keep only its hand-back. Bring its
-proposals, the bigger refactors past the diff, to the user as one question
-with their scope and payoff: in this PR, a follow-up, or drop. Balanced: skip
-this step below about 100 changed lines. POC: one quick pass, never skipped.
+preloaded, whose prompt is "run `refactor` with: Quality: <mode>" and the stop
+rule, so its reading stays out of your context. Keep only its hand-back. Bring
+its proposals, the bigger refactors past the diff, to the user as one question
+with their scope and payoff: in this PR, a follow-up, or drop. In this PR is a
+re-plan: the decision path in `blockers.md`. The mode table says when this
+step runs.
 
 ### 7. Review
 
-A PR that changes a skill gets a dry run, in parallel with pass 1: a fresh
-`subagent_type: reviewer` agent reads the changed `SKILL.md` from the branch,
-not the installed copy, follows it step by step on a realistic task, with no
-push or other outside effect, and reports each step it could not follow or
-that misled it. Its findings go to the same fixer as pass 1's rows.
-Balanced: only for a new or rewritten skill. POC: never.
+Round 1, the first review, as `${CLAUDE_SKILL_DIR}/references/review.md`
+says: requirements file, dry run, review-lead, then the rows you pick.
 
-Run each review pass as a fresh `subagent_type: review-lead` agent whose prompt is "invoke
-`pragmatic-review` with: Quality: <mode> <arguments>"; never load that skill yourself. It
-returns the findings table and requirement verdicts, ending with
-`Reviewed head: <sha>`. You answer its pickers by acting on the table
-yourself: choose the rows worth fixing and hand them to a fixer, here and in every
-later step a `subagent_type: fixer` agent, that commits and pushes. Every surviving house-rule row is fixed, or the reason for
-leaving it is recorded in the PR body. POC: a fixer gets blockers only (security,
-irreversible damage, broken code); every other row goes in `## Follow-ups`.
-Never reply to the review agent with an action.
+### 8. Fix and review again
 
-Pass 1 is a first review. Write its requirements once to
-`/tmp/engineer-<owner>-<repo>-<PR>/requirements.md` and give every pass
-`--requirements <path>`, never a list. They are the acceptance criteria plus what must hold where you
-are least sure of the implementation; the plan's decisions and out-of-scope
-list go with them as assumptions, in your words, so a deliberately skipped edge
-case is not raised. A `Security-sensitive:` line adds the requirement
-`security-sensitive: <topics>`.
-Record its `Reviewed head` and its requirement verdicts.
+The rounds after it and the final small fix, as `review.md` says, up to the
+mode's cap.
 
-### 8. Review again, for the last time
+### 9. Describe and notify
 
-Pass 2 is a re-review: copy the requirements file beside it, with `fixes` for
-`requirements` in its name (`<task>-fixes.md` under a brief), append "finding N
-is fixed: <the row's What and Impact>" to the copy for each row you had fixed, then invoke `pragmatic-review` with `--fixes <the pass-1
-Reviewed head>` and the copy. /final-review gets the original. A requirement it answers "unchanged" keeps its
-pass-1 verdict. A fix that changed an interface, a data model or an auth flow
-gets a first review of the whole branch instead, as in step 7. No more reviews
-after this one, whatever it finds.
-
-Balanced: nothing fixed, no pass, and only a data-model or auth fix gets the
-first review. POC: skip this step and step 9.
-
-### 9. Final fix
-
-Through a fixer, fix what is safe and small. Anything bigger goes in the PR
-body's `## Follow-ups`, or to the user as a question if it blocks the feature.
-Size decides fix or record, never drop: every surviving house-rule row, Major
-row or Not met verdict you do not fix is recorded in `## Follow-ups`, with the
-reason.
+Rewrite the PR body through a fixer that follows the `pr-description` skill,
+keeping any decisions you made on the user's behalf, every recorded reason for
+an unfixed row, the research and decisions log, and `## Follow-ups`. Notify the
+user the way your instructions describe: the draft is complete and CI runs.
 
 ### 10. Hand over
 
-POC: do only the body rewrite, the full check rule and the CI wait, then notify.
-The PR stays a labelled draft, not merge-ready, with no offers.
+POC: the full check rule and the CI wait, then notify. The PR stays a labelled
+draft, not merge-ready, with no next steps.
 
-- Rewrite the PR body through a fixer that follows the `pr-description`
-  skill, keeping any decisions you made on the user's behalf and every
-  recorded reason for an unfixed row.
 - Make sure the final state got one full check when your instructions'
   Checks rules call for it (a large change, or a project that always wants
   one): brief the last fixer to run it before its push, or run it in a fresh
-  `subagent_type: checker` agent when the final fix changed nothing or the
+  `subagent_type: checker` agent when the final small fix changed nothing or the
   fixer hands it back. Otherwise CI is the full check.
-- Wait for CI the non-blocking way your instructions describe. Fix CI
-  failures through a fixer, and wait again.
-- When CI is green and the change touches UI, ask with one `AskUserQuestion`
-  whether to run the app for the user. On yes, run it off localhost as well: on
-  a host and port they can reach from another device, or on a production-like
-  host such as a preview deploy. Give them the URL. A problem they hit goes
-  through a fixer, and you wait for CI again.
-- When CI is green and the change touches UI or runtime behaviour, offer QA
-  with one `AskUserQuestion` before `gh pr ready`, recommending `/qa <PR URL>`
-  in a fresh session, the line ready to paste: this one's context would ride
-  along on every QA call. If the user wants it here, invoke `qa` yourself,
-  never in a subagent: its plan approval and blockers are the user's to
-  answer. A Fail holds the PR back from ready until the user decides. After a
-  fresh-session pick, end the turn and mark the PR ready only once the user
-  reports the result.
+- Wait for CI the non-blocking way your instructions describe. A CI failure or
+  a check issue goes through `review.md`'s CI fix, then wait again.
 - Before `gh pr ready`: every review comment on the PR has a reply or a
   triage, and when the diff touches a workflow, every `secrets.*` it
   references, `GITHUB_TOKEN` aside, is in `gh secret list`, in
   `gh secret list --env <env>` for a job with an `environment:`, or in
   `gh secret list --org <owner>` for an org repository. A missing secret goes
   to the user.
-- Mark the PR ready with `gh pr ready <n>` and notify the user the way your
-  instructions describe.
-- Offer `/final-review --requirements <path> <PR>` on the ready PR as an
-  independent check. Only the user runs it.
+- On green, mark the PR ready with `gh pr ready <n>` and notify the user the way
+  your instructions describe, listing optional next steps, each line ready to
+  paste: `/qa <PR URL>` in a fresh session for a UI or runtime change,
+  `/final-review --requirements <path> <PR>`, and `/give-feedback <PR>`. Only
+  the user runs them.
 
 ## Delegated
 
@@ -230,16 +228,16 @@ rest of this skill.
   fixer's, carries the worktree path, for every command, the base branch and
   the first line of your spawn prompt. Diffs are against `origin/<base>`, so an
   epic child never sweeps in a sibling's work: step 6 passes `refactor` that
-  base ref, steps 7 and 8 pass `pragmatic-review` the PR URL, and step 10 passes
+  base ref, steps 7 and 8 pass `pragmatic-review` the PR URL, and step 9 passes
   the base ref to `pr-description`.
-- From step 10 do only the PR-body rewrite and any full check, the way your
-  instructions tell a subagent to run a long command. Then stop, before the CI
-  wait. QA, the offers, the gates, `gh pr ready` and notifications are your
-  caller's.
-- Never call `AskUserQuestion`. A decision the rest of this skill sends to the
-  user goes in your hand-back, with whatever finished, pushed.
-- Your requirements file is the brief's. After each step, write the last
-  finished step and the head SHA to its report file.
+- Step 9 rewrites the body and notifies nobody. From step 10 run only the full
+  check, the way your instructions tell a subagent to run a long command. Then
+  stop, before the CI wait. The gates, `gh pr ready`, next steps and
+  notifications are your caller's.
+- Never call `AskUserQuestion`. Answered and fact blockers you settle inside; a
+  decision or scope one, or any decision the rest of this skill sends to the
+  user, goes in your hand-back, with whatever finished, pushed.
+- Your requirements file is the brief's. Your progress file is its report file.
 - Start your hand-back with one status, then its usual content plus the last
   finished step and the head SHA:
   - `READY <PR URL>` - step 10's part is done and pushed.

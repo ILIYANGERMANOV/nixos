@@ -88,8 +88,7 @@ yourself:
 
 ## Wakes
 
-- `APPROVED`: this loop for a `review` task. From `ci` or `qa`, section 7 gets
-  here.
+- `APPROVED`: this loop for a `review` task. From `ci`, section 7 gets here.
 - `CHANGES_REQUESTED` or a comment from the user: triage it like a hand-back.
   What it needs goes to a fresh fixer, then `ci`, then a new approval.
 - PR merged by hand: After each merge. Closed unmerged: `parked closed unmerged`,

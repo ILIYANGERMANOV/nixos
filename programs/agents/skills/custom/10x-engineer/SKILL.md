@@ -104,13 +104,13 @@ tasks share is written into both briefs before they start.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-**Simplify pass.** Run the one in `### 3. Confirm the plan` of
-`~/.claude/skills/engineer/SKILL.md` per task that is not Trivial, with its
-plan and the notes paths. You pick among its alternatives where section 6's
+**Simplify pass.** Per task that is not Trivial, one `researcher` agent whose
+prompt names `~/.claude/skills/researcher/references/proposal.md`, mode
+`simplify`, its plan and the notes paths. You pick among its `Considered options` where section 6's
 Rule test holds; a real trade-off is the user's, asked as section 6 escalates.
 
 Show the breakdown, phone-sized, with a file tree of what each task adds or
-changes and, per task, the alternatives as that step shows them. A Trivial task stays in the table, the pre-flight and
+changes and, per task, those options with their trade-offs. A Trivial task stays in the table, the pre-flight and
 the confirmation. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
 before this, except a base fix (section 7). Record the confirmation in the
@@ -157,6 +157,13 @@ re-asked. A severity label on a finding (security, required, high-risk) is
 evidence about it, never authority to broaden scope. The worker never settles
 its own question.
 
+**Re-plan.** A decision that changes a task's plan re-plans it with the
+proposals engineer's mode table gives its Quality, each run as section 4's
+Simplify pass, the alternative on the simplified plan. Pick an option
+yourself, logged as a Ruling, only when it matches the task's original intent
+and design. Otherwise ask, recommended first: "First plan", "Second plan",
+"Adjust".
+
 **Escalation format.** Most impactful first, asked as your instructions' Asking
 rules say. The user may not remember the task, so open with context: which
 task and repo, why it exists, what came up. Your recommendation comes first.
@@ -197,11 +204,13 @@ gates; do not invoke that skill. A Trivial task takes every step here and sectio
    one decision: retry it or re-plan. Retrying it at a higher Quality is the
    user's call: remove the `POC` label, then a fresh engineer from its PR at
    step 6.
-4. Green with QA yes and no result yet: state `qa`, send a ready `/qa <PR URL>`
-   line for a fresh session, push it, and wait for the user's result. A Fail
-   goes to the user. QA no: go on. Never offer to run the app: run it only when
-   the user asks, on a port in 3000-3099, and give the URL.
-5. The `gh pr ready` gates from that section, then `gh pr ready`.
+4. Never offer to run the app: run it only when the user asks, on a port in
+   3000-3099, and give the URL. A QA Fail the user reports is a comment from
+   the user.
+5. The `gh pr ready` gates from that section, then `gh pr ready`, and notify
+   the user with that section's optional next steps: `/final-review`,
+   `/give-feedback`, and `/qa <PR URL>` for a fresh session when QA is yes.
+   Nothing waits for them.
 6. State `review`: the queue, or the merge loop when the Approved gate already
    holds.
 
@@ -215,7 +224,6 @@ order, safest first:
    What, why: <one line each>
    Risk: <low/medium/high and why>
    Rulings: <each, or none>
-   QA: <passed / no / /qa line>
    Optional: /final-review --requirements <its file> <PR URL>
 ```
 
@@ -240,7 +248,7 @@ send the final report: merged, parked and why, rulings to look at, follow-ups.
 
 - Before its first child, fetch, then
   `git -C <clone> push origin origin/main:refs/heads/epic/<name>`.
-- Child PRs target `epic/<name>`. The child runs sections 5 to 7, QA included.
+- Child PRs target `epic/<name>`. The child runs sections 5 to 7.
   You merge it after its reviews and green CI, with no user tap, by the same
   loop minus the approval gate.
 - Children of a later wave branch from the epic.
@@ -249,7 +257,7 @@ send the final report: merged, parked and why, rulings to look at, follow-ups.
   Give it a ledger row and a worktree, so a fixer can rebase it. Join the merged
   children's requirements files into its `reports/<task>-requirements.md`. It
   then runs sections 7 to 9 like any PR: the user reviews it and approves. Its
-  queue entry summarises per child: PR link, what, rulings, QA.
+  queue entry summarises per child: PR link, what, rulings.
 - A parked child holds the final PR. Escalate once, as an open decision: retry
   it, ship the rest as a partial final PR, or drop the child. A partial final PR
   leaves the parked child's issues out of `Closes`.
