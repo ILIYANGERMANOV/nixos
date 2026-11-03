@@ -12,8 +12,7 @@ paths:
   `lead.md` and `topics/trivial.md` are for the agent leading a session, with
   `trivial.md` also in `review-lead`. Plain committed markdown.
 - Trivial tasks spawn at most one small researcher, for a fact gap, and skip
-  the process skills, by
-  `topics/trivial.md`. It keeps skill and instruction edits out of Trivial
+  the process skills, by `topics/trivial.md`. It keeps skill and instruction edits out of Trivial
   unless they are typos, so a change here is never Trivial.
 
 ### Laws (`lib/`)

@@ -1,9 +1,8 @@
 # The review loop
 
 Steps 7 and 8, and step 10's CI fix. You drive the loop: a fresh review-lead
-per round, a fixer between rounds. The cap is the mode's re-reviews in step 3's
-table. Every review-lead and fixer brief carries the stop rule from
-`blockers.md`; a `NEEDS_DECISION` return goes to triage there.
+per round, a fixer between rounds. The cap is the mode's re-reviews in the
+skill's mode table.
 
 ```
 7 first review --rows--> 8 fixer --rows fixed--> --fixes review --rows--> 8 ...

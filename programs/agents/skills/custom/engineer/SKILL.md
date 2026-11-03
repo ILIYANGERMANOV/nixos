@@ -189,7 +189,7 @@ draft, not merge-ready, with no next steps.
 - Make sure the final state got one full check when your instructions'
   Checks rules call for it (a large change, or a project that always wants
   one): brief the last fixer to run it before its push, or run it in a fresh
-  `subagent_type: checker` agent when the final fix changed nothing or the
+  `subagent_type: checker` agent when the final small fix changed nothing or the
   fixer hands it back. Otherwise CI is the full check.
 - Wait for CI the non-blocking way your instructions describe. A CI failure or
   a check issue goes through `review.md`'s CI fix, then wait again.

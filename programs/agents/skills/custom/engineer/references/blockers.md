@@ -49,7 +49,7 @@ says what remains". Commits are never reverted unless the user asks.
    prompt. Trivial: one small researcher briefed `Quality: <mode>, Trivial`,
    and the task stays Trivial.
 2. Write a delta plan: what the facts change in the plan.
-3. Run the mode's simplify pass on it (step 3's table; Trivial has none).
+3. Run the mode's simplify pass on it (the skill's mode table; Trivial has none).
 4. Record the fact and the delta in the PR body, then resume.
 
 Research or a simplify pass that turns up a choice the user owns, or changes
@@ -70,8 +70,7 @@ the approach, moves the item to the decision path.
 In this PR: the decision path. A follow-up: add it to `## Follow-ups`. Either
 of the last two: resume without it.
 
-Delegated: answered and fact rows run inside. Decision and scope rows end your
-run with your own `NEEDS_DECISION`, as `## Delegated` says.
+Delegated: `## Delegated` says which rows you settle inside.
 
 ## The progress file
 
