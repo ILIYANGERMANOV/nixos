@@ -60,7 +60,6 @@ One `State` per task. The skill's steps name the moves; GitHub wins over them.
 | `queued <job>` | waits for a slot, a dependency or an answer |
 | `running <job>` | that job's one agent is live |
 | `ci` | waits for green on the head |
-| `qa` | waits for the user's QA result |
 | `review` | in the queue, or held by the Base gate |
 | `merged` | terminal |
 | `parked <reason>` | terminal unless the user picks retry, which clears `Tries`; the reason is required |

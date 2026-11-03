@@ -1,7 +1,7 @@
 ---
 name: pragmatic-review
 description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Quality, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
-argument-hint: "[requirements | --requirements <path>] [PR number or URL] [--fixes <first-review head sha>] [Quality: <mode>]"
+argument-hint: "[requirements | --requirements <path>] [PR number or URL] [--fixes <reviewed head sha>] [Quality: <mode>]"
 ---
 
 # Pragmatic Review
@@ -34,9 +34,9 @@ Your prompt, or the arguments, may hold, in any order:
 
 - **A PR** - a bare number or a `github.com/.../pull/N` URL. Without one, review
   the current branch, uncommitted work included.
-- **`--fixes <sha>`** - this is a re-review of the fixes made since a first
-  review whose head was `<sha>`, the `Reviewed head` line of its return. Without
-  it, this is a first review.
+- **`--fixes <sha>`** - this is a re-review of the fixes made since the
+  previous round, whose head was `<sha>`, the `Reviewed head` line of its
+  return. Without it, this is a first review.
 - **`Quality: <mode>`** - your instructions define it; `first-pass.md` and
   `fixes.md` branch on it. `, Trivial` after the mode says the caller runs the
   fast track; `, not Trivial` turns the Trivial check off. Neither makes a diff
@@ -45,7 +45,7 @@ Your prompt, or the arguments, may hold, in any order:
   calling agent uses; a re-review's adds the "finding N is fixed" lines. Read
   it once.
 - **Requirements** - anything else, usually a bracketed list, one per bullet or
-  line; *tips* is a synonym. On a re-review the caller passes the first review's
+  line; *tips* is a synonym. On a re-review the caller passes the
   requirements again, plus "finding N is fixed: <the row's What and Impact>"
   for each row it fixed.
 

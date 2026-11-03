@@ -20,11 +20,9 @@ Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
 agent may lower or raise it for a subtask. A skill's text is Max: it names only
 what Balanced, POC and Trivial change, and no branch means as written.
 
-- **POC**: prove the idea cheaply. One quick refactor and one quick review with
-  no DEEP security pass, then a PR labelled `POC`, not merge-ready and never
-  auto-merged.
-- **Balanced** (default): fewer review agents, a fix pass, one `--fixes`
-  re-review and one final small fix. Security depth stays.
+- **POC**: prove the idea cheaply. Quick passes with no DEEP security pass,
+  then a PR labelled `POC`, not merge-ready and never auto-merged.
+- **Balanced** (default): fewer review agents and rounds. Security depth stays.
 - **Max**: every step.
 
 `, Trivial` after the mode marks a small task's fast track. Your skill or brief
@@ -34,7 +32,7 @@ says what it skips.
 
 - A subagent cannot ask the user. It builds what it was briefed and hands
   any open decision back to its caller in its report, finishing the work the
-  decision does not block rather than stopping or guessing.
+  decision does not block rather than guessing, unless its brief says to stop.
 - A subagent waits for the agents it spawned: ending its turn is its
   hand-back.
 - A subagent works with `git -C <path>` or on its own branch. It never checks

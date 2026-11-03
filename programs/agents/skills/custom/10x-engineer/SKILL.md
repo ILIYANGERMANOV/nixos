@@ -104,13 +104,13 @@ tasks share is written into both briefs before they start.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-**Simplify pass.** Run the one in `### 3. Confirm the plan` of
-`~/.claude/skills/engineer/SKILL.md` per task that is not Trivial, with its
-plan and the notes paths. You pick among its alternatives where section 6's
+**Simplify pass.** Per task that is not Trivial, one `researcher` agent whose
+prompt names `~/.claude/skills/researcher/references/proposal.md`, mode
+`simplify`, its plan and the notes paths. You pick among its `Considered options` where section 6's
 Rule test holds; a real trade-off is the user's, asked as section 6 escalates.
 
 Show the breakdown, phone-sized, with a file tree of what each task adds or
-changes and, per task, the alternatives as that step shows them. A Trivial task stays in the table, the pre-flight and
+changes and, per task, those options with their trade-offs. A Trivial task stays in the table, the pre-flight and
 the confirmation. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
 before this, except a base fix (section 7). Record the confirmation in the
@@ -197,10 +197,10 @@ gates; do not invoke that skill. A Trivial task takes every step here and sectio
    one decision: retry it or re-plan. Retrying it at a higher Quality is the
    user's call: remove the `POC` label, then a fresh engineer from its PR at
    step 6.
-4. Green with QA yes and no result yet: state `qa`, send a ready `/qa <PR URL>`
-   line for a fresh session, push it, and wait for the user's result. A Fail
-   goes to the user. QA no: go on. Never offer to run the app: run it only when
-   the user asks, on a port in 3000-3099, and give the URL.
+4. QA yes: the ready notice carries a `/qa <PR URL>` line for a fresh
+   session, and nothing waits for it. A Fail the user reports is a comment from
+   the user. Never offer to run the app: run it only when the user asks, on a
+   port in 3000-3099, and give the URL.
 5. The `gh pr ready` gates from that section, then `gh pr ready`.
 6. State `review`: the queue, or the merge loop when the Approved gate already
    holds.
@@ -240,7 +240,7 @@ send the final report: merged, parked and why, rulings to look at, follow-ups.
 
 - Before its first child, fetch, then
   `git -C <clone> push origin origin/main:refs/heads/epic/<name>`.
-- Child PRs target `epic/<name>`. The child runs sections 5 to 7, QA included.
+- Child PRs target `epic/<name>`. The child runs sections 5 to 7.
   You merge it after its reviews and green CI, with no user tap, by the same
   loop minus the approval gate.
 - Children of a later wave branch from the epic.
