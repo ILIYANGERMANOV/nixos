@@ -92,8 +92,9 @@ resume read the same. The spec is the `## States` table in
 
 ## Consequences
 
-- Every worker brief from the engineer carries the stop rule from
-  `blockers.md`; roles did not change.
+- Every implementer, refactorer and fixer brief from the engineer carries the
+  stop rule from `blockers.md`, and every review-lead brief only its plan-wrong
+  line; roles did not change.
 - The engineer pays one more turn per blocker to sort it.
 - `pragmatic-review` re-reviews chain: `--fixes` takes the previous round's
   head, not the first review's.
