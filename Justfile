@@ -94,8 +94,8 @@ _build-checks pattern:
     }
     echo "All good (${#checks[@]})"
 
-# The ceilings live in programs/claude-code/budget.json; checks.claude-config
-# fails above them.
+# The ceilings live in programs/agents/budget.json and
+# programs/claude-code/budget/budget.json; checks.claude-config fails above them.
 #
 # Print instruction, skill listing and per-agent sizes against their ceilings
 skill-budget:

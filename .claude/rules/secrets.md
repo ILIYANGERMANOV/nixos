@@ -7,8 +7,11 @@ paths:
   - "docs/SOPS.md"
   - "docs/adr/0005-*"
   - "programs/claude-code/default.nix"
-  - "programs/claude-code/lib.nix"
-  - "programs/claude-code/secret-guard*"
+  - "programs/claude-code/codegen/settings.nix"
+  - "programs/claude-code/codegen/profile.nix"
+  - "programs/claude-code/link/**"
+  - "programs/claude-code/load/**"
+  - "programs/claude-code/hooks/secret-guard/**"
   - "modules/home-manager.nix"
   - "modules/home/claude-code.nix"
   - "modules/home/factory/claude-factory.nix"
@@ -44,8 +47,8 @@ pass. That placeholder is exactly what this design removed.
 Home Manager receives `secretsConfig` (`name -> path`, declared secrets only)
 through `extraSpecialArgs`, alongside `userConfig` and `themeConfig`.
 `programs/` takes it as a plain parameter and stays host-agnostic: it gates on
-what it was handed, it never looks a host up. `programs/claude-code` is the
-worked example - catalog entries name the secrets they need
+what it was handed, it never looks a host up. `programs/agents` (`lib/mcp.nix`)
+is the worked example - catalog entries name the secrets they need
 (`env.FIGMA_API_KEY = "figma-token"`), unavailable entries are dropped before
 any flavor sees them, and names are validated against the full catalog so a typo
 still aborts while an unavailable server stays silent.

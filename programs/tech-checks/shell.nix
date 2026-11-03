@@ -46,7 +46,12 @@ let
     file: file.hasExt "nix"
   ) root) ./shell-limits-check.nix;
 
-  scriptSuites = source (lib.fileset.difference shellFiles (root + "/programs/software-factory"));
+  # Plus the fragment list load.bats assembles the Claude wrapper from.
+  scriptSuites = source (
+    lib.fileset.union (lib.fileset.fileFilter (file: file.name == "fragments") (
+      root + "/programs/claude-code"
+    )) (lib.fileset.difference shellFiles (root + "/programs/software-factory"))
+  );
   githubSource = source (root + "/.github");
   shellSource = source shellFiles;
   justSource = source justFiles;

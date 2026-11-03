@@ -27,6 +27,28 @@ rules:
       - import: "programs/*/default.nix"
     fix: Expose it from the other program's default.nix, or move the shared code.
 
+  - id: agents-name-no-vendor
+    description: The agent frontend is vendor-agnostic, so it never reaches an agent backend, even through another program.
+    target: "programs/agents/**"
+    forbids:
+      - import: "programs/claude-code/**"
+        transitive: true
+      - import: "programs/opencode/**"
+        transitive: true
+      - import: "programs/codex/**"
+        transitive: true
+    fix: Keep the vendor-agnostic data in programs/agents, and let the backend import it and translate it to its own format.
+
+  - id: roles-climb-the-ladder
+    description: A role reads only its own folder and any shared/ at or above it, never another role.
+    target: "programs/agents/roles/**"
+    forbids:
+      - import: "programs/agents/roles/**"
+    allows:
+      - import: "{{TARGET_DIR}}/**"
+      - import: "{{TARGET_DIR}}/..*/shared/**"
+    fix: Move prose a second role needs into the nearest shared/ above both, and back into the role when only one reads it.
+
   - id: adapters-are-thin
     description: An adapter binds flake inputs to a program's entry point and does nothing else.
     target: "adapters/**"

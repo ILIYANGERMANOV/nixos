@@ -1,5 +1,8 @@
 # Agent-agnostic configuration provides content, never installation
 
+Refined by ADR 0011, the agent compiler: `programs/agents` is now a frontend of
+profiles and roles, and each agent program a thin backend.
+
 Coding agents are converging on the same ideas - a user-scope instructions file,
 a directory of skills - and diverging on every detail of where those live. This
 repo therefore splits the two: `programs/agents/` owns config that is true
@@ -13,16 +16,17 @@ Four words, used precisely throughout:
 - **Flavor** - a named wrapper binary around one agent with a fixed
   settings/MCP/skills profile (`claude`, `claude-ts`, `claude-web-ui`). A
   Claude-specific concept; nothing in `programs/agents/` knows the word.
-- **Instructions** - the agent-agnostic prose in `programs/agents/AGENTS.md`,
+- **Instructions** - the agent-agnostic prose in `programs/agents/instructions/`,
   loaded at user scope so it applies in every repository.
 - **Skill** - a `SKILL.md` directory. Agent-agnostic because the format is
   shared, even though Claude Code is currently its only consumer.
 
 ## Why the shared layer does not install anything
 
-`programs/agents/default.nix` exports `instructions`, today composed from
-`core.md`, `trivial.md` and `AGENTS.md` so subagent roles can take the core alone, and stops
-there. The obvious alternative - having it write `~/.claude/CLAUDE.md` and
+`programs/agents/default.nix` exports profiles whose instructions are
+fragments of `instructions/agent.md`, `instructions/lead.md` and
+`instructions/topics/trivial.md` (so subagent roles can take `agent.md` alone)
+plus `renderLead` and `renderRole`, and stops there. The obvious alternative - having it write `~/.claude/CLAUDE.md` and
 `~/.codex/AGENTS.md` itself - fails on the first agent, because Claude Code does
 not read `AGENTS.md` at user scope at all. Its memory loader only ever resolves
 `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` and `.claude/rules/`; every
@@ -53,10 +57,8 @@ is already `false`, and per-repository rules belong in a project's own
 Claude Code's loader, so a store-owned user file does not displace anything a
 repository says.
 
-Flavors can append their own prose through `extraInstructions`, concatenated onto
-`baseInstructions`. It is empty for all three flavors today and should stay that
-way unless a rule is genuinely Claude-only - anything in there is a rule Codex
-will never see.
+A flavor's prose comes only from the profiles it lists; the Claude backend holds
+none of its own, so every rule reaches every vendor. See ADR 0011.
 
 ## Why `install -m 600` and not `cp`
 
@@ -76,14 +78,22 @@ Nothing in `programs/agents/` changes. Using Codex as the worked example:
 
 1. Add the package. `llm-agents.nix` is already an input and exposes `codex`.
 2. Create `programs/codex/default.nix`, a plain function taking `pkgs` and
-   `agents`, returning a wrapper that installs what Codex expects and execs it:
+   `agents`, returning a wrapper that installs what Codex expects and execs it.
+   A flavor's instructions are a value, not a file: fold its profiles and
+   render them with `agents.renderLead`, as `mkLeadInstructions` does in
+   `programs/claude-code/codegen/profile.nix`. ADR 0011 gives the backend's
+   `codegen`, `link` and `load` split:
 
    ```nix
+   let
+     profile = agents.fold [ agents.profiles.base ];
+     instructions = pkgs.concatText "codex-instructions.md" (agents.renderLead profile.instructions);
+   in
    pkgs.writeShellApplication {
      name = "codex";
      text = ''
        mkdir -p "$HOME/.codex"
-       install -m 600 ${agents.instructions} "$HOME/.codex/AGENTS.md"
+       install -m 600 ${instructions} "$HOME/.codex/AGENTS.md"
        exec ${codex}/bin/codex "$@"
      '';
    }
@@ -105,7 +115,7 @@ layer is kept free of.
 
 - **`~/.claude/CLAUDE.md` is not editable.** Hand-edits and `#` memory writes are
   discarded at the next launch. The file to edit is
-  `programs/agents/AGENTS.md`, followed by a rebuild.
+  `programs/agents/instructions/lead.md`, followed by a rebuild.
 - **The instructions are not enforced.** They tell an agent what to write; no
   check verifies the result, and the existing repository was deliberately not
   swept to match. Mixed punctuation in older files is expected and is not a

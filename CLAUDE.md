@@ -106,7 +106,7 @@ program needs a flake input.
    `checks` derivation for this system. On Linux that evaluates one host, for
    `software-factory-activation`.
 7. `just check` once on the final state, run as the Checks rules in
-   `programs/agents/AGENTS.md` say. Never after a docs-only edit, and never
+   `programs/agents/instructions/lead.md` say. Never after a docs-only edit, and never
    with a build, lint or test chained in front of it.
 
 ## Dependency Updates
@@ -127,12 +127,11 @@ declare them.
 
 ## Agent Configuration
 
-**`programs/agents/` is agent-agnostic. Agent-specific code lives in that
-agent's own program.**
+**`programs/agents/` is the vendor-free frontend; each agent's own program is a
+thin backend.**
 
-Details: `.claude/rules/agent-configuration.md`, loaded under `programs/agents`,
-`programs/claude-code` and `adapters/`. Read it before editing the skill catalog,
-the subagent catalog or a flavor.
+Details: `.claude/rules/agents-*.md` and `claude-code-*.md`, each loaded only
+under the folder it covers; why: `docs/adr/0011-agent-compiler.md`.
 
 ## Software factory
 

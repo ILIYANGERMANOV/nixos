@@ -45,16 +45,16 @@ LOG = OUT_DIR / "mutation.log"
 # statusline run as subprocesses, where no mutant could ever be killed.
 PYTHON_MODULES = {
     "analyze": "programs/agents/skills/custom/self-improve/scripts/analyze.py",
-    "bash_commands": "programs/claude-code/bash_commands.py",
+    "bash_commands": "programs/claude-code/hooks/shared/bash_commands.py",
     "cache_check": "just/nix-darwin/cache_check.py",
     "disk_plan": "programs/software-factory/disk_plan.py",
-    "hook_event": "programs/claude-code/hook_event.py",
-    "transcripts": "programs/claude-code/transcripts.py",
+    "hook_event": "programs/claude-code/hooks/shared/hook_event.py",
+    "transcripts": "programs/claude-code/hooks/shared/transcripts.py",
 }
 # What those tests import or read from beside themselves.
 PYTHON_TEST_SUPPORT = (
-    "programs/claude-code/bash_corpus.py",
-    "programs/claude-code/guard_harness.py",
+    "programs/claude-code/hooks/shared/bash_corpus.py",
+    "programs/claude-code/hooks/shared/guard_harness.py",
     "just/nix-darwin/expensive-builds.deny",
 )
 TS_ROOT = Path("programs/playwright")

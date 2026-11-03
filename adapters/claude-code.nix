@@ -5,7 +5,7 @@
   lib ? pkgs.lib,
   theme ? "auto",
   # name -> decrypted-file path, for the secrets THIS host provides. Paths only,
-  # never values. Servers whose secret is absent are dropped from the catalog.
+  # never values. programs/agents drops what needs a secret this host lacks.
   secrets ? { },
 }:
 
@@ -14,7 +14,6 @@ import "${root}/programs/claude-code" {
     pkgs
     lib
     theme
-    secrets
     ;
   claude-code = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
   agents = import "${root}/adapters/agents.nix" {
@@ -23,6 +22,7 @@ import "${root}/programs/claude-code" {
       pkgs
       inputs
       lib
+      secrets
       ;
   };
 }
