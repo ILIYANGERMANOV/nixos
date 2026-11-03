@@ -157,6 +157,13 @@ re-asked. A severity label on a finding (security, required, high-risk) is
 evidence about it, never authority to broaden scope. The worker never settles
 its own question.
 
+**Re-plan.** A decision that changes a task's plan re-plans it with the
+proposals engineer's mode table gives its Quality, each run as section 4's
+Simplify pass, the alternative on the simplified plan. Pick an option
+yourself, logged as a Ruling, only when it matches the task's original intent
+and design. Otherwise ask, recommended first: "First plan", "Second plan",
+"Adjust".
+
 **Escalation format.** Most impactful first, asked as your instructions' Asking
 rules say. The user may not remember the task, so open with context: which
 task and repo, why it exists, what came up. Your recommendation comes first.
@@ -197,11 +204,13 @@ gates; do not invoke that skill. A Trivial task takes every step here and sectio
    one decision: retry it or re-plan. Retrying it at a higher Quality is the
    user's call: remove the `POC` label, then a fresh engineer from its PR at
    step 6.
-4. QA yes: the ready notice carries a `/qa <PR URL>` line for a fresh
-   session, and nothing waits for it. A Fail the user reports is a comment from
-   the user. Never offer to run the app: run it only when the user asks, on a
-   port in 3000-3099, and give the URL.
-5. The `gh pr ready` gates from that section, then `gh pr ready`.
+4. Never offer to run the app: run it only when the user asks, on a port in
+   3000-3099, and give the URL. A QA Fail the user reports is a comment from
+   the user.
+5. The `gh pr ready` gates from that section, then `gh pr ready`, and notify
+   the user with that section's optional next steps: `/final-review`,
+   `/give-feedback`, and `/qa <PR URL>` for a fresh session when QA is yes.
+   Nothing waits for them.
 6. State `review`: the queue, or the merge loop when the Approved gate already
    holds.
 
@@ -215,7 +224,6 @@ order, safest first:
    What, why: <one line each>
    Risk: <low/medium/high and why>
    Rulings: <each, or none>
-   QA: <passed / no / /qa line>
    Optional: /final-review --requirements <its file> <PR URL>
 ```
 
@@ -249,7 +257,7 @@ send the final report: merged, parked and why, rulings to look at, follow-ups.
   Give it a ledger row and a worktree, so a fixer can rebase it. Join the merged
   children's requirements files into its `reports/<task>-requirements.md`. It
   then runs sections 7 to 9 like any PR: the user reviews it and approves. Its
-  queue entry summarises per child: PR link, what, rulings, QA.
+  queue entry summarises per child: PR link, what, rulings.
 - A parked child holds the final PR. Escalate once, as an open decision: retry
   it, ship the rest as a partial final PR, or drop the child. A partial final PR
   leaves the parked child's issues out of `Closes`.

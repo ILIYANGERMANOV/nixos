@@ -18,13 +18,14 @@ Quality.
 
 Revise the given plan to an equivalent that is simpler or follows a standard:
 fewer moving parts, an existing helper or tool, a standard over a home-grown
-format. The result is the revised plan.
+format. The result is the revised plan. When nothing is simpler, return the
+given plan unchanged and say why: that is the identity.
 
 ## `alternative`
 
 Write a different plan for the same goals and intent: another approach, not a
-tweak of the given one. When no sound one exists, return the given plan
-unchanged and say why: that is the identity, and the caller asks Yes or Adjust.
+tweak of the given one. When no sound one exists, return the identity, as
+`simplify` does, and the caller asks Yes or Adjust.
 
 ## Output
 

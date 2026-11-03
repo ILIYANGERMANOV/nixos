@@ -6,23 +6,25 @@ hands the question back. You sort it. Only you spawn researchers.
 
 ## The stop rule
 
-Paste this paragraph into every worker brief, the review-lead's included:
+Paste this paragraph into every implementer, refactorer and fixer brief:
 
 > A question that blocks your work and that the repo, this brief and the plan
 > do not settle: stop at once. Commit and push the work you have, if any, as a
-> normal commit that builds, with no WIP marker and
-> `Remaining: <what is left>` in its body.
+> normal commit with no WIP marker and `Remaining: <what is left>` in its
+> body, plus `(does not build yet)` when it does not build.
 > Start your hand-back with `NEEDS_DECISION <question>`, then that commit, what
 > you tried and the evidence paths. Spawn no researcher. Pass this paragraph to
 > any agent you spawn, and relay its `NEEDS_DECISION` as-is.
 
-A review-lead brief adds:
+A review-lead brief, Trivial's sweep included, gets this line instead, and
+passes nothing of it to its reviewers:
 
 > The plan is wrong when a finding shows a wrong approach, a requirement that
 > cannot be met, scope the plan does not hold, or a data-model or auth
-> redesign. Then the first line of your return is
-> `NEEDS_DECISION plan wrong: <finding>`, before the usual report. Every other
-> finding, security included, goes in the table as usual.
+> redesign. Do not stop early: finish the review, then make
+> `NEEDS_DECISION plan wrong: <finding>` the first line of your return, before
+> the usual report. Every other finding, security included, goes in the table
+> as usual.
 
 A question that does not block stays in the hand-back's prose, as the role
 says. A refactorer's proposals are not blockers: step 6 asks about them.
@@ -40,28 +42,34 @@ progress file.
 | Work the plan does not hold | scope | the scope question |
 
 **Resume.** A worker that handed back is gone. Spawn a fresh worker of the same
-role with its brief, the answer, and "continue from commit `<sha>`: its body
-says what remains". Commits are never reverted unless the user asks.
+role with its brief, the answer, the delta plan when there is one, and
+"continue from commit `<sha>`: its body says what remains; when it says it
+does not build, make it build first". Commits are never reverted unless the
+user asks.
 
 **Fact path.** No user question.
 
-1. Researchers per `## Callers` in the researcher skill, the question in their
-   prompt. Trivial: one small researcher briefed `Quality: <mode>, Trivial`,
-   and the task stays Trivial.
+1. One researcher per fact gap, prompt per `## Callers` in the researcher
+   skill with the question in it. It does not count against step 1's Agents.
+   Trivial: one small researcher briefed `Quality: <mode>, Trivial`, and the
+   task stays Trivial. This overrides the researcher Budget's Trivial row,
+   which allows no agent.
 2. Write a delta plan: what the facts change in the plan.
 3. Run the mode's simplify pass on it (the skill's mode table; Trivial has none).
 4. Record the fact and the delta in the PR body, then resume.
 
 Research or a simplify pass that turns up a choice the user owns, or changes
-the approach, moves the item to the decision path.
+the approach, moves the item to the decision path. It changes the approach
+when it changes a goal, a decision or an interface.
 
 **Decision path.**
 
 1. Back to Ctx: steps 1 and 2 for this question only. Research what it needs,
-   then ask the user.
-2. Step 3 at the current mode: a new plan, its proposals, and the ask. A
-   decision in Trivial leaves the track first (`trivial.md`), so step 3 runs at
-   the user's Quality, Balanced if they named none.
+   then ask the user what is still open, never what they just answered.
+2. Step 3 at the current mode, with no Quality question: a new plan, its
+   proposals, and the ask. A decision in Trivial leaves the track first
+   (`trivial.md`), so step 3 runs at the user's Quality, Balanced if they
+   named none.
 3. Write the chosen plan and its `Considered options` into the PR body.
 4. Resume at step 5 on the same branch. Existing commits stay; the new plan
    adds commits on top. Its review starts again at round 1, so the cap resets.
@@ -74,16 +82,15 @@ Delegated: `## Delegated` says which rows you settle inside.
 
 ## The progress file
 
-From step 4, beside `requirements.md`:
-`/tmp/engineer-<owner>-<repo>-<PR>/report.md`. Delegated: the brief's report
-file. Rewrite it after each step, round and blocker. A fresh context resumes
-from it and `git log`.
+From step 4, `report.md` in the skill's notes directory. Delegated: the
+brief's report file. Rewrite it after each step, round and blocker. A fresh
+context resumes from it and `git log`.
 
 ```markdown
 Step: <last finished step>
 Head: <sha>
 Quality: <mode>[, Trivial]
-Review round: <n>/<cap>
+Re-review: <n>/<cap>   (round 1 is the first review, not counted)
 Reviewed head: <latest round's sha>
 Blockers:
 - <question> - <answered | fact | decision | scope> - <open | done: answer>

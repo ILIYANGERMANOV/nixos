@@ -20,12 +20,13 @@ CI. You own the outcome; the user owns the decisions.
   and then record each such decision, with its reason, in the PR body.
 - **Facts are yours, decisions are theirs.** Research facts with subagents.
   Only you spawn researchers; workers never do.
-- **Workers stop on a blocker.** Every implementer, refactorer, fixer and
-  review-lead brief carries the stop rule in
-  `${CLAUDE_SKILL_DIR}/references/blockers.md`. A `NEEDS_DECISION` hand-back,
-  at any step, goes to that file's triage.
-- **Progress file.** From step 4, keep the one `blockers.md` describes, in
-  every mode.
+- **Workers stop on a blocker.** Every implementer, refactorer and fixer
+  brief carries the stop rule in `${CLAUDE_SKILL_DIR}/references/blockers.md`,
+  and every review-lead brief its plan-wrong line. A `NEEDS_DECISION`
+  hand-back, at any step, goes to that file's triage.
+- **Notes directory.** `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug being
+  the branch name, from step 1: research notes, proposals, requirements and,
+  from step 4, the progress file `blockers.md` describes, in every mode.
 - **Quality** is in your instructions. It goes in every brief, the review and
   `refactor` prompts included. The mode table below and the branches in the
   steps are all it changes here.
@@ -69,7 +70,7 @@ Each step is a state. A mode skips arrows, never adds them.
 | 7 | ImplR | first review: rows to fix: 8; none: 9 |
 | 8 | Impl'' | fix, then a `--fixes` review: 8 while rounds remain; cap: final small fix, 9 |
 | 9 | DraftPR | `pr-description` and notify: 10 |
-| 10 | PR | green CI: ready and notify; CI issues: fix, 8 if rounds remain, else CI |
+| 10 | PR | green CI: ready and notify; CI issues: `review.md`'s CI fix, then CI again |
 | any | blocker | a worker's `NEEDS_DECISION`: triage in `blockers.md` |
 
 | Mode | Proposals (3) | Refactor (6) | Re-reviews (8) |
@@ -106,7 +107,8 @@ Skip grilling's last confirmation: step 3 is the only one.
 
 ### 3. Confirm the plan
 
-Unless told, ask Quality first with one `AskUserQuestion`, Balanced recommended.
+Unless told, or on a re-plan, ask Quality first with one `AskUserQuestion`,
+Balanced recommended.
 
 Write the plan: goals, the approach and the standards it follows, decisions,
 out of scope, Quality, and a file tree of the files it adds or changes.
@@ -114,19 +116,20 @@ out of scope, Quality, and a file tree of the files it adds or changes.
 **Simplify pass**, then **alternative**, as the mode table says: one
 background `subagent_type: researcher` agent each, one after the other, whose
 prompt names `~/.claude/skills/researcher/references/proposal.md`, the mode
-(`simplify`, then `alternative`), the plan path and the notes paths. Take the
-simplified plan as your first plan; the alternative is the second, or the
-identity when none exists.
+(`simplify`, then `alternative`), `Quality: <mode>`, the plan path, the notes
+paths and the notes directory. The alternative gets the simplified plan's path.
+Take the simplified plan as your first plan; the alternative is the second, or
+the identity when none exists.
 
 Then confirm once. Show the first plan in a few lines, and the second with its
 trade-off against the first, with your recommendation. A POC touching a
 `Security-sensitive` topic says it gets no DEEP review. Ask with one
 `AskUserQuestion`: "First plan", "Second plan", "Adjust", the recommended one
-marked. Identity or POC: "Yes, build it (Recommended)" / "No, adjust". On
-adjust, reopen the correction as an open decision and go back to step 2,
-keeping all you learned. Keep Quality, rerun the proposals only if the
-approach changed, then confirm again. Done when the user picks a plan. Its
-`Considered options` go into the PR body's decisions.
+first and marked `(Recommended)`. Identity or POC: "Yes, build it
+(Recommended)" / "No, adjust". On adjust, reopen the correction as an open
+decision and go back to step 2, keeping all you learned. Keep Quality, rerun the proposals only if the
+approach changed, then confirm again. Done when the user picks a plan. Both
+`Considered options` tables, merged into one, go into the PR body's decisions.
 
 ### 4. Open a draft PR
 

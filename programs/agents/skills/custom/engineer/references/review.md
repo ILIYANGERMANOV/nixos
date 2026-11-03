@@ -5,15 +5,17 @@ per round, a fixer between rounds. The cap is the mode's re-reviews in the
 skill's mode table.
 
 ```
-7 first review --rows--> 8 fixer --rows fixed--> --fixes review --rows--> 8 ...
+7 first review --rows--> 8 rounds left: fixer, --fixes review --rows--> 8 ...
   no rows chosen, at any round: step 9
-  cap reached: final small fix, no review after it, then step 9
+  rows at the cap: final small fix, no review after it, then step 9
+  plan wrong, at any round: blocker triage, no fixer
 ```
 
 ## Round 1: the first review (step 7)
 
-1. Write the requirements once to
-   `/tmp/engineer-<owner>-<repo>-<PR>/requirements.md`. They are the
+1. Write the requirements once per plan to `requirements.md` in the skill's
+   notes directory. A re-plan rewrites it, and its round 2 starts a fresh
+   `-fixes` copy. They are the
    acceptance criteria plus what must hold where you are least sure of the
    implementation. The plan's decisions and out-of-scope list go with them as
    assumptions, in your words, so a deliberately skipped edge case is not
@@ -27,8 +29,8 @@ skill's mode table.
    not follow or that misled it. Its findings join round 1's rows. Balanced:
    only for a new or rewritten skill. POC: never.
 3. A fresh `subagent_type: review-lead` agent, prompt "invoke
-   `pragmatic-review` with: Quality: <mode> <arguments>", plus the stop rule
-   and its review-lead addition. Never load that skill yourself.
+   `pragmatic-review` with: Quality: <mode> <arguments>", plus the review-lead
+   line in `blockers.md`. Never load that skill yourself.
 4. Record its `Reviewed head` and requirement verdicts in the progress file.
 
 ## Picking rows
@@ -39,10 +41,16 @@ house-rule row is fixed, or the reason for leaving it goes in the PR body.
 POC: a fixer gets blockers only (security, irreversible damage, broken code);
 every other row goes in `## Follow-ups`. No row chosen ends the loop: step 9.
 
+A return that starts `NEEDS_DECISION plan wrong`: fix no row, security
+included. Log its rows in the progress file and triage the line. The
+re-plan's fresh round 1 finds them again.
+
 ## Rounds 2 and on (step 8)
 
+Cap reached: the chosen rows go to the final small fix only. Rounds left:
+
 1. A `subagent_type: fixer` agent gets the chosen rows, commits and pushes.
-2. Rounds left: copy the requirements file once beside it, with `fixes` for
+2. Copy the requirements file once beside it, with `fixes` for
    `requirements` in its name (`<task>-fixes.md` under a brief). Every round
    appends "finding N is fixed: <the row's What and Impact>" to that one copy
    for each row fixed.
@@ -57,13 +65,15 @@ every other row goes in `## Follow-ups`. No row chosen ends the loop: step 9.
 ## Final small fix
 
 After the last allowed review, in every mode: one fixer fixes what is safe and
-small, and nothing reviews it. Security rows are always fixed. Every other
-surviving house-rule row, Major row or Not met verdict you do not fix goes in
-`## Follow-ups`, with the reason. Size decides fix or record, never drop. A row
+small, and nothing reviews it. Security rows are always fixed. POC: blockers
+only, as Picking rows says. Every other surviving house-rule row, Major row or
+Not met verdict you do not fix goes in `## Follow-ups`, with the reason. Size decides fix or record, never drop. A row
 that blocks the feature is a blocker: triage it.
 
 ## CI fix (step 10)
 
 A CI failure goes to a fixer. Rounds left: a `--fixes` review of that fix, as
-in step 8, and its rows go through step 8. Cap reached: straight back to CI.
-Rewrite the PR body only if the fix changed what it says. Notify only on ready.
+in step 8, and step 8's loop on its rows. Rows at the cap: the final small fix.
+Then back to the CI wait in step 10, never to step 9. Cap reached: straight
+back to the CI wait. A fixer rewrites the PR body only if the fix changed what
+it says. Notify only on ready.

@@ -35,8 +35,8 @@ resume read the same. The spec is the `## States` table in
   research and one final small fix after the last review. The table also rules
   a re-plan from a blocker. `instructions/agent.md` no longer counts steps per
   mode: the table is the one source.
-- **A worker only stops; the engineer triages.** An implementer, refactorer,
-  fixer or review-lead that hits a blocking question the repo, brief and plan
+- **A worker only stops; the engineer triages.** An implementer, refactorer
+  or fixer that hits a blocking question the repo, brief and plan
   do not settle stops at once. It commits and pushes its work as a normal
   commit, with `Remaining: ...` in the body, and hands back
   `NEEDS_DECISION <question>` with evidence. No new status name. The engineer
@@ -55,10 +55,12 @@ resume read the same. The spec is the `## States` table in
   carried from the latest round, one accumulating `-fixes.md` file. The cap is
   by mode, as the evaluator-optimizer pattern caps its iterations
   (https://www.anthropic.com/engineering/building-effective-agents). A re-plan
-  resets the cap. A CI fix gets a `--fixes` review while rounds remain.
+  resets the cap. A CI fix gets a `--fixes` review while rounds remain, then
+  goes back to the CI wait.
 - **The review-lead escalates only a wrong plan**: wrong approach, unmeetable
   requirement, new scope, or a data-model or auth redesign. Every other
-  finding, security included, goes to a fixer.
+  finding, security included, goes to a fixer. It finishes its review first
+  and does not pass the line to its reviewers.
 - **Proposals are a researcher mode** (`researcher/references/proposal.md`):
   `simplify` revises the plan, `alternative` writes another or returns the
   identity. Both cite standards with URLs and end in a MADR-style
