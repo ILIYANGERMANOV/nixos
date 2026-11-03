@@ -15,21 +15,13 @@ let
 
   empty = { };
 
-  append =
-    a: b:
-    let
-      conflicts = lib.filter (path: "${a.${path}}" != "${b.${path}}") (
-        lib.attrNames (lib.intersectAttrs a b)
-      );
-    in
-    if conflicts == [ ] then
-      a // b
-    else
-      throw "targets: ${
-        lib.concatMapStringsSep "; " (
-          path: "~/${path} has two sources: ${a.${path}} and ${b.${path}}"
-        ) conflicts
-      }";
+  # Sources compare as store paths, so the same source twice is one file.
+  append = import ./merge.nix { inherit lib; } (a: b: "${a}" == "${b}") (
+    conflicts:
+    "targets: ${
+      lib.concatMapStringsSep "; " (c: "~/${c.key} has two sources: ${c.left} and ${c.right}") conflicts
+    }"
+  );
 
   check =
     let

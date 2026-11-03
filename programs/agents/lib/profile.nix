@@ -71,17 +71,10 @@ let
   union = a: b: lib.unique (a ++ b);
 
   # Keyed sets: one key may only hold one value.
-  merge =
-    a: b:
-    let
-      conflicts = lib.filter (key: a.${key} != b.${key}) (
-        lib.intersectLists (lib.attrNames a) (lib.attrNames b)
-      );
-    in
-    if conflicts == [ ] then
-      a // b
-    else
-      throw "profile: ${lib.concatStringsSep ", " conflicts} set to two different values";
+  merge = import ./merge.nix { inherit lib; } (a: b: a == b) (
+    conflicts:
+    "profile: ${lib.concatMapStringsSep ", " (c: c.key) conflicts} set to two different values"
+  );
 
   # Laws, over profiles sharing a skill and a fragment, plus the throws.
   check =

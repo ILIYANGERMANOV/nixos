@@ -7,6 +7,8 @@
 { lib }:
 
 let
+  home = import ../codegen/home.nix { inherit lib; };
+
   whens = [
     "Live"
     "NextSession"
@@ -15,11 +17,11 @@ let
 
   applies = {
     # Claude Code watches the skill directories.
-    ".claude/skills" = "Live";
+    ${home.skillsDir} = "Live";
     # Hooks are snapshotted when a session starts.
-    ".claude/settings.json" = "NextSession";
-    ".claude/CLAUDE.md" = "NextSession";
-    ".claude/agents" = "NextSession";
+    ${home.settings} = "NextSession";
+    ${home.instructions} = "NextSession";
+    ${home.agentsDir} = "NextSession";
     ".claude.json mcpServers" = "NextSession";
     # The wrapper's PATH and secrets are the process environment, set at exec.
     environment = "Restart";
