@@ -1,7 +1,8 @@
 # Derivations that must never be built locally: each one is hours, not minutes.
 #
 # Regexes, one per line, anchored at the start of the derivation NAME
-# (`darwin-cache-check` strips the /nix/store/<hash>- prefix before matching).
+# (`darwin-cache-check` and `factory-cache-check` strip the /nix/store/<hash>-
+# prefix before matching).
 # Python reads them, so an extended regex works, but a POSIX class like
 # [[:digit:]] is refused. Blank lines and lines starting with # are ignored. Edit
 # freely - test_cache_check.py runs this file on every PR, and the guard refuses
@@ -29,7 +30,12 @@
 ^llvm-[0-9]
 ^clang-unwrapped
 ^clang-[0-9]
-^nodejs-[0-9]
+# Temporary: the lookaheads exempt the exact uv and nodejs that today's
+# software-factory plan builds, because both outputs are already on the server.
+# The next nixpkgs bump changes the version and re-arms the pattern; delete a
+# lookahead to make its pattern strict again.
+^nodejs-(?!24\.21\.0\.drv$)[0-9]
+^uv-(?!0\.11\.21\.drv$)[0-9]
 ^go-1\.
 ^zig-[0-9]
 ^openjdk
