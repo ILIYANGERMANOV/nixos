@@ -16,7 +16,8 @@ those. Never run the suite.
 Is the approach one no competent engineer would have chosen? Not "I would have
 done it differently" - that is taste. Anchors for the level, not a checklist:
 hand-rolling what the codebase or the standard library provides right next to
-it; an N+1 or O(n^2) over unbounded data on a hot path; global mutable state
+it; a home-grown format or protocol where a standard exists, with no stated
+reason; an N+1 or O(n^2) over unbounded data on a hot path; global mutable state
 holding per-request data; catching every error and carrying on; a blocking call
 on an async path; a dependency pulled in for a five-line helper; an existing
 layer bypassed or a boundary reached through; an option, layer or abstraction
