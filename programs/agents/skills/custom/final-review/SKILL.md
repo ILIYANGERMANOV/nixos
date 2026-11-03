@@ -76,7 +76,8 @@ fixed, nothing to re-review.
 
 ### 6. Hand over
 
-- If the PR description no longer matches, rewrite it with `pr-description`.
+- If the PR description no longer matches, rewrite it through a `fixer`
+  agent that follows `pr-description`.
 - After a push, wait on CI the non-blocking way your instructions describe.
 - Report: the requirement verdicts, what was fixed and its commit, what was
   left and why, the CI state. When CI is green, notify the user the way your

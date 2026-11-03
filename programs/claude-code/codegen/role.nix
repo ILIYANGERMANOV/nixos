@@ -25,6 +25,7 @@ let
       "WebSearch"
     ];
     delegate = [ "Agent" ];
+    skill = [ "Skill" ];
   };
 
   models = {

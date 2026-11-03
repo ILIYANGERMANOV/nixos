@@ -52,8 +52,9 @@ the last refactor), so flows spawn roles freely.
   Skill listing, and `omitClaudeMd` is set. Never add `ToolSearch` to a deny
   list: that inlines every deferred tool. Path-scoped `.claude/rules` still load
   on a Read.
-- **A role has no Skill tool.** `skills:` preloads what it always needs, and
-  `agent.md` says invoking a skill means reading its `SKILL.md`. A preload
+- **Only `engineer` has the Skill tool** (the `skill` capability). Other roles
+  get `skills:` preloads for what they always need, and `agent.md` says
+  invoking a skill means reading its `SKILL.md`. A preload
   expands `${CLAUDE_SKILL_DIR}`, but `$ARGUMENTS` becomes empty: a preloaded
   skill must not depend on it.
 - **A role has no root `CLAUDE.md`.** The brief names its checks, and

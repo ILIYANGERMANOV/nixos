@@ -82,7 +82,8 @@ confirmed decisions into GitHub issues with `gh issue create`.
 
 - No edits, commits, builds or test runs. Cheap read-only probes are fine,
   `git fetch origin main` included.
-- A bigger experiment goes to a fresh subagent. Experiments never change the
+- A bigger experiment goes to a fresh `subagent_type: researcher` agent.
+  Experiments never change the
   repo or the installed config, never run code from a PR or branch by anyone
   else, and their outputs go under `/tmp`.
 - A request to change anything, a plan or a PR included: start nothing yourself.

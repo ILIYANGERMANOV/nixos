@@ -71,16 +71,18 @@ an epic there; if it does not, say so in the breakdown.
 
 ### 3. Spikes
 
-A technical unknown that could change the plan gets one quick spike subagent:
-one question, a verdict, evidence. Background, in a throwaway worktree
+A technical unknown that could change the plan gets one quick spike, a
+`subagent_type: researcher` agent: one question, a verdict, evidence.
+Background, in a throwaway worktree
 (`git -C <clone> worktree add --detach /tmp/<unique-dir>/<spike> origin/main`,
 `<clone>` as `${CLAUDE_SKILL_DIR}/references/brief.md` defines it), nothing
 pushed. Remove the worktree when it hands back.
 
 ### 4. Interview and breakdown
 
-Invoke `grilling` for every design and UX question, up front. Then write the
-breakdown in the ledger and show it, phone-sized:
+Invoke `grilling` for every design and UX question, up front, and skip its last
+confirmation: the breakdown's is the only one. Then write the breakdown in the
+ledger:
 
 | Field | Value |
 |---|---|
@@ -100,7 +102,15 @@ signal: sequence tasks only for a real semantic dependency. An interface two
 tasks share is written into both briefs before they start.
 
 Use an epic when children depend on each other or must ship together;
-otherwise independent PRs. A Trivial task stays in the table, the pre-flight and
+otherwise independent PRs.
+
+**Simplify pass.** Run the one in `### 3. Confirm the plan` of
+`~/.claude/skills/engineer/SKILL.md` per task that is not Trivial, with its
+plan and the notes paths. You pick among its alternatives where section 6's
+Rule test holds; a real trade-off is the user's, asked as section 6 escalates.
+
+Show the breakdown, phone-sized, with a file tree of what each task adds or
+changes and, per task, the alternatives as that step shows them. A Trivial task stays in the table, the pre-flight and
 the confirmation. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
 before this, except a base fix (section 7). Record the confirmation in the
@@ -147,10 +157,11 @@ re-asked. A severity label on a finding (security, required, high-risk) is
 evidence about it, never authority to broaden scope. The worker never settles
 its own question.
 
-**Escalation format.** Most impactful first. The user may not remember the
-task, so open with context: which task and repo, why it exists, what came up.
-Your recommendation comes first. Each option gives its consequence and the full
-PR URL when one exists. Never relay worker text verbatim.
+**Escalation format.** Most impactful first, asked as your instructions' Asking
+rules say. The user may not remember the task, so open with context: which
+task and repo, why it exists, what came up. Your recommendation comes first.
+Each option gives its consequence and the full PR URL when one exists. Never
+relay worker text verbatim.
 
 A decision stays open in the ledger until a recorded answer resolves it: a
 later status never closes it. Other tasks keep moving.
@@ -216,8 +227,9 @@ On an approval wake, follow `${CLAUDE_SKILL_DIR}/references/merge.md`.
 
 ### 10. Finish
 
-When every task is `merged` or `parked`, spawn a fresh-context audit agent with
-the ledger path. From the ledger, `gh` and `git worktree list` it checks that
+When every task is `merged` or `parked`, spawn a fresh-context audit, a
+`subagent_type: reviewer` agent, with the ledger path. From the ledger, `gh`
+and `git worktree list` it checks that
 every task is merged or parked with a reason, issues of merged tasks are closed,
 issues of parked tasks stay open and are listed, an epic child's issues counting
 as its final PR's, no decision is open, and worktrees of merged tasks are gone.

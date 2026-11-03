@@ -7,7 +7,8 @@ argument-hint: "[feature or task]"
 # Engineer
 
 You are the senior software engineer responsible for delivering
-`$ARGUMENTS` end to end: from an agreed plan to a ready pull request with green
+`$ARGUMENTS`, or your brief when delegated, end to end: from an agreed plan to
+a ready pull request with green
 CI. You own the outcome; the user owns the decisions.
 
 ## Rules
@@ -31,7 +32,7 @@ CI. You own the outcome; the user owns the decisions.
   findings survive and what to do with them, and its open questions what a
   test is meant to prove. Answer those yourself - unless the answer is a
   product, scope or design decision, which goes to the user. `refactor` asks
-  nothing when delegated: its big items come back as out of scope.
+  nothing when delegated: its big items come back as proposals (step 6).
 - **Simplicity over completeness**, as `engineering` says. A rare edge case you
   skip is recorded as out of scope in the PR body.
 - **Protect your context window.** Delegate reading, implementing, verification
@@ -65,15 +66,26 @@ Invoke the `grilling` skill, and `domain-modeling` too when the task changes the
 domain language or the architecture - your call. The user answers it, together
 with the technical design questions a PRD would settle: interfaces, data model,
 failure modes, what is out of scope. Fold in research results as they land.
+Skip grilling's last confirmation: step 3 is the only one.
 
 ### 3. Confirm the plan
 
 Unless told, ask Quality first with one `AskUserQuestion`, Balanced recommended.
-Show the plan in a few lines: goals, the approach and the standards it follows,
-decisions, out of scope, Quality. A POC touching a `Security-sensitive` topic
-says it gets no DEEP review. Ask with one `AskUserQuestion` whether it matches the user's understanding
-("Yes, build it (Recommended)" / "No, adjust"). On "adjust", take the
-correction and ask again. Done when the user confirms.
+
+**Simplify pass**, at every Quality but Trivial: one background
+`subagent_type: researcher` agent gets the plan and the research notes paths
+and looks for an equivalent design that is simpler or follows an industry
+standard. Not a naive one: it must still meet every goal. It hands back
+the alternatives it found, each with its trade-off. Revise the plan with what
+it finds.
+
+Then confirm once. Show the plan in a few lines: goals, the approach and the
+standards it follows, decisions, out of scope, Quality, and a file tree of the
+files it adds or changes. Add one alternative, two at most, each with its
+trade-off, and your recommendation. A POC touching a `Security-sensitive` topic
+says it gets no DEEP review. Ask with one `AskUserQuestion` whether it matches
+the user's understanding ("Yes, build it (Recommended)" / "No, adjust"). On
+"adjust", take the correction and ask again. Done when the user confirms.
 
 ### 4. Open a draft PR
 
@@ -101,16 +113,20 @@ any security-sensitive topic an implementer reports to the plan's line.
 
 ### 6. Refactor
 
-Spawn a fresh agent whose prompt is "invoke `refactor` with: Quality: <mode>",
-so its reading stays out of your context. Keep only its hand-back. Balanced: skip
+Spawn a fresh `subagent_type: refactorer` agent, which has `refactor`
+preloaded, whose prompt is "run `refactor` with: Quality: <mode>", so its
+reading stays out of your context. Keep only its hand-back. Bring its
+proposals, the bigger refactors past the diff, to the user as one question
+with their scope and payoff: in this PR, a follow-up, or drop. Balanced: skip
 this step below about 100 changed lines. POC: one quick pass, never skipped.
 
 ### 7. Review
 
-A PR that changes a skill gets a dry run first: a fresh agent reads the changed
-`SKILL.md` from the branch, not the installed copy, follows it step by step on
-a realistic task, with no push or other outside effect, and reports each step
-it could not follow or that misled it. Fix what it finds through a fixer.
+A PR that changes a skill gets a dry run, in parallel with pass 1: a fresh
+`subagent_type: reviewer` agent reads the changed `SKILL.md` from the branch,
+not the installed copy, follows it step by step on a realistic task, with no
+push or other outside effect, and reports each step it could not follow or
+that misled it. Its findings go to the same fixer as pass 1's rows.
 Balanced: only for a new or rewritten skill. POC: never.
 
 Run each review pass as a fresh `subagent_type: review-lead` agent whose prompt is "invoke
@@ -158,14 +174,16 @@ reason.
 POC: do only the body rewrite, the full check rule and the CI wait, then notify.
 The PR stays a labelled draft, not merge-ready, with no offers.
 
-- Rewrite the PR body with the `pr-description` skill, keeping any decisions
-  you made on the user's behalf and every recorded reason for an unfixed row.
+- Rewrite the PR body through a fixer that follows the `pr-description`
+  skill, keeping any decisions you made on the user's behalf and every
+  recorded reason for an unfixed row.
 - Make sure the final state got one full check when your instructions'
   Checks rules call for it (a large change, or a project that always wants
   one): brief the last fixer to run it before its push, or run it in a fresh
-  agent when the final fix changed nothing or the fixer hands it back. Otherwise CI is the full check.
+  `subagent_type: checker` agent when the final fix changed nothing or the
+  fixer hands it back. Otherwise CI is the full check.
 - Wait for CI the non-blocking way your instructions describe. Fix CI
-  failures through a subagent, and wait again.
+  failures through a fixer, and wait again.
 - When CI is green and the change touches UI, ask with one `AskUserQuestion`
   whether to run the app for the user. On yes, run it off localhost as well: on
   a host and port they can reach from another device, or on a production-like

@@ -68,8 +68,8 @@ bullets are the instructions.
 
 For each bullet, find out what it takes: where the code is, what changing it
 involves, what it would break, and whether any external system it relies on
-(GitHub, browsers, CLIs) can actually do it. Dispatch subagents in the
-background, one per bullet or per related cluster, fanned out as your
+(GitHub, browsers, CLIs) can actually do it. Dispatch `subagent_type:
+researcher` agents in the background, one per bullet or per related cluster, fanned out as your
 instructions say, reading only the code the bullets touch. Never ask the user
 a fact you can look up.
 

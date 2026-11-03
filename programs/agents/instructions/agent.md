@@ -63,7 +63,7 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 - A subagent's cache lasts 5 minutes, and rewriting a large context costs far
   more than a small one. So an agent past about 60k tokens never runs a check
   expected over about 4 minutes itself: it commits, pushes if the branch is
-  pushed, and hands back naming the check. Its caller spawns a fresh small agent
+  pushed, and hands back naming the check. Its caller spawns a fresh `checker` agent
   to run it, and a failure goes to a fresh fixer.
 - Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
   as `.{0,250}` as too complex.
