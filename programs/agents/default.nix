@@ -32,8 +32,12 @@ let
     roots = [
       ./skills/custom
       ./roles
+      ./instructions
     ];
-    exempt = [ ./skills/custom/self-improve ];
+    exempt = [
+      ./instructions/topics/quality.md
+      ./skills/custom/self-improve
+    ];
   };
   budget = import ./lib/passes/budget.nix {
     inherit pkgs lib roles;
@@ -41,9 +45,15 @@ let
     skills = skills.all;
   };
 
-  topics.trivial = mkFragment {
-    layer = "topic";
-    file = ./instructions/topics/trivial.md;
+  topic =
+    file:
+    mkFragment {
+      layer = "topic";
+      inherit file;
+    };
+  topics = {
+    trivial = topic ./instructions/topics/trivial.md;
+    quality = topic ./instructions/topics/quality.md;
   };
 
   skills = import ./skills { inherit pkgs lib externalSrcs; };

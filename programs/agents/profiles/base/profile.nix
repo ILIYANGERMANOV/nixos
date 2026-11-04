@@ -1,5 +1,6 @@
 # What every setup gets. agent.md reaches every agent, subagent roles included;
-# lead.md is the lead's own role, and the lead also gets the trivial topic.
+# lead.md is the lead's own role, and the lead also gets the trivial and
+# quality topics.
 {
   mkFragment,
   mkInstructions,
@@ -42,6 +43,7 @@
         file = ../../instructions/lead.md;
       })
       topics.trivial
+      topics.quality
     ];
   };
   # On PATH in every session, whatever the project: /qa's `qa-node` (Playwright,

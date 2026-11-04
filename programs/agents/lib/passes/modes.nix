@@ -1,15 +1,18 @@
 # A guard over the prompt sources, not a transformer: it returns the files
 # unchanged, or throws if one still holds a mode rule of its own. The Quality
-# table in instructions/agent.md is the one place a mode changes a step, and
-# only the engineer sets Size, so a skill or role that repeats a mode row, the
-# old `, Trivial` suffix or a self-activation phrase has drifted from it.
+# table in instructions/topics/quality.md is the one place a mode changes a
+# step, and only the engineer sets Size, so a skill, role or instruction that
+# repeats a mode row, the old `, Trivial` suffix or a self-activation phrase has
+# drifted from it.
 {
   pkgs,
   lib,
-  # The directories whose files may only read the table: skills and roles.
+  # The directories whose files may only read the table: skills, roles and
+  # instructions.
   roots,
-  # Files under `roots` that may name the old forms: self-improve's analyzer
-  # and its metrics explain transcripts written before the table.
+  # Files under `roots` that may hold a mode rule: the table itself, and
+  # self-improve, whose analyzer and metrics explain transcripts written before
+  # the table.
   exempt,
 }:
 

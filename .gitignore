@@ -8,3 +8,4 @@ programs/playwright/dist/
 programs/playwright/reports/
 programs/playwright/.stryker-tmp/
 .direnv/
+__pycache__/
