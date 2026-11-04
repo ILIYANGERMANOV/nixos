@@ -1548,32 +1548,34 @@ class Mode(Enum):
     MAX = "Max"
 
 
-class Trivial(Enum):
-    """The value is the brief's wire form: stating it either way is its own row."""
+class Size(Enum):
+    """The value is the brief's `Size:` line: stating it either way is its own row."""
 
     UNSTATED = ""
-    ON = ", Trivial"
-    OFF = ", not Trivial"
+    TRIVIAL = "Trivial"
+    NORMAL = "Normal"
 
 
 @dataclass(frozen=True)
 class Quality:
     mode: Mode
-    trivial: Trivial
+    size: Size
 
     @override
     def __str__(self) -> str:
-        return self.mode.value + self.trivial.value
+        match self.size:
+            case Size.UNSTATED:
+                return self.mode.value
+            case Size.TRIVIAL | Size.NORMAL:
+                return f"{self.mode.value}, Size: {self.size.value}"
 
 
 NO_QUALITY = "(none stated)"
-QUALITY = re.compile(
-    rf"\bQuality:\W*({'|'.join(m.value for m in Mode)})\b(, (?:not )?Trivial\b)?"
-)
-SWEEP_LINE = re.compile(
-    r"^\W*Security: Trivial\b", re.MULTILINE
-)  # the one Trivial activation with a fixed wording
-UNCOUNTED_QUALITY = "Not counted: Trivial self-activated outside a review, which stays in its stated row, and a PR opened in another session or by a script."
+QUALITY = re.compile(rf"\bQuality:\W*({'|'.join(m.value for m in Mode)})\b")
+SIZE = re.compile(
+    rf"\bSize:\W*({'|'.join(s.value for s in Size if s.value)})\b(?!\|)"
+)  # `Size: Trivial|Normal` is the rule's placeholder, no size
+UNCOUNTED_QUALITY = "Not counted: a PR opened in another session or by a script."
 
 
 def quality_groups(session: Session) -> dict[Quality | None, list[Agent]]:
@@ -1587,7 +1589,7 @@ def quality_groups(session: Session) -> dict[Quality | None, list[Agent]]:
 
 def session_quality(session: Session) -> Quality | None:
     """The main agent's, which rarely states one: else what most subagents
-    state, the latest on a tie, so a session that left Trivial counts as left."""
+    state, the latest on a tie, so a session that grew from Trivial counts as Normal."""
     spawned = sorted(session.subagents, key=lambda a: a.start)
     stated = [q for a in reversed(spawned) if (q := stated_quality(a.brief))]
     common = next((q for q, _ in Counter(stated).most_common(1)), None)
@@ -1603,20 +1605,16 @@ def quality_of(agent: Agent, by_id: dict[AgentId, Agent]) -> Quality | None:
 
 def stated_quality(brief: str) -> Quality | None:
     found = QUALITY.search(brief)
+    size = SIZE.search(brief)
     return (
-        Quality(Mode(found.group(1)), Trivial(found.group(2) or "")) if found else None
+        Quality(Mode(found.group(1)), Size(size.group(1) if size else ""))
+        if found
+        else None
     )
 
 
 def quality_label(quality: Quality | None) -> str:
     return str(quality or NO_QUALITY)
-
-
-def self_activated_trivial(session: Session) -> Iterator[Agent]:
-    """Reviews that reported a Trivial sweep though nothing briefed them Trivial."""
-    for quality, group in quality_groups(session).items():
-        if quality is None or quality.trivial is not Trivial.ON:
-            yield from (a for a in group if SWEEP_LINE.search(a.report))
 
 
 def cost_per_pr(agents: list[Agent]) -> float | None:
@@ -2166,9 +2164,7 @@ def quality_costs(sessions: list[Session]) -> str:
         [quality_label(quality), *quality_cells(parts)] for quality, parts in ranked
     ]
     header = ["mode", "sessions", "PRs", "agents", "effective", "per PR, median"]
-    activated = [a for s in sessions for a in self_activated_trivial(s)]
-    counted = f"Reviews that activated Trivial themselves: {len(activated)}, {kilo(effective(activated))} effective."
-    return f"{section('Cost by Quality mode', header, rows, len(rows))}\n\n{counted} {UNCOUNTED_QUALITY}"
+    return f"{section('Cost by Quality mode', header, rows, len(rows))}\n\n{UNCOUNTED_QUALITY}"
 
 
 def quality_cells(parts: list[list[Agent]]) -> list[str]:

@@ -1853,17 +1853,20 @@ class TestQualityModes:
             {
                 "a": worker("A", subagent("Quality: POC. Spike it.", COSTS_1K)),
                 "b": worker(
-                    "B", subagent("Quality: Balanced, Trivial\nImplement it.", COSTS_1K)
+                    "B",
+                    subagent(
+                        "Quality: Balanced. Size: Trivial\nImplement it.", COSTS_1K
+                    ),
                 ),
                 "c": worker(
-                    "C", subagent("Quality: Max, not Trivial\nReview it.", COSTS_1K)
+                    "C", subagent("Quality: Max\nSize: Normal\nReview it.", COSTS_1K)
                 ),
             },
         )
         # When
         report = home.report()
         # Then
-        for mode in ("POC", "Balanced, Trivial", "Max, not Trivial"):
+        for mode in ("POC", "Balanced, Size: Trivial", "Max, Size: Normal"):
             cells = row(report, "Cost by Quality mode", mode)
             assert [cells[1], cells[4]] == ["1", "1k"], mode
 
@@ -1880,6 +1883,13 @@ class TestQualityModes:
             "0",
             "2",
         ]
+
+    def test_the_size_placeholder_in_a_pasted_rule_is_no_size(self, home: Home) -> None:
+        # Given
+        brief = "Quality: POC\nSize: Trivial|Normal, set by the engineer."
+        home.session("s1", idle_main(), {"a": worker("A", subagent(brief, COSTS_1K))})
+        # When / Then
+        assert row(home.report(), "Cost by Quality mode", "POC")[3:5] == ["2", "1k"]
 
     def test_a_child_with_no_mode_takes_its_parents(self, home: Home) -> None:
         # Given: a sibling stating another mode, which the main agent takes as the session's
@@ -1917,16 +1927,16 @@ class TestQualityModes:
         assert row(report, "Cost by Quality mode", "Max")[3:5] == ["3", "1k"]
         assert row(report, "Cost by Quality mode", "POC")[3:5] == ["1", "0"]
 
-    def test_a_session_that_left_trivial_counts_its_main_agent_as_left(
+    def test_a_session_that_grew_from_trivial_counts_its_main_agent_as_normal(
         self, home: Home
     ) -> None:
-        # Given: one agent on each side of the escalation, the later one last
+        # Given: one agent on each side of the growth, the later one last
         main = Transcript().human(0, "go").reply(1, COSTS_1K)
-        early = Transcript().brief(5, "Quality: Balanced, Trivial\nGo.").reply(6)
-        late = Transcript().brief(50, "Quality: Balanced, not Trivial\nGo.").reply(51)
+        early = Transcript().brief(5, "Quality: Balanced. Size: Trivial\nGo.").reply(6)
+        late = Transcript().brief(50, "Quality: Balanced. Size: Normal\nGo.").reply(51)
         home.session("s1", main, {"z": worker("Z", early), "a": worker("A", late)})
         # When / Then
-        assert row(home.report(), "Cost by Quality mode", "Balanced, not Trivial")[
+        assert row(home.report(), "Cost by Quality mode", "Balanced, Size: Normal")[
             3:5
         ] == ["2", "1k"]
 
@@ -1965,64 +1975,11 @@ class TestQualityModes:
         # When / Then
         assert row(home.report(), "Cost by Quality mode", "Max")[2] == "0"
 
-    def test_a_review_that_reports_a_trivial_sweep_unbriefed_counts_as_self_activated(
-        self,
-        home: Home,
-    ) -> None:
-        # Given: one review activating it, one briefed Trivial
-        report = "Security: Trivial - sweep clean, code tier\n0 raised, 0 survived."
-        home.session(
-            "s1",
-            idle_main(),
-            {
-                "a": worker(
-                    "Review",
-                    subagent("Quality: Balanced. " + REVIEW_BRIEF, COSTS_1K).handback(
-                        7, report
-                    ),
-                ),
-                "b": worker(
-                    "Review",
-                    subagent("Quality: Balanced, Trivial. " + REVIEW_BRIEF).handback(
-                        7, report
-                    ),
-                ),
-            },
-        )
-        # When / Then
-        assert (
-            "Reviews that activated Trivial themselves: 1, 1k effective."
-            in home.report()
-        )
-
-    def test_a_review_briefed_not_trivial_can_still_activate_it(
-        self, home: Home
-    ) -> None:
-        # Given: a review that reports a sweep though its brief left Trivial
-        report = "Security: Trivial - sweep clean, code tier\n0 raised, 0 survived."
-        home.session(
-            "s1",
-            idle_main(),
-            {
-                "a": worker(
-                    "Review",
-                    subagent(
-                        "Quality: Balanced, not Trivial. " + REVIEW_BRIEF, COSTS_1K
-                    ).handback(7, report),
-                ),
-            },
-        )
-        # When / Then
-        assert (
-            "Reviews that activated Trivial themselves: 1, 1k effective."
-            in home.report()
-        )
-
     def test_the_section_says_what_it_cannot_count(self, home: Home) -> None:
         # Given
         home.session("s1", idle_main())
         # When / Then
-        assert "Not counted: Trivial self-activated outside a review" in home.report()
+        assert "Not counted: a PR opened in another session" in home.report()
 
 
 class TestStartUp:

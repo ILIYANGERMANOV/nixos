@@ -71,18 +71,18 @@ agree with the report.
   `skill_listing` (`content`) attachments before that call; a listing delta
   later on is not start-up. Remainder is the first call minus both: tool
   schemas, the base prompt and the brief.
-- **Quality mode.** The first `Quality: <mode>` in a brief, in its wire form
-  with `, Trivial` or `, not Trivial`; a placeholder is no mode. An agent with
+- **Quality mode.** The first `Quality: <mode>` in a brief, joined with its
+  `Size: Trivial` or `Size: Normal` line when it has one; a placeholder is no
+  mode or size. An agent with
   none takes the nearest subagent above it, else the session's: the main
   agent's brief, else what most subagents state, the latest on a tie. Nothing
   stated shows as `(none stated)`, not Balanced, so sessions older than the
-  rule stay apart. Each agent counts under its own mode, so a session that
-  left Trivial sits in two rows and the sessions column does not add up.
+  rule stay apart. Each agent counts under its own row, so a session that
+  grew from Trivial to Normal sits in two rows and the sessions column does not
+  add up. Briefs older than the `Size:` line count under their mode alone.
 - **PRs and cost per PR.** A PR is a `gh pr create` that did not fail, counted
   under the mode of the agent that ran it. Per PR is the cost of a session's
   agents in that mode divided by the PRs they opened, median over sessions.
-- **Self-activated Trivial.** A report with the line `Security: Trivial`, from
-  an agent whose mode does not say Trivial. It stays in its stated row.
 - **Before and after.** `--compare <ISO>` splits the window by session start,
   so pair it with a `--since` before the date. Rows are effective per session,
   per PR by mode, and first-call context by type. A median needs n >= 5 on its
@@ -190,9 +190,6 @@ labels mean its counts are a starting point, not a verdict.
 - Step labels rest on hand-tuned patterns over free-form descriptions: an agent
   doing two steps counts once, and whatever matches nothing lands in `other`.
   Inner review agents the main agent ran directly land in `other` too.
-- Trivial self-activation is counted for reviews only, the one fixed wording.
-  A delegated `refactor`, `pr-description` or `researcher` activating it says
-  so in free text, so it is not counted and its cost stays in its stated row.
 - Cost per PR misses a PR opened in an earlier session, opened by a script or
   under another tool: that work's cost has no PR, so it drops out of the median.
   Quality changed by hand mid-session shows only through briefs.
