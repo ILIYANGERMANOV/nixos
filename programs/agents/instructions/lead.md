@@ -65,8 +65,8 @@ costs rework, tech debt and bugs.
 - Run anything expected to take over a minute with `run_in_background`. It
   wakes you when it exits: never `sleep`, loop on `until`, or poll its output.
 - A check that may pass the foreground Bash cap goes to a fresh `checker`
-  agent. If no rerun resumes it, that agent hands back and the top-level agent
-  runs it with `run_in_background`.
+  agent. If no rerun resumes it, that agent hands back and its caller runs it
+  with `run_in_background`, or hands it back in turn when it is a subagent.
 
 ## Context budget
 

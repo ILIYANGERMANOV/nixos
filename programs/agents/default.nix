@@ -27,15 +27,46 @@ let
     inherit pkgs lib;
     instructions = instructionsLib;
   };
+  modesLib = import ./lib/passes/modes.nix {
+    inherit pkgs lib;
+    roots = [
+      ./skills/custom
+      ./roles
+      ./instructions
+    ];
+    exempt = [
+      ./instructions/topics/quality.md
+      ./skills/custom/self-improve
+    ];
+    allowed = [
+      {
+        file = ./skills/custom/engineer/SKILL.md;
+        labels = [ "POC:" ];
+      }
+      {
+        file = ./skills/custom/pragmatic-review/references/first-pass.md;
+        labels = [
+          "**Balanced row.**"
+          "**POC row.**"
+        ];
+      }
+    ];
+  };
   budget = import ./lib/passes/budget.nix {
     inherit pkgs lib roles;
     inherit (instructionsLib) renderRole;
     skills = skills.all;
   };
 
-  topics.trivial = mkFragment {
-    layer = "topic";
-    file = ./instructions/topics/trivial.md;
+  topic =
+    file:
+    mkFragment {
+      layer = "topic";
+      inherit file;
+    };
+  topics = {
+    trivial = topic ./instructions/topics/trivial.md;
+    quality = topic ./instructions/topics/quality.md;
   };
 
   skills = import ./skills { inherit pkgs lib externalSrcs; };
@@ -122,6 +153,10 @@ in
     {
       name = "dedup";
       path = dedupLib.check;
+    }
+    {
+      name = "modes";
+      path = modesLib.check;
     }
     {
       name = "mcp";

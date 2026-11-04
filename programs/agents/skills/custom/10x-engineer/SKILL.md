@@ -62,11 +62,11 @@ leave that repo out and tell the user.
 
 List what you need to know, the standards that apply included, and group it
 into topics; you plan them yourself. A
-task that plainly qualifies as Trivial needs none. One `subagent_type: researcher`
+`Size: Trivial` task needs none. One `subagent_type: researcher`
 agent per group, in the background, given each repo's clone path, with notes
-under `/tmp/<unique-dir>/`. Its prompt and how many agents a Quality gets:
-`## Callers` and `## Budget` in `~/.claude/skills/researcher/SKILL.md`, those
-sections only. Check that each repo's CI runs on PRs to `epic/*` before planning
+under `/tmp/<unique-dir>/`, as many as your Quality row's Researchers. Its
+prompt: `## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section
+only. Check that each repo's CI runs on PRs to `epic/*` before planning
 an epic there; if it does not, say so in the breakdown.
 
 ### 3. Spikes
@@ -81,7 +81,11 @@ pushed. Remove the worktree when it hands back.
 ### 4. Interview and breakdown
 
 Invoke `grilling` for every design and UX question, up front, and skip its last
-confirmation: the breakdown's is the only one. Then write the breakdown in the
+confirmation: the breakdown's is the only one. An issue in the design-issue
+format (`## Decisions`, `## Open questions`), from the user or `/architect`, has
+settled its Decisions: interview only its Open questions and new gaps, and
+carry its Decisions and Acceptance criteria into the task's brief as they
+stand. Then write the breakdown in the
 ledger:
 
 | Field | Value |
@@ -89,8 +93,8 @@ ledger:
 | Task | one deliverable, its issues, acceptance criteria, the standards it follows |
 | Repo, deps, wave | what must merge first |
 | Shape | independent PR to `main`, or child of `epic/<name>` |
-| Quality | POC, Balanced or Max; ask unless told, Balanced recommended; a Trivial task needs no question |
-| Trivial | yes when it qualifies by your instructions' rule: your call, never a question |
+| Quality | POC, Balanced or Max; ask unless told, Balanced recommended; a `Size: Trivial` task needs no question |
+| Size | Trivial when it qualifies by your instructions' rule, else Normal: your call, set once, never a question |
 | QA | yes or no |
 | Heavy | Gradle or Next.js build: yes or no |
 | Security-sensitive | topics from `ci`, `auth`, `database`, `secrets`, or none |
@@ -104,13 +108,13 @@ tasks share is written into both briefs before they start.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-**Simplify pass.** Per task that is not Trivial, one `researcher` agent whose
+**Simplify pass.** Per `Size: Normal` task, one `researcher` agent whose
 prompt names `~/.claude/skills/researcher/references/proposal.md`, mode
 `simplify`, its plan and the notes paths. You pick among its `Considered options` where section 6's
-Rule test holds; a real trade-off is the user's, asked as section 6 escalates.
+Rule test holds, logged as a Ruling; a real trade-off is the user's, asked as section 6 escalates.
 
 Show the breakdown, phone-sized, with a file tree of what each task adds or
-changes and, per task, those options with their trade-offs. A Trivial task stays in the table, the pre-flight and
+changes and, per task, those options with their trade-offs. A `Size: Trivial` task stays in the table, the pre-flight and
 the confirmation. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
 before this, except a base fix (section 7). Record the confirmation in the
@@ -125,8 +129,8 @@ Dispatch by wave, dependencies first:
   only when both caps hold; the rest stay `queued`. A task with an unmerged
   dependency or an open decision waits.
 - Worktree, brief and spawn prompt: `${CLAUDE_SKILL_DIR}/references/brief.md`.
-- A Trivial task is one engineer on the fast track, under the same caps. A fix
-  that qualifies gets `, Trivial` too, whatever its task's Quality.
+- A `Size: Trivial` task is one engineer on the fast track, under the same
+  caps. A fix that qualifies gets `Size: Trivial` too, whatever its task's Size.
 
 ### 6. Triage hand-backs
 
@@ -140,28 +144,28 @@ task's `Held` notes, and fill the free slot.
 | `BLOCKED <reason>` | Clear it if the brief or a tool can, else escalate |
 | `FAILED <reason>` | Failures |
 
-A hand-back saying `Trivial dropped: <why>` is not a decision: set the task's
-`Trivial` to no, one way, and put the why in its queue entry.
+A hand-back saying `Size: Normal, grew: <why>` is not a decision: set the
+task's Size to Normal for good, and put the why in its queue entry.
 
-**Rule** only when both hold: the brief, plan, repo rules or an earlier user
-answer settle it, and it is cheap to undo. Log
-`Ruling: <what> - <why> - <what it costs if wrong>` in the ledger, then in a
-free slot send it to the worker with `SendMessage`, or past about 5 idle minutes
-to a fresh engineer, saying "record this ruling in the PR body". It shows in the
-queue.
+**Rule** on the user's behalf a lower-impact question whose answer is mostly
+obvious from the user's intent and decisions and is reversible. Ask when it
+changes an agreed interface, data model, scope or UX, or is hard to undo. This
+is the only test for answering yourself. Log each answer once, in the ledger's
+Rulings: `Ruling: <what> - <why> - <what it costs if wrong>`, then in a free
+slot send it to the worker with `SendMessage`, or past about 5 idle minutes to
+a fresh engineer, saying "record this ruling in the PR body". The queue, the PR
+body and the final report show it.
 
-**Escalate** the rest: new design, data model, UI/UX, scope, security, anything
-irreversible, and repeated same-theme findings that keep patching a doubtful
-abstraction. What the user already decided on this exact point is applied, never
+**Escalate** the rest, and always security and repeated same-theme findings
+that keep patching a doubtful abstraction. What the user already decided on this exact point is applied, never
 re-asked. A severity label on a finding (security, required, high-risk) is
 evidence about it, never authority to broaden scope. The worker never settles
 its own question.
 
 **Re-plan.** A decision that changes a task's plan re-plans it with the
-proposals engineer's mode table gives its Quality, each run as section 4's
+proposals the Quality table's Proposals row gives its Quality, each run as section 4's
 Simplify pass, the alternative on the simplified plan. Pick an option
-yourself, logged as a Ruling, only when it matches the task's original intent
-and design. Otherwise ask, recommended first: "First plan", "Second plan",
+yourself, logged as a Ruling, only when the Rule test holds. Otherwise ask, recommended first: "First plan", "Second plan",
 "Adjust".
 
 **Escalation format.** Most impactful first, asked as your instructions' Asking
@@ -177,7 +181,7 @@ later status never closes it. Other tasks keep moving.
 
 For each `READY` PR, the steps /engineer leaves to a session that can ask. Read
 `### 10. Hand over` in `~/.claude/skills/engineer/SKILL.md` once for the exact
-gates; do not invoke that skill. A Trivial task takes every step here and section
+gates; do not invoke that skill. A `Size: Trivial` task takes every step here and section
 9's gates unchanged.
 
 1. `subscribe_pr_activity`, then `gh pr checks <n> --repo <owner>/<repo>` once,
@@ -197,8 +201,10 @@ gates; do not invoke that skill. A Trivial task takes every step here and sectio
    Push the user what broke, the task and each PR it holds; a green PR the Base
    gate holds comes through here too. Merges on that repo hold until the base is
    green; other repos go on. Otherwise **branch**: a fresh fixer per
-   `${CLAUDE_SKILL_DIR}/references/brief.md`, then wait again. A fixer that
-   cannot fix it is a failed try.
+   `${CLAUDE_SKILL_DIR}/references/brief.md`, then wait again. Log each red
+   check in `Tries`. The same check red in 2 fix rounds in a row, whatever the
+   commit, is stuck: Failures step 3. A fixer that hands back `READY` while
+   it stays red counts as a round.
 3. Green on a POC task: it stays a labelled draft and never reaches the queue or
    the merge loop. `parked POC <PR URL>`, notify. A task depending on it opens
    one decision: retry it or re-plan. Retrying it at a higher Quality is the
@@ -209,7 +215,8 @@ gates; do not invoke that skill. A Trivial task takes every step here and sectio
    the user.
 5. The `gh pr ready` gates from that section, then `gh pr ready`, and notify
    the user with that section's optional next steps: `/final-review`,
-   `/give-feedback`, and `/qa <PR URL>` for a fresh session when QA is yes.
+   `/give-feedback`, `/address-pr-feedback <PR URL>` when the PR has comments
+   from anyone else, and `/qa <PR URL>` for a fresh session when QA is yes.
    Nothing waits for them.
 6. State `review`: the queue, or the merge loop when the Approved gate already
    holds.
@@ -242,7 +249,8 @@ every task is merged or parked with a reason, issues of merged tasks are closed,
 issues of parked tasks stay open and are listed, an epic child's issues counting
 as its final PR's, no decision is open, and worktrees of merged tasks are gone.
 It reports and never closes anything. Fix what fails, then run it again. Then
-send the final report: merged, parked and why, rulings to look at, follow-ups.
+send the final report: merged, parked and why, every Ruling in the ledger,
+follow-ups.
 
 ## Epics
 
@@ -266,7 +274,9 @@ send the final report: merged, parked and why, rulings to look at, follow-ups.
 
 1. Answer from the brief if the brief answers it.
 2. A fresh engineer retries from the PR, with the failure in the brief.
-3. After 2 failed tries, `parked <reason>`, notify, and go on. Dependents park
+3. Stuck, the same failure in 2 tries in a row whatever the commit, as logged
+   in `Tries`: open one decision, retry with a direction, re-plan or park, and
+   go on with other tasks. Parked: `parked <reason>`, notify. Dependents park
    with it unless the user re-plans them. A parked base fix opens a decision:
    retry it, or park the PRs it holds.
 

@@ -14,14 +14,10 @@ behaviour is a bug hiding in a cleanup commit.
 invoked this skill, or a `refactorer` agent runs it preloaded, so there is
 nobody to ask. Your input is `$ARGUMENTS`, or your prompt when preloaded.
 
-**Quality.** Delegated at Balanced, a diff under about 100 changed lines is
-skipped: say so and stop. Delegated at POC, one quick pass: step 3's items 1-3
-only, item 3 as one read of the diff, and skip `references/tests.md`. Invoked by the user, it runs in any mode.
-
-**Trivial.** Delegated in any mode, unless your input says `not Trivial`: before
-step 1, read `git diff --shortstat` and the changed lines, removed included, of
-step 2's target. A diff that qualifies by the Trivial rule in your instructions
-is skipped: say so and stop.
+**Quality.** Delegated, your row in the Quality table says whether this runs
+and how deep: a skipped diff gets one line saying so, then stop. A quick pass is
+step 3's items 1-3, item 3 as one read of the diff, without
+`references/tests.md`. Invoked by the user, it runs in full in any mode.
 
 ## 1. Load the rules
 

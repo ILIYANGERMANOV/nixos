@@ -9,14 +9,19 @@ hands the question back. You sort it. Only you spawn researchers.
 Paste this paragraph into every implementer, refactorer and fixer brief:
 
 > A question that blocks your work and that the repo, this brief and the plan
-> do not settle: stop at once. Commit and push the work you have, if any, as a
+> do not settle, or choosing differently from a decision the plan states:
+> stop at once. Commit and push the work you have, if any, as a
 > normal commit with no WIP marker and `Remaining: <what is left>` in its
 > body, plus `(does not build yet)` when it does not build.
 > Start your hand-back with `NEEDS_DECISION <question>`, then that commit, what
 > you tried and the evidence paths. Spawn no researcher. Pass this paragraph to
 > any agent you spawn, and relay its `NEEDS_DECISION` as-is.
+> On `Size: Trivial`, work bigger than briefed is `GREW <why>`: stop the same
+> way, after committing and pushing what you have, and start your hand-back
+> with that line. With a `NEEDS_DECISION`, that line comes first and `GREW`
+> on the next. Relay a spawned agent's `GREW` as-is.
 
-A review-lead brief, Trivial's sweep included, gets this line instead, and
+A review-lead brief, the Trivial sweep's included, gets this line instead, and
 passes nothing of it to its reviewers:
 
 > The plan is wrong when a finding shows a wrong approach, a requirement that
@@ -27,12 +32,15 @@ passes nothing of it to its reviewers:
 > as usual.
 
 A question that does not block stays in the hand-back's prose, as the role
-says. A refactorer's proposals are not blockers: step 6 asks about them.
+says, and you still triage it below. A refactorer's proposals are not
+blockers: step 6 asks about them.
 
 ## Triage
 
 Read the question and its evidence, then pick exactly one row. Log it in the
-progress file.
+progress file. Before `READY` or `gh pr ready`, every open decision, a
+hand-back's prose question included, has its row and is done; none is handed on
+as prose in the PR body or a hand-back.
 
 | You find | Kind | Arrow |
 |---|---|---|
@@ -45,17 +53,15 @@ progress file.
 role with its brief, the answer, the delta plan when there is one, and
 "continue from commit `<sha>`: its body says what remains; when it says it
 does not build, make it build first". Commits are never reverted unless the
-user asks.
+user asks. The same question back in 2 rounds in a row, whatever the commit,
+trips the skill's stuck guard.
 
 **Fact path.** No user question.
 
 1. One researcher per fact gap, prompt per `## Callers` in the researcher
    skill with the question in it. It does not count against step 1's Agents.
-   Trivial: one small researcher briefed `Quality: <mode>, Trivial`, and the
-   task stays Trivial. This overrides the researcher Budget's Trivial row,
-   which allows no agent.
 2. Write a delta plan: what the facts change in the plan.
-3. Run the mode's simplify pass on it (the skill's mode table; Trivial has none).
+3. Run your Quality row's simplify pass on it; `Size: Trivial` skips it.
 4. Record the fact and the delta in the PR body, then resume.
 
 Research or a simplify pass that turns up a choice the user owns, or changes
@@ -66,13 +72,13 @@ when it changes a goal, a decision or an interface.
 
 1. Back to Ctx: steps 1 and 2 for this question only. Research what it needs,
    then ask the user what is still open, never what they just answered.
-2. Step 3 at the current mode, with no Quality question: a new plan, its
-   proposals, and the ask. A decision in Trivial leaves the track first
-   (`trivial.md`), so step 3 runs at the user's Quality, Balanced if they
-   named none.
+2. Step 3 at the current Quality, with no Quality question: a new plan, its
+   proposals, and the ask. A decision on `Size: Trivial` moves it to Normal
+   first (`trivial.md`).
 3. Write the chosen plan and its `Considered options` into the PR body.
 4. Resume at step 5 on the same branch. Existing commits stay; the new plan
-   adds commits on top. Its review starts again at round 1, so the cap resets.
+   adds commits on top. Its review starts again at round 1, so the re-review
+   cap resets; the stuck guard does not.
 
 **Scope question.** One `AskUserQuestion`: in this PR, a follow-up, or drop.
 In this PR: the decision path. A follow-up: add it to `## Follow-ups`. Either
@@ -89,9 +95,12 @@ context resumes from it and `git log`.
 ```markdown
 Step: <last finished step>
 Head: <sha>
-Quality: <mode>[, Trivial]
+Quality: <mode>
+Size: <Trivial | Normal>
 Re-review: <n>/<cap>   (round 1 is the first review, not counted)
 Reviewed head: <latest round's sha>
+Rounds:
+- <loop> <n> - <head sha> - <failing check or chosen rows>
 Blockers:
 - <question> - <answered | fact | decision | scope> - <open | done: answer>
 Log:

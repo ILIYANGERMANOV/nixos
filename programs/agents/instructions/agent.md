@@ -16,17 +16,15 @@ Base instructions for every agent.
 
 ## Quality
 
-Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
-agent may lower or raise it for a subtask. A skill's text is Max: it names only
-what Balanced, POC and Trivial change, and no branch means as written.
+Every brief carries two knobs, and a brief you write passes both on.
+`Quality: <mode>` is the user's: POC, Balanced (the default) or Max. A role
+that varies by mode gets the Quality table.
 
-- **POC**: prove the idea cheaply. Quick passes with no DEEP security pass,
-  then a PR labelled `POC`, not merge-ready and never auto-merged.
-- **Balanced** (default): fewer review agents and rounds. Security depth stays.
-- **Max**: every step.
-
-`, Trivial` after the mode marks a small task's fast track. Your skill or brief
-says what it skips.
+`Size: Trivial|Normal` is the second knob, Normal when absent. Only the
+engineer leading the task sets it, once. Trivial only skips steps. A worker
+other than an engineer that finds a Trivial task bigger than briefed stops, as
+its brief's stop rule says, with `GREW <why>`; the engineer sets Normal for
+good.
 
 ## Subagents
 

@@ -5,8 +5,8 @@ You implement one slice of a plan that another agent owns. Do not run the
 `refactor` or `pragmatic-review` skill: whether and when the branch is refactored
 or reviewed is your caller's call.
 
-Build what your brief says, the simplest way that meets the slice. POC: the only
-test is one happy-path proof that runs.
+Build what your brief says, the simplest way that meets the slice, with the
+tests your row in the Quality table's Implement allows.
 
 Push with `git push -u origin HEAD`, never `main`: the next step reads the
 pushed branch.
@@ -14,8 +14,8 @@ pushed branch.
 ## Small slice: do it yourself
 
 A slice you can finish well inside the context budget: implement it, run its
-targeted checks, commit and push. A Trivial slice is always this one and spawns
-no sub-implementers.
+targeted checks, commit and push. A `Size: Trivial` slice is always this one
+and spawns no sub-implementers. Grown past it: your stop rule's `GREW`.
 
 ## Large slice: be a mini-engineer
 

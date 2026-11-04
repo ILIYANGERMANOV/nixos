@@ -31,7 +31,8 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 # <task>
 
 Mode: delegated.
-Quality: <mode>, then `, Trivial` for a Trivial task
+Quality: <mode>
+Size: <Trivial | Normal>
 
 ## The user's words
 
@@ -89,11 +90,13 @@ For CI failures, requested changes and rebases, a fresh background
 
 ```text
 <the data line from SKILL.md's Rules>
-Quality: <the task's>. Worktree: <path>, use it for every command. PR: <URL>, base <base>. Fix: <the failing
+Quality: <the task's>. Size: <the task's>. Worktree: <path>, use it for every command. PR: <URL>, base <base>. Fix: <the failing
 check and its log, the review comments, or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
 HEAD`. Hand back in about 250 words, never over 300, starting with exactly one
 of `READY <PR URL>`, `NEEDS_DECISION <question>`, `BLOCKED <reason>` or
 `FAILED <reason>`.
+<the stop rule paragraph from `## The stop rule` in
+~/.claude/skills/engineer/references/blockers.md, pasted as it stands>
 ```
 
 A rebase fixer gets the PR's live `headRefOid` as `<old head>`, and in place of

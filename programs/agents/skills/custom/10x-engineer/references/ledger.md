@@ -1,6 +1,7 @@
 # Ledger
 
-`~/.10x/<run>/ledger.md`. Only you write it, and you update it before ending a
+`~/.10x/<run>/ledger.md`. Only you write it, but for the one `Held` line
+`/give-feedback` appends after it pushes, and you update it before ending a
 turn. It holds what GitHub cannot: CI, mergeability and review state are never
 stored, you read them live.
 
@@ -29,7 +30,7 @@ Breakdown confirmed: <yes, when>
 
 ## Tasks
 
-| Task | Repo | Wave | Deps | Base | Quality | Trivial | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Merge-safe heads |
+| Task | Repo | Wave | Deps | Base | Quality | Size | QA | Heavy | Security-sensitive | Branch | PR | State | Tries | Merge-safe heads |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 ## Pre-flight

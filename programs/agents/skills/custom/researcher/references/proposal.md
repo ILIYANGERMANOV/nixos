@@ -9,7 +9,8 @@ Quality.
 ## Both modes
 
 - Keep the plan's goals and intent. Not naive: a proposal still meets every
-  goal and every decision the user made.
+  goal and every decision the user made. A design issue's settled Decisions
+  stand as written: a proposal never changes one.
 - Research the industry standards and known solutions for the problem: formal
   standards, de facto practice, well-known prior art. Name each with a URL.
 - Every claim about the repo has a `path:line`; every outside claim a URL.

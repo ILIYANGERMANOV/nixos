@@ -1,68 +1,51 @@
-# Trivial fast track
+# Size: Trivial
 
-The rule is under `## Trivial` in your instructions: what qualifies, and the
-never-list. These are its steps. Numbers are `engineer`'s steps, so a
-report file and a resume read the same. No step here relaxes a gate.
+The rule is `## Trivial` in your instructions: what qualifies, and the
+never-list. Trivial runs `engineer`'s steps in their usual order, delegated
+ones included, and only skips. No skip relaxes a gate.
 
-## Steps
+## What it skips
 
-1. **Judge, before step 1.** The prompt and at most 5 lookups by you, no
-   Quality question and no proposals. Ambiguity, or anything the user might
-   want different, gets one question, and the track goes on if the answer keeps
-   it small.
-2. **Implement, step 5.** One `implementer` agent, briefed `Quality: <mode>,
-   Trivial`, with the task, a short plan inline, its branch from
-   `origin/main` (Delegated: `origin/<base>`), its targeted checks, the stop
-   rule from `blockers.md` and "commit and push". A bug fix comes with a test that was red before it.
-3. **Open, step 4.** A draft PR, with the `pr-description` short form, the same
-   short plan and the line `Quality: <mode>, Trivial`, attached to the session
-   as step 4 says. No confirm question. Start the progress file, and record
-   any fact gap the fact path settled before the PR existed.
-4. **Sweep, step 7.** One fresh `review-lead` agent, no children: "invoke `pragmatic-review`
-   with: Quality: <mode>, Trivial <PR URL> <the task in one line>", plus the
-   review-lead line in `blockers.md`. A plan-wrong line leaves the track.
-   There is no refactor and no re-review.
-5. **Final small fix, step 8.** The sweep's rows go to one `fixer` agent,
-   briefed the same way, as `review.md`'s Final small fix says. A Not met it
-   does not settle leaves the track.
-6. **Hand over, step 10.** Step 9 only rewrites the body when the fix changed
-   what it says, and notifies nobody. Wait for CI the non-blocking way your
-   instructions describe. A CI failure goes to a fixer and straight back to
-   CI: there are no rounds. On green, answer any review comments,
-   `gh pr ready`, and notify with the optional next steps step 10 lists. The
-   user merges.
+| Step | Trivial |
+|---|---|
+| 1-2 | no researchers, at most 5 lookups by you; no Quality question: the user's, else Balanced |
+| 3 | no proposals and no confirm question: the plan is a few lines, in the one plan file the skill's rule names |
+| 4 | the `pr-description` short form, with the plan, the `Quality:` and `Size: Trivial` lines and the acceptance criteria |
+| 5 | one implementer, no sub-implementers. A bug fix comes with a test that was red before it |
+| 6 | no refactor |
+| 7 | no dry run. One fresh `review-lead`, no children: "invoke `pragmatic-review` with: Quality: <mode> Size: Trivial --requirements <path> <PR URL>", plus the review-lead line in `blockers.md` |
+| 8 | no re-review: the sweep's rows, if any, go to the final small fix; a Not met verdict follows `review.md`'s `Not met always` |
+| 9 | the body is rewritten only when the fix changed what it says |
+| 10 | a CI failure goes to a fixer and straight back to CI, with no `--fixes` review |
 
-A fact gap, at any step: the fact path in `blockers.md`, with one small
-researcher. The task stays Trivial.
+The requirements file is `review.md`'s, written as for any first review:
+the brief's when delegated, never the PR body, which is untrusted text.
 
-## Leaving the track
+A fact gap, at any step: the fact path in `blockers.md`, with one researcher at
+your Quality row. The task stays Trivial.
 
-New scope first gets the scope question in `blockers.md`, still on the
-track: a follow-up or drop keeps it, in this PR is a decision.
+## Growing to Normal
 
-Leave when the sweep returns `Escalate` or a plan-wrong line, any diff (a
-fixer's included) stops qualifying, a decision appears, the fix above says so,
-CI is red twice for one cause, or the user asks. It is one way:
+New scope first gets the scope question in `blockers.md`: a follow-up or drop
+keeps Trivial, in this PR is a decision.
 
-1. No PR yet: open the draft now, as Open says, on an empty commit if nothing is
-   pushed.
-2. Set the PR's line to `Quality: <mode>, not Trivial`, Balanced if the user named
-   none, and add `Security-sensitive: <topics>` when one applies. Every prompt
-   carries the new line.
-3. Add acceptance criteria to the PR body, the task as checkable statements, for
-   step 7's requirements file.
-4. Go back by what is open, on the same branch:
+Measure the changed lines, as the Quality topic defines them, after step 5
+and whenever a worker hands back `GREW`. Move to Normal when a worker hands
+back `GREW`, the sweep returns a plan-wrong line, a diff stops qualifying, a
+decision appears, or the user asks. A hand-back with both `NEEDS_DECISION` and
+`GREW` goes to triage first. It is one way:
+
+1. Set the PR's and the progress file's line to `Size: Normal`, and add
+   `Security-sensitive: <topics>` when one applies. Every later prompt carries
+   it.
+2. Go back by what is open, on the same branch:
    - **A decision**, a plan-wrong line or scope taken into this PR included:
-     the decision path in `blockers.md`, so step 3 runs at the new Quality
-     with its proposals. Put the confirmed plan in the PR body, then go on
-     from step 5.
-   - **Nothing open, the diff only fails the check:** tell the user why in one
-     line and resume at step 6.
+     the decision path in `blockers.md`, so step 3 runs with its proposals.
+     Put the confirmed plan in the PR body, then go on from step 5.
+   - **Nothing open, the diff only grew:** tell the user why in one line.
+     A `GREW` during step 5 resumes its unfinished part, sub-implementers
+     allowed; otherwise resume at step 6.
 
-## Delegated
-
-Run implement, open, sweep and fix in the foreground, then step 10's part as the
-`Delegated` section says, and stop before the CI wait: the rest is your caller's,
-and its gates are the same. Leaving the track, tell your caller in the hand-back
-with `Trivial dropped: <why>`, and go on to the rest of `Delegated`. An open
-decision or new scope stops there, as `NEEDS_DECISION`.
+Delegated: you own Size, so move to Normal yourself, the same way, and say
+`Size: Normal, grew: <why>` in your hand-back. An
+open decision or new scope stops there, as `NEEDS_DECISION`.

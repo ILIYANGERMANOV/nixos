@@ -104,8 +104,7 @@ pushes. When the round extends the work of an implementer from this session
 that is still live, continue it with `SendMessage` instead. Several
 implementers only for independent slices: no shared files, no ordering.
 
-No `pragmatic-review` or `refactor` per round: `/final-review` covers the
-whole PR.
+No `refactor` per round: `/final-review` covers the whole PR.
 
 ### 6. Log and ship
 
@@ -122,15 +121,28 @@ whole PR.
   deep there.
 - If the rest of the description no longer matches, rewrite it with the
   `pr-description` skill.
+- When a 10x run tracks this PR (`rg -l <PR URL> ~/.10x/*/ledger.md`), append
+  to that ledger's `## Held`: `<task>: /give-feedback round <n> pushed <sha>,
+  approval void`. Its next wake reads it.
+- Review the round: write its bullets, agreed changes and done-whens to a
+  requirements file under `/tmp/<unique-dir>/`, then a fresh
+  `subagent_type: review-lead` agent invokes `pragmatic-review` with
+  `Quality: <the PR's, else Balanced> --fixes <the head before this round>
+  --requirements <path> <PR URL>`. The implementer fixes the rows worth fixing;
+  a security row is always fixed. No second review.
 - Wait on CI the non-blocking way your instructions describe: subscribe once,
   end the turn after a push, and after a wake on the head commit run
   `gh pr checks <n>` once to verify the PR's overall state, never in a loop.
-  Fix failures through the implementer and wait again.
+  Fix failures through the implementer and wait again. The same check red in
+  2 fix rounds in a row, whatever the commit, is stuck: ask the user. A fix
+  handed back while the check stays red counts as a round.
 
 ### 7. Report
 
-In chat, one line per bullet: what changed and its done-when proof, or why it
-did not. Then the commit and the CI state. Then wait.
+Only once CI is green. In chat, one line per bullet: what changed and its
+done-when proof, or why it did not. Then the commit and the CI state. When the
+PR had an approval, say plainly that this push voided it and it needs a new
+one. Then wait.
 
 ## Next round
 

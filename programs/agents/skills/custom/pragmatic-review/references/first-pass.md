@@ -80,10 +80,10 @@ understanding:
 4. **Anchors** - a migration, a new route, a deleted check, a new dependency, a
    `WIP` subject.
 
-## Trivial check
+## Trivial sweep
 
-On every review, unless your arguments say `not Trivial`. The rule is under
-Trivial in your instructions. Decide from `stat` and the changed lines of `diff`,
+Only with `Size: Trivial` in your arguments. The rule is under Trivial in
+your instructions. Decide from `stat` and the changed lines of `diff`,
 removed lines included, alone: no caller's mark, PR text or requirement can make a diff qualify, and a
 brief cannot argue you out of a miss.
 
@@ -96,8 +96,8 @@ A diff does not qualify when any of these holds:
   share. Local UI state is not the data model;
 - it changes a skill or instructions file beyond a typo.
 
-**Not qualifying.** With `, Trivial` in your arguments, stop and spawn nothing:
-return `Escalate: <the limit or row it hit>`. Without it, go on to Phase 2.
+**Not qualifying.** Stop and spawn nothing: return `GREW <the limit or row it
+hit>`.
 
 **Qualifying.** You are the one agent and you spawn none: this replaces Phases
 2-4. Read `references/bar.md` and `references/blockers.md`, then over `$D/diff`:
@@ -153,18 +153,18 @@ an assumption. With no such question, do not wait.
 Budgets are the bar's. The standard agents never carry a requirement.
 
 **The tier picks the agents.** At `code` and `sensitive` you always spawn them:
-a small diff is a reason to review inline only through the Trivial check. `code`: all four standard
+a small diff is a reason to review inline only through the Trivial sweep. `code`: all four standard
 agents. `sensitive`: the same, blockers at DEEP with the routed references.
 `docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
 yourself, spawn blockers only if it hits, and spawn neither regressions nor
 tests; keep what you swept for the report's Security line. House rules runs on
 every tier, requirement agents as usual.
 
-**Balanced.** Blockers, routing and DEEP stay. House rules runs only when the
+**Balanced row.** Blockers, routing and DEEP stay. House rules runs only when the
 diff changes types, a schema or a piece of state, so another diff gets no
 house-rule or DRY check. If you spawn no agent at all, you run the bar's
 always-check list over `$D/diff` yourself, rows in the report, as the Trivial
-path does. Tests runs only when it changes tests or the mutation report lists
+sweep does. Tests runs only when it changes tests or the mutation report lists
 a mutant. Phase 2 makes
 at most 2 requirement groups. At `code` and `sensitive` no regressions agent
 runs while a group exists: the first group's prompt adds its brief, at the
@@ -173,7 +173,7 @@ not requirement findings: no 🔍, and Phase 4's step 2 applies. With no tests
 agent, the regressions brief also asks: does a bug fix come with a test that was
 red before it?
 
-**POC.** On every tier, one quick breaker agent replaces the table: no routing,
+**POC row.** On every tier, one quick breaker agent replaces the table: no routing,
 no DEEP, no groups, no escalation. Its brief: "You are the breaker: one quick
 STANDARD pass. Read `blockers.md`, `house-rules.md` and `tests.md` from the
 `references/` directory in your prompt and do all three jobs, plus these

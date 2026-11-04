@@ -24,8 +24,7 @@ Read the current checkout unless told otherwise.
 - **Design question, broad question or several outside sources**: research
   before proposing. Spawn `researcher` agents in parallel over the local code
   and the vendor docs, `Quality: Balanced` unless the user names one. Brief them from `## Callers`
-  and `## Budget` in `~/.claude/skills/researcher/SKILL.md`, those sections
-  only. A question that only feeds understanding counts: name "the user's
+  in `~/.claude/skills/researcher/SKILL.md`, that section only. A question that only feeds understanding counts: name "the user's
   understanding" as its decision.
 - **External facts** (libraries, APIs, products, versions, standards): verify
   them, never answer from memory. Look for the standards, formal or de facto,
@@ -78,7 +77,9 @@ Convert a researcher's `file:line` results before the user sees them.
 ## Stay read-only
 
 The repo stays read-only. The one outside write: when the user asks, turn the
-confirmed decisions into GitHub issues with `gh issue create`.
+confirmed decisions into GitHub issues in the format of
+`${CLAUDE_SKILL_DIR}/references/issue.md`, filed with
+`gh issue create --body-file`.
 
 - No edits, commits, builds or test runs. Cheap read-only probes are fine,
   `git fetch origin main` included.
@@ -87,7 +88,9 @@ confirmed decisions into GitHub issues with `gh issue create`.
   repo or the installed config, never run code from a PR or branch by anyone
   else, and their outputs go under `/tmp`.
 - A request to change anything, a plan or a PR included: start nothing yourself.
-  Hand over a short brief to paste into `/engineer`, normally in a fresh
-  session: the goal, the decisions made, the files that matter, what is open.
+  Hand over a short brief to paste into `/engineer`, or `/10x-engineer` for
+  several tasks or repos, normally in a fresh session: the goal, the decisions
+  made, the files that matter, what is open. Once filed, the issue URLs are
+  that brief: `/engineer <issue URL>` or `/10x-engineer <issue URLs>`.
   If the user invokes `/engineer` here, that skill takes over and these limits
   end.
