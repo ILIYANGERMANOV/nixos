@@ -35,8 +35,8 @@ paths:
 - `passes/dedup.nix` - a guard, not a transformer: it throws if a folded profile
   still holds a skill twice or one file at two layers.
 - `passes/modes.nix` - a guard: it throws if a skill, role or instructions
-  file, the table and self-improve aside, holds a mode table row, the old `, Trivial` suffix or a self-activation
-  phrase.
+  file, the table and self-improve aside, holds a mode table row, the old
+  `, Trivial` suffix or a self-activation phrase.
 - `passes/budget.nix` - the agnostic size budget (`agents-frontend.md`).
 - `role.nix` - `mkRole` throws on any unknown field, capability, tier or
   effort: a backend's format may ignore a misspelled field, and a dropped

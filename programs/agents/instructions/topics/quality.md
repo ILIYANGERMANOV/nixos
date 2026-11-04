@@ -1,8 +1,7 @@
 ## Quality table
 
-`Quality: <mode>` is the user's: POC, Balanced (the default) or Max; an agent
-may lower or raise it for a subtask. This table is the only place a mode
-changes a step: a skill reads its row for what, its own text says how.
+An agent may lower or raise Quality for a subtask. This table is the only place
+a mode changes a step: a skill reads its row for what, its own text says how.
 
 | Step | POC | Balanced | Max |
 |---|---|---|---|

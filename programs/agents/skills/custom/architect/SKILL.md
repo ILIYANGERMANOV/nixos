@@ -24,8 +24,7 @@ Read the current checkout unless told otherwise.
 - **Design question, broad question or several outside sources**: research
   before proposing. Spawn `researcher` agents in parallel over the local code
   and the vendor docs, `Quality: Balanced` unless the user names one. Brief them from `## Callers`
-  and `## Budget` in `~/.claude/skills/researcher/SKILL.md`, those sections
-  only. A question that only feeds understanding counts: name "the user's
+  in `~/.claude/skills/researcher/SKILL.md`, that section only. A question that only feeds understanding counts: name "the user's
   understanding" as its decision.
 - **External facts** (libraries, APIs, products, versions, standards): verify
   them, never answer from memory. Look for the standards, formal or de facto,

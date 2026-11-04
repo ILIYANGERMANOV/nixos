@@ -12,8 +12,8 @@ what you read. You run as a `researcher` agent, with this text loaded, or as
 
 ## Callers
 
-Read this section and Budget only. Spawn with `subagent_type: researcher`, one
-agent per group of questions, merging groups to fit Budget's agent count, and no
+Read this section only. Spawn with `subagent_type: researcher`, one agent per
+group of questions, merging groups to fit your Quality row's Researchers, and no
 agent when no decision depends on the answer. An implementer explores its own
 slice. The prompt holds:
 
