@@ -1,6 +1,7 @@
 # Ledger
 
-`~/.10x/<run>/ledger.md`. Only you write it, and you update it before ending a
+`~/.10x/<run>/ledger.md`. Only you write it, but for the one `Held` line
+`/give-feedback` appends after it pushes, and you update it before ending a
 turn. It holds what GitHub cannot: CI, mergeability and review state are never
 stored, you read them live.
 

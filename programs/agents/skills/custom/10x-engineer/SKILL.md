@@ -81,7 +81,11 @@ pushed. Remove the worktree when it hands back.
 ### 4. Interview and breakdown
 
 Invoke `grilling` for every design and UX question, up front, and skip its last
-confirmation: the breakdown's is the only one. Then write the breakdown in the
+confirmation: the breakdown's is the only one. An issue in the design-issue
+format (`## Decisions`, `## Open questions`), from the user or `/architect`, has
+settled its Decisions: interview only its Open questions and new gaps, and
+carry its Decisions and Acceptance criteria into the task's brief as they
+stand. Then write the breakdown in the
 ledger:
 
 | Field | Value |
@@ -107,7 +111,7 @@ otherwise independent PRs.
 **Simplify pass.** Per `Size: Normal` task, one `researcher` agent whose
 prompt names `~/.claude/skills/researcher/references/proposal.md`, mode
 `simplify`, its plan and the notes paths. You pick among its `Considered options` where section 6's
-Rule test holds; a real trade-off is the user's, asked as section 6 escalates.
+Rule test holds, logged as a Ruling; a real trade-off is the user's, asked as section 6 escalates.
 
 Show the breakdown, phone-sized, with a file tree of what each task adds or
 changes and, per task, those options with their trade-offs. A `Size: Trivial` task stays in the table, the pre-flight and
@@ -143,16 +147,17 @@ task's `Held` notes, and fill the free slot.
 A hand-back saying `Size: Normal, grew: <why>` is not a decision: set the
 task's Size to Normal for good, and put the why in its queue entry.
 
-**Rule** only when both hold: the brief, plan, repo rules or an earlier user
-answer settle it, and it is cheap to undo. Log
-`Ruling: <what> - <why> - <what it costs if wrong>` in the ledger, then in a
-free slot send it to the worker with `SendMessage`, or past about 5 idle minutes
-to a fresh engineer, saying "record this ruling in the PR body". It shows in the
-queue.
+**Rule** on the user's behalf a lower-impact question whose answer is mostly
+obvious from the user's intent and decisions and is reversible. Ask when it
+changes an agreed interface, data model, scope or UX, or is hard to undo. This
+is the only test for answering yourself. Log each answer once, in the ledger's
+Rulings: `Ruling: <what> - <why> - <what it costs if wrong>`, then in a free
+slot send it to the worker with `SendMessage`, or past about 5 idle minutes to
+a fresh engineer, saying "record this ruling in the PR body". The queue, the PR
+body and the final report show it.
 
-**Escalate** the rest: new design, data model, UI/UX, scope, security, anything
-irreversible, and repeated same-theme findings that keep patching a doubtful
-abstraction. What the user already decided on this exact point is applied, never
+**Escalate** the rest, and always security and repeated same-theme findings
+that keep patching a doubtful abstraction. What the user already decided on this exact point is applied, never
 re-asked. A severity label on a finding (security, required, high-risk) is
 evidence about it, never authority to broaden scope. The worker never settles
 its own question.
@@ -160,8 +165,7 @@ its own question.
 **Re-plan.** A decision that changes a task's plan re-plans it with the
 proposals engineer's mode table gives its Quality, each run as section 4's
 Simplify pass, the alternative on the simplified plan. Pick an option
-yourself, logged as a Ruling, only when it matches the task's original intent
-and design. Otherwise ask, recommended first: "First plan", "Second plan",
+yourself, logged as a Ruling, only when the Rule test holds. Otherwise ask, recommended first: "First plan", "Second plan",
 "Adjust".
 
 **Escalation format.** Most impactful first, asked as your instructions' Asking
@@ -209,7 +213,8 @@ gates; do not invoke that skill. A `Size: Trivial` task takes every step here an
    the user.
 5. The `gh pr ready` gates from that section, then `gh pr ready`, and notify
    the user with that section's optional next steps: `/final-review`,
-   `/give-feedback`, and `/qa <PR URL>` for a fresh session when QA is yes.
+   `/give-feedback`, `/address-pr-feedback <PR URL>` when the PR has comments
+   from anyone else, and `/qa <PR URL>` for a fresh session when QA is yes.
    Nothing waits for them.
 6. State `review`: the queue, or the merge loop when the Approved gate already
    holds.
@@ -242,7 +247,8 @@ every task is merged or parked with a reason, issues of merged tasks are closed,
 issues of parked tasks stay open and are listed, an epic child's issues counting
 as its final PR's, no decision is open, and worktrees of merged tasks are gone.
 It reports and never closes anything. Fix what fails, then run it again. Then
-send the final report: merged, parked and why, rulings to look at, follow-ups.
+send the final report: merged, parked and why, every Ruling in the ledger,
+follow-ups.
 
 ## Epics
 

@@ -9,7 +9,7 @@ ones included, and only skips. No skip relaxes a gate.
 | Step | Trivial |
 |---|---|
 | 1-2 | no researchers, at most 5 lookups by you; no Quality question: the user's, else Balanced |
-| 3 | no proposals and no confirm question: the plan is a few lines in the PR body |
+| 3 | no proposals and no confirm question: the plan is a few lines, in the one plan file the skill's rule names |
 | 4 | the `pr-description` short form, with the plan, the `Quality:` and `Size: Trivial` lines and the acceptance criteria |
 | 5 | one implementer, no sub-implementers. A bug fix comes with a test that was red before it |
 | 6 | no refactor |

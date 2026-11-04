@@ -17,11 +17,12 @@ and the skill's stuck guard ends any round that makes no progress.
    notes directory. A re-plan rewrites it, and its round 2 starts a fresh
    `-fixes` copy. They are the
    acceptance criteria plus what must hold where you are least sure of the
-   implementation. The plan's decisions and out-of-scope list go with them as
+   implementation. Each of the plan's decisions is a requirement too, met only
+   when the diff follows it. The out-of-scope list goes with them as
    assumptions, in your words, so a deliberately skipped edge case is not
    raised. A `Security-sensitive:` line adds the requirement
-   `security-sensitive: <topics>`. Every round gets `--requirements <path>`,
-   never a list. /final-review gets this original file.
+   `security-sensitive: <topics>`. Every review, the Trivial sweep included,
+   gets `--requirements <path>`, never a list or a copy. /final-review gets this original file.
 2. A PR that changes a skill gets a dry run, in parallel with round 1: a fresh
    `subagent_type: reviewer` agent reads the changed `SKILL.md` from the
    branch, not the installed copy, follows it step by step on a realistic

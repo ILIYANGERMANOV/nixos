@@ -9,7 +9,8 @@ hands the question back. You sort it. Only you spawn researchers.
 Paste this paragraph into every implementer, refactorer and fixer brief:
 
 > A question that blocks your work and that the repo, this brief and the plan
-> do not settle: stop at once. Commit and push the work you have, if any, as a
+> do not settle, or choosing differently from a decision the plan states:
+> stop at once. Commit and push the work you have, if any, as a
 > normal commit with no WIP marker and `Remaining: <what is left>` in its
 > body, plus `(does not build yet)` when it does not build.
 > Start your hand-back with `NEEDS_DECISION <question>`, then that commit, what
@@ -27,12 +28,15 @@ passes nothing of it to its reviewers:
 > as usual.
 
 A question that does not block stays in the hand-back's prose, as the role
-says. A refactorer's proposals are not blockers: step 6 asks about them.
+says, and you still triage it below. A refactorer's proposals are not
+blockers: step 6 asks about them.
 
 ## Triage
 
 Read the question and its evidence, then pick exactly one row. Log it in the
-progress file.
+progress file. Before `READY` or `gh pr ready`, every open decision, a
+hand-back's prose question included, has its row and is done; none is handed on
+as prose in the PR body or a hand-back.
 
 | You find | Kind | Arrow |
 |---|---|---|

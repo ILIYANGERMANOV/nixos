@@ -34,6 +34,10 @@ CI. You own the outcome; the user owns the decisions.
   then skips what `${CLAUDE_SKILL_DIR}/references/trivial.md` lists, else
   `Size: Normal`. Ambiguity, or anything the user might want different, still
   gets a question.
+- **One plan text.** The plan exists once, as a file: your brief or a plan
+  file you were given, else `plan.md` in the notes directory, written in step
+  3. Never write a second plan beside one. Every brief and review prompt names
+  its path and never inlines it; the PR body is the user's copy.
 - **Stuck guard.** No loop has a cap of its own: the CI fix, a re-plan,
   refactor in this PR, a blocker resume and the review rounds repeat while each
   round makes progress. The progress file logs each round's failing check or
@@ -104,13 +108,19 @@ with the technical design questions a PRD would settle: interfaces, data model,
 failure modes, what is out of scope. Fold in research results as they land.
 Skip grilling's last confirmation: step 3 is the only one.
 
+An issue in the design-issue format (`## Decisions`, `## Open questions`), from
+the user or `/architect`, has settled its Decisions: never re-ask them. Interview
+only its Open questions and the gaps research opens, then confirm once.
+
 ### 3. Confirm the plan
 
 Unless told, or on a re-plan, ask Quality first with one `AskUserQuestion`,
 Balanced recommended.
 
-Write the plan: goals, the approach and the standards it follows, decisions,
-out of scope, Quality, and a file tree of the files it adds or changes.
+Write the plan to `plan.md`: goals, the approach and the standards it follows,
+decisions, out of scope, Quality, and a file tree of the files it adds or
+changes. A design issue's Goal, Decisions, Out of scope and Acceptance criteria
+carry over as they stand.
 
 **Simplify pass**, then **alternative**, as your Quality row's Proposals say: one
 background `subagent_type: researcher` agent each, one after the other, whose
@@ -149,7 +159,7 @@ Delegate to `subagent_type: implementer` agents, as your Quality row's Implement
 self-contained slice, because splitting exploring from implementing makes it
 re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
-ordering between them. Give each the plan, its slice, the targeted checks to run
+ordering between them. Give each the plan's path, its slice, the targeted checks to run
 (never the full check), the stop rule, and the research notes paths and the
 sections it needs.
 It starts with `engineering` loaded, does a small slice itself and splits a large
@@ -204,8 +214,10 @@ draft, not merge-ready, with no next steps.
 - On green, mark the PR ready with `gh pr ready <n>` and notify the user the way
   your instructions describe, listing optional next steps, each line ready to
   paste: `/qa <PR URL>` in a fresh session for a UI or runtime change,
-  `/final-review --requirements <path> <PR>`, and `/give-feedback <PR>`. Only
+  `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`, and
+  `/address-pr-feedback <PR>` when the PR has comments from anyone else. Only
   the user runs them.
+- Before `gh pr ready`, every open decision is triaged as `blockers.md` says.
 
 ## Delegated
 
@@ -215,7 +227,7 @@ rest of this skill.
 
 - Your brief's `Size:` line is set: you never judge it, only move a Trivial
   task to Normal as `trivial.md` says.
-- Read the brief first. Start at step 4, on its base branch and in its worktree:
+- Read the brief first: it is the plan, so write no `plan.md`. Start at step 4, on its base branch and in its worktree:
   the worktree exists, so skip the branching and open the draft PR with
   `--repo <repo> --head <branch> --base <base>`, and give both POC label
   commands `--repo <repo>`. Do not attach it to the session: your caller
