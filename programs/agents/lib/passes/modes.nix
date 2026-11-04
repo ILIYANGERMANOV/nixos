@@ -41,7 +41,9 @@ let
 
   allowedIn =
     file:
-    lib.concatMap (entry: entry.labels) (lib.filter (entry: toString entry.file == toString file) allowed);
+    lib.concatMap (entry: entry.labels) (
+      lib.filter (entry: toString entry.file == toString file) allowed
+    );
 
   findings =
     file:
@@ -49,7 +51,9 @@ let
       text = lib.fileContents file;
       labels = lib.filter (label: label != null) (map branch (lib.splitString "\n" text));
     in
-    map (phrase: "${toString file} holds `${phrase}`") (lib.filter (phrase: lib.hasInfix phrase text) phrases)
+    map (phrase: "${toString file} holds `${phrase}`") (
+      lib.filter (phrase: lib.hasInfix phrase text) phrases
+    )
     ++ map (label: "${toString file} opens a line with `${label}`") (
       lib.filter (label: !lib.elem label (allowedIn file)) labels
     );
