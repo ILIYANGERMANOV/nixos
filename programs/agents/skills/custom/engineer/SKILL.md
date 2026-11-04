@@ -27,15 +27,20 @@ CI. You own the outcome; the user owns the decisions.
 - **Notes directory.** `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug being
   the branch name, from step 1: research notes, proposals, requirements and,
   from step 4, the progress file `blockers.md` describes, in every mode.
-- **Quality** is in your instructions. It goes in every brief, the review and
-  `refactor` prompts included. The mode table below and the branches in the
-  steps are all it changes here.
-- **Trivial** is in your instructions too. You assign it, and a skill may
-  activate it on its own input, whatever the mode. Judge it before
-  step 1 from the prompt and at most 5 lookups, and again at any later step. A
-  task that qualifies follows `${CLAUDE_SKILL_DIR}/references/trivial.md` instead
-  of the steps below.
-  Ambiguity, or anything the user might want different, still gets a question.
+- **Quality and Size** are in your instructions. Both lines go in every brief,
+  the review and `refactor` prompts included. Your row in the Quality table
+  says what each step runs. You set Size, once, before step 1, from the prompt
+  and at most 5 lookups: `Size: Trivial` when the Trivial rule holds, which
+  then skips what `${CLAUDE_SKILL_DIR}/references/trivial.md` lists, else
+  `Size: Normal`. Ambiguity, or anything the user might want different, still
+  gets a question.
+- **Stuck guard.** No loop has a cap of its own: the CI fix, a re-plan,
+  refactor in this PR, a blocker resume and the review rounds repeat while each
+  round makes progress. The progress file logs each round's failing check or
+  chosen rows with the head SHA. A round that ends with the same failing check
+  or the same row as the round before, on an unchanged head SHA, is stuck: ask
+  the user, or when delegated hand back `NEEDS_DECISION stuck: <check or row>`.
+  A re-plan does not reset it.
 - **You answer the skills you invoke.** `pragmatic-review`'s pickers ask which
   findings survive and what to do with them, and its open questions what a
   test is meant to prove. Answer those yourself - unless the answer is a
@@ -58,7 +63,7 @@ CI. You own the outcome; the user owns the decisions.
 
 ## States
 
-Each step is a state. A mode skips arrows, never adds them.
+Each step is a state. Quality and Size skip arrows, never add them.
 
 | Step | State | Arrows out |
 |---|---|---|
@@ -72,17 +77,11 @@ Each step is a state. A mode skips arrows, never adds them.
 | 9 | DraftPR | `pr-description` and notify: 10 |
 | 10 | PR | green CI: ready and notify; CI issues: `review.md`'s CI fix, then CI again |
 | any | blocker | a worker's `NEEDS_DECISION`: triage in `blockers.md` |
+| any | stuck | the stuck guard above: ask |
 
-| Mode | Proposals (3) | Refactor (6) | Re-reviews (8) |
-|---|---|---|---|
-| Max | simplify, then alternative | yes | up to 3 |
-| Balanced | simplify, then alternative | above about 100 changed lines | up to 2 |
-| POC | simplify only | one quick pass | 1, blockers only fixed |
-| Trivial | none, plan inline | no | 0, one quick review with security |
-
-Every mode keeps the quick security review, the blocker arrows, fact-gap
-research and the final small fix. A re-plan from a blocker follows this table
-too.
+Every Quality and Size keeps the quick security review, the blocker arrows,
+fact-gap research and the final small fix. A re-plan from a blocker follows
+your Quality row too.
 
 ## Steps
 
@@ -93,8 +92,8 @@ research topics: the code the task touches, how similar things work today,
 the external systems involved, the standards that apply. You plan the topics
 yourself, also when the prompt only names what to research. Launch one
 `subagent_type: researcher` agent per group, in the background, one first and
-the rest after it. Its prompt and how many agents a Quality gets: `## Callers` and `## Budget` in
-`~/.claude/skills/researcher/SKILL.md`, those sections only. An answer in step
+the rest after it, as many as your Quality row's Researchers. Its prompt:
+`## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section only. An answer in step
 2 that opens a new fact gap gets research too, on demand.
 
 ### 2. Interview
@@ -113,7 +112,7 @@ Balanced recommended.
 Write the plan: goals, the approach and the standards it follows, decisions,
 out of scope, Quality, and a file tree of the files it adds or changes.
 
-**Simplify pass**, then **alternative**, as the mode table says: one
+**Simplify pass**, then **alternative**, as your Quality row's Proposals say: one
 background `subagent_type: researcher` agent each, one after the other, whose
 prompt names `~/.claude/skills/researcher/references/proposal.md`, the mode
 (`simplify`, then `alternative`), `Quality: <mode>`, the plan path, the notes
@@ -135,7 +134,7 @@ approach changed, then confirm again. Done when the user picks a plan. Both
 
 Branch from `origin/main`, commit the first change (or an empty commit),
 push, and open a **draft** PR whose body is the agreed plan:
-goals, decisions, out of scope, `Quality: <mode>` and the **acceptance criteria** - each goal as
+goals, decisions, out of scope, the `Quality:` and `Size:` lines and the **acceptance criteria** - each goal as
 a checkable statement, input to observable outcome. When the plan touches
 auth, sessions, authorization, databases, secrets or CI, it also states
 `Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
@@ -146,7 +145,7 @@ progress file.
 
 ### 5. Implement
 
-Delegate to `subagent_type: implementer` agents. POC: exactly one. One implementer explores and implements a
+Delegate to `subagent_type: implementer` agents, as your Quality row's Implement says. One implementer explores and implements a
 self-contained slice, because splitting exploring from implementing makes it
 re-read everything. A very large task gets several implementers, one after
 another, or in parallel only when they are independent - no shared files, no
@@ -164,8 +163,8 @@ preloaded, whose prompt is "run `refactor` with: Quality: <mode>" and the stop
 rule, so its reading stays out of your context. Keep only its hand-back. Bring
 its proposals, the bigger refactors past the diff, to the user as one question
 with their scope and payoff: in this PR, a follow-up, or drop. In this PR is a
-re-plan: the decision path in `blockers.md`. The mode table says when this
-step runs.
+re-plan: the decision path in `blockers.md`. Your Quality row's Refactor says
+when this step runs.
 
 ### 7. Review
 
@@ -174,8 +173,8 @@ says: requirements file, dry run, review-lead, then the rows you pick.
 
 ### 8. Fix and review again
 
-The rounds after it and the final small fix, as `review.md` says, up to the
-mode's cap.
+The rounds after it and the final small fix, as `review.md` says, up to your
+Quality row's Re-reviews.
 
 ### 9. Describe and notify
 
@@ -214,8 +213,8 @@ Only when your brief says delegated. A caller did steps 1-3 and owns the user:
 the brief holds the decided plan. This section wins where it clashes with the
 rest of this skill.
 
-- A brief may say Trivial, as `Quality: <mode>, Trivial`: follow
-  `${CLAUDE_SKILL_DIR}/references/trivial.md` and its Delegated section.
+- Your brief's `Size:` line is set: you never judge it, only move a Trivial
+  task to Normal as `trivial.md` says.
 - Read the brief first. Start at step 4, on its base branch and in its worktree:
   the worktree exists, so skip the branching and open the draft PR with
   `--repo <repo> --head <branch> --base <base>`, and give both POC label
@@ -230,9 +229,10 @@ rest of this skill.
   epic child never sweeps in a sibling's work: step 6 passes `refactor` that
   base ref, steps 7 and 8 pass `pragmatic-review` the PR URL, and step 9 passes
   the base ref to `pr-description`.
-- Step 9 rewrites the body and notifies nobody. From step 10 run only the full
-  check, the way your instructions tell a subagent to run a long command. Then
-  stop, before the CI wait. The gates, `gh pr ready`, next steps and
+- Step 9 rewrites the body and notifies nobody. Step 10 is only its full check
+  rule: when it calls for one, hand back the check's name, since you are past
+  about 60k tokens; your caller runs it in a fresh `checker`. Then stop, before
+  the CI wait. The gates, `gh pr ready`, next steps and
   notifications are your caller's.
 - Never call `AskUserQuestion`. Answered and fact blockers you settle inside; a
   decision or scope one, or any decision the rest of this skill sends to the

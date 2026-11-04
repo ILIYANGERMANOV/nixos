@@ -10,9 +10,10 @@ paths:
 
 - `instructions/agent.md` - what every agent gets, subagent roles included.
   `lead.md` and `topics/trivial.md` are for the agent leading a session, with
-  `trivial.md` also in `review-lead`. Plain committed markdown.
-- Trivial tasks spawn at most one small researcher, for a fact gap, and skip
-  the process skills, by `topics/trivial.md`. It keeps skill and instruction edits out of Trivial
+  `trivial.md` also in `engineer` and `review-lead`. Plain committed markdown.
+- `agent.md`'s Quality table is the only place a mode changes a step; skills
+  and roles read their row. `Size: Trivial` skips steps, by
+  `topics/trivial.md`. It keeps skill and instruction edits out of Trivial
   unless they are typos, so a change here is never Trivial.
 
 ### Laws (`lib/`)
@@ -30,6 +31,9 @@ paths:
   appends a list.
 - `passes/dedup.nix` - a guard, not a transformer: it throws if a folded profile
   still holds a skill twice or one file at two layers.
+- `passes/modes.nix` - a guard: it throws if a skill or role file, self-improve
+  aside, holds a mode table row, the old `, Trivial` suffix or a self-activation
+  phrase.
 - `passes/budget.nix` - the agnostic size budget (`agents-frontend.md`).
 - `role.nix` - `mkRole` throws on any unknown field, capability, tier or
   effort: a backend's format may ignore a misspelled field, and a dropped

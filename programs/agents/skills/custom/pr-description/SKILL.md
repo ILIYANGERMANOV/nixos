@@ -66,10 +66,8 @@ credentials, tokens or what CI already shows; leave it as the template has it.
   sit, the trade-offs taken, and what the reviewer cannot see in the diff.
   Never a file-by-file walkthrough; name a file only when the reader must
   look at it.
-- **Trivial short form** - a brief saying `Trivial`, or a diff that qualifies by
-  the Trivial rule in your instructions, read from the facts above, unless the
-  brief says `not Trivial`: What & Why, Proofs and Merge Danger. Omit the whole
-  How section only here.
+- **Trivial short form** - a brief saying `Size: Trivial`: What & Why, Proofs
+  and Merge Danger. Omit the whole How section only here.
 - **Proofs / Reproducible** - each test added or changed: its type (unit,
   property, differential, end-to-end), where it lives and what it covers. Where
   a change has none, one line saying why. A test neither CI nor you ran is

@@ -62,11 +62,11 @@ leave that repo out and tell the user.
 
 List what you need to know, the standards that apply included, and group it
 into topics; you plan them yourself. A
-task that plainly qualifies as Trivial needs none. One `subagent_type: researcher`
+`Size: Trivial` task needs none. One `subagent_type: researcher`
 agent per group, in the background, given each repo's clone path, with notes
-under `/tmp/<unique-dir>/`. Its prompt and how many agents a Quality gets:
-`## Callers` and `## Budget` in `~/.claude/skills/researcher/SKILL.md`, those
-sections only. Check that each repo's CI runs on PRs to `epic/*` before planning
+under `/tmp/<unique-dir>/`, as many as your Quality row's Researchers. Its
+prompt: `## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section
+only. Check that each repo's CI runs on PRs to `epic/*` before planning
 an epic there; if it does not, say so in the breakdown.
 
 ### 3. Spikes
@@ -89,8 +89,8 @@ ledger:
 | Task | one deliverable, its issues, acceptance criteria, the standards it follows |
 | Repo, deps, wave | what must merge first |
 | Shape | independent PR to `main`, or child of `epic/<name>` |
-| Quality | POC, Balanced or Max; ask unless told, Balanced recommended; a Trivial task needs no question |
-| Trivial | yes when it qualifies by your instructions' rule: your call, never a question |
+| Quality | POC, Balanced or Max; ask unless told, Balanced recommended; a `Size: Trivial` task needs no question |
+| Size | Trivial when it qualifies by your instructions' rule, else Normal: your call, set once, never a question |
 | QA | yes or no |
 | Heavy | Gradle or Next.js build: yes or no |
 | Security-sensitive | topics from `ci`, `auth`, `database`, `secrets`, or none |
@@ -104,13 +104,13 @@ tasks share is written into both briefs before they start.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-**Simplify pass.** Per task that is not Trivial, one `researcher` agent whose
+**Simplify pass.** Per `Size: Normal` task, one `researcher` agent whose
 prompt names `~/.claude/skills/researcher/references/proposal.md`, mode
 `simplify`, its plan and the notes paths. You pick among its `Considered options` where section 6's
 Rule test holds; a real trade-off is the user's, asked as section 6 escalates.
 
 Show the breakdown, phone-sized, with a file tree of what each task adds or
-changes and, per task, those options with their trade-offs. A Trivial task stays in the table, the pre-flight and
+changes and, per task, those options with their trade-offs. A `Size: Trivial` task stays in the table, the pre-flight and
 the confirmation. Confirm with one `AskUserQuestion` ("Yes, start
 (Recommended)" / "No, adjust"), repeating until clear. No engineer starts
 before this, except a base fix (section 7). Record the confirmation in the
@@ -125,8 +125,8 @@ Dispatch by wave, dependencies first:
   only when both caps hold; the rest stay `queued`. A task with an unmerged
   dependency or an open decision waits.
 - Worktree, brief and spawn prompt: `${CLAUDE_SKILL_DIR}/references/brief.md`.
-- A Trivial task is one engineer on the fast track, under the same caps. A fix
-  that qualifies gets `, Trivial` too, whatever its task's Quality.
+- A `Size: Trivial` task is one engineer on the fast track, under the same
+  caps. A fix that qualifies gets `Size: Trivial` too, whatever its task's Size.
 
 ### 6. Triage hand-backs
 
@@ -140,8 +140,8 @@ task's `Held` notes, and fill the free slot.
 | `BLOCKED <reason>` | Clear it if the brief or a tool can, else escalate |
 | `FAILED <reason>` | Failures |
 
-A hand-back saying `Trivial dropped: <why>` is not a decision: set the task's
-`Trivial` to no, one way, and put the why in its queue entry.
+A hand-back saying `Size: Normal, grew: <why>` is not a decision: set the
+task's Size to Normal for good, and put the why in its queue entry.
 
 **Rule** only when both hold: the brief, plan, repo rules or an earlier user
 answer settle it, and it is cheap to undo. Log
@@ -177,7 +177,7 @@ later status never closes it. Other tasks keep moving.
 
 For each `READY` PR, the steps /engineer leaves to a session that can ask. Read
 `### 10. Hand over` in `~/.claude/skills/engineer/SKILL.md` once for the exact
-gates; do not invoke that skill. A Trivial task takes every step here and section
+gates; do not invoke that skill. A `Size: Trivial` task takes every step here and section
 9's gates unchanged.
 
 1. `subscribe_pr_activity`, then `gh pr checks <n> --repo <owner>/<repo>` once,

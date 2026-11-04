@@ -27,6 +27,14 @@ let
     inherit pkgs lib;
     instructions = instructionsLib;
   };
+  modesLib = import ./lib/passes/modes.nix {
+    inherit pkgs lib;
+    roots = [
+      ./skills/custom
+      ./roles
+    ];
+    exempt = [ ./skills/custom/self-improve ];
+  };
   budget = import ./lib/passes/budget.nix {
     inherit pkgs lib roles;
     inherit (instructionsLib) renderRole;
@@ -122,6 +130,10 @@ in
     {
       name = "dedup";
       path = dedupLib.check;
+    }
+    {
+      name = "modes";
+      path = modesLib.check;
     }
     {
       name = "mcp";

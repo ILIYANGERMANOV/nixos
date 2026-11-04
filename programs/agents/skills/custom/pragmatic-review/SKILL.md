@@ -37,10 +37,11 @@ Your prompt, or the arguments, may hold, in any order:
 - **`--fixes <sha>`** - this is a re-review of the fixes made since the
   previous round, whose head was `<sha>`, the `Reviewed head` line of its
   return. Without it, this is a first review.
-- **`Quality: <mode>`** - your instructions define it; `first-pass.md` and
-  `fixes.md` branch on it. `, Trivial` after the mode says the caller runs the
-  fast track; `, not Trivial` turns the Trivial check off. Neither makes a diff
-  qualify: the check reads the diff.
+- **`Quality: <mode>`** - your row in the Quality table says which agents run;
+  `first-pass.md` and `fixes.md` say how.
+- **`Size: Trivial`** - the caller runs the fast track: `first-pass.md`'s
+  Trivial sweep replaces the agents. It never makes a diff qualify: the sweep
+  reads the diff.
 - **`--requirements <path>`** - a file holding the requirements, the form every
   calling agent uses; a re-review's adds the "finding N is fixed" lines. Read
   it once.
@@ -90,21 +91,21 @@ diff; a pre-existing one gets one line under the table and does not block.
 `first-pass.md` sets how deep it digs: the sensitive tier gets a DEEP blockers
 agent that loads, on demand, the topic references the diff matches (CI, auth,
 database, secrets) plus common attacks. A `security-sensitive: <topics>`
-requirement forces DEEP and those topics, except at POC.
+requirement forces DEEP and those topics, unless your Quality row's DEEP security says never.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
 `engineering` or `ui-coding`, DRY included, is a finding, judged on the rule
 quoted verbatim. It is Minor, unless the bar makes it a Major **data-model
-violation**. Balanced checks this only on the diffs `first-pass.md` names.
+violation**. Your Quality row says which diffs get this check.
 
 ## The flow
 
 - **First review:** follow `references/first-pass.md` - write the diff once,
-  pick the tier, route, check for Trivial, group the requirements, spawn, judge.
+  pick the tier, route, sweep on `Size: Trivial`, group the requirements, spawn, judge.
 - **Re-review (`--fixes`):** follow `references/fixes.md` - one agent on the fix
   diff, unless the fixes are large.
 
-Both end in the report below, then the pickers. `Escalate` ends the review
+Both end in the report below, then the pickers. `GREW` ends the review
 instead: it is the whole return, with the `Reviewed head` line.
 
 ## The report

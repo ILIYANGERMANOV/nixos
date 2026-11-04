@@ -16,17 +16,32 @@ Base instructions for every agent.
 
 ## Quality
 
-Every brief carries `Quality: <mode>`; a brief with no mode means Balanced. An
-agent may lower or raise it for a subtask. A skill's text is Max: it names only
-what Balanced, POC and Trivial change, and no branch means as written.
+Every brief carries two knobs. `Quality: <mode>` is the user's: POC, Balanced
+(the default) or Max; an agent may lower or raise it for a subtask. This table
+is the only place a mode changes a step: a skill reads its row for what, its
+own text says how.
 
-- **POC**: prove the idea cheaply. Quick passes with no DEEP security pass,
-  then a PR labelled `POC`, not merge-ready and never auto-merged.
-- **Balanced** (default): fewer review agents and rounds. Security depth stays.
-- **Max**: every step.
+| Step | POC | Balanced | Max |
+|---|---|---|---|
+| Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 3, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |
+| Proposals | simplify | simplify, alternative | simplify, alternative |
+| Implement | one implementer, one happy-path proof as its test | as planned | as planned |
+| Refactor | quick: items 1-3, no `tests.md` | above about 100 changed lines | always |
+| Skill dry run | never | new or rewritten skill | any skill change |
+| Review agents | one breaker | blockers; house rules, tests where they apply; up to 2 requirement groups | all, one per group |
+| Re-reviews | 1, blockers fixed only | up to 2 | up to 3 |
+| Full review of a fix to | interface, data model, auth | data model, auth | interface, data model, auth |
+| Large fix widens on | rewritten history | rewritten history | history, size, file count |
+| DEEP security | never | where tier or requirement says | where tier or requirement says |
+| Result | draft labelled `POC`, not merge-ready | merge-ready | merge-ready |
 
-`, Trivial` after the mode marks a small task's fast track. Your skill or brief
-says what it skips.
+Changed lines are additions plus deletions (`gh pr view --json
+additions,deletions`), generated lockfiles aside.
+
+`Size: Trivial|Normal` is the second knob, Normal when absent. Only the
+engineer leading the task sets it, once; briefs pass it on. Trivial only skips
+steps. A worker that finds a Trivial task bigger than briefed starts its
+hand-back with `GREW <why>`, and the engineer sets Normal for good.
 
 ## Subagents
 

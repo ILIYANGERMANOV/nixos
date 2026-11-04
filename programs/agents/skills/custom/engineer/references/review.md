@@ -1,8 +1,8 @@
 # The review loop
 
 Steps 7 and 8, and step 10's CI fix. You drive the loop: a fresh review-lead
-per round, a fixer between rounds. The cap is the mode's re-reviews in the
-skill's mode table.
+per round, a fixer between rounds. The cap is your Quality row's Re-reviews,
+and the skill's stuck guard ends any round that makes no progress.
 
 ```
 7 first review --rows--> 8 rounds left: fixer, --fixes review --rows--> 8 ...
@@ -26,8 +26,8 @@ skill's mode table.
    `subagent_type: reviewer` agent reads the changed `SKILL.md` from the
    branch, not the installed copy, follows it step by step on a realistic
    task, with no push or other outside effect, and reports each step it could
-   not follow or that misled it. Its findings join round 1's rows. Balanced:
-   only for a new or rewritten skill. POC: never.
+   not follow or that misled it. Its findings join round 1's rows, when your
+   Quality row's Skill dry run says so.
 3. A fresh `subagent_type: review-lead` agent, prompt "invoke
    `pragmatic-review` with: Quality: <mode> <arguments>", plus the review-lead
    line in `blockers.md`. Never load that skill yourself.
@@ -38,8 +38,8 @@ skill's mode table.
 You answer the pickers by acting on the table yourself. Never reply to the
 review agent with an action. Choose the rows worth fixing. Every surviving
 house-rule row is fixed, or the reason for leaving it goes in the PR body.
-POC: a fixer gets blockers only (security, irreversible damage, broken code);
-every other row goes in `## Follow-ups`. No row chosen ends the loop: step 9.
+When your Quality row fixes only blockers (security, irreversible damage,
+broken code), every other row goes in `## Follow-ups`. No row chosen ends the loop: step 9.
 
 A return that starts `NEEDS_DECISION plan wrong`: fix no row, security
 included. Log its rows in the progress file and triage the line. The
@@ -57,22 +57,23 @@ Cap reached: the chosen rows go to the final small fix only. Rounds left:
 3. A fresh review-lead invokes `pragmatic-review` with
    `--fixes <the previous round's Reviewed head>` and the copy. A requirement
    it answers "unchanged" keeps its latest verdict.
-4. A fix that changed an interface, a data model or an auth flow gets a first
-   review of the whole branch instead, as round 1 does. It counts as a round.
-   Balanced: only a data-model or auth fix does.
-5. Record the round, its `Reviewed head` and its verdicts. Pick rows again.
+4. A fix your Quality row's Full review of a fix to names gets a first review
+   of the whole branch instead, as round 1 does. It counts as a round.
+5. Record the round, its `Reviewed head`, its chosen rows and its verdicts.
+   Check the stuck guard, then pick rows again.
 
 ## Final small fix
 
 After the last allowed review, in every mode: one fixer fixes what is safe and
-small, and nothing reviews it. Security rows are always fixed. POC: blockers
-only, as Picking rows says. Every other surviving house-rule row, Major row or
+small, and nothing reviews it. Security rows are always fixed, and blockers
+only when your Quality row says so, as Picking rows says. Every other surviving house-rule row, Major row or
 Not met verdict you do not fix goes in `## Follow-ups`, with the reason. Size decides fix or record, never drop. A row
 that blocks the feature is a blocker: triage it.
 
 ## CI fix (step 10)
 
-A CI failure goes to a fixer. Rounds left: a `--fixes` review of that fix, as
+A CI failure goes to a fixer. Log the failing check and the head SHA in the
+progress file and check the stuck guard. Rounds left: a `--fixes` review of that fix, as
 in step 8, and step 8's loop on its rows. Rows at the cap: the final small fix.
 Then back to the CI wait in step 10, never to step 9. Cap reached: straight
 back to the CI wait. A fixer rewrites the PR body only if the fix changed what

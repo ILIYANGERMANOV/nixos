@@ -13,7 +13,7 @@ what you read. You run as a `researcher` agent, with this text loaded, or as
 ## Callers
 
 Read this section and Budget only. Spawn with `subagent_type: researcher`, one
-agent per group of questions, merging groups to fit Budget's Agents, and no
+agent per group of questions, merging groups to fit Budget's agent count, and no
 agent when no decision depends on the answer. An implementer explores its own
 slice. The prompt holds:
 
@@ -24,19 +24,10 @@ slice. The prompt holds:
 
 ## Budget
 
-Agents is per task, the rest per agent. Notes writes are not tool calls. Stay
-under about 60k tokens of context above your start.
-
-| Quality | Agents | Tool calls | Notes |
-|---|---|---|---|
-| Trivial | none: at most 5 lookups by the caller | 5 | none |
-| POC | 1 for all topics | 8 | only past the hand-back limit |
-| Balanced | up to 3 | 15, about 4 per question | yes |
-| Max | one per group | 30 | yes, then re-check the top 5 facts |
-
-**Trivial.** In any mode, your prompt says Trivial or the questions plainly fit
-5 lookups: answer them in the hand-back, with no notes file. At 5 lookups, stop:
-hand back the rest as Unknown and say the task may not be Trivial.
+Your row in the Quality table's Researchers: its agent count is per task, its
+tool calls and notes per agent. Notes writes are not tool calls. Stay under
+about 60k tokens of context above your start. Questions that plainly fit 5
+lookups get their answers in the hand-back, with no notes file.
 
 ## Process
 

@@ -35,17 +35,9 @@ The fixes are **large** when any of these holds:
 - `<prev-head>` is not an ancestor of the head, so history was rewritten and
   the fix diff no longer isolates the fixes.
 
-Large fixes get a full review: run `references/first-pass.md` on the whole
-branch, and say in one line under the assumptions why. Otherwise continue here.
-Balanced: size alone does not widen this pass, only rewritten history does.
-POC: as Balanced.
-
-**Trivial.** Unless your arguments say `not Trivial`, run the Trivial check of
-`first-pass.md` over the fix diff, at the higher of its tier and any tier the
-caller names; "finding N is fixed" is one more requirement. Its size limit reads
-the whole branch, `--shortstat` from the merge base. A fix diff that
-qualifies takes that fast path instead of section 3. One that does not returns
-`Escalate` when your arguments say `, Trivial`, else goes on to section 3.
+Large fixes get a full review when your row in the Quality table's Large fix
+widens on names what made them large: run `references/first-pass.md` on the whole branch,
+and say in one line under the assumptions why. Otherwise continue here.
 
 ## 3. Review the fix diff yourself
 
