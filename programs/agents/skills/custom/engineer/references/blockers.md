@@ -16,6 +16,10 @@ Paste this paragraph into every implementer, refactorer and fixer brief:
 > Start your hand-back with `NEEDS_DECISION <question>`, then that commit, what
 > you tried and the evidence paths. Spawn no researcher. Pass this paragraph to
 > any agent you spawn, and relay its `NEEDS_DECISION` as-is.
+> On `Size: Trivial`, work bigger than briefed is `GREW <why>`: stop the same
+> way, after committing and pushing what you have, and start your hand-back
+> with that line. With a `NEEDS_DECISION`, that line comes first and `GREW`
+> on the next. Relay a spawned agent's `GREW` as-is.
 
 A review-lead brief, the Trivial sweep's included, gets this line instead, and
 passes nothing of it to its reviewers:
@@ -49,8 +53,8 @@ as prose in the PR body or a hand-back.
 role with its brief, the answer, the delta plan when there is one, and
 "continue from commit `<sha>`: its body says what remains; when it says it
 does not build, make it build first". Commits are never reverted unless the
-user asks. The same question back on an unchanged head trips the skill's
-stuck guard.
+user asks. The same question back in 2 rounds in a row, whatever the commit,
+trips the skill's stuck guard.
 
 **Fact path.** No user question.
 

@@ -1,8 +1,9 @@
 # The review loop
 
 Steps 7 and 8, and step 10's CI fix. You drive the loop: a fresh review-lead
-per round, a fixer between rounds. The cap is your Quality row's Re-reviews,
-and the skill's stuck guard ends any round that makes no progress.
+per round, a fixer between rounds. Your Quality row's Re-reviews count the
+rounds; the skill's stuck guard ends the loop early when the same row comes
+back in 2 rounds in a row.
 
 ```
 7 first review --rows--> 8 rounds left: fixer, --fixes review --rows--> 8 ...
@@ -40,7 +41,8 @@ You answer the pickers by acting on the table yourself. Never reply to the
 review agent with an action. Choose the rows worth fixing. Every surviving
 house-rule row is fixed, or the reason for leaving it goes in the PR body.
 When your Quality row fixes only blockers (security, irreversible damage,
-broken code), every other row goes in `## Follow-ups`. No row chosen ends the loop: step 9.
+broken code), every other row goes in `## Follow-ups`. A Not met verdict
+never does: `Not met always` below. No row chosen ends the loop: step 9.
 
 A return that starts `NEEDS_DECISION plan wrong`: fix no row, security
 included. Log its rows in the progress file and triage the line. The
@@ -67,9 +69,16 @@ Cap reached: the chosen rows go to the final small fix only. Rounds left:
 
 After the last allowed review, in every mode: one fixer fixes what is safe and
 small, and nothing reviews it. Security rows are always fixed, and blockers
-only when your Quality row says so, as Picking rows says. Every other surviving house-rule row, Major row or
-Not met verdict you do not fix goes in `## Follow-ups`, with the reason. Size decides fix or record, never drop. A row
+only when your Quality row says so, as Picking rows says. Every other surviving house-rule row or Major row you
+do not fix goes in `## Follow-ups`, with the reason. Size decides fix or record, never drop. A row
 that blocks the feature is a blocker: triage it.
+
+## Not met always
+
+A Not met verdict on a requirement or a plan decision never goes in
+`## Follow-ups`, in any mode, `Size: Trivial` included: a fixer fixes it, then
+one `--fixes` review checks it, as step 8 does, at the cap too. A Not met it cannot fix is a
+blocker: triage it.
 
 ## CI fix (step 10)
 
@@ -77,5 +86,6 @@ A CI failure goes to a fixer. Log the failing check and the head SHA in the
 progress file and check the stuck guard. Rounds left: a `--fixes` review of that fix, as
 in step 8, and step 8's loop on its rows. Rows at the cap: the final small fix.
 Then back to the CI wait in step 10, never to step 9. Cap reached: straight
-back to the CI wait. A fixer rewrites the PR body only if the fix changed what
+back to the CI wait. The CI fix has no count of its own: only the stuck guard
+ends it. A fixer rewrites the PR body only if the fix changed what
 it says. Notify only on ready.

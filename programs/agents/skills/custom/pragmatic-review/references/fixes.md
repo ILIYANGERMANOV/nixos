@@ -30,7 +30,8 @@ ends the review: report "no changes since `<prev-head>`".
 
 The fixes are **large** when any of these holds:
 
-- more than 300 changed lines (insertions plus deletions in `--shortstat`);
+- more than 300 changed lines, as the Quality table's note defines them
+  (insertions plus deletions in `--shortstat`, generated lockfiles aside);
 - more than 10 files;
 - `<prev-head>` is not an ancestor of the head, so history was rewritten and
   the fix diff no longer isolates the fixes.

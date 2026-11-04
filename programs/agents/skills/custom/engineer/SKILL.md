@@ -38,13 +38,14 @@ CI. You own the outcome; the user owns the decisions.
   file you were given, else `plan.md` in the notes directory, written in step
   3. Never write a second plan beside one. Every brief and review prompt names
   its path and never inlines it; the PR body is the user's copy.
-- **Stuck guard.** No loop has a cap of its own: the CI fix, a re-plan,
-  refactor in this PR, a blocker resume and the review rounds repeat while each
-  round makes progress. The progress file logs each round's failing check or
-  chosen rows with the head SHA. A round that ends with the same failing check
-  or the same row as the round before, on an unchanged head SHA, is stuck: ask
-  the user, or when delegated hand back `NEEDS_DECISION stuck: <check or row>`.
-  A re-plan does not reset it.
+- **Stuck guard.** Your Quality row's Re-reviews count the normal review
+  rounds; the CI fix, a re-plan, refactor in this PR and a blocker resume have
+  no count. This guard is the exit for any of them that makes no progress. The
+  progress file logs each round's failing check or chosen rows with the head
+  SHA. The same failing check or the same review row in 2 rounds in a row,
+  whatever the commit, is stuck: ask the user, or when delegated hand back
+  `NEEDS_DECISION stuck: <check or row>`. A fixer that hands back `READY` while
+  the check stays red counts as a round. A re-plan does not reset it.
 - **You answer the skills you invoke.** `pragmatic-review`'s pickers ask which
   findings survive and what to do with them, and its open questions what a
   test is meant to prove. Answer those yourself - unless the answer is a
@@ -110,7 +111,7 @@ Skip grilling's last confirmation: step 3 is the only one.
 
 An issue in the design-issue format (`## Decisions`, `## Open questions`), from
 the user or `/architect`, has settled its Decisions: never re-ask them. Interview
-only its Open questions and the gaps research opens, then confirm once.
+only its Open questions and the gaps research opens; step 3 confirms.
 
 ### 3. Confirm the plan
 
@@ -128,7 +129,8 @@ prompt names `~/.claude/skills/researcher/references/proposal.md`, the mode
 (`simplify`, then `alternative`), `Quality: <mode>`, the plan path, the notes
 paths and the notes directory. The alternative gets the simplified plan's path.
 Take the simplified plan as your first plan; the alternative is the second, or
-the identity when none exists.
+the identity when none exists. Neither pass changes a design issue's settled
+Decisions.
 
 Then confirm once. Show the first plan in a few lines, and the second with its
 trade-off against the first, with your recommendation. A POC touching a

@@ -22,8 +22,9 @@ that varies by mode gets the Quality table.
 
 `Size: Trivial|Normal` is the second knob, Normal when absent. Only the
 engineer leading the task sets it, once. Trivial only skips steps. A worker
-that finds a Trivial task bigger than briefed starts its hand-back with
-`GREW <why>`, and the engineer sets Normal for good.
+other than an engineer that finds a Trivial task bigger than briefed stops, as
+its brief's stop rule says, with `GREW <why>`; the engineer sets Normal for
+good.
 
 ## Subagents
 

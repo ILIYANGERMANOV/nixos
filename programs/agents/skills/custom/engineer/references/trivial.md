@@ -14,7 +14,7 @@ ones included, and only skips. No skip relaxes a gate.
 | 5 | one implementer, no sub-implementers. A bug fix comes with a test that was red before it |
 | 6 | no refactor |
 | 7 | no dry run. One fresh `review-lead`, no children: "invoke `pragmatic-review` with: Quality: <mode> Size: Trivial --requirements <path> <PR URL>", plus the review-lead line in `blockers.md` |
-| 8 | no re-review: the sweep's rows, if any, go to the final small fix |
+| 8 | no re-review: the sweep's rows, if any, go to the final small fix; a Not met verdict follows `review.md`'s `Not met always` |
 | 9 | the body is rewritten only when the fix changed what it says |
 | 10 | a CI failure goes to a fixer and straight back to CI, with no `--fixes` review |
 
@@ -29,9 +29,11 @@ your Quality row. The task stays Trivial.
 New scope first gets the scope question in `blockers.md`: a follow-up or drop
 keeps Trivial, in this PR is a decision.
 
-Move to Normal when a worker hands back `GREW`, the sweep returns a plan-wrong
-line, a diff stops qualifying, a decision appears, or the user asks. It is one
-way:
+Measure the changed lines, as the Quality topic defines them, after step 5
+and whenever a worker hands back `GREW`. Move to Normal when a worker hands
+back `GREW`, the sweep returns a plan-wrong line, a diff stops qualifying, a
+decision appears, or the user asks. A hand-back with both `NEEDS_DECISION` and
+`GREW` goes to triage first. It is one way:
 
 1. Set the PR's and the progress file's line to `Size: Normal`, and add
    `Security-sensitive: <topics>` when one applies. Every later prompt carries
@@ -40,8 +42,10 @@ way:
    - **A decision**, a plan-wrong line or scope taken into this PR included:
      the decision path in `blockers.md`, so step 3 runs with its proposals.
      Put the confirmed plan in the PR body, then go on from step 5.
-   - **Nothing open, the diff only grew:** tell the user why in one line and
-     resume at step 6.
+   - **Nothing open, the diff only grew:** tell the user why in one line.
+     A `GREW` during step 5 resumes its unfinished part, sub-implementers
+     allowed; otherwise resume at step 6.
 
-Delegated: the same, and say `Size: Normal, grew: <why>` in your hand-back. An
+Delegated: you own Size, so move to Normal yourself, the same way, and say
+`Size: Normal, grew: <why>` in your hand-back. An
 open decision or new scope stops there, as `NEEDS_DECISION`.

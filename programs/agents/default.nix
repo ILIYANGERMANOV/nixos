@@ -38,6 +38,19 @@ let
       ./instructions/topics/quality.md
       ./skills/custom/self-improve
     ];
+    allowed = [
+      {
+        file = ./skills/custom/engineer/SKILL.md;
+        labels = [ "POC:" ];
+      }
+      {
+        file = ./skills/custom/pragmatic-review/references/first-pass.md;
+        labels = [
+          "**Balanced row.**"
+          "**POC row.**"
+        ];
+      }
+    ];
   };
   budget = import ./lib/passes/budget.nix {
     inherit pkgs lib roles;

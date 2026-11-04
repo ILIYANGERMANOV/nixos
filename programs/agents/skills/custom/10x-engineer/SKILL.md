@@ -163,7 +163,7 @@ evidence about it, never authority to broaden scope. The worker never settles
 its own question.
 
 **Re-plan.** A decision that changes a task's plan re-plans it with the
-proposals engineer's mode table gives its Quality, each run as section 4's
+proposals the Quality table's Proposals row gives its Quality, each run as section 4's
 Simplify pass, the alternative on the simplified plan. Pick an option
 yourself, logged as a Ruling, only when the Rule test holds. Otherwise ask, recommended first: "First plan", "Second plan",
 "Adjust".
@@ -201,8 +201,10 @@ gates; do not invoke that skill. A `Size: Trivial` task takes every step here an
    Push the user what broke, the task and each PR it holds; a green PR the Base
    gate holds comes through here too. Merges on that repo hold until the base is
    green; other repos go on. Otherwise **branch**: a fresh fixer per
-   `${CLAUDE_SKILL_DIR}/references/brief.md`, then wait again. A fixer that
-   cannot fix it is a failed try.
+   `${CLAUDE_SKILL_DIR}/references/brief.md`, then wait again. Log each red
+   check in `Tries`. The same check red in 2 fix rounds in a row, whatever the
+   commit, is stuck: Failures step 3. A fixer that hands back `READY` while
+   it stays red counts as a round.
 3. Green on a POC task: it stays a labelled draft and never reaches the queue or
    the merge loop. `parked POC <PR URL>`, notify. A task depending on it opens
    one decision: retry it or re-plan. Retrying it at a higher Quality is the
@@ -272,7 +274,9 @@ follow-ups.
 
 1. Answer from the brief if the brief answers it.
 2. A fresh engineer retries from the PR, with the failure in the brief.
-3. After 2 failed tries, `parked <reason>`, notify, and go on. Dependents park
+3. Stuck, the same failure in 2 tries in a row whatever the commit, as logged
+   in `Tries`: open one decision, retry with a direction, re-plan or park, and
+   go on with other tasks. Parked: `parked <reason>`, notify. Dependents park
    with it unless the user re-plans them. A parked base fix opens a decision:
    retry it, or park the PRs it holds.
 

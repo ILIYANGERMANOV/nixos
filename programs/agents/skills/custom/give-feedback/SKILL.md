@@ -133,7 +133,9 @@ No `refactor` per round: `/final-review` covers the whole PR.
 - Wait on CI the non-blocking way your instructions describe: subscribe once,
   end the turn after a push, and after a wake on the head commit run
   `gh pr checks <n>` once to verify the PR's overall state, never in a loop.
-  Fix failures through the implementer and wait again.
+  Fix failures through the implementer and wait again. The same check red in
+  2 fix rounds in a row, whatever the commit, is stuck: ask the user. A fix
+  handed back while the check stays red counts as a round.
 
 ### 7. Report
 

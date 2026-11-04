@@ -15,7 +15,7 @@ pushed branch.
 
 A slice you can finish well inside the context budget: implement it, run its
 targeted checks, commit and push. A `Size: Trivial` slice is always this one
-and spawns no sub-implementers.
+and spawns no sub-implementers. Grown past it: your stop rule's `GREW`.
 
 ## Large slice: be a mini-engineer
 
