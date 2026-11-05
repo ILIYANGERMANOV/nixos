@@ -2106,15 +2106,13 @@ def startup_sizes(agents: list[Agent]) -> Section:
     rows = [
         [kind, str(len(group)), *startup_cells(group)] for kind, group in ranked[:TOP]
     ]
-    largest = max(
-        ranked,
-        key=lambda kv: statistics.median(a.first_context for a in kv[1]),
-        default=None,
-    )
+    p50s = {
+        kind: statistics.median(a.first_context for a in group)
+        for kind, group in ranked
+    }
+    largest = max(p50s, key=p50s.__getitem__, default=None)
     headline = (
-        NONE
-        if largest is None
-        else f"largest p50 {largest[0]} {kilo(statistics.median(a.first_context for a in largest[1]))}"
+        NONE if largest is None else f"largest p50 {largest} {kilo(p50s[largest])}"
     )
     # Parts are chars / 4, at p50.
     header = ["type", "n", "p50", "p90", "instructions", "skill listing", "remainder"]
@@ -2261,10 +2259,10 @@ def cache_rewrites_sections(sessions: list[Session]) -> list[Section]:
     fact = f"{len(rewrites)} rewrites, {kilo(cost)} effective, {share} of the total"
     agent_header = ["session", "type", "description", "rewrites", "effective"]
     return [
-        Section(
+        fact_section(
             "cache-rewrites",
             fact,
-            [fact, *table(["waiting on", "rewrites", "effective"], by_wait)],
+            table(["waiting on", "rewrites", "effective"], by_wait),
         ),
         Section(
             "cache-rewriters",
@@ -2356,10 +2354,12 @@ def inner_yield(sessions: list[Session]) -> Section:
         for agent in inner_reviewers(s):
             groups[review_role(agent)].append(agent)
     rows: list[list[str]] = []
+    with_finding = 0
     for role, group in sorted(
         groups.items(), key=lambda kv: -sum(a.usage.context for a in kv[1])
     ):
         found = [tally(SEVERITY_LINE, a.report) for a in group]
+        with_finding += sum(1 for f in found if f)
         verdicts = tally(VERDICT_LINE, "\n".join(a.report for a in group))
         by_severity = [
             str(sum(f[severity] for f in found))
@@ -2387,10 +2387,8 @@ def inner_yield(sessions: list[Session]) -> Section:
         "not met",
         "unverified",
     ]
-    headline = (
-        f"{sum(int(r[1]) for r in rows)} runs, "
-        f"{sum(int(r[6]) for r in rows)} with a finding"
-    )
+    runs = sum(len(group) for group in groups.values())
+    headline = f"{runs} runs, {with_finding} with a finding"
     return Section("review-agents", headline, table(header, rows))
 
 
@@ -2454,11 +2452,10 @@ def brief_sizes(sessions: list[Session]) -> Section:
                 str(max(briefs)),
                 f"{statistics.median(reports):.0f}",
                 str(max(reports)),
-                str(sum(1 for n in reports if n > HANDBACK_WORDS)),
-                str(sum(1 for n in reports if n < THIN_WORDS)),
+                *(str(n) for n in over_under(reports)),
             ]
         )
-    reports = [words(a.report) for _, group in ranked for a in group]
+    over, under = over_under([words(a.report) for _, g in ranked for a in g])
     header = [
         "type",
         "step",
@@ -2471,10 +2468,17 @@ def brief_sizes(sessions: list[Session]) -> Section:
         f"under {THIN_WORDS}",
     ]
     headline = (
-        f"{sum(1 for n in reports if n > HANDBACK_WORDS)} hand-backs over {HANDBACK_WORDS} words, "
-        f"{sum(1 for n in reports if n < THIN_WORDS)} under {THIN_WORDS}"
+        f"{over} hand-backs over {HANDBACK_WORDS} words, {under} under {THIN_WORDS}"
     )
     return Section("briefs", headline, ranked_table(header, rows, len(ranked)))
+
+
+def over_under(reports: list[int]) -> tuple[int, int]:
+    """How many hand-backs of these word counts run over the limit, and how many are thin."""
+    return (
+        sum(1 for n in reports if n > HANDBACK_WORDS),
+        sum(1 for n in reports if n < THIN_WORDS),
+    )
 
 
 def handback_table(sessions: list[Session]) -> Section:
@@ -2564,9 +2568,7 @@ def repeated_table(sessions: list[Session]) -> Section:
     ]
     fact = f"{len(found)} repeated reads, {kilo(sum(r.repeated_chars for _, r in found))} chars repeated"
     header = ["session", "what", "agents", "runs", "chars after the first"]
-    return Section(
-        "repeated-reads", fact, [fact, *ranked_table(header, rows, len(ranked))]
-    )
+    return fact_section("repeated-reads", fact, ranked_table(header, rows, len(ranked)))
 
 
 def largest_results(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
@@ -2687,20 +2689,15 @@ def checks_sections(sessions: list[Session]) -> list[Section]:
     chain_fact = f"build/test steps before a full check, no edit between: {len(chains)}, {minutes(sum(x.seconds for x in chains))}"
     rerun_header = ["session", "agent", "command", "since last run", "time"]
     return [
-        Section(
+        fact_section(
             "reruns",
             rerun_fact,
-            [rerun_fact, *ranked_table(rerun_header, rerun_rows, len(reruns))],
+            ranked_table(rerun_header, rerun_rows, len(reruns)),
         ),
-        Section(
+        fact_section(
             "chains",
             chain_fact,
-            [
-                chain_fact,
-                *ranked_table(
-                    ["session", "agent", "step", "time"], chain_rows, len(chains)
-                ),
-            ],
+            ranked_table(["session", "agent", "step", "time"], chain_rows, len(chains)),
         ),
     ]
 
@@ -2769,7 +2766,7 @@ def failures(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     tools = ", ".join(f"{t} ({n})" for t, n in missing.most_common(8)) or NONE
     fact = f"{failed} failed calls in {len(groups)} groups; missing tools: {tools}"
     header = ["count", "tool", "command", "exit", "error"]
-    return Section("failures", fact, [fact, *ranked_table(header, rows, len(ranked))])
+    return fact_section("failures", fact, ranked_table(header, rows, len(ranked)))
 
 
 def compare(sessions: list[Session], split: datetime) -> Section:
@@ -2816,6 +2813,11 @@ def median_cells(values: list[float]) -> list[str]:
 
 
 # --- Formatting --------------------------------------------------------------
+
+
+def fact_section(slug: str, fact: str, body: list[str]) -> Section:
+    """A section headlined by its key fact, which also opens its body."""
+    return Section(slug, fact, [fact, *body])
 
 
 def lead(rows: list[list[str]], *cells: int) -> str:
