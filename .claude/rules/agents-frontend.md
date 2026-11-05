@@ -10,6 +10,9 @@ paths:
 compiler. It names no vendor, no host and no `$HOME` path, and installs
 nothing.** Why, and how a backend consumes it: `docs/adr/0011-agent-compiler.md`.
 
+Prefer a deterministic program over an agent instruction, unless it limits the
+agent or forces a chain of commands: `docs/adr/0013-deterministic-programs-over-instructions.md`.
+
 Nothing in `programs/agents` may reach `programs/claude-code`, `opencode` or
 `codex`, even through another program (Deslop `agents-name-no-vendor`).
 `adapters/agents.nix` is its only adapter: it injects `flake = false` inputs as

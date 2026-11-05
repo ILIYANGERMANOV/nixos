@@ -11,7 +11,7 @@ ones included, and only skips. No skip relaxes a gate.
 | 1-2 | no researchers, at most 5 lookups by you; no Quality question: the user's, else Balanced |
 | 3 | no proposals and no confirm question: the plan is a few lines, in the one plan file the skill's rule names |
 | 4 | the `pr-description` short form, with the plan, the `Quality:` and `Size: Trivial` lines and the acceptance criteria |
-| 5 | one implementer, no sub-implementers. A bug fix comes with a test that was red before it |
+| 5 | one implementer. A bug fix comes with a test that was red before it |
 | 6 | no refactor |
 | 7 | no dry run. One fresh `review-lead`, no children: "invoke `pragmatic-review` with: Quality: <mode> Size: Trivial --requirements <path> <PR URL>", plus the review-lead line in `blockers.md` |
 | 8 | no re-review: the sweep's rows, if any, go to the final fixer; a Not met verdict follows `review.md`'s `Not met always` |
@@ -42,8 +42,8 @@ decision appears, or the user asks. A hand-back with both `NEEDS_DECISION` and
      the decision path in `blockers.md`, so step 3 runs with its proposals.
      Put the confirmed plan in the PR body, then go on from step 5.
    - **Nothing open, the diff only grew:** tell the user why in one line.
-     A `GREW` during step 5 resumes its unfinished part, sub-implementers
-     allowed; otherwise resume at step 6.
+     A `GREW` during step 5 resumes its unfinished part, sliced as
+     step 5 says; otherwise resume at step 6.
 
 Delegated: you own Size, so move to Normal yourself, the same way, and say
 `Size: Normal, grew: <why>` in your hand-back. An
