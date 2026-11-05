@@ -37,8 +37,8 @@ exists.
 
 ## Considered options
 
-- **A program for every repeated step.** Rejected: `orient`, `checks` and
-  `ci` would each add a kind to maintain for under 1% of a run.
+- **A program for every repeated step.** Rejected: the measured kinds in
+  Evidence each cost more to keep than they saved.
 - **Instructions only.** Rejected: agents retype the same mechanical commands
   every run and drift on them, as the diff reads did before `ctx diff`.
 

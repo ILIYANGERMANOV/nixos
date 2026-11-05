@@ -17,7 +17,8 @@ You spawn no agent. Implement the slice, run its targeted checks, commit and
 push. A `Size: Trivial` slice grown past its brief: your stop rule's `GREW`.
 
 At the context guard's 150k warning, earlier than its 220k stop: commit, push
-and hand back the note your instructions' `Context budget` lists. Your caller spawns a successor.
+and hand back the note your instructions' `Context budget` lists. Your caller
+spawns a successor.
 
 A brief naming a previous slice's commit: first read `ctx delta <prev> HEAD`
 and fix what breaks an `engineering` rule or repeats existing code, then
