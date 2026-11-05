@@ -77,15 +77,15 @@ Each step is a state. Quality and Size skip arrows, never add them.
 | 4 | DraftPlan | draft PR with the plan: 5 |
 | 5 | Impl | implement: 6 |
 | 6 | Impl' | refactor: 7 |
-| 7 | ImplR | first review: rows to fix: 8; none: 9 |
-| 8 | Impl'' | fix, then a `--fixes` review: 8 while rounds remain; cap: final small fix, 9 |
-| 9 | DraftPR | `pr-description` and notify: 10 |
+| 7 | ImplR | first review: rows to fix: 8; none: final fixer, 9 |
+| 8 | Impl'' | fix, then a `--fixes` review: 8 while rounds remain; cap: final fixer, 9 |
+| 9 | DraftPR | notify: 10 |
 | 10 | PR | green CI: ready and notify; CI issues: `review.md`'s CI fix, then CI again |
 | any | blocker | a worker's `NEEDS_DECISION`: triage in `blockers.md` |
 | any | stuck | the stuck guard above: ask |
 
 Every Quality and Size keeps the quick security review, the blocker arrows,
-fact-gap research and the final small fix. A re-plan from a blocker follows
+fact-gap research and the final fixer. A re-plan from a blocker follows
 your Quality row too.
 
 ## Steps
@@ -124,12 +124,11 @@ changes. A design issue's Goal, Decisions, Out of scope and Acceptance criteria
 carry over as they stand.
 
 **Simplify pass**, then **alternative**, as your Quality row's Proposals say: one
-background `subagent_type: researcher` agent each, one after the other, whose
-prompt names `~/.claude/skills/researcher/references/proposal.md`, the mode
-(`simplify`, then `alternative`), `Quality: <mode>`, the plan path, the notes
-paths and the notes directory. The alternative gets the simplified plan's path.
-Take the simplified plan as your first plan; the alternative is the second, or
-the identity when none exists. Neither pass changes a design issue's settled
+background `subagent_type: researcher` agent, whose prompt names
+`~/.claude/skills/researcher/references/proposal.md`, those modes,
+`Quality: <mode>`, the plan path, the notes paths and the notes directory.
+`proposal-simplify.md` is your first plan; `proposal-alternative.md` the second,
+or the identity when none exists. Neither pass changes a design issue's settled
 Decisions.
 
 Then confirm once. Show the first plan in a few lines, and the second with its
@@ -185,15 +184,13 @@ says: requirements file, dry run, review-lead, then the rows you pick.
 
 ### 8. Fix and review again
 
-The rounds after it and the final small fix, as `review.md` says, up to your
+The rounds after it and the final fixer, as `review.md` says, up to your
 Quality row's Re-reviews.
 
 ### 9. Describe and notify
 
-Rewrite the PR body through a fixer that follows the `pr-description` skill,
-keeping any decisions you made on the user's behalf, every recorded reason for
-an unfixed row, the research and decisions log, and `## Follow-ups`. Notify the
-user the way your instructions describe: the draft is complete and CI runs.
+The final fixer's R0 wrote the PR body. Notify the user the way your
+instructions describe: the draft is complete and CI runs.
 
 ### 10. Hand over
 
@@ -202,9 +199,8 @@ draft, not merge-ready, with no next steps.
 
 - Make sure the final state got one full check when your instructions'
   Checks rules call for it (a large change, or a project that always wants
-  one): brief the last fixer to run it before its push, or run it in a fresh
-  `subagent_type: checker` agent when the final small fix changed nothing or the
-  fixer hands it back. Otherwise CI is the full check.
+  one): brief the final fixer to run it before its push, or run it in a fresh
+  `subagent_type: checker` agent when the fixer hands it back. Otherwise CI is the full check.
 - Wait for CI the non-blocking way your instructions describe. A CI failure or
   a check issue goes through `review.md`'s CI fix, then wait again.
 - Before `gh pr ready`: every review comment on the PR has a reply or a
@@ -241,9 +237,9 @@ rest of this skill.
   fixer's, carries the worktree path, for every command, the base branch and
   the first line of your spawn prompt. Diffs are against `origin/<base>`, so an
   epic child never sweeps in a sibling's work: step 6 passes `refactor` that
-  base ref, steps 7 and 8 pass `pragmatic-review` the PR URL, and step 9 passes
+  base ref, steps 7 and 8 pass `pragmatic-review` the PR URL, and R0 passes
   the base ref to `pr-description`.
-- Step 9 rewrites the body and notifies nobody. Step 10 is only its full check
+- Step 9 notifies nobody. Step 10 is only its full check
   rule: when it calls for one, hand back the check's name, since you are past
   about 60k tokens; your caller runs it in a fresh `checker`. Then stop, before
   the CI wait. The gates, `gh pr ready`, next steps and

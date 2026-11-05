@@ -14,8 +14,7 @@ ones included, and only skips. No skip relaxes a gate.
 | 5 | one implementer, no sub-implementers. A bug fix comes with a test that was red before it |
 | 6 | no refactor |
 | 7 | no dry run. One fresh `review-lead`, no children: "invoke `pragmatic-review` with: Quality: <mode> Size: Trivial --requirements <path> <PR URL>", plus the review-lead line in `blockers.md` |
-| 8 | no re-review: the sweep's rows, if any, go to the final small fix; a Not met verdict follows `review.md`'s `Not met always` |
-| 9 | the body is rewritten only when the fix changed what it says |
+| 8 | no re-review: the sweep's rows, if any, go to the final fixer; a Not met verdict follows `review.md`'s `Not met always` |
 | 10 | a CI failure goes to a fixer and straight back to CI, with no `--fixes` review |
 
 The requirements file is `review.md`'s, written as for any first review:
