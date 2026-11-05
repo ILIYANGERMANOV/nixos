@@ -300,7 +300,7 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
   are leaves, so the stop rule needs no relay.
 - **One plan text, passed by path.** The brief or `plan.md` is the only plan.
   Each plan decision is a requirement. Open decisions are triaged before
-  `READY` or `gh pr ready`. The `/engineer` dry run on nextjs-template#6 showed
+  `READY` or `gh pr ready`. An `/engineer` dry run showed
   two plan texts drifting into tech debt that no review could see.
 - **The engineer drives the review loop**, as the evaluator-optimizer pattern
   bounds its iterations
