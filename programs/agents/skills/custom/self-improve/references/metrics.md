@@ -1,208 +1,95 @@
-# Metrics
+# Reading the report
 
-What the analyzer measures, how, and where it is blind. Hand the layout and
-rules below to any subagent that digs into the raw transcripts, so its numbers
-agree with the report.
+The report is a head (title, legend, `summary`, `index`) and sections. Each
+index row is `slug|lines|headline`: read a section with `sed -n 'A,Bp'`.
+Tables are `a|b|c` rows under one header, capped at 5 to 12 rows with
+`+N more`; `none` means empty. Ask a researcher for capped rows.
 
-## Transcript layout
+## Units
 
-- Main agents: `~/.claude/projects/<encoded cwd>/<session>.jsonl`. Directory
-  names start with `-`, so use Python's `pathlib` or quote them.
-- Subagents: `<session>/subagents/agent-<id>.jsonl`, with
-  `agent-<id>.meta.json` holding `agentType`, `description`, `toolUseId` (the
-  spawning call), `spawnDepth` and `parentAgentId` (the spawning subagent, absent
-  when the main agent spawned it).
-- One JSON object per line, with `type` and `timestamp`. `assistant` lines
-  carry `message.usage` and `tool_use` blocks in `message.content`; `user`
-  lines carry `tool_result` blocks keyed by `tool_use_id`, plus a
-  `toolUseResult` (Bash: `stdout`, `stderr`, `interrupted`, `backgroundTaskId`).
-- A person's prompt has `origin.kind == "human"`; a slash command appears as
-  `<command-name>/engineer</command-name>` in it.
+- **Tokens** `input/cache read/cache write/output`, deduplicated by
+  `message.id`. **Context** at a call is input + cache read + cache write;
+  **peak context** its maximum over an agent's calls.
+- **Effective** is what a call costs in input tokens: input x1, cache read
+  x0.1, cache write x1.25, output x5. Tables rank by it. A cached 200k context
+  costs less than a fresh 30k.
+- `k`/`M` are thousands and millions, `m` minutes, `s` seconds; sizes in
+  chars, or tokens as chars / 4. Session ids are the first 8 characters.
+- **Wall** is wall clock; **work** is wall minus **waiting on the person**
+  (an open `AskUserQuestion`, or a gap before a human prompt with no tool
+  call running). Waiting is never a bottleneck. Parallel sessions and agents
+  overlap: never add them up as machine time.
 
-## Measurement rules
+## Sections
 
-- **Tokens.** One response spans several lines, one per content block, each
-  repeating the same usage: deduplicate by `message.id` (else `requestId`).
-  Usage splits into input, cache read, cache write and output. Context at a
-  call is input + cache read + cache write; **peak context** is its maximum
-  over an agent's calls. `attributionSkill` names the skill a call ran under.
-- **Effective cost.** What a call costs in input tokens: input x1, cache read
-  x0.1, cache write x1.25, output x5. The costliest-first tables rank by it.
-  Context hides what a call pays: a cached 200k costs less than a fresh 30k.
-- **Cache rewrite.** A call whose cache write is over 50% of its context, after
-  a gap between response starts above the cache's life: 5 minutes for a
-  subagent, 1 hour for the main agent. Its cost is the write alone. The wait is
-  read from the response before the gap: an Agent call, else a foreground Bash
-  call, else idle.
-- **Wall time of a tool call.** No duration field exists: it runs from the
-  last line of the call's response before its result to the `tool_result`
-  timestamp. A line is stamped when its block finished streaming and most tools
-  start once the response has ended, so a call is not charged the streaming of
-  its siblings. Some tools answer while the response still streams; those stop
-  at the last line before their result, so no duration is negative. A
-  background call (`backgroundTaskId` or `isAsync` in `toolUseResult`; in a
-  subagent, which has no `toolUseResult`, the result text saying it started or
-  moved to the background) ends at the first `<task-notification>` naming its
-  `<tool-use-id>`, delivered as a `queue-operation` line, a user line or a
-  `queued_command` attachment; its `<status>` and summary give failure and
-  exit code.
-- **Waiting on the person.** The time the main agent's `AskUserQuestion`
-  stayed open (a subagent cannot ask), plus each gap before a human prompt in
-  which no tool call of any agent (background ones included) was running;
-  overlaps count once. Work time is wall clock
-  minus that. Waiting is never a bottleneck, so `AskUserQuestion` is left out
-  of the tool-time ranking.
-- **Failures.** `is_error` results (non-zero exit, blocked or invalid calls),
-  results containing `command not found`, and failed background
-  notifications, grouped by command and their first error line with numbers
-  and hashes masked.
-- **Redundant check.** A check rerun with the same arguments when no agent of
-  the session edited anything since, or edited only `.md` files. Edits are
-  `Edit`, `Write`, `NotebookEdit`, and Bash `sed -i`, `tee`, `cat >`,
-  branch-changing git commands and Python heredocs that write a file. Edits
-  and checks are ordered by start, then stream position, so an `Edit` sent
-  beside a check in one response counts on the side of it where it was written.
-- **Chain.** A build, test or lint step run in front of `just check` or
-  `nix flake check` - in the same command or earlier with no edit between -
-  which the full check already runs.
-- **Start-up size.** An agent's first-call context is the context of its first
-  call with usage, p50 and nearest-rank p90 per agent type. Instructions and
-  skill listing are chars / 4 of the `instructions` (`files[].content`) and
-  `skill_listing` (`content`) attachments before that call; a listing delta
-  later on is not start-up. Remainder is the first call minus both: tool
-  schemas, the base prompt and the brief.
-- **Quality mode.** The first `Quality: <mode>` in a brief, joined with its
-  `Size: Trivial` or `Size: Normal` line when it has one; a placeholder is no
-  mode or size. An agent with
-  none takes the nearest subagent above it, else the session's: the main
-  agent's brief, else what most subagents state, the latest on a tie. Nothing
-  stated shows as `(none stated)`, not Balanced, so sessions older than the
-  rule stay apart. Each agent counts under its own row, so a session that
-  grew from Trivial to Normal sits in two rows and the sessions column does not
-  add up. Briefs older than the `Size:` line count under their mode alone.
-- **PRs and cost per PR.** A PR is a `gh pr create` that did not fail, counted
-  under the mode of the agent that ran it. Per PR is the cost of a session's
-  agents in that mode divided by the PRs they opened, median over sessions.
-- **Before and after.** `--compare <ISO>` splits the window by session start,
-  so pair it with a `--since` before the date. Rows are effective per session,
-  per PR by mode, and first-call context by type. A median needs n >= 5 on its
-  side, else `not enough data`; it never names a winner.
-- **Sleep and poll loops.** Bash calls with `sleep N`, `until` or a `while`
-  with `sleep`, and `gh pr checks` without `--watch`.
-
-## Quality signals
-
-The report puts yield beside cost, and only the quality review turns it into a
-judgment. It stays offline: everything from `gh` is the subagent's.
-
-- **Final report.** A subagent's report is the `input.message` of its
-  `SubagentHandback` tool call, not assistant text; the analyzer falls back to
-  the last text. The brief is the subagent's first user line.
-- **Loop steps.** Each top-level subagent gets one step from its description
-  and the head of its brief; its children count under the same step. A
-  `researcher` or `Explore` agent is research by its type, at any depth, unless
-  a review spawned it, and `implementer` and `fixer` agents are their step by
-  type. A brief invoking `researcher` is research too. A review
-  is a `review-lead` agent or a brief that invokes `pragmatic-review`, at any depth, so a review under an
-  orchestrator subagent is a review with its own children: `--fixes`, "pass 2",
-  "re-review" or "second" make it the second pass, "final" in the description
-  `/final-review`. Agent wall adds agents up, so parallel agents overlap.
-- **Review yield.** Parsed from the report format `pragmatic-review` fixes:
-  the verdict's `N raised, M survived`, table rows `| n | Major |`, and
-  `✅ Met`, `❌ Not met`, `⚠️ Unverified` lines. A report without the arithmetic
-  counts as unparsed, so format drift shows, and its table rows still count.
-  Inner agents are read from their
-  `severity major|minor|nit` and `verdict met|not met|unverified` lines, typed
-  by description. `run by main` is a text of the main agent holding the
-  arithmetic or a table row, with no tokens to attribute; a report it merely
-  relayed lands there too.
-- **After hand-back.** Human prompts after the first `gh pr ready` of any agent
-  of the session, split into slash commands and free text.
-
-`gh` recipes, for a PR `N` on head branch `H` in `O/R`:
-
-```
-gh api "repos/O/R/actions/runs?branch=H&per_page=100" --jq '.workflow_runs[] | [.head_sha, .conclusion, .created_at] | @tsv'
-gh api --paginate repos/O/R/issues/N/timeline --jq '.[] | select(.event == "ready_for_review") | .created_at'
-gh pr view N --repo O/R --json reviews,comments,body,mergedAt,additions,deletions
-gh pr list --repo O/R --state merged --search 'revert in:title' --json number,title
-```
-
-The first two split CI failures into before and after ready. `/qa` verdicts are
-the `**Verdict:**` line in the PR body's `## QA`, and a feedback log its
-`Feedback log` section. Only a commit stat, never an edit count, shows what a
-refactor did: agents edit through Bash.
-
-Outcomes land after a session while the window starts at the last run, so look
-past it for follow-ups and reverts of recently merged PRs.
-
-## Communication signals
-
-The Agent communication section holds leads for the communication review.
-
-- **Brief and hand-back size**: words per agent type and step, how many
-  hand-backs exceed 300 words, and how many fall under 20, which is a stall, an
-  empty return or an agent still running. Review reports may run to about 400.
-- **After a hand-back**: the parent's calls from the moment a child ended to
-  its next spawn, each attributed to the child that ended last. A re-read names
-  a file the hand-back named, or is a `git diff` or `git show`. A re-verify is
-  a check.
-- **Spawned again**: a spawn with the same step as the sibling before it, begun
-  after that sibling ended. Fan-out in parallel does not count; sequential
-  implementers do.
-- **Large hand-backs**: chars over the limit, and their tokens (chars / 4)
-  times the parent's later tool calls, as an estimate of what carrying them
-  cost. A `/tmp/....md` path in a hand-back counts as a notes file.
-- **Follow-ups**: `SendMessage` calls.
-- **Repeated work**: identical reads (`Read` of one path and range, or the same
-  read-only Bash command) by two or more agents of a session. A Bash command is
-  read-only when every step of it is on the analyzer's `READ_COMMANDS` list and
-  it redirects no output to a file.
-- **Splits**: implementers reading a file name an earlier research agent read.
-
-## What only reading can settle
-
-The analyzer counts; these need a subagent reading the rows, and hand-tuned
-labels mean its counts are a starting point, not a verdict.
-
-- Whether a finding was a true positive, a real bug or a rule nit, and whether
-  it stayed fixed.
-- Whether a fix or a refactor introduced a regression: compare a second-pass
-  row with the fix diff.
-- Why CI failed, and whether a local check would have caught it: job logs.
-- What a prompt after hand-back meant: a bug, a question or new scope.
-- Follow-up fix PRs: a title regex misses them, so read the PRs by file overlap.
-- Whether a re-read repeated work or verified it, and whether a spawned-again
-  agent was a retry, a thin hand-back or the next slice.
-- What a brief lacked: a follow-up message or a second spawn only hints at it.
-- Why a tool goes unused, and what an `Unverified` verdict needed.
+- `sessions`, `agent-types`, `subagents`, `skills` (`attributionSkill`): cost
+  by unit, costliest first.
+- `startup`: an agent's first-call context, p50 and p90 by type, split into
+  instructions, skill listing and remainder (tool schemas, base prompt, brief).
+- `quality`: cost by the first `Quality:` and `Size:` lines in a brief; an
+  agent with none takes the nearest one above it. `(none stated)` is older
+  than the rule, not Balanced. An agent counts in its own row, so sessions do
+  not add up. Per PR is the median over sessions of a mode's cost divided by
+  the PRs it opened (`gh pr create` that did not fail).
+- `loop-steps`: each top-level subagent and its children as one step,
+  labelled by hand-tuned patterns over type, description and brief head; what
+  matches nothing is `other`. Agent wall adds agents up.
+- `cache-rewrites`, `cache-rewriters`: a call whose cache write is over half
+  its context after a gap longer than the cache life (5 min for a subagent,
+  1 h for the main agent), costed at the write alone, by what it waited on.
+- `review-yield`, `review-agents`: findings per review pass and per inner
+  review agent, parsed from `pragmatic-review`'s format; `unparsed` counts
+  reports without the `N raised, M survived` line. Counts are before the
+  orchestrator judged them. `run by main` is review text in the main agent.
+- `after-handback`: human prompts after a session's first `gh pr ready`.
+- `briefs`: brief and hand-back words by type and step; under 20 is a stall,
+  an empty return or an agent still running. Review reports may run to 400.
+- `parent-after-handback`: the parent's calls between a child ending and its
+  next spawn. A re-read names a file the hand-back named, or is a `git diff`
+  or `git show`; a re-verify is a check; spawned again is a spawn of the same
+  step after its sibling ended.
+- `handoffs`: hand-backs over 300 words and their tokens times the parent's
+  later calls, an estimate; a `/tmp/....md` path counts as a notes file.
+- `repeated-reads`: one exact path and range, or one read-only Bash command,
+  read by two or more agents of a session.
+- `largest-results`, `tool-times`, `bash-times`: tool results by size, and
+  tool time from a call's response end to its result; a background call ends
+  at its task notification.
+- `reruns`: a check rerun with the same arguments when nothing, or only `.md`
+  files, changed since. `chains`: a build, test or lint step run before
+  `just check` or `nix flake check` with no edit between.
+- `polling`: `sleep`, `until` and `while ... sleep` loops, and `gh pr checks`
+  without `--watch`.
+- `failures`: `is_error` results, `command not found` and failed background
+  tasks, grouped by command and first error line with numbers masked.
+- `compare` (with `--compare ISO`, paired with an earlier `--since`): medians
+  before and after a date by session start. A side under n = 5 is
+  `not enough data`. It is a lead, never a verdict: the loop changes under it.
 
 ## Blind spots
 
-- Commands are split on `&&`, `;` and `|` without parsing quotes, so a quoted
-  separator can mislabel one call. Grouping is by the leading tool and
-  subcommand (`nix run .#test`), so different filters share a row.
-- Wall clock per session overlaps across parallel sessions; do not add
-  sessions up to claim machine time.
-- A background call that never sent a notification has no end, so a gap it
-  overlapped counts as waiting.
-- The report caps every table; ask a subagent for the omitted rows.
-- Step labels rest on hand-tuned patterns over free-form descriptions: an agent
-  doing two steps counts once, and whatever matches nothing lands in `other`.
-  Inner review agents the main agent ran directly land in `other` too.
-- Cost per PR misses a PR opened in an earlier session, opened by a script or
-  under another tool: that work's cost has no PR, so it drops out of the median.
-  Quality changed by hand mid-session shows only through briefs.
-- A session across a `--compare` date counts wholly on the side of its start.
-- A Python edit outside a `python <<EOF` heredoc (`python -c`, a script file,
-  `cat <<EOF | python3 -`) is not seen as an edit, so the reruns after it are
-  overstated. Neither is a heredoc writing other than through `write_text`,
-  `write_bytes` or `open` (`shutil`, `os.rename`). An opaque script's writes
-  stay invisible.
-- `find` and `xargs` can run anything, so they are not read commands, and
-  neither is a shell loop or a `git` flag other than `-C` in front of its
-  subcommand: repeated reads through them are undercounted. A `git diff` inside
-  `$(...)` is not seen as a re-read.
-- File names are matched without their directory, so two files of one name
-  count as one. A repeated read compares exact paths and commands, so one file
-  read from two worktrees does not count.
+- Commands split on `&&`, `;` and `|` without parsing quotes, and group by
+  tool and subcommand, so different filters share a row.
+- Edits through `python -c`, a script, `shutil` or `os.rename` are unseen, so
+  reruns after them are overstated. Reads through `find`, `xargs`, a loop or
+  `$(...)` are unseen, so repeated reads are undercounted. File names match
+  without their directory.
+- A background call that never notified has no end: its gap counts as
+  waiting. A session across a `--compare` date counts on its start's side.
+- Cost per PR misses a PR opened in another session or by a script.
+- Counts are leads. Whether a finding was a real bug, a fix regressed, CI
+  failed for a reason a local check would catch, or a re-read repeated work
+  needs a researcher reading the rows, and outcomes need `gh` on the PRs
+  (reviews, CI runs before and after ready, reverts), looking past the window.
+
+## Transcripts, for researchers
+
+- Main agents: `~/.claude/projects/<encoded cwd>/<session>.jsonl` (names start
+  with `-`: quote them). Subagents: `<session>/subagents/agent-<id>.jsonl`,
+  with `agent-<id>.meta.json` holding `agentType`, `description`, `toolUseId`
+  and `parentAgentId`.
+- One JSON object per line. `assistant` lines carry `message.usage` and
+  `tool_use` blocks, one line per block repeating the usage; `user` lines
+  carry `tool_result` blocks and `toolUseResult`. A human prompt has
+  `origin.kind == "human"`. A subagent's report is its `SubagentHandback`
+  `input.message`; its brief is its first user line.

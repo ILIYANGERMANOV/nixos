@@ -1,125 +1,80 @@
 # Fix playbook
 
-Fixes that worked before, by the bottleneck they removed. Use them as
-suggested options; the numbers are what each one measured at the time.
+Levers that worked on this machine, by the bottleneck they removed, with what
+each measured at the time. Suggested options, not verdicts.
 
-## Context and tokens
+## Context and tokens (nixos#212: 5 `/engineer` runs, 249M input tokens)
 
-From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
-
-- **Context budget.** An agent past about 220k context commits, hands back a
-  short note and stops; a fresh agent continues. One implementer had reached
-  479k context and 73M tokens.
-- **Leaf implementers.** The engineer slices a large task up front and spawns
+- **Context budget**: past about 220k an agent commits, hands back a note and
+  stops; a fresh one continues. One implementer had reached 479k and 73M.
+- **Leaf implementers**: the engineer slices a large task up front and spawns
   each implementer; an implementer spawns none and hands back at the 150k
   warning. Implementers that spawned children waited past the cache: 29
   rewrites, $12 in 30 days (nixos#325).
-- **Bounded reads.** `rg -n`, then a `sed -n` range; a hook blocks reads
-  over 16KB. File reads were 38% of implementer cost.
-- **Leaner review passes.** One fresh subagent per review pass, one shared diff
-  file, mechanical checks first, and a second pass on the fix diff only.
-  Historic passes cost 15-30M tokens; the lean one about 80k context. No review
-  agent was dropped for cost, but pass 2 on the fix diff is narrower coverage:
-  it no longer sees the rest of the diff. Offer that part as a quality risk.
-- **Short hand-backs** under about 300 words, and no resuming a large agent
-  after the prompt cache expired.
+- **Bounded reads**: `rg -n`, then a `sed -n` range; a hook blocks reads over
+  16KB. File reads were 38% of implementer cost.
+- **Lean review passes**: one fresh subagent per pass, one shared diff file,
+  mechanical checks first, pass 2 on the fix diff only. Old passes cost
+  15-30M; the lean one about 80k context. Pass 2 on the fix diff alone is
+  narrower coverage: offer it as a quality risk.
+- **Short hand-backs** under about 300 words; no resuming a large agent after
+  its cache expired.
 
 ## Agent communication
 
-- **Notes file, ranked hand-back.** A `researcher` agent writes its full notes
-  to a file and hands back a ranked index with the path. The
-  parent carries the index, and the agent that needs a section reads only that
-  section. Use it when findings exceed the hand-back limit.
-- **One agent explores and implements.** When exploring feeds directly into a
-  change, splitting it makes the implementer re-read what the explorer read.
-- **A brief that states the answer's shape**: the goal, the facts it needs and
-  what to hand back, so the parent neither sends a follow-up to fix the brief
-  nor spawns again for what the hand-back left out.
-- **Trust a verified hand-back.** The parent keeps the conclusion and does not
-  re-read the files behind it. This never covers a gate: a fix or a review
-  that verifies independently stays.
+- **Notes file, ranked hand-back**: the agent writes full notes to a file and
+  hands back an index with the path; whoever needs a section reads only it.
+- **One agent explores and implements** when exploring feeds the change, so
+  the implementer does not re-read what an explorer read.
+- **A brief that states the answer's shape**: the goal, the facts, what to
+  hand back, so the parent sends no follow-up and spawns no second agent.
+- **Trust a verified hand-back**: keep the conclusion, do not re-read its
+  files. Never for a gate: an independent fix or review stays.
 - **A program over an instruction** for a mechanical step, built only when
-  measured data shows a net saving: nixos `docs/adr/0013-deterministic-programs-over-instructions.md`.
+  measured data shows a net saving: nixos
+  `docs/adr/0013-deterministic-programs-over-instructions.md`.
 
-## Wall time
+## Wall time (nixos#215: foreground Bash 5.2h over 10 runs)
 
-From nixos#215, where foreground Bash took 5.2h over 10 runs.
-
-- **A check ladder** in the repository's `CLAUDE.md`: the narrowest check
-  while iterating, targeted checks only for implementers, fixers and
-  refactor passes, one full check by the last agent to push and only for a
-  large change, none after doc-only edits, never build/test/lint chained in
-  front of the full check. Redundant and chained checks cost about 40 min.
+- **A check ladder** in the repository's `CLAUDE.md`: narrowest check while
+  iterating, targeted checks for implementers, fixers and refactor passes,
+  one full check at the end, none after doc-only edits, nothing chained in
+  front of it. Redundant and chained checks cost about 40 min.
 - **Background long commands** with `run_in_background`, never a foreground
-  `sleep` or `until` loop (15 min lost, 7 calls hit the timeout).
-- **Missing tooling fixed at the source**: a `default` dev shell when agents
-  ran `nix develop -c` without one, a package for a tool the harness claimed
-  was installed. A bare push that went to the wrong branch is fixed by the
-  owner in this repository's Nix config, never by an agent changing the push
-  or tracking config.
+  `sleep` or `until` loop (15 min lost, 7 calls timed out).
+- **Missing tooling fixed at the source**: a `default` dev shell, a package
+  for a tool the harness claimed. A bare push to the wrong branch is fixed in
+  this repository's Nix config, never by an agent changing push config.
 
-## Slow builds in a repository
+## Slow builds (deslop#251: `nix run .#test` 37 min over 10 runs, suite 8s)
 
-From deslop#251, where `nix run .#test` cost 37 min over 10 runs while the
-suite itself ran in 8s.
+- **Parallel compile** (`--ghc-options=-j4`): cold build 86s to 53s.
+- **A warm quick-test** inside the running typecheck daemon: 3-7s per run
+  instead of a cabal relink.
+- **Decomposed checks**, documented as that repository's check ladder.
 
-- **Compile in parallel** (`--ghc-options=-j4` for GHC) in the build and test
-  recipes: cold build 86s to 53s.
-- **A warm quick-test** that runs the tests inside the already-running
-  typecheck daemon: 3-7s per filtered run instead of a cabal relink.
-- **Decomposed checks** so an agent can run the one it needs, documented as the
-  check ladder in that repository's `CLAUDE.md`.
+## Quality ROI (10 days, 94 sessions, small sample: leads only)
 
-## Quality ROI
-
-What the quality steps bought in one look at this factory: ten days, 94
-sessions, 23 of them `/engineer`, while the loop itself was changing. A small
-sample with hand-tuned step labels, and finding counts from before the
-orchestrator judged them: a lead for the quality review, never a verdict.
-
-- **The second review pass** cost about 8% of the first pass's tokens and found
-  a Major in 3 of 19 runs. Two of those three read as bugs the fix itself
-  added, on one unverified reading.
-- **The refactor pass** took about 4% of estimated spend and finds no bugs by
-  design: its value is maintainability. Its cost outliers are the target, not
-  its existence.
-- **The standard blockers agent** found nothing in 33 runs. It is insurance,
-  the gate a naive analysis would cut; the deeper variant found 3 Majors in 11.
-- **The tests agent** was the cheapest source of Majors among the standard
-  agents, mostly tests that could never fail.
-- **Running the thing beats reading it**, on a sample of 3: one stress test
-  found 2 bugs on a branch with clean reviews, and the two bugs the user found
-  were runtime failures that passed two reviews and CI.
-- **A review class that recurs wants a lint or hook**: it saves review tokens
-  and raises quality, so it is the top of the win-win list.
-
-Outside evidence is indirect: no study isolates repeated self-review by one
-agent. Each claim below was checked at its primary source or abstract page.
-
-- Failed checks are the strongest predictor of an agent PR not merging, each
-  cutting merge odds about 15% (arXiv 2601.15195), so CI stays green first.
-- Maintainers would not merge roughly half of 296 test-passing AI PRs (METR
-  note, March 2026), so a quality pass beyond tests targets a real class.
-- Cursor adoption brought a temporary velocity rise and a lasting rise in
-  warnings and complexity, which a panel analysis names as major drivers of the
-  later velocity decline (He et al., arXiv 2511.04427), so speed bought with
-  quality may not last.
-- Repository context files raised cost over 20% with no general success gain
-  (arXiv 2602.11988), so instructions earn their place by departing from
-  default behaviour.
-- Reviewer framing biases LLM reviewers (arXiv 2603.18740): give a reviewer the
-  code and the intent, never the verdict.
-
-Measure from transcripts, never from self-report. METR's 2025 "19% slower"
-result is marked out of date by METR: do not cite it as current.
+- **Review pass 2** cost about 8% of pass 1 and found a Major in 3 of 19 runs.
+- **Refactor** took about 4% of spend and finds no bugs by design; its cost
+  outliers are the target, not its existence.
+- **The blockers agent** found nothing in 33 runs: insurance, the gate a
+  naive analysis cuts. The DEEP variant found 3 Majors in 11.
+- **The tests agent** was the cheapest source of Majors, mostly tests that
+  could never fail.
+- **Running the thing beats reading it** (n = 3): a stress test found 2 bugs
+  behind clean reviews; the user's 2 bugs were runtime failures past CI.
+- **A recurring review class wants a lint or hook**: fewer review tokens and
+  more quality, the top of the win-win list.
+- Outside: failed checks cut an agent PR's merge odds about 15% each (arXiv
+  2601.15195); maintainers would not merge about half of test-passing AI PRs
+  (METR, March 2026); context files raised cost over 20% with no general gain
+  (arXiv 2602.11988); a reviewer given the verdict is biased (arXiv
+  2603.18740). METR's 2025 "19% slower" is out of date.
 
 ## Not fixes
 
-- Fewer questions or prompts to the person. Waiting on the person is never a
-  bottleneck, and asking is cheap and important.
-- Dropping a check from CI, or skipping tests to go faster.
-- Removing or merging a refactor, review, fix or QA pass because it is
-  expensive. Make it cheaper instead.
-- A stronger machine.
-- A warning that cannot be silenced without a security cost, such as making
-  the agent a trusted Nix user: record it as won't-fix with the reason.
+- Dropping a CI check, skipping tests, or removing a refactor, review, fix or
+  QA pass for its cost: make it cheaper. A stronger machine.
+- A warning that only a security cost silences, such as a trusted Nix user:
+  won't-fix, with the reason.
