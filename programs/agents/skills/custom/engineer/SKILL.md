@@ -159,13 +159,14 @@ progress file.
 
 Delegate to `subagent_type: implementer` agents, as your Quality row's Implement says. One implementer explores and implements a
 self-contained slice, because splitting exploring from implementing makes it
-re-read everything. A very large task gets several implementers, one after
-another, or in parallel only when they are independent - no shared files, no
-ordering between them. Give each the plan's path, its slice, the targeted checks to run
-(never the full check), the stop rule, and the research notes paths and the
-sections it needs.
-It starts with `engineering` loaded, does a small slice itself and splits a large
-one across fresh sub-implementers. Add
+re-read everything. An implementer spawns no agent: split a large task into
+slices up front and spawn each implementer yourself, one after another, or in
+parallel only when they are independent - no shared files, no ordering between
+them. Give each the plan's path, its slice, the targeted checks to run
+(never the full check), the stop rule, the research notes paths and the
+sections it needs, and the previous slice's commit when there is one. One
+that hands back at the context warning gets a successor as
+`references/blockers.md` Resume says, naming its commit. Add
 any security-sensitive topic an implementer reports to the plan's line.
 
 ### 6. Refactor
@@ -234,7 +235,7 @@ rest of this skill.
   step 4 and starts at the step it names.
 - Run steps 5-9 as written, with every agent in the foreground (`run_in_background: false`). You are a subagent: you wait
   for what you spawned, and ending your turn is your hand-back.
-- Every prompt you write, a nested implementer's, `refactor`'s, a review's or a
+- Every prompt you write, an implementer's, `refactor`'s, a review's or a
   fixer's, carries the worktree path, for every command, the base branch and
   the first line of your spawn prompt. Diffs are against `origin/<base>`, so an
   epic child never sweeps in a sibling's work: step 6 passes `refactor` that

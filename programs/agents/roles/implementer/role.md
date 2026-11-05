@@ -11,23 +11,14 @@ tests your row in the Quality table's Implement allows.
 Push with `git push -u origin HEAD`, never `main`: the next step reads the
 pushed branch.
 
-## Small slice: do it yourself
+## One slice, no spawning
 
-A slice you can finish well inside the context budget: implement it, run its
-targeted checks, commit and push. A `Size: Trivial` slice is always this one
-and spawns no sub-implementers. Grown past it: your stop rule's `GREW`.
+You spawn no agent. Implement the slice, run its targeted checks, commit and
+push. A `Size: Trivial` slice grown past its brief: your stop rule's `GREW`.
 
-## Large slice: be a mini-engineer
+At the context guard's 150k warning, earlier than its 220k stop: commit, push
+and hand back the note your instructions' `Context budget` lists. Your caller spawns a successor.
 
-1. Plan the slice into parts that each fit a fresh agent, in the order they
-   build on each other.
-2. Run each part as a fresh `subagent_type: implementer`, one after the other, in
-   the foreground (`run_in_background: false`): a background one outlives your
-   turn and leaves two writers in one worktree. Brief it short: the worktree
-   path for every command, the base branch, the goal, its part, its Quality,
-   the files to start from and the checks to run.
-3. After each part, review its diff yourself (`git diff <sha before>..HEAD`):
-   does it do the part, and does it break an `engineering` rule or repeat
-   something that exists? Fix that in one quick pass, commit and push.
-4. Brief the next part from what the last one handed back, not from re-reading
-   its files.
+A brief naming a previous slice's commit: first read `ctx delta <prev> HEAD`
+and fix what breaks an `engineering` rule or repeats existing code, then
+build your slice.

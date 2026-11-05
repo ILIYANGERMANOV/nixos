@@ -61,13 +61,10 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
   expected over about 4 minutes itself: it commits, pushes if the branch is
   pushed, and hands back naming the check. Its caller spawns a fresh `checker` agent
   to run it, and a failure goes to a fresh fixer.
-- Search with `rg`. `grep` may be ugrep, which rejects bounded repeats such
-  as `.{0,250}` as too complex.
+- Search with `rg`: `grep` may be ugrep, which rejects bounded repeats
+  (`.{0,250}`).
 
 ## Context budget
-
-Every call re-sends the whole context, so a large agent pays for it on every
-step.
 
 - Stay under about 220k tokens of context. Past it, commit, push if the branch
   is pushed, hand back a short note - files touched, decisions, what remains,
@@ -75,6 +72,8 @@ step.
   briefed from that note.
 - Subagents never wait on or poll CI or deploys: they hand back, the parent
   waits, and a guard enforces it. A check they run is still theirs to wait for.
+- `CLAUDE.md` is already in your context: read it only to edit it or for
+  another revision (`git show origin/main:CLAUDE.md`).
 
 ## Writing for people
 

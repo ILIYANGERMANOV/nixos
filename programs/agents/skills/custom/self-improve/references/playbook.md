@@ -10,8 +10,10 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
 - **Context budget.** An agent past about 220k context commits, hands back a
   short note and stops; a fresh agent continues. One implementer had reached
   479k context and 73M tokens.
-- **Mini-engineer implementers.** A large slice is planned into parts, each
-  run by a fresh sub-implementer, instead of one agent growing for hours.
+- **Leaf implementers.** The engineer slices a large task up front and spawns
+  each implementer; an implementer spawns none and hands back at the 150k
+  warning. Implementers that spawned children waited past the cache: 29
+  rewrites, $12 in 30 days (nixos#325).
 - **Bounded reads.** `rg -n`, then a `sed -n` range; a hook blocks reads
   over 16KB. File reads were 38% of implementer cost.
 - **Leaner review passes.** One fresh subagent per review pass, one shared diff
@@ -36,6 +38,8 @@ From nixos#212, where 5 `/engineer` runs cost 249M input tokens.
 - **Trust a verified hand-back.** The parent keeps the conclusion and does not
   re-read the files behind it. This never covers a gate: a fix or a review
   that verifies independently stays.
+- **A program over an instruction** for a mechanical step, built only when
+  measured data shows a net saving: nixos `docs/adr/0013-deterministic-programs-over-instructions.md`.
 
 ## Wall time
 
