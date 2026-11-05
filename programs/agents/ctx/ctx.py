@@ -21,12 +21,23 @@ from pathlib import Path
 from typing import Literal
 
 type Kind = Literal["diff", "delta"]
-type Files = dict[str, str]
+type Files = dict[str, bytes]
 
 # Shared by every account on the box, so ctx refuses one another account owns.
 STORE = Path("/tmp/ctx")  # noqa: S108
 
-HELP = """\
+# What each file in a folder holds, in the order the manifest lists them.
+MEANINGS = {
+    "index": "<path> <first> <last>: each file's line range in diff",
+    "status": "git diff --name-status",
+    "stat": "git diff --stat",
+    "log": "commits {range}, one per line",
+    "ancestor": "yes|no: prev is an ancestor of head",
+    "diff": "unified diff",
+}
+
+HELP = (
+    """\
 ctx - write a branch diff to a cached folder; print its path and manifest
 
   ctx diff  <base> [<head>]   merge-base(base, head) .. head  (review a branch)
@@ -40,26 +51,22 @@ Examples
 
 Output (stdout)
   line 1   folder path, alone: d=$(ctx diff origin/main | head -1)
-  then     refs, file count, +/- lines, cached: yes|no, one line per file
-Folder   index status stat log diff (delta adds: ancestor)
-  index    <path> <first> <last>: the file's line range in diff
+  then     refs, file count, +/- lines, cached: yes|no, one line per folder file
+Folder files (ancestor: delta only)
+"""
+    + "".join(
+        f"  {name:<9}{text.format(range='from..head')}\n"
+        for name, text in MEANINGS.items()
+    )
+    + """\
 Read     index first, then: sed -n '<first>,<last>p' "$d/diff"
 Exit     0 ok (cached reruns too)  2 bad usage or ref  1 git or disk failure
 Errors go to stderr with a fix: line. Same inputs give the same folder.
 """
-
-# What each file in a folder holds, in the order the manifest lists them.
-MEANINGS = {
-    "index": "<path> <first> <last>: each file's line range in diff",
-    "status": "git diff --name-status",
-    "stat": "git diff --stat",
-    "log": "commits {range}, one per line",
-    "ancestor": "yes|no: prev is an ancestor of head",
-    "diff": "unified diff",
-}
+)
 
 STAT_SUMMARY = re.compile(
-    r" (\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?"
+    rb" (\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?"
 )
 
 
@@ -72,12 +79,24 @@ class Help:
 
 
 @dataclass(frozen=True)
+class HeadRef:
+    """A head named on the command line."""
+
+    ref: str
+
+
+@dataclass(frozen=True)
+class WorkTreeHead:
+    """No head on the command line: the work tree."""
+
+
+@dataclass(frozen=True)
 class Request:
-    """A diff or delta from `ref` to `head`; no head means the work tree."""
+    """A diff or delta from `ref` to `head`."""
 
     kind: Kind
     ref: str
-    head: str | None
+    head: HeadRef | WorkTreeHead
 
 
 @dataclass(frozen=True)
@@ -97,9 +116,9 @@ def parse_args(argv: list[str]) -> Help | Request | Failure:
         case _ if "-h" in argv or "--help" in argv:
             return Help()
         case ["diff" | "delta" as kind, ref]:
-            return Request(kind, ref, None)
+            return Request(kind, ref, WorkTreeHead())
         case ["diff" | "delta" as kind, ref, head]:
-            return Request(kind, ref, head)
+            return Request(kind, ref, HeadRef(head))
         case ["diff" | "delta" as kind, *_]:
             return Failure(
                 f"ctx {kind}: takes <ref> [<head>], got {len(argv) - 1} arguments",
@@ -176,7 +195,7 @@ def resolve(repo: Path, request: Request) -> Range | Failure:
 
 def resolve_head(repo: Path, request: Request) -> Head | Failure:
     match request.head:
-        case None:
+        case WorkTreeHead():
             commit = rev_parse(repo, "HEAD")
             match commit:
                 case None:
@@ -187,7 +206,7 @@ def resolve_head(repo: Path, request: Request) -> Head | Failure:
                     )
                 case str():
                     return WorkTree(commit, snapshot(repo))
-        case str(ref):
+        case HeadRef(ref=ref):
             commit = rev_parse(repo, ref)
             match commit:
                 case None:
@@ -200,7 +219,7 @@ def resolve_head(repo: Path, request: Request) -> Head | Failure:
                     return Committed(
                         ref,
                         commit,
-                        git(repo, "rev-parse", f"{commit}^{{tree}}").strip(),
+                        decoded(git(repo, "rev-parse", f"{commit}^{{tree}}")),
                     )
 
 
@@ -215,7 +234,7 @@ def resolve_diff(repo: Path, base: str, head: Head) -> DiffRange | Failure:
     found = run_git(repo, "merge-base", base_commit, head.commit)
     match found.returncode:
         case 0:
-            return DiffRange(base, found.stdout.strip(), head)
+            return DiffRange(base, decoded(found.stdout), head)
         case _:
             return Failure(
                 f"ctx diff: no merge-base between '{base}' and the head - unrelated histories",
@@ -243,14 +262,14 @@ def snapshot(repo: Path) -> str:
     `add -A` fast; the real index is never written. The new blobs land in the
     object store, the only write outside the ctx store.
     """
-    real_index = repo / git(repo, "rev-parse", "--git-path", "index").strip()
+    real_index = repo / decoded(git(repo, "rev-parse", "--git-path", "index"))
     with tempfile.TemporaryDirectory(prefix="ctx-index-") as tmp:
         index = Path(tmp) / "index"
         if real_index.exists():
             _ = shutil.copyfile(real_index, index)
         env = {**os.environ, "GIT_INDEX_FILE": str(index)}
         _ = git(repo, "add", "--all", env=env)
-        return git(repo, "write-tree", env=env).strip()
+        return decoded(git(repo, "write-tree", env=env))
 
 
 # ---- Building a folder ------------------------------------------------------
@@ -289,7 +308,7 @@ def build(repo: Path, target: Range) -> Files:
     patch = git(repo, "diff", *DIFF_FLAGS, start, tree)
     names = git(repo, "diff", *DIFF_FLAGS, "--name-only", "-z", start, tree)
     files: Files = {
-        "index": index_of(patch, [n for n in names.split("\0") if n]),
+        "index": index_of(patch, [n for n in names.split(b"\0") if n]),
         "status": git(repo, "diff", *DIFF_FLAGS, "--name-status", start, tree),
         "stat": git(
             repo,
@@ -307,7 +326,7 @@ def build(repo: Path, target: Range) -> Files:
     }
     match target:
         case DeltaRange(ancestor=ancestor):
-            return files | {"ancestor": "yes\n" if ancestor else "no\n"}
+            return files | {"ancestor": b"yes\n" if ancestor else b"no\n"}
         case DiffRange():
             return files
 
@@ -322,23 +341,30 @@ DIFF_FLAGS = (
 )
 
 
-def index_of(patch: str, names: list[str]) -> str:
+def index_of(patch: bytes, names: list[bytes]) -> bytes:
     """`<path> <first> <last>` per file: its 1-based line range in `patch`.
 
     `names` come from `--name-only -z`, which lists the files in the order the
     patch does, so paths need no parsing out of the headers.
     """
-    lines = patch.splitlines()
-    starts = [i + 1 for i, line in enumerate(lines) if line.startswith("diff --git ")]
+    lines = split_lines(patch)
+    starts = [i + 1 for i, line in enumerate(lines) if line.startswith(b"diff --git ")]
     if len(starts) != len(names):
         raise RuntimeError(
             f"{len(names)} names for {len(starts)} file sections in the diff"
         )
     ends = [start - 1 for start in starts[1:]] + ([len(lines)] if starts else [])
-    return "".join(
-        f"{name} {first} {last}\n"
+    return b"".join(
+        name + f" {first} {last}\n".encode()
         for name, first, last in zip(names, starts, ends, strict=True)
     )
+
+
+def split_lines(data: bytes) -> list[bytes]:
+    """Lines as `sed -n` counts them: split on `\\n` only, unlike `splitlines`,
+    which also splits on form feeds and Unicode separators."""
+    lines = data.split(b"\n")
+    return lines[:-1] if lines[-1] == b"" else lines
 
 
 def materialize(store: Path, name: str, make: Callable[[], Files]) -> tuple[Path, bool]:
@@ -352,8 +378,8 @@ def materialize(store: Path, name: str, make: Callable[[], Files]) -> tuple[Path
         return final, True
     store.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=".tmp-", dir=store))
-    for file, text in make().items():
-        _ = (tmp / file).write_text(text)
+    for file, data in make().items():
+        _ = (tmp / file).write_bytes(data)
     try:
         _ = tmp.rename(final)
     except OSError as error:
@@ -370,7 +396,7 @@ def materialize(store: Path, name: str, make: Callable[[], Files]) -> tuple[Path
 
 def manifest(folder: Path, target: Range, *, cached: bool) -> str:
     """What stdout says: the folder alone on line 1, then facts about it."""
-    stat = (folder / "stat").read_text()
+    stat = (folder / "stat").read_bytes()
     count, added, deleted = stat_totals(stat)
     rows = [
         f"  {name:<8}{line_count(folder / name):>4}  {meaning(name, target)}"
@@ -419,7 +445,7 @@ def meaning(name: str, target: Range) -> str:
     return MEANINGS[name].format(range=span)
 
 
-def stat_totals(stat: str) -> tuple[int, int, int]:
+def stat_totals(stat: bytes) -> tuple[int, int, int]:
     """Files, insertions and deletions from `git diff --stat`'s summary line."""
     found = STAT_SUMMARY.search(stat)
     match found:
@@ -430,7 +456,7 @@ def stat_totals(stat: str) -> tuple[int, int, int]:
 
 
 def line_count(path: Path) -> int:
-    return len(path.read_text().splitlines())
+    return len(split_lines(path.read_bytes()))
 
 
 # ---- The shell --------------------------------------------------------------
@@ -461,7 +487,7 @@ def ctx(cwd: Path, request: Request, store: Path, version: str) -> str | Failure
             "cd <repo> or git -C <repo> ... ; ctx runs in the current repo",
             2,
         )
-    repo = Path(top.stdout.strip())
+    repo = Path(decoded(top.stdout))
     target = resolve(repo, request)
     match target:
         case Failure():
@@ -475,7 +501,9 @@ def ctx(cwd: Path, request: Request, store: Path, version: str) -> str | Failure
                     1,
                 )
             origin = run_git(repo, "config", "--get", "remote.origin.url")
-            slug = repo_slug(origin.stdout if origin.returncode == 0 else None, repo)
+            slug = repo_slug(
+                decoded(origin.stdout) if origin.returncode == 0 else None, repo
+            )
             folder, cached = materialize(
                 store / slug / request.kind,
                 key(target, version),
@@ -534,26 +562,33 @@ def rev_parse(repo: Path, ref: str) -> str | None:
         "--end-of-options",
         f"{ref}^{{commit}}",
     )
-    return found.stdout.strip() if found.returncode == 0 else None
+    return decoded(found.stdout) if found.returncode == 0 else None
 
 
 class GitError(Exception):
     """A git command that should not fail did: an outage, not a bad ref."""
 
 
-def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
+def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> bytes:
     done = run_git(repo, *args, env=env)
     if done.returncode != 0:
-        raise GitError(f"git {' '.join(args)}: {done.stderr.strip()}")
+        raise GitError(f"git {' '.join(args)}: {decoded(done.stderr)}")
     return done.stdout
 
 
 def run_git(
     repo: Path, *args: str, env: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
+) -> subprocess.CompletedProcess[bytes]:
+    """Bytes, never text: a diff holds whatever encoding the files use."""
     return subprocess.run(
-        ["git", *args], cwd=repo, env=env, check=False, capture_output=True, text=True
+        ["git", *args], cwd=repo, env=env, check=False, capture_output=True
     )
+
+
+def decoded(raw: bytes) -> str:
+    """A ref, sha, path or message from git; bytes that are not UTF-8 survive
+    as surrogates, as in `os.fsdecode`."""
+    return os.fsdecode(raw).strip()
 
 
 if __name__ == "__main__":

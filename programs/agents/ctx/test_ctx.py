@@ -108,6 +108,33 @@ def test_index_points_at_each_files_lines_in_diff(
     assert int((folder / "index").read_text().splitlines()[-1].split()[-1]) == len(diff)
 
 
+def test_index_and_line_counts_split_on_newlines_only(
+    repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _ = commit(repo, {"c.txt": "one\fpage\x85two\u2028end\n"}, "odd separators")
+
+    _, out, _ = run(repo, tmp_path / "store", capsys, "diff", "main", "HEAD")
+
+    folder = folder_of(out)
+    newlines = (folder / "diff").read_bytes().count(b"\n")
+    rows = {line.split()[0]: int(line.split()[1]) for line in out.splitlines()[3:-1]}
+    last = (folder / "index").read_text().splitlines()[-1].split()
+    assert (last[0], int(last[-1]), rows["diff"]) == ("c.txt", newlines, newlines)
+
+
+def test_a_file_that_is_not_utf8_lands_in_the_folder_byte_for_byte(
+    repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _ = (repo / "latin1.txt").write_bytes("caf\xe9\n".encode("latin-1"))
+    _ = git(repo, "add", "latin1.txt")
+    _ = git(repo, "commit", "--quiet", "--message=latin-1")
+
+    code, out, err = run(repo, tmp_path / "store", capsys, "diff", "main", "HEAD")
+
+    assert (code, err) == (0, "")
+    assert b"+caf\xe9\n" in (folder_of(out) / "diff").read_bytes()
+
+
 def test_second_call_builds_nothing_and_gives_identical_files(
     repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -124,11 +151,11 @@ def test_second_call_builds_nothing_and_gives_identical_files(
 
 def test_a_build_that_loses_the_rename_keeps_the_winners_folder(tmp_path: Path) -> None:
     store = tmp_path / "store"
-    winner: Files = {"diff": "winner\n"}
+    winner: Files = {"diff": b"winner\n"}
 
     def build_while_another_wins() -> Files:
         _, _ = materialize(store, "key", lambda: winner)
-        return {"diff": "loser\n"}
+        return {"diff": b"loser\n"}
 
     folder, _ = materialize(store, "key", build_while_another_wins)
 
