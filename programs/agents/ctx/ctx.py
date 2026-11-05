@@ -372,10 +372,9 @@ def manifest(folder: Path, target: Range, *, cached: bool) -> str:
     """What stdout says: the folder alone on line 1, then facts about it."""
     stat = (folder / "stat").read_text()
     count, added, deleted = stat_totals(stat)
-    order = ["index", "status", "stat", "log", "ancestor", "diff"]
     rows = [
         f"  {name:<8}{line_count(folder / name):>4}  {meaning(name, target)}"
-        for name in order
+        for name in MEANINGS
         if (folder / name).exists()
     ]
     return "\n".join(
@@ -543,17 +542,17 @@ class GitError(Exception):
 
 
 def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
-    done = subprocess.run(
-        ["git", *args], cwd=repo, env=env, check=False, capture_output=True, text=True
-    )
+    done = run_git(repo, *args, env=env)
     if done.returncode != 0:
         raise GitError(f"git {' '.join(args)}: {done.stderr.strip()}")
     return done.stdout
 
 
-def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_git(
+    repo: Path, *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *args], cwd=repo, check=False, capture_output=True, text=True
+        ["git", *args], cwd=repo, env=env, check=False, capture_output=True, text=True
     )
 
 
