@@ -166,7 +166,7 @@ them. Give each the plan's path, its slice, the targeted checks to run
 (never the full check), the stop rule, the research notes paths and the
 sections it needs, and the sha the previous slice started from, if any. One
 that hands back at the context warning gets a successor as
-`references/blockers.md` Resume says, naming its commit. Add
+`references/blockers.md` Resume says, naming its commit and the sha its slice started from. Add
 any security-sensitive topic an implementer reports to the plan's line.
 
 ### 6. Refactor
