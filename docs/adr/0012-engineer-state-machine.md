@@ -156,8 +156,9 @@ Spec: `engineer/references/review.md`.
   review, Trivial included, gets `--requirements <path>`.
 - **Rounds 2+.** A fixer, then a fresh review-lead with
   `--fixes <previous Reviewed head>` and the one accumulating
-  `requirements-fixes.md`. A fix the Quality row's Full review of a fix to
-  names gets a whole-branch review, which counts as a round.
+  `requirements-fixes.md`. A fix to what the Quality table's `Full review of
+  a fix to` row names gets a whole-branch review instead, and it counts as a
+  round.
 - **Final fixer.** The loop's only exit, in every mode. It gets
   `chosen ++ [R0]`, and nothing reviews it. R0 writes the PR body from
   `ctx diff origin/<base>`.
@@ -300,8 +301,8 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
   are leaves, so the stop rule needs no relay.
 - **One plan text, passed by path.** The brief or `plan.md` is the only plan.
   Each plan decision is a requirement. Open decisions are triaged before
-  `READY` or `gh pr ready`. An `/engineer` dry run showed
-  two plan texts drifting into tech debt that no review could see.
+  `READY` or `gh pr ready`. An `/engineer` dry run showed two plan texts
+  drifting into tech debt that no review could see.
 - **The engineer drives the review loop**, as the evaluator-optimizer pattern
   bounds its iterations
   (https://www.anthropic.com/engineering/building-effective-agents).
@@ -320,8 +321,7 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
 - **Diffs come from `ctx`**, a cached folder read by ranges, so a diff is built
   once per head (`docs/adr/0013-deterministic-programs-over-instructions.md`).
 - **A progress file in every mode**, so a fresh context resumes from it and
-  `git log`
-  (https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
+  `git log` (https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
 - **Hand-over is ready on green CI.** `/qa`, `/final-review`,
   `/give-feedback` and `/address-pr-feedback` are optional next steps in the
   ready notice; no QA gate. `/10x-engineer` matches it.
