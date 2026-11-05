@@ -301,18 +301,27 @@ def write(path: Path, transcript: Transcript) -> None:
     _ = path.write_text("".join(json.dumps(line) + "\n" for line in transcript.lines))
 
 
-def section(report: str, title: str) -> str:
-    """The body of the report section titled `title`."""
-    return report.split(f"## {title}", 1)[-1].split("\n## ", 1)[0]
+def section(report: str, slug: str) -> str:
+    """The body of the report section headed `## slug`."""
+    heading = f"\n## {slug}\n"
+    assert heading in report, f"no section {slug!r} in:\n{report}"
+    return report.split(heading, 1)[1].split("\n## ", 1)[0]
 
 
-def row(report: str, title: str, first_cell: str) -> list[str]:
-    """The cells of the row whose first cell is `first_cell`, in the section titled `title`."""
-    for line in section(report, title).splitlines():
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if line.startswith("|") and cells[0] == first_cell:
+def row(report: str, slug: str, first_cell: str) -> list[str]:
+    """The cells of the table row whose first cell is `first_cell`, in section `slug`."""
+    for line in section(report, slug).splitlines():
+        cells = line.split("|")
+        if cells[0] == first_cell:
             return cells
     raise AssertionError(f"no row starting with {first_cell!r} in:\n{report}")
+
+
+def index_rows(report: str) -> list[list[str]]:
+    """The index's rows: slug, line range and headline."""
+    header, *rows = section(report, "index").strip().splitlines()
+    assert header == "section|lines|headline"
+    return [line.split("|", 2) for line in rows]
 
 
 @pytest.fixture
@@ -333,6 +342,69 @@ class TestCli:
         # Then
         assert printed == home.report("--since", at(0))
         assert "s1" in printed
+
+
+def busy_home(home: Home) -> None:
+    """Two sessions whose rows fill most sections: tokens, a subagent, checks, a failure, a read."""
+    for sid in ("s1", "s2"):
+        main = Transcript().human(0, "go").reply(1, {"input_tokens": 100})
+        _ = main.tool(2, "Agent", 50, description="Implement parser")
+        _ = main.bash(60, "just check", 120)
+        _ = main.bash(130, "just check", 190)
+        _ = main.bash(
+            200,
+            "jq .",
+            201,
+            outcome=Outcome("Exit code 127\njq: command not found", error=True),
+        )
+        _ = main.tool(210, "Read", 211, file_path="/home/dev/repos/demo/README.md")
+        sub = Transcript(parent="toolu_2").brief(3, "Implement the parser")
+        _ = sub.reply(4, {"cache_read_input_tokens": 5000, "output_tokens": 50})
+        _ = sub.tool(5, "Read", 6, file_path="/home/dev/repos/demo/README.md")
+        home.session(
+            sid,
+            main,
+            {"a": ("implementer", "Implement parser", sub.handback(49, "done"))},
+        )
+
+
+class TestLayout:
+    def test_each_index_range_spans_exactly_its_section(self, home: Home) -> None:
+        # Given
+        busy_home(home)
+        # When
+        report = home.report("--since", at(0), "--compare", at(100))
+        # Then: line A is the heading, line B its last line, a blank or the end after it
+        lines = report.splitlines()
+        rows = index_rows(report)
+        for slug, span, _ in rows:
+            first, last = map(int, span.split("-"))
+            assert lines[first - 1] == f"## {slug}"
+            assert not any(line.startswith("## ") for line in lines[first:last])
+            assert lines[last : last + 1] in ([], [""])
+        headings = [line[3:] for line in lines if line.startswith("## ")]
+        assert headings == ["summary", "index", *(slug for slug, _, _ in rows)]
+
+    def test_the_index_headline_carries_the_section_s_key_numbers(
+        self, home: Home
+    ) -> None:
+        # Given
+        busy_home(home)
+        # When
+        rows = {slug: headline for slug, _, headline in index_rows(home.report())}
+        # Then
+        assert (
+            rows["reruns"] == "reruns with nothing changed since the same check: 2, 2m"
+        )
+        assert rows["failures"] == "2 failed calls in 1 groups; missing tools: jq (2)"
+
+    def test_the_same_transcripts_give_the_same_bytes(self, home: Home) -> None:
+        # Given
+        busy_home(home)
+        # When: separate processes, each with its own random hash seed under -I
+        runs = {home.cli_report("--since", at(0)) for _ in range(3)}
+        # Then
+        assert len(runs) == 1
 
 
 class TestTokens:
@@ -359,7 +431,7 @@ class TestTokens:
         report = home.report()
         # Then: tokens are the sum of two responses, not four lines
         assert "main 15/3k/300/40" in report
-        assert row(report, "Tokens by agent type", "main")[1:4] == [
+        assert row(report, "agent-types", "main")[1:4] == [
             "1",
             "2",
             "15/3k/300/40",
@@ -386,20 +458,20 @@ class TestTokens:
         # When
         report = home.report()
         # Then
-        assert row(report, "Tokens by agent type", "general-purpose")[1:5] == [
+        assert row(report, "agent-types", "general-purpose")[1:5] == [
             "1",
             "2",
             "0/5.0M/50k/0",
             "3.0M",
         ]
-        assert row(report, "Costliest subagents", "s1")[1:5] == [
+        assert row(report, "subagents", "s1")[1:5] == [
             "general-purpose",
             "Implement parser",
             "0/5.0M/50k/0",
             "3.0M",
         ]
-        assert row(report, "Tokens by skill", "engineering")[1:] == ["1", "0/3.0M/0/0"]
-        assert "/engineer" in row(report, "Sessions", "s1")[5]
+        assert row(report, "skills", "engineering")[1:] == ["1", "0/3.0M/0/0"]
+        assert "/engineer" in row(report, "sessions", "s1")[5]
 
 
 class TestEffectiveCost:
@@ -423,12 +495,12 @@ class TestEffectiveCost:
         # When
         report = home.report()
         # Then: every view sums weighted calls, counting a split response once
-        assert "2k = main 710, subagents 1k" in section(report, "Session report")
-        assert row(report, "Sessions", "s1")[-1] == "2k"
-        assert row(report, "Tokens by agent type", "main")[-1] == "710"
-        assert row(report, "Tokens by agent type", "general-purpose")[-1] == "1k"
-        assert row(report, "Costliest subagents", "s1")[-1] == "1k"
-        assert row(report, "Loop steps", "implement")[-1] == "1k"
+        assert "effective 2k = main 710, subagents 1k" in section(report, "summary")
+        assert row(report, "sessions", "s1")[-1] == "2k"
+        assert row(report, "agent-types", "main")[-1] == "710"
+        assert row(report, "agent-types", "general-purpose")[-1] == "1k"
+        assert row(report, "subagents", "s1")[-1] == "1k"
+        assert row(report, "loop-steps", "implement")[-1] == "1k"
 
     def test_output_outranks_cached_context(self, home: Home) -> None:
         # Given: a large cached subagent and a small one that writes more
@@ -442,7 +514,7 @@ class TestEffectiveCost:
             {"a1": worker("Cached", cached), "a2": worker("Verbose", verbose)},
         )
         # When
-        lines = section(home.report(), "Costliest subagents").splitlines()
+        lines = section(home.report(), "subagents").splitlines()
         # Then
         assert "Verbose" in next(line for line in lines if "general-purpose" in line)
 
@@ -469,11 +541,11 @@ class TestCacheRewrites:
         # When
         report = home.report()
         # Then
-        assert row(report, "Cache rewrites", "foreground Bash")[1:] == ["1", "112k"]
-        assert row(report, "Cache rewrites", "Agent")[1:] == ["1", "112k"]
-        assert row(report, "Cache rewrites", "idle")[1:] == ["1", "112k"]
-        assert "3 rewrites, 338k effective" in section(report, "Cache rewrites")
-        assert row(report, "Cache rewrites", "s1")[1:] == [
+        assert row(report, "cache-rewrites", "foreground Bash")[1:] == ["1", "112k"]
+        assert row(report, "cache-rewrites", "Agent")[1:] == ["1", "112k"]
+        assert row(report, "cache-rewrites", "idle")[1:] == ["1", "112k"]
+        assert "3 rewrites, 338k effective" in section(report, "cache-rewrites")
+        assert row(report, "cache-rewriters", "s1")[1:] == [
             "general-purpose",
             "Implement parser",
             "3",
@@ -485,7 +557,7 @@ class TestCacheRewrites:
         sub = Transcript().brief(0, "build").reply(1).reply(299, REWRITE)
         home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
         # When / Then
-        assert "0 rewrites" in section(home.report(), "Cache rewrites")
+        assert "0 rewrites" in section(home.report(), "cache-rewrites")
 
     def test_a_small_write_after_a_gap_is_no_rewrite(self, home: Home) -> None:
         # Given: half the context written after a long gap, the cache having survived the rest
@@ -496,7 +568,7 @@ class TestCacheRewrites:
         sub = Transcript().brief(0, "build").reply(1).reply(1000, half)
         home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
         # When / Then
-        assert "0 rewrites" in section(home.report(), "Cache rewrites")
+        assert "0 rewrites" in section(home.report(), "cache-rewrites")
 
     def test_a_main_agent_keeps_its_cache_for_an_hour(self, home: Home) -> None:
         # Given: main gaps of 59 and 61 minutes before a large write
@@ -511,8 +583,8 @@ class TestCacheRewrites:
         # When
         report = home.report()
         # Then: only the second counts
-        assert row(report, "Cache rewrites", "s1")[1:] == ["main", "", "1", "112k"]
-        assert row(report, "Cache rewrites", "idle")[1:] == ["1", "112k"]
+        assert row(report, "cache-rewriters", "s1")[1:] == ["main", "", "1", "112k"]
+        assert row(report, "cache-rewrites", "idle")[1:] == ["1", "112k"]
 
     def test_a_background_bash_is_idle(self, home: Home) -> None:
         # Given: the wait came after a command sent to the background
@@ -521,7 +593,7 @@ class TestCacheRewrites:
         _ = sub.reply(400, REWRITE)
         home.session("s1", idle_main(), {"a1": worker("Implement parser", sub)})
         # When / Then
-        assert row(home.report(), "Cache rewrites", "idle")[1:] == ["1", "112k"]
+        assert row(home.report(), "cache-rewrites", "idle")[1:] == ["1", "112k"]
 
 
 class TestWallTime:
@@ -544,7 +616,7 @@ class TestWallTime:
         # When
         report = home.report()
         # Then
-        assert row(report, "Wall time per Bash command", "just check")[1:6] == [
+        assert row(report, "bash-times", "just check")[1:6] == [
             "1",
             "2m",
             "1",
@@ -565,8 +637,8 @@ class TestWallTime:
         # When
         report = home.report()
         # Then: neither call is charged the 60s of streaming
-        assert row(report, "Wall time per Bash command", "mkdir")[5] == "2s"
-        assert row(report, "Wall time per tool", "Write")[5] == "2s"
+        assert row(report, "bash-times", "mkdir")[5] == "2s"
+        assert row(report, "tool-times", "Write")[5] == "2s"
 
     def test_a_call_finishing_mid_stream_is_timed_from_its_own_line(
         self, home: Home
@@ -581,8 +653,8 @@ class TestWallTime:
         # When
         report = home.report()
         # Then: the Read keeps its 5s and is not moved past its own result
-        assert row(report, "Wall time per tool", "Read")[5] == "5s"
-        assert row(report, "Wall time per tool", "Write")[5] == "2s"
+        assert row(report, "tool-times", "Read")[5] == "5s"
+        assert row(report, "tool-times", "Write")[5] == "2s"
 
     def test_a_subagent_background_start_is_timed_to_its_notification(
         self, home: Home
@@ -598,7 +670,7 @@ class TestWallTime:
         # When
         report = home.report()
         # Then: one background call of 300s, not a 1s foreground one
-        assert row(report, "Wall time per Bash command", "just check")[1:6] == [
+        assert row(report, "bash-times", "just check")[1:6] == [
             "0",
             "0m",
             "1",
@@ -620,7 +692,7 @@ class TestWallTime:
         # When
         report = home.report()
         # Then
-        assert row(report, "Wall time per Bash command", "just check")[1:6] == [
+        assert row(report, "bash-times", "just check")[1:6] == [
             "0",
             "0m",
             "1",
@@ -644,8 +716,8 @@ class TestWallTime:
         # When
         report = home.report()
         # Then
-        assert row(report, "Wall time per tool", "Agent")[1:3] == ["bg", "1"]
-        assert row(report, "Wall time per tool", "Agent")[4:] == ["120s", "120s"]
+        assert row(report, "tool-times", "Agent")[1:3] == ["bg", "1"]
+        assert row(report, "tool-times", "Agent")[4:] == ["120s", "120s"]
 
     def test_a_subagent_background_failure_is_a_failure(self, home: Home) -> None:
         # Given: a background command failing in a subagent's attached notification
@@ -663,7 +735,7 @@ class TestWallTime:
         # When
         report = home.report()
         # Then
-        assert row(report, "Wall time per Bash command", "just check")[6] == "1"
+        assert row(report, "bash-times", "just check")[6] == "1"
 
     def test_output_quoting_a_background_start_stays_a_foreground_call(
         self, home: Home
@@ -680,7 +752,7 @@ class TestWallTime:
         # When
         report = home.report()
         # Then
-        assert row(report, "Wall time per Bash command", "just check")[1:3] == [
+        assert row(report, "bash-times", "just check")[1:3] == [
             "1",
             "0m",
         ]
@@ -695,10 +767,10 @@ class TestWallTime:
         # When
         report = home.report()
         # Then: 12 of the 60 minutes are waiting
-        assert "Wall clock: 1.0h = work 0.8h + waiting on the person 0.2h" in report
-        assert row(report, "Sessions", "s1")[3:5] == ["60m", "12m"]
+        assert "wall 1.0h = work 0.8h + waiting on the person 0.2h" in report
+        assert row(report, "sessions", "s1")[3:5] == ["60m", "12m"]
         # And: the question is not ranked as a tool bottleneck
-        assert "| AskUserQuestion |" not in section(report, "Wall time per tool")
+        assert "AskUserQuestion" not in section(report, "tool-times")
 
     def test_a_human_gap_with_background_work_running_is_work(self, home: Home) -> None:
         # Given: a background agent works 20 min into a 30 min silence in the main transcript,
@@ -714,7 +786,7 @@ class TestWallTime:
         # When
         report = home.report()
         # Then: only the 10 idle minutes after the subagent's work are waiting
-        assert row(report, "Sessions", "s1")[3:5] == ["60m", "10m"]
+        assert row(report, "sessions", "s1")[3:5] == ["60m", "10m"]
 
 
 class TestRedundantChecks:
@@ -733,9 +805,9 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 2, 2m." in report
-        assert "| just check | no edit |" in report
-        assert "| just check | doc-only edit |" in report
+        assert "reruns with nothing changed since the same check: 2, 2m" in report
+        assert "|just check|no edit|" in report
+        assert "|just check|doc-only edit|" in report
 
     def test_an_edit_by_another_agent_of_the_session_counts_as_a_change(
         self, home: Home
@@ -750,7 +822,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 0, 0m." in report
+        assert "reruns with nothing changed since the same check: 0, 0m" in report
 
     def test_steps_run_in_front_of_a_full_check_are_chains(self, home: Home) -> None:
         # Given: build && check in one call, and a test run right before a check
@@ -763,11 +835,8 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert (
-            "Build/test steps run before a full check with no edit between: 2, 1m."
-            in report
-        )
-        assert "| nix run .#test -- -m parser | 60s |" in report
+        assert "build/test steps before a full check, no edit between: 2, 1m" in report
+        assert "|nix run .#test -- -m parser|60s" in report
 
     def test_an_edit_sent_before_a_check_in_one_response_is_a_change(
         self, home: Home
@@ -783,7 +852,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 0, 0m." in report
+        assert "reruns with nothing changed since the same check: 0, 0m" in report
 
     def test_an_edit_sent_after_a_check_in_one_response_is_a_change_for_the_next_run(
         self, home: Home
@@ -799,7 +868,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 0, 0m." in report
+        assert "reruns with nothing changed since the same check: 0, 0m" in report
 
     def test_an_edit_sent_before_a_full_check_in_one_response_keeps_the_test_out_of_the_chain(
         self, home: Home
@@ -815,10 +884,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert (
-            "Build/test steps run before a full check with no edit between: 0, 0m."
-            in report
-        )
+        assert "build/test steps before a full check, no edit between: 0, 0m" in report
 
     def test_an_edit_sent_after_a_test_in_one_response_keeps_the_test_out_of_the_chain(
         self, home: Home
@@ -834,10 +900,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert (
-            "Build/test steps run before a full check with no edit between: 0, 0m."
-            in report
-        )
+        assert "build/test steps before a full check, no edit between: 0, 0m" in report
 
     def test_a_sibling_of_a_check_that_changes_nothing_leaves_it_a_rerun(
         self, home: Home
@@ -853,7 +916,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 1, 1m." in report
+        assert "reruns with nothing changed since the same check: 1, 1m" in report
 
     def test_a_python_heredoc_writing_a_file_counts_as_a_change(
         self, home: Home
@@ -883,7 +946,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 0, 0m." in report
+        assert "reruns with nothing changed since the same check: 0, 0m" in report
 
     def test_a_python_heredoc_that_only_reads_is_no_change(self, home: Home) -> None:
         # Given: two heredocs reading a file, each between two runs of a check
@@ -901,7 +964,7 @@ class TestRedundantChecks:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 2, 2m." in report
+        assert "reruns with nothing changed since the same check: 2, 2m" in report
 
 
 class TestFailures:
@@ -932,8 +995,8 @@ class TestFailures:
         # When
         report = home.report()
         # Then
-        assert "3 failed calls in 2 groups. Missing tools: claude (1)." in report
-        assert row(report, "Failing tool calls", "2")[1:4] == [
+        assert "3 failed calls in 2 groups; missing tools: claude (1)" in report
+        assert row(report, "failures", "2")[1:4] == [
             "Bash",
             "nix run .#build",
             "1",
@@ -952,7 +1015,7 @@ class TestFailures:
         # When
         report = home.report()
         # Then
-        assert row(report, "Failing tool calls", "1")[1:4] == [
+        assert row(report, "failures", "1")[1:4] == [
             "Bash",
             "just check",
             "2",
@@ -1062,7 +1125,7 @@ class TestLoopSteps:
             "pr description",
             "other",
         ):
-            assert row(report, "Loop steps", step)[1:3] == ["1", "1"], step
+            assert row(report, "loop-steps", step)[1:3] == ["1", "1"], step
 
     def test_a_role_agent_type_is_its_step_whatever_its_brief_says(
         self, home: Home
@@ -1082,7 +1145,7 @@ class TestLoopSteps:
         report = home.report()
         # Then
         for step in ("implement", "fix", "review 1", "review 2"):
-            assert row(report, "Loop steps", step)[1:3] == ["1", "1"], step
+            assert row(report, "loop-steps", step)[1:3] == ["1", "1"], step
 
     def test_a_reviewer_under_a_review_lead_counts_under_its_pass(
         self, home: Home
@@ -1101,7 +1164,7 @@ class TestLoopSteps:
             },
         )
         # When / Then
-        assert row(home.report(), "Loop steps", "review 1")[1:3] == ["2", "1"]
+        assert row(home.report(), "loop-steps", "review 1")[1:3] == ["2", "1"]
 
     def test_a_research_agent_type_is_research_whatever_its_brief_says(
         self, home: Home
@@ -1116,7 +1179,7 @@ class TestLoopSteps:
             },
         )
         # When / Then
-        assert row(home.report(), "Loop steps", "research")[1:3] == ["2", "1"]
+        assert row(home.report(), "loop-steps", "research")[1:3] == ["2", "1"]
 
     def test_a_brief_invoking_the_researcher_skill_is_research(
         self, home: Home
@@ -1128,7 +1191,7 @@ class TestLoopSteps:
             {"a": worker("Pagination", subagent("Invoke `researcher` on pagination"))},
         )
         # When / Then
-        assert row(home.report(), "Loop steps", "research")[1:3] == ["1", "1"]
+        assert row(home.report(), "loop-steps", "research")[1:3] == ["1", "1"]
 
     def test_a_researcher_under_an_orchestrator_subagent_stays_research(
         self, home: Home
@@ -1149,8 +1212,8 @@ class TestLoopSteps:
         # When
         report = home.report()
         # Then
-        assert row(report, "Loop steps", "research")[1:3] == ["1", "1"]
-        assert row(report, "Loop steps", "other")[1:3] == ["1", "1"]
+        assert row(report, "loop-steps", "research")[1:3] == ["1", "1"]
+        assert row(report, "loop-steps", "other")[1:3] == ["1", "1"]
 
     def test_a_researcher_under_a_review_counts_as_the_review(self, home: Home) -> None:
         # Given
@@ -1167,7 +1230,7 @@ class TestLoopSteps:
             },
         )
         # When / Then
-        assert row(home.report(), "Loop steps", "review 1")[1:3] == ["2", "1"]
+        assert row(home.report(), "loop-steps", "review 1")[1:3] == ["2", "1"]
 
     def test_a_child_counts_under_its_parents_step_with_its_tokens_and_wall(
         self, home: Home
@@ -1185,7 +1248,7 @@ class TestLoopSteps:
         # When
         report = home.report()
         # Then
-        assert row(report, "Loop steps", "review 1")[1:5] == [
+        assert row(report, "loop-steps", "review 1")[1:5] == [
             "2",
             "1",
             "0/3k/0/0",
@@ -1206,7 +1269,7 @@ class TestReviewYield:
         # When
         report = self.report_with_review(home, sub)
         # Then: reports, tokens, raised, survived, severities, verdicts, do not merge, unparsed
-        assert row(report, "Review yield", "review 1")[1:] == [
+        assert row(report, "review-yield", "review 1")[1:] == [
             "1",
             "0/5k/0/0",
             "3",
@@ -1229,8 +1292,8 @@ class TestReviewYield:
         # When
         report = self.report_with_review(home, sub)
         # Then
-        assert row(report, "Review yield", "review 2")[3:5] == ["4", "0"]
-        assert "| review 1 |" not in section(report, "Review yield")
+        assert row(report, "review-yield", "review 2")[3:5] == ["4", "0"]
+        assert "review 1" not in section(report, "review-yield")
 
     def test_an_agent_with_no_hand_back_is_read_from_its_last_text(
         self, home: Home
@@ -1240,7 +1303,7 @@ class TestReviewYield:
         # When
         report = self.report_with_review(home, sub)
         # Then
-        assert row(report, "Review yield", "review 1")[3:5] == ["3", "2"]
+        assert row(report, "review-yield", "review 1")[3:5] == ["3", "2"]
 
     def test_a_report_without_the_verdict_arithmetic_counts_as_unparsed(
         self, home: Home
@@ -1250,7 +1313,7 @@ class TestReviewYield:
         # When
         report = self.report_with_review(home, sub)
         # Then
-        cells = row(report, "Review yield", "review 1")
+        cells = row(report, "review-yield", "review 1")
         assert (cells[1], cells[3], cells[-1]) == ("1", "0", "1")
 
     def test_a_review_the_main_agent_ran_has_a_row_without_tokens(
@@ -1266,7 +1329,7 @@ class TestReviewYield:
         # When
         report = home.report()
         # Then
-        assert row(report, "Review yield", "run by main")[1:5] == ["1", "-", "3", "2"]
+        assert row(report, "review-yield", "run by main")[1:5] == ["1", "-", "3", "2"]
 
     def test_a_review_seconds_budget_is_not_a_second_pass(self, home: Home) -> None:
         # Given: a first review whose brief mentions seconds
@@ -1276,7 +1339,7 @@ class TestReviewYield:
         # When
         report = self.report_with_review(home, sub)
         # Then
-        assert row(report, "Review yield", "review 1")[1] == "1"
+        assert row(report, "review-yield", "review 1")[1] == "1"
 
     def test_a_hand_back_wins_over_text_written_after_it(self, home: Home) -> None:
         # Given: the last hand-back is the report, and text follows it
@@ -1289,7 +1352,7 @@ class TestReviewYield:
         # When
         report = self.report_with_review(home, sub)
         # Then
-        assert row(report, "Review yield", "review 1")[3:5] == ["3", "2"]
+        assert row(report, "review-yield", "review 1")[3:5] == ["3", "2"]
 
     def test_a_review_agent_with_no_recorded_usage_still_shows_its_tokens(
         self, home: Home
@@ -1299,7 +1362,7 @@ class TestReviewYield:
         # When
         report = self.report_with_review(home, sub)
         # Then: zero tokens, not the "-" of a review with none to attribute
-        assert row(report, "Review yield", "review 1")[2] == "0/0/0/0"
+        assert row(report, "review-yield", "review 1")[2] == "0/0/0/0"
 
     def test_a_main_agent_report_without_the_arithmetic_keeps_its_rows_and_counts_as_unparsed(
         self, home: Home
@@ -1308,7 +1371,7 @@ class TestReviewYield:
         text = REVIEW_REPORT.replace(" 3 raised, 2 survived.", "")
         home.session("s1", Transcript().human(0, "go").reply(1, text=text))
         # When
-        cells = row(home.report(), "Review yield", "run by main")
+        cells = row(home.report(), "review-yield", "run by main")
         # Then: reports, tokens, raised, survived, major, minor, then unparsed last
         assert cells[1:7] == ["1", "-", "0", "0", "1", "1"]
         assert cells[-1] == "1"
@@ -1324,7 +1387,7 @@ class TestReviewYield:
             .reply(1, text="Major refactor done | see the PR"),
         )
         # When / Then
-        assert "run by main" not in section(home.report(), "Review yield")
+        assert "run by main" not in section(home.report(), "review-yield")
 
     def test_a_review_under_an_orchestrator_subagent_is_counted_with_its_own_tree(
         self, home: Home
@@ -1358,7 +1421,7 @@ class TestReviewYield:
         # When
         report = home.report()
         # Then: the review and its child, without the orchestrator's tokens
-        assert row(report, "Review yield", "review 1")[1:7] == [
+        assert row(report, "review-yield", "review 1")[1:7] == [
             "1",
             "0/3k/0/0",
             "3",
@@ -1366,8 +1429,8 @@ class TestReviewYield:
             "1",
             "1",
         ]
-        assert row(report, "Loop steps", "review 1")[1] == "2"
-        assert row(report, "Review yield", "tests")[1] == "1"
+        assert row(report, "loop-steps", "review 1")[1] == "2"
+        assert row(report, "review-agents", "tests")[1] == "1"
 
     def test_inner_agents_are_counted_by_type(self, home: Home) -> None:
         # Given: a review agent, its tests agent with a finding, its requirement agent with a verdict,
@@ -1402,7 +1465,9 @@ class TestReviewYield:
 
         # Then: runs, major, minor, nit, runs with a finding, not met, unverified
         def cells(name: str) -> list[str]:
-            return [row(report, "Review yield", name)[i] for i in (1, 3, 4, 5, 6, 7, 8)]
+            return [
+                row(report, "review-agents", name)[i] for i in (1, 3, 4, 5, 6, 7, 8)
+            ]
 
         assert cells("tests") == ["1", "1", "0", "0", "1", "0", "0"]
         assert cells("requirement") == ["1", "0", "0", "0", "0", "0", "1"]
@@ -1426,11 +1491,11 @@ class TestAfterHandback:
         report = home.report()
         # Then
         assert (
-            "Sessions that ran `gh pr ready`: 1, with a human prompt after it: 1"
+            "sessions that ran gh pr ready: 1, with a human prompt after it: 1"
             in report
         )
         assert (
-            "Human prompts after it: 3: 1 free text, /final-review 1, /give-feedback 1"
+            "human prompts after it: 3: 1 free text, /final-review 1, /give-feedback 1"
             in report
         )
 
@@ -1443,7 +1508,7 @@ class TestAfterHandback:
         # When
         report = home.report()
         # Then
-        assert "Human prompts after it: 1: 1 free text" in report
+        assert "human prompts after it: 1: 1 free text" in report
 
 
 class TestCommunication:
@@ -1475,7 +1540,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then: agents, median and max brief, median and max hand-back, over the limit, under the floor
-        assert row(report, "Agent communication", "general-purpose")[1:] == [
+        assert row(report, "briefs", "general-purpose")[1:] == [
             "implement",
             "2",
             "150",
@@ -1501,10 +1566,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then: 2000 chars is 500 tokens, sent twice more
-        assert (
-            "Hand-backs over 300 words: 1, 2k chars, about 1k tokens sent again"
-            in report
-        )
+        assert "hand-backs over 300 words: 1, 2k chars, ~1k tokens sent again" in report
 
     def test_a_hand_back_pointing_at_a_notes_file_is_counted(self, home: Home) -> None:
         # Given
@@ -1515,7 +1577,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert "Hand-backs pointing at a notes file: 1" in report
+        assert "hand-backs pointing at a notes file: 1" in report
 
     def test_a_follow_up_message_to_a_subagent_is_counted(self, home: Home) -> None:
         # Given
@@ -1525,7 +1587,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert "Follow-up messages to a subagent: 1" in report
+        assert "follow-up messages to a subagent: 1" in report
 
     def report_with_implementer(
         self, home: Home, main: Transcript, *others: Transcript
@@ -1558,7 +1620,11 @@ class TestCommunication:
         # When
         report = self.report_with_implementer(home, main)
         # Then: hand-backs, re-reads, re-read chars
-        assert row(report, "Agent communication", "implement")[1:4] == ["1", "2", "800"]
+        assert row(report, "parent-after-handback", "implement")[1:4] == [
+            "1",
+            "2",
+            "800",
+        ]
 
     def test_a_diff_of_another_worktree_is_a_re_read(self, home: Home) -> None:
         # Given: the parent diffs a path it named with `git -C`
@@ -1569,7 +1635,11 @@ class TestCommunication:
         # When
         report = self.report_with_implementer(home, main)
         # Then: hand-backs, re-reads, re-read chars
-        assert row(report, "Agent communication", "implement")[1:4] == ["1", "1", "300"]
+        assert row(report, "parent-after-handback", "implement")[1:4] == [
+            "1",
+            "1",
+            "300",
+        ]
 
     def test_a_parent_rerunning_a_check_is_a_re_verify(self, home: Home) -> None:
         # Given
@@ -1578,7 +1648,7 @@ class TestCommunication:
         # When
         report = self.report_with_implementer(home, main)
         # Then: re-verifies, re-verify time
-        assert row(report, "Agent communication", "implement")[4:6] == ["1", "1m"]
+        assert row(report, "parent-after-handback", "implement")[4:6] == ["1", "1m"]
 
     def test_a_read_after_the_next_spawn_answers_no_hand_back(self, home: Home) -> None:
         # Given: the named file is read after a later spawn that is still running
@@ -1606,14 +1676,14 @@ class TestCommunication:
         # When
         report = self.report_with_implementer(home, main, refactorer)
         # Then
-        assert row(report, "Agent communication", "implement")[1:6] == [
+        assert row(report, "parent-after-handback", "implement")[1:6] == [
             "1",
             "0",
             "0",
             "0",
             "0m",
         ]
-        assert row(report, "Agent communication", "refactor")[1:6] == [
+        assert row(report, "parent-after-handback", "refactor")[1:6] == [
             "1",
             "0",
             "0",
@@ -1640,7 +1710,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert row(report, "Agent communication", "research")[-1] == "1"
+        assert row(report, "parent-after-handback", "research")[-1] == "1"
 
     def test_the_same_read_by_two_agents_is_repeated_work(self, home: Home) -> None:
         # Given: two agents read one file; the first also reads a file nobody else does
@@ -1663,8 +1733,8 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert "by two or more agents of a session: 1, 1k chars repeated." in report
-        assert row(report, "Agent communication", "s1")[1:] == [
+        assert "1 repeated reads, 1k chars repeated" in report
+        assert row(report, "repeated-reads", "s1")[1:] == [
             "/repo/big.py",
             "2",
             "2",
@@ -1687,7 +1757,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert row(report, "Agent communication", "s1")[1:] == [
+        assert row(report, "repeated-reads", "s1")[1:] == [
             "/repo/big.py",
             "2",
             "2",
@@ -1706,7 +1776,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert "by two or more agents of a session: 2, 2k chars repeated." in report
+        assert "2 repeated reads, 2k chars repeated" in report
 
     def test_a_command_outside_the_read_list_is_no_repeated_read(
         self, home: Home
@@ -1722,7 +1792,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert "by two or more agents of a session: 0, 0 chars repeated." in report
+        assert "0 repeated reads, 0 chars repeated" in report
 
     def test_an_implementer_rereading_what_research_read_is_a_split(
         self, home: Home
@@ -1748,10 +1818,7 @@ class TestCommunication:
         # When
         report = home.report()
         # Then
-        assert (
-            "Implementers reading files a research agent read: 1, 1 files between them"
-            in report
-        )
+        assert "implementers reading files a research agent read: 1, 1 files" in report
 
 
 class TestWindow:
@@ -1769,7 +1836,7 @@ class TestWindow:
 
     def sessions(self, report: str) -> set[str]:
         return {
-            sid for sid in ("old", "prev", "work", "current") if f"| {sid} |" in report
+            sid for sid in ("old", "prev", "work", "current") if f"\n{sid}|" in report
         }
 
     def test_default_window_starts_at_the_previous_self_improve_and_skips_the_current(
@@ -1828,7 +1895,7 @@ class TestWindow:
         report = home.report()
         # Then
         assert self.sessions(report) == {"current"}
-        assert row(report, "Sessions", "current")[3] == "18m"
+        assert row(report, "sessions", "current")[3] == "18m"
 
     def test_since_and_project_narrow_the_window(self, home: Home) -> None:
         # Given
@@ -1867,7 +1934,7 @@ class TestQualityModes:
         report = home.report()
         # Then
         for mode in ("POC", "Balanced, Size: Trivial", "Max, Size: Normal"):
-            cells = row(report, "Cost by Quality mode", mode)
+            cells = row(report, "quality", mode)
             assert [cells[1], cells[4]] == ["1", "1k"], mode
 
     def test_the_placeholder_in_a_pasted_rule_is_not_a_mode(self, home: Home) -> None:
@@ -1878,7 +1945,7 @@ class TestQualityModes:
             {"a": worker("A", subagent("Every brief carries `Quality: <mode>`."))},
         )
         # When / Then
-        assert row(home.report(), "Cost by Quality mode", "(none stated)")[1:4] == [
+        assert row(home.report(), "quality", "(none stated)")[1:4] == [
             "1",
             "0",
             "2",
@@ -1889,7 +1956,7 @@ class TestQualityModes:
         brief = "Quality: POC\nSize: Trivial|Normal, set by the engineer."
         home.session("s1", idle_main(), {"a": worker("A", subagent(brief, COSTS_1K))})
         # When / Then
-        assert row(home.report(), "Cost by Quality mode", "POC")[3:5] == ["2", "1k"]
+        assert row(home.report(), "quality", "POC")[3:5] == ["2", "1k"]
 
     def test_a_child_with_no_mode_takes_its_parents(self, home: Home) -> None:
         # Given: a sibling stating another mode, which the main agent takes as the session's
@@ -1905,7 +1972,7 @@ class TestQualityModes:
             },
         )
         # When / Then
-        assert row(home.report(), "Cost by Quality mode", "POC")[3:5] == ["2", "2k"]
+        assert row(home.report(), "quality", "POC")[3:5] == ["2", "2k"]
 
     def test_the_main_agent_takes_the_mode_most_subagents_state(
         self, home: Home
@@ -1924,8 +1991,8 @@ class TestQualityModes:
         # When
         report = home.report()
         # Then
-        assert row(report, "Cost by Quality mode", "Max")[3:5] == ["3", "1k"]
-        assert row(report, "Cost by Quality mode", "POC")[3:5] == ["1", "0"]
+        assert row(report, "quality", "Max")[3:5] == ["3", "1k"]
+        assert row(report, "quality", "POC")[3:5] == ["1", "0"]
 
     def test_a_session_that_grew_from_trivial_counts_its_main_agent_as_normal(
         self, home: Home
@@ -1936,9 +2003,10 @@ class TestQualityModes:
         late = Transcript().brief(50, "Quality: Balanced. Size: Normal\nGo.").reply(51)
         home.session("s1", main, {"z": worker("Z", early), "a": worker("A", late)})
         # When / Then
-        assert row(home.report(), "Cost by Quality mode", "Balanced, Size: Normal")[
-            3:5
-        ] == ["2", "1k"]
+        assert row(home.report(), "quality", "Balanced, Size: Normal")[3:5] == [
+            "2",
+            "1k",
+        ]
 
     def test_the_per_pr_median_splits_a_sessions_cost_and_skips_sessions_with_no_pr(
         self,
@@ -1957,7 +2025,7 @@ class TestQualityModes:
             Transcript().human(0, "Quality: Max").reply(1, {"input_tokens": 90_000}),
         )
         # When / Then: the median of 1k and 4k
-        assert row(home.report(), "Cost by Quality mode", "Max")[1:6] == [
+        assert row(home.report(), "quality", "Max")[1:6] == [
             "3",
             "3",
             "3",
@@ -1973,7 +2041,7 @@ class TestQualityModes:
         )
         home.session("s1", main)
         # When / Then
-        assert row(home.report(), "Cost by Quality mode", "Max")[2] == "0"
+        assert row(home.report(), "quality", "Max")[2] == "0"
 
     def test_the_section_says_what_it_cannot_count(self, home: Home) -> None:
         # Given
@@ -1994,7 +2062,7 @@ class TestStartUp:
         _ = agent.reply(7, {"cache_read_input_tokens": 90_000})
         home.session("s1", idle_main(), {"a": worker("A", agent)})
         # When / Then
-        assert row(home.report(), "Start-up size", "general-purpose")[1:] == [
+        assert row(home.report(), "startup", "general-purpose")[1:] == [
             "1",
             "40k",
             "40k",
@@ -2018,7 +2086,7 @@ class TestStartUp:
             },
         )
         # When / Then
-        assert row(home.report(), "Start-up size", "researcher")[1:4] == [
+        assert row(home.report(), "startup", "researcher")[1:4] == [
             "10",
             "55k",
             "90k",
@@ -2036,14 +2104,14 @@ class TestStartUp:
         )
         home.session("s1", idle_main(), {"a": worker("A", agent)})
         # When / Then
-        assert row(home.report(), "Start-up size", "general-purpose")[4:6] == ["0", "0"]
+        assert row(home.report(), "startup", "general-purpose")[4:6] == ["0", "0"]
 
     def test_an_api_error_line_is_not_the_first_call(self, home: Home) -> None:
         # Given: a first response with no usage
         agent = Transcript().brief(5, "go").reply(6).reply(7, {"input_tokens": 1000})
         home.session("s1", idle_main(), {"a": worker("A", agent)})
         # When / Then
-        assert row(home.report(), "Start-up size", "general-purpose")[1:3] == [
+        assert row(home.report(), "startup", "general-purpose")[1:3] == [
             "1",
             "1k",
         ]
@@ -2069,26 +2137,35 @@ class TestCompare:
         self.sessions(home, 5, 0, 1000)
         self.sessions(home, 6, self.SPLIT + 1, 3000)
         # When / Then
-        assert row(self.report(home), "Before and after", "effective per session")[
-            1:
-        ] == ["5", "1k", "6", "3k"]
+        assert row(self.report(home), "compare", "effective per session")[1:] == [
+            "5",
+            "1k",
+            "6",
+            "3k",
+        ]
 
     def test_a_side_below_the_minimum_says_not_enough_data(self, home: Home) -> None:
         # Given: one short of the minimum after the split
         self.sessions(home, 5, 0, 1000)
         self.sessions(home, 4, self.SPLIT + 1, 3000)
         # When / Then
-        assert row(self.report(home), "Before and after", "effective per session")[
-            1:
-        ] == ["5", "1k", "4", "not enough data"]
+        assert row(self.report(home), "compare", "effective per session")[1:] == [
+            "5",
+            "1k",
+            "4",
+            "not enough data",
+        ]
 
     def test_a_session_starting_at_the_split_counts_after(self, home: Home) -> None:
         # Given
         self.sessions(home, 1, self.SPLIT, 1000)
         # When / Then
-        assert row(self.report(home), "Before and after", "effective per session")[
-            1:
-        ] == ["0", "not enough data", "1", "not enough data"]
+        assert row(self.report(home), "compare", "effective per session")[1:] == [
+            "0",
+            "not enough data",
+            "1",
+            "not enough data",
+        ]
 
     def pr_sessions(self, home: Home, n: int, start: float, tokens: int) -> None:
         for k in range(n):
@@ -2116,12 +2193,18 @@ class TestCompare:
         # When
         report = self.report(home)
         # Then: a PR costs the main agent plus its researcher
-        assert row(report, "Before and after", "first-call context, researcher")[
-            1:
-        ] == ["5", "1k", "5", "3k"]
-        assert row(report, "Before and after", "effective per PR, (none stated)")[
-            1:
-        ] == ["5", "2k", "5", "6k"]
+        assert row(report, "compare", "first-call context, researcher")[1:] == [
+            "5",
+            "1k",
+            "5",
+            "3k",
+        ]
+        assert row(report, "compare", "effective per PR, (none stated)")[1:] == [
+            "5",
+            "2k",
+            "5",
+            "6k",
+        ]
 
     def test_the_section_is_absent_without_the_flag(self, home: Home) -> None:
         # Given
@@ -2166,8 +2249,8 @@ class TestBashCommandsAreReadAsBash:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 1, 1m." in report
-        assert f"| {key} | no edit |" in report
+        assert "reruns with nothing changed since the same check: 1, 1m" in report
+        assert f"|{key}|no edit|" in report
 
     @pytest.mark.parametrize(
         "command",
@@ -2186,7 +2269,7 @@ class TestBashCommandsAreReadAsBash:
         # When
         report = home.report()
         # Then
-        assert "Reruns with nothing changed since the same check: 0, 0m." in report
+        assert "reruns with nothing changed since the same check: 0, 0m" in report
 
     def test_a_heredoc_body_is_not_a_check(self, home: Home) -> None:
         # Given: a check spelled in a note, not run
@@ -2196,7 +2279,7 @@ class TestBashCommandsAreReadAsBash:
         # When
         report = home.report()
         # Then
-        assert row(report, "Wall time per Bash command", "cat")[1] == "1"
+        assert row(report, "bash-times", "cat")[1] == "1"
 
 
 REALISTIC = [
