@@ -4,6 +4,9 @@ The report is a head (title, legend, `summary`, `index`) and sections. Each
 index row is `slug|lines|headline`: read a section with `sed -n 'A,Bp'`.
 Tables are `a|b|c` rows under one header, capped at 5 to 12 rows with
 `+N more`; `none` means empty. Ask a researcher for capped rows.
+Same transcripts give the same bytes, but live sessions keep writing inside
+an open window, so two runs differ; for an exact rerun, copy the transcripts
+and pass the copy as `--root DIR`.
 
 ## Units
 

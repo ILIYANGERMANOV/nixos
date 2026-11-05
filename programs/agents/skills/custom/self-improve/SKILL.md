@@ -1,30 +1,34 @@
 ---
 name: self-improve
-description: Finds where past agent sessions on this machine lost tokens and wall time without buying quality - bloated contexts, cache rewrites, redundant or chained checks, sleep loops, failing commands, missing tools, wasteful hand-offs between agents - and what the quality loop bought, never counting time waiting on the user. Measures the transcripts with a deterministic analyzer, then runs the engineer flow primed with that data - research, an interview on the numbers, proposals ranked by net value, approved fixes delivered as PRs. Never trades quality for a saving, and proposes spending more where it buys significant quality. Takes optional suspected bottlenecks to confirm or refute.
+description: Finds where past agent sessions on this machine lost tokens and wall time without buying quality - bloated contexts, cache rewrites, redundant or chained checks, sleep loops, failing commands, missing tools, wasteful hand-offs between agents - and what the quality loop bought, never counting time waiting on the user. Measures the transcripts with a deterministic analyzer, then runs the engineer flow primed with that data - research, an interview on the numbers, proposals ranked by net value, the fixes the user picks delivered as one PR. Never trades quality for a saving, and proposes spending more where it buys significant quality. Takes optional suspected bottlenecks to confirm or refute.
 disable-model-invocation: true
-argument-hint: "[suspected bottlenecks]"
+argument-hint: "[window] [suspected bottlenecks]"
 ---
 
 # Self-improve
 
-An `engineer` run primed with this machine's own session data. Suspected
-bottlenecks from the user: `$ARGUMENTS` (may be empty).
+An `engineer` run primed with this machine's own session data. `$ARGUMENTS`
+(may be empty): a window in it ("last 7 days") becomes `--since`; the rest are
+suspected bottlenecks.
 
 ## 1. Measure
 
 ```
-mkdir -p /tmp/self-improve
-python3 -I ${CLAUDE_SKILL_DIR}/scripts/analyze.py [--since ISO] [--project SUBSTR] [--compare ISO] > /tmp/self-improve/report.md
+run=$(mktemp -d /tmp/self-improve.XXXXXX)
+python3 -I ${CLAUDE_SKILL_DIR}/scripts/analyze.py [--since ISO] [--project SUBSTR] [--compare ISO] > $run/report.md
 ```
 
-The default window starts at the previous `/self-improve` invocation. Read the
-head with `sed -n '1,/^## sessions$/p' /tmp/self-improve/report.md`, then the sections a lead needs by
-their index range. `${CLAUDE_SKILL_DIR}/references/metrics.md` says how to
+`$run` below means that directory's path, written out: shell state does not
+persist between calls. The default window starts at the previous
+`/self-improve` invocation. Read the head with
+`sed -n '1,/^## sessions$/p' $run/report.md`, then by their index range the
+sections whose headline shows the largest cost (effective tokens or
+minutes), about the top 5. `${CLAUDE_SKILL_DIR}/references/metrics.md` says how to
 read them. Never read a transcript yourself: researchers do.
 
 ## 2. Prime the engineer
 
-Write `/tmp/self-improve/prompt.md`, the engineer's task:
+Write `$run/prompt.md`, the engineer's task:
 
 - **Goal**: cut the tokens and wall time agents spend without buying quality,
   and spend more where it buys significant quality.
@@ -46,11 +50,13 @@ Write `/tmp/self-improve/prompt.md`, the engineer's task:
     large enough sample show it catches nothing a later gate does not. A
     security or data-loss check is insurance, judged by what a miss costs.
 - **Known levers**: `${CLAUDE_SKILL_DIR}/references/playbook.md`.
-- **Delivery**: each PR body states the before numbers and, where measurable,
-  the after numbers. A fix in another repository is a follow-up `/engineer`
-  run, named in the hand-over.
+- **Delivery**: one PR in the target repo (default ILIYANGERMANOV/nixos: the
+  cwd is its checkout, or the prompt names it) holding the fixes the user
+  picks; its body states the before numbers and, where measurable, the after
+  numbers. The rest, and fixes in other repos, become follow-up `/engineer`
+  runs, named in the hand-over.
 
 ## 3. Engineer
 
-Invoke the `engineer` skill in this session with `/tmp/self-improve/prompt.md`
-as its task, and follow it unchanged.
+Invoke the `engineer` skill in this session with `$run/prompt.md` as
+its task, and follow it unchanged.
