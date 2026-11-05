@@ -53,7 +53,8 @@ re-plan's fresh round 1 finds them again.
 Cap reached: the chosen rows go to the final fixer only. Rounds left:
 
 1. A `subagent_type: fixer` agent gets the chosen rows, commits and pushes. A
-   row that needs the branch's changes names `ctx diff origin/<base>`.
+   row that needs the branch's changes names `ctx diff origin/<base>`, `<base>`
+   the PR's base branch.
 2. Copy the requirements file once beside it, with `fixes` for
    `requirements` in its name (`<task>-fixes.md` under a brief). Every round
    appends "finding N is fixed: <the row's What and Impact>" to that one copy
@@ -70,7 +71,7 @@ Cap reached: the chosen rows go to the final fixer only. Rounds left:
 
 The loop's one exit, in every mode, with or without chosen rows: one fixer
 gets the rows `chosen ++ [R0]`, and nothing reviews it. R0: "the PR body
-describes the branch, as `pr-description` says, read from
+describes the branch in the form `pr-description` picks, read from
 `ctx diff origin/<base>`; keep any decisions made on the user's behalf, every
 recorded reason for an unfixed row, the research and decisions log, and
 `## Follow-ups`". Of the chosen rows it fixes what is safe and small. Security rows are always fixed, and blockers
@@ -82,8 +83,9 @@ that blocks the feature is a blocker: triage it.
 
 A Not met verdict on a requirement or a plan decision never goes in
 `## Follow-ups`, in any mode, `Size: Trivial` included: a fixer fixes it, then
-one `--fixes` review checks it, as step 8 does, at the cap too. A Not met it cannot fix is a
-blocker: triage it.
+one `--fixes` review checks it, as step 8 does, at the cap too, before the
+final fixer, which always runs last. A Not met it cannot fix is a blocker:
+triage it.
 
 ## CI fix (step 10)
 
@@ -92,4 +94,5 @@ progress file and check the stuck guard. Rounds left: a `--fixes` review of that
 in step 8, and step 8's loop on its rows. Rows at the cap: the final fixer.
 Then back to the CI wait in step 10, never to step 9. Cap reached: straight
 back to the CI wait. The CI fix has no count of its own: only the stuck guard
-ends it. Every CI fixer also gets R0. Notify only on ready.
+ends it. A CI fixer also gets R0 when its fix changes what the body says.
+Notify only on ready.

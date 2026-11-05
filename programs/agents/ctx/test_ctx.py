@@ -125,14 +125,14 @@ def test_index_and_line_counts_split_on_newlines_only(
 def test_a_file_that_is_not_utf8_lands_in_the_folder_byte_for_byte(
     repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _ = (repo / "latin1.txt").write_bytes("caf\xe9\n".encode("latin-1"))
+    _ = (repo / "latin1.txt").write_bytes("\xe9t\xe9\n".encode("latin-1"))
     _ = git(repo, "add", "latin1.txt")
     _ = git(repo, "commit", "--quiet", "--message=latin-1")
 
     code, out, err = run(repo, tmp_path / "store", capsys, "diff", "main", "HEAD")
 
     assert (code, err) == (0, "")
-    assert b"+caf\xe9\n" in (folder_of(out) / "diff").read_bytes()
+    assert b"+\xe9t\xe9\n" in (folder_of(out) / "diff").read_bytes()
 
 
 def test_second_call_builds_nothing_and_gives_identical_files(

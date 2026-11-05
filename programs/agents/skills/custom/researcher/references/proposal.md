@@ -4,8 +4,8 @@ Your prompt names this file and its modes, `simplify`, `alternative` or both,
 with a plan path, the research notes paths and `notes`, a directory under `/tmp`. It
 replaces the researcher skill's Process, Notes and Hand-back. Its rules on
 bounded reads, labels and data still hold, and so does its Budget for your
-Quality. With both modes, write `simplify` first, then run `alternative` on
-its output, and hand back once for both.
+Quality, once per mode. With both, write `simplify` first, then run
+`alternative` on its output, and hand back once.
 
 ## Every mode
 

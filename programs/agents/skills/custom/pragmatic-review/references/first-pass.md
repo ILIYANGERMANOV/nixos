@@ -12,13 +12,14 @@ Every agent reads it; none derives the diff again.
 ```sh
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
 HEAD_SHA=$(git rev-parse HEAD)
-ctx diff "$BASE"   # the work tree, untracked files included; line 1 is $D
+out=$(ctx diff "$BASE"); echo "$out"; D=${out%%$'\n'*}   # work tree; D = line 1
 ```
 
 With a PR argument, fetch it instead of reading the working tree: set `BASE` to
 `origin/<baseRefName>` from `gh pr view <n> --json baseRefName`, run
 `git fetch -q origin "pull/<n>/head" <baseRefName>`,
-`HEAD_SHA=$(git rev-parse FETCH_HEAD)` and `ctx diff "$BASE" "$HEAD_SHA"`.
+`HEAD_SHA=$(git rev-parse FETCH_HEAD)` and the same capture of
+`ctx diff "$BASE" "$HEAD_SHA"`.
 Also read `gh pr view <n> --json title,body,comments,reviews,commits`.
 
 **Mutation report**, for the tests agent or breaker. With a PR (the argument, or the

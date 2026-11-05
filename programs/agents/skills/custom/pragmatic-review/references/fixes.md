@@ -8,10 +8,11 @@ none, unless the fixes are large, then `subagent_type: reviewer`. Your budgets a
 ## 1. Write the fix diff
 
 ```sh
-ctx delta <prev-head>   # the work tree; line 1 is $D, then counts and ancestor
+out=$(ctx delta <prev-head>); echo "$out"; D=${out%%$'\n'*}   # work tree; D = line 1
 ```
 
-For a PR, fetch `pull/<n>/head` and run `ctx delta <prev-head> FETCH_HEAD`.
+For a PR, fetch `pull/<n>/head` and capture `ctx delta <prev-head> FETCH_HEAD`
+the same way.
 The folder is the fix diff for the rest of the re-review: read it in ranges,
 `index` then `sed -n`, and never run `git diff` or `gh pr diff` again. A
 manifest of `0 files` ends the review: report "no changes since `<prev-head>`".

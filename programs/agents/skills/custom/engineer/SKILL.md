@@ -127,6 +127,7 @@ carry over as they stand.
 background `subagent_type: researcher` agent, whose prompt names
 `~/.claude/skills/researcher/references/proposal.md`, those modes,
 `Quality: <mode>`, the plan path, the notes paths and the notes directory.
+Both modes get the call budget once each.
 `proposal-simplify.md` is your first plan; `proposal-alternative.md` the second,
 or the identity when none exists. Neither pass changes a design issue's settled
 Decisions.
