@@ -164,7 +164,7 @@ slices up front and spawn each implementer yourself, one after another, or in
 parallel only when they are independent - no shared files, no ordering between
 them. Give each the plan's path, its slice, the targeted checks to run
 (never the full check), the stop rule, the research notes paths and the
-sections it needs, and the previous slice's commit when there is one. One
+sections it needs, and the sha the previous slice started from, if any. One
 that hands back at the context warning gets a successor as
 `references/blockers.md` Resume says, naming its commit. Add
 any security-sensitive topic an implementer reports to the plan's line.
