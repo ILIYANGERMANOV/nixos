@@ -78,6 +78,8 @@ let
     inherit lib mkFragment topics;
     inherit (roleLib) mkRole discover;
   };
+  # `ctx`: the review diff in a cached folder, on PATH in every session.
+  ctx = import ./ctx { inherit pkgs; };
   profiles = import ./profiles {
     inherit (profileLib) mkProfile;
     inherit
@@ -86,6 +88,7 @@ let
       mkInstructions
       topics
       qa
+      ctx
       ;
   };
 
@@ -118,6 +121,9 @@ in
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format.
   inherit skills;
+
+  # The `ctx` command, the one the base profile's runtime puts on PATH.
+  inherit ctx;
 
   # The subagent roles, by name, as records. Each agent program renders them its
   # own way.

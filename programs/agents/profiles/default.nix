@@ -11,6 +11,7 @@
   mkInstructions,
   topics,
   qa,
+  ctx,
 }:
 
 lib.mapAttrs (
@@ -22,6 +23,7 @@ lib.mapAttrs (
         mkInstructions
         topics
         qa
+        ctx
         ;
     }
   )
