@@ -87,15 +87,18 @@ table.
 > **Formal view.** The diagram is a graph. Runs are the morphisms of the free
 > category on it: paths of steps, with the empty path as each identity. All
 > states share one carrier, the world `W` (worktree, branch, notes), so a step
-> is a Kleisli arrow `W -> Either Stop W` of the `Either Stop` monad, and
-> composition short-circuits on the first `Left`:
+> is a Kleisli arrow `W -> Either (Stop, W) W` of the monad
+> `Either (Stop, W)`. A stop keeps the world, since a worker commits and
+> pushes before it hands back. In that Kleisli category the identity is
+> `pure` (`Right`), and composition `>=>` short-circuits on the first
+> `Left`, which carries the stop and the world it left:
 >
 > ```haskell
 > data Stop = NeedsDecision Question | Grew Why | Blocked Why | Failed Why
 >           | Stuck (Either Check Row)
 > ```
 >
-> A mode is a functor from that free category into the Kleisli category. It
+> A mode is a functor from that free category into this Kleisli category. It
 > sends a skipped step to `pure`, the Kleisli identity. Trivial sends `plan`
 > to writing its short plan, and the proposal and confirm edges to `pure`, so
 > its Ctx to Plan path is that one write. The skip lives in the functor, not
