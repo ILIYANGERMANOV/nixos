@@ -24,10 +24,11 @@ stateDiagram-v2
   Ctx --> Ctx: research, ask
   Ctx --> Prop: plan
   state "3 - confirm the plan" as S3 {
-    Prop --> Prop2: simplify, alternative
-    Prop2 --> Plan: first or second plan
+    Prop --> Prop1: simplify
+    Prop1 --> Pair: alternative
+    Pair --> Plan: pi1 / pi2
   }
-  Prop2 --> Ctx: adjust
+  Pair --> Ctx: adjust
   Plan --> DraftPlan: draft PR
   DraftPlan --> Impl: implement
   Impl --> Impl1: refactor
@@ -39,7 +40,8 @@ stateDiagram-v2
   DraftPR --> PR: notify
   PR --> PR: CI fix
   PR --> [*]: green, ready
-  Prop2: Prop'
+  Prop1: Prop'
+  Pair: Prop' x Prop'
   Impl1: Impl'
   Impl2: Impl''
   note left of Ctx
@@ -52,7 +54,7 @@ stateDiagram-v2
 | Step | State | Spec |
 |---|---|---|
 | 1-2 | Ctx | `engineer/SKILL.md` Research, Interview |
-| 3 | Prop, Prop', Plan | Confirm the plan |
+| 3 | Prop, Prop', Prop' x Prop', Plan | Confirm the plan |
 | 4 | DraftPlan | Open a draft PR |
 | 5 | Impl | Implement |
 | 6 | Impl' | Refactor |
@@ -63,8 +65,9 @@ stateDiagram-v2
 
 - **Adjust** goes back to Ctx and keeps what was learned. Proposals rerun only
   when the approach changed.
+- **Confirm is a projection**: the first plan is `pi1`, the second `pi2`.
 - **POC, or an alternative that returns the identity**, asks yes or no
-  instead of first or second.
+  instead of first or second: on the diagonal `(p, p)`, `pi1 = pi2`.
 - **Stuck guard** (`engineer/SKILL.md` Rules): the same failing check or the
   same review row in 2 rounds in a row asks the user. Delegated, it hands back
   `NEEDS_DECISION stuck: <check or row>`. A re-plan does not reset it.
@@ -98,10 +101,29 @@ table.
 >           | Stuck (Either Check Row)
 > ```
 >
+> The world holds the current plan, and step 3 acts on it through three pure
+> functions. `Prop'` and `Plan` name a stage, not a new type:
+>
+> ```haskell
+> type Prop' = Prop  -- a revised plan
+> type Plan  = Prop  -- the confirmed plan
+> simplify    :: Prop -> Prop'
+> alternative :: Prop' -> (Prop', Prop')  -- p |-> (p, q), or (p, p)
+> confirm     :: (Prop', Prop') -> Plan   -- fst (pi1) or snd (pi2)
+> ```
+>
+> So `alternative . simplify :: Prop -> (Prop', Prop')`, the
+> `Prop' x Prop'` state. Each step-3 edge is such a
+> function `f` lifted into the Kleisli category: on `Right` it applies `f`
+> to the world's plan, as `pure . f` would. The researcher's run is the
+> effect that computes it, and it can still stop with a `Left`.
+>
 > A mode is a functor from that free category into this Kleisli category. It
-> sends a skipped step to `pure`, the Kleisli identity. Trivial sends `plan`
-> to writing its short plan, and the proposal and confirm edges to `pure`, so
-> its Ctx to Plan path is that one write. The skip lives in the functor, not
+> sends a skipped step to `pure`, the Kleisli identity. Trivial sends
+> `simplify`, `alternative` and the projection to `pure`, and `plan` to
+> writing its short plan, so its Ctx to Plan path is that one write. The
+> types agree: on the plan these are `id`, the diagonal and `fst`, and
+> `fst . (\p -> (p, p)) . id = id`. The skip lives in the functor, not
 > the graph, since the free category has no arrow between two distinct states
 > that acts as an identity. Every mode is a functor from the
 > same free category, so none adds an arrow.
@@ -354,8 +376,10 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
 - **The review-lead escalates only a wrong plan**: wrong approach, unmeetable
   requirement, new scope, or a data-model or auth redesign.
 - **Proposals are one researcher in proposal mode**
-  (`researcher/references/proposal.md`): `simplify` revises the plan, then
-  `alternative` writes another from its output or returns the identity. Both
+  (`researcher/references/proposal.md`): `simplify : Prop -> Prop'` revises
+  the plan, then `alternative : Prop' -> Prop' x Prop'` pairs it with
+  another plan, or with itself (the diagonal) when it returns the identity.
+  Confirm projects with `pi1` or `pi2`, and adjust goes back to Ctx. Both
   end in a MADR-style `Considered options` table (https://adr.github.io/madr/).
 - **Diffs come from `ctx`**, a cached folder read by ranges, so a diff is built
   once per head (`docs/adr/0013-deterministic-programs-over-instructions.md`).
