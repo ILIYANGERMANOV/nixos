@@ -14,12 +14,11 @@ Paste this paragraph into every implementer, refactorer and fixer brief:
 > normal commit with no WIP marker and `Remaining: <what is left>` in its
 > body, plus `(does not build yet)` when it does not build.
 > Start your hand-back with `NEEDS_DECISION <question>`, then that commit, what
-> you tried and the evidence paths. Spawn no researcher. Pass this paragraph to
-> any agent you spawn, and relay its `NEEDS_DECISION` as-is.
+> you tried and the evidence paths. Spawn no researcher.
 > On `Size: Trivial`, work bigger than briefed is `GREW <why>`: stop the same
 > way, after committing and pushing what you have, and start your hand-back
 > with that line. With a `NEEDS_DECISION`, that line comes first and `GREW`
-> on the next. Relay a spawned agent's `GREW` as-is.
+> on the next.
 
 A review-lead brief, the Trivial sweep's included, gets this line instead, and
 passes nothing of it to its reviewers:
