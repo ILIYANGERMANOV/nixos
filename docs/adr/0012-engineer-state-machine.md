@@ -113,17 +113,18 @@ table.
 > ```
 >
 > So `alternative . simplify :: Prop -> (Prop', Prop')`, the
-> `Prop' x Prop'` state. Each step-3 edge is such a
-> function `f` lifted into the Kleisli category: on `Right` it applies `f`
-> to the world's plan, as `pure . f` would. The researcher's run is the
-> effect that computes it, and it can still stop with a `Left`.
+> `Prop' x Prop'` state. The world's plan slot holds the stage's value: a
+> `Prop`, a `Prop' x Prop'` pair or a `Plan`. Each step-3 edge lifts its `f`
+> to `pure . over plan f`, a Kleisli arrow on `W`. The researcher's run is
+> the effect that computes `f`, and it can still stop with a `Left`.
 >
 > A mode is a functor from that free category into this Kleisli category. It
-> sends a skipped step to `pure`, the Kleisli identity. Trivial sends
-> `simplify`, `alternative` and the projection to `pure`, and `plan` to
-> writing its short plan, so its Ctx to Plan path is that one write. The
-> types agree: on the plan these are `id`, the diagonal and `fst`, and
-> `fst . (\p -> (p, p)) . id = id`. The skip lives in the functor, not
+> sends a skipped path to arrows that compose to `pure`, the Kleisli
+> identity. Trivial sends `simplify` to the lift of `id`, `alternative` to
+> the lift of the diagonal `\p -> (p, p)` and confirm to the lift of `fst`.
+> Their composite `fst . (\p -> (p, p)) . id = id` lifts to `pure`, and
+> Trivial sends `plan` to writing its short plan, so its Ctx to Plan path is
+> that one write. The skip lives in the functor, not
 > the graph, since the free category has no arrow between two distinct states
 > that acts as an identity. Every mode is a functor from the
 > same free category, so none adds an arrow.
