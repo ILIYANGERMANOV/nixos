@@ -38,7 +38,8 @@ link. Never replace the directory: deleting one empties it under a session that
 has it open, and Claude Code keeps its own `synced/` there.
 
 The factory's Remote Control units run the unwrapped binary, so
-`modules/home/factory/claude-factory.nix` installs `qa` too.
+`modules/home/factory/claude-factory.nix` installs the factory profile's
+`runtime` (`qa`, `ctx`) too.
 
 ### Subagent files
 

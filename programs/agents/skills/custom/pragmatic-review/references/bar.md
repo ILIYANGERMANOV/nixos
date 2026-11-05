@@ -56,11 +56,10 @@ outcome. A refuted finding is dropped silently.
 **How you work.**
 
 - The diff, `stat`, commit `log`, `status` and `index` are already written to
-  the directory in your prompt, which also names your hunks as line ranges of
-  `diff`. Read them in ranges: `index` gives each file's first line, then
-  `sed -n` that range of `diff`. Never run `git diff`, `git log` or
-  `gh pr diff` to get the diff again or widen it - these files are the diff,
-  and this overrides the `engineering` skill's advice on reading diffs.
+  the `ctx` folder in your prompt, which also names your hunks as line ranges
+  of `diff`. Read them in ranges: `index` gives each file's first and last
+  line, then `sed -n` that range of `diff`. Never run `git diff`, `git log` or
+  `gh pr diff` to get the diff again or widen it: these files are the diff.
 - Batch: put every independent command of a step in one turn - several tool
   calls in one message, or one chained Bash. Read ranges (`rg -n`, then
   `sed -n`), never whole large files.

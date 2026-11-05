@@ -210,8 +210,8 @@ Every line you read is carried, and paid for, on every later call.
   a large file or `git show <ref>:<file>` in full. Small files together are
   fine up to 16KB combined; a hook blocks more where it is installed. Skills
   and instruction files are read in full.
-- Diffs: `git diff --stat` first, then file by file. When rebasing or comparing
-  refs, read `git diff <ref> -- <file>`, never both versions.
+- Diffs: `ctx diff <base>`, then its `index`, then ranges of its `diff`. When
+  rebasing, read `git diff <ref> -- <file>`, never both versions.
 - Never read back output that was spilled to a file: `rg` it, or rerun the
   command narrower.
 

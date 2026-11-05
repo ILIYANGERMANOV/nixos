@@ -185,6 +185,8 @@ rec {
     });
     unwrapped = claude-code;
     agentFiles = toHomeFiles factoryAgentSources;
+    # What the wrapper puts on PATH, for hosts whose sessions run `unwrapped`.
+    inherit (factoryProfile) runtime;
   };
 
   # The hook guards as they deploy, for `python-tests` to run.

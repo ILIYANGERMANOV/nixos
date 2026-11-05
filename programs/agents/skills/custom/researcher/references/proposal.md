@@ -1,12 +1,13 @@
 # Proposal mode
 
-Your prompt names this file and a mode, `simplify` or `alternative`, with a
-plan path, the research notes paths and `notes`, a directory under `/tmp`. It
+Your prompt names this file and its modes, `simplify`, `alternative` or both,
+with a plan path, the research notes paths and `notes`, a directory under `/tmp`. It
 replaces the researcher skill's Process, Notes and Hand-back. Its rules on
 bounded reads, labels and data still hold, and so does its Budget for your
-Quality.
+Quality, once per mode. With both, write `simplify` first, then run
+`alternative` on its output, and hand back once.
 
-## Both modes
+## Every mode
 
 - Keep the plan's goals and intent. Not naive: a proposal still meets every
   goal and every decision the user made. A design issue's settled Decisions
@@ -24,13 +25,14 @@ given plan unchanged and say why: that is the identity.
 
 ## `alternative`
 
-Write a different plan for the same goals and intent: another approach, not a
+Write a different plan for the same goals and intent as the given plan, or the
+simplified one when you ran `simplify` too: another approach, not a
 tweak of the given one. When no sound one exists, return the identity, as
 `simplify` does, and the caller asks Yes or Adjust.
 
 ## Output
 
-`<notes>/proposal-<mode>.md`: the plan in the given plan's shape, then:
+`<notes>/proposal-<mode>.md`, one per mode: the plan in the given plan's shape, then:
 
 ```markdown
 ## Considered options
@@ -40,5 +42,5 @@ tweak of the given one. When no sound one exists, return the identity, as
 | <your proposal, or "identity: <why none>"> | <cost, benefit> | <URL> |
 ```
 
-Hand back the file path, what changed and why in a few bullets, and each
+Hand back the file paths, what changed and why in a few bullets, and each
 option's trade-off, in about 250 words.

@@ -32,19 +32,20 @@ directory, and a `..` path does not resolve between installed skills.
 Your input may carry `Quality: <mode>`, scope notes (anything else that is
 not a ref) and a target:
 
-- A PR number or URL - `gh pr diff <n>`. Check the PR's branch out first if it
-  is not the current one (`gh pr checkout <n>`).
-- A base ref - `git diff $(git merge-base HEAD <ref>)`.
-- Neither - the current branch against
-  `git merge-base HEAD origin/main`, including uncommitted work.
+- A PR number or URL - check its branch out first if it is not the current
+  one (`gh pr checkout <n>`), then `ctx diff origin/<its baseRefName>`.
+- A base ref - `ctx diff <ref>`.
+- Neither - `ctx diff origin/main`.
 
-Fail fast if the ref does not resolve or the diff is empty. Scope notes narrow
-or widen what the plan covers; follow them.
+`ctx` diffs the merge-base to the work tree, uncommitted work included. Line 1
+is a folder that is the diff, so no `git diff`: read `index`, then ranges of
+`diff`. Fail fast if `ctx` fails or says `0 files`. Scope notes narrow or widen
+what the plan covers; follow them.
 
 Read lean: the diff hunks, not whole modules. Read past a hunk only for the
 range it needs, and find duplicates and existing helpers with `rg -n`, not
-by reading files. Your reading budget is about 100k tokens, well under the
-context budget in your instructions, so applying still fits: past it, stop
+by reading files. Your reading budget is about 100k tokens, so applying
+still fits: past it, stop
 reading, apply what is planned, commit, and report the rest as out of scope.
 
 ## 3. Plan

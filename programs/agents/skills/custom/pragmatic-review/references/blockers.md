@@ -40,7 +40,7 @@ rg '^\+' "$D/diff" | rg -i \
 
 Then the same pass for high-entropy literals that carry no keyword - quoted
 runs of 40+ base64 characters, or 32+ hex characters - and then the file paths,
-both the ones the diff carries and the untracked ones in `$D/status`:
+every one the diff carries, untracked ones included:
 
 ```sh
 rg '^\+\+\+ b/' "$D/diff"                       # every file the diff adds or edits

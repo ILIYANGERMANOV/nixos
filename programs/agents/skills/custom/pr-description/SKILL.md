@@ -11,9 +11,9 @@ see there. Write it from facts and never claim proof that was not run.
 
 ## Gather the facts first
 
-- The diff against the merge-base, not against a moving `main`:
-  `git diff $(git merge-base HEAD origin/main)`.
-- The commits: `git log --oneline <merge-base>..HEAD`.
+- The diff against the merge-base, not a moving `main`: line 1 of
+  `ctx diff origin/<base>` is a folder, `<base>` the PR's base branch. Read its
+  `index`, then each file's range of `diff`. The commits are in its `log`.
 - The issue it closes, if the branch, the commits or the conversation name one.
 - The tests the diff adds or changes, read from the diff: their type, where
   they live and what they cover.
