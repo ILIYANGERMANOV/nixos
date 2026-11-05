@@ -1954,6 +1954,26 @@ def research_overlaps(session: Session) -> Iterator[set[str]]:
 
 
 # --- Rendering ---------------------------------------------------------------
+#
+# The report is an index then sections. Each index row holds a section's line
+# range, so an agent reads only the sections it needs with `sed -n 'A,Bp'`.
+# Tables are `|`-separated rows under one header row; no markdown padding.
+
+LEGEND = (
+    "Read a section by its index range: sed -n 'A,Bp'. Tokens: input/cache read/"
+    f"cache write/output. Effective weighs {WEIGHTS}."
+)
+INDEX_HEADER = ["section", "lines", "headline"]
+NONE = "none"
+
+
+@dataclass(frozen=True)
+class Section:
+    """A report section: its heading slug, its index headline and its body lines."""
+
+    slug: str
+    headline: str
+    body: list[str]
 
 
 def render(window: Window, scope: str, split: datetime | None) -> str:
@@ -1961,8 +1981,6 @@ def render(window: Window, scope: str, split: datetime | None) -> str:
     agents = [(s, a) for s in sessions for a in s.agents]
     calls = [(s, a, c) for s, a in agents for c in a.calls]
     sections = [
-        f"# Session report ({scope})",
-        summary(sessions),
         sessions_table(sessions),
         agent_types(agents),
         startup_sizes([a for _, a in agents]),
@@ -1970,39 +1988,58 @@ def render(window: Window, scope: str, split: datetime | None) -> str:
         skills(agents),
         quality_costs(sessions),
         loop_steps(sessions),
-        cache_rewrites_section(sessions),
-        review_yield(sessions),
+        *cache_rewrites_sections(sessions),
+        *review_yield(sessions),
         after_handback(sessions),
-        communication(sessions),
+        *communication(sessions),
         largest_results(calls),
         tool_times(calls),
         bash_commands(calls),
-        checks_section(sessions),
+        *checks_sections(sessions),
         polling(calls),
         failures(calls),
         *([compare(sessions, split)] if split else []),
     ]
-    return "\n\n".join(sections) + "\n"
+    head = [
+        f"# Session report ({scope})",
+        LEGEND,
+        "",
+        "## summary",
+        *summary(sessions),
+        "",
+    ]
+    return "\n".join([*head, *indexed(sections, len(head))]).rstrip("\n") + "\n"
 
 
-def summary(sessions: list[Session]) -> str:
+def indexed(sections: list[Section], offset: int) -> list[str]:
+    """The index then every section, after `offset` lines of report head."""
+    # 1-based: the index heading, its header, one row per section and a blank line.
+    start = offset + len(sections) + 4
+    rows: list[list[str]] = []
+    blocks: list[str] = []
+    for s in sections:
+        block = [f"## {s.slug}", *s.body]
+        rows.append([s.slug, f"{start}-{start + len(block) - 1}", s.headline])
+        blocks += [*block, ""]
+        start += len(block) + 1
+    return ["## index", *table(INDEX_HEADER, rows), "", *blocks]
+
+
+def summary(sessions: list[Session]) -> list[str]:
     wall = sum(s.wall for s in sessions)
     wait = sum(s.human_wait for s in sessions)
     main = total(s.main.usage for s in sessions)
     subs = total(a.usage for s in sessions for a in s.subagents)
     calls = sum(len(a.responses) for s in sessions for a in s.agents)
-    cost = f"main {kilo(main.effective)}, subagents {kilo(subs.effective)}"
-    return "\n".join(
-        [
-            f"- Sessions: {len(sessions)}, agents: {sum(len(s.agents) for s in sessions)}, API calls: {calls}",
-            f"- Wall clock: {hours(wall)} = work {hours(wall - wait)} + waiting on the person {hours(wait)}",
-            f"- Tokens (in/cache read/cache write/out): main {tokens(main)}, subagents {tokens(subs)}",
-            f"- Effective cost ({WEIGHTS}): {kilo(main.effective + subs.effective)} = {cost}",
-        ]
-    )
+    return [
+        f"sessions {len(sessions)}, agents {sum(len(s.agents) for s in sessions)}, API calls {calls}",
+        f"wall {hours(wall)} = work {hours(wall - wait)} + waiting on the person {hours(wait)}",
+        f"tokens main {tokens(main)}, subagents {tokens(subs)}",
+        f"effective {kilo(main.effective + subs.effective)} = main {kilo(main.effective)}, subagents {kilo(subs.effective)}",
+    ]
 
 
-def sessions_table(sessions: list[Session]) -> str:
+def sessions_table(sessions: list[Session]) -> Section:
     ranked = sorted(sessions, key=lambda s: -effective(s.agents))
     rows = [
         [
@@ -2033,10 +2070,14 @@ def sessions_table(sessions: list[Session]) -> str:
         "subagents",
         "effective",
     ]
-    return section("Sessions, costliest first", header, rows, len(ranked))
+    return Section(
+        "sessions",
+        f"{len(ranked)} sessions, {lead(rows, 0, 1, 10)}",
+        ranked_table(header, rows, len(ranked)),
+    )
 
 
-def agent_types(agents: list[tuple[Session, Agent]]) -> str:
+def agent_types(agents: list[tuple[Session, Agent]]) -> Section:
     groups: dict[str, list[Agent]] = defaultdict(list)
     for _, agent in agents:
         groups[agent.kind].append(agent)
@@ -2052,15 +2093,11 @@ def agent_types(agents: list[tuple[Session, Agent]]) -> str:
         ]
         for kind, group in ranked
     ]
-    return section(
-        "Tokens by agent type",
-        ["type", "agents", "API calls", "tokens", "peak context", "effective"],
-        rows,
-        len(rows),
-    )
+    header = ["type", "agents", "API calls", "tokens", "peak context", "effective"]
+    return Section("agent-types", lead(rows, 0, 5), table(header, rows))
 
 
-def startup_sizes(agents: list[Agent]) -> str:
+def startup_sizes(agents: list[Agent]) -> Section:
     groups: dict[str, list[Agent]] = defaultdict(list)
     for agent in agents:
         if agent.first_context:
@@ -2069,13 +2106,19 @@ def startup_sizes(agents: list[Agent]) -> str:
     rows = [
         [kind, str(len(group)), *startup_cells(group)] for kind, group in ranked[:TOP]
     ]
-    header = ["type", "n", "p50", "p90", "instructions", "skill listing", "remainder"]
-    return section(
-        "Start-up size: first-call context, parts at p50 (chars / 4)",
-        header,
-        rows,
-        len(ranked),
+    largest = max(
+        ranked,
+        key=lambda kv: statistics.median(a.first_context for a in kv[1]),
+        default=None,
     )
+    headline = (
+        NONE
+        if largest is None
+        else f"largest p50 {largest[0]} {kilo(statistics.median(a.first_context for a in largest[1]))}"
+    )
+    # Parts are chars / 4, at p50.
+    header = ["type", "n", "p50", "p90", "instructions", "skill listing", "remainder"]
+    return Section("startup", headline, ranked_table(header, rows, len(ranked)))
 
 
 def startup_cells(group: list[Agent]) -> list[str]:
@@ -2103,7 +2146,7 @@ def percentile(values: list[int], share: float) -> int:
     return sorted(values)[math.ceil(share * len(values)) - 1]
 
 
-def costliest_agents(agents: list[tuple[Session, Agent]]) -> str:
+def costliest_agents(agents: list[tuple[Session, Agent]]) -> Section:
     subs = sorted(
         ((s, a) for s, a in agents if a.kind != "main"),
         key=lambda sa: -sa[1].usage.effective,
@@ -2120,23 +2163,21 @@ def costliest_agents(agents: list[tuple[Session, Agent]]) -> str:
         ]
         for s, a in subs[:TOP]
     ]
-    return section(
-        "Costliest subagents",
-        [
-            "session",
-            "type",
-            "description",
-            "tokens",
-            "peak context",
-            "API calls",
-            "effective",
-        ],
-        rows,
-        len(subs),
+    header = [
+        "session",
+        "type",
+        "description",
+        "tokens",
+        "peak context",
+        "API calls",
+        "effective",
+    ]
+    return Section(
+        "subagents", lead(rows, 0, 1, 6), ranked_table(header, rows, len(subs))
     )
 
 
-def skills(agents: list[tuple[Session, Agent]]) -> str:
+def skills(agents: list[tuple[Session, Agent]]) -> Section:
     groups: dict[str, list[Response]] = defaultdict(list)
     for _, agent in agents:
         for r in agent.responses:
@@ -2146,15 +2187,12 @@ def skills(agents: list[tuple[Session, Agent]]) -> str:
         [skill, str(len(rs)), tokens(total(r.usage for r in rs))]
         for skill, rs in ranked[:TOP]
     ]
-    return section(
-        "Tokens by skill (attributionSkill)",
-        ["skill", "API calls", "tokens"],
-        rows,
-        len(ranked),
-    )
+    # attributionSkill of each call
+    header = ["skill", "API calls", "tokens"]
+    return Section("skills", lead(rows, 0, 2), ranked_table(header, rows, len(ranked)))
 
 
-def quality_costs(sessions: list[Session]) -> str:
+def quality_costs(sessions: list[Session]) -> Section:
     groups: dict[Quality | None, list[list[Agent]]] = defaultdict(list)
     for s in sessions:
         for quality, group in quality_groups(s).items():
@@ -2164,7 +2202,9 @@ def quality_costs(sessions: list[Session]) -> str:
         [quality_label(quality), *quality_cells(parts)] for quality, parts in ranked
     ]
     header = ["mode", "sessions", "PRs", "agents", "effective", "per PR, median"]
-    return f"{section('Cost by Quality mode', header, rows, len(rows))}\n\n{UNCOUNTED_QUALITY}"
+    return Section(
+        "quality", lead(rows, 0, 4), [*table(header, rows), UNCOUNTED_QUALITY]
+    )
 
 
 def quality_cells(parts: list[list[Agent]]) -> list[str]:
@@ -2180,7 +2220,7 @@ def quality_cells(parts: list[list[Agent]]) -> list[str]:
     ]
 
 
-def loop_steps(sessions: list[Session]) -> str:
+def loop_steps(sessions: list[Session]) -> Section:
     groups: dict[LoopStep, list[tuple[Session, Agent]]] = defaultdict(list)
     for s in sessions:
         groups[LoopStep.ORCHESTRATOR].append((s, s.main))
@@ -2198,15 +2238,11 @@ def loop_steps(sessions: list[Session]) -> str:
         ]
         for step, group in ranked
     ]
-    return section(
-        "Loop steps",
-        ["step", "agents", "sessions", "tokens", "agent wall", "effective"],
-        rows,
-        len(rows),
-    )
+    header = ["step", "agents", "sessions", "tokens", "agent wall", "effective"]
+    return Section("loop-steps", lead(rows, 0, 5), table(header, rows))
 
 
-def cache_rewrites_section(sessions: list[Session]) -> str:
+def cache_rewrites_sections(sessions: list[Session]) -> list[Section]:
     agents = [(s, a) for s in sessions for a in s.agents]
     rewriters = [(s, a, found) for s, a in agents if (found := list(cache_rewrites(a)))]
     rewrites = [r for _, _, group in rewriters for r in group]
@@ -2222,26 +2258,27 @@ def cache_rewrites_section(sessions: list[Session]) -> str:
         [s.id[:8], a.kind, clip(a.description, 50), *rewrite_cells(group)]
         for s, a, group in ranked[:TOP_REWRITERS]
     ]
-    return "\n\n".join(
-        [
-            section(
-                "Cache rewrites",
-                ["waiting on", "rewrites", "effective"],
-                by_wait,
-                len(by_wait),
-            ),
-            f"{len(rewrites)} rewrites, {kilo(cost)} effective, {share} of the total.",
-            table(["session", "type", "description", "rewrites", "effective"], by_agent)
-            + omitted(len(ranked), len(by_agent)),
-        ]
-    )
+    fact = f"{len(rewrites)} rewrites, {kilo(cost)} effective, {share} of the total"
+    agent_header = ["session", "type", "description", "rewrites", "effective"]
+    return [
+        Section(
+            "cache-rewrites",
+            fact,
+            [fact, *table(["waiting on", "rewrites", "effective"], by_wait)],
+        ),
+        Section(
+            "cache-rewriters",
+            lead(by_agent, 0, 1, 4),
+            ranked_table(agent_header, by_agent, len(ranked)),
+        ),
+    ]
 
 
 def rewrite_cells(rewrites: list[Rewrite]) -> list[str]:
     return [str(len(rewrites)), kilo(sum(r.cost for r in rewrites))]
 
 
-def review_yield(sessions: list[Session]) -> str:
+def review_yield(sessions: list[Session]) -> list[Section]:
     runs = [r for s in sessions for r in review_runs(s)]
     counts = [f.name for f in fields(ParsedReview)]
     rows: list[list[str]] = []
@@ -2269,11 +2306,15 @@ def review_yield(sessions: list[Session]) -> str:
         *(c.replace("_", " ") for c in counts),
         "unparsed",
     ]
-    return (
-        section("Review yield", header, rows, len(rows))
-        + "\n\nBy review agent type, before judging:\n\n"
-        + inner_yield(sessions)
+    parsed = [review_counts(r.review) for r in runs]
+    headline = (
+        f"{len(runs)} reports, {sum(p.raised for p in parsed)} raised, "
+        f"{sum(p.survived for p in parsed)} survived"
     )
+    return [
+        Section("review-yield", headline, table(header, rows)),
+        inner_yield(sessions),
+    ]
 
 
 def review_counts(review: Review) -> ParsedReview:
@@ -2308,7 +2349,8 @@ def review_tokens(sources: Iterable[ReviewSource]) -> str:
     return tokens(total(usages)) if usages else "-"
 
 
-def inner_yield(sessions: list[Session]) -> str:
+def inner_yield(sessions: list[Session]) -> Section:
+    """Review agents by type, before the lead judged their findings."""
     groups: dict[str, list[Agent]] = defaultdict(list)
     for s in sessions:
         for agent in inner_reviewers(s):
@@ -2334,23 +2376,25 @@ def inner_yield(sessions: list[Session]) -> str:
                 str(verdicts["unverified"]),
             ]
         )
-    return table(
-        [
-            "agent",
-            "runs",
-            "tokens",
-            "major",
-            "minor",
-            "nit",
-            "runs with a finding",
-            "not met",
-            "unverified",
-        ],
-        rows,
+    header = [
+        "agent",
+        "runs",
+        "tokens",
+        "major",
+        "minor",
+        "nit",
+        "runs with a finding",
+        "not met",
+        "unverified",
+    ]
+    headline = (
+        f"{sum(int(r[1]) for r in rows)} runs, "
+        f"{sum(int(r[6]) for r in rows)} with a finding"
     )
+    return Section("review-agents", headline, table(header, rows))
 
 
-def after_handback(sessions: list[Session]) -> str:
+def after_handback(sessions: list[Session]) -> Section:
     readied = [(s, first_ready(s)) for s in sessions]
     later = [
         [p for p in s.prompts if p.at > ready]
@@ -2361,13 +2405,14 @@ def after_handback(sessions: list[Session]) -> str:
     commands = Counter(c for p in prompts for c in p.commands)
     named = "".join(f", /{name} {n}" for name, n in commands.most_common())
     free_text = sum(1 for p in prompts if not p.commands)
-    return "\n".join(
+    prompted = sum(1 for group in later if group)
+    return Section(
+        "after-handback",
+        f"{len(later)} sessions ran gh pr ready, {prompted} with a prompt after",
         [
-            "## After hand-back",
-            "",
-            f"- Sessions that ran `gh pr ready`: {len(later)}, with a human prompt after it: {sum(1 for group in later if group)}",
-            f"- Human prompts after it: {len(prompts)}: {free_text} free text{named}",
-        ]
+            f"sessions that ran gh pr ready: {len(later)}, with a human prompt after it: {prompted}",
+            f"human prompts after it: {len(prompts)}: {free_text} free text{named}",
+        ],
     )
 
 
@@ -2381,19 +2426,16 @@ def first_ready(session: Session) -> float | None:
     return min(readied, default=None)
 
 
-def communication(sessions: list[Session]) -> str:
-    return "\n\n".join(
-        [
-            "## Agent communication",
-            brief_sizes(sessions),
-            handback_table(sessions),
-            communication_lines(sessions),
-            repeated_table(sessions),
-        ]
-    )
+def communication(sessions: list[Session]) -> list[Section]:
+    return [
+        brief_sizes(sessions),
+        handback_table(sessions),
+        communication_lines(sessions),
+        repeated_table(sessions),
+    ]
 
 
-def brief_sizes(sessions: list[Session]) -> str:
+def brief_sizes(sessions: list[Session]) -> Section:
     groups: dict[tuple[str, LoopStep], list[Agent]] = defaultdict(list)
     for s in sessions:
         for agent, step in steps_of(s):
@@ -2403,8 +2445,6 @@ def brief_sizes(sessions: list[Session]) -> str:
     for (kind, step), group in ranked[:TOP]:
         briefs = [words(a.brief) for a in group]
         reports = [words(a.report) for a in group]
-        over = sum(1 for n in reports if n > HANDBACK_WORDS)
-        thin = sum(1 for n in reports if n < THIN_WORDS)
         rows.append(
             [
                 kind,
@@ -2414,29 +2454,31 @@ def brief_sizes(sessions: list[Session]) -> str:
                 str(max(briefs)),
                 f"{statistics.median(reports):.0f}",
                 str(max(reports)),
-                str(over),
-                str(thin),
+                str(sum(1 for n in reports if n > HANDBACK_WORDS)),
+                str(sum(1 for n in reports if n < THIN_WORDS)),
             ]
         )
+    reports = [words(a.report) for _, group in ranked for a in group]
     header = [
         "type",
         "step",
         "agents",
-        "brief words",
+        "brief words p50",
         "max",
-        "hand-back words",
+        "hand-back words p50",
         "max",
         f"over {HANDBACK_WORDS}",
         f"under {THIN_WORDS}",
     ]
-    return (
-        "Brief and hand-back size (medians):\n\n"
-        + table(header, rows)
-        + omitted(len(ranked), len(rows))
+    headline = (
+        f"{sum(1 for n in reports if n > HANDBACK_WORDS)} hand-backs over {HANDBACK_WORDS} words, "
+        f"{sum(1 for n in reports if n < THIN_WORDS)} under {THIN_WORDS}"
     )
+    return Section("briefs", headline, ranked_table(header, rows, len(ranked)))
 
 
-def handback_table(sessions: list[Session]) -> str:
+def handback_table(sessions: list[Session]) -> Section:
+    """What parents did after a hand-back, before their next spawn."""
     groups: dict[LoopStep, list[FollowUp]] = defaultdict(list)
     for s in sessions:
         for follow_up in follow_ups(s):
@@ -2469,12 +2511,15 @@ def handback_table(sessions: list[Session]) -> str:
         "re-verify time",
         "spawned again",
     ]
-    return "What parents did after a hand-back, before their next spawn:\n\n" + table(
-        header, rows
+    rereads = [c for group in groups.values() for f in group for c in f.rereads]
+    headline = (
+        f"{len(rereads)} re-reads, {kilo(sum(c.result_chars for c in rereads))} chars, "
+        f"{sum(again.values())} spawned again"
     )
+    return Section("parent-after-handback", headline, table(header, rows))
 
 
-def communication_lines(sessions: list[Session]) -> str:
+def communication_lines(sessions: list[Session]) -> Section:
     handed = [
         (parent, child)
         for s in sessions
@@ -2486,53 +2531,57 @@ def communication_lines(sessions: list[Session]) -> str:
         for parent, child in handed
         if words(child.report) > HANDBACK_WORDS
     ]
+    resent = sum(resent_tokens(c.report, c.end, p.calls) for p, c in large)
     notes = sum(1 for _, child in handed if NOTES_FILE.search(child.report))
     messages = [
         c for s in sessions for a in s.agents for c in a.calls if c.name == FOLLOW_UP
     ]
     overlaps = [overlap for s in sessions for overlap in research_overlaps(s)]
-    return "\n".join(
+    large_fact = (
+        f"hand-backs over {HANDBACK_WORDS} words: {len(large)}, "
+        f"{kilo(sum(len(c.report) for _, c in large))} chars, "
+        f"~{kilo(resent)} tokens sent again on later parent calls"
+    )
+    return Section(
+        "handoffs",
+        f"{len(large)} hand-backs over {HANDBACK_WORDS} words, ~{kilo(resent)} tokens resent",
         [
-            f"- Hand-backs over {HANDBACK_WORDS} words: {len(large)}, {kilo(sum(len(c.report) for _, c in large))} chars, about {kilo(sum(resent_tokens(c.report, c.end, p.calls) for p, c in large))} tokens sent again on later parent calls",
-            f"- Hand-backs pointing at a notes file: {notes}",
-            f"- Follow-up messages to a subagent: {len(messages)}",
-            f"- Implementers reading files a research agent read: {len(overlaps)}, {sum(len(o) for o in overlaps)} files between them",
-        ]
+            large_fact,
+            f"hand-backs pointing at a notes file: {notes}",
+            f"follow-up messages to a subagent: {len(messages)}",
+            f"implementers reading files a research agent read: {len(overlaps)}, {sum(len(o) for o in overlaps)} files",
+        ],
     )
 
 
-def repeated_table(sessions: list[Session]) -> str:
+def repeated_table(sessions: list[Session]) -> Section:
+    """The same read or read-only command by two or more agents of a session."""
     found = [(s.id[:8], r) for s in sessions for r in repeated_reads(s)]
     ranked = sorted(found, key=lambda sr: -sr[1].repeated_chars)
     rows = [
-        [sid, clip(r.what, 60), str(r.agents), str(r.runs), kilo(r.repeated_chars)]
+        [sid, clip_path(r.what, 60), str(r.agents), str(r.runs), kilo(r.repeated_chars)]
         for sid, r in ranked[:TOP]
     ]
-    head = f"Same read or read-only command by two or more agents of a session: {len(found)}, {kilo(sum(r.repeated_chars for _, r in found))} chars repeated."
-    return (
-        head
-        + "\n\n"
-        + table(["session", "what", "agents", "runs", "chars after the first"], rows)
-        + omitted(len(ranked), len(rows))
+    fact = f"{len(found)} repeated reads, {kilo(sum(r.repeated_chars for _, r in found))} chars repeated"
+    header = ["session", "what", "agents", "runs", "chars after the first"]
+    return Section(
+        "repeated-reads", fact, [fact, *ranked_table(header, rows, len(ranked))]
     )
 
 
-def largest_results(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
+def largest_results(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     ranked = sorted(calls, key=lambda sac: -sac[2].result_chars)
     rows = [
-        [kilo(c.result_chars), c.name, s.id[:8], a.kind, clip(what(c), 50)]
+        [kilo(c.result_chars), c.name, s.id[:8], a.kind, clip_path(what(c), 50)]
         for s, a, c in ranked[:TOP]
     ]
     images = [c for _, _, c in calls if c.images]
-    table = section(
-        "Largest tool results (chars)",
-        ["chars", "tool", "session", "agent", "what"],
-        rows,
-        len(ranked),
-    )
-    return (
-        table
-        + f"\n\nImages in tool results: {sum(c.images for c in images)} across {len(images)} calls."
+    image_fact = f"images in tool results: {sum(c.images for c in images)} in {len(images)} calls"
+    header = ["chars", "tool", "session", "agent", "what"]
+    return Section(
+        "largest-results",
+        f"{lead(rows, 0, 1)}, {image_fact}",
+        [*ranked_table(header, rows, len(ranked)), image_fact],
     )
 
 
@@ -2560,7 +2609,7 @@ def subject(tool: Tool) -> str:
             assert_never(tool)
 
 
-def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
+def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     groups: dict[tuple[str, str], list[float]] = defaultdict(list)
     for _, _, c in calls:
         if (
@@ -2579,15 +2628,13 @@ def tool_times(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
         ]
         for (name, mode), ts in ranked[:12]
     ]
-    return section(
-        "Wall time per tool",
-        ["tool", "mode", "calls", "total", "median", "max"],
-        rows,
-        len(ranked),
+    header = ["tool", "mode", "calls", "total", "median", "max"]
+    return Section(
+        "tool-times", lead(rows, 0, 1, 3), ranked_table(header, rows, len(ranked))
     )
 
 
-def bash_commands(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
+def bash_commands(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     groups: dict[str, list[ToolCall]] = defaultdict(list)
     for c, command in bash_runs(c for _, _, c in calls):
         if c.seconds is not None:
@@ -2610,10 +2657,12 @@ def bash_commands(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
             ]
         )
     header = ["command", "fg calls", "fg time", "bg calls", "bg time", "max", "failed"]
-    return section("Wall time per Bash command", header, rows, len(ranked))
+    return Section(
+        "bash-times", lead(rows, 0, 2, 4), ranked_table(header, rows, len(ranked))
+    )
 
 
-def checks_section(sessions: list[Session]) -> str:
+def checks_sections(sessions: list[Session]) -> list[Section]:
     reruns: list[Rerun] = []
     chains: list[Chain] = []
     for s in sessions:
@@ -2621,26 +2670,42 @@ def checks_section(sessions: list[Session]) -> str:
         reruns += r
         chains += c
     rerun_rows = [
-        [x.session[:8], x.agent, clip(x.command, 60), x.reason, f"{x.seconds:.0f}s"]
-        for x in sorted(reruns, key=lambda x: -x.seconds)[:8]
+        [
+            x.session[:8],
+            x.agent,
+            clip_path(x.command, 60),
+            x.reason,
+            f"{x.seconds:.0f}s",
+        ]
+        for x in sorted(reruns, key=lambda x: -x.seconds)[:TOP]
     ]
     chain_rows = [
-        [x.session[:8], x.agent, clip(x.step, 60), f"{x.seconds:.0f}s"]
-        for x in sorted(chains, key=lambda x: -x.seconds)[:8]
+        [x.session[:8], x.agent, clip_path(x.step, 60), f"{x.seconds:.0f}s"]
+        for x in sorted(chains, key=lambda x: -x.seconds)[:TOP]
     ]
-    return "\n\n".join(
-        [
-            f"## Redundant checks\n\nReruns with nothing changed since the same check: {len(reruns)}, {minutes(sum(x.seconds for x in reruns))}.",
-            table(
-                ["session", "agent", "command", "since last run", "time"], rerun_rows
-            ),
-            f"Build/test steps run before a full check with no edit between: {len(chains)}, {minutes(sum(x.seconds for x in chains))}.",
-            table(["session", "agent", "step", "time"], chain_rows),
-        ]
-    )
+    rerun_fact = f"reruns with nothing changed since the same check: {len(reruns)}, {minutes(sum(x.seconds for x in reruns))}"
+    chain_fact = f"build/test steps before a full check, no edit between: {len(chains)}, {minutes(sum(x.seconds for x in chains))}"
+    rerun_header = ["session", "agent", "command", "since last run", "time"]
+    return [
+        Section(
+            "reruns",
+            rerun_fact,
+            [rerun_fact, *ranked_table(rerun_header, rerun_rows, len(reruns))],
+        ),
+        Section(
+            "chains",
+            chain_fact,
+            [
+                chain_fact,
+                *ranked_table(
+                    ["session", "agent", "step", "time"], chain_rows, len(chains)
+                ),
+            ],
+        ),
+    ]
 
 
-def polling(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
+def polling(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     bash = [(s, a, c, cmd) for s, a, c in calls if (cmd := c.command) is not None]
     loops = [c for _, _, c, command in bash if SLEEP_LOOP.search(command)]
     fg_loops = [c for c in loops if c.mode == "fg"]
@@ -2659,17 +2724,19 @@ def polling(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
         for (sid, kind), n in per_agent.most_common(5)
         if n > ROUTINE_POLLS
     ]
-    return "\n".join(
+    fg_time = minutes(sum(c.seconds or 0 for c in fg_loops))
+    polls = sum(per_agent.values())
+    return Section(
+        "polling",
+        f"{len(loops)} sleep loops, {len(fg_loops)} fg {fg_time}; {polls} gh pr checks without --watch",
         [
-            "## Sleep and poll loops",
-            "",
-            f"- sleep/until/while loops: {len(loops)} calls, {len(fg_loops)} in the foreground taking {minutes(sum(c.seconds or 0 for c in fg_loops))}, {len(timeouts)} timed out",
-            f"- `gh pr checks` without --watch: {sum(per_agent.values())} calls; agents polling it more than twice: {', '.join(repeated) or 'none'}",
-        ]
+            f"sleep/until/while loops: {len(loops)} calls, {len(fg_loops)} in the foreground taking {fg_time}, {len(timeouts)} timed out",
+            f"gh pr checks without --watch: {polls} calls; agents polling it more than twice: {', '.join(repeated) or NONE}",
+        ],
     )
 
 
-def failures(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
+def failures(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     groups: dict[tuple[str, str, str], list[ToolCall]] = defaultdict(list)
     missing: Counter[str] = Counter()
     for _, _, c in calls:
@@ -2698,17 +2765,15 @@ def failures(calls: list[tuple[Session, Agent, ToolCall]]) -> str:
         ]
         for (tool, name, sig), cs in ranked[:12]
     ]
-    total = sum(len(cs) for cs in groups.values())
-    head = f"## Failing tool calls\n\n{total} failed calls in {len(groups)} groups. Missing tools: {', '.join(f'{t} ({n})' for t, n in missing.most_common(8)) or 'none'}."
-    return (
-        head
-        + "\n\n"
-        + table(["count", "tool", "command", "exit", "error"], rows)
-        + omitted(len(ranked), len(rows))
-    )
+    failed = sum(len(cs) for cs in groups.values())
+    tools = ", ".join(f"{t} ({n})" for t, n in missing.most_common(8)) or NONE
+    fact = f"{failed} failed calls in {len(groups)} groups; missing tools: {tools}"
+    header = ["count", "tool", "command", "exit", "error"]
+    return Section("failures", fact, [fact, *ranked_table(header, rows, len(ranked))])
 
 
-def compare(sessions: list[Session], split: datetime) -> str:
+def compare(sessions: list[Session], split: datetime) -> Section:
+    """Medians before and after a date, by session start; n >= MIN_COMPARE_N per side."""
     at = split.timestamp()
     before = measures([s for s in sessions if s.start < at])
     after = measures([s for s in sessions if s.start >= at])
@@ -2720,11 +2785,11 @@ def compare(sessions: list[Session], split: datetime) -> str:
         [name, *median_cells(before[name]), *median_cells(after[name])]
         for name in ranked[:TOP]
     ]
-    head = f"Sessions by their start. A median needs n >= {MIN_COMPARE_N} on its side. The sides ran different tasks: a lead, never a verdict."
-    return (
-        f"## Before and after {fmt_time(at)}\n\n{head}\n\n"
-        + table(["measure", "n before", "before", "n after", "after"], rows)
-        + omitted(len(ranked), len(rows))
+    header = ["measure", "n before", "before", "n after", "after"]
+    return Section(
+        "compare",
+        f"split at {fmt_time(at)}, {len(ranked)} measures",
+        ranked_table(header, rows, len(ranked)),
     )
 
 
@@ -2753,25 +2818,25 @@ def median_cells(values: list[float]) -> list[str]:
 # --- Formatting --------------------------------------------------------------
 
 
-def section(title: str, header: list[str], rows: list[list[str]], total: int) -> str:
-    return f"## {title}\n\n" + table(header, rows) + omitted(total, len(rows))
+def lead(rows: list[list[str]], *cells: int) -> str:
+    """The headline of a ranked table: chosen cells of its top row."""
+    return "top " + " ".join(rows[0][i] for i in cells) if rows else NONE
 
 
-def table(header: list[str], rows: list[list[str]]) -> str:
+def ranked_table(header: list[str], rows: list[list[str]], total: int) -> list[str]:
+    """A table capped to its top rows, with how many it left out."""
+    left_out = total - len(rows)
+    return table(header, rows) + ([f"+{left_out} more"] if left_out > 0 else [])
+
+
+def table(header: list[str], rows: list[list[str]]) -> list[str]:
     if not rows:
-        return "(none)"
-    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
-    return "\n".join(
-        lines + ["| " + " | ".join(escape_cell(v) for v in row) + " |" for row in rows]
-    )
+        return [NONE]
+    return ["|".join(escape_cell(v) for v in line) for line in [header, *rows]]
 
 
 def escape_cell(value: str) -> str:
     return value.replace("|", "\\|")
-
-
-def omitted(total: int, shown: int) -> str:
-    return f"\n\n{total - shown} more omitted." if total > shown else ""
 
 
 def tokens(u: Usage) -> str:
@@ -2813,6 +2878,17 @@ def words(text: str) -> int:
 def clip(text: str, n: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= n else text[: n - 1] + "…"
+
+
+HOME_DIR = re.compile(r"/(?:home|Users)/[^/\s]+/")
+
+
+def clip_path(text: str, n: int) -> str:
+    """A path or command in `n` chars, the home directory as `~`; a path keeps its tail, the file name."""
+    text = HOME_DIR.sub("~/", " ".join(text.split()))
+    if len(text) <= n:
+        return text
+    return "…" + text[1 - n :] if text.startswith(("/", "~/")) else clip(text, n)
 
 
 if __name__ == "__main__":
