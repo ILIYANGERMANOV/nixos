@@ -84,26 +84,48 @@ them and does not copy them. Every mode keeps:
 when a mode row, a `<mode>:` branch or a Trivial switch appears outside the
 table.
 
-> **Formal view.** States are objects and steps are morphisms of a category.
-> Each step is a Kleisli arrow `S -> Either Blocker S'`: `NEEDS_DECISION` is
-> the `Left`, and composition short-circuits on it. A mode is a forgetful map
-> onto a subcategory: it keeps every object and drops arrows, never adds one.
-> The kept arrows above lie in the image of every mode.
+> **Formal view.** The diagram is a graph. Runs are the morphisms of the free
+> category on it: paths of steps, with the empty path as each identity. All
+> states share one carrier, the world `W` (worktree, branch, notes), so a step
+> is a Kleisli arrow `W -> Either Stop W` of the `Either Stop` monad, and
+> composition short-circuits on the first `Left`:
+>
+> ```haskell
+> data Stop = NeedsDecision Question | Grew Why | Blocked Why | Failed Why | Stuck Row
+> ```
+>
+> A mode is a functor from that free category into the Kleisli category. It
+> sends a skipped step to `pure`, the Kleisli identity: Trivial's Ctx to Plan
+> is the path through step 3, its edges sent to `pure`. The skip lives in the
+> functor, not the graph, since the free category has no arrow between two
+> distinct states that acts as an identity. Every mode is a functor from the
+> same free category, so none adds an arrow.
 
 ## Who runs what
 
-| Step | Role | Count | Reads | Writes | Hands back |
-|---|---|---|---|---|---|
-| 1, fact gap | `researcher` | Quality row, background, one first | code, docs, web | `research-<topic>.md` | ranked index |
-| 3 | `researcher`, proposal mode | one runs simplify, then alternative on its output | `plan.md` | `proposal-<mode>.md` | the plans |
-| 4 | engineer | - | plan | branch, draft PR, `report.md` | - |
-| 5 | `implementer` | one per slice, a successor at 150k | plan, slice, notes | commits | stop rule line |
-| 6 | `refactorer` | 1, fresh | `ctx diff` | commits | proposals |
-| 7, 8 | `review-lead` | 1 fresh per round | `requirements.md`, `ctx` | nothing | the report |
-| 7, 8 | `reviewer` | spawned by review-lead, foreground | `ctx` folder | nothing | findings |
-| 7 | `reviewer`, dry run | 1 for a skill change, Quality row | branch `SKILL.md` | nothing | steps it could not follow |
-| 8, final, CI | `fixer` | 1 per round | rows, R0, failing check | commits, PR body | stop rule line |
-| 10 | `checker` | when a full check is due | one check | nothing | PASS or FAIL |
+| Step | Role | Count | Runs | Reads | Writes | Hands back |
+|---|---|---|---|---|---|---|
+| 1, fact gap | `researcher` | Quality row, one first | bg | code, docs, web | `research-<topic>.md` | ranked index |
+| 2 | engineer, `grilling` | - | in turn | research notes, the user's answers | - (feeds step 3) | - |
+| 3 | `researcher`, proposal mode | one runs simplify, then alternative on its output | bg | `plan.md` | `proposal-<mode>.md` | the plans |
+| 4 | engineer | - | in turn | plan | branch, draft PR, `report.md` | - |
+| 5 | `implementer` | one per slice, a successor at 150k | bg | plan, slice, notes | commits | stop rule line |
+| 6 | `refactorer` | 1, fresh | bg | `ctx diff` | commits | proposals |
+| 7, 8 | `review-lead` | 1 fresh per round | bg | `requirements.md`, `ctx` | nothing | the report |
+| 7, 8 | `reviewer` | spawned by review-lead | fg | `ctx` folder | nothing | findings |
+| 7 | `reviewer`, dry run | 1 for a skill change, Quality row | bg | branch `SKILL.md` | nothing | steps it could not follow |
+| 8, final, CI | `fixer` | 1 per round | bg | rows, R0, failing check | commits, PR body | stop rule line |
+| 9 | engineer | - | in turn | final fixer's hand-back | the notice | - |
+| 10 | `checker` | when a full check is due | bg | one check | nothing | PASS or FAIL |
+
+- **bg**: `run_in_background: true`, the engineer's default for subagents
+  (`engineer/SKILL.md` Rules, `instructions/lead.md`). A delegated engineer
+  runs steps 5 to 9 with every agent fg (`engineer/SKILL.md` Delegated), and
+  its step 9 notifies nobody.
+- **fg**: the review-lead spawns reviewers with `run_in_background: false`
+  (`pragmatic-review/references/first-pass.md`), since a subagent's
+  background task dies at its hand-back.
+- **in turn**: the engineer itself, no subagent.
 
 Role definitions: `programs/agents/roles/<role>/role.nix` and `role.md`.
 
@@ -125,10 +147,11 @@ Only the engineer and the review-lead spawn. The implementer spawns no agent
 (https://code.claude.com/docs/en/sub-agents), so asking on demand is a
 hand-back.
 
-> **Formal view.** The engineer is the only interpreter of effects that reach
-> the user: asking, spawning, triage. A worker is a function from its brief and
-> the worktree to commits plus a hand-back value. The spawn tree has depth 2,
-> and only the review-lead fans out below the root.
+> **Formal view.** The engineer is the only interpreter of the effects that
+> reach the user: asking and triage. Spawning is shared: the engineer spawns
+> every worker, the review-lead its reviewers. A worker maps its brief and the
+> worktree to commits plus a hand-back value. The spawn tree has depth 2, and
+> only the review-lead fans out below the root.
 
 ## The review loop
 
@@ -159,7 +182,7 @@ Spec: `engineer/references/review.md`.
   `requirements-fixes.md`. A fix to what the Quality table's `Full review of
   a fix to` row names gets a whole-branch review instead, and it counts as a
   round.
-- **Final fixer.** The loop's only exit, in every mode. It gets
+- **Final fixer.** The loop's only exit short of an escalation, in every mode. It gets
   `chosen ++ [R0]`, and nothing reviews it. R0 writes the PR body from
   `ctx diff origin/<base>`.
 - **Not met** is always fixed, then gets one `--fixes` review, at the cap too.
@@ -170,11 +193,11 @@ Spec: `engineer/references/review.md`.
   `NEEDS_DECISION plan wrong: <finding>` first. No fixer runs; the rows are
   logged.
 
-> **Formal view.** A bounded fixed-point iteration: `fix . review` repeats
-> until no rows are chosen or the Re-reviews bound is hit. The stuck guard is
-> the no-progress test: the same row or check twice means the iteration does
-> not converge, so it stops early. The final fixer is a fixed last arrow, so
-> every run ends the same way.
+> **Formal view.** A bounded iteration: `fix . review` repeats until no rows
+> are chosen, a fixed point, or the Re-reviews bound is hit. Nothing proves it
+> converges. The stuck guard is a no-progress heuristic: the same row or check
+> in 2 rounds in a row stops it early and escalates. Every exit that is not
+> escalated, by plan wrong or stuck, goes through the final fixer.
 
 ## Blocker triage
 
@@ -192,9 +215,17 @@ one kind (`engineer/references/blockers.md` Triage):
 On `Size: Trivial`, work bigger than briefed is `GREW <why>`. The engineer moves
 the task to `Size: Normal` for good (`engineer/references/trivial.md`).
 
-> **Formal view.** `data Blocker = Answered | Fact | Decision | Scope`, and
-> triage is a total pattern match with no default arm. Only `Decision` and
-> `Scope InThisPR` map back to Ctx; the rest resume in place.
+> **Formal view.** Triage is a total pattern match on `Blocker`, with no
+> default arm. `Scope` asks the user, whose answer is a `ScopeChoice`:
+>
+> ```haskell
+> data Blocker = Answered | Fact | Decision | Scope
+> data ScopeChoice = InThisPR | FollowUp | Drop
+> ```
+>
+> `Decision` and `InThisPR` go back to Ctx. A `Fact` whose research finds a
+> user's choice becomes a `Decision`, so it goes back too. The rest resume in
+> place.
 
 ## ctx
 
@@ -234,10 +265,12 @@ flowchart TD
 | 8 | review-lead `--fixes` | `ctx delta <prev head>` |
 | 8, final | fixer, R0 | `ctx diff origin/<base>` |
 
-> **Formal view.** A memoized pure function over a content-addressed store.
-> `resolve` is the only effect; `build` is pure in its key, so the same key
-> gives the same bytes. The call is idempotent and referentially transparent:
-> agents that ask for the same range share one build.
+> **Formal view.** A memoized build over a content-addressed store. `resolve`
+> is the only effect, and not a pure one: it reads git and the work tree, so
+> `ctx diff origin/main` with no head gives a new key after a fetch or an edit.
+> `build` is a pure function of the resolved key: the same key gives the same
+> bytes. So the call is idempotent per key, and agents that resolve the same
+> key share one build.
 
 ## /tmp files
 
@@ -270,10 +303,11 @@ Prompt cache and context budget:
   hands back at the warning for a successor.
 - Never resume a large agent after a gap: spawn a fresh one from a summary.
 
-> **Formal view.** Agents are stateless; the files are the state threaded
-> between them, like a state monad whose state lives on disk. A fresh agent is
-> a function of its brief path and the notes, so a resume is a re-application,
-> not a replay of a lost context.
+> **Formal view.** Agents keep no state across runs. The files are a shared
+> store on disk, not a state monad: parallel agents read and write it at once,
+> nothing threads it in order, and agents also read git and the web. A fresh
+> agent starts from its brief path and what the store holds then, so a resume
+> re-reads the store instead of replaying a lost context.
 
 ## Delegated
 
