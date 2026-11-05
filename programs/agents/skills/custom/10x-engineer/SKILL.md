@@ -216,7 +216,8 @@ gates; do not invoke that skill. A `Size: Trivial` task takes every step here an
 5. The `gh pr ready` gates from that section, then `gh pr ready`, and notify
    the user with that section's optional next steps: `/final-review`,
    `/give-feedback`, `/address-pr-feedback <PR URL>` when the PR has comments
-   from anyone else, and `/qa <PR URL>` for a fresh session when QA is yes.
+   from anyone else, and `/qa <PR URL>` in a fresh session for a UI or runtime
+   change.
    Nothing waits for them.
 6. State `review`: the queue, or the merge loop when the Approved gate already
    holds.

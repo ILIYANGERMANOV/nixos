@@ -1,139 +1,437 @@
 # The engineer flow is a state machine where agents research and ask on demand
 
-`/engineer` ran a fixed lifecycle: research and ask up front, then build,
-review once, fix once, and hand over. A question a worker hit mid-build had no
-path back to the user, and the review loop stopped after one re-review in
-every mode. Now each step is a state with named arrows, a Quality mode only
-skips arrows, and any worker can hand a blocking question back to the
-engineer, who sorts it.
+`/engineer` used to run a fixed lifecycle: research and ask up front, build,
+review once, fix once, hand over. A question a worker hit mid-build had no way
+back to the user. Now each step is a state with named arrows. A Quality mode or
+a Size only skips arrows. A worker hands a blocking question back, and the
+engineer sorts it.
 
-Amended by #318: two knobs (Quality and Size) defined once, a stuck guard
-instead of per-loop caps, and rules against plan drift. This text describes the
-current flow; the old per-mode table and the `, Trivial` suffix are gone.
+Amended by #317, #318, #324, #326 and #328. This text describes the current
+flow.
 
-```
-Ctx --ask/research--> Ctx --plan--> Prop --simplify--> Prop' --alternative--> Prop'
-Prop' x Prop' --ask(first|second|adjust)--> Plan | Ctx
-Plan --> draft PR --> Impl --refactor--> Impl' --review--> ImplR <--fix/--fixes (<=N)--> Impl''
-any worker/review blocker --> Ctx (engineer triages)
-last re-review --> final small fix --> pr-description + notify --> CI --> green: ready + notify | issues: fix
-```
-
-The steps keep their numbers 1 to 10, so `/10x-engineer`, `trivial.md` and
-resume read the same. The spec is the `## States` table in
+The spec is the `## States` table in
 `programs/agents/skills/custom/engineer/SKILL.md`, with detail in its
-`references/blockers.md` and `references/review.md`.
+`references/blockers.md`, `references/review.md` and `references/trivial.md`.
+The steps keep their numbers 1 to 10, so `/10x-engineer`, `trivial.md` and a
+resume read the same. Where this ADR and the skill differ, the skill wins.
+
+## The state machine
+
+```mermaid
+stateDiagram-v2
+  direction TB
+  [*] --> Ctx: set Size
+  Ctx --> Ctx: research, ask
+  Ctx --> Prop: plan
+  state "3 - confirm the plan" as S3 {
+    Prop --> Prop1: simplify
+    Prop1 --> Pair: alternative
+    Pair --> Plan: pi1 / pi2
+  }
+  Pair --> Ctx: adjust
+  Plan --> DraftPlan: draft PR
+  DraftPlan --> Impl: implement
+  Impl --> Impl1: refactor
+  Impl1 --> ImplR: first review
+  ImplR --> Impl2: rows to fix
+  Impl2 --> Impl2: fix, fixes review
+  ImplR --> DraftPR: no rows, final fixer
+  Impl2 --> DraftPR: cap, final fixer
+  DraftPR --> PR: notify
+  PR --> PR: CI fix
+  PR --> [*]: green, ready
+  Prop1: Prop'
+  Pair: Prop' x Prop'
+  Impl1: Impl'
+  Impl2: Impl''
+  note left of Ctx
+    From any state
+    NEEDS_DECISION goes to triage
+    stuck goes to the user
+  end note
+```
+
+| Step | State | Spec |
+|---|---|---|
+| 1-2 | Ctx | `engineer/SKILL.md` Research, Interview |
+| 3 | Prop, Prop', Prop' x Prop', Plan | Confirm the plan |
+| 4 | DraftPlan | Open a draft PR |
+| 5 | Impl | Implement |
+| 6 | Impl' | Refactor |
+| 7 | ImplR | `references/review.md` First review |
+| 8 | Impl'' | `references/review.md` Rounds 2+, Final fixer |
+| 9 | DraftPR | Describe and notify: R0 already wrote the body |
+| 10 | PR | Hand over, `references/review.md` CI fix |
+
+- **Adjust** goes back to Ctx and keeps what was learned. Proposals rerun only
+  when the approach changed.
+- **Confirm is a projection**: the first plan is `pi1`, the second `pi2`.
+- **POC, or an alternative that returns the identity**, asks yes or no
+  instead of first or second: on the diagonal `(p, p)`, `pi1 = pi2`.
+- **Stuck guard** (`engineer/SKILL.md` Rules): the same failing check or the
+  same review row in 2 rounds in a row asks the user. Delegated, it hands back
+  `NEEDS_DECISION stuck: <check or row>`. A re-plan does not reset it.
+
+**Quality and Size only drop arrows** ("Quality and Size skip arrows, never
+add them", `engineer/SKILL.md` States). What each mode drops lives in one
+place each: the Quality table in `programs/agents/instructions/topics/quality.md`
+and the Trivial skip list in `engineer/references/trivial.md`. This ADR links
+them and does not copy them. Every mode keeps:
+
+- the quick security review,
+- the blocker arrows,
+- fact-gap research,
+- the final fixer.
+
+`programs/agents/lib/passes/modes.nix`, in the `agents` check, fails the build
+when a mode row, a `<mode>:` branch or a Trivial switch appears outside the
+table.
+
+> **Formal view.** The diagram is a graph. Runs are the morphisms of the free
+> category on it: paths of steps, with the empty path as each identity. All
+> states share one carrier, the world `W` (worktree, branch, notes), so a step
+> is a Kleisli arrow `W -> Either (Stop, W) W` of the monad
+> `Either (Stop, W)`. A stop keeps the world, since a worker commits and
+> pushes before it hands back. In that Kleisli category the identity is
+> `pure` (`Right`), and composition `>=>` short-circuits on the first
+> `Left`, which carries the stop and the world it left:
+>
+> ```haskell
+> data Stop = NeedsDecision Question | Grew Why | Blocked Why | Failed Why
+>           | Stuck (Either Check Row)
+> ```
+>
+> The world holds the current plan, and step 3 acts on it through three pure
+> functions. `Prop'` and `Plan` name a stage, not a new type:
+>
+> ```haskell
+> type Prop' = Prop  -- a revised plan
+> type Plan  = Prop  -- the confirmed plan
+> simplify    :: Prop -> Prop'
+> alternative :: Prop' -> (Prop', Prop')  -- p |-> (p, q), or (p, p)
+> confirm     :: (Prop', Prop') -> Plan   -- fst (pi1) or snd (pi2)
+> ```
+>
+> So `alternative . simplify :: Prop -> (Prop', Prop')`, the
+> `Prop' x Prop'` state. The world's plan slot holds the stage's value: a
+> `Prop`, a `Prop' x Prop'` pair or a `Plan`. Each step-3 edge lifts its `f`
+> to `pure . over plan f`, a Kleisli arrow on `W`. The researcher's run is
+> the effect that computes `f`, and it can still stop with a `Left`.
+>
+> A mode is a functor from that free category into this Kleisli category. It
+> sends a skipped path to arrows that compose to `pure`, the Kleisli
+> identity. Trivial sends `simplify` to the lift of `id`, `alternative` to
+> the lift of the diagonal `\p -> (p, p)` and confirm to the lift of `fst`.
+> Their composite `fst . (\p -> (p, p)) . id = id` lifts to `pure`, and
+> Trivial sends `plan` to writing its short plan, so its Ctx to Plan path is
+> that one write. The skip lives in the functor, not
+> the graph, since the free category has no arrow between two distinct states
+> that acts as an identity. Every mode is a functor from the
+> same free category, so none adds an arrow.
+
+## Who runs what
+
+| Step | Role | Count | Runs | Reads | Writes | Hands back |
+|---|---|---|---|---|---|---|
+| 1, fact gap | `researcher` | Quality row, one first | bg | code, docs, web | `research-<topic>.md` | ranked index |
+| 2 | engineer, `grilling` | - | in turn | research notes, the user's answers | - (feeds step 3) | - |
+| 3 | `researcher`, proposal mode | one runs simplify, then alternative on its output | bg | `plan.md` | `proposal-<mode>.md` | the plans |
+| 4 | engineer | - | in turn | plan | branch, draft PR, `report.md` | - |
+| 5 | `implementer` | one per slice, a successor at 150k | bg | plan, slice, notes | commits | stop rule line |
+| 6 | `refactorer` | 1, fresh | bg | `ctx diff` | commits | proposals |
+| 7, 8 | `review-lead` | 1 fresh per round | bg | `requirements.md`, `ctx` | nothing | the report |
+| 7, 8 | `reviewer` | spawned by review-lead | fg | `ctx` folder | nothing | findings |
+| 7 | `reviewer`, dry run | 1 for a skill change, Quality row | bg | branch `SKILL.md` | nothing | steps it could not follow |
+| 8, final, CI | `fixer` | 1 per round | bg | rows, R0, failing check | commits, PR body | stop rule line |
+| 9 | engineer | - | in turn | final fixer's hand-back | the notice | - |
+| 10 | `checker` | when a full check is due | bg | one check | nothing | PASS or FAIL |
+
+- **bg**: `run_in_background: true`, the engineer's default for subagents
+  (`engineer/SKILL.md` Rules, `instructions/lead.md`). A delegated engineer
+  runs steps 5 to 9 with every agent fg (`engineer/SKILL.md` Delegated), and
+  its step 9 notifies nobody.
+- **fg**: the review-lead spawns reviewers with `run_in_background: false`
+  (`pragmatic-review/references/first-pass.md`), since a subagent's
+  background task dies at its hand-back.
+- **in turn**: the engineer itself, no subagent.
+
+Role definitions: `programs/agents/roles/<role>/role.nix` and `role.md`.
+
+```mermaid
+flowchart TD
+  E[engineer] --> RS[researcher]
+  E --> IM[implementer]
+  E --> RF[refactorer]
+  E --> RL[review-lead]
+  E --> FX[fixer]
+  E --> CK[checker]
+  E --> DR["reviewer - dry run"]
+  RL --> RV[reviewer]
+```
+
+Only the engineer and the review-lead spawn. The implementer spawns no agent
+(`roles/implementer/role.md`), and the fixer spawns nobody
+(`roles/fixer/role.md`). Subagents cannot ask the user
+(https://code.claude.com/docs/en/sub-agents), so asking on demand is a
+hand-back.
+
+> **Formal view.** The engineer is the only interpreter of the effects that
+> reach the user: asking and triage. Spawning is shared: the engineer spawns
+> every worker, the review-lead its reviewers. A worker maps its brief and the
+> worktree to commits plus a hand-back value. The spawn tree has depth 2, and
+> only the review-lead fans out below the root.
+
+## The review loop
+
+```mermaid
+flowchart TD
+  R1[first review] --> Q{rows chosen?}
+  R1 -->|plan wrong| T[blocker triage]
+  Q -->|yes| F[fixer]
+  F --> RF["--fixes review"]
+  RF --> L{rounds left?}
+  L -->|yes| Q
+  L -->|no| FF["final fixer - chosen ++ R0"]
+  Q -->|no| FF
+  FF --> N[notify]
+  N --> CI{CI}
+  CI -->|red| CF[CI fixer]
+  CF --> CI
+  CI -->|green| RD[ready]
+```
+
+Spec: `engineer/references/review.md`.
+
+- **Requirements.** `requirements.md` is written once per plan: acceptance
+  criteria, each plan decision, out of scope, `security-sensitive`. Every
+  review, Trivial included, gets `--requirements <path>`.
+- **Rounds 2+.** A fixer, then a fresh review-lead with
+  `--fixes <previous Reviewed head>` and the one accumulating
+  `requirements-fixes.md`. A fix to what the Quality table's `Full review of
+  a fix to` row names gets a whole-branch review instead, and it counts as a
+  round.
+- **Final fixer.** The loop's only exit short of an escalation, in every mode. It gets
+  `chosen ++ [R0]`, and nothing reviews it. R0 writes the PR body from
+  `ctx diff origin/<base>`.
+- **Not met** is always fixed, then gets one `--fixes` review, at the cap too.
+  It never goes to Follow-ups.
+- **CI fix.** A fixer. Rounds left: a `--fixes` review and step 8's loop on its
+  rows. Then back to the CI wait, never to step 9. Trivial skips the review.
+- **Plan wrong.** The review-lead finishes its review, then returns
+  `NEEDS_DECISION plan wrong: <finding>` first. No fixer runs; the rows are
+  logged.
+
+> **Formal view.** A bounded iteration: `fix . review` repeats until no rows
+> are chosen, a fixed point, or the Re-reviews bound is hit. Nothing proves it
+> converges. The stuck guard is a no-progress heuristic: the same row or check
+> in 2 rounds in a row stops it early and escalates. Every exit that is not
+> escalated, by plan wrong or stuck, goes through the final fixer.
+
+## Blocker triage
+
+A worker that hits a question the repo, brief and plan do not settle stops,
+pushes its work and hands back `NEEDS_DECISION <question>`. The engineer picks
+one kind (`engineer/references/blockers.md` Triage):
+
+| Kind | Action | Back to Ctx? |
+|---|---|---|
+| answered | a fresh worker of the same role resumes from the commit | no |
+| fact | a researcher per gap, a delta plan, simplify, resume; no user question | no, unless research finds a user's choice |
+| decision | Ctx for this question, step 3 at the current Quality, step 5 on the same branch; review restarts at round 1 | yes |
+| scope | ask: in this PR, a follow-up or drop | only for "in this PR" |
+
+On `Size: Trivial`, work bigger than briefed is `GREW <why>`. The engineer moves
+the task to `Size: Normal` for good (`engineer/references/trivial.md`).
+
+> **Formal view.** Triage is a total pattern match on `Blocker`, with no
+> default arm. `Scope` asks the user, whose answer is a `ScopeChoice`:
+>
+> ```haskell
+> data Blocker = Answered | Fact | Decision | Scope
+> data ScopeChoice = InThisPR | FollowUp | Drop
+> ```
+>
+> `Decision` and `InThisPR` go back to Ctx. A `Fact` whose research finds a
+> user's choice becomes a `Decision`, so it goes back too. The rest resume in
+> place.
+
+## ctx
+
+`ctx diff <base> [<head>]` and `ctx delta <prev> [<head>]` write a diff once
+to a cached folder, and every agent reads ranges of it
+(`programs/agents/ctx/ctx.py`).
+
+```mermaid
+flowchart TD
+  A["ctx diff or ctx delta"] --> R["resolve - git refs, work-tree snapshot"]
+  R --> K["key - sha256, first 16 hex"]
+  K --> H{folder exists?}
+  H -->|yes| M["manifest - cached: yes"]
+  H -->|no| B["build into .tmp-*"]
+  B --> RN[rename to key]
+  RN --> M2["manifest - cached: no"]
+```
+
+- **Key inputs**: kind, from commit (merge base for `diff`, `prev` for
+  `delta`), head commit, head tree, and the version, a sha256 of `ctx.py`'s own
+  bytes. Ref names are not hashed.
+- **Store**: `/tmp/ctx/<owner>-<repo>/<diff|delta>/<key>/`, holding `index`,
+  `status`, `stat`, `log`, `diff`, and `ancestor` for `delta`. ctx refuses a
+  store root another account owns.
+- **Work tree**: with no head, a temporary index snapshots the work tree;
+  the real index is untouched.
+- **Atomic**: build in a `.tmp-*` folder, then rename. A lost race deletes its
+  own temp folder and keeps the winner, so a reader never sees half a folder.
+- **Reads stay small**: `index` gives each file's first and last line in
+  `diff`, read with `sed -n`.
+
+| Step | Caller | Command |
+|---|---|---|
+| 5 | implementer successor | `ctx delta <prev slice sha> HEAD` |
+| 6 | refactorer | `ctx diff origin/<base>` |
+| 7 | review-lead, reviewers | `ctx diff <base> [<head>]` |
+| 8 | review-lead `--fixes` | `ctx delta <prev head>` |
+| 8, final | fixer, R0 | `ctx diff origin/<base>` |
+
+> **Formal view.** A memoized build over a content-addressed store. `resolve`
+> is the only effect, and not a pure one: it reads git and the work tree, so
+> `ctx diff origin/main` with no head gives a new key after a fetch or an edit.
+> `build` is a pure function of the resolved key: the same key gives the same
+> bytes. So the call is idempotent per key, and agents that resolve the same
+> key share one build.
+
+## /tmp files
+
+The notes directory is `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug being
+the branch name (`engineer/SKILL.md` Rules).
+
+| File | Writer | Reader | Lifetime |
+|---|---|---|---|
+| `research-<topic>.md` | researcher | engineer, implementers | the task |
+| `plan.md` | engineer, step 3 | every brief, by path | rewritten on re-plan |
+| `proposal-simplify.md`, `proposal-alternative.md` | proposal researcher | engineer, step 3 | per plan |
+| `requirements.md` | engineer, step 7 | every review, `/final-review` | rewritten on re-plan |
+| `requirements-fixes.md` | engineer, from round 2 | `--fixes` reviews | fresh copy on re-plan |
+| `report.md` | engineer, after each step | a fresh context on resume | the task |
+| `/tmp/ctx/...` | ctx | reviewers, fixers, refactorer, R0 | never pruned |
+
+Delegated, the brief is the plan and the brief's report file is the progress
+file. Review reports are not files: a report is the review-lead's hand-back
+text, and the engineer logs its rows in `report.md`.
+
+Prompt cache and context budget:
+
+- The prompt cache lasts about 5 minutes. An agent past about 60k tokens runs
+  no check over about 4 minutes: it hands back, and a fresh `checker` runs it
+  (`programs/agents/instructions/agent.md` Checks).
+- Fanning out, launch one agent first and the rest after, so they share its
+  cached prefix (`programs/agents/instructions/lead.md`).
+- The context guard warns at 150k tokens and stops at 220k
+  (`programs/claude-code/hooks/context-guard/context-guard.py`). An implementer
+  hands back at the warning for a successor.
+- Never resume a large agent after a gap: spawn a fresh one from a summary.
+
+> **Formal view.** Agents keep no state across runs. The files are a shared
+> store on disk, not a state monad: parallel agents read and write it at once,
+> nothing threads it in order, and agents also read git and the web. A fresh
+> agent starts from its brief path and what the store holds then, so a resume
+> re-reads the store instead of replaying a lost context.
+
+## Delegated
+
+`/10x-engineer` spawns up to 3 `engineer` agents with a brief that is the plan.
+A delegated engineer starts at step 4, runs steps 5 to 9 in the foreground,
+never asks the user, and stops before the CI wait. It hands back `READY`,
+`NEEDS_DECISION`, `BLOCKED` or `FAILED` with the last step and head SHA
+(`engineer/SKILL.md` Delegated).
 
 ## Decisions
 
 - **Two knobs skip arrows of one diagram; neither adds any.**
   - **Quality** (`POC`, `Balanced`, `Max`) is the user's: how much effort the
-    work gets. Its only definition is the table in
-    `programs/agents/instructions/topics/quality.md`, one row per step. A skill
-    reads its row for what runs; its own text says how. The table reaches only
-    the lead and the roles that branch on it.
-  - **Size** (`Size: Trivial|Normal`, its own brief line) is the engineer's
-    alone, set once. Trivial is a skip table on the normal step order
-    (`engineer/references/trivial.md`). A worker never switches it: it hands
-    back `GREW <why>` and the engineer moves the task to Normal for good. A
-    delegated engineer owns Size and reports `Size: Normal, grew: <why>`.
-  - `lib/passes/modes.nix`, in the `agents` check, fails the build when a mode
-    row, a `<mode>:` branch or a Trivial switch appears outside the table and
-    its allow-list, so the rules cannot drift back into many files.
-
-  Every mode keeps the quick security review, the blocker arrows, fact-gap
-  research and one final small fix after the last review. A re-plan from a
-  blocker follows the same table.
-- **A worker only stops; the engineer triages.** An implementer, refactorer
-  or fixer that hits a blocking question the repo, brief and plan
-  do not settle stops at once. It commits and pushes its work as a normal
-  commit, with `Remaining: ...` in the body, and hands back
-  `NEEDS_DECISION <question>` with evidence. Choosing differently from a
-  decision the plan states is such a question too. The engineer
-  holds the goals and the user's answers, so it picks the kind: answered, fact
-  (research, delta plan, simplify, resume, no user question), decision (back
-  to Ctx, proposals, ask) or scope (this PR, follow-up or drop). This follows
-  A2A's single `input-required` task state
-  (https://a2a-protocol.org/latest/specification/) and issue triage, where the
-  reporter files and the triager labels.
-- **Only the lead spawns researchers.** Subagents cannot ask the user
-  (https://code.claude.com/docs/en/sub-agents), so asking on demand is a
-  hand-back. A `Size: Trivial` task may get one small researcher for a fact
-  gap and stays Trivial.
-- **One plan text, passed by path.** The brief or `plan.md` is the only plan;
-  no agent writes a second one. Every review, Trivial included, gets
-  `--requirements <path>`, and each plan decision is a requirement. Open
-  decisions are triaged before `READY` or `gh pr ready`, never handed on as
-  prose. The `/engineer` dry run on nextjs-template#6 showed two plan texts
+    work gets. Its only definition is the table in `topics/quality.md`, one row
+    per step.
+  - **Size** (`Size: Trivial|Normal`) is the engineer's alone, set once. A
+    worker never switches it: it hands back `GREW <why>`. A delegated engineer
+    reports `Size: Normal, grew: <why>`.
+- **A worker only stops; the engineer triages.** The worker commits, pushes and
+  hands back `NEEDS_DECISION`. The engineer holds the goals and the user's
+  answers, so it picks the kind. This follows A2A's single `input-required`
+  task state (https://a2a-protocol.org/latest/specification/) and issue
+  triage, where the reporter files and the triager labels.
+- **Only the engineer spawns workers and researchers.** Implementers and fixers
+  are leaves, so the stop rule needs no relay.
+- **One plan text, passed by path.** The brief or `plan.md` is the only plan.
+  Each plan decision is a requirement. Open decisions are triaged before
+  `READY` or `gh pr ready`. An `/engineer` dry run showed two plan texts
   drifting into tech debt that no review could see.
-- **The engineer drives the review loop.** A fresh review-lead per round, a
-  fixer between rounds, `--fixes <previous round's Reviewed head>`, verdicts
-  carried from the latest round, one accumulating `-fixes.md` file. The
-  Quality row's Re-reviews count the normal rounds, as the evaluator-optimizer
-  pattern bounds its iterations
-  (https://www.anthropic.com/engineering/building-effective-agents). A CI fix
-  gets a `--fixes` review while rounds remain, then goes back to the CI wait.
-- **One stuck guard, no other caps.** Quality comes first, so loops (review
-  rounds, CI fixes, re-plans, blocker resumes, refactor in this PR) run while
-  they make progress. The same failing check or the same review row in 2
-  rounds in a row, whatever the commit, asks the user, or hands back
-  `NEEDS_DECISION` when delegated. It is a circuit breaker
+- **The engineer drives the review loop**, as the evaluator-optimizer pattern
+  bounds its iterations
+  (https://www.anthropic.com/engineering/building-effective-agents).
+- **One final fixer ends the loop and writes the body.** R0 rides with the
+  last rows, so the body matches the branch with no extra pass.
+- **One stuck guard, no other caps.** It is a circuit breaker
   (https://martinfowler.com/bliki/CircuitBreaker.html) that trips on no
   progress, and it lives once, in the engineer skill's Rules.
-- **Not met is always fixed.** A requirement or plan decision a review answers
-  Not met is fixed in every mode, Trivial included, and gets one `--fixes`
-  review. It never goes to Follow-ups.
+- **Not met is always fixed**, in every mode, Trivial included.
 - **The review-lead escalates only a wrong plan**: wrong approach, unmeetable
-  requirement, new scope, or a data-model or auth redesign. Every other
-  finding, security included, goes to a fixer. It finishes its review first
-  and does not pass the line to its reviewers.
-- **Proposals are a researcher mode** (`researcher/references/proposal.md`):
-  `simplify` revises the plan, `alternative` writes another or returns the
-  identity. Both cite standards with URLs and end in a MADR-style
-  `Considered options` table (https://adr.github.io/madr/), pasted into the PR
-  body.
+  requirement, new scope, or a data-model or auth redesign.
+- **Proposals are one researcher in proposal mode**
+  (`researcher/references/proposal.md`): `simplify : Prop -> Prop'` revises
+  the plan, then `alternative : Prop' -> Prop' x Prop'` pairs it with
+  another plan, or with itself (the diagonal) when it returns the identity.
+  Confirm projects with `pi1` or `pi2`, and adjust goes back to Ctx. Both
+  end in a MADR-style `Considered options` table (https://adr.github.io/madr/).
+- **Diffs come from `ctx`**, a cached folder read by ranges, so a diff is built
+  once per head (`docs/adr/0013-deterministic-programs-over-instructions.md`).
 - **A progress file in every mode**, so a fresh context resumes from it and
-  `git log`
-  (https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
-- **Hand-over is ready on green CI.** `/qa`, `/final-review` and
-  `/give-feedback` are optional next steps in the ready notice; no QA gate and
-  no run-app question. `/10x-engineer` matches it and drops its `qa` state.
+  `git log` (https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
+- **Hand-over is ready on green CI.** `/qa`, `/final-review`,
+  `/give-feedback` and `/address-pr-feedback` are optional next steps in the
+  ready notice; no QA gate. `/10x-engineer` matches it.
 - **Commits are kept.** A new plan adds commits on top; a revert only when the
   user asks.
+- **Diagrams in Mermaid**, fenced in this file: GitHub renders them on web and
+  phone (https://github.blog/developer-skills/github/include-diagrams-markdown-files-mermaid/).
 
 ## Considered options
 
 - **Hard caps per loop** (for example 2 CI fixes, 1 re-plan). Rejected: they
   stop a run that is still making progress; the stuck guard stops only one
   that is not.
-- **Trivial as a fourth Quality mode, or a `, Trivial` suffix.** Rejected: it
-  mixed the user's effort choice with the engineer's size judgment, and four
-  skills switched it on by themselves.
-- **The worker labels its own blocker** (`NEEDS_RESEARCH`, `NEEDS_DECISION`,
-  `new scope:`). Rejected: a decision a worker files as a fact gap skips the
-  user silently, and it adds a status name.
+- **Trivial as a fourth Quality mode.** Rejected: it mixed the user's effort
+  choice with the engineer's size judgment.
+- **The worker labels its own blocker.** Rejected: a decision filed as a fact
+  gap skips the user silently.
 - **The review-lead runs the loop and spawns the fixer.** Rejected: the
   review-lead changes no code, and the engineer already holds the plan and the
-  user, so it picks the rows.
+  user.
+- **Implementers that spawn sub-implementers.** Rejected in #326: the
+  engineer slices up front and spawns each one, so a blocker needs no relay.
+- **A small fix, then a separate `pr-description` pass.** Rejected: one more
+  agent; R0 on the final fixer does both.
 - **A QA gate before ready.** Rejected: it held a green PR on a question the
-  user can answer later, from a fresh session that does not carry this one's
-  context.
-- **Workers keep building around an open decision.** Rejected under the
-  engineer: work built on a guess is rework. Elsewhere, `agent.md` keeps it,
-  unless a brief says to stop.
+  user can answer later.
+- **Copying the Quality and Trivial tables here.** Rejected: a second spec
+  drifts. This ADR links them.
+- **D2 diagrams.** Rejected: GitHub does not render them.
 
 ## Consequences
 
-- Every implementer, refactorer and fixer brief from the engineer carries the
-  stop rule from `blockers.md`, and every review-lead brief only its plan-wrong
-  line; roles did not change.
+- Every implementer, refactorer and fixer brief carries the stop rule from
+  `blockers.md`, and every review-lead brief its plan-wrong line.
+- Implementers and fixers spawn nothing; a large task costs the engineer more
+  slices and successors.
 - The engineer pays one more turn per blocker to sort it.
 - `pragmatic-review` re-reviews chain: `--fixes` takes the previous round's
   head, not the first review's.
+- The diagrams here are hand-kept: a change to the States table needs an edit
+  here.
 
 Follow-ups, not done:
 
 - **A programmatic state machine.** The states and arrows are prose; nothing
-  checks that a run follows them.
+  checks that a run follows them, or that these diagrams match the skill. ADR
+  0013 argues for such programs.
 - **Per-round review metrics in `self-improve`.** Its regex counts rounds 2 and
   on as re-reviews, not each round. The per-PR metrics design is in #312.
