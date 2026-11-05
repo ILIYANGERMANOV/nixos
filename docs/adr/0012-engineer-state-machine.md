@@ -91,14 +91,16 @@ table.
 > composition short-circuits on the first `Left`:
 >
 > ```haskell
-> data Stop = NeedsDecision Question | Grew Why | Blocked Why | Failed Why | Stuck Row
+> data Stop = NeedsDecision Question | Grew Why | Blocked Why | Failed Why
+>           | Stuck (Either Check Row)
 > ```
 >
 > A mode is a functor from that free category into the Kleisli category. It
-> sends a skipped step to `pure`, the Kleisli identity: Trivial's Ctx to Plan
-> is the path through step 3, its edges sent to `pure`. The skip lives in the
-> functor, not the graph, since the free category has no arrow between two
-> distinct states that acts as an identity. Every mode is a functor from the
+> sends a skipped step to `pure`, the Kleisli identity. Trivial sends `plan`
+> to writing its short plan, and the proposal and confirm edges to `pure`, so
+> its Ctx to Plan path is that one write. The skip lives in the functor, not
+> the graph, since the free category has no arrow between two distinct states
+> that acts as an identity. Every mode is a functor from the
 > same free category, so none adds an arrow.
 
 ## Who runs what
