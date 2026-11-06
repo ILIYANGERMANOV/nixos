@@ -430,8 +430,7 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
 
 Follow-ups, not done:
 
-- **A programmatic state machine.** The states and arrows are prose; nothing
-  checks that a run follows them, or that these diagrams match the skill. ADR
-  0013 argues for such programs.
+- **A programmatic state machine.** Decided in ADR 0014 (the principles) and
+  ADR 0015 (`state`, advisory, event-sourced); implementation in #329.
 - **Per-round review metrics in `self-improve`.** Its regex counts rounds 2 and
   on as re-reviews, not each round. The per-PR metrics design is in #312.
