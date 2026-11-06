@@ -20,7 +20,7 @@ allowlist use bare skill names searched for recursively.
 `self-improve` is in `pm` and `factory` only: it measures the machine's own
 transcripts, needs `python3` from `modules/home/terminal.nix` on the Macs, and
 its `scripts/analyze.py` is tested by `checks.python-tests` on synthetic
-transcripts only (this repo is public). `10x-engineer` is in `factory` only and
+transcripts only (this repo is public). `10x-engineer` is in `factory` and `local` and
 spawns the `engineer` role, which preloads `engineer`.
 
 ### Adding a skill

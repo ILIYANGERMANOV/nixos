@@ -16,6 +16,8 @@ flavor lists the ones it gets. `mkProfile` and `append` are in `agents-lib.md`.
   `secretFiles`.
 - `web-ui` - figma.
 - `pm` - `self-improve`, linear, superhuman-docs.
+- `local` - `10x-engineer` and its `lead.md` for the lead only: every
+  non-factory flavor.
 - `factory` - `10x-engineer`, `self-improve`, `android`, its `agent.md` in
   `forAll` and its `lead.md` for the lead only.
 
