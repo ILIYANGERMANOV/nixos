@@ -7,10 +7,11 @@ import subprocess
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from core import Facts, GitFacts, NoFacts, advise, apply, fold, render_advice
 from hypothesis import strategies as st
-from main import main
-from model import (
+
+from state.core import Facts, GitFacts, NoFacts, advise, apply, fold, render_advice
+from state.main import main
+from state.model import (
     AREAS,
     BLOCKER_KINDS,
     MODES,

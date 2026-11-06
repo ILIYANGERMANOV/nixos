@@ -3,7 +3,8 @@ review's Not met requirements are the ones its verdicts name not-met."""
 
 from hypothesis import given
 from hypothesis import strategies as st
-from model import (
+
+from state.model import (
     MODES,
     S0,
     SIZES,

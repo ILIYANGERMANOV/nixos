@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from core import render
-from state_fixtures import ok
+from state.core import render
+from state.state_fixtures import ok
 
 
 def test_render_prints_the_states_block(repo: Path) -> None:

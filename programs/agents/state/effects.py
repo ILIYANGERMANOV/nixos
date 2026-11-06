@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from cli import (
+from state.cli import (
     BriefCmd,
     Command,
     HandbackCmd,
@@ -20,8 +20,8 @@ from cli import (
     parse_record,
     usage,
 )
-from codec import BadFieldError, Line, encode_line, parse_log, replay
-from core import (
+from state.codec import BadFieldError, Line, encode_line, parse_log, replay
+from state.core import (
     GitFacts,
     NoFacts,
     advise,
@@ -31,7 +31,7 @@ from core import (
     render_advice,
     show,
 )
-from model import Event, Failure, Overridden, Started, State, name_of
+from state.model import Event, Failure, Overridden, Started, State, name_of
 
 # ---- The shell ------------------------------------------------------------------
 

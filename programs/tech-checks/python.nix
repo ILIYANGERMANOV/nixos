@@ -69,6 +69,8 @@ in
       SECRET_GUARD = lib.getExe claude.guards.secret;
       CONTEXT_GUARD = lib.getExe claude.guards.context;
       STATUSLINE = lib.getExe claude.statusline;
+      # test_e2e.py runs the wrapped `state` binary, as the agents get it.
+      STATE = lib.getExe (import ../agents/state { inherit pkgs; });
       PYTHON_SOURCE = pythonSource;
     }
   ) (builtins.readFile ./python-tests.sh);

@@ -3,7 +3,8 @@
 from pathlib import Path
 
 import pytest
-from state_fixtures import make_repo
+
+from state.state_fixtures import make_repo
 
 
 @pytest.fixture

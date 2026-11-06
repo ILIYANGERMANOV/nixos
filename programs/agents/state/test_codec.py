@@ -4,11 +4,12 @@ bad line stops every command, naming it."""
 from pathlib import Path
 
 import pytest
-from codec import Line, encode_line, parse_log, replay
-from core import fold
 from hypothesis import given
-from model import Event, Failure
-from state_fixtures import accepted, event_lists, ok, run
+
+from state.codec import Line, encode_line, parse_log, replay
+from state.core import fold
+from state.model import Event, Failure
+from state.state_fixtures import accepted, event_lists, ok, run
 
 LOG = Path("/notes/run/events.jsonl")
 

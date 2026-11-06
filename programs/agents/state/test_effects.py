@@ -7,7 +7,17 @@ from pathlib import Path
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from state_fixtures import PR, commit, first_line, log_of, make_repo, ok, run, to_impl
+
+from state.state_fixtures import (
+    PR,
+    commit,
+    first_line,
+    log_of,
+    make_repo,
+    ok,
+    run,
+    to_impl,
+)
 
 COMMANDS = st.sampled_from(
     [

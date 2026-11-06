@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from typing import Literal, cast
 
-from flow import (
+from state.flow import (
     FULL_REVIEW,
     HANDBACK_RULE,
     PLAN_WRONG,
@@ -23,7 +23,7 @@ from flow import (
     r0_text,
     resume_text,
 )
-from model import (
+from state.model import (
     DEFAULT_QUALITY,
     DEFAULT_SIZE,
     DEFAULTS,

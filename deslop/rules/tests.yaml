@@ -40,6 +40,8 @@ rules:
     exclude:
       # The tests themselves: they carry the name of what they test.
       - "**/test_*.py"
+      # A package's marker, holding only its docstring.
+      - "**/__init__.py"
     exists:
       - module: "a-python-name-with-one-underscore-at-most"
     fix: Rename the script, or add a rule for it here.

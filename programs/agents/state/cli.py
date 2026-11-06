@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from codec import (
+from state.codec import (
     EVENTS,
     KIND,
     ROWS,
@@ -18,8 +18,8 @@ from codec import (
     Spec,
     pick,
 )
-from core import HandbackOptions
-from model import (
+from state.core import HandbackOptions
+from state.model import (
     ROLES,
     STATES,
     TOKENS,

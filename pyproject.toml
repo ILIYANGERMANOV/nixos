@@ -54,7 +54,9 @@ pythonpath = [
   "just/cache-check",
   "programs/mutation",
   "programs/agents/ctx",
-  "programs/agents/state",
+  # `state` is a package, imported as `state.core`: its modules' bare names
+  # (core, cli, main) would clash with any other module on this shared path.
+  "programs/agents",
 ]
 testpaths = ["programs", "just"]
 
@@ -89,3 +91,4 @@ root = "programs/agents/ctx"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/state"
+extraPaths = ["programs/agents"]

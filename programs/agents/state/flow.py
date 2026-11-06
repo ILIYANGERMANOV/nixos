@@ -3,7 +3,7 @@ engineer's Quality rows and the brief texts quoted verbatim from its skill."""
 
 from typing import Literal
 
-from model import AREAS, STATES, TOKENS, Area, Mode, ProposalMode, StateName
+from state.model import AREAS, STATES, TOKENS, Area, Mode, ProposalMode, StateName
 
 # ---- The table ----------------------------------------------------------------
 

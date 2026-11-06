@@ -8,8 +8,8 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Protocol, cast
 
-from core import fold_or_stop
-from model import (
+from state.core import fold_or_stop
+from state.model import (
     AREAS,
     BLOCKER_KINDS,
     DEFAULTS,

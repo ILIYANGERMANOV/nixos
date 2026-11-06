@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from core import render
-from state_fixtures import ok, to_impl
+from state.core import render
+from state.state_fixtures import ok, to_impl
 
 ROOT = Path(__file__).resolve().parents[3]
 SKILL = ROOT / "programs/agents/skills/custom/engineer/SKILL.md"

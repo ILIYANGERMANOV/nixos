@@ -2,7 +2,10 @@
 table row by row and the hand-back parser on real first lines."""
 
 import pytest
-from core import (
+from hypothesis import given
+from hypothesis import strategies as st
+
+from state.core import (
     Advice,
     Facts,
     GitFacts,
@@ -16,9 +19,7 @@ from core import (
     render_advice,
     show,
 )
-from hypothesis import given
-from hypothesis import strategies as st
-from model import (
+from state.model import (
     MODES,
     ROLES,
     S0,
@@ -51,7 +52,7 @@ from model import (
     StateName,
     Verdict,
 )
-from state_fixtures import (
+from state.state_fixtures import (
     NOTES,
     PR,
     accepted,
