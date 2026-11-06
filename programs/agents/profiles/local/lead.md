@@ -10,5 +10,8 @@
   branch: if GitHub did not retarget it, run `gh pr edit <n> --base <default>`.
   The rebase fixer runs `git rebase --onto origin/<default> <dependency's last
   head>` in place of `git rebase origin/<base>`.
+- Once a dependency is squash merged, every PR stacked on it gets that rebase
+  fixer at once, conflicting or not. Its old head comes from
+  `gh pr view <dependency> --json headRefOid`.
 - Done is `review`: ready, green, in the queue. Finish runs once every task is
   `review`, `merged` or `parked`, and its audit counts `review` as done.

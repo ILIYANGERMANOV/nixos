@@ -44,7 +44,12 @@ let
   # file is copied under the name it does read. A project's own CLAUDE.md still
   # stacks on top of this - user and project memory are separate entries, not
   # competing ones.
-  inherit (agents.profiles) base web-ui pm local;
+  inherit (agents.profiles)
+    base
+    web-ui
+    pm
+    local
+    ;
   baseProfiles = [ base ];
   factoryProfiles = [
     base
