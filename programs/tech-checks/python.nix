@@ -17,7 +17,7 @@ let
       (root + "/just/cache-check/expensive-builds.deny")
       # By name, not by path: a path into another program breaks Deslop's
       # programs-are-isolated. test_statusline.py holds the statusline to what
-      # the old scripts printed; test_state.py holds the engineer's SKILL.md to
+      # the old scripts printed; test_flow.py holds the engineer's SKILL.md to
       # `state render`, its blockers.md to the stop rule and quality.md to the rows.
       (lib.fileset.fileFilter (
         file:

@@ -39,7 +39,7 @@ mechanics, and not for enforcement or for token savings on prose.
   events per run, and the self-improve analyzer already parses JSONL.
 - **The program is the source of the table; the prose holds pasted copies a
   test guards.** `state render` prints the skill's `## States` block and the
-  engineer's rows of the Quality table; `test_state.py` fails when a committed
+  engineer's rows of the Quality table; `test_flow.py` fails when a committed
   copy differs and prints the block to paste. Chosen as the simplest, over
   rendering `SKILL.md` at build (the committed file would differ from the
   installed one, and the modes guard scans sources only) and over inline
@@ -70,9 +70,11 @@ mechanics, and not for enforcement or for token savings on prose.
   review-lead's `Reviewed head: <sha>`, and records the event.
 - **`state show` is the progress view.** It replaces the hand-written
   `report.md`; the PR body updates are written from it.
-- **Packaged as `ctx` is.** `programs/agents/state/`: one stdlib Python file,
-  `writePython3Bin`, exported from `programs/agents/default.nix`, on PATH
-  through the base profile. It names no vendor path. A delegated engineer
+- **Packaged beside `ctx`.** `programs/agents/state/`: stdlib Python modules,
+  pure ones (`model`, `flow`, `core`, `codec`, `cli`) and the effects in
+  `shell`, entered through `main.py`. `default.nix` copies them to the store and
+  wraps `main.py` with `PYTHONPATH` as the `state` binary. It is exported from
+  `programs/agents/default.nix`, on PATH through the base profile. It names no vendor path. A delegated engineer
   passes its brief's report path, so a run in another worktree keeps its own
   log.
 
@@ -140,8 +142,9 @@ state help
   `state record`.
   `blockers.md` loses the progress file format, `trivial.md` the skip table,
   `review.md` all but the judgment of picking rows.
-- `test_state.py` proves ADR 0014's laws, the table row by row, and the prose
-  guard; `python-tests` runs it.
+- `test_<module>.py` beside each module prove ADR 0014's laws (`test_core.py`),
+  the table row by row, and the prose guard (`test_flow.py`); `python-tests`
+  runs them.
 - The self-improve analyzer can replay `events.jsonl` for the per-PR metrics
   in #312.
 - After a few runs, self-improve measures the before and after: record
