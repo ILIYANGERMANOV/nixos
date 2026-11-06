@@ -70,10 +70,11 @@ mechanics, and not for enforcement or for token savings on prose.
   review-lead's `Reviewed head: <sha>`, and records the event.
 - **`state show` is the progress view.** It replaces the hand-written
   `report.md`; the PR body updates are written from it.
-- **Packaged beside `ctx`.** `programs/agents/state/`: stdlib Python modules,
-  pure ones (`model`, `flow`, `core`, `codec`, `cli`) and the effects in
-  `effects`, entered through `main.py`. `default.nix` copies them to the store and
-  wraps `main.py` with `PYTHONPATH` as the `state` binary. It is exported from
+- **Packaged beside `ctx`.** `programs/agents/state/`: the stdlib Python package
+  `state`, pure modules (`model`, `flow`, `core`, `codec`, `cli`) and the effects
+  in `effects`, entered through `main.py`. Imported as `state.core`, so its
+  module names never clash on the shared pytest path. `default.nix` copies them
+  to the store and wraps `python -P -m state.main` as the `state` binary. It is exported from
   `programs/agents/default.nix`, on PATH through the base profile. It names no vendor path. A delegated engineer
   passes its brief's report path, so a run in another worktree keeps its own
   log.
