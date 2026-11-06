@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -63,7 +63,9 @@ ROLES: tuple[Role, ...] = (
     "implementer", "refactorer", "fixer", "review-lead", "reviewer", "researcher", "checker",
 )  # fmt: skip
 WORKERS: tuple[Worker, ...] = ("implementer", "refactorer", "fixer", "review-lead")
-DEFAULTS: dict[Knob, str] = {"quality": "Balanced", "size": "Normal"}
+DEFAULT_QUALITY: Mode = "Balanced"
+DEFAULT_SIZE: SizeName = "Normal"
+DEFAULTS: dict[Knob, str] = {"quality": DEFAULT_QUALITY, "size": DEFAULT_SIZE}
 TOKENS = ("READY", "NEEDS_DECISION", "GREW", "BLOCKED", "FAILED")
 
 # What `json.loads` can return, spelled out because typeshed says Any.
@@ -490,10 +492,19 @@ Errors go to stderr with a fix: line. The log is append-only; nothing rewrites i
 
 def fold(events: Iterable[Event], state: State = S0) -> State | Failure:
     """`fold(a ++ b) == fold(b, fold(a))`; `fold([]) == S0`."""
+    match fold_or_stop(events, state):
+        case State() as folded:
+            return folded
+        case n, failure:
+            return replace(failure, message=f"event {n}: {failure.message}")
+
+
+def fold_or_stop(events: Iterable[Event], state: State) -> State | tuple[int, Failure]:
+    """The fold, or the first event off the table: its 1-based position and why."""
     for n, event in enumerate(events, start=1):
         match apply(state, event):
             case Failure() as failure:
-                return replace(failure, message=f"event {n}: {failure.message}")
+                return n, failure
             case State() as state:
                 pass
     return state
@@ -551,8 +562,13 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
 def loops(state: State, review: Reviewed) -> bool:
     """A review leads to another fix round while re-reviews remain; a Not met
     verdict gets its fix and one more review even at the cap."""
-    not_met = any(v.outcome == "not-met" for v in review.verdicts)
-    return not_met or (bool(review.rows) and state.reviews < cap(state))
+    return bool(not_met(review.verdicts)) or (
+        bool(review.rows) and state.reviews < cap(state)
+    )
+
+
+def not_met(verdicts: tuple[Verdict, ...]) -> tuple[str, ...]:
+    return tuple(v.requirement for v in verdicts if v.outcome == "not-met")
 
 
 def cap(state: State) -> int:
@@ -603,13 +619,12 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
         case Reviewed(head=head, rows=rows, verdicts=verdicts):
-            not_met = tuple(v.requirement for v in verdicts if v.outcome == "not-met")
             return replace(
                 state,
                 head=head,
                 reviews=state.reviews + 1,
                 work=event,
-                rounds=(*state.rounds, ReviewRound(head, rows, not_met)),
+                rounds=(*state.rounds, ReviewRound(head, rows, not_met(verdicts))),
             )
         case Fixed(head=head):
             return replace(state, head=head, work=event)
@@ -623,13 +638,7 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
         case Blocked(question=q, kind=kind, role=role):
             opened = OpenBlocker(q, kind, role)
             if any(b.question == q for b in open_blockers(state)):
-                return replace(
-                    state,
-                    blockers=tuple(
-                        opened if isinstance(b, OpenBlocker) and b.question == q else b
-                        for b in state.blockers
-                    ),
-                )
+                return replace(state, blockers=settle(state, q, lambda _: opened))
             return replace(
                 state,
                 blockers=(*state.blockers, opened),
@@ -642,12 +651,7 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
                 )
             return replace(
                 state,
-                blockers=tuple(
-                    DoneBlocker(b.question, b.kind, answer)
-                    if isinstance(b, OpenBlocker) and b.question == q
-                    else b
-                    for b in state.blockers
-                ),
+                blockers=settle(state, q, lambda b: DoneBlocker(q, b.kind, answer)),
             )
         case Confirmed():
             # A plan's review starts at round 1: a re-plan resets the cap.
@@ -660,13 +664,23 @@ def default(state: State, knob: Knob) -> State | Failure:
     defaulted = (*state.defaulted, knob)
     match knob, state.quality, state.size:
         case "quality", None, _:
-            return replace(state, quality="Balanced", defaulted=defaulted)
+            return replace(state, quality=DEFAULT_QUALITY, defaulted=defaulted)
         case "size", _, None:
-            return replace(state, size="Normal", defaulted=defaulted)
+            return replace(state, size=DEFAULT_SIZE, defaulted=defaulted)
         case "quality", set_to, _:
             return Failure(f"Quality is {set_to} already", "drop this line", 2)
         case "size", _, set_to:
             return Failure(f"Size is {set_to} already", "drop this line", 2)
+
+
+def settle(
+    state: State, question: str, to: Callable[[OpenBlocker], Blocker]
+) -> tuple[Blocker, ...]:
+    """The blockers with the open one asking `question` replaced by `to` of it."""
+    return tuple(
+        to(b) if isinstance(b, OpenBlocker) and b.question == question else b
+        for b in state.blockers
+    )
 
 
 def open_blockers(state: State) -> list[OpenBlocker]:
@@ -674,8 +688,12 @@ def open_blockers(state: State) -> list[OpenBlocker]:
 
 
 def mode_of(state: State) -> Mode:
-    """Quality as the guards read it: a missing knob is Balanced."""
-    return state.quality or "Balanced"
+    """Quality as the guards read it: a missing knob is its default."""
+    return state.quality or DEFAULT_QUALITY
+
+
+def size_of(state: State) -> SizeName:
+    return state.size or DEFAULT_SIZE
 
 
 def name_of(event: Event) -> str:
@@ -749,7 +767,7 @@ def advise(state: State, facts: Facts) -> Advice:
             return Stuck(
                 why,
                 (
-                    handback_line(state, f"NEEDS_DECISION stuck: {why}")
+                    handback_line(f"NEEDS_DECISION stuck: {why}")
                     if delegated(state)
                     else "ask the user: what changes so the next round differs",
                     f"advice once settled: {render_advice(step).splitlines()[0]}",
@@ -773,7 +791,7 @@ IN_A_ROW = 2  # the stuck guard's "2 rounds in a row"
 def stuck_why(state: State) -> str | None:
     """The same row, failing check or question in 2 rounds in a row, whatever
     the commit, while it is still the latest work."""
-    reviews = [r for r in state.rounds if isinstance(r, ReviewRound)]
+    reviews = review_rounds(state)
     checks = [r for r in state.rounds if isinstance(r, CiRound)]
     match state.work:
         case Reviewed() if len(reviews) >= IN_A_ROW:
@@ -794,6 +812,10 @@ def stuck_why(state: State) -> str | None:
     ):
         return f"question '{asked[-1]}' back in 2 rounds in a row"
     return None
+
+
+def review_rounds(state: State) -> list[ReviewRound]:
+    return [r for r in state.rounds if isinstance(r, ReviewRound)]
 
 
 def labels(review: ReviewRound) -> set[str]:
@@ -831,7 +853,7 @@ def advise_blocker(state: State, blocker: OpenBlocker) -> Advice:
                 ),
             )
         case "scope" if delegated(state):
-            return Done((handback_line(state, f"NEEDS_DECISION {q}"),))
+            return Done((handback_line(f"NEEDS_DECISION {q}"),))
         case "scope":
             return Ask(
                 "scope",
@@ -875,7 +897,7 @@ def advise_step(state: State, facts: Facts) -> Advice:  # noqa: C901, PLR0911 - 
 def advise_ctx(state: State) -> Advice:
     decisions = [b for b in open_blockers(state) if b.kind == "decision"]
     if delegated(state) and decisions:
-        return Done((handback_line(state, f"NEEDS_DECISION {decisions[0].question}"),))
+        return Done((handback_line(f"NEEDS_DECISION {decisions[0].question}"),))
     if state.size is None:
         return Run(
             "state record size Trivial|Normal",
@@ -1096,7 +1118,6 @@ def dry_run(state: State, facts: Facts) -> tuple[str, ...]:  # noqa: PLR0911 - o
 def advise_rounds(state: State, facts: Facts) -> Advice:
     match state.work:
         case Reviewed(rows=rows, verdicts=verdicts):
-            not_met = [v.requirement for v in verdicts if v.outcome == "not-met"]
             at_cap = state.reviews > cap(state)
             return Spawn(
                 "fixer",
@@ -1105,7 +1126,7 @@ def advise_rounds(state: State, facts: Facts) -> Advice:
                     *(
                         [
                             (
-                                f"at the cap: fix only Not met {', '.join(not_met)}; "
+                                f"at the cap: fix only Not met {', '.join(not_met(verdicts))}; "
                                 "the other rows go to the final fixer"
                             )
                         ]
@@ -1151,7 +1172,7 @@ def advise_final(state: State) -> Advice:
         case Fixed() if delegated(state):
             return Done(
                 (
-                    handback_line(state, f"READY {pr_ref(state)}"),
+                    handback_line(f"READY {pr_ref(state)}"),
                     (
                         "with the last finished step, the head sha and the full check's "
                         "name when one is owed"
@@ -1260,9 +1281,9 @@ def wide(state: State, touches: tuple[Area, ...]) -> bool:
 def review_args(state: State) -> str:
     """The review-lead's invoke line: a whole-branch review, or `--fixes` the
     previous round's Reviewed head with the fixes copy."""
-    head = f"Quality: {mode_of(state)} Size: {state.size or 'Normal'}"
+    head = f"Quality: {mode_of(state)} Size: {size_of(state)}"
     pr = pr_ref(state)
-    reviewed = [r.head for r in state.rounds if isinstance(r, ReviewRound)]
+    reviewed = [r.head for r in review_rounds(state)]
     match state.work:
         case Fixed(touches=touches) if reviewed and not wide(state, touches):
             return (
@@ -1292,8 +1313,7 @@ def fixes_copy(state: State) -> str:
     )
 
 
-def handback_line(state: State, status: str) -> str:
-    del state
+def handback_line(status: str) -> str:
     return f"hand back: {status}, the work pushed"
 
 
@@ -1342,9 +1362,11 @@ def render_advice(advice: Advice) -> str:
 # ---- Recording ----------------------------------------------------------------
 
 
-def record(state: State, events: tuple[Event, ...]) -> tuple[Event, ...] | Failure:
-    """What to append for `events`: a draft PR first records each knob nobody
-    set, at its default, so replay shows it. Checked against the fold."""
+def record(
+    state: State, events: tuple[Event, ...]
+) -> tuple[tuple[Event, ...], State] | Failure:
+    """What to append for `events`, and the state it reaches: a draft PR first
+    records each knob nobody set, at its default, so replay shows it."""
     values: tuple[tuple[Knob, str | None], ...] = (
         ("quality", state.quality),
         ("size", state.size),
@@ -1355,11 +1377,11 @@ def record(state: State, events: tuple[Event, ...]) -> tuple[Event, ...] | Failu
         for event in events
         for e in ((*knobs, event) if isinstance(event, Drafted) else (event,))
     )
-    match fold(appended, state):
-        case Failure() as failure:
-            return replace(failure, message=failure.message.split(": ", 1)[1])
-        case State():
-            return appended
+    match fold_or_stop(appended, state):
+        case State() as reached:
+            return appended, reached
+        case _, failure:
+            return failure
 
 
 # ---- Hand-backs ---------------------------------------------------------------
@@ -1373,7 +1395,7 @@ class HandbackOptions:
     verdicts: tuple[Verdict, ...] = ()
 
 
-def parse_handback(  # noqa: C901, PLR0911, PLR0912 - one arm per status
+def parse_handback(  # noqa: PLR0911 - one arm per status
     role: Worker, text: str, options: HandbackOptions, head: str | None
 ) -> tuple[Event, ...] | Failure:
     """A worker's first line is its status; a review-lead's report ends with
@@ -1415,18 +1437,8 @@ def parse_handback(  # noqa: C901, PLR0911, PLR0912 - one arm per status
                     2,
                 )
             return (Reviewed(reviewed, options.rows, options.verdicts),)
-        case _, "READY" if head is None:
-            return Failure(
-                f"state handback {role}: no HEAD to record",
-                f"run it in the worktree, or state record {role_event(role)} <sha>",
-                2,
-            )
-        case "implementer", "READY":
-            return (Implemented(cast("str", head)),)
-        case "refactorer", "READY":
-            return (Refactored(cast("str", head)),)
-        case "fixer", "READY":
-            return (Fixed(cast("str", head), options.touches),)
+        case _, "READY":
+            return ready(role, head, options.touches)
         case _:
             return Failure(
                 f"state handback {role}: line 1 starts '{token}', not one of "
@@ -1434,6 +1446,26 @@ def parse_handback(  # noqa: C901, PLR0911, PLR0912 - one arm per status
                 f"record it by hand: state record {role_event(role)} ...",
                 2,
             )
+
+
+def ready(
+    role: Literal["implementer", "refactorer", "fixer"],
+    head: str | None,
+    touches: tuple[Area, ...],
+) -> tuple[Event, ...] | Failure:
+    match role, head:
+        case _, None:
+            return Failure(
+                f"state handback {role}: no HEAD to record",
+                f"run it in the worktree, or state record {role_event(role)} <sha>",
+                2,
+            )
+        case "implementer", str():
+            return (Implemented(head),)
+        case "refactorer", str():
+            return (Refactored(head),)
+        case "fixer", str():
+            return (Fixed(head, touches),)
 
 
 def role_event(role: Worker) -> str:
@@ -1474,15 +1506,21 @@ def triage(question: str, kind: BlockerKind | None) -> BlockerKind | Failure:
 
 def brief(role: Role, state: State, worktree: str) -> str:
     """The mechanical part of a spawn prompt; the lead fills the `<...>` lines."""
-    mode, size = mode_of(state), state.size or "Normal"
+    mode, size = mode_of(state), size_of(state)
     base = base_of(state)
-    first = (
-        f"run `refactor` with: Quality: {mode}"
-        if role == "refactorer"
-        else f"invoke `pragmatic-review` with: {review_args(state).split(': ', 1)[1]}"
-        if role == "review-lead"
-        else f"Quality: {mode}"
-    )
+    match role:
+        case "refactorer":
+            first, tail = (
+                f"run `refactor` with: Quality: {mode}",
+                [STOP_RULE, HANDBACK_RULE],
+            )
+        case "implementer" | "fixer":
+            first, tail = f"Quality: {mode}", [STOP_RULE, HANDBACK_RULE]
+        case "review-lead":
+            args = review_args(state).split(": ", 1)[1]
+            first, tail = f"invoke `pragmatic-review` with: {args}", [PLAN_WRONG]
+        case "reviewer" | "researcher" | "checker":
+            first, tail = f"Quality: {mode}", [HANDBACK_RULE]
     head = [
         *(["<the first line of your spawn prompt>"] if delegated(state) else []),
         first,
@@ -1492,13 +1530,6 @@ def brief(role: Role, state: State, worktree: str) -> str:
         f"Plan: {state.plan or '<plan path>'}",
     ]
     body = role_lines(role, state)
-    tail = (
-        [STOP_RULE, HANDBACK_RULE]
-        if role in ("implementer", "refactorer", "fixer")
-        else [PLAN_WRONG]
-        if role == "review-lead"
-        else [HANDBACK_RULE]
-    )
     return "".join(f"{line}\n" for line in (*head, *body, "", *tail))
 
 
@@ -1582,7 +1613,7 @@ def show(state: State) -> str:
             f"{value} (defaulted)" if name in state.defaulted else value or "<not set>"
         )
 
-    reviewed = [r.head for r in state.rounds if isinstance(r, ReviewRound)]
+    reviewed = [r.head for r in review_rounds(state)]
     rounds = [round_line(i, r) for i, r in enumerate(state.rounds, start=1)]
     blockers = [
         f"- {b.question} - {b.kind} - open"
@@ -1656,14 +1687,11 @@ def parse_log(text: str, path: Path) -> list[Line] | Failure:
 
 
 def replay(lines: list[Line], path: Path) -> State | Failure:
-    state = S0
-    for line in lines:
-        match apply(state, line.event):
-            case Failure() as failure:
-                return bad_line(path, line.seq, failure.message)
-            case State() as state:
-                pass
-    return state
+    match fold_or_stop((line.event for line in lines), S0):
+        case State() as state:
+            return state
+        case n, failure:
+            return bad_line(path, lines[n - 1].seq, failure.message)
 
 
 def bad_line(path: Path, n: int, why: str) -> Failure:
@@ -2278,10 +2306,10 @@ def init(git_dir: Path, command: Init, head: str | None) -> str | Failure:
     notes.mkdir(parents=True, exist_ok=True)
     _ = (git_dir / POINTER).write_text(f"{notes}\n")
     if log.exists() and log.read_text():
-        match read_state(log):
+        match read_log(log):
             case Failure() as failure:
                 return failure
-            case State():
+            case _:
                 return f"{log}\nstarted: already\n"
     line = Line(1, now(), head, session(), Started(str(notes), command.delegated))
     with log.open("a") as file:
@@ -2298,8 +2326,16 @@ def load(git_dir: Path) -> tuple[Path, list[Line], State] | Failure:
             2,
         )
     log = Path(pointer.read_text().strip()) / LOG
-    text = log.read_text() if log.exists() else ""
-    match parse_log(text, log):
+    match read_log(log):
+        case Failure() as failure:
+            return failure
+        case lines, state:
+            return log, lines, state
+
+
+def read_log(log: Path) -> tuple[list[Line], State] | Failure:
+    """The log's lines and the state they replay to; no log is an empty one."""
+    match parse_log(log.read_text() if log.exists() else "", log):
         case Failure() as failure:
             return failure
         case lines:
@@ -2308,15 +2344,7 @@ def load(git_dir: Path) -> tuple[Path, list[Line], State] | Failure:
         case Failure() as failure:
             return failure
         case state:
-            return log, lines, state
-
-
-def read_state(log: Path) -> State | Failure:
-    match parse_log(log.read_text(), log):
-        case Failure() as failure:
-            return failure
-        case lines:
-            return replay(lines, log)
+            return lines, state
 
 
 def append(
@@ -2325,7 +2353,7 @@ def append(
     match record(state, events):
         case Failure() as failure:
             return replace(failure, message=f"state record: {failure.message}")
-        case appended:
+        case appended, reached:
             pass
     head, ts, sess = head_of(cwd), now(), session()
     new = [
@@ -2334,10 +2362,8 @@ def append(
     # One write per call, so lines of one call never interleave with another's.
     with log.open("a") as file:
         _ = file.write("".join(encode_line(line) for line in new))
-    final = fold(appended, state)
-    step = final.step if isinstance(final, State) else state.step
     return "".join(
-        f"recorded {line.seq} {name_of(line.event)} -> {step}\n" for line in new
+        f"recorded {line.seq} {name_of(line.event)} -> {reached.step}\n" for line in new
     )
 
 

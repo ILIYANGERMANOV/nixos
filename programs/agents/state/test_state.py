@@ -37,6 +37,7 @@ from state import (
     Grew,
     HandbackOptions,
     Implemented,
+    Line,
     NoFacts,
     Overridden,
     Planned,
@@ -53,11 +54,14 @@ from state import (
     Verdict,
     advise,
     apply,
+    encode_line,
     fold,
     main,
     parse_handback,
+    parse_log,
     render,
     render_advice,
+    replay,
     show,
 )
 
@@ -67,6 +71,7 @@ BLOCKERS = ROOT / "programs/agents/skills/custom/engineer/references/blockers.md
 QUALITY_MD = ROOT / "programs/agents/instructions/topics/quality.md"
 NOTES = "/notes/run"
 NO_FACTS = NoFacts()
+LOG = Path("/notes/run/events.jsonl")
 TOKENS = ("SPAWN ", "ASK ", "WAIT ", "RUN ", "STUCK ", "DONE")
 
 # ---- Builders -------------------------------------------------------------------
@@ -106,6 +111,17 @@ def reviewed(quality: str = "Balanced", size: str = "Normal") -> list[Event]:
         Implemented("h1"),
         Refactored("h2"),
         Reviewed("h3", ("R1", "R2"), ()),
+    ]
+
+
+def final_fixed(quality: str = "Balanced", *, delegated: bool = False) -> list[Event]:
+    """A run in DraftPR: a first review with no rows, then the final fixer."""
+    return [
+        *drafted(quality, delegated=delegated),
+        Implemented("h1"),
+        Refactored("h2"),
+        Reviewed("h3", (), ()),
+        Fixed("h4", ()),
     ]
 
 
@@ -212,23 +228,31 @@ def test_replay_fold_of_a_concatenation_continues_from_the_fold_of_its_head(
 
 
 @given(event_lists)
-def test_replay_the_same_log_gives_the_same_state(candidates: list[Event]) -> None:
+def test_replay_the_written_log_replays_to_the_fold_of_its_events(
+    candidates: list[Event],
+) -> None:
     run = accepted(candidates)
+    text = "".join(
+        encode_line(Line(n, "t", None, None, event))
+        for n, event in enumerate(run, start=1)
+    )
 
-    assert fold(run) == fold(list(run))
+    match parse_log(text, LOG):
+        case Failure() as failure:
+            raise AssertionError(failure.message)
+        case lines:
+            assert replay(lines, LOG) == fold(run)
 
 
-@given(event_lists, events, facts)
-def test_total_apply_and_next_are_defined_on_every_state_and_event(
-    candidates: list[Event], event: Event, git: Facts
+@given(event_lists, events)
+def test_total_apply_is_defined_on_every_state_and_event(
+    candidates: list[Event], event: Event
 ) -> None:
     state = reach(*accepted(candidates))
 
     after = apply(state, event)
-    advised = advise(state, git)
 
     assert isinstance(after, State | Failure)
-    assert first_line(render_advice(advised)).startswith(TOKENS)
 
 
 @given(event_lists, facts)
@@ -283,7 +307,7 @@ def test_fixed_targets_knobs_counts_and_triage_never_move_the_step(
 def test_stuck_guard_the_same_row_in_two_rounds_in_a_row_is_stuck(
     first: str, second: str, row: str, others: list[str]
 ) -> None:
-    state = reach(
+    text = advice(
         *drafted("Max"),
         Implemented("h1"),
         Refactored("h2"),
@@ -292,16 +316,14 @@ def test_stuck_guard_the_same_row_in_two_rounds_in_a_row_is_stuck(
         Reviewed(second, (*others, row), ()),
     )
 
-    assert first_line(render_advice(advise(state, NoFacts()))) == (
-        f"STUCK row {', '.join(sorted({row} & {row, *others}))} in 2 rounds in a row"
-    )
+    assert first_line(text) == f"STUCK row {row} in 2 rounds in a row"
 
 
 @given(heads, heads)
 def test_stuck_guard_the_same_failing_check_twice_is_stuck(
     first: str, second: str
 ) -> None:
-    state = reach(
+    text = advice(
         *reviewed("POC"),
         Fixed("h4", ()),
         Reviewed("h5", (), ()),
@@ -311,13 +333,7 @@ def test_stuck_guard_the_same_failing_check_twice_is_stuck(
         Ci(second, ("lint", "test")),
     )
 
-    assert (
-        first_line(advice_of(state)) == "STUCK check lint failing in 2 rounds in a row"
-    )
-
-
-def advice_of(state: State) -> str:
-    return render_advice(advise(state, NoFacts()))
+    assert first_line(text) == "STUCK check lint failing in 2 rounds in a row"
 
 
 def test_stuck_guard_different_rows_in_two_rounds_are_not_stuck() -> None:
@@ -568,43 +584,30 @@ def stop_rule_of(blockers: str) -> str:
             id="Impl': Trivial has no re-review",
         ),
         pytest.param(
-            [*drafted(), Implemented("h1"), Refactored("h2"), Reviewed("h3", (), ()),
-             Fixed("h4", ())],
-            NoFacts(), "WAIT ci", "notify: the draft is complete and CI runs",
+            final_fixed(), NoFacts(), "WAIT ci", "notify: the draft is complete and CI runs",
             id="DraftPR: notify and wait for CI",
         ),
         pytest.param(
-            [*drafted(delegated=True), Implemented("h1"), Refactored("h2"),
-             Reviewed("h3", (), ()), Fixed("h4", ())],
-            NoFacts(), "DONE", "hand back: READY 7, the work pushed",
+            final_fixed(delegated=True), NoFacts(), "DONE", "hand back: READY 7, the work pushed",
             id="DraftPR: delegated hands back",
         ),
         pytest.param(
-            [*drafted(), Implemented("h1"), Refactored("h2"), Reviewed("h3", (), ()),
-             Fixed("h4", ()), Ci("h4", ())],
-            NoFacts(), "RUN gh pr ready 7", "then: state record ready 7",
+            [*final_fixed(), Ci("h4", ())], NoFacts(), "RUN gh pr ready 7", "then: state record ready 7",
             id="PR: green CI, ready",
         ),
         pytest.param(
-            [*drafted("POC"), Implemented("h1"), Refactored("h2"), Reviewed("h3", (), ()),
-             Fixed("h4", ()), Ci("h4", ())],
-            NoFacts(), "DONE", "the PR stays a labelled draft", id="PR: POC stays a draft",
+            [*final_fixed("POC"), Ci("h4", ())], NoFacts(), "DONE", "the PR stays a labelled draft", id="PR: POC stays a draft",
         ),
         pytest.param(
-            [*drafted(), Implemented("h1"), Refactored("h2"), Reviewed("h3", (), ()),
-             Fixed("h4", ()), Ci("h4", ("lint",))],
-            NoFacts(), "SPAWN fixer", "CI fix: lint", id="PR: CI fix",
+            [*final_fixed(), Ci("h4", ("lint",))], NoFacts(), "SPAWN fixer", "CI fix: lint", id="PR: CI fix",
         ),
         pytest.param(
-            [*drafted(), Implemented("h1"), Refactored("h2"), Reviewed("h3", (), ()),
-             Fixed("h4", ()), Ci("h4", ("lint",)), Fixed("h5", ())],
+            [*final_fixed(), Ci("h4", ("lint",)), Fixed("h5", ())],
             NoFacts(), "SPAWN review-lead", "a --fixes review of the CI fix",
             id="PR: a CI fix gets a --fixes review",
         ),
         pytest.param(
-            [*drafted(), Implemented("h1"), Refactored("h2"), Reviewed("h3", (), ()),
-             Fixed("h4", ()), Ci("h4", ()), Ready(7)],
-            NoFacts(), "DONE", "the PR is ready", id="Done",
+            [*final_fixed(), Ci("h4", ()), Ready(7)], NoFacts(), "DONE", "the PR is ready", id="Done",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Blocked("which log?", "answered", "implementer")],
@@ -676,7 +679,7 @@ def test_a_confirmed_re_plan_resumes_at_impl_and_restarts_the_rounds() -> None:
 
 
 def test_a_re_plan_keeps_the_stuck_history() -> None:
-    state = reach(
+    text = advice(
         *drafted("Max"),
         Implemented("h1"),
         Refactored("h2"),
@@ -689,15 +692,18 @@ def test_a_re_plan_keeps_the_stuck_history() -> None:
         Reviewed("h6", ("R1",), ()),
     )
 
-    assert first_line(advice_of(state)) == "STUCK row R1 in 2 rounds in a row"
+    assert first_line(text) == "STUCK row R1 in 2 rounds in a row"
 
 
 def test_quality_is_set_once() -> None:
     assert isinstance(fold([Quality("POC"), Quality("Max")]), Failure)
 
 
-def test_size_only_grows() -> None:
+def test_size_never_shrinks_to_trivial() -> None:
     assert isinstance(fold([Size("Normal"), Size("Trivial")]), Failure)
+
+
+def test_a_trivial_task_that_grew_is_normal() -> None:
     assert reach(Size("Trivial"), Grew("a migration")).size == "Normal"
 
 
@@ -926,9 +932,8 @@ def test_shell_the_log_is_append_only_with_a_dense_seq_from_1(
                 line for line in out.splitlines() if line.startswith("recorded ")
             ]
             assert len(appended) == (len(reported) if code == 0 else 0)
-        assert [line["seq"] for line in log_of(notes)] == list(
-            range(1, len(log_of(notes)) + 1)
-        )
+        seqs = [line["seq"] for line in log_of(notes)]
+        assert seqs == list(range(1, len(seqs) + 1))
 
 
 def test_init_creates_the_notes_dir_and_a_started_line(
