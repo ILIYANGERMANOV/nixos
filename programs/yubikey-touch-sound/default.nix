@@ -21,9 +21,7 @@
 #     With `noTouchSigning` there is no touch to wait for, so no beep either.
 {
   pkgs,
-  # Sign commits without a tap: the signer clears the user-presence flag on a
-  # temp copy of the key stub per call (needs OpenSSH >= 10.5p1). SSH auth
-  # keeps the tap either way.
+  # Sign commits without a tap. SSH auth keeps the tap either way.
   noTouchSigning,
   lib ? pkgs.lib,
   # Any stock macOS system sound. Hero is the loudest of them (-24 dBFS RMS,
@@ -102,6 +100,7 @@ let
     '';
   };
 
+  # Its own binding: inline, the script text would pass shell-limits' 5 lines.
   sshKeygenSettings = {
     beep = lib.getExe beep;
     openssh_keygen = opensshKeygen;
