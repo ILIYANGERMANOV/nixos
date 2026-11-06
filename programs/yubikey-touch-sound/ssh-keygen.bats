@@ -5,7 +5,7 @@ load ../shell-check/test_helper
 
 setup() {
   export WORK="$BATS_TEST_TMPDIR"
-  export beep=beep openssh_keygen=ssh-keygen
+  export beep=beep openssh_keygen=ssh-keygen no_touch_signing=0 min_openssh=1.2p3
   # Noisy on the streams it must stay off, and it stops only when told to.
   stub beep 'trap "kill \$!; touch \"\$WORK/beep-stopped\"; exit 0" TERM
     echo alert
@@ -72,4 +72,78 @@ verifier() { stub ssh-keygen "sleep 0.2; $1"; }
 
   [ "$status" -eq 0 ]
   [ ! -e "$WORK/beep-started" ]
+}
+
+# A key stub pair in a stand-in ~/.ssh.
+key_pair() {
+  mkdir -p "$WORK/ssh"
+  echo stub >"$WORK/ssh/key"
+  echo pub >"$WORK/ssh/key.pub"
+}
+
+# -p appends "flipped" to the stub and chats on stdout like the real one; a
+# sign prints the stub it signs with ($6 after `-Y sign -n git -f`) and the
+# directory it lives in, then waits long enough for a stray alert to show.
+no_touch_signer() {
+  no_touch_signing=1
+  stub ssh-keygen 'case "$1" in
+    -p) echo saved; echo flipped >>"${@: -1}" ;;
+    -Y) dirname "$6" >"$WORK/sign-dir"
+      sleep 0.2
+      cat "${6%.pub}"
+      '"$1"' ;;
+  esac'
+}
+
+@test "no-touch signing signs with a flipped copy and only its signature on stdout" {
+  key_pair
+  no_touch_signer ':'
+
+  signature=$(keygen -Y sign -n git -f "$WORK/ssh/key.pub")
+
+  [ "$signature" = "$(printf 'stub\nflipped')" ]
+}
+
+@test "no-touch signing leaves the key stub untouched and removes the copy" {
+  key_pair
+  no_touch_signer ':'
+
+  keygen -Y sign -n git -f "$WORK/ssh/key.pub"
+
+  [ "$(<"$WORK/ssh/key")" = stub ]
+  read -r copy <"$WORK/sign-dir"
+  [ ! -e "$copy" ]
+}
+
+@test "no-touch signing does not alert" {
+  key_pair
+  no_touch_signer ':'
+
+  keygen -Y sign -n git -f "$WORK/ssh/key.pub"
+
+  [ ! -e "$WORK/beep-started" ]
+}
+
+@test "no-touch signing hands back the signer's exit code" {
+  key_pair
+  no_touch_signer 'exit 3'
+
+  run keygen -Y sign -n git -f "$WORK/ssh/key.pub"
+
+  [ "$status" -eq 3 ]
+}
+
+@test "no-touch signing fails naming the OpenSSH version when the flag cannot be cleared" {
+  key_pair
+  no_touch_signing=1
+  stub ssh-keygen 'case "$1" in
+    -p) exit 1 ;;
+    -Y) touch "$WORK/signed" ;;
+  esac'
+
+  run keygen -Y sign -n git -f "$WORK/ssh/key.pub"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"OpenSSH >= $min_openssh"* ]]
+  [ ! -e "$WORK/signed" ]
 }

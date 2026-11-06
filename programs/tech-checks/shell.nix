@@ -11,7 +11,10 @@ let
   tools = import ./tools.nix { inherit pkgs; };
 
   typos = import ../typos { inherit pkgs; };
-  yubikey = import ../yubikey-touch-sound { inherit pkgs; };
+  yubikey = import ../yubikey-touch-sound {
+    inherit pkgs;
+    noTouchSigning = true;
+  };
 
   # Same text and same shellcheck phase, without building what the text names:
   # keeping the context builds claude-code and `qa`'s browsers, 2.8 GiB against

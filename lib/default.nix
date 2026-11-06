@@ -69,6 +69,7 @@ let
         "${root}/modules/secrets.nix"
         "${root}/modules/macos/common.nix"
         "${root}/modules/macos/user.nix"
+        "${root}/modules/macos/yubikey.nix"
         "${root}/hosts/${hostname}/configuration.nix"
       ];
     };
