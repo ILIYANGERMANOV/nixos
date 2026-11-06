@@ -6,22 +6,30 @@ from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from state.flow import (
+    DELEGATED_PR_FLAGS,
     FULL_REVIEW,
     HANDBACK_RULE,
+    ONE_PLAN_OPTIONS,
+    PLAN_OPTIONS,
     PLAN_WRONG,
+    POC_LABEL,
     PROPOSALS,
     QUALITY,
     QUALITY_ROWS,
     RE_REVIEWS,
+    READY_GATES,
     REFACTOR_ABOVE,
+    REPO_FLAG,
     STATES_FOOTER,
     STATES_INTRO,
     STEPS,
     STOP_RULE,
     TARGET,
     Kind,
+    next_steps,
     r0_text,
     resume_text,
+    stuck_line,
 )
 from state.model import (
     DEFAULT_QUALITY,
@@ -364,7 +372,7 @@ def stuck_lines(state: State, why: str) -> tuple[str, ...]:
     """The answer is a decision: a lead's takes the decision path, so the
     guard waits for the next round; a delegated run hands it back."""
     if delegated(state):
-        return (handback_line(f"NEEDS_DECISION stuck: {why}"),)
+        return (handback_line(stuck_line(why)),)
     return (
         "ask the user: what changes so the next round differs",
         (
@@ -560,12 +568,11 @@ def advise_prop(state: State) -> Advice:
             ),
         )
     options = (
-        '"Yes, build it (Recommended)" / "No, adjust"'
+        ONE_PLAN_OPTIONS
         if mode == "POC"
         else (
-            '"First plan", "Second plan", "Adjust", the recommended first, '
-            "marked (Recommended); no proposal-alternative.md: "
-            '"Yes, build it (Recommended)" / "No, adjust"'
+            f"{PLAN_OPTIONS}, the recommended first, marked (Recommended); "
+            f"no proposal-alternative.md: {ONE_PLAN_OPTIONS}"
         )
     )
     return Ask(
@@ -600,14 +607,14 @@ def advise_draft(state: State) -> Advice:
     poc = state.quality == "POC"
     if delegated(state):
         return Run(
-            "gh pr create --draft --repo <repo> --head <branch> --base <base>",
+            f"gh pr create --draft {DELEGATED_PR_FLAGS}",
             (
                 "the worktree exists: no branching; no attach",
                 f"body: the brief's plan, {knobs}, acceptance criteria",
                 *(
                     [
-                        "POC: gh label create POC --force --repo <repo>",
-                        "     gh pr edit <n> --add-label POC --repo <repo>",
+                        f"POC: {POC_LABEL[0]} {REPO_FLAG}",
+                        f"     {POC_LABEL[1]} {REPO_FLAG}",
                     ]
                     if poc
                     else []
@@ -629,8 +636,8 @@ def advise_draft(state: State) -> Advice:
             "then attach the PR to the session as your instructions say",
             *(
                 [
-                    "POC: gh label create POC --force",
-                    "     gh pr edit <n> --add-label POC",
+                    f"POC: {POC_LABEL[0]}",
+                    f"     {POC_LABEL[1]}",
                 ]
                 if poc
                 else []
@@ -835,22 +842,15 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
             )
         case Ci(failing=()):
             pr = pr_ref(state)
+            qa, final, feedback, address = next_steps(
+                pr, f"{notes_of(state)}/requirements.md"
+            )
             return Run(
                 f"gh pr ready {pr}",
                 (
-                    (
-                        "before: every review comment replied or triaged, every open "
-                        "decision triaged"
-                    ),
-                    (
-                        "a workflow in the diff: each secrets.* in gh secret list "
-                        "[--env <env> | --org <owner>]"
-                    ),
-                    (
-                        f"notify, with: /qa {pr}  /final-review --requirements "
-                        f"{notes_of(state)}/requirements.md {pr}"
-                    ),
-                    f"  /give-feedback {pr}  /address-pr-feedback {pr} (comments from others)",
+                    *(f"before: {gate}" for gate in READY_GATES),
+                    f"notify, with: {qa}  {final}",
+                    f"  {feedback}  {address} (comments from others)",
                     f"then: state record ready {pr}",
                 ),
             )

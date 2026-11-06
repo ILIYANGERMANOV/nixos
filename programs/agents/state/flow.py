@@ -3,7 +3,16 @@ engineer's Quality rows and the brief texts quoted verbatim from its skill."""
 
 from typing import Literal
 
-from state.model import AREAS, STATES, TOKENS, Area, Mode, ProposalMode, StateName
+from state.model import (
+    AREAS,
+    MODES,
+    STATES,
+    TOKENS,
+    Area,
+    Mode,
+    ProposalMode,
+    StateName,
+)
 
 # ---- The table ----------------------------------------------------------------
 
@@ -76,41 +85,13 @@ Every Quality and Size keeps the quick security review, the blocker arrows,
 fact-gap research and the final fixer. A re-plan from a blocker follows
 your Quality row too."""
 
-# The engineer's rows of the Quality table in `quality.md`, as the guards read them.
-QUALITY_ROWS: tuple[tuple[str, dict[Mode, str]], ...] = (
-    ("Researchers", {
-        "POC": "1 for all, 8 calls, notes past the hand-back limit",
-        "Balanced": "up to 3, 15 calls, notes",
-        "Max": "one per group, 30 calls, notes, top 5 facts re-checked",
-    }),
-    ("Proposals", {"POC": "simplify", "Balanced": "simplify, alternative", "Max": "simplify, alternative"}),
-    ("Implement", {
-        "POC": "one implementer, one happy-path proof as its test",
-        "Balanced": "as planned",
-        "Max": "as planned",
-    }),
-    ("Refactor", {
-        "POC": "quick: items 1-3, no `tests.md`",
-        "Balanced": "above about 100 changed lines",
-        "Max": "always",
-    }),
-    ("Skill dry run", {"POC": "never", "Balanced": "new or rewritten skill", "Max": "any skill change"}),
-    ("Re-reviews", {"POC": "1, blockers and Not met fixed only", "Balanced": "up to 2", "Max": "up to 3"}),
-    ("Full review of a fix to", {
-        "POC": "interface, data model, auth",
-        "Balanced": "data model, auth",
-        "Max": "interface, data model, auth",
-    }),
-)  # fmt: skip
-QUALITY = dict(QUALITY_ROWS)
-
-# The guards behind those rows.
+# The guards behind the engineer's Quality rows: the facts the rows below print.
 PROPOSALS: dict[Mode, tuple[ProposalMode, ...]] = {
     "POC": ("simplify",),
     "Balanced": ("simplify", "alternative"),
     "Max": ("simplify", "alternative"),
 }
-REFACTOR_ABOVE = 100  # Balanced's "about 100 changed lines"
+REFACTOR_ABOVE = 100  # Balanced refactors above about this many changed lines
 RE_REVIEWS: dict[Mode, int] = {"POC": 1, "Balanced": 2, "Max": 3}
 FULL_REVIEW: dict[Mode, frozenset[Area]] = {
     "POC": frozenset(AREAS),
@@ -118,7 +99,42 @@ FULL_REVIEW: dict[Mode, frozenset[Area]] = {
     "Max": frozenset(AREAS),
 }
 
-# ---- Brief text (verbatim from the engineer skill and its references) ----------
+
+def areas_text(areas: frozenset[Area]) -> str:
+    """`interface, data model, auth`: `AREAS`'s order, the table's words."""
+    return ", ".join(a.replace("-", " ") for a in AREAS if a in areas)
+
+
+# The engineer's rows of the Quality table in `quality.md`. A row a guard reads
+# is printed from that guard's facts, so the two cannot drift.
+QUALITY_ROWS: tuple[tuple[str, dict[Mode, str]], ...] = (
+    ("Researchers", {
+        "POC": "1 for all, 8 calls, notes past the hand-back limit",
+        "Balanced": "up to 3, 15 calls, notes",
+        "Max": "one per group, 30 calls, notes, top 5 facts re-checked",
+    }),
+    ("Proposals", {m: ", ".join(PROPOSALS[m]) for m in MODES}),
+    ("Implement", {
+        "POC": "one implementer, one happy-path proof as its test",
+        "Balanced": "as planned",
+        "Max": "as planned",
+    }),
+    ("Refactor", {
+        "POC": "quick: items 1-3, no `tests.md`",
+        "Balanced": f"above about {REFACTOR_ABOVE} changed lines",
+        "Max": "always",
+    }),
+    ("Skill dry run", {"POC": "never", "Balanced": "new or rewritten skill", "Max": "any skill change"}),
+    ("Re-reviews", {
+        "POC": f"{RE_REVIEWS['POC']}, blockers and Not met fixed only",
+        "Balanced": f"up to {RE_REVIEWS['Balanced']}",
+        "Max": f"up to {RE_REVIEWS['Max']}",
+    }),
+    ("Full review of a fix to", {m: areas_text(FULL_REVIEW[m]) for m in MODES}),
+)  # fmt: skip
+QUALITY = dict(QUALITY_ROWS)
+
+# ---- Texts the engineer skill and its references quote verbatim ---------------
 
 STOP_RULE = """\
 > A question that blocks your work and that the repo, this brief and the plan
@@ -153,6 +169,42 @@ def resume_text(head: str) -> str:
         f"continue from commit `{head}`: its body says what remains; when it says "
         "it does not build, make it build first"
     )
+
+
+# Step 3's plan question: its options, and the options with only one plan.
+PLAN_OPTIONS = '"First plan", "Second plan", "Adjust"'
+ONE_PLAN_OPTIONS = '"Yes, build it (Recommended)" / "No, adjust"'
+
+# Step 4's POC label commands; delegated, both and `gh pr create` take REPO_FLAG.
+POC_LABEL = ("gh label create POC --force", "gh pr edit <n> --add-label POC")
+REPO_FLAG = "--repo <repo>"
+DELEGATED_PR_FLAGS = f"{REPO_FLAG} --head <branch> --base <base>"
+
+# Step 10's gates before `gh pr ready`.
+READY_GATES = (
+    "every review comment on the PR has a reply or a triage",
+    "every open decision is triaged as `blockers.md` says",
+    (
+        "when the diff touches a workflow, every `secrets.*` it references, "
+        "`GITHUB_TOKEN` aside, is in `gh secret list`, in `gh secret list --env <env>` "
+        "for a job with an `environment:`, or in `gh secret list --org <owner>` for an "
+        "org repository. A missing secret goes to the user"
+    ),
+)
+
+
+def next_steps(pr: str, requirements: str) -> tuple[str, str, str, str]:
+    """Step 10's optional next steps, each a line the user pastes."""
+    return (
+        f"/qa {pr}",
+        f"/final-review --requirements {requirements} {pr}",
+        f"/give-feedback {pr}",
+        f"/address-pr-feedback {pr}",
+    )
+
+
+def stuck_line(why: str) -> str:
+    return f"NEEDS_DECISION stuck: {why}"
 
 
 def r0_text(base: str) -> str:

@@ -23,7 +23,8 @@ type SizeName = Literal["Trivial", "Normal"]
 type Knob = Literal["quality", "size"]
 type ProposalMode = Literal["simplify", "alternative"]
 type BlockerKind = Literal["answered", "fact", "decision", "scope"]
-type Area = Literal["data-model", "auth", "interface"]
+# In the Quality table's order: `flow.areas_text` prints them so.
+type Area = Literal["interface", "data-model", "auth"]
 type Outcome = Literal["met", "not-met", "unverified"]
 type Role = Literal[
     "implementer",

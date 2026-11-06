@@ -29,9 +29,10 @@ CI. You own the outcome; the user owns the decisions.
   event log there, beside research notes, proposals and requirements.
 - **`state` holds the record and the mechanics**, advising, never refusing
   (`state help`). Run `state next` after every step, `state brief <role>`
-  before every spawn, paste every hand-back into `state handback <role>`, and
-  record the rest with `state record`. A fresh context resumes from
-  `state show` and `git log`; off the advised arrow: `state override`.
+  before every spawn, paste each implementer, refactorer, fixer and review-lead
+  hand-back into `state handback <role>`, and the rest into `state record`.
+  A fresh context resumes from `state show` and `git log`; off the advised
+  arrow: `state override`.
 - **Quality and Size** are in your instructions. Your row in the Quality
   table says what each step runs. You set Size, once, before step 1, from the
   prompt and at most 5 lookups: `Size: Trivial` when the Trivial rule holds,
@@ -206,18 +207,17 @@ draft, not merge-ready, with no next steps.
 - Wait for CI the non-blocking way your instructions describe. A CI failure or
   a check issue goes through `review.md`'s CI fix, then wait again.
 - Before `gh pr ready`: every review comment on the PR has a reply or a
-  triage, and when the diff touches a workflow, every `secrets.*` it
-  references, `GITHUB_TOKEN` aside, is in `gh secret list`, in
-  `gh secret list --env <env>` for a job with an `environment:`, or in
-  `gh secret list --org <owner>` for an org repository. A missing secret goes
-  to the user.
+  triage; every open decision is triaged as `blockers.md` says; when the
+  diff touches a workflow, every `secrets.*` it references, `GITHUB_TOKEN`
+  aside, is in `gh secret list`, in `gh secret list --env <env>` for a job with
+  an `environment:`, or in `gh secret list --org <owner>` for an org
+  repository. A missing secret goes to the user.
 - On green, mark the PR ready with `gh pr ready <n>` and notify the user the way
   your instructions describe, listing optional next steps, each line ready to
-  paste: `/qa <PR URL>` in a fresh session for a UI or runtime change,
+  paste: `/qa <PR>` in a fresh session for a UI or runtime change,
   `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`, and
   `/address-pr-feedback <PR>` when the PR has comments from anyone else. Only
   the user runs them.
-- Before `gh pr ready`, every open decision is triaged as `blockers.md` says.
 
 ## Delegated
 
