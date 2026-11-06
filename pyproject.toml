@@ -29,6 +29,7 @@ ignore = [
 "just/cache-check/cache_check.py" = ["S603", "S607"]
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "programs/agents/ctx/ctx.py" = ["S603", "S607"]
+"programs/agents/state/state.py" = ["S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
 [tool.ruff.lint.flake8-tidy-imports]
@@ -51,6 +52,7 @@ pythonpath = [
   "just/cache-check",
   "programs/mutation",
   "programs/agents/ctx",
+  "programs/agents/state",
 ]
 testpaths = ["programs", "just"]
 
@@ -82,3 +84,6 @@ root = "programs/mutation"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/ctx"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/agents/state"

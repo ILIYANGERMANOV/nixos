@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -261,7 +261,7 @@ class State:
     pr: int | None = None
     base: str | None = None
     head: str | None = None
-    # Reviews since the current plan's draft: round 1 is the first, not counted.
+    # Reviews of the current plan: round 1 is the first, not counted.
     reviews: int = 0
     work: Work | None = None
     # Every round of the run, re-plans included: the stuck guard never resets.
@@ -288,7 +288,7 @@ class Failure:
 # `classify` names an event's arrow; most kinds are the event's own name.
 type Kind = Literal[
     "started", "started-delegated", "knob", "researched", "asked", "planned",
-    "proposed", "confirmed", "adjusted", "drafted", "implemented", "refactored",
+    "proposed", "confirmed", "confirmed-replan", "adjusted", "drafted", "implemented", "refactored",
     "reviewed-loop", "reviewed-final", "fixed", "ci", "blocked", "blocked-decision",
     "resolved", "ready",
 ]  # fmt: skip
@@ -309,6 +309,8 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
     ("Ctx", "planned"): "Prop",
     ("Prop", "proposed"): "Prop",
     ("Prop", "confirmed"): "DraftPlan",
+    # A re-plan from a decision: the PR exists, so it resumes at step 5.
+    ("Prop", "confirmed-replan"): "Impl",
     ("Prop", "adjusted"): "Ctx",
     ("DraftPlan", "drafted"): "Impl",
     ("Impl", "implemented"): "Impl'",
@@ -508,8 +510,10 @@ def apply(state: State, event: Event) -> State | Failure:
         case None, _:
             return Failure(
                 f"'{name_of(event)}' is not an arrow out of {state.step}",
-                f"state next shows {state.step}'s arrows; "
-                f"to leave them, state override <state> <why>",
+                (
+                    f"state next shows {state.step}'s arrows; "
+                    f"to leave them, state override <state> <why>"
+                ),
                 2,
             )
         case _, Failure() as failure:
@@ -530,6 +534,8 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
             return "reviewed-loop" if loops(state, event) else "reviewed-final"
         case Blocked(kind="decision"):
             return "blocked-decision"
+        case Confirmed() if state.pr is not None:
+            return "confirmed-replan"
         case Blocked():
             return "blocked"
         case (
@@ -582,18 +588,8 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             return replace(state, size=size)
         case Grew():
             return replace(state, size="Normal")
-        case Defaulted(knob="quality"):
-            if state.quality is not None:
-                return Failure(
-                    f"Quality is {state.quality} already", "drop this line", 2
-                )
-            return replace(
-                state, quality="Balanced", defaulted=(*state.defaulted, "quality")
-            )
-        case Defaulted(knob="size"):
-            if state.size is not None:
-                return Failure(f"Size is {state.size} already", "drop this line", 2)
-            return replace(state, size="Normal", defaulted=(*state.defaulted, "size"))
+        case Defaulted(knob=knob):
+            return default(state, knob)
         case Researched(n=n):
             return replace(state, researched=state.researched + n)
         case Asked(n=n):
@@ -603,7 +599,7 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
         case Proposed(mode=mode):
             return replace(state, proposed=state.proposed | {mode})
         case Drafted(pr=pr, base=base):
-            return replace(state, pr=pr, base=base, reviews=0, work=None)
+            return replace(state, pr=pr, base=base)
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
         case Reviewed(head=head, rows=rows, verdicts=verdicts):
@@ -653,8 +649,24 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
                     for b in state.blockers
                 ),
             )
-        case Confirmed() | Adjusted() | Overridden() | Ready():
+        case Confirmed():
+            # A plan's review starts at round 1: a re-plan resets the cap.
+            return replace(state, reviews=0, work=None)
+        case Adjusted() | Overridden() | Ready():
             return state
+
+
+def default(state: State, knob: Knob) -> State | Failure:
+    defaulted = (*state.defaulted, knob)
+    match knob, state.quality, state.size:
+        case "quality", None, _:
+            return replace(state, quality="Balanced", defaulted=defaulted)
+        case "size", _, None:
+            return replace(state, size="Normal", defaulted=defaulted)
+        case "quality", set_to, _:
+            return Failure(f"Quality is {set_to} already", "drop this line", 2)
+        case "size", _, set_to:
+            return Failure(f"Size is {set_to} already", "drop this line", 2)
 
 
 def open_blockers(state: State) -> list[OpenBlocker]:
@@ -755,17 +767,20 @@ def first_open(state: State) -> OpenBlocker | None:
     return next((b for b in open_blockers(state) if b.kind != "decision"), None)
 
 
+IN_A_ROW = 2  # the stuck guard's "2 rounds in a row"
+
+
 def stuck_why(state: State) -> str | None:
     """The same row, failing check or question in 2 rounds in a row, whatever
     the commit, while it is still the latest work."""
     reviews = [r for r in state.rounds if isinstance(r, ReviewRound)]
     checks = [r for r in state.rounds if isinstance(r, CiRound)]
     match state.work:
-        case Reviewed() if len(reviews) >= 2:  # noqa: PLR2004
+        case Reviewed() if len(reviews) >= IN_A_ROW:
             same = labels(reviews[-2]) & labels(reviews[-1])
             if same:
                 return f"row {', '.join(sorted(same))} in 2 rounds in a row"
-        case Ci() if len(checks) >= 2:  # noqa: PLR2004
+        case Ci() if len(checks) >= IN_A_ROW:
             same = set(checks[-2].failing) & set(checks[-1].failing)
             if same:
                 return f"check {', '.join(sorted(same))} failing in 2 rounds in a row"
@@ -773,11 +788,9 @@ def stuck_why(state: State) -> str | None:
             pass
     asked = state.questions
     if (
-        len(asked) >= 2
+        len(asked) >= IN_A_ROW
         and asked[-1] == asked[-2]
-        and any(  # noqa: PLR2004
-            b.question == asked[-1] for b in open_blockers(state)
-        )
+        and any(b.question == asked[-1] for b in open_blockers(state))
     ):
         return f"question '{asked[-1]}' back in 2 rounds in a row"
     return None
@@ -795,8 +808,10 @@ def advise_blocker(state: State, blocker: OpenBlocker) -> Advice:
             return Spawn(
                 blocker.role,
                 (
-                    f"a fresh {blocker.role}: state brief {blocker.role}, plus the answer to "
-                    f"{quoted(q)} and the delta plan when there is one",
+                    (
+                        f"a fresh {blocker.role}: state brief {blocker.role}, plus the answer to "
+                        f"{quoted(q)} and the delta plan when there is one"
+                    ),
                     resume_text(state.head or "<sha>"),
                     resolve,
                 ),
@@ -805,8 +820,10 @@ def advise_blocker(state: State, blocker: OpenBlocker) -> Advice:
             return Spawn(
                 "researcher",
                 (
-                    f"one researcher for {quoted(q)}, prompt per the researcher skill's "
-                    "## Callers; it does not count against step 1",
+                    (
+                        f"one researcher for {quoted(q)}, prompt per the researcher skill's "
+                        "## Callers; it does not count against step 1"
+                    ),
                     "then a delta plan"
                     + ("" if state.size == "Trivial" else ", its simplify pass")
                     + ", the fact and the delta in the PR body, and resume",
@@ -820,8 +837,10 @@ def advise_blocker(state: State, blocker: OpenBlocker) -> Advice:
                 "scope",
                 (
                     f"one AskUserQuestion on {quoted(q)}: in this PR, a follow-up, or drop",
-                    "in this PR: state record blocked decision "
-                    f"{blocker.role} {quoted(q)}",
+                    (
+                        "in this PR: state record blocked decision "
+                        f"{blocker.role} {quoted(q)}"
+                    ),
                     "a follow-up: add it to ## Follow-ups; either way: " + resolve[6:],
                 ),
             )
@@ -829,7 +848,7 @@ def advise_blocker(state: State, blocker: OpenBlocker) -> Advice:
             return advise_step(state, NoFacts())
 
 
-def advise_step(state: State, facts: Facts) -> Advice:  # noqa: PLR0911 - one arm per state
+def advise_step(state: State, facts: Facts) -> Advice:  # noqa: C901, PLR0911 - one arm per state
     match state.step:
         case "Ctx":
             return advise_ctx(state)
@@ -906,15 +925,27 @@ def advise_prop(state: State) -> Advice:
     options = (
         '"Yes, build it (Recommended)" / "No, adjust"'
         if mode == "POC"
-        else '"First plan", "Second plan", "Adjust", the recommended first, '
-        "marked (Recommended); no proposal-alternative.md: "
-        '"Yes, build it (Recommended)" / "No, adjust"'
+        else (
+            '"First plan", "Second plan", "Adjust", the recommended first, '
+            "marked (Recommended); no proposal-alternative.md: "
+            '"Yes, build it (Recommended)" / "No, adjust"'
+        )
     )
     return Ask(
         "plan",
         (
             "the first plan in a few lines, the second with its trade-off, your pick",
             f"one AskUserQuestion: {options}",
+            *(
+                [
+                    (
+                        f"picked, a re-plan: gh pr edit {state.pr} --body-file <the chosen "
+                        "plan with its Considered options>; it resumes at 5 on the same branch"
+                    )
+                ]
+                if state.pr is not None
+                else []
+            ),
             "picked: state record confirmed; adjust: state record adjusted",
         ),
     )
@@ -928,14 +959,6 @@ def advise_draft(state: State) -> Advice:
             ("delegated: the brief sets both knobs",),
         )
     record = "then: state record drafted <pr> <base>"
-    if state.pr is not None:
-        return Run(
-            f"gh pr edit {state.pr} --body-file <the new plan with its Considered options>",
-            (
-                "re-plan: same branch, existing commits stay",
-                f"then: state record drafted {state.pr} {state.base}",
-            ),
-        )
     knobs = f"Quality: {knob_text(state, 'quality')}  Size: {knob_text(state, 'size')}"
     poc = state.quality == "POC"
     if delegated(state):
@@ -958,8 +981,10 @@ def advise_draft(state: State) -> Advice:
     return Run(
         "gh pr create --draft",
         (
-            "before: branch from origin/main, the first commit (or an empty one), "
-            "git push -u origin HEAD",
+            (
+                "before: branch from origin/main, the first commit (or an empty one), "
+                "git push -u origin HEAD"
+            ),
             "body: the plan"
             + (" in the pr-description short form" if state.size == "Trivial" else "")
             + f", {knobs}, acceptance criteria,",
@@ -1038,13 +1063,15 @@ def first_review(state: State, facts: Facts, before: tuple[str, ...]) -> Spawn:
             *dry_run(state, facts),
             "brief: state brief review-lead",
             review_args(state),
-            "back: state handback review-lead [--row <label>]... "
-            "[--verdict <requirement>=not-met]... < text",
+            (
+                "back: state handback review-lead [--row <label>]... "
+                "[--verdict <requirement>=not-met]... < text"
+            ),
         ),
     )
 
 
-def dry_run(state: State, facts: Facts) -> tuple[str, ...]:
+def dry_run(state: State, facts: Facts) -> tuple[str, ...]:  # noqa: PLR0911 - one arm per row cell
     spawn = (
         "also: SPAWN reviewer, a dry run of the changed SKILL.md in parallel: "
         "state brief reviewer"
@@ -1077,8 +1104,10 @@ def advise_rounds(state: State, facts: Facts) -> Advice:
                     f"rows: {', '.join(rows) or '-'}",
                     *(
                         [
-                            f"at the cap: fix only Not met {', '.join(not_met)}; "
-                            "the other rows go to the final fixer"
+                            (
+                                f"at the cap: fix only Not met {', '.join(not_met)}; "
+                                "the other rows go to the final fixer"
+                            )
                         ]
                         if at_cap
                         else []
@@ -1091,8 +1120,10 @@ def advise_rounds(state: State, facts: Facts) -> Advice:
             return Spawn(
                 "review-lead",
                 (
-                    f"a fix to {', '.join(touches)}: a first review of the whole branch, "
-                    "a round",
+                    (
+                        f"a fix to {', '.join(touches)}: a first review of the whole branch, "
+                        "a round"
+                    ),
                     f"round {state.reviews}/{cap(state)}",
                     "brief: state brief review-lead",
                     review_args(state),
@@ -1102,8 +1133,10 @@ def advise_rounds(state: State, facts: Facts) -> Advice:
             return Spawn(
                 "review-lead",
                 (
-                    f"first: {fixes_copy(state)}, copied once from the requirements; "
-                    "append 'finding N is fixed: <What and Impact>' per fixed row",
+                    (
+                        f"first: {fixes_copy(state)}, copied once from the requirements; "
+                        "append 'finding N is fixed: <What and Impact>' per fixed row"
+                    ),
                     f"round {state.reviews}/{cap(state)}",
                     "brief: state brief review-lead",
                     review_args(state),
@@ -1119,8 +1152,10 @@ def advise_final(state: State) -> Advice:
             return Done(
                 (
                     handback_line(state, f"READY {pr_ref(state)}"),
-                    "with the last finished step, the head sha and the full check's "
-                    "name when one is owed",
+                    (
+                        "with the last finished step, the head sha and the full check's "
+                        "name when one is owed"
+                    ),
                 ),
             )
         case Fixed():
@@ -1163,12 +1198,18 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
             return Run(
                 f"gh pr ready {pr}",
                 (
-                    "before: every review comment replied or triaged, every open "
-                    "decision triaged",
-                    "a workflow in the diff: each secrets.* in gh secret list "
-                    "[--env <env> | --org <owner>]",
-                    f"notify, with: /qa <PR URL>  /final-review --requirements "
-                    f"{notes_of(state)}/requirements.md {pr}",
+                    (
+                        "before: every review comment replied or triaged, every open "
+                        "decision triaged"
+                    ),
+                    (
+                        "a workflow in the diff: each secrets.* in gh secret list "
+                        "[--env <env> | --org <owner>]"
+                    ),
+                    (
+                        "notify, with: /qa <PR URL>  /final-review --requirements "
+                        f"{notes_of(state)}/requirements.md {pr}"
+                    ),
                     f"  /give-feedback {pr}  /address-pr-feedback {pr} (comments from others)",
                     f"then: state record ready {pr}",
                 ),
@@ -1304,11 +1345,11 @@ def render_advice(advice: Advice) -> str:
 def record(state: State, events: tuple[Event, ...]) -> tuple[Event, ...] | Failure:
     """What to append for `events`: a draft PR first records each knob nobody
     set, at its default, so replay shows it. Checked against the fold."""
-    knobs = tuple(
-        Defaulted(knob)
-        for knob, value in (("quality", state.quality), ("size", state.size))
-        if value is None
+    values: tuple[tuple[Knob, str | None], ...] = (
+        ("quality", state.quality),
+        ("size", state.size),
     )
+    knobs = tuple(Defaulted(knob) for knob, value in values if value is None)
     appended = tuple(
         e
         for event in events
@@ -1332,7 +1373,7 @@ class HandbackOptions:
     verdicts: tuple[Verdict, ...] = ()
 
 
-def parse_handback(  # noqa: PLR0911 - one arm per status
+def parse_handback(  # noqa: C901, PLR0911, PLR0912 - one arm per status
     role: Worker, text: str, options: HandbackOptions, head: str | None
 ) -> tuple[Event, ...] | Failure:
     """A worker's first line is its status; a review-lead's report ends with
@@ -1461,7 +1502,7 @@ def brief(role: Role, state: State, worktree: str) -> str:
     return "".join(f"{line}\n" for line in (*head, *body, "", *tail))
 
 
-def role_lines(role: Role, state: State) -> list[str]:  # noqa: PLR0911 - one arm per role
+def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - one arm per role
     base = base_of(state)
     match role:
         case "implementer":
@@ -1554,11 +1595,15 @@ def show(state: State) -> str:
         f"Head: {state.head or '-'}",
         f"Quality: {knob('quality', state.quality)}",
         f"Size: {knob('size', state.size)}",
-        f"Re-review: {max(state.reviews - 1, 0)}/{cap(state)}   "
-        "(round 1 is the first review, not counted)",
+        (
+            f"Re-review: {max(state.reviews - 1, 0)}/{cap(state)}   "
+            "(round 1 is the first review, not counted)"
+        ),
         f"Reviewed head: {reviewed[-1] if reviewed else '-'}",
-        f"Notes: {notes_of(state)}  Plan: {state.plan or '-'}  "
-        f"PR: {pr_ref(state)}  Base: {base_of(state)}",
+        (
+            f"Notes: {notes_of(state)}  Plan: {state.plan or '-'}  "
+            f"PR: {pr_ref(state)}  Base: {base_of(state)}"
+        ),
         f"Researched: {state.researched}  Asked: {state.asked}",
         "Rounds:",
         *rounds,
@@ -1624,8 +1669,10 @@ def replay(lines: list[Line], path: Path) -> State | Failure:
 def bad_line(path: Path, n: int, why: str) -> Failure:
     return Failure(
         f"state: {path}:{n}: {why}",
-        f"repair or delete line {n} of {path}: the log is append-only, so a bad "
-        "line is a hand edit",
+        (
+            f"repair or delete line {n} of {path}: the log is append-only, so a bad "
+            "line is a hand edit"
+        ),
         2,
     )
 
@@ -1685,7 +1732,7 @@ def decode_line(raw: str) -> Line:
     )
 
 
-def decode_event(obj: dict[str, Json]) -> Event:  # noqa: C901, PLR0911 - one arm per event
+def decode_event(obj: dict[str, Json]) -> Event:  # noqa: C901, PLR0912, PLR0915 - one arm per event
     kind = text_of(obj, "type")
     event: Event
     match kind:
@@ -1804,11 +1851,11 @@ def verdicts_of(obj: dict[str, Json]) -> tuple[Verdict, ...]:
     )
 
 
-def choice[L: str](obj: dict[str, Json], key: str, choices: tuple[L, ...]) -> L:
+def choice[L: str](obj: dict[str, Json], key: str, choices: Sequence[L]) -> L:
     return pick_or_raise(text_of(obj, key), choices, key)
 
 
-def pick_or_raise[L: str](value: str, choices: tuple[L, ...], what: str) -> L:
+def pick_or_raise[L: str](value: str, choices: Sequence[L], what: str) -> L:
     match pick(value, choices):
         case None:
             raise BadFieldError(f"{what} '{value}' is not one of {', '.join(choices)}")
@@ -1816,7 +1863,7 @@ def pick_or_raise[L: str](value: str, choices: tuple[L, ...], what: str) -> L:
             return found
 
 
-def pick[L: str](value: str, choices: tuple[L, ...]) -> L | None:
+def pick[L: str](value: str, choices: Sequence[L]) -> L | None:
     return next((c for c in choices if c == value), None)
 
 
@@ -1873,12 +1920,10 @@ class Render:
     pass
 
 
-type Command = (
-    Init | RecordCmd | HandbackCmd | Next | BriefCmd | Show | Override | Render
-)
+type Command = Init | RecordCmd | HandbackCmd | Next | BriefCmd | Show | Override
 
 
-def parse_args(argv: list[str]) -> Help | Command | Failure:  # noqa: PLR0911 - one arm per command
+def parse_args(argv: list[str]) -> Help | Render | Command | Failure:  # noqa: C901, PLR0911, PLR0912 - one arm per command
     """Read the command line; never touches git or the log."""
     match argv:
         case [] | ["help"]:
@@ -1944,13 +1989,15 @@ def parse_args(argv: list[str]) -> Help | Command | Failure:  # noqa: PLR0911 - 
             return usage(f"{command}: wrong arguments", "state --help")
         case _:
             return usage(
-                f"unknown command '{argv[0]}'. Commands: init, record, handback, next, "
-                "brief, show, override, render",
+                (
+                    f"unknown command '{argv[0]}'. Commands: init, record, handback, next, "
+                    "brief, show, override, render"
+                ),
                 "state --help",
             )
 
 
-def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:  # noqa: C901, PLR0911, PLR0912 - one arm per event
+def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:  # noqa: C901, PLR0911, PLR0912, PLR0915 - one arm per event
     """`state record <event> [args]`; a `<head>` left out is HEAD."""
     match args:
         case ["quality", value]:
@@ -2033,7 +2080,7 @@ def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:  #
                 for i in range(0, len(opts) - 1, 2)
                 if opts[i] == "--failing"
             )
-            if len(opts) != 2 * len(failing) or not all(failing):  # noqa: PLR2004 - pairs
+            if len(opts) != 2 * len(failing) or not all(failing):
                 return usage(
                     "record ci takes --failing <check>...",
                     "state record ci --failing lint",
@@ -2060,16 +2107,14 @@ def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:  #
             return Resolved(question, answer)
         case ["ready", pr] if pr.isdigit() and int(pr) > 0:
             return Ready(int(pr))
-        case [name, *_]:
+        case _:
             return usage(
-                f"record: '{name}' with these arguments is not an event",
+                f"record: '{args[0]}' with these arguments is not an event",
                 "state --help lists the events",
             )
-        case []:
-            return usage("record: which event?", "state --help lists the events")
 
 
-def split_head(rest: tuple[str, ...], head: str | None) -> tuple[str | None, list[str]]:
+def split_head(rest: Sequence[str], head: str | None) -> tuple[str | None, list[str]]:
     match rest:
         case [sha, *opts] if not sha.startswith("--"):
             return sha, list(opts)
@@ -2077,7 +2122,7 @@ def split_head(rest: tuple[str, ...], head: str | None) -> tuple[str | None, lis
             return head, list(rest)
 
 
-def parse_options(opts: list[str]) -> HandbackOptions | Failure:  # noqa: PLR0911 - one arm per option
+def parse_options(opts: list[str]) -> HandbackOptions | Failure:
     match opts:
         case []:
             return HandbackOptions()
@@ -2091,9 +2136,9 @@ def parse_options(opts: list[str]) -> HandbackOptions | Failure:  # noqa: PLR091
             return usage(f"option '{opts[0]}' needs a value", "state --help")
 
 
-def add_option(
+def add_option(  # noqa: PLR0911 - one arm per option
     name: str, value: str, later: HandbackOptions
-) -> HandbackOptions | Failure:  # noqa: PLR0911 - one arm per option
+) -> HandbackOptions | Failure:
     match name:
         case "--kind":
             match pick(value, BLOCKER_KINDS):
@@ -2150,7 +2195,7 @@ class GitError(Exception):
     """A git command that should not fail did: an outage, not a bad ref."""
 
 
-def main(argv: list[str], cwd: Path, stdin: str | None = None) -> int:
+def main(argv: list[str], cwd: Path, stdin: str | None = None) -> int:  # noqa: PLR0911 - one arm per outcome
     parsed = parse_args(argv)
     match parsed:
         case Help():
@@ -2188,17 +2233,14 @@ def main(argv: list[str], cwd: Path, stdin: str | None = None) -> int:
                     return report(result)
 
 
-def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  # noqa: PLR0911 - one arm per command
+def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  # noqa: C901, PLR0911, PLR0912 - one arm per command
     match locate(cwd):
         case Failure() as failure:
             return failure
         case git_dir:
             pass
-    match command:
-        case Init():
-            return init(git_dir, command, head_of(cwd))
-        case Render():
-            return render()
+    if isinstance(command, Init):
+        return init(git_dir, command, head_of(cwd))
     match load(git_dir):
         case Failure() as failure:
             return failure
@@ -2321,7 +2363,7 @@ def parse_numstat(out: str) -> GitFacts:
                 skills = "new"
             case _:
                 pass
-    return GitFacts(lines, cast("SkillChange", skills))
+    return GitFacts(lines, skills)
 
 
 def is_lockfile(path: str) -> bool:

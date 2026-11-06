@@ -12,6 +12,7 @@
   topics,
   qa,
   ctx,
+  state,
 }:
 
 lib.mapAttrs (
@@ -24,6 +25,7 @@ lib.mapAttrs (
         topics
         qa
         ctx
+        state
         ;
     }
   )

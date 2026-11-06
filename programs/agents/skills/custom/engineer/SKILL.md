@@ -73,7 +73,7 @@ Each step is a state. Quality and Size skip arrows, never add them.
 | Step | State | Arrows out |
 |---|---|---|
 | 1-2 | Ctx | research and ask on demand, any order, then a plan: 3 |
-| 3 | Prop, Prop', Plan | simplify, alternative, then ask: first or second plan: 4; adjust: 2 |
+| 3 | Prop | simplify, alternative, then ask: first or second plan: 4; adjust: 2 |
 | 4 | DraftPlan | draft PR with the plan: 5 |
 | 5 | Impl | implement: 6 |
 | 6 | Impl' | refactor: 7 |
