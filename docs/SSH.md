@@ -1,6 +1,6 @@
 # SSH Keys & Commit Signing (YubiKey-backed)
 
-Each host's SSH key is a **FIDO2 resident credential that lives inside a YubiKey** (`ed25519-sk`). The same key is used for **both** GitHub auth and git commit signing. The private key never touches disk — the files in `~/.ssh` are only *key handles* (stubs) that point at the hardware. Every SSH connection and every signed commit requires a **physical tap** on the YubiKey.
+Each host's SSH key is a **FIDO2 resident credential that lives inside a YubiKey** (`ed25519-sk`). The same key is used for **both** GitHub auth and git commit signing. The private key never touches disk — the files in `~/.ssh` are only *key handles* (stubs) that point at the hardware. Every SSH connection requires a **physical tap** on the YubiKey. On macOS, commit signing does not by default: it still needs the YubiKey plugged in, but no tap - see [Tapless commit signing (macOS)](#tapless-commit-signing-macos).
 
 You have **two** YubiKeys per host: a **primary** (`~/.ssh/id_ed25519_sk`) you carry, and a **backup** (`~/.ssh/id_ed25519_sk_backup`) kept somewhere safe. FIDO2 credentials cannot be cloned, so each YubiKey holds its **own** independently-generated credential and both are registered on GitHub.
 
@@ -14,7 +14,8 @@ Config is declared in Nix (`modules/home/ssh.nix`, `modules/home/git.nix`); enro
 
 | Attack | Outcome |
 | --- | --- |
-| **Local malware** (e.g. PolinRider) tries to sign/push silently | **Blocked** — no private key on disk or in RAM; every op stalls waiting for a physical tap. |
+| **Local malware** (e.g. PolinRider) tries to push silently | **Blocked** - no private key on disk or in RAM; a new SSH connection stalls waiting for a physical tap. A warm `ControlMaster` needs no tap, so a push right after one of yours goes through. |
+| **Local malware** tries to sign commits silently (macOS, `noTouchSigning` on) | **Not blocked while the YubiKey is plugged in** - signing needs no tap, so malware can sign as you. It still cannot push without a tap (above), and cannot sign once the YubiKey is unplugged. With `noTouchSigning = false` signing taps again. |
 | **YubiKey stolen alone** | **Blocked** — resident credentials can't be enumerated or extracted (`ssh-keygen -K`) without the FIDO2 PIN; 8 wrong PINs wipe the applet. |
 | **YubiKey + locked MacBook stolen** | **Blocked** — stub files sit on the FileVault-encrypted disk, unreachable without login; the token still needs the PIN to extract anything. |
 | **Primary YubiKey lost** | **Not locked out** — the backup YubiKey has its own credential already on GitHub. |
@@ -65,7 +66,7 @@ So after full setup a host has **4 GitHub entries**: primary auth + primary sign
 ## Verify
 
 - `ssh -T git@github.com` → the YubiKey LED flashes; **tap it** → GitHub greets you by username = auth works.
-- `git commit --allow-empty -m "test signing"` → tap when the LED flashes → `git push` → GitHub shows a **Verified** badge = signing works.
+- `git commit --allow-empty -m "test signing"` → tap when the LED flashes (no tap on macOS with `noTouchSigning`) → `git push` → GitHub shows a **Verified** badge = signing works.
 - `ykman fido credentials list` → shows an `ssh:<host>` entry = the resident credential is on the token.
 - Unplug the primary, plug in the backup, `ssh -T git@github.com` → tap → still works = backup path is good.
 
@@ -91,7 +92,7 @@ The two paths differ because OpenSSH treats them differently:
 | Path | Mechanism |
 | --- | --- |
 | **SSH auth** (`git push`, `ssh`) | OpenSSH's own notifier: `notify_start()` forks `$SSH_ASKPASS` when a tap is needed and SIGTERMs it once you tap. The wrapper points `SSH_ASKPASS` at the alert script, puts stderr on a pipe and sets a placeholder `DISPLAY`, because the notifier only fires when stderr isn't a tty **and** a display is set. |
-| **Commit signing** (`ssh-keygen -Y sign`) | No hook exists — `sign_one()` writes its notice with a bare `fprintf(stderr)` and git captures the signer's stderr, so nothing reaches your terminal at all. The wrapper alerts for the duration of the signing call instead. Verification and other subcommands pass through silently. |
+| **Commit signing** (`ssh-keygen -Y sign`) | No hook exists — `sign_one()` writes its notice with a bare `fprintf(stderr)` and git captures the signer's stderr, so nothing reaches your terminal at all. The wrapper alerts for the duration of the signing call instead - unless `noTouchSigning` is on, where there is no tap and so no alert. Verification and other subcommands pass through silently. |
 
 Notes and limits:
 
@@ -102,6 +103,46 @@ Notes and limits:
 - **A warm `ControlMaster` needs no tap**, and correctly stays silent.
 - **An orphaned alert stops itself.** Neither wrapper can guarantee cleanup — a SIGKILLed `ssh` never reaches `notify_complete()`, and a signal that skips the signing wrapper's `EXIT` trap leaves the loop running — so the beep exits on its own once its parent is gone or the touch window has closed.
 - Not covered: browser WebAuthn taps (macOS shows its own dialog), `ssh-keygen -K` and the enrollment recipes, and Linux hosts (`lenovo-old` keeps the plain binaries).
+
+---
+
+## Tapless commit signing (macOS)
+
+`myConfig.yubikey.noTouchSigning` (`modules/macos/yubikey.nix`, default `true`)
+lets `git commit` sign with the **same** YubiKey credential without a tap. No new
+key, no GitHub change, `user.signingkey` stays `~/.ssh/id_ed25519_sk.pub`. SSH
+auth (push, `ssh`) keeps the tap.
+
+How: the touch requirement is one flag in the key **stub**, not in the public
+key, so the signature still matches the key on GitHub. Per sign, the
+`gpg.ssh.program` wrapper (`programs/yubikey-touch-sound/ssh-keygen.sh`):
+
+```
+mktemp -d (0700)  ->  copy ~/.ssh/id_ed25519_sk{,.pub} into it
+ssh-keygen -p -O no-touch-required -P "" -N "" -f <copy>    # no hardware
+ssh-keygen -Y sign ... -f <copy>.pub                        # YubiKey signs, no tap
+remove the temp dir
+```
+
+`~/.ssh` is never written, so restore and rotation need nothing extra. Needs
+OpenSSH >= 10.5p1 (a build-time assertion checks it).
+
+Does GitHub mark these signatures **Verified**? Its verifier may insist on the
+touch flag. Check once per host, YubiKey plugged in, from this repository:
+
+```bash
+just yubikey-test-no-touch-signing
+```
+
+It signs one empty commit with the wrapper this checkout builds, pushes it to a
+scratch branch `no-touch-test-<host>-<time>` (SSH auth: tap), prints GitHub's
+`verified` and `reason`, then deletes the branch. Your branch and working tree
+are left alone. It exits non-zero when unverified.
+
+- **Verified:** done.
+- **Unverified:** set `myConfig.yubikey.noTouchSigning = false` in
+  `hosts/<host>/configuration.nix` and `just darwin-rebuild <host>`. Signing
+  taps (and beeps) again, as before.
 
 ---
 

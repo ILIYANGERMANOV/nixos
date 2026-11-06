@@ -18,8 +18,13 @@
 #     "Confirm user presence..." with a bare fprintf(stderr) and git captures
 #     the signer's stderr, so today nothing whatsoever reaches the terminal.
 #     Handled by beeping for the duration of the call. See `sshKeygen`.
+#     With `noTouchSigning` there is no touch to wait for, so no beep either.
 {
   pkgs,
+  # Sign commits without a tap: the signer clears the user-presence flag on a
+  # temp copy of the key stub per call (needs OpenSSH >= 10.5p1). SSH auth
+  # keeps the tap either way.
+  noTouchSigning,
   lib ? pkgs.lib,
   # Any stock macOS system sound. Hero is the loudest of them (-24 dBFS RMS,
   # 0.54 peak — roughly 5 dB above Submarine and on par with herdr's chime).
@@ -97,16 +102,23 @@ let
     '';
   };
 
-  # Drop-in ssh-keygen for git (gpg.ssh.program). Signing always needs a tap and
-  # has no notifier hook, so alert for the whole call. Verification and every
-  # other subcommand are passed straight through, untouched and silent.
+  sshKeygenSettings = {
+    beep = lib.getExe beep;
+    openssh_keygen = opensshKeygen;
+    no_touch_signing = if noTouchSigning then "1" else "0";
+  };
+
+  # Drop-in ssh-keygen for git (gpg.ssh.program). Signing with a tap has no
+  # notifier hook, so alert for the whole call; signing without one flips the
+  # flag on a temp copy of the stub instead. Verification and every other
+  # subcommand are passed straight through, untouched and silent.
   sshKeygen = shellCheck.writeShellApplication {
     name = "yubikey-touch-ssh-keygen";
+    # `mktemp`, `install`, `rm`. Without this, writeShellApplication leaves PATH
+    # as the caller's, so a shadowed one would run inside the signing path.
+    runtimeInputs = [ pkgs.coreutils ];
     text = ''
-      ${lib.toShellVars {
-        beep = lib.getExe beep;
-        openssh_keygen = opensshKeygen;
-      }}
+      ${lib.toShellVars sshKeygenSettings}
       ${shellCheck.fragment ./ssh-keygen.sh}
     '';
   };
