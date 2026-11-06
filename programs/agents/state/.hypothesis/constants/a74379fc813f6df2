@@ -1,4 +1,0 @@
-# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/code.py
-# hypothesis_version: 6.151.10
-
-['\nKeyboardInterrupt\n', '%s\n', '-q', '... ', '<console>', '<input>', '>>> ', 'Ctrl-D (i.e. EOF)', 'Ctrl-Z plus Return', 'InteractiveConsole', '__console__', '__doc__', '__main__', '__name__', 'compile_command', 'exit', 'interact', 'now exiting %s...\n', 'quit', 'single', 'source', 'store_true', 'win32']

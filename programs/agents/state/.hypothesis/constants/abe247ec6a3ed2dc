@@ -1,4 +1,0 @@
-# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/keyword.py
-# hypothesis_version: 6.151.10
-
-['False', 'None', 'True', '_', 'and', 'as', 'assert', 'async', 'await', 'break', 'case', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'iskeyword', 'issoftkeyword', 'kwlist', 'lambda', 'match', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'softkwlist', 'try', 'type', 'while', 'with', 'yield']

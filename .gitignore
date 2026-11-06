@@ -9,3 +9,4 @@ programs/playwright/reports/
 programs/playwright/.stryker-tmp/
 .direnv/
 __pycache__/
+.hypothesis/

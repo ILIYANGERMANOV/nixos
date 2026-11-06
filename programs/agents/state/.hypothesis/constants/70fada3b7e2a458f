@@ -1,4 +1,0 @@
-# file: /home/factory/repos/nixos/.claude/worktrees/bridge-cse_013RcrwGdE6rTqEMBaZurHkB/programs/agents/state/state_fixtures.py
-# hypothesis_version: 6.151.10
-
-[300, '--all', '--create', '--notes', '--quiet', '-c', '/notes/run', 'AC1', 'AC2', 'Balanced', 'HEAD', 'Normal', 'R1', 'R2', 'R3', 'Trivial', 'a.txt', 'a1', 'add', 'b2', 'base', 'bigger', 'c3', 'changed', 'commit', 'commit.gpgsign=false', 'confirmed', 'drafted', 'events.jsonl', 'feature', 'git', 'h1', 'h2', 'h3', 'h4', 'init', 'lint', 'main', 'new', 'none', 'one\n', 'planned', 'q1', 'q2', 'quality', 'record', 'repo', 'rev-parse', 'size', 'switch', 'test', 'update-ref', 'user.email=t@t', 'user.name=t', 'why', 'yes']

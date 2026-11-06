@@ -3,7 +3,7 @@ engineer's Quality rows and the brief texts quoted verbatim from its skill."""
 
 from typing import Literal
 
-from model import AREAS, STATES, Area, Mode, ProposalMode, StateName
+from model import AREAS, STATES, TOKENS, Area, Mode, ProposalMode, StateName
 
 # ---- The table ----------------------------------------------------------------
 
@@ -144,7 +144,7 @@ PLAN_WRONG = """\
 HANDBACK_RULE = (
     "Hand back in about 250 words, never over 300: commit, proof, what remains; "
     "anything longer goes in a notes file outside the repo, and you hand back its "
-    "path. Start your hand-back with READY, NEEDS_DECISION, GREW, BLOCKED or FAILED."
+    f"path. Start your hand-back with {', '.join(TOKENS[:-1])} or {TOKENS[-1]}."
 )
 
 

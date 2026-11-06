@@ -1,4 +1,0 @@
-# file: /home/factory/repos/nixos/.claude/worktrees/bridge-cse_013RcrwGdE6rTqEMBaZurHkB/programs/agents/state/model.py
-# hypothesis_version: 6.151.10
-
-['BLOCKED', 'Balanced', 'Ctx', 'Done', 'DraftPR', 'DraftPlan', 'FAILED', 'GREW', 'Impl', "Impl'", "Impl''", 'ImplR', 'Max', 'NEEDS_DECISION', 'Normal', 'POC', 'PR', 'Prop', 'READY', 'Trivial', 'alternative', 'answered', 'auth', 'checker', 'data-model', 'decision', 'fact', 'fixer', 'implementer', 'interface', 'met', 'not-met', 'quality', 'refactorer', 'researcher', 'review-lead', 'reviewer', 'scope', 'simplify', 'size', 'tuple[Area, ...]', 'tuple[Knob, ...]', 'tuple[Mode, ...]', 'tuple[Outcome, ...]', 'tuple[Role, ...]', 'tuple[SizeName, ...]', 'tuple[Worker, ...]', 'unverified']

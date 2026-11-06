@@ -1,4 +1,0 @@
-# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/email/utils.py
-# hypothesis_version: 6.151.10
-
-[100, '"', '"%s"', '%s <%s>', '%s%s%s <%s>', "%s'%s'%s", '%z', "'", '(', "('', '')", ')', '*', ',', ', ', '-0000', '.', '<', '<%d.%d.%d%s@%s>', '>', 'Apr', 'Aug', 'Dec', 'Feb', 'Fri', 'GMT', 'Jan', 'Jul', 'Jun', 'Mar', 'May', 'Mon', 'Nov', 'Oct', 'Sat', 'Sep', 'Sun', 'Thu', 'Tue', 'Wed', '[', '[\\\\"]', '[][\\\\()<>@,:;".]', '\\', '\\"', '\\\\', '\\\\\\g<0>', 'ascii', 'decode_params', 'decode_rfc2231', 'encode_rfc2231', 'format_datetime', 'formataddr', 'formatdate', 'getaddresses', 'latin-1', 'make_msgid', 'mktime_tz', 'name', 'num', 'parseaddr', 'parsedate', 'parsedate_tz', 'raw-unicode-escape', 'replace', 'surrogateescape', 'unquote', 'us-ascii', 'utf-8']

@@ -1,4 +1,0 @@
-# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/weakref.py
-# hypothesis_version: 6.151.10
-
-['<%s at %#x>', 'CallableProxyType', 'ProxyType', 'ProxyTypes', 'ReferenceType', 'WeakKeyDictionary', 'WeakMethod', 'WeakSet', 'WeakValueDictionary', '__weakref__', '_alive', '_func_ref', '_meth_type', 'args', 'atexit', 'finalize', 'func', 'getweakrefcount', 'getweakrefs', 'index', 'items', 'key', 'kwargs', 'proxy', 'ref', 'weakref']

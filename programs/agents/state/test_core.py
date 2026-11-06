@@ -19,8 +19,10 @@ from core import (
 from hypothesis import given
 from hypothesis import strategies as st
 from model import (
+    MODES,
     ROLES,
     S0,
+    SIZES,
     STATES,
     Blocked,
     Ci,
@@ -31,6 +33,7 @@ from model import (
     Fixed,
     Grew,
     Implemented,
+    Mode,
     Overridden,
     Planned,
     Proposed,
@@ -42,8 +45,10 @@ from model import (
     Reviewed,
     Role,
     Size,
+    SizeName,
     Started,
     State,
+    StateName,
     Verdict,
 )
 from state_fixtures import (
@@ -107,6 +112,29 @@ def test_advisory_next_always_advises_an_arrow(
     advised: Advice = advise(reach(*accepted(candidates)), git)
 
     assert first_line(render_advice(advised)).startswith(TOKENS)
+
+
+@given(
+    step=st.sampled_from(STATES),
+    mode=st.sampled_from(MODES),
+    size=st.sampled_from(SIZES),
+    delegated=st.booleans(),
+    git=facts,
+)
+def test_advisory_every_step_in_every_quality_and_size_advises_an_arrow_with_its_payload(
+    *, step: StateName, mode: Mode, size: SizeName, delegated: bool, git: Facts
+) -> None:
+    run = (
+        Started(NOTES, delegated=delegated),
+        Size(size),
+        Quality(mode),
+        Overridden(step, "why"),
+    )
+
+    lines = advice(*run, facts=git).splitlines()
+
+    assert lines[0].startswith(TOKENS)
+    assert lines[1].startswith("  ")
 
 
 @given(event_lists)
@@ -234,21 +262,47 @@ def test_stuck_guard_the_same_question_back_after_it_closed_is_stuck() -> None:
     assert first_line(text) == "STUCK question 'which log?' back in 2 rounds in a row"
 
 
-@given(
-    event_lists,
-    st.sampled_from(ROLES),
-    st.sampled_from([(), (Resolved("stuck: R1", "drop it"),)]),
+def the_same_row_twice(row: str, first: str, second: str) -> list[Event]:
+    return [
+        *drafted("Max"),
+        Implemented("h1"),
+        Refactored("h2"),
+        Reviewed(first, (row,), ()),
+        Fixed("h4", ()),
+        Reviewed(second, (row,), ()),
+    ]
+
+
+def the_same_check_twice(check: str, first: str, second: str) -> list[Event]:
+    return [
+        *reviewed("POC"),
+        Fixed("h4", ()),
+        Reviewed("h5", (), ()),
+        Fixed("h6", ()),
+        Ci(first, (check,)),
+        Fixed("h7", ()),
+        Ci(second, (check,)),
+    ]
+
+
+stuck_runs = st.one_of(
+    st.builds(the_same_row_twice, labels, heads, heads),
+    st.builds(the_same_check_twice, st.sampled_from(["lint", "test"]), heads, heads),
 )
+
+
+@given(run=stuck_runs, role=st.sampled_from(ROLES), answered=st.booleans())
 def test_stuck_guard_a_stuck_answered_as_a_decision_is_not_stuck_again(
-    candidates: list[Event], role: Role, answer: tuple[Event, ...]
+    *, run: list[Event], role: Role, answered: bool
 ) -> None:
-    state = reach(
-        *accepted([*candidates, Blocked("stuck: R1", "decision", role), *answer])
-    )
+    before = first_line(advice(*run))
+    assert before.startswith("STUCK ")  # the run is stuck before the decision
+    question = f"stuck: {before.removeprefix('STUCK ')}"
+    answer = [Resolved(question, "drop it")] if answered else []
 
-    text = render_advice(advise(state, NoFacts()))
+    text = advice(*run, Blocked(question, "decision", role), *answer)
 
-    assert not first_line(text).startswith(("STUCK row", "STUCK check"))
+    assert not first_line(text).startswith("STUCK ")
 
 
 @given(

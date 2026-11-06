@@ -1,4 +1,0 @@
-# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/asyncio/sslproto.py
-# hypothesis_version: 6.151.10
-
-[b'1', 1000.0, 256, 1024, '%r received EOF', '%r: %s', 'DO_HANDSHAKE', 'FLUSHING', 'SHUTDOWN', 'SSL handshake failed', 'STATE_CON_LOST', 'STATE_CON_MADE', 'STATE_EOF', 'STATE_INIT', 'UNWRAPPED', 'WRAPPED', 'exception', 'get_buffer', 'message', 'protocol', 'transport']

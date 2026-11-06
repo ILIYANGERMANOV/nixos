@@ -19,7 +19,19 @@ from codec import (
     pick,
 )
 from core import HandbackOptions
-from model import ROLES, STATES, WORKERS, Event, Failure, Json, Role, StateName, Worker
+from model import (
+    ROLES,
+    STATES,
+    TOKENS,
+    WORKERS,
+    Event,
+    Failure,
+    Json,
+    Role,
+    StateName,
+    Token,
+    Worker,
+)
 
 # ---- Usage --------------------------------------------------------------------
 
@@ -57,6 +69,18 @@ def usage_of(name: str, spec: Spec) -> str:
     fields = UsageFields()
     _ = spec.read(fields)
     return " ".join((name, *fields.words))
+
+
+def token_usage(token: Token) -> str:
+    match token:
+        case "READY":
+            return token
+        case "NEEDS_DECISION":
+            return f"{token} <q>"
+        case "GREW":
+            return f"{token} <why>"
+        case "BLOCKED" | "FAILED":
+            return f"{token} <r>"
 
 
 COLUMNS = (30, 26, 26)  # the event grid of HELP; a wider usage gets a line
@@ -98,7 +122,7 @@ Events
   ci with no --failing: green.
 
 Hand-backs   roles: {" ".join(WORKERS)}
-  line 1 READY | NEEDS_DECISION <q> | GREW <why> | BLOCKED <r> | FAILED <r>
+  line 1 {" | ".join(token_usage(token) for token in TOKENS)}
   --kind {KIND.shown}   the triage of a question; a
                                          `plan wrong:` or `stuck:` one is a decision
   --touches <area>...                    fixer: what its fix touched

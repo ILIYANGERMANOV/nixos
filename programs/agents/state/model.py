@@ -35,6 +35,8 @@ type Role = Literal[
     "checker",
 ]
 type Worker = Literal["implementer", "refactorer", "fixer", "review-lead"]
+# A worker hand-back's first word: its status.
+type Token = Literal["READY", "NEEDS_DECISION", "GREW", "BLOCKED", "FAILED"]
 
 
 def values_of(alias: TypeAliasType) -> tuple[str, ...]:
@@ -53,10 +55,10 @@ OUTCOMES = cast("tuple[Outcome, ...]", values_of(Outcome))
 ROLES = cast("tuple[Role, ...]", values_of(Role))
 WORKERS = cast("tuple[Worker, ...]", values_of(Worker))
 KNOBS = cast("tuple[Knob, ...]", values_of(Knob))
+TOKENS = cast("tuple[Token, ...]", values_of(Token))
 DEFAULT_QUALITY: Mode = "Balanced"
 DEFAULT_SIZE: SizeName = "Normal"
 DEFAULTS: dict[Knob, str] = {"quality": DEFAULT_QUALITY, "size": DEFAULT_SIZE}
-TOKENS = ("READY", "NEEDS_DECISION", "GREW", "BLOCKED", "FAILED")
 
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]

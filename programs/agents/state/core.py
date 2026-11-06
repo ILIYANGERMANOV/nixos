@@ -65,6 +65,7 @@ from model import (
     Started,
     State,
     StateName,
+    Token,
     Verdict,
     Worker,
     mode_of,
@@ -1012,9 +1013,9 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
     `Reviewed head: <sha>` and may start with a plan-wrong line."""
     lines = [line.strip() for line in text.strip().splitlines()]
     first = lines[0] if lines else ""
-    token, _, rest = first.partition(" ")
+    word, _, rest = first.partition(" ")
     reviewed = reviewed_head(lines)
-    match role, token:
+    match role, token_of(word):
         case _, "NEEDS_DECISION":
             grew = tuple(
                 Grew(line.removeprefix("GREW ").strip())
@@ -1051,7 +1052,7 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
             return ready(role, head, options.touches)
         case _:
             return Failure(
-                f"state handback {role}: line 1 starts '{token}', not one of "
+                f"state handback {role}: line 1 starts '{word}', not one of "
                 + " | ".join(TOKENS),
                 f"record it by hand: state record {role_event(role)} ...",
                 2,
@@ -1088,6 +1089,10 @@ def role_event(role: Worker) -> str:
             return "fixed"
         case "review-lead":
             return "reviewed"
+
+
+def token_of(word: str) -> Token | None:
+    return next((token for token in TOKENS if token == word), None)
 
 
 def reviewed_head(lines: list[str]) -> str | None:

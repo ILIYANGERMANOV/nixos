@@ -1,4 +1,0 @@
-# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/asyncio/streams.py
-# hypothesis_version: 6.151.10
-
-[b'\n', '%r pauses writing', '%r resumes writing', '<{}>', 'AF_UNIX', 'Connection lost', 'Limit cannot be <= 0', 'StreamReader', 'StreamReaderProtocol', 'StreamWriter', 'eof', 'exception', 'loop is closed', 'message', 'open_connection', 'open_unix_connection', 'paused', 'read', 'readexactly', 'readuntil', 'source_traceback', 'sslcontext', 'start_server', 'start_unix_server', 'transport']

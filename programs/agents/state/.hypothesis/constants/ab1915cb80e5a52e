@@ -1,4 +1,0 @@
-# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/zipimport.py
-# hypothesis_version: 6.151.10
-
-[b'\n', b'\r', b'\r\n', b'PK\x01\x02', b'PK\x03\x04', b'PK\x05\x06', b'PK\x06\x06', b'PK\x06\x07', 1980, 2048, 32768, 61440, 4294967295, '.', '.py', '.pyc', '/', 'ZipImportError', '__builtins__', '__init__.py', '__init__.pyc', 'always', 'ascii', 'c', 'exec', 'latin1', 'name', 'negative data size', 'never', 'not a Zip file', 'o', 'path', 'trying {}{}{}', 'zipimporter']
