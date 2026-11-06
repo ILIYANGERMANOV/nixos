@@ -50,13 +50,24 @@ PYTHON_MODULES = {
     "disk_plan": "programs/software-factory/disk_plan.py",
     "hook_event": "programs/claude-code/hooks/shared/hook_event.py",
     "transcripts": "programs/claude-code/hooks/shared/transcripts.py",
+    **{
+        f"state.{name}": f"programs/agents/state/{name}.py"
+        for name in ("cli", "codec", "core", "effects", "flow", "main", "model")
+    },
 }
-# What those tests import or read from beside themselves.
-PYTHON_TEST_SUPPORT = (
-    "programs/claude-code/hooks/shared/bash_corpus.py",
-    "programs/claude-code/hooks/shared/guard_harness.py",
-    "just/cache-check/expensive-builds.deny",
-)
+# What those tests import or read, by the scratch directory it goes to: beside
+# the test, or for `state.state_fixtures` in its package.
+PYTHON_TEST_SUPPORT = {
+    "programs/claude-code/hooks/shared/bash_corpus.py": "tests",
+    "programs/claude-code/hooks/shared/guard_harness.py": "tests",
+    "just/cache-check/expensive-builds.deny": "tests",
+    "programs/agents/state/__init__.py": "src/state",
+    "programs/agents/state/state_fixtures.py": "src/state",
+    "programs/agents/state/conftest.py": "tests/programs/agents/state",
+    "programs/agents/skills/custom/engineer/SKILL.md": "tests/programs/agents/skills/custom/engineer",
+    "programs/agents/skills/custom/engineer/references/blockers.md": "tests/programs/agents/skills/custom/engineer/references",
+    "programs/agents/instructions/topics/quality.md": "tests/programs/agents/instructions/topics",
+}
 TS_ROOT = Path("programs/playwright")
 # The rest of TS_ROOT is Playwright drivers, which only checks.qa runs.
 TS_FILES = ("kit/index.ts", "wallet/index.ts")
@@ -462,32 +473,42 @@ settings.register_profile("mutation", deadline=None, database=None)
 
 
 def build_scratch(scratch: Path, shfmt: str) -> None:
-    """A flat copy of the modules and their tests, as mutmut wants them.
+    """A copy of the modules by import path and their tests, as mutmut wants them.
 
     Rebuilt every run: mutmut keeps a kill when only a test changed, so a kept
     scratch could report a mutant killed by a test that no longer exists.
     """
     if scratch.exists():
         shutil.rmtree(scratch)
-    (scratch / "src").mkdir(parents=True)
-    tests = scratch / "tests"
-    tests.mkdir()
-    for path in map(Path, PYTHON_MODULES.values()):
+    for module, repository_path in PYTHON_MODULES.items():
+        path = Path(repository_path)
         source = path.read_text().replace("@shfmt@", shfmt)
-        _ = (scratch / "src" / path.name).write_text(source)
+        mutated = scratch / "src" / module_file(module)
+        # A top-level module's tests sit flat; a packaged one's keep their
+        # repository path, as test_flow.py finds the repository root from its own.
+        tests = scratch / "tests" / ("" if "." not in module else path.parent)
+        for directory in (mutated.parent, tests):
+            directory.mkdir(parents=True, exist_ok=True)
+        _ = mutated.write_text(source)
         # Unmutated beside the tests as well, for those that run it as a program.
         _ = (tests / path.name).write_text(source)
         _ = shutil.copy(path.with_name(f"test_{path.name}"), tests)
-    for path in PYTHON_TEST_SUPPORT:
-        _ = shutil.copy(path, tests)
-    _ = (tests / "conftest.py").write_text(CONFTEST)
+    for path, directory in PYTHON_TEST_SUPPORT.items():
+        (scratch / directory).mkdir(parents=True, exist_ok=True)
+        _ = shutil.copy(path, scratch / directory)
+    _ = (scratch / "tests" / "conftest.py").write_text(CONFTEST)
     _ = (scratch / "pyproject.toml").write_text(
         scratch_pyproject(Path("pyproject.toml").read_text())
     )
 
 
+def module_file(module: str) -> Path:
+    """Where mutmut keeps an import name under its source root: `state/core.py`."""
+    return Path(*module.split(".")).with_suffix(".py")
+
+
 def scratch_pyproject(repository_pyproject: str) -> str:
-    """The repository's pytest options, under the mutation profile, for the flat copy."""
+    """The repository's pytest options, under the mutation profile, for the scratch copy."""
     pytest = cast(
         "dict[str, dict[str, dict[str, dict[str, str]]]]",
         tomllib.loads(repository_pyproject),
@@ -512,7 +533,9 @@ def read_mutmut(
     path = PYTHON_MODULES[module]
     meta = cast(
         "dict[str, dict[str, int | None]]",
-        json.loads((scratch / "mutants" / "src" / f"{module}.py.meta").read_text()),
+        json.loads(
+            (scratch / "mutants" / "src" / f"{module_file(module)}.meta").read_text()
+        ),
     )
     lines = function_lines(Path(path).read_text())
     mutants: list[Mutant] = []
@@ -522,7 +545,7 @@ def read_mutmut(
             if (cls, function) not in functions:
                 continue
             span = mutmut_span(
-                get_diff_for_mutant(name, path=f"src/{module}.py"),
+                get_diff_for_mutant(name, path=f"src/{module_file(module)}"),
                 lines[cls, function].first,
             )
             status = mutmut_status(status_by_exit_code[exit_code])
