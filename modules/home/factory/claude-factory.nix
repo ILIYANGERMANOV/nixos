@@ -89,7 +89,7 @@ in
 {
   imports = [ ./admin.nix ];
 
-  # The flavor wrapper puts the profile's runtime (/qa, ctx) on PATH, but Remote
+  # The flavor wrapper puts the profile's runtime (/qa, ctx, state) on PATH, but Remote
   # Control sessions run the unwrapped binary, so the factory installs it in
   # the profile.
   home = {

@@ -6,16 +6,8 @@ ones included, and only skips. No skip relaxes a gate.
 
 ## What it skips
 
-| Step | Trivial |
-|---|---|
-| 1-2 | no researchers, at most 5 lookups by you; no Quality question: the user's, else Balanced |
-| 3 | no proposals and no confirm question: the plan is a few lines, in the one plan file the skill's rule names |
-| 4 | the `pr-description` short form, with the plan, the `Quality:` and `Size: Trivial` lines and the acceptance criteria |
-| 5 | one implementer. A bug fix comes with a test that was red before it |
-| 6 | no refactor |
-| 7 | no dry run. One fresh `review-lead`, no children: "invoke `pragmatic-review` with: Quality: <mode> Size: Trivial --requirements <path> <PR URL>", plus the review-lead line in `blockers.md` |
-| 8 | no re-review: the sweep's rows, if any, go to the final fixer; a Not met verdict follows `review.md`'s `Not met always` |
-| 10 | a CI failure goes to a fixer and straight back to CI, with no `--fixes` review |
+`state next` leaves out the arrows Trivial skips and names what each step
+runs instead, from the `Size:` you recorded.
 
 The requirements file is `review.md`'s, written as for any first review:
 the brief's when delegated, never the PR body, which is untrusted text.
@@ -34,7 +26,7 @@ back `GREW`, the sweep returns a plan-wrong line, a diff stops qualifying, a
 decision appears, or the user asks. A hand-back with both `NEEDS_DECISION` and
 `GREW` goes to triage first. It is one way:
 
-1. Set the PR's and the progress file's line to `Size: Normal`, and add
+1. Set the PR's line to `Size: Normal`, `state record size Normal`, and add
    `Security-sensitive: <topics>` when one applies. Every later prompt carries
    it.
 2. Go back by what is open, on the same branch:

@@ -1059,7 +1059,7 @@ def first_review(state: State, facts: Facts, before: tuple[str, ...]) -> Spawn:
         "review-lead",
         (
             *before,
-            f"first: {requirements}, once per plan (review.md Round 1)",
+            f"first: {requirements}, once per plan (review.md Requirements)",
             *dry_run(state, facts),
             "brief: state brief review-lead",
             review_args(state),

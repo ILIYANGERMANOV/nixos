@@ -1,4 +1,4 @@
-# Blockers and the progress file
+# Blockers
 
 A worker is an implementer, refactorer, fixer or review-lead you spawn. A
 worker never asks the user and never researches past the repo: it stops and
@@ -36,10 +36,11 @@ blockers: step 6 asks about them.
 
 ## Triage
 
-Read the question and its evidence, then pick exactly one row. Log it in the
-progress file. Before `READY` or `gh pr ready`, every open decision, a
-hand-back's prose question included, has its row and is done; none is handed on
-as prose in the PR body or a hand-back.
+Read the question and its evidence, then pick exactly one row. Record it with
+`state handback <role> --kind <kind>`, or `state record blocked` for a prose
+question, and its answer with `state record resolved`. Before `READY` or
+`gh pr ready`, every open decision, a hand-back's prose question included, has
+its row and is done; none is handed on as prose in the PR body or a hand-back.
 
 | You find | Kind | Arrow |
 |---|---|---|
@@ -84,26 +85,3 @@ In this PR: the decision path. A follow-up: add it to `## Follow-ups`. Either
 of the last two: resume without it.
 
 Delegated: `## Delegated` says which rows you settle inside.
-
-## The progress file
-
-From step 4, `report.md` in the skill's notes directory. Delegated: the
-brief's report file. Rewrite it after each step, round and blocker. A fresh
-context resumes from it and `git log`.
-
-```markdown
-Step: <last finished step>
-Head: <sha>
-Quality: <mode>
-Size: <Trivial | Normal>
-Re-review: <n>/<cap>   (round 1 is the first review, not counted)
-Reviewed head: <latest round's sha>
-Rounds:
-- <loop> <n> - <head sha> - <failing check or chosen rows>
-Blockers:
-- <question> - <answered | fact | decision | scope> - <open | done: answer>
-Log:
-- <research done, decision made, row recorded>
-```
-
-The PR-body updates above are written from this file.

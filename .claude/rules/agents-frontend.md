@@ -31,8 +31,8 @@ Each folder has its own rule, loaded when you work in it:
 | `mcp/` | the MCP catalog | `agents-mcp.md` |
 
 `default.nix` is the surface: `profiles`, `fold`, `renderLead`, `renderRole`,
-`skills`, `ctx`, `roles`, `budget` and `check`. `checks.agents` proves every law and
-every rejection.
+`skills`, `ctx`, `state`, `roles`, `budget` and `check`. `checks.agents`
+proves every law and every rejection.
 
 ### Laws
 

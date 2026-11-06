@@ -5,7 +5,7 @@ programmatic state machine. ADR 0014 says how such a program is built. This
 ADR decides the first one: `state`, a vendor-free program beside `ctx` that
 records every transition of a run as an event, folds the log into the current
 state, and advises the next arrow with its mechanical payload. It never
-refuses. Implementation: #329.
+refuses. Design: #329; implementation: #331.
 
 ## Evidence
 
@@ -113,6 +113,7 @@ state brief <role>
 state show
 state override <state> <why>
 state render
+state help
 ```
 
 ## Considered options
@@ -135,7 +136,8 @@ state render
 ## Consequences
 
 - The engineer skill keeps its rules, map and judgment; its mechanics become
-  one line each naming `state next`, `state brief` and `state handback`.
+  one line each naming `state next`, `state brief`, `state handback` and
+  `state record`.
   `blockers.md` loses the progress file format, `trivial.md` the skip table,
   `review.md` all but the judgment of picking rows.
 - `test_state.py` proves ADR 0014's laws, the table row by row, and the prose
