@@ -12,7 +12,8 @@ secret name). Profiles are deltas and never import each other; a backend's
 flavor lists the ones it gets. `mkProfile` and `append` are in `agents-lib.md`.
 
 - `base` - every flavor: the shared skills, `agent.md`, `lead.md`,
-  `trivial.md`, `runtime` (`programs/playwright`'s `qa`) and `secretFiles`.
+  `trivial.md`, `runtime` (`programs/playwright`'s `qa`, `ctx` and `state`) and
+  `secretFiles`.
 - `web-ui` - figma.
 - `pm` - `self-improve`, linear, superhuman-docs.
 - `factory` - `10x-engineer`, `self-improve`, `android`, its `agent.md` in

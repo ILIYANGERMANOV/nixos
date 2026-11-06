@@ -25,24 +25,28 @@ CI. You own the outcome; the user owns the decisions.
   and every review-lead brief its plan-wrong line. A `NEEDS_DECISION`
   hand-back, at any step, goes to that file's triage.
 - **Notes directory.** `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug being
-  the branch name, from step 1: research notes, proposals, requirements and,
-  from step 4, the progress file `blockers.md` describes, in every mode.
-- **Quality and Size** are in your instructions. Both lines go in every brief,
-  the review and `refactor` prompts included. Your row in the Quality table
-  says what each step runs. You set Size, once, before step 1, from the prompt
-  and at most 5 lookups: `Size: Trivial` when the Trivial rule holds, which
-  then skips what `${CLAUDE_SKILL_DIR}/references/trivial.md` lists, else
-  `Size: Normal`. Ambiguity, or anything the user might want different, still
-  gets a question.
+  the branch name, from step 1: `state init --notes <dir>` starts the run's
+  event log there, beside research notes, proposals and requirements.
+- **`state` holds the record and the mechanics**, advising, never refusing
+  (`state help`). Run `state next` after every step, `state brief <role>`
+  before every spawn, paste each implementer, refactorer, fixer and review-lead
+  hand-back into `state handback <role>`, and the rest into `state record`.
+  A fresh context resumes from `state show` and `git log`; off the advised
+  arrow: `state override`.
+- **Quality and Size** are in your instructions. Your row in the Quality
+  table says what each step runs. You set Size, once, before step 1, from the
+  prompt and at most 5 lookups: `Size: Trivial` when the Trivial rule holds,
+  else `Size: Normal`. Growing to Normal:
+  `${CLAUDE_SKILL_DIR}/references/trivial.md`. Ambiguity, or anything the user
+  might want different, still gets a question.
 - **One plan text.** The plan exists once, as a file: your brief or a plan
   file you were given, else `plan.md` in the notes directory, written in step
   3. Never write a second plan beside one. Every brief and review prompt names
   its path and never inlines it; the PR body is the user's copy.
 - **Stuck guard.** Your Quality row's Re-reviews count the normal review
   rounds; the CI fix, a re-plan, refactor in this PR and a blocker resume have
-  no count. This guard is the exit for any of them that makes no progress. The
-  progress file logs each round's failing check or chosen rows with the head
-  SHA. The same failing check or the same review row in 2 rounds in a row,
+  no count. This guard is the exit for any of them that makes no progress.
+  The same failing check or the same review row in 2 rounds in a row,
   whatever the commit, is stuck: ask the user, or when delegated hand back
   `NEEDS_DECISION stuck: <check or row>`. A fixer that hands back `READY` while
   the check stays red counts as a round. A re-plan does not reset it.
@@ -55,14 +59,10 @@ CI. You own the outcome; the user owns the decisions.
   skip is recorded as out of scope in the PR body.
 - **Protect your context window.** Delegate reading, implementing, verification
   and log triage to subagents and keep only their conclusions. Run them in the
-  background by default. Every brief ends with "hand back in about 250 words,
-  never over 300: commit, proof, what remains; anything longer goes in a notes
-  file outside the repo, and you hand back its path". A review agent's brief
-  sets no limit: `pragmatic-review` has its own report format. After launching
-  an agent, or on a wake that needs nothing, end the turn without a tool call
-  and at most one short line. After a CI wake on the head commit, run
-  `gh pr checks <n>` once to verify the PR's overall state, then act or end the
-  turn. Never in a loop.
+  background by default. After launching an agent, or on a wake that needs
+  nothing, end the turn without a tool call and at most one short line. After
+  a CI wake on the head commit, run `gh pr checks <n>` once to verify the PR's
+  overall state, then act or end the turn. Never in a loop.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
   however is easiest and safest, unless the user asks otherwise.
 
@@ -73,7 +73,7 @@ Each step is a state. Quality and Size skip arrows, never add them.
 | Step | State | Arrows out |
 |---|---|---|
 | 1-2 | Ctx | research and ask on demand, any order, then a plan: 3 |
-| 3 | Prop, Prop', Plan | simplify, alternative, then ask: first or second plan: 4; adjust: 2 |
+| 3 | Prop | simplify, alternative, then ask: first or second plan: 4; adjust: 2 |
 | 4 | DraftPlan | draft PR with the plan: 5 |
 | 5 | Impl | implement: 6 |
 | 6 | Impl' | refactor: 7 |
@@ -98,7 +98,8 @@ the external systems involved, the standards that apply. You plan the topics
 yourself, also when the prompt only names what to research. Launch one
 `subagent_type: researcher` agent per group, in the background, one first and
 the rest after it, as many as your Quality row's Researchers. Its prompt:
-`## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section only. An answer in step
+`state brief researcher`, filled in as `## Callers` in
+`~/.claude/skills/researcher/SKILL.md` says. An answer in step
 2 that opens a new fact gap gets research too, on demand.
 
 ### 2. Interview
@@ -152,8 +153,8 @@ auth, sessions, authorization, databases, secrets or CI, it also states
 `Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
 plan is now visible from the phone. Attach the PR to the session as your
 instructions say (`add_repo`, `subscribe_pr_activity`). POC:
-`gh label create POC --force`, then `gh pr edit <n> --add-label POC`. Start the
-progress file.
+`gh label create POC --force`, then `gh pr edit <n> --add-label POC`. Then
+`state record drafted <PR URL> <base>`.
 
 ### 5. Implement
 
@@ -162,8 +163,8 @@ self-contained slice, because splitting exploring from implementing makes it
 re-read everything. An implementer spawns no agent: split a large task into
 slices up front and spawn each implementer yourself, one after another, or in
 parallel only when they are independent - no shared files, no ordering between
-them. Give each the plan's path, its slice, the targeted checks to run
-(never the full check), the stop rule, the research notes paths and the
+them. Brief each with `state brief implementer`: its slice, the targeted
+checks (never the full check), the research notes paths and the
 sections it needs, and the sha the previous slice started from, if any. One
 that hands back at the context warning gets a successor as
 `references/blockers.md` Resume says, naming its commit and the sha its slice started from. Add
@@ -172,17 +173,17 @@ any security-sensitive topic an implementer reports to the plan's line.
 ### 6. Refactor
 
 Spawn a fresh `subagent_type: refactorer` agent, which has `refactor`
-preloaded, whose prompt is "run `refactor` with: Quality: <mode>" and the stop
-rule, so its reading stays out of your context. Keep only its hand-back. Bring
-its proposals, the bigger refactors past the diff, to the user as one question
-with their scope and payoff: in this PR, a follow-up, or drop. In this PR is a
-re-plan: the decision path in `blockers.md`. Your Quality row's Refactor says
-when this step runs.
+preloaded, briefed with `state brief refactorer`, so its reading stays out of
+your context. Keep only its hand-back. Bring its proposals, the bigger
+refactors past the diff, to the user as one question with their scope and
+payoff: in this PR, a follow-up, or drop. In this PR is a re-plan: the
+decision path in `blockers.md`. Your Quality row's Refactor says when this
+step runs.
 
 ### 7. Review
 
 Round 1, the first review, as `${CLAUDE_SKILL_DIR}/references/review.md`
-says: requirements file, dry run, review-lead, then the rows you pick.
+says: requirements, the spawns `state next` prints, then the rows you pick.
 
 ### 8. Fix and review again
 
@@ -206,18 +207,17 @@ draft, not merge-ready, with no next steps.
 - Wait for CI the non-blocking way your instructions describe. A CI failure or
   a check issue goes through `review.md`'s CI fix, then wait again.
 - Before `gh pr ready`: every review comment on the PR has a reply or a
-  triage, and when the diff touches a workflow, every `secrets.*` it
-  references, `GITHUB_TOKEN` aside, is in `gh secret list`, in
-  `gh secret list --env <env>` for a job with an `environment:`, or in
-  `gh secret list --org <owner>` for an org repository. A missing secret goes
-  to the user.
+  triage; every open decision is triaged as `blockers.md` says; when the
+  diff touches a workflow, every `secrets.*` it references, `GITHUB_TOKEN`
+  aside, is in `gh secret list`, in `gh secret list --env <env>` for a job with
+  an `environment:`, or in `gh secret list --org <owner>` for an org
+  repository. A missing secret goes to the user.
 - On green, mark the PR ready with `gh pr ready <n>` and notify the user the way
   your instructions describe, listing optional next steps, each line ready to
-  paste: `/qa <PR URL>` in a fresh session for a UI or runtime change,
+  paste: `/qa <PR>` in a fresh session for a UI or runtime change,
   `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`, and
   `/address-pr-feedback <PR>` when the PR has comments from anyone else. Only
   the user runs them.
-- Before `gh pr ready`, every open decision is triaged as `blockers.md` says.
 
 ## Delegated
 
@@ -248,8 +248,10 @@ rest of this skill.
   notifications are your caller's.
 - Never call `AskUserQuestion`. Answered and fact blockers you settle inside; a
   decision or scope one, or any decision the rest of this skill sends to the
-  user, goes in your hand-back, with whatever finished, pushed.
-- Your requirements file is the brief's. Your progress file is its report file.
+  user, goes in your hand-back, with whatever finished, pushed, never
+  the decision path. Resumed with the answer, go on where you stopped.
+- Your requirements file is the brief's. Run
+  `state init --notes <dir> --delegated`, and after each step write `state show` to the brief's report file.
 - Start your hand-back with one status, then its usual content plus the last
   finished step and the head SHA:
   - `READY <PR URL>` - step 10's part is done and pushed.

@@ -80,6 +80,8 @@ let
   };
   # `ctx`: the review diff in a cached folder, on PATH in every session.
   ctx = import ./ctx { inherit pkgs; };
+  # `state`: the engineer flow's event log and advice, on PATH beside `ctx`.
+  state = import ./state { inherit pkgs; };
   profiles = import ./profiles {
     inherit (profileLib) mkProfile;
     inherit
@@ -89,6 +91,7 @@ let
       topics
       qa
       ctx
+      state
       ;
   };
 
@@ -122,8 +125,8 @@ in
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format.
   inherit skills;
 
-  # The `ctx` command, the one the base profile's runtime puts on PATH.
-  inherit ctx;
+  # The `ctx` and `state` commands, the ones the base profile's runtime puts on PATH.
+  inherit ctx state;
 
   # The subagent roles, by name, as records. Each agent program renders them its
   # own way.

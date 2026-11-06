@@ -29,6 +29,9 @@ ignore = [
 "just/cache-check/cache_check.py" = ["S603", "S607"]
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "programs/agents/ctx/ctx.py" = ["S603", "S607"]
+"programs/agents/state/effects.py" = ["S603", "S607"]
+# The state tests' shared helper asserts and runs git, as a test does.
+"programs/agents/state/state_fixtures.py" = ["S101", "S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
 [tool.ruff.lint.flake8-tidy-imports]
@@ -51,6 +54,9 @@ pythonpath = [
   "just/cache-check",
   "programs/mutation",
   "programs/agents/ctx",
+  # `state` is a package, imported as `state.core`: its modules' bare names
+  # (core, cli, main) would clash with any other module on this shared path.
+  "programs/agents",
 ]
 testpaths = ["programs", "just"]
 
@@ -82,3 +88,7 @@ root = "programs/mutation"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/ctx"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/agents/state"
+extraPaths = ["programs/agents"]
