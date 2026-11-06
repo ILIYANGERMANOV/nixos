@@ -14,8 +14,8 @@ from pathlib import Path
 
 from cli import HELP, Help, Render, parse_args
 from core import render
+from effects import GitError, execute
 from model import Failure
-from shell import GitError, execute
 
 
 def main(argv: list[str], cwd: Path, stdin: str | None = None) -> int:  # noqa: PLR0911 - one arm per outcome

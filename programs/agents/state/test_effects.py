@@ -31,7 +31,7 @@ COMMANDS = st.sampled_from(
 
 @settings(deadline=None, max_examples=25)
 @given(st.lists(COMMANDS, min_size=1, max_size=8))
-def test_shell_the_log_is_append_only_with_a_dense_seq_from_1(
+def test_effects_the_log_is_append_only_with_a_dense_seq_from_1(
     commands: list[tuple[str, ...]],
 ) -> None:
     with tempfile.TemporaryDirectory() as tmp:

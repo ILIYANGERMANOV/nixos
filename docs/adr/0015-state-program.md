@@ -72,7 +72,7 @@ mechanics, and not for enforcement or for token savings on prose.
   `report.md`; the PR body updates are written from it.
 - **Packaged beside `ctx`.** `programs/agents/state/`: stdlib Python modules,
   pure ones (`model`, `flow`, `core`, `codec`, `cli`) and the effects in
-  `shell`, entered through `main.py`. `default.nix` copies them to the store and
+  `effects`, entered through `main.py`. `default.nix` copies them to the store and
   wraps `main.py` with `PYTHONPATH` as the `state` binary. It is exported from
   `programs/agents/default.nix`, on PATH through the base profile. It names no vendor path. A delegated engineer
   passes its brief's report path, so a run in another worktree keeps its own

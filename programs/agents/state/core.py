@@ -1,5 +1,5 @@
 """Pure: the fold over events, the advice, the hand-back parser, the briefs and
-the views. No effect: the shell reads, this decides, the shell writes."""
+the views. No effect: effects.py reads, this decides, effects.py writes."""
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
