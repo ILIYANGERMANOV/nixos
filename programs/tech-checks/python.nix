@@ -15,12 +15,20 @@ let
       (root + "/pyproject.toml")
       # test_cache_check.py runs the real denylist.
       (root + "/just/cache-check/expensive-builds.deny")
-      # test_state.py holds the prose to `state render` and the stop rule to blockers.md.
-      (root + "/programs/agents/skills/custom/engineer/SKILL.md")
-      (root + "/programs/agents/skills/custom/engineer/references/blockers.md")
-      (root + "/programs/agents/instructions/topics/quality.md")
-      # test_statusline.py holds the statusline to what the old scripts printed.
-      (lib.fileset.fileFilter (file: file.hasExt "py" || file.name == "statusline-corpus.json") root)
+      # By name, not by path: a path into another program breaks Deslop's
+      # programs-are-isolated. test_statusline.py holds the statusline to what
+      # the old scripts printed; test_state.py holds the engineer's SKILL.md to
+      # `state render`, its blockers.md to the stop rule and quality.md to the rows.
+      (lib.fileset.fileFilter (
+        file:
+        file.hasExt "py"
+        || builtins.elem file.name [
+          "statusline-corpus.json"
+          "SKILL.md"
+          "blockers.md"
+          "quality.md"
+        ]
+      ) root)
     ];
   };
 in
