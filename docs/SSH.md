@@ -125,7 +125,8 @@ remove the temp dir
 ```
 
 `~/.ssh` is never written, so restore and rotation need nothing extra. Needs
-OpenSSH >= 10.5p1 (a build-time assertion checks it).
+OpenSSH >= 10.5p1 (a build-time assertion in
+`programs/yubikey-touch-sound` checks it).
 
 Does GitHub mark these signatures **Verified**? Its verifier may insist on the
 touch flag. Check once per host, YubiKey plugged in, from this repository:

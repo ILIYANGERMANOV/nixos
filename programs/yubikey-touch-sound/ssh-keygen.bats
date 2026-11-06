@@ -5,7 +5,7 @@ load ../shell-check/test_helper
 
 setup() {
   export WORK="$BATS_TEST_TMPDIR"
-  export beep=beep openssh_keygen=ssh-keygen no_touch_signing=0
+  export beep=beep openssh_keygen=ssh-keygen no_touch_signing=0 min_openssh=1.2p3
   # Noisy on the streams it must stay off, and it stops only when told to.
   stub beep 'trap "kill \$!; touch \"\$WORK/beep-stopped\"; exit 0" TERM
     echo alert
@@ -144,6 +144,6 @@ no_touch_signer() {
   run keygen -Y sign -n git -f "$WORK/ssh/key.pub"
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"OpenSSH >= 10.5p1"* ]]
+  [[ "$output" == *"OpenSSH >= $min_openssh"* ]]
   [ ! -e "$WORK/signed" ]
 }

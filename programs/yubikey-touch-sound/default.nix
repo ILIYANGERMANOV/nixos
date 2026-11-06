@@ -41,6 +41,9 @@
 let
   shellCheck = import ../shell-check { inherit pkgs; };
 
+  # The first release whose `ssh-keygen -p` takes `-O no-touch-required`.
+  minOpenssh = "10.5p1";
+
   afplay = "/usr/bin/afplay";
   openssh = lib.getExe pkgs.openssh;
   opensshKeygen = lib.getExe' pkgs.openssh "ssh-keygen";
@@ -105,6 +108,7 @@ let
     beep = lib.getExe beep;
     openssh_keygen = opensshKeygen;
     no_touch_signing = if noTouchSigning then "1" else "0";
+    min_openssh = minOpenssh;
   };
 
   # Drop-in ssh-keygen for git (gpg.ssh.program). Signing with a tap has no
@@ -122,6 +126,9 @@ let
     '';
   };
 in
+assert lib.assertMsg (
+  noTouchSigning -> lib.versionAtLeast pkgs.openssh.version minOpenssh
+) "noTouchSigning needs OpenSSH >= ${minOpenssh}, got ${pkgs.openssh.version}.";
 {
   inherit
     ssh

@@ -37,7 +37,7 @@ sign_without_touch() {
   # stdout carries the signature back to git: the -p step's chatter stays off it.
   if ! "$openssh_keygen" -p -O no-touch-required -P "" -N "" -f "$tmp/k" >/dev/null; then
     echo "yubikey-touch-ssh-keygen: could not clear the touch flag on a copy of $key" >&2
-    echo "(ssh-keygen -p -O no-touch-required needs OpenSSH >= 10.5p1)" >&2
+    echo "(ssh-keygen -p -O no-touch-required needs OpenSSH >= $min_openssh)" >&2
     exit 1
   fi
   "$openssh_keygen" "${args[@]}"
