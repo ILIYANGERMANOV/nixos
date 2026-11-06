@@ -274,11 +274,12 @@ class Home:
             }
             _ = base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
-    def report(self, *args: str) -> str:
-        """The report the CLI prints for `args`, run in-process so mutation testing sees it."""
+    def report(self, *args: str, fetch: analyze.Fetch | None = None) -> str:
+        """The report the CLI prints for `args`, run in-process so mutation testing sees it.
+        `fetch` answers for `gh` under `--gh`."""
         out = io.StringIO()
         with redirect_stdout(out):
-            analyze.main(["--root", str(self.root), *args])
+            analyze.main(["--root", str(self.root), *args], fetch)
         return out.getvalue()
 
     def cli_report(self, *args: str) -> str:
@@ -2048,6 +2049,162 @@ class TestQualityModes:
         home.session("s1", idle_main())
         # When / Then
         assert "Not counted: a PR opened in another session" in home.report()
+
+
+def linked(main: Transcript, t: float, number: int, repo: str = "o/demo") -> Transcript:
+    """A PR link line, written twice as Claude Code does."""
+    for _ in range(2):
+        _ = main.event(
+            t,
+            "pr-link",
+            prNumber=number,
+            prUrl=f"https://github.com/{repo}/pull/{number}",
+            prRepository=repo,
+        )
+    return main
+
+
+@dataclass
+class FakeGh:
+    """`gh pr view` over in-memory PR sizes; an unknown PR fails as gh does."""
+
+    sizes: dict[tuple[str, int], tuple[int, int]]
+
+    def __call__(self, repo: str, number: int) -> analyze.PrSize | analyze.GhFailed:
+        match self.sizes.get((repo, number)):
+            case (additions, deletions):
+                return analyze.PrSize(additions, deletions)
+            case None:
+                return analyze.GhFailed("GraphQL: Could not resolve to a PullRequest")
+
+
+class TestPerPr:
+    def test_a_twice_linked_pr_is_one_row_with_its_session_s_cost(
+        self, home: Home
+    ) -> None:
+        # Given: an engineer session of 10 minutes with two subagents
+        main = linked(Transcript().human(0, "go").reply(1, COSTS_1K), 300, 336)
+        _ = main.reply(600)
+        home.session(
+            "s1",
+            main,
+            {
+                "a": (
+                    "implementer",
+                    "I",
+                    subagent("Quality: Max\nSize: Normal", COSTS_1K),
+                ),
+                "b": ("researcher", "R", subagent("Quality: Max", COSTS_1K)),
+                "c": ("implementer", "I2", subagent("Quality: Max\nSize: Normal")),
+            },
+        )
+        # When
+        cells = row(home.report(), "per-pr", "demo#336")
+        # Then
+        assert cells[1:] == [
+            "1",
+            "Max, Size: Normal",
+            "10m",
+            "3k/0/0/0",
+            "3k",
+            "implementer 2, researcher 1",
+            "-",
+            "-",
+        ]
+
+    def test_follow_up_sessions_on_one_pr_add_up(self, home: Home) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 7))
+        home.session("s2", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 7))
+        home.session("s3", idle_main())
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "per-pr", "demo#7")[1:2] == ["2"]
+        headline = {slug: text for slug, _, text in index_rows(report)}["per-pr"]
+        assert headline == "1 PRs, top demo#7 2k"
+
+    def test_gh_gives_changed_lines_and_cost_per_line(self, home: Home) -> None:
+        # Given: 10k effective over two PRs of 60 and 40 changed lines
+        main = Transcript().human(0, "go").reply(1, {"input_tokens": 10_000})
+        home.session("s1", linked(linked(main, 2, 1), 3, 2))
+        gh = FakeGh({("o/demo", 1): (50, 10), ("o/demo", 2): (30, 10)})
+        # When
+        cells = row(home.report("--gh", fetch=gh), "per-pr", "demo#1 demo#2")
+        # Then
+        assert cells[-2:] == ["+80/-20", "100"]
+
+    def test_a_pr_gh_cannot_see_is_marked_and_named(self, home: Home) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1), 2, 9))
+        # When
+        report = home.report("--gh", fetch=FakeGh({}))
+        # Then
+        assert row(report, "per-pr", "demo#9")[-2:] == ["?", "-"]
+        assert "gh failed for demo#9: GraphQL: Could not resolve" in section(
+            report, "per-pr"
+        )
+
+
+class TestStateCtx:
+    def test_calls_count_per_subcommand_inside_chains(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, "cd /w && state next", 2)
+        _ = main.bash(3, "state record size Normal >/dev/null; state next", 4)
+        _ = main.bash(5, "ctx diff origin/main | head", 6)
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state next")[1:3] == ["2", "0"]
+        assert row(report, "state-ctx", "state record")[1:3] == ["1", "0"]
+        assert row(report, "state-ctx", "ctx diff")[1:3] == ["1", "0"]
+
+    def test_prose_and_heredoc_bodies_are_not_calls(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, 'git commit -m "state the next step; ctx diff later"', 2)
+        _ = main.bash(3, "state handback implementer <<'EOF'\nstate next\nEOF", 4)
+        home.session("s1", main)
+        # When
+        rows = section(home.report(), "state-ctx").splitlines()
+        # Then
+        assert [r.split("|")[0] for r in rows[1:3]] == ["state handback", "overrides:"]
+
+    def test_a_failed_call_counts_with_its_error(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state handback implementer",
+            2,
+            outcome=Outcome(
+                "Exit code 2\nerror: line 1 starts with 'Done'", error=True
+            ),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state handback")[1:] == [
+            "1",
+            "1",
+            "error: line N starts with 'Done'",
+        ]
+
+    def test_overrides_count_by_target_with_the_latest_why(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, 'state override Impl "skip the plan"', 2)
+        _ = main.bash(3, "state override \\\n  Impl 'the plan was done'", 4)
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "Impl") == ["Impl", "2", "'the plan was done'"]
+        headline = {slug: text for slug, _, text in index_rows(report)}["state-ctx"]
+        assert headline == "2 calls, 0 failed, 2 overrides"
 
 
 class TestStartUp:

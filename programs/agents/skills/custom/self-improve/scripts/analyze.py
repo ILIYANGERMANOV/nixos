@@ -3,10 +3,10 @@
 quality loop bought for them, and how agents talk to each other.
 
 Reads the transcripts under ~/.claude/projects and prints a compact markdown
-report for an agent to read. Offline and read-only: it never calls `gh`.
-Standard library only.
+report for an agent to read. Read-only, and offline unless `--gh` asks
+`gh pr view` for each linked PR's changed lines. Standard library only.
 
-Usage: analyze.py [--since ISO] [--project SUBSTR] [--compare ISO] [--root DIR]
+Usage: analyze.py [--since ISO] [--project SUBSTR] [--compare ISO] [--gh] [--root DIR]
 
 Without --since the window starts at the previous /self-improve invocation,
 or covers everything when there is none. The latest invocation is the run
@@ -21,6 +21,7 @@ import json
 import math
 import re
 import statistics
+import subprocess
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
@@ -31,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, NewType, assert_never, cast, override
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Sequence
 
 TOP = 8  # rows per table, which keeps the report near 15 KB
 INPUT_WEIGHT = 1
@@ -62,17 +63,22 @@ ResponseKey = NewType("ResponseKey", str)  # the message id, else the request id
 type ReadBound = int | str | None  # a Read's offset or limit, a string as sent
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None, fetch: Fetch | None = None) -> None:
+    """`fetch` stands in for `gh` under `--gh`, so tests stay offline."""
     args = parse_args(argv)
     sessions = load_sessions(args.root)
     window = select_window(sessions, args.since, args.project)
-    print(render(window, describe_window(window.since, args.project), args.compare))
+    sizes = (fetch or gh_pr_size) if args.gh else None
+    print(
+        render(window, describe_window(window.since, args.project), args.compare, sizes)
+    )
 
 
 class Args(argparse.Namespace):
     since: datetime | None = None
     project: str | None = None
     compare: datetime | None = None
+    gh: bool = False
     root: Path = Path.home() / ".claude" / "projects"
 
 
@@ -90,6 +96,11 @@ def parse_args(argv: Sequence[str] | None) -> Args:
     )
     _ = parser.add_argument(
         "--compare", type=utc_time, help="ISO date or time to split the window at"
+    )
+    _ = parser.add_argument(
+        "--gh",
+        action="store_true",
+        help="ask gh for each linked PR's changed lines (network)",
     )
     _ = parser.add_argument(
         "--root",
@@ -369,6 +380,18 @@ class Prompt:
     commands: list[str]
 
 
+@dataclass(frozen=True, slots=True)
+class PrLink:
+    """A pull request the session opened or worked on, as Claude Code links it."""
+
+    repo: str  # owner/name
+    number: int
+
+    @override
+    def __str__(self) -> str:
+        return f"{self.repo.rsplit('/', 1)[-1]}#{self.number}"
+
+
 @dataclass
 class Session:
     id: SessionId
@@ -383,6 +406,7 @@ class Session:
     human_wait: float  # seconds the session sat waiting on the person
     main: Agent
     subagents: list[Agent]
+    prs: list[PrLink]  # distinct, in link order
 
     @property
     def agents(self) -> list[Agent]:
@@ -497,6 +521,7 @@ class Transcript:
     invocations: list[float] = field(default_factory=list)
     prompts: list[Prompt] = field(default_factory=list)
     human_gaps: list[Interval] = field(default_factory=list)  # before each human prompt
+    prs: list[PrLink] = field(default_factory=list)  # in link order, repeats kept
     cwd: str = ""
 
 
@@ -573,6 +598,11 @@ class AttachmentLine:
 
 
 @dataclass(frozen=True, slots=True)
+class PrLinkLine:
+    link: PrLink
+
+
+@dataclass(frozen=True, slots=True)
 class OtherLine:
     """A line of a type nothing reads: it only moves the clock."""
 
@@ -583,6 +613,7 @@ type LineBody = (
     | UserLine
     | NotificationLine
     | AttachmentLine
+    | PrLinkLine
     | OtherLine
 )
 
@@ -649,6 +680,8 @@ def load_session(path: Path, until: float | None = None) -> Session | None:
         ),
         main=main.agent,
         subagents=[s.agent for s in subs],
+        # Claude Code writes each link twice.
+        prs=list(dict.fromkeys(main.prs + [p for s in subs for p in s.prs])),
     )
 
 
@@ -724,7 +757,7 @@ def subtract(interval: Interval, merged: list[Interval]) -> Iterator[Interval]:
         yield start, end
 
 
-def parse_transcript(
+def parse_transcript(  # noqa: C901 - one arm per line type
     path: Path, kind: str, description: str, until: float | None
 ) -> Transcript:
     agent_id = AgentId(path.stem.removeprefix("agent-"))
@@ -749,6 +782,8 @@ def parse_transcript(
                 record_notifications(calls, prompt, line.at)
                 if not responses:
                     record_startup(out.agent, startup)
+            case PrLinkLine(link):
+                out.prs.append(link)
             case OtherLine():
                 pass
             case _:
@@ -843,7 +878,7 @@ def parse_line(event: dict[str, Json]) -> Line | None:
     return Line(ts, text_of(event.get("cwd")), parse_body(event))
 
 
-def parse_body(event: dict[str, Json]) -> LineBody:
+def parse_body(event: dict[str, Json]) -> LineBody:  # noqa: PLR0911 - one return per line type
     message = as_object(event.get("message"))
     content = message.get("content")
     match event.get("type"):
@@ -869,6 +904,16 @@ def parse_body(event: dict[str, Json]) -> LineBody:
             return AttachmentLine(
                 str(attachment.get("prompt") or ""), parse_startup_part(attachment)
             )
+        case "pr-link":
+            return parse_pr_link(event)
+        case _:
+            return OtherLine()
+
+
+def parse_pr_link(event: dict[str, Json]) -> PrLinkLine | OtherLine:
+    match event.get("prRepository"), event.get("prNumber"):
+        case str(repo), int(number):
+            return PrLinkLine(PrLink(repo, number))
         case _:
             return OtherLine()
 
@@ -1150,6 +1195,8 @@ class Step:
 
 
 SUBCOMMANDS = {
+    "state": 1,
+    "ctx": 1,
     "just": 1,
     "nix": 2,
     "git": 1,
@@ -1634,6 +1681,48 @@ def prs_opened(agents: list[Agent]) -> int:
     )
 
 
+# --- Pull requests -----------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PrSize:
+    additions: int
+    deletions: int
+
+
+@dataclass(frozen=True, slots=True)
+class GhFailed:
+    reason: str  # gh's first error line
+
+
+type Fetch = Callable[[str, int], PrSize | GhFailed]
+
+
+def gh_pr_size(repo: str, number: int) -> PrSize | GhFailed:
+    """The PR's changed lines, as GitHub counts them, from `gh` on the network."""
+    command = ["gh", "pr", "view", str(number), "-R", repo]
+    run = subprocess.run(  # noqa: S603 - gh from PATH as the person runs it; no shell
+        [*command, "--json", "additions,deletions"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if run.returncode != 0:
+        return GhFailed(signature(run.stderr))
+    raw = as_object(parse_json(run.stdout))
+    return PrSize(token_count(raw.get("additions")), token_count(raw.get("deletions")))
+
+
+def pr_groups(sessions: list[Session]) -> dict[tuple[PrLink, ...], list[Session]]:
+    """Sessions by the PRs they link: follow-up sessions on one PR share its group,
+    and a session linking several PRs is one group, as its cost cannot be split."""
+    groups: dict[tuple[PrLink, ...], list[Session]] = defaultdict(list)
+    for s in sessions:
+        if s.prs:
+            groups[tuple(s.prs)].append(s)
+    return groups
+
+
 # --- Reviews -----------------------------------------------------------------
 
 RUN_BY_MAIN = "run by main"
@@ -1976,7 +2065,9 @@ class Section:
     body: list[str]
 
 
-def render(window: Window, scope: str, split: datetime | None) -> str:
+def render(
+    window: Window, scope: str, split: datetime | None, fetch: Fetch | None
+) -> str:
     sessions = window.sessions
     agents = [(s, a) for s in sessions for a in s.agents]
     calls = [(s, a, c) for s, a in agents for c in a.calls]
@@ -1987,6 +2078,7 @@ def render(window: Window, scope: str, split: datetime | None) -> str:
         costliest_agents(agents),
         skills(agents),
         quality_costs(sessions),
+        per_pr(sessions, fetch),
         loop_steps(sessions),
         *cache_rewrites_sections(sessions),
         *review_yield(sessions),
@@ -1995,6 +2087,7 @@ def render(window: Window, scope: str, split: datetime | None) -> str:
         largest_results(calls),
         tool_times(calls),
         bash_commands(calls),
+        state_ctx(calls),
         *checks_sections(sessions),
         polling(calls),
         failures(calls),
@@ -2216,6 +2309,98 @@ def quality_cells(parts: list[list[Agent]]) -> list[str]:
         kilo(effective(agents)),
         median,
     ]
+
+
+def per_pr(sessions: list[Session], fetch: Fetch | None) -> Section:
+    groups = pr_groups(sessions)
+    ranked = sorted(
+        groups.items(), key=lambda kv: -effective(a for s in kv[1] for a in s.agents)
+    )
+    rows: list[list[str]] = []
+    failures: list[str] = []
+    for links, group in ranked[:12]:
+        agents = [a for s in group for a in s.agents]
+        name = " ".join(map(str, links))
+        size = changed_lines(links, fetch)
+        match size:
+            case GhFailed(reason):
+                failures.append(f"gh failed for {name}: {reason}")
+            case PrSize() | None:
+                pass
+        rows.append(
+            [
+                name,
+                str(len(group)),
+                "; ".join(
+                    dict.fromkeys(quality_label(session_quality(s)) for s in group)
+                ),
+                minutes(sum(s.wall for s in group)),
+                tokens(total(a.usage for a in agents)),
+                kilo(effective(agents)),
+                roles([a.kind for s in group for a in s.subagents]),
+                size_cell(size),
+                per_line(effective(agents), size),
+            ]
+        )
+    header = [
+        "PR",
+        "sessions",
+        "mode",
+        "wall",
+        "tokens",
+        "effective",
+        "agents",
+        "changed lines",
+        "effective per line",
+    ]
+    return Section(
+        "per-pr",
+        f"{len(groups)} PRs, {lead(rows, 0, 5)}",
+        [*ranked_table(header, rows, len(ranked)), *failures],
+    )
+
+
+type LinesOf = PrSize | GhFailed | None  # None: offline, no `--gh`
+
+
+def changed_lines(links: tuple[PrLink, ...], fetch: Fetch | None) -> LinesOf:
+    """The links' summed size, else the first failure."""
+    if fetch is None:
+        return None
+    summed = PrSize(0, 0)
+    for link in links:
+        match fetch(link.repo, link.number):
+            case GhFailed() as failed:
+                return failed
+            case PrSize(additions, deletions):
+                summed = PrSize(
+                    summed.additions + additions, summed.deletions + deletions
+                )
+    return summed
+
+
+def size_cell(size: LinesOf) -> str:
+    match size:
+        case PrSize(additions, deletions):
+            return f"+{additions}/-{deletions}"
+        case GhFailed():
+            return "?"
+        case None:
+            return "-"
+
+
+def per_line(cost: float, size: LinesOf) -> str:
+    """Effective tokens per changed line, additions plus deletions."""
+    match size:
+        case PrSize(additions, deletions) if additions + deletions:
+            return kilo(cost / (additions + deletions))
+        case PrSize() | GhFailed() | None:
+            return "-"
+
+
+def roles(kinds: list[str]) -> str:
+    """Subagents per type, most first: `implementer 2, researcher 1`."""
+    return ", ".join(f"{k} {n}" for k, n in Counter(kinds).most_common()) or "-"
 
 
 def loop_steps(sessions: list[Session]) -> Section:
@@ -2662,6 +2847,53 @@ def bash_commands(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
     return Section(
         "bash-times", lead(rows, 0, 2, 4), ranked_table(header, rows, len(ranked))
     )
+
+
+STATE_TOOLS = {"state", "ctx"}
+
+
+def state_ctx(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
+    """`state` and `ctx` steps by subcommand; a failed Bash call fails each step in it."""
+    groups: dict[str, list[Outcome]] = defaultdict(list)
+    overrides: dict[str, list[str]] = defaultdict(list)  # target state: whys
+    for c, command in bash_runs(c for _, _, c in calls):
+        for s in steps(command):
+            if s.name.split()[0] in STATE_TOOLS:
+                groups[s.name].append(c.outcome)
+            match s.name, s.text.split(maxsplit=3):
+                case "state override", [_, _, target, why]:
+                    overrides[target].append(why)
+                case _:
+                    pass
+    ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+    rows = [state_ctx_row(name, outcomes) for name, outcomes in ranked]
+    override_rows = [
+        [target, str(len(whys)), clip(whys[-1], 80)]
+        for target, whys in sorted(overrides.items(), key=lambda kv: -len(kv[1]))
+    ]
+    n_calls = sum(len(os) for os in groups.values())
+    n_failed = sum(isinstance(o, Failed) for os in groups.values() for o in os)
+    n_overrides = sum(len(whys) for whys in overrides.values())
+    return Section(
+        "state-ctx",
+        f"{n_calls} calls, {n_failed} failed, {n_overrides} overrides",
+        [
+            *table(["command", "calls", "failed", "top failure"], rows),
+            "overrides:",
+            *table(["to", "n", "latest why"], override_rows),
+        ],
+    )
+
+
+def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
+    failed = [o.signature for o in outcomes if isinstance(o, Failed)]
+    top = Counter(failed).most_common(1)
+    return [
+        name,
+        str(len(outcomes)),
+        str(len(failed)),
+        clip(top[0][0], 80) if top else "-",
+    ]
 
 
 def checks_sections(sessions: list[Session]) -> list[Section]:
