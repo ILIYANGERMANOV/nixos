@@ -14,12 +14,23 @@ let
   # declaration was written: the module system merges every definition into one
   # attrset and erases its origin, so "declared in a host file" is not
   # information that survives to evaluation time.
+  #
+  # `builtins.path` copies only the ciphertext file into the store: an
+  # interpolated "${root}/..." would reference the whole flake source, so any
+  # commit, even docs-only, would change every host's drvPath. Paths only:
+  # decrypted values never enter the store.
   fileFor =
     scope:
     if scope == "global" then
-      "${root}/secrets/common.yaml"
+      builtins.path {
+        path = "${root}/secrets/common.yaml";
+        name = "common.yaml";
+      }
     else
-      "${root}/secrets/hosts/${config.networking.hostName}.yaml";
+      builtins.path {
+        path = "${root}/secrets/hosts/${config.networking.hostName}.yaml";
+        name = "${config.networking.hostName}.yaml";
+      };
 
   # sops-nix places neededForUsers secrets in /run/secrets-for-users before any
   # user account exists, so they must stay root-owned; passing owner/mode there

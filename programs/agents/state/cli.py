@@ -3,6 +3,7 @@ event table."""
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from difflib import get_close_matches
 from pathlib import Path
 
 from state.codec import (
@@ -126,7 +127,10 @@ Hand-backs   roles: {" ".join(WORKERS)}
   --kind {KIND.shown}   the triage of a question; a
                                          `plan wrong:` or `stuck:` one is a decision
   --touches <area>...                    fixer: what its fix touched
-  review-lead: its `Reviewed head: <sha>` line; --row and --verdict as reviewed
+  --head <sha>                           the worker's head: over HEAD, and over
+                                         a review-lead's `Reviewed head: <sha>` line
+  review-lead: --head or that line; --row and --verdict as reviewed; stdin
+                                         may be the status line alone
 Brief roles  {" ".join(ROLES)}
 States       {" ".join(STATES)}
 
@@ -136,6 +140,8 @@ Output (stdout)
   record   recorded <seq> <event> -> <state>, one line per event appended
 The run's notes directory is the one `state init` last named in this worktree.
 Exit     0 ok  2 bad usage, bad log line or unexpected event  1 git or disk failure
+An event that is not an arrow here is refused; its fix: line names the arrows
+here and the override that makes it one.
 Errors go to stderr with a fix: line. The log is append-only; nothing rewrites it.
 """
 
@@ -285,15 +291,26 @@ def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:
                 )
             return event
         case _:
-            return usage(f"record: no event '{name}'", "state --help lists the events")
+            return usage(f"record: no event '{name}'", did_you_mean(name))
+
+
+def did_you_mean(name: str) -> str:
+    recordable = [n for n, spec in EVENTS.items() if spec.recordable]
+    match get_close_matches(name, recordable, n=1):
+        case [found]:
+            return f"did you mean: state record {usage_of(found, EVENTS[found])}"
+        case _:
+            return "state --help lists the events"
 
 
 def parse_options(opts: list[str]) -> HandbackOptions | Failure:
     try:
         reader = ArgvFields(opts, None)
         kinds = reader.many(Option("kind", "--kind", "kind", KIND))
+        heads = reader.many(Option("head", "--head", "sha", TEXT))
         options = HandbackOptions(
             kinds[0] if kinds else None,
+            heads[-1] if heads else None,
             reader.many(TOUCHES),
             reader.many(ROWS),
             reader.many(VERDICTS),
