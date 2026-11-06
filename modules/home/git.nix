@@ -3,12 +3,17 @@
   pkgs,
   lib,
   userConfig,
+  osConfig,
   ...
 }:
 let
   # macOS-only: make the YubiKey touch request audible, since the LED is
   # unreadable in bright light. Linux keeps the plain OpenSSH binaries.
-  touchSound = import "${root}/programs/yubikey-touch-sound" { inherit pkgs lib; };
+  # Read only on darwin, the one platform that declares the option.
+  touchSound = import "${root}/programs/yubikey-touch-sound" {
+    inherit pkgs lib;
+    inherit (osConfig.myConfig.yubikey) noTouchSigning;
+  };
 
   sshCommand = if pkgs.stdenv.isDarwin then lib.getExe touchSound.ssh else lib.getExe pkgs.openssh;
   sshKeygenCommand =
