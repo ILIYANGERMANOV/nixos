@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 # ---- Vocabulary ---------------------------------------------------------------
 
@@ -63,6 +63,7 @@ ROLES: tuple[Role, ...] = (
     "implementer", "refactorer", "fixer", "review-lead", "reviewer", "researcher", "checker",
 )  # fmt: skip
 WORKERS: tuple[Worker, ...] = ("implementer", "refactorer", "fixer", "review-lead")
+KNOBS: tuple[Knob, ...] = ("quality", "size")
 DEFAULT_QUALITY: Mode = "Balanced"
 DEFAULT_SIZE: SizeName = "Normal"
 DEFAULTS: dict[Knob, str] = {"quality": DEFAULT_QUALITY, "size": DEFAULT_SIZE}
@@ -209,6 +210,183 @@ type Event = (
     | Confirmed | Adjusted | Drafted | Implemented | Refactored | Reviewed | Fixed | Ci
     | Blocked | Resolved | Overridden | Ready
 )  # fmt: skip
+
+# ---- The event table ----------------------------------------------------------
+
+# Each event is described once below: its fields, read in its command-line
+# order, each with its Codec. Three readers interpret that description: JSON
+# (the log, both ways), the command line (`state record`) and the usage (HELP).
+
+
+class BadFieldError(Exception):
+    """A field that is not what its event says; caught where it is read."""
+
+
+@dataclass(frozen=True)
+class Codec[T]:
+    """A field type: read from JSON, parsed from an argument, shown in usage."""
+
+    decode: Callable[[str, Json], T]
+    parse: Callable[[str, str], T]
+    shown: str | None  # the usage word; None shows `<name>`
+    sample: T  # any valid value: what the usage reader returns
+
+
+@dataclass(frozen=True)
+class Option[T]:
+    """A field given as repeated `--flag <meta>` options; a JSON list."""
+
+    name: str
+    flag: str
+    meta: str
+    codec: Codec[T]
+
+
+class Fields(Protocol):
+    def one[T](self, name: str, codec: Codec[T]) -> T: ...
+
+    def optional[T](self, name: str, codec: Codec[T], default: T) -> T: ...
+
+    def head(self) -> str:
+        """The commit a field names; left out on the command line, HEAD."""
+        ...
+
+    def many[T](self, option: Option[T]) -> tuple[T, ...]: ...
+
+    def constant(self, name: str, value: Json) -> None:
+        """A JSON-only field derived from the others, kept so a reader sees it."""
+        ...
+
+
+@dataclass(frozen=True)
+class Spec:
+    read: Callable[[Fields], Event]
+    # False: another command writes it (`init`, a draft PR's defaults, `override`).
+    recordable: bool = True
+
+
+def a_text(key: str, value: Json) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise BadFieldError(f"{key} is not a non-empty string")
+    return value
+
+
+def a_count(key: str, value: Json) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise BadFieldError(f"{key} is not a positive integer")
+    return value
+
+
+def parse_count(key: str, value: str) -> int:
+    return a_count(key, int(value) if value.isdigit() else None)
+
+
+def a_flag(key: str, value: Json) -> bool:
+    if not isinstance(value, bool):
+        raise BadFieldError(f"{key} is not true or false")
+    return value
+
+
+def choice[L: str](choices: tuple[L, ...], *, listed: bool = True) -> Codec[L]:
+    def one_of(key: str, value: Json) -> L:
+        match pick(a_text(key, value), choices):
+            case None:
+                raise BadFieldError(
+                    f"{key} '{value}' is not one of {', '.join(choices)}"
+                )
+            case found:
+                return found
+
+    return Codec(one_of, one_of, "|".join(choices) if listed else None, choices[0])
+
+
+def pick[L: str](value: str, choices: Sequence[L]) -> L | None:
+    return next((c for c in choices if c == value), None)
+
+
+def a_verdict(key: str, value: Json) -> Verdict:
+    obj = an_object(value, f"a {key} item")
+    return Verdict(
+        a_text("requirement", obj.get("requirement")),
+        OUTCOME.decode("outcome", obj.get("outcome")),
+    )
+
+
+def parse_verdict(_key: str, value: str) -> Verdict:
+    requirement, _, outcome = value.rpartition("=")
+    return Verdict(
+        a_text("requirement", requirement), OUTCOME.parse("outcome", outcome)
+    )
+
+
+def an_object(value: Json, what: str) -> dict[str, Json]:
+    if not isinstance(value, dict):
+        raise BadFieldError(f"{what} is not a JSON object")
+    return value
+
+
+TEXT = Codec(a_text, a_text, None, "x")
+COUNT = Codec(a_count, parse_count, None, 1)
+FLAG = Codec(a_flag, a_flag, None, sample=False)
+# Annotated: with no expected type, pyright solves a choice's literals as str.
+KIND: Codec[BlockerKind] = choice(BLOCKER_KINDS)
+OUTCOME: Codec[Outcome] = choice(OUTCOMES)
+VERDICT = Codec(
+    a_verdict, parse_verdict, f"<requirement>={OUTCOME.shown}", Verdict("x", "met")
+)
+ROWS = Option("rows", "--row", "label", TEXT)
+VERDICTS = Option("verdicts", "--verdict", "verdict", VERDICT)
+TOUCHES: Option[Area] = Option("touches", "--touches", "area", choice(AREAS))
+FAILING = Option("failing", "--failing", "check", TEXT)
+
+
+def read_defaulted(f: Fields) -> Defaulted:
+    knob: Knob = f.one("knob", choice(KNOBS))
+    f.constant("value", DEFAULTS[knob])
+    return Defaulted(knob)
+
+
+# Keys are `name_of` each event; the readers take fields in the order read.
+EVENTS: dict[str, Spec] = {
+    "started": Spec(
+        lambda f: Started(f.one("notes", TEXT), f.one("delegated", FLAG)),
+        recordable=False,
+    ),
+    "quality": Spec(lambda f: Quality(f.one("mode", choice(MODES)))),
+    "size": Spec(lambda f: Size(f.one("size", choice(SIZES)))),
+    "grew": Spec(lambda f: Grew(f.one("why", TEXT))),
+    "defaulted": Spec(read_defaulted, recordable=False),
+    "researched": Spec(lambda f: Researched(f.optional("n", COUNT, 1))),
+    "asked": Spec(lambda f: Asked(f.optional("n", COUNT, 1))),
+    "planned": Spec(lambda f: Planned(f.one("path", TEXT))),
+    "proposed": Spec(lambda f: Proposed(f.one("mode", choice(PROPOSAL_MODES)))),
+    "confirmed": Spec(lambda _: Confirmed()),
+    "adjusted": Spec(lambda _: Adjusted()),
+    "drafted": Spec(lambda f: Drafted(f.one("pr", COUNT), f.one("base", TEXT))),
+    "implemented": Spec(lambda f: Implemented(f.head())),
+    "refactored": Spec(lambda f: Refactored(f.head())),
+    "reviewed": Spec(
+        lambda f: Reviewed(f.one("head", TEXT), f.many(ROWS), f.many(VERDICTS))
+    ),
+    "fixed": Spec(lambda f: Fixed(f.head(), f.many(TOUCHES))),
+    "ci": Spec(lambda f: Ci(f.head(), f.many(FAILING))),
+    # Keywords, evaluated left to right: the command line takes kind, role, question.
+    "blocked": Spec(
+        lambda f: Blocked(
+            kind=f.one("kind", KIND),
+            role=f.one("role", choice(ROLES, listed=False)),
+            question=f.one("question", TEXT),
+        )
+    ),
+    "resolved": Spec(
+        lambda f: Resolved(f.one("question", TEXT), f.one("answer", TEXT))
+    ),
+    "overridden": Spec(
+        lambda f: Overridden(f.one("to", choice(STATES)), f.one("why", TEXT)),
+        recordable=False,
+    ),
+    "ready": Spec(lambda f: Ready(f.one("pr", COUNT))),
+}
 
 # ---- State --------------------------------------------------------------------
 
@@ -444,7 +622,63 @@ def r0_text(base: str) -> str:
     )
 
 
-HELP = """\
+class UsageFields:
+    """Reads no value: records each field's usage word, returns a sample."""
+
+    def __init__(self) -> None:
+        self.words: list[str] = []
+
+    def one[T](self, name: str, codec: Codec[T]) -> T:
+        self.words.append(codec.shown or f"<{name}>")
+        return codec.sample
+
+    def optional[T](self, name: str, codec: Codec[T], default: T) -> T:
+        _ = codec
+        self.words.append(f"[<{name}>]")
+        return default
+
+    def head(self) -> str:
+        self.words.append("[<head>]")
+        return TEXT.sample
+
+    def many[T](self, option: Option[T]) -> tuple[T, ...]:
+        self.words.append(
+            f"[{option.flag} {option.codec.shown or f'<{option.meta}>'}]..."
+        )
+        return ()
+
+    def constant(self, name: str, value: Json) -> None:
+        _ = name, value
+
+
+def usage_of(name: str, spec: Spec) -> str:
+    fields = UsageFields()
+    _ = spec.read(fields)
+    return " ".join((name, *fields.words))
+
+
+COLUMNS = (30, 26, 26)  # the event grid of HELP; a wider usage gets a line
+
+
+def grid(cells: Iterable[str]) -> str:
+    rows: list[list[str]] = []
+    for cell in cells:
+        match rows:
+            case [*_, last] if len(last) < len(COLUMNS) and all(
+                len(c) < width for c, width in zip([*last, cell], COLUMNS, strict=False)
+            ):
+                last.append(cell)
+            case _:
+                rows.append([cell])
+    return "".join(
+        "  "
+        + "".join(c.ljust(w) for c, w in zip(row, COLUMNS, strict=False)).rstrip()
+        + "\n"
+        for row in rows
+    )
+
+
+HELP = f"""\
 state - record the engineer flow as events; advise the next arrow
 
   state init --notes <dir> [--delegated]   start a run: <dir>/events.jsonl
@@ -457,25 +691,18 @@ state - record the engineer flow as events; advise the next arrow
   state render                             the skill's States block and Quality rows
 
 Events
-  quality POC|Balanced|Max      size Trivial|Normal       grew <why>
-  researched [<n>]              asked [<n>]               planned <path>
-  proposed simplify|alternative confirmed                 adjusted
-  drafted <pr> <base>           implemented [<head>]      refactored [<head>]
-  reviewed <head> [--row <label>]... [--verdict <requirement>=met|not-met|unverified]...
-  fixed [<head>] [--touches data-model|auth|interface]...
-  ci [<head>] [--failing <check>]...         no --failing: green
-  blocked answered|fact|decision|scope <role> <question>
-  resolved <question> <answer>  ready <pr>
+{grid(usage_of(name, spec) for name, spec in EVENTS.items() if spec.recordable)}\
   <head> omitted: HEAD. A row's label stays the same for the same finding.
+  ci with no --failing: green.
 
-Hand-backs   roles: implementer refactorer fixer review-lead
+Hand-backs   roles: {" ".join(WORKERS)}
   line 1 READY | NEEDS_DECISION <q> | GREW <why> | BLOCKED <r> | FAILED <r>
-  --kind answered|fact|decision|scope   the triage of a question; a
+  --kind {KIND.shown}   the triage of a question; a
                                          `plan wrong:` or `stuck:` one is a decision
   --touches <area>...                    fixer: what its fix touched
   review-lead: its `Reviewed head: <sha>` line; --row and --verdict as reviewed
-Brief roles  implementer refactorer fixer review-lead reviewer researcher checker
-States       Ctx Prop DraftPlan Impl Impl' ImplR Impl'' DraftPR PR Done
+Brief roles  {" ".join(ROLES)}
+States       {" ".join(STATES)}
 
 Output (stdout)
   next     line 1 the advice alone: SPAWN <role> | ASK <what> | WAIT <what> |
@@ -485,7 +712,6 @@ The run's notes directory is the one `state init` last named in this worktree.
 Exit     0 ok  2 bad usage, bad log line or unexpected event  1 git or disk failure
 Errors go to stderr with a fix: line. The log is append-only; nothing rewrites it.
 """
-
 
 # ---- Folding ------------------------------------------------------------------
 
@@ -1665,10 +1891,6 @@ class Line:
     event: Event
 
 
-class BadFieldError(Exception):
-    """A field that is not what its event says; caught at the line it is on."""
-
-
 def parse_log(text: str, path: Path) -> list[Line] | Failure:
     """Strict JSON Lines: every line one object, `\\n`-terminated, `seq` dense
     from 1. A bad line is an error naming it, never skipped."""
@@ -1723,22 +1945,25 @@ def encode_line(line: Line) -> str:
 
 
 def encode_event(event: Event) -> dict[str, Json]:
-    encoded: dict[str, Json] = {"type": name_of(event)}
-    for f in fields(event):
-        value = cast("object", getattr(event, f.name))
-        encoded[f.name] = (
-            [
-                {"requirement": v.requirement, "outcome": v.outcome}
-                for v in event.verdicts
-            ]
-            if isinstance(event, Reviewed) and f.name == "verdicts"
-            else list(cast("tuple[str, ...]", value))
-            if isinstance(value, tuple)
-            else cast("Json", value)
-        )
-    if isinstance(event, Defaulted):
-        encoded["value"] = DEFAULTS[event.knob]
-    return encoded
+    """The event's fields under their names, checked and completed by its read."""
+    obj: dict[str, Json] = {"type": name_of(event)}
+    obj.update(
+        (f.name, to_json(cast("object", getattr(event, f.name)))) for f in fields(event)
+    )
+    reader = JsonFields(obj, writing=True)
+    _ = EVENTS[name_of(event)].read(reader)
+    reader.done(f"event {name_of(event)}")
+    return obj
+
+
+def to_json(value: object) -> Json:
+    match value:
+        case Verdict(requirement=requirement, outcome=outcome):
+            return {"requirement": requirement, "outcome": outcome}
+        case tuple():
+            return [to_json(v) for v in cast("tuple[object, ...]", value)]
+        case _:
+            return cast("Json", value)
 
 
 def decode_line(raw: str) -> Line:
@@ -1760,75 +1985,53 @@ def decode_line(raw: str) -> Line:
     )
 
 
-def decode_event(obj: dict[str, Json]) -> Event:  # noqa: C901, PLR0912, PLR0915 - one arm per event
+def decode_event(obj: dict[str, Json]) -> Event:
     kind = text_of(obj, "type")
-    event: Event
-    match kind:
-        case "started":
-            event = Started(text_of(obj, "notes"), flag(obj, "delegated"))
-        case "quality":
-            event = Quality(choice(obj, "mode", MODES))
-        case "size":
-            event = Size(choice(obj, "size", SIZES))
-        case "grew":
-            event = Grew(text_of(obj, "why"))
-        case "defaulted":
-            knob = choice(obj, "knob", ("quality", "size"))
-            if obj.get("value") != DEFAULTS[knob]:
-                raise BadFieldError(f"defaulted {knob} is {DEFAULTS[knob]}")
-            event = Defaulted(knob)
-        case "researched":
-            event = Researched(count(obj, "n"))
-        case "asked":
-            event = Asked(count(obj, "n"))
-        case "planned":
-            event = Planned(text_of(obj, "path"))
-        case "proposed":
-            event = Proposed(choice(obj, "mode", PROPOSAL_MODES))
-        case "confirmed":
-            event = Confirmed()
-        case "adjusted":
-            event = Adjusted()
-        case "drafted":
-            event = Drafted(count(obj, "pr"), text_of(obj, "base"))
-        case "implemented":
-            event = Implemented(text_of(obj, "head"))
-        case "refactored":
-            event = Refactored(text_of(obj, "head"))
-        case "reviewed":
-            event = Reviewed(text_of(obj, "head"), texts(obj, "rows"), verdicts_of(obj))
-        case "fixed":
-            event = Fixed(
-                text_of(obj, "head"),
-                tuple(
-                    pick_or_raise(t, AREAS, "touches") for t in texts(obj, "touches")
-                ),
-            )
-        case "ci":
-            event = Ci(text_of(obj, "head"), texts(obj, "failing"))
-        case "blocked":
-            event = Blocked(
-                text_of(obj, "question"),
-                choice(obj, "kind", BLOCKER_KINDS),
-                choice(obj, "role", ROLES),
-            )
-        case "resolved":
-            event = Resolved(text_of(obj, "question"), text_of(obj, "answer"))
-        case "overridden":
-            event = Overridden(choice(obj, "to", STATES), text_of(obj, "why"))
-        case "ready":
-            event = Ready(count(obj, "pr"))
-        case _:
+    match EVENTS.get(kind):
+        case None:
             raise BadFieldError(f"unknown event type '{kind}'")
-    extra = {"value"} if isinstance(event, Defaulted) else set[str]()
-    exact(obj, {"type", *(f.name for f in fields(event)), *extra}, f"event {kind}")
-    return event
+        case spec:
+            reader = JsonFields(obj)
+            event = spec.read(reader)
+            reader.done(f"event {kind}")
+            return event
 
 
-def an_object(value: Json, what: str) -> dict[str, Json]:
-    if not isinstance(value, dict):
-        raise BadFieldError(f"{what} is not a JSON object")
-    return value
+class JsonFields:
+    """An event's JSON object. Writing fills in its constants, else checks them."""
+
+    def __init__(self, obj: dict[str, Json], *, writing: bool = False) -> None:
+        self.obj: dict[str, Json] = obj
+        self.writing: bool = writing
+        self.keys: set[str] = {"type"}
+
+    def one[T](self, name: str, codec: Codec[T]) -> T:
+        self.keys.add(name)
+        return codec.decode(name, self.obj.get(name))
+
+    def optional[T](self, name: str, codec: Codec[T], default: T) -> T:
+        _ = default
+        return self.one(name, codec)
+
+    def head(self) -> str:
+        return self.one("head", TEXT)
+
+    def many[T](self, option: Option[T]) -> tuple[T, ...]:
+        self.keys.add(option.name)
+        value = self.obj.get(option.name)
+        if not isinstance(value, list):
+            raise BadFieldError(f"{option.name} is not a list")
+        return tuple(option.codec.decode(option.name, v) for v in value)
+
+    def constant(self, name: str, value: Json) -> None:
+        self.keys.add(name)
+        if self.writing:
+            self.obj[name] = value
+        elif self.obj.get(name) != value:
+            raise BadFieldError(f"{name} is not {value}")
+
+    def done(self, what: str) -> None:
+        exact(self.obj, self.keys, what)
 
 
 def exact(obj: dict[str, Json], keys: set[str], what: str) -> None:
@@ -1838,61 +2041,11 @@ def exact(obj: dict[str, Json], keys: set[str], what: str) -> None:
 
 
 def text_of(obj: dict[str, Json], key: str) -> str:
-    value = obj.get(key)
-    if not isinstance(value, str) or not value:
-        raise BadFieldError(f"{key} is not a non-empty string")
-    return value
+    return a_text(key, obj.get(key))
 
 
 def optional_text(obj: dict[str, Json], key: str) -> str | None:
     return None if obj.get(key) is None else text_of(obj, key)
-
-
-def flag(obj: dict[str, Json], key: str) -> bool:
-    value = obj.get(key)
-    if not isinstance(value, bool):
-        raise BadFieldError(f"{key} is not true or false")
-    return value
-
-
-def count(obj: dict[str, Json], key: str) -> int:
-    value = obj.get(key)
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise BadFieldError(f"{key} is not a positive integer")
-    return value
-
-
-def texts(obj: dict[str, Json], key: str) -> tuple[str, ...]:
-    value = obj.get(key)
-    if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
-        raise BadFieldError(f"{key} is not a list of non-empty strings")
-    return tuple(cast("list[str]", value))
-
-
-def verdicts_of(obj: dict[str, Json]) -> tuple[Verdict, ...]:
-    value = obj.get("verdicts")
-    if not isinstance(value, list):
-        raise BadFieldError("verdicts is not a list")
-    return tuple(
-        Verdict(text_of(v, "requirement"), choice(v, "outcome", OUTCOMES))
-        for v in (an_object(item, "a verdict") for item in value)
-    )
-
-
-def choice[L: str](obj: dict[str, Json], key: str, choices: Sequence[L]) -> L:
-    return pick_or_raise(text_of(obj, key), choices, key)
-
-
-def pick_or_raise[L: str](value: str, choices: Sequence[L], what: str) -> L:
-    match pick(value, choices):
-        case None:
-            raise BadFieldError(f"{what} '{value}' is not one of {', '.join(choices)}")
-        case found:
-            return found
-
-
-def pick[L: str](value: str, choices: Sequence[L]) -> L | None:
-    return next((c for c in choices if c == value), None)
 
 
 # ---- The command line ----------------------------------------------------------
@@ -2025,186 +2178,90 @@ def parse_args(argv: list[str]) -> Help | Render | Command | Failure:  # noqa: C
             )
 
 
-def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:  # noqa: C901, PLR0911, PLR0912, PLR0915 - one arm per event
+def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:
     """`state record <event> [args]`; a `<head>` left out is HEAD."""
-    match args:
-        case ["quality", value]:
-            match pick(value, MODES):
-                case None:
-                    return usage(
-                        f"record quality: '{value}'",
-                        "state record quality POC|Balanced|Max",
-                    )
-                case mode:
-                    return Quality(mode)
-        case ["size", value]:
-            match pick(value, SIZES):
-                case None:
-                    return usage(
-                        f"record size: '{value}'", "state record size Trivial|Normal"
-                    )
-                case size:
-                    return Size(size)
-        case ["grew", why] if why.strip():
-            return Grew(why)
-        case ["researched" | "asked" as name, *rest] if len(rest) <= 1:
-            n = rest[0] if rest else "1"
-            if not n.isdigit() or int(n) < 1:
+    name, *rest = args
+    match EVENTS.get(name):
+        case Spec(recordable=True) as spec:
+            try:
+                reader = ArgvFields(rest, head)
+                event = spec.read(reader)
+                reader.done()
+            except BadFieldError as error:
                 return usage(
-                    f"record {name}: '{n}' is not a positive count",
-                    f"state record {name} 1",
+                    f"record {name}: {error}", f"state record {usage_of(name, spec)}"
                 )
-            return Researched(int(n)) if name == "researched" else Asked(int(n))
-        case ["planned", path] if path:
-            return Planned(path)
-        case ["proposed", value]:
-            match pick(value, PROPOSAL_MODES):
-                case None:
-                    return usage(
-                        f"record proposed: '{value}'",
-                        "state record proposed simplify|alternative",
-                    )
-                case mode:
-                    return Proposed(mode)
-        case ["confirmed"]:
-            return Confirmed()
-        case ["adjusted"]:
-            return Adjusted()
-        case ["drafted", pr, base] if pr.isdigit() and int(pr) > 0 and base:
-            return Drafted(int(pr), base)
-        case ["implemented" | "refactored" as name, *rest] if len(rest) <= 1:
-            match rest or ([head] if head else []):
-                case [sha]:
-                    return (
-                        Implemented(sha) if name == "implemented" else Refactored(sha)
-                    )
-                case _:
-                    return no_head(name)
-        case ["reviewed", sha, *opts] if not sha.startswith("--"):
-            match parse_options(list(opts)):
-                case Failure() as failure:
-                    return failure
-                case HandbackOptions(kind=None, touches=()) as options:
-                    return Reviewed(sha, options.rows, options.verdicts)
-                case _:
-                    return usage(
-                        "record reviewed takes --row and --verdict", "state --help"
-                    )
-        case ["fixed", *rest]:
-            sha, opts = split_head(rest, head)
-            match sha, parse_options(opts):
-                case _, Failure() as failure:
-                    return failure
-                case None, _:
-                    return no_head("fixed")
-                case str(), HandbackOptions(kind=None, rows=(), verdicts=()) as options:
-                    return Fixed(sha, options.touches)
-                case _:
-                    return usage("record fixed takes --touches", "state --help")
-        case ["ci", *rest]:
-            sha, opts = split_head(rest, head)
-            failing = tuple(
-                opts[i + 1]
-                for i in range(0, len(opts) - 1, 2)
-                if opts[i] == "--failing"
-            )
-            if len(opts) != 2 * len(failing) or not all(failing):
-                return usage(
-                    "record ci takes --failing <check>...",
-                    "state record ci --failing lint",
-                )
-            match sha:
-                case None:
-                    return no_head("ci")
-                case str():
-                    return Ci(sha, failing)
-        case ["blocked", kind, role, question] if question.strip():
-            match pick(kind, BLOCKER_KINDS), pick(role, ROLES):
-                case None, _:
-                    return usage(
-                        f"record blocked: kind '{kind}'",
-                        "kinds: " + ", ".join(BLOCKER_KINDS),
-                    )
-                case _, None:
-                    return usage(
-                        f"record blocked: role '{role}'", "roles: " + ", ".join(ROLES)
-                    )
-                case found_kind, found_role:
-                    return Blocked(question, found_kind, found_role)
-        case ["resolved", question, answer] if question.strip() and answer.strip():
-            return Resolved(question, answer)
-        case ["ready", pr] if pr.isdigit() and int(pr) > 0:
-            return Ready(int(pr))
+            return event
         case _:
-            return usage(
-                f"record: '{args[0]}' with these arguments is not an event",
-                "state --help lists the events",
-            )
-
-
-def split_head(rest: Sequence[str], head: str | None) -> tuple[str | None, list[str]]:
-    match rest:
-        case [sha, *opts] if not sha.startswith("--"):
-            return sha, list(opts)
-        case _:
-            return head, list(rest)
+            return usage(f"record: no event '{name}'", "state --help lists the events")
 
 
 def parse_options(opts: list[str]) -> HandbackOptions | Failure:
-    match opts:
-        case []:
-            return HandbackOptions()
-        case [flag_name, value, *rest]:
-            match parse_options(rest):
-                case Failure() as failure:
-                    return failure
-                case HandbackOptions() as later:
-                    return add_option(flag_name, value, later)
-        case _:
-            return usage(f"option '{opts[0]}' needs a value", "state --help")
+    try:
+        reader = ArgvFields(opts, None)
+        kinds = reader.many(Option("kind", "--kind", "kind", KIND))
+        options = HandbackOptions(
+            kinds[0] if kinds else None,
+            reader.many(TOUCHES),
+            reader.many(ROWS),
+            reader.many(VERDICTS),
+        )
+        reader.done()
+    except BadFieldError as error:
+        return usage(f"handback: {error}", "state --help")
+    return options
 
 
-def add_option(  # noqa: PLR0911 - one arm per option
-    name: str, value: str, later: HandbackOptions
-) -> HandbackOptions | Failure:
-    match name:
-        case "--kind":
-            match pick(value, BLOCKER_KINDS):
-                case None:
-                    return usage(
-                        f"--kind '{value}'", "--kind " + "|".join(BLOCKER_KINDS)
-                    )
-                case kind:
-                    return replace(later, kind=kind)
-        case "--touches":
-            match pick(value, AREAS):
-                case None:
-                    return usage(
-                        f"--touches '{value}' is not an area",
-                        "--touches " + "|".join(AREAS),
-                    )
-                case area:
-                    return replace(later, touches=(area, *later.touches))
-        case "--row" if value.strip():
-            return replace(later, rows=(value, *later.rows))
-        case "--verdict":
-            requirement, _, outcome = value.rpartition("=")
-            match pick(outcome, OUTCOMES):
-                case found if found is not None and requirement:
-                    return replace(
-                        later, verdicts=(Verdict(requirement, found), *later.verdicts)
-                    )
-                case _:
-                    return usage(
-                        f"--verdict '{value}'",
-                        "--verdict <requirement>=" + "|".join(OUTCOMES),
-                    )
-        case _:
-            return usage(f"unknown option '{name}'", "state --help")
+class ArgvFields:
+    """Arguments: positionals in the order read, then `--flag <value>` pairs."""
 
+    def __init__(self, args: Sequence[str], head: str | None) -> None:
+        split = next((i for i, a in enumerate(args) if a.startswith("--")), len(args))
+        flags = args[split:]
+        if len(flags) % 2:
+            raise BadFieldError(f"option '{flags[-1]}' needs a value")
+        self.positionals: list[str] = list(args[:split])
+        self.options: list[tuple[str, str]] = list(
+            zip(flags[::2], flags[1::2], strict=True)
+        )
+        self.head_or_none: str | None = head
 
-def no_head(name: str) -> Failure:
-    return usage(f"record {name}: no HEAD here", f"state record {name} <sha>")
+    def one[T](self, name: str, codec: Codec[T]) -> T:
+        if not self.positionals:
+            raise BadFieldError(f"no <{name}>")
+        return codec.parse(name, self.positionals.pop(0))
+
+    def optional[T](self, name: str, codec: Codec[T], default: T) -> T:
+        return self.one(name, codec) if self.positionals else default
+
+    def head(self) -> str:
+        match self.positionals, self.head_or_none:
+            case [], None:
+                raise BadFieldError("no HEAD here, name the <head>")
+            case [], str() as head:
+                return head
+            case _:
+                return self.one("head", TEXT)
+
+    def many[T](self, option: Option[T]) -> tuple[T, ...]:
+        found = [value for flag, value in self.options if flag == option.flag]
+        self.options = [(f, v) for f, v in self.options if f != option.flag]
+        return tuple(option.codec.parse(option.name, v) for v in found)
+
+    def constant(self, name: str, value: Json) -> None:
+        """Never on the command line: a constant is derived, not given."""
+        _ = name, value
+
+    def done(self) -> None:
+        match self.positionals, self.options:
+            case [], []:
+                pass
+            case [extra, *_], _:
+                raise BadFieldError(f"unexpected '{extra}'")
+            case _, [(flag, _), *_]:
+                raise BadFieldError(f"unknown option '{flag}'")
+            case _:
+                pass
 
 
 def usage(message: str, fix: str) -> Failure:
@@ -2359,9 +2416,13 @@ def append(
     new = [
         Line(len(lines) + i, ts, head, sess, e) for i, e in enumerate(appended, start=1)
     ]
+    try:
+        text = "".join(encode_line(line) for line in new)
+    except BadFieldError as error:  # a hand-back line with nothing after its token
+        return usage(f"record: {error}", "give the hand-back's line 1 its text")
     # One write per call, so lines of one call never interleave with another's.
     with log.open("a") as file:
-        _ = file.write("".join(encode_line(line) for line in new))
+        _ = file.write(text)
     return "".join(
         f"recorded {line.seq} {name_of(line.event)} -> {reached.step}\n" for line in new
     )
