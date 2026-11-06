@@ -252,6 +252,31 @@ def test_stuck_guard_different_rows_in_two_rounds_are_not_stuck() -> None:
     assert first_line(text) == "SPAWN fixer"
 
 
+def test_stuck_guard_different_failing_checks_in_two_rounds_are_not_stuck() -> None:
+    text = advice(
+        *reviewed("POC"),
+        Fixed("h4", ()),
+        Reviewed("h5", (), ()),
+        Fixed("h6", ()),
+        Ci("h6", ("lint",)),
+        Fixed("h7", ()),
+        Ci("h7", ("test",)),
+    )
+
+    assert first_line(text) == "SPAWN fixer"
+
+
+def test_stuck_guard_different_questions_in_a_row_are_not_stuck() -> None:
+    text = advice(
+        *drafted(),
+        Blocked("which log?", "answered", "implementer"),
+        Resolved("which log?", "the notes dir"),
+        Blocked("which branch?", "answered", "implementer"),
+    )
+
+    assert not first_line(text).startswith("STUCK ")
+
+
 def test_stuck_guard_the_same_question_back_after_it_closed_is_stuck() -> None:
     text = advice(
         *drafted(),
@@ -337,6 +362,18 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
 
 
 # ---- The table, row by row ----------------------------------------------------------
+
+
+def ci_fix_reviewed_at_cap(
+    rows: tuple[str, ...], verdicts: tuple[Verdict, ...]
+) -> list[Event]:
+    """A POC run in PR, its one re-review spent on a CI fix's review."""
+    return [
+        *final_fixed("POC"),
+        Ci("h4", ("lint",)),
+        Fixed("h5", ()),
+        Reviewed("h6", rows, verdicts),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -531,8 +568,33 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
         ),
         pytest.param(
             [*final_fixed(), Ci("h4", ("lint",)), Fixed("h5", ())],
-            NoFacts(), "SPAWN review-lead", "a --fixes review of the CI fix",
+            NoFacts(), "SPAWN review-lead", "a --fixes review of the fix",
             id="PR: a CI fix gets a --fixes review",
+        ),
+        pytest.param(
+            [
+                *final_fixed(), Ci("h4", ("lint",)), Fixed("h5", ()),
+                Reviewed("h6", (), (Verdict("AC1", "not-met"),)),
+            ],
+            NoFacts(), "SPAWN fixer", "rows: -", id="PR: a Not met with no rows gets a fixer",
+        ),
+        pytest.param(
+            ci_fix_reviewed_at_cap(("R3",), (Verdict("AC1", "not-met"),)),
+            NoFacts(), "SPAWN fixer", "at the cap: fix only Not met AC1",
+            id="PR: Not met loops even at the cap",
+        ),
+        pytest.param(
+            [*ci_fix_reviewed_at_cap(("R3",), (Verdict("AC1", "not-met"),)), Fixed("h7", ())],
+            NoFacts(), "SPAWN review-lead", "a --fixes review of the fix",
+            id="PR: a Not met fix at the cap gets a --fixes review",
+        ),
+        pytest.param(
+            ci_fix_reviewed_at_cap(("R3",), ()), NoFacts(), "SPAWN fixer", "final fixer: rows R3, R0",
+            id="PR: rows at the cap go to the final fixer",
+        ),
+        pytest.param(
+            [*ci_fix_reviewed_at_cap(("R3",), ()), Fixed("h7", ())], NoFacts(), "WAIT ci",
+            "gh pr checks", id="PR: after the final fixer, the CI wait",
         ),
         pytest.param(
             [*final_fixed(), Ci("h4", ()), Ready(PR)], NoFacts(), "DONE", "the PR is ready", id="Done",

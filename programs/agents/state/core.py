@@ -102,7 +102,11 @@ def apply(state: State, event: Event) -> State | Failure:
     match event:
         case Overridden(to=to):
             target: StateName | None = to
-        case _:
+        case (
+            Started() | Quality() | Size() | Grew() | Defaulted() | Researched() | Asked()
+            | Planned() | Proposed() | Confirmed() | Adjusted() | Drafted() | Implemented()
+            | Refactored() | Reviewed() | Fixed() | Ci() | Blocked() | Resolved() | Ready()
+        ):  # fmt: skip
             target = TARGET.get((state.step, classify(state, event)))
     match target, absorb(state, event):
         case None, _:
@@ -129,7 +133,9 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
         case Quality() | Size() | Grew() | Defaulted():
             return "knob"
         case Reviewed():
-            return "reviewed-loop" if loops(state, event) else "reviewed-final"
+            left = cap(state) - state.reviews  # this review is not counted yet
+            looping = loops(not_met(event.verdicts), event.rows, left)
+            return "reviewed-loop" if looping else "reviewed-final"
         # A delegated run has no Ctx: its decision goes back to the caller.
         case Blocked(kind="decision") if not delegated(state):
             return "blocked-decision"
@@ -147,12 +153,10 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
             return "knob"  # never looked up: an override names its own target
 
 
-def loops(state: State, review: Reviewed) -> bool:
-    """A review leads to another fix round while re-reviews remain; a Not met
-    verdict gets its fix and one more review even at the cap."""
-    return bool(not_met(review.verdicts)) or (
-        bool(review.rows) and state.reviews < cap(state)
-    )
+def loops(unmet: tuple[str, ...], rows: tuple[str, ...], left: int) -> bool:
+    """A round's rows get a fix and a review while `left` re-reviews remain; a
+    Not met verdict gets its fix and one more review even at the cap."""
+    return bool(unmet) or (bool(rows) and left > 0)
 
 
 def cap(state: State) -> int:
@@ -396,7 +400,7 @@ def stuck_why(state: State) -> str | None:
             same = set(checks[-2].failing) & set(checks[-1].failing)
             if same:
                 return f"check {', '.join(sorted(same))} failing in 2 rounds in a row"
-        case _:
+        case Reviewed() | Ci() | Fixed() | None:
             pass
     asked = [b.question for b in state.blockers]
     if (
@@ -729,25 +733,7 @@ def dry_run(state: State, facts: Facts) -> tuple[str, ...]:  # noqa: PLR0911 - o
 def advise_rounds(state: State, facts: Facts) -> Advice:
     match state.work:
         case Reviewed(rows=rows, verdicts=verdicts):
-            at_cap = state.reviews > cap(state)
-            return Spawn(
-                "fixer",
-                (
-                    f"rows: {', '.join(rows) or '-'}",
-                    *(
-                        [
-                            (
-                                f"at the cap: fix only Not met {', '.join(not_met(verdicts))}; "
-                                "the other rows go to the final fixer"
-                            )
-                        ]
-                        if at_cap
-                        else []
-                    ),
-                    "brief: state brief fixer",
-                    "READY: state handback fixer [--touches <area>]... < text",
-                ),
-            )
+            return loop_fixer(state, rows, verdicts)
         case Fixed(touches=touches) if wide(state, touches):
             return Spawn(
                 "review-lead",
@@ -776,6 +762,29 @@ def advise_rounds(state: State, facts: Facts) -> Advice:
             )
         case Ci() | None:
             return first_review(state, facts, ())
+
+
+def loop_fixer(
+    state: State, rows: tuple[str, ...], verdicts: tuple[Verdict, ...]
+) -> Spawn:
+    return Spawn(
+        "fixer",
+        (
+            f"rows: {', '.join(rows) or '-'}",
+            *(
+                [
+                    (
+                        f"at the cap: fix only Not met {', '.join(not_met(verdicts))}; "
+                        "the other rows go to the final fixer"
+                    )
+                ]
+                if rounds_left(state) <= 0
+                else []
+            ),
+            "brief: state brief fixer",
+            "READY: state handback fixer [--touches <area>]... < text",
+        ),
+    )
 
 
 def advise_final(state: State) -> Advice:
@@ -819,7 +828,6 @@ def final_fixer(state: State, rows: tuple[str, ...]) -> Spawn:
 
 
 def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
-    left = cap(state) - max(state.reviews - 1, 0)
     match state.work:
         case Ci(failing=()) if state.quality == "POC":
             return Done(
@@ -856,23 +864,38 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                     "READY: state handback fixer < text",
                 ),
             )
-        case Fixed() if left > 0 and state.size != "Trivial":
+        case Fixed() if latest_loops(state):
             return Spawn(
                 "review-lead",
                 (
-                    f"round {state.reviews}/{cap(state)}: a --fixes review of the CI fix",
+                    f"round {state.reviews}/{cap(state)}: a --fixes review of the fix",
                     "brief: state brief review-lead",
                     review_args(state),
                 ),
             )
-        case Reviewed(rows=rows) if rows and left > 0:
-            return Spawn(
-                "fixer", (f"rows: {', '.join(rows)}", "brief: state brief fixer")
-            )
+        case Reviewed(rows=rows, verdicts=verdicts) if latest_loops(state):
+            return loop_fixer(state, rows, verdicts)
         case Reviewed(rows=rows) if rows:
             return final_fixer(state, rows)
         case Fixed() | Reviewed() | None:
             return wait_ci(state)
+
+
+def rounds_left(state: State) -> int:
+    """The re-reviews left after the latest review: round 1 is no re-review."""
+    return cap(state) - max(state.reviews - 1, 0)
+
+
+def latest_loops(state: State) -> bool:
+    """Whether the latest round's fix gets a `--fixes` review, as `loops` says;
+    a CI round's failing checks are its rows."""
+    match state.rounds[-1] if state.rounds else None:
+        case ReviewRound(rows=rows, not_met=unmet):
+            return loops(unmet, rows, rounds_left(state))
+        case CiRound(failing=failing):
+            return loops((), failing, rounds_left(state))
+        case None:
+            return False
 
 
 def wait_ci(state: State) -> Wait:
@@ -901,7 +924,7 @@ def review_args(state: State) -> str:
                 f"invoke `pragmatic-review` with: {head} --fixes {reviewed[-1]} "
                 f"--requirements {fixes_copy(state)} {pr}"
             )
-        case _:
+        case Fixed() | Reviewed() | Ci() | None:
             return (
                 f"invoke `pragmatic-review` with: {head} --requirements "
                 f"{requirements_of(state)} {pr}"
@@ -1173,7 +1196,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                     rows_line = "Rows: R0"
                 case _, Reviewed(rows=rows) | Ci(failing=rows) if rows:
                     rows_line = f"Rows: {', '.join(rows)}"
-                case _:
+                case _, Reviewed() | Ci() | Fixed() | None:
                     rows_line = "Rows: <the chosen rows>"
             final = [
                 r0_text(base),
