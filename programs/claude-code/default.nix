@@ -44,7 +44,12 @@ let
   # file is copied under the name it does read. A project's own CLAUDE.md still
   # stacks on top of this - user and project memory are separate entries, not
   # competing ones.
-  inherit (agents.profiles) base web-ui pm;
+  inherit (agents.profiles)
+    base
+    web-ui
+    pm
+    local
+    ;
   baseProfiles = [ base ];
   factoryProfiles = [
     base
@@ -99,12 +104,19 @@ rec {
   applies = import ./load/applies.nix { inherit lib; };
 
   # One entry per flavor; the attr name is the binary name. Only `profiles` is
-  # required - `claude` is the base profile with nothing added.
+  # required - `claude` is the base profile plus `local`, the delta every
+  # non-factory flavor gets.
   packages = mkClaudeFlavors {
-    claude.profiles = baseProfiles;
+    claude.profiles = [
+      base
+      local
+    ];
 
     claude-ts = {
-      profiles = baseProfiles;
+      profiles = [
+        base
+        local
+      ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
       };
@@ -114,6 +126,7 @@ rec {
       profiles = [
         base
         web-ui
+        local
       ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
@@ -129,6 +142,7 @@ rec {
         base
         web-ui
         pm
+        local
       ];
       extraSettings.enabledPlugins = {
         "typescript-lsp@claude-plugins-official" = true;
