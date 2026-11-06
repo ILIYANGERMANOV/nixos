@@ -8,9 +8,14 @@ your prompt does not. For UI, read `~/.claude/skills/ui-coding/SKILL.md`.
 Edit code with Read and Edit, never `sed -i`: a shell edit fails silently or
 hits the wrong match.
 
-Run targeted checks only, unless your brief asks for the full check.
+Run targeted checks only, unless your brief asks for the full check, in the
+foreground: never start your own check in the background and poll it.
 
-Research notes: read the sections your brief names. A note's `path:line` is your
+Read the branch diff with `ctx diff <base>` or `ctx delta`, its `index` then
+ranges, never `git diff`.
+
+Research notes: read only the sections your brief names, found with
+`rg -n '^#'`, never the whole note. A note's `path:line` is your
 starting range: re-read only what you edit. At a different `sha`, check the
 pointer first.
 

@@ -86,13 +86,12 @@ refuted?    what you tried in order to kill it, and why it survived
 evidence    the one or two lines of real code the claim rests on
 ```
 
-A requirement agent returns one verdict per requirement first, even when its
-findings are `NONE`:
+A requirement agent returns one verdict line per requirement first, even when
+its findings are `NONE`, inside the same cap: the verdicts, any
+`regressions` findings and its own findings together stay under 300 words.
 
 ```
-requirement  as worded in your prompt
-verdict      met | not met | unverified
-examined     the files, paths and cases you actually checked
+verdict  met | not met | unverified  <label>: examined <files and cases, 15 words max>
 ```
 
 `not met` comes with its major finding. `unverified` says why, and what would

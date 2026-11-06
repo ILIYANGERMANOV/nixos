@@ -27,11 +27,13 @@ CI. You own the outcome; the user owns the decisions.
 - **Notes directory.** `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug being
   the branch name, from step 1: `state init --notes <dir>` starts the run's
   event log there, beside research notes, proposals and requirements.
-- **`state` holds the record and the mechanics**, advising, never refusing
-  (`state help`). Run `state next` after every step, `state brief <role>`
-  before every spawn, paste each implementer, refactorer, fixer and review-lead
-  hand-back into `state handback <role>`, and the rest into `state record`.
-  A fresh context resumes from `state show` and `git log`; off the advised
+- **`state` holds the record and the mechanics** (`state help`). Each step
+  ends with its `state` line: run it as the step happens, never later, then
+  `state next`, until `DONE`. `state brief <role>` before every spawn;
+  paste each implementer, refactorer, fixer and review-lead hand-back into
+  `state handback <role>` as its status line alone, plus flags. A
+  refusal's `fix:` line names the command that works now: run it. A fresh
+  context resumes from `state show` and `git log`; off the advised
   arrow: `state override`.
 - **Quality and Size** are in your instructions. Your row in the Quality
   table says what each step runs. You set Size, once, before step 1, from the
@@ -88,6 +90,16 @@ Every Quality and Size keeps the quick security review, the blocker arrows,
 fact-gap research and the final fixer. A re-plan from a blocker follows
 your Quality row too.
 
+## Common `state` mistakes
+
+| Mistake | Right form |
+|---|---|
+| no call for an hour, then back-filled | each step's line as it happens |
+| `record plan` | `record planned <path>` |
+| `record drafted` while in Ctx | the refusal's `fix:` command first |
+| a report retyped into `handback` | only its status line, plus flags |
+| no `next` after `fixed`, steps 9-10 off-state | `next` after every step |
+
 ## Steps
 
 ### 1. Research
@@ -95,12 +107,16 @@ your Quality row too.
 Before the first question, list what you need to know and group it into
 research topics: the code the task touches, how similar things work today,
 the external systems involved, the standards that apply. You plan the topics
-yourself, also when the prompt only names what to research. Launch one
+yourself, also when the prompt only names what to research, from the prompt
+and file names (`rg -l`, `ls`), never by reading the files: reading is the
+researchers' job. Launch one
 `subagent_type: researcher` agent per group, in the background, one first and
 the rest after it, as many as your Quality row's Researchers. Its prompt:
 `state brief researcher`, filled in as `## Callers` in
 `~/.claude/skills/researcher/SKILL.md` says. An answer in step
 2 that opens a new fact gap gets research too, on demand.
+`state`: `init --notes <dir>`, `record size <Size>`, then `record researched`
+per researcher.
 
 ### 2. Interview
 
@@ -113,15 +129,16 @@ Skip grilling's last confirmation: step 3 is the only one.
 An issue in the design-issue format (`## Decisions`, `## Open questions`), from
 the user or `/architect`, has settled its Decisions: never re-ask them. Interview
 only its Open questions and the gaps research opens; step 3 confirms.
+`state`: `record asked` per answer.
 
 ### 3. Confirm the plan
 
-Unless told, or on a re-plan, ask Quality first with one `AskUserQuestion`,
-Balanced recommended.
+Unless told, or on a re-plan, ask Quality before writing `plan.md`, with one
+`AskUserQuestion`, Balanced recommended: `state record quality <mode>`.
 
-Write the plan to `plan.md`: goals, the approach and the standards it follows,
-decisions, out of scope, Quality, and a file tree of the files it adds or
-changes. A design issue's Goal, Decisions, Out of scope and Acceptance criteria
+Write the plan to `plan.md` (`state record planned <path>`): goals, the
+approach and the standards it follows, decisions, out of scope, Quality, and a
+file tree of the files it adds or changes. A design issue's Goal, Decisions, Out of scope and Acceptance criteria
 carry over as they stand.
 
 **Simplify pass**, then **alternative**, as your Quality row's Proposals say: one
@@ -131,7 +148,7 @@ background `subagent_type: researcher` agent, whose prompt names
 Both modes get the call budget once each.
 `proposal-simplify.md` is your first plan; `proposal-alternative.md` the second,
 or the identity when none exists. Neither pass changes a design issue's settled
-Decisions.
+Decisions. Each: `state record proposed <mode>`.
 
 Then confirm once. Show the first plan in a few lines, and the second with its
 trade-off against the first, with your recommendation. A POC touching a
@@ -142,6 +159,7 @@ first and marked `(Recommended)`. Identity or POC: "Yes, build it
 decision and go back to step 2, keeping all you learned. Keep Quality, rerun the proposals only if the
 approach changed, then confirm again. Done when the user picks a plan. Both
 `Considered options` tables, merged into one, go into the PR body's decisions.
+`state`: `record confirmed` or `adjusted`.
 
 ### 4. Open a draft PR
 
@@ -153,8 +171,8 @@ auth, sessions, authorization, databases, secrets or CI, it also states
 `Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
 plan is now visible from the phone. Attach the PR to the session as your
 instructions say (`add_repo`, `subscribe_pr_activity`). POC:
-`gh label create POC --force`, then `gh pr edit <n> --add-label POC`. Then
-`state record drafted <PR URL> <base>`.
+`gh label create POC --force`, then `gh pr edit <n> --add-label POC`.
+`state`: `record drafted <PR URL> <base>`.
 
 ### 5. Implement
 
@@ -169,6 +187,7 @@ sections it needs, and the sha the previous slice started from, if any. One
 that hands back at the context warning gets a successor as
 `references/blockers.md` Resume says, naming its commit and the sha its slice started from. Add
 any security-sensitive topic an implementer reports to the plan's line.
+`state`: `handback implementer < <status line>`.
 
 ### 6. Refactor
 
@@ -178,22 +197,26 @@ your context. Keep only its hand-back. Bring its proposals, the bigger
 refactors past the diff, to the user as one question with their scope and
 payoff: in this PR, a follow-up, or drop. In this PR is a re-plan: the
 decision path in `blockers.md`. Your Quality row's Refactor says when this
-step runs.
+step runs. `state`: `handback refactorer`.
 
 ### 7. Review
 
 Round 1, the first review, as `${CLAUDE_SKILL_DIR}/references/review.md`
 says: requirements, the spawns `state next` prints, then the rows you pick.
+`state`: `handback review-lead --head <Reviewed head>`, a `--row` per chosen
+row, its `--verdict`s.
 
 ### 8. Fix and review again
 
 The rounds after it and the final fixer, as `review.md` says, up to your
-Quality row's Re-reviews.
+Quality row's Re-reviews. `state`: `handback fixer`, then the review's as
+in step 7.
 
 ### 9. Describe and notify
 
 The final fixer's R0 wrote the PR body. Notify the user the way your
-instructions describe: the draft is complete and CI runs.
+instructions describe: the draft is complete and CI runs. `state`: the final
+fixer's `handback fixer`.
 
 ### 10. Hand over
 
@@ -218,6 +241,9 @@ draft, not merge-ready, with no next steps.
   `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`, and
   `/address-pr-feedback <PR>` when the PR has comments from anyone else. Only
   the user runs them.
+
+`state`: `record ci [--failing <check>]` per CI result, a CI fixer's
+`handback fixer`, then `record ready <PR URL>`.
 
 ## Delegated
 

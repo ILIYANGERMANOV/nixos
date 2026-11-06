@@ -1,11 +1,11 @@
 {
   "checker": 7000,
-  "engineer": 37300,
+  "engineer": 38700,
   "fixer": 21700,
   "implementer": 23900,
   "instructions": 14200,
   "qa-runner": 6900,
-  "refactorer": 31000,
+  "refactorer": 31300,
   "repo-instructions": 7000,
   "researcher": 11100,
   "review-lead": 40200,
