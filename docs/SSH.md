@@ -196,7 +196,7 @@ This deletes the old resident credential from the token (PIN required), generate
 
 - **`sign_and_send_pubkey: signing failed` / auth hangs** — the YubiKey isn't plugged in, or you didn't tap in time (the LED flashes for ~25s). Re-run and tap.
 - **`Key enrollment failed: invalid format` / `-sk` not recognized** — you're using Apple's `/usr/bin/ssh`. Ensure the Nix OpenSSH is first on PATH (`which ssh` should point into `/nix/store` or `~/.nix-profile`); the git config already pins it for git operations.
-- **Commits from Neovim / a GUI git client silently hang** — the tap prompt isn't visible in that UI; listen for the touch alert (macOS) or watch for the flashing YubiKey LED, and tap. `commit.gpgsign = true` means *every* commit needs a tap.
+- **Commits from Neovim / a GUI git client silently hang** — the tap prompt isn't visible in that UI; listen for the touch alert (macOS) or watch for the flashing YubiKey LED, and tap. `commit.gpgsign = true` means *every* commit needs a tap (unless `noTouchSigning` is on, macOS).
 - **No touch alert on macOS** — check the system volume first, then `git config --get core.sshCommand` / `gpg.ssh.program`: both should point at a `yubikey-touch-*` wrapper in `/nix/store`. Verify with `just yubikey-test-sound`.
 - **`no FIDO2 PIN set` error from a recipe** — run `just yubikey-set-pin` first; resident-credential creation requires a PIN.
 - **`ykman: command not found`** — rebuild the host so home-manager installs `yubikey-manager`, or open a new shell to pick up the updated PATH.

@@ -105,6 +105,14 @@ yubikey-test-sound:
     $SSH_CMD -o ControlPath=none -T git@github.com || true
     echo ""
     echo "── 2/2  Commit signing ─────────────────────────────"
+    # The wrapper bakes myConfig.yubikey.noTouchSigning in as this line.
+    if grep -qx 'no_touch_signing=1' "$SIGN_CMD"; then
+      echo "Skipped: noTouchSigning is on, so signing is tapless and silent."
+      echo "Check it with: just yubikey-test-no-touch-signing"
+      echo ""
+      echo "✓ SSH auth alerted. If you heard nothing, check the system volume."
+      exit 0
+    fi
     echo "Signing a test payload — the alert should sound until you tap, then stop."
     printf 'yubikey-test-sound' | \
       $SIGN_CMD -Y sign -n test -f "$HOME/.ssh/id_ed25519_sk.pub" - >/dev/null

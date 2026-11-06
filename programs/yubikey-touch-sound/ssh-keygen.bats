@@ -110,7 +110,7 @@ no_touch_signer() {
 
   keygen -Y sign -n git -f "$WORK/ssh/key.pub"
 
-  grep -qx stub "$WORK/ssh/key"
+  [ "$(<"$WORK/ssh/key")" = stub ]
   read -r copy <"$WORK/sign-dir"
   [ ! -e "$copy" ]
 }
