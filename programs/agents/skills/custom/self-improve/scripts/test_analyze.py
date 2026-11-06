@@ -325,6 +325,11 @@ def index_rows(report: str) -> list[list[str]]:
     return [line.split("|", 2) for line in rows]
 
 
+def headline(report: str, slug: str) -> str:
+    """The index's headline for section `slug`."""
+    return {name: text for name, _, text in index_rows(report)}[slug]
+
+
 @pytest.fixture
 def home(tmp_path: Path) -> Home:
     return Home(tmp_path)
@@ -2121,8 +2126,7 @@ class TestPerPr:
         report = home.report()
         # Then
         assert row(report, "per-pr", "demo#7")[1:2] == ["2"]
-        headline = {slug: text for slug, _, text in index_rows(report)}["per-pr"]
-        assert headline == "1 PRs, top demo#7 2k"
+        assert headline(report, "per-pr") == "1 PRs, top demo#7 2k"
 
     def test_gh_gives_changed_lines_and_cost_per_line(self, home: Home) -> None:
         # Given: 10k effective over two PRs of 60 and 40 changed lines
@@ -2203,8 +2207,7 @@ class TestStateCtx:
         report = home.report()
         # Then
         assert row(report, "state-ctx", "Impl") == ["Impl", "2", "'the plan was done'"]
-        headline = {slug: text for slug, _, text in index_rows(report)}["state-ctx"]
-        assert headline == "2 calls, 0 failed, 2 overrides"
+        assert headline(report, "state-ctx") == "2 calls, 0 failed, 2 overrides"
 
 
 class TestStartUp:

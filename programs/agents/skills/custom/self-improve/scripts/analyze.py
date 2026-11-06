@@ -757,7 +757,7 @@ def subtract(interval: Interval, merged: list[Interval]) -> Iterator[Interval]:
         yield start, end
 
 
-def parse_transcript(  # noqa: C901 - one arm per line type
+def parse_transcript(
     path: Path, kind: str, description: str, until: float | None
 ) -> Transcript:
     agent_id = AgentId(path.stem.removeprefix("agent-"))
@@ -765,9 +765,7 @@ def parse_transcript(  # noqa: C901 - one arm per line type
     responses: dict[ResponseKey, Response] = {}
     calls: dict[ToolUseId, ToolCall] = {}
     previous: float | None = None
-    for line in map(parse_line, read_jsonl(path)):
-        if line is None or (until is not None and line.at >= until):
-            continue
+    for line in read_lines(path, until):
         out.cwd = out.cwd or line.cwd
         match line.body:
             case AssistantLine() as body:
@@ -855,6 +853,13 @@ def record_user(
     record_notifications(calls, line.text, ts)
 
 
+def read_lines(path: Path, until: float | None) -> Iterator[Line]:
+    """The transcript's timestamped lines, those before `until` when given."""
+    for line in map(parse_line, read_jsonl(path)):
+        if line is not None and (until is None or line.at < until):
+            yield line
+
+
 def read_jsonl(path: Path) -> Iterator[dict[str, Json]]:
     with path.open(errors="replace") as lines:
         for line in lines:
@@ -878,7 +883,7 @@ def parse_line(event: dict[str, Json]) -> Line | None:
     return Line(ts, text_of(event.get("cwd")), parse_body(event))
 
 
-def parse_body(event: dict[str, Json]) -> LineBody:  # noqa: PLR0911 - one return per line type
+def parse_body(event: dict[str, Json]) -> LineBody:
     message = as_object(event.get("message"))
     content = message.get("content")
     match event.get("type"):
@@ -889,14 +894,8 @@ def parse_body(event: dict[str, Json]) -> LineBody:  # noqa: PLR0911 - one retur
                 optional_text(event.get("attributionSkill")),
                 parse_assistant_blocks(content),
             )
-        case "user" if is_tool_results(content):
-            return ToolResultsLine(
-                parse_tool_results(content),
-                started_background(event.get("toolUseResult")),
-            )
         case "user":
-            origin = as_object(event.get("origin"))
-            return UserLine(plain_text(content), origin.get("kind") == "human")
+            return parse_user(event, content)
         case "queue-operation":
             return NotificationLine(str(event.get("content") or ""))
         case "attachment":
@@ -908,6 +907,16 @@ def parse_body(event: dict[str, Json]) -> LineBody:  # noqa: PLR0911 - one retur
             return parse_pr_link(event)
         case _:
             return OtherLine()
+
+
+def parse_user(event: dict[str, Json], content: Json) -> ToolResultsLine | UserLine:
+    if is_tool_results(content):
+        return ToolResultsLine(
+            parse_tool_results(content),
+            started_background(event.get("toolUseResult")),
+        )
+    origin = as_object(event.get("origin"))
+    return UserLine(plain_text(content), origin.get("kind") == "human")
 
 
 def parse_pr_link(event: dict[str, Json]) -> PrLinkLine | OtherLine:
@@ -1700,9 +1709,8 @@ type Fetch = Callable[[str, int], PrSize | GhFailed]
 
 def gh_pr_size(repo: str, number: int) -> PrSize | GhFailed:
     """The PR's changed lines, as GitHub counts them, from `gh` on the network."""
-    command = ["gh", "pr", "view", str(number), "-R", repo]
-    run = subprocess.run(  # noqa: S603 - gh from PATH as the person runs it; no shell
-        [*command, "--json", "additions,deletions"],
+    run = subprocess.run(
+        ["gh", "pr", "view", str(number), "-R", repo, "--json", "additions,deletions"],
         capture_output=True,
         text=True,
         check=False,

@@ -20,7 +20,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # The only ones that call subprocess, always with an argv list. The guard's git and
 # the parser's shfmt are substituted at build time; a test runs what the check puts
-# on PATH, disk_plan.py what factory-ctl does and ctx.py the agent session's.
+# on PATH, disk_plan.py what factory-ctl does, ctx.py the agent session's and
+# analyze.py the person's gh.
 "programs/claude-code/hooks/read-guard/read-guard.py" = ["S603", "S607"]
 "programs/claude-code/hooks/shared/bash_commands.py" = ["S603"]
 "programs/claude-code/hooks/shared/guard_harness.py" = ["S603"]
@@ -30,6 +31,7 @@ ignore = [
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "programs/agents/ctx/ctx.py" = ["S603", "S607"]
 "programs/agents/state/effects.py" = ["S603", "S607"]
+"programs/agents/skills/custom/self-improve/scripts/analyze.py" = ["S603", "S607"]
 # The state tests' shared helper asserts and runs git, as a test does.
 "programs/agents/state/state_fixtures.py" = ["S101", "S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
