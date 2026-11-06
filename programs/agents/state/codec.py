@@ -2,6 +2,7 @@
 Lines log it reads and writes strictly."""
 
 import json
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -123,6 +124,19 @@ def parse_count(key: str, value: str) -> int:
     return a_count(key, int(value) if value.isdigit() else None)
 
 
+def a_pr_url(key: str, value: Json) -> str:
+    """The URL `gh pr create` prints: https://<host>/<owner>/<repo>/pull/<n>."""
+    url = a_text(key, value)
+    if PR_URL_SHAPE.fullmatch(url) is None:
+        raise BadFieldError(
+            f"{key} '{url}' is not a PR URL, https://<host>/<owner>/<repo>/pull/<n>"
+        )
+    return url
+
+
+PR_URL_SHAPE = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[1-9][0-9]*")
+
+
 def a_flag(key: str, value: Json) -> bool:
     if not isinstance(value, bool):
         raise BadFieldError(f"{key} is not true or false")
@@ -169,6 +183,7 @@ def an_object(value: Json, what: str) -> dict[str, Json]:
 
 TEXT = Codec(a_text, a_text, None, "x")
 COUNT = Codec(a_count, parse_count, None, 1)
+PR_URL = Codec(a_pr_url, a_pr_url, "<pr-url>", "https://github.com/o/r/pull/1")
 FLAG = Codec(a_flag, a_flag, None, sample=False)
 # Annotated: with no expected type, pyright solves a choice's literals as str.
 KIND: Codec[BlockerKind] = choice(BLOCKER_KINDS)
@@ -204,7 +219,7 @@ EVENTS: dict[str, Spec] = {
     "proposed": Spec(lambda f: Proposed(f.one("mode", choice(PROPOSAL_MODES)))),
     "confirmed": Spec(lambda _: Confirmed()),
     "adjusted": Spec(lambda _: Adjusted()),
-    "drafted": Spec(lambda f: Drafted(f.one("pr", COUNT), f.one("base", TEXT))),
+    "drafted": Spec(lambda f: Drafted(f.one("url", PR_URL), f.one("base", TEXT))),
     "implemented": Spec(lambda f: Implemented(f.head())),
     "refactored": Spec(lambda f: Refactored(f.head())),
     "reviewed": Spec(
@@ -227,7 +242,7 @@ EVENTS: dict[str, Spec] = {
         lambda f: Overridden(f.one("to", choice(STATES)), f.one("why", TEXT)),
         recordable=False,
     ),
-    "ready": Spec(lambda f: Ready(f.one("pr", COUNT))),
+    "ready": Spec(lambda f: Ready(f.one("url", PR_URL))),
 }
 
 

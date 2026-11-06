@@ -153,7 +153,7 @@ auth, sessions, authorization, databases, secrets or CI, it also states
 plan is now visible from the phone. Attach the PR to the session as your
 instructions say (`add_repo`, `subscribe_pr_activity`). POC:
 `gh label create POC --force`, then `gh pr edit <n> --add-label POC`. Then
-`state record drafted <pr> <base>`.
+`state record drafted <PR URL> <base>`.
 
 ### 5. Implement
 
@@ -248,7 +248,8 @@ rest of this skill.
   notifications are your caller's.
 - Never call `AskUserQuestion`. Answered and fact blockers you settle inside; a
   decision or scope one, or any decision the rest of this skill sends to the
-  user, goes in your hand-back, with whatever finished, pushed.
+  user, goes in your hand-back, with whatever finished, pushed, never
+  the decision path. Resumed with the answer, go on where you stopped.
 - Your requirements file is the brief's. Run
   `state init --notes <dir> --delegated`, and after each step write `state show` to the brief's report file.
 - Start your hand-back with one status, then its usual content plus the last

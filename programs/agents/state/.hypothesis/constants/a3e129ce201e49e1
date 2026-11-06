@@ -1,0 +1,4 @@
+# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/unittest/runner.py
+# hypothesis_version: 6.151.10
+
+[0.001, ' (%s)', ' ... ', '%-10s %s', '%.3fs', '%s', '%s: %s', ', ', '-', '.', '=', 'E', 'ERROR', 'F', 'FAIL', 'FAILED', 'NO TESTS RAN', 'OK', '__getstate__', 'errors=%d', 'expected failure', 'expected failures=%d', 'failures=%d', 'ok', 's', 'separator2', 'skipped {0!r}', 'skipped=%d', 'startTestRun', 'stopTestRun', 'stream', 'u', 'unexpected success', 'unexpectedSuccesses', 'x']

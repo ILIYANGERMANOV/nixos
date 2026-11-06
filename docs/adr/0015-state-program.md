@@ -88,14 +88,14 @@ Event =
   | Researched(n) | Asked(n)
   | Planned(path) | Proposed(mode)
   | Confirmed | Adjusted
-  | Drafted(pr, base)
+  | Drafted(url, base)
   | Implemented(head) | Refactored(head)
   | Reviewed(head, rows, verdicts)
   | Fixed(head, touches?)
   | Ci(head, failing?)
   | Blocked(q, kind) | Resolved(q, answer)
   | Overridden(to, why)
-  | Ready(pr)
+  | Ready(url)
 
 Advice = Spawn(role, args) | Ask(what)
        | Wait(ci) | Run(cmd)

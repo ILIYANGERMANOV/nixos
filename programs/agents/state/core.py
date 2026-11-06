@@ -129,9 +129,10 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
             return "knob"
         case Reviewed():
             return "reviewed-loop" if loops(state, event) else "reviewed-final"
-        case Blocked(kind="decision"):
+        # A delegated run has no Ctx: its decision goes back to the caller.
+        case Blocked(kind="decision") if not delegated(state):
             return "blocked-decision"
-        case Confirmed() if state.pr is not None:
+        case Confirmed() if state.drafted is not None:
             return "confirmed-replan"
         case Blocked():
             return "blocked"
@@ -196,8 +197,8 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             return replace(state, plan=path, proposed=frozenset())
         case Proposed(mode=mode):
             return replace(state, proposed=state.proposed | {mode})
-        case Drafted(pr=pr, base=base):
-            return replace(state, pr=pr, base=base)
+        case Drafted():
+            return replace(state, drafted=event)
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
         case Reviewed(head=head, rows=rows, verdicts=verdicts):
@@ -219,13 +220,14 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             )
         case Blocked(question=q, kind=kind, role=role):
             opened = OpenBlocker(q, kind, role)
+            # A decision ends the loop's rounds: the stuck guard waits for the
+            # next one, so a stuck answered as a decision is no longer stuck.
+            work = None if kind == "decision" else state.work
             if any(b.question == q for b in open_blockers(state)):
-                return replace(state, blockers=settle(state, q, lambda _: opened))
-            return replace(
-                state,
-                blockers=(*state.blockers, opened),
-                questions=(*state.questions, q),
-            )
+                blockers = settle(state, q, lambda _: opened)
+            else:
+                blockers = (*state.blockers, opened)
+            return replace(state, blockers=blockers, work=work)
         case Resolved(question=q, answer=answer):
             if not any(b.question == q for b in state.blockers):
                 return Failure(
@@ -329,29 +331,51 @@ type Facts = GitFacts | NoFacts
 
 
 def advise(state: State, facts: Facts) -> Advice:
-    """The next arrow: stuck first, then an open blocker, then the step's own."""
-    step = advise_step(state, facts)
+    """The next arrow; a delegated run's also names the report it owes."""
+    advice = advise_now(state, facts)
+    if delegated(state):
+        return replace(
+            advice,
+            lines=(
+                *advice.lines,
+                "after each step: state show > <the brief's report file>",
+            ),
+        )
+    return advice
+
+
+def advise_now(state: State, facts: Facts) -> Advice:
+    """Stuck first, then an open blocker, then the step's own arrow."""
     match stuck_why(state), first_open(state):
         case str() as why, _:
-            return Stuck(
-                why,
-                (
-                    handback_line(f"NEEDS_DECISION stuck: {why}")
-                    if delegated(state)
-                    else "ask the user: what changes so the next round differs",
-                    f"advice once settled: {render_advice(step).splitlines()[0]}",
-                ),
-            )
+            return Stuck(why, stuck_lines(state, why))
         case None, OpenBlocker() as blocker:
             return advise_blocker(state, blocker)
         case None, None:
-            return step
+            return advise_step(state, facts)
+
+
+def stuck_lines(state: State, why: str) -> tuple[str, ...]:
+    """The answer is a decision: a lead's takes the decision path, so the
+    guard waits for the next round; a delegated run hands it back."""
+    if delegated(state):
+        return (handback_line(f"NEEDS_DECISION stuck: {why}"),)
+    return (
+        "ask the user: what changes so the next round differs",
+        (
+            "the answer is a decision (blockers.md): state record blocked decision "
+            f"<role> {quoted(f'stuck: {why}')}, then state record resolved"
+        ),
+    )
 
 
 def first_open(state: State) -> OpenBlocker | None:
-    """The oldest open blocker other than a decision: a decision is the plan's
-    path through Ctx, so the step's own advice carries it."""
-    return next((b for b in open_blockers(state) if b.kind != "decision"), None)
+    """The oldest open blocker other than a lead's decision: that is the
+    plan's path through Ctx, so the step's own advice carries it."""
+    return next(
+        (b for b in open_blockers(state) if b.kind != "decision" or delegated(state)),
+        None,
+    )
 
 
 IN_A_ROW = 2  # the stuck guard's "2 rounds in a row"
@@ -373,7 +397,7 @@ def stuck_why(state: State) -> str | None:
                 return f"check {', '.join(sorted(same))} failing in 2 rounds in a row"
         case _:
             pass
-    asked = state.questions
+    asked = [b.question for b in state.blockers]
     if (
         len(asked) >= IN_A_ROW
         and asked[-1] == asked[-2]
@@ -421,8 +445,13 @@ def advise_blocker(state: State, blocker: OpenBlocker) -> Advice:
                     resolve,
                 ),
             )
-        case "scope" if delegated(state):
-            return Done((handback_line(f"NEEDS_DECISION {q}"),))
+        case "decision" | "scope" if delegated(state):
+            return Done(
+                (
+                    handback_line(f"NEEDS_DECISION {q}"),
+                    f"resumed with the answer: {resolve[6:]}, then state next",
+                )
+            )
         case "scope":
             return Ask(
                 "scope",
@@ -465,8 +494,6 @@ def advise_step(state: State, facts: Facts) -> Advice:  # noqa: C901, PLR0911 - 
 
 def advise_ctx(state: State) -> Advice:
     decisions = [b for b in open_blockers(state) if b.kind == "decision"]
-    if delegated(state) and decisions:
-        return Done((handback_line(f"NEEDS_DECISION {decisions[0].question}"),))
     if state.size is None:
         return Run(
             "state record size Trivial|Normal",
@@ -478,14 +505,28 @@ def advise_ctx(state: State) -> Advice:
         if state.size == "Trivial"
         else f"at least 1, typically 2-3; {mode}: {QUALITY['Researchers'][mode]}"
     )
+    counts = (
+        *(f"decision path for {quoted(b.question)}" for b in decisions),
+        f"researchers {state.researched} ({researchers})",
+        f"questions {state.asked} (at least 1, typically 4-12)",
+        "each: state record researched | state record asked",
+    )
+    # The plan states its Quality, so a lead's run picks it before the plan.
+    if state.quality is None and not delegated(state):
+        return Ask(
+            "quality",
+            (
+                "research and ask on demand, any order; when nothing is open, before plan.md:",
+                "one AskUserQuestion: POC, Balanced (Recommended), Max, unless the prompt sets it",
+                "then: state record quality <mode>",
+                *counts,
+            ),
+        )
     return Run(
         f"state record planned {notes_of(state)}/plan.md",
         (
-            *(f"decision path for {quoted(b.question)}" for b in decisions),
-            f"researchers {state.researched} ({researchers})",
-            f"questions {state.asked} (at least 1, typically 4-12)",
             "research and ask on demand, any order; when nothing is open, write the plan",
-            "each: state record researched | state record asked",
+            *counts,
         ),
     )
 
@@ -530,11 +571,11 @@ def advise_prop(state: State) -> Advice:
             *(
                 [
                     (
-                        f"picked, a re-plan: gh pr edit {state.pr} --body-file <the chosen "
+                        f"picked, a re-plan: gh pr edit {pr_ref(state)} --body-file <the chosen "
                         "plan with its Considered options>; it resumes at 5 on the same branch"
                     )
                 ]
-                if state.pr is not None
+                if state.drafted is not None
                 else []
             ),
             "picked: state record confirmed; adjust: state record adjusted",
@@ -549,7 +590,7 @@ def advise_draft(state: State) -> Advice:
             f"state record {knob} <your brief's {knob.capitalize()}: line>",
             ("delegated: the brief sets both knobs",),
         )
-    record = "then: state record drafted <pr> <base>"
+    record = "then: state record drafted <the PR URL gh printed> <base>"
     knobs = f"Quality: {knob_text(state, 'quality')}  Size: {knob_text(state, 'size')}"
     poc = state.quality == "POC"
     if delegated(state):
@@ -797,7 +838,7 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                         "[--env <env> | --org <owner>]"
                     ),
                     (
-                        "notify, with: /qa <PR URL>  /final-review --requirements "
+                        f"notify, with: /qa {pr}  /final-review --requirements "
                         f"{notes_of(state)}/requirements.md {pr}"
                     ),
                     f"  /give-feedback {pr}  /address-pr-feedback {pr} (comments from others)",
@@ -876,7 +917,7 @@ def requirements_of(state: State) -> str:
 
 def fixes_copy(state: State) -> str:
     return (
-        "<the brief's task>-fixes.md"
+        "<the brief's requirements file's directory>/<the brief's task>-fixes.md"
         if delegated(state)
         else f"{notes_of(state)}/requirements-fixes.md"
     )
@@ -895,11 +936,11 @@ def notes_of(state: State) -> str:
 
 
 def base_of(state: State) -> str:
-    return state.base or "<base>"
+    return state.drafted.base if state.drafted is not None else "<base>"
 
 
 def pr_ref(state: State) -> str:
-    return str(state.pr) if state.pr is not None else "<pr>"
+    return state.drafted.url if state.drafted is not None else "<pr-url>"
 
 
 def knob_text(state: State, knob: Knob) -> str:
@@ -1075,7 +1116,9 @@ def triage(question: str, kind: BlockerKind | None) -> BlockerKind | Failure:
 
 def brief(role: Role, state: State, worktree: str) -> str:
     """The mechanical part of a spawn prompt; the lead fills the `<...>` lines."""
-    mode, size = mode_of(state), size_of(state)
+    # Before a knob is recorded a worker gets its default, marked as one.
+    mode = state.quality or f"{DEFAULT_QUALITY} (default)"
+    size = state.size or f"{DEFAULT_SIZE} (default)"
     base = base_of(state)
     match role:
         case "refactorer":
@@ -1089,7 +1132,8 @@ def brief(role: Role, state: State, worktree: str) -> str:
             args = review_args(state).split(": ", 1)[1]
             first, tail = f"invoke `pragmatic-review` with: {args}", [PLAN_WRONG]
         case "reviewer" | "researcher" | "checker":
-            first, tail = f"Quality: {mode}", [HANDBACK_RULE]
+            # Their role or skill sets their hand-back: a report, notes, PASS or FAIL.
+            first, tail = f"Quality: {mode}", []
     head = [
         *(["<the first line of your spawn prompt>"] if delegated(state) else []),
         first,
@@ -1099,7 +1143,9 @@ def brief(role: Role, state: State, worktree: str) -> str:
         f"Plan: {state.plan or '<plan path>'}",
     ]
     body = role_lines(role, state)
-    return "".join(f"{line}\n" for line in (*head, *body, "", *tail))
+    return "".join(
+        f"{line}\n" for line in (*head, *body, *([""] if tail else []), *tail)
+    )
 
 
 def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - one arm per role
@@ -1196,7 +1242,8 @@ def show(state: State) -> str:
         f"Quality: {knob('quality', state.quality)}",
         f"Size: {knob('size', state.size)}",
         (
-            f"Re-review: {max(state.reviews - 1, 0)}/{cap(state)}   "
+            f"Re-review: {max(state.reviews - 1, 0)}/"
+            f"{cap(state) if state.quality or state.size == 'Trivial' else '-'}   "
             "(round 1 is the first review, not counted)"
         ),
         f"Reviewed head: {reviewed[-1] if reviewed else '-'}",

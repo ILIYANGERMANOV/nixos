@@ -1,0 +1,4 @@
+# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/importlib/metadata/__init__.py
+# hypothesis_version: 6.151.10
+
+[' and ', '"{}"', '#', '%s(%r)', '-', '.', '.dist-info', '.egg', '.egg-info', ':', '; ', '=', '@', 'Distribution', 'DistributionFinder', 'METADATA', 'Name', 'PKG-INFO', 'PackageMetadata', 'PackageNotFoundError', 'RECORD', 'Requires-Dist', 'SOURCES.txt', 'Version', '[', '[-_.]+', '[]', '\\w+', ']', '_', '__isabstractmethod__', '_normalized_name', '_path', 'attr', 'direct_url.json', 'distribution', 'distributions', 'egg-info', 'entry_points', 'entry_points.txt', 'extras', 'files', 'find_distributions', 'installed-files.txt', 'metadata', 'module', 'path', 'requires', 'requires.txt', 'top_level.txt', 'utf-8', 'version']

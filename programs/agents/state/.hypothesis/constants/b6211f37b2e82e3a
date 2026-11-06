@@ -1,0 +1,4 @@
+# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/zipfile/_path/glob.py
+# hypothesis_version: 6.151.10
+
+['*', '**', '.*', '?*', 'Invalid separators', '[^/]', '\\*', '\\*\\*', '\\?', 'set']

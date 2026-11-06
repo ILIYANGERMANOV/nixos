@@ -2,7 +2,7 @@
 failure a caller can fix. Types only, plus the few queries every module reads."""
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAliasType, cast, get_args
 
 # ---- Vocabulary ---------------------------------------------------------------
 
@@ -36,20 +36,23 @@ type Role = Literal[
 ]
 type Worker = Literal["implementer", "refactorer", "fixer", "review-lead"]
 
-STATES: tuple[StateName, ...] = (
-    "Ctx", "Prop", "DraftPlan", "Impl", "Impl'", "ImplR", "Impl''", "DraftPR", "PR", "Done",
-)  # fmt: skip
-MODES: tuple[Mode, ...] = ("POC", "Balanced", "Max")
-SIZES: tuple[SizeName, ...] = ("Trivial", "Normal")
-PROPOSAL_MODES: tuple[ProposalMode, ...] = ("simplify", "alternative")
-BLOCKER_KINDS: tuple[BlockerKind, ...] = ("answered", "fact", "decision", "scope")
-AREAS: tuple[Area, ...] = ("data-model", "auth", "interface")
-OUTCOMES: tuple[Outcome, ...] = ("met", "not-met", "unverified")
-ROLES: tuple[Role, ...] = (
-    "implementer", "refactorer", "fixer", "review-lead", "reviewer", "researcher", "checker",
-)  # fmt: skip
-WORKERS: tuple[Worker, ...] = ("implementer", "refactorer", "fixer", "review-lead")
-KNOBS: tuple[Knob, ...] = ("quality", "size")
+
+def values_of(alias: TypeAliasType) -> tuple[str, ...]:
+    """A `type X = Literal[...]` alias's values, in order: one list per name."""
+    value: object = alias.__value__  # pyright: ignore[reportAny] - typeshed says Any
+    return cast("tuple[str, ...]", get_args(value))
+
+
+STATES = cast("tuple[StateName, ...]", values_of(StateName))
+MODES = cast("tuple[Mode, ...]", values_of(Mode))
+SIZES = cast("tuple[SizeName, ...]", values_of(SizeName))
+PROPOSAL_MODES = cast("tuple[ProposalMode, ...]", values_of(ProposalMode))
+BLOCKER_KINDS = cast("tuple[BlockerKind, ...]", values_of(BlockerKind))
+AREAS = cast("tuple[Area, ...]", values_of(Area))
+OUTCOMES = cast("tuple[Outcome, ...]", values_of(Outcome))
+ROLES = cast("tuple[Role, ...]", values_of(Role))
+WORKERS = cast("tuple[Worker, ...]", values_of(Worker))
+KNOBS = cast("tuple[Knob, ...]", values_of(Knob))
 DEFAULT_QUALITY: Mode = "Balanced"
 DEFAULT_SIZE: SizeName = "Normal"
 DEFAULTS: dict[Knob, str] = {"quality": DEFAULT_QUALITY, "size": DEFAULT_SIZE}
@@ -121,7 +124,9 @@ class Adjusted:
 
 @dataclass(frozen=True)
 class Drafted:
-    pr: int
+    """The draft PR, by the URL `gh pr create` prints, and the branch it targets."""
+
+    url: str
     base: str
 
 
@@ -188,7 +193,7 @@ class Overridden:
 
 @dataclass(frozen=True)
 class Ready:
-    pr: int
+    url: str
 
 
 type Event = (
@@ -236,7 +241,7 @@ type Work = Reviewed | Fixed | Ci
 @dataclass(frozen=True)
 class State:
     """`None` on a field is a fact not yet in the log: no run started, no knob
-    chosen, no plan written, no PR opened, no commit seen, no loop work yet."""
+    chosen, no plan written, no draft PR opened, no commit seen, no loop work yet."""
 
     step: StateName = "Ctx"
     run: Started | None = None
@@ -247,17 +252,15 @@ class State:
     asked: int = 0
     plan: str | None = None
     proposed: frozenset[ProposalMode] = frozenset()
-    pr: int | None = None
-    base: str | None = None
+    drafted: Drafted | None = None
     head: str | None = None
     # Reviews of the current plan: round 1 is the first, not counted.
     reviews: int = 0
     work: Work | None = None
     # Every round of the run, re-plans included: the stuck guard never resets.
     rounds: tuple[Round, ...] = ()
+    # In the order each question opened; a re-triage replaces it in place.
     blockers: tuple[Blocker, ...] = ()
-    # Each question as it opened, in order: the stuck guard's third input.
-    questions: tuple[str, ...] = ()
 
 
 S0 = State()

@@ -1,0 +1,4 @@
+# file: /home/factory/repos/nixos/.claude/worktrees/bridge-cse_013RcrwGdE6rTqEMBaZurHkB/programs/agents/state/codec.py
+# hypothesis_version: 6.151.10
+
+[',', '--failing', '--row', '--touches', '--verdict', ':', '<pr-url>', '=', 'Json', 'adjusted', 'answer', 'area', 'asked', 'base', 'blocked', 'check', 'ci', 'confirmed', 'defaulted', 'delegated', 'drafted', 'event', 'failing', 'fixed', 'grew', 'head', 'implemented', 'kind', 'knob', 'label', 'met', 'mode', 'n', 'notes', 'object', 'outcome', 'overridden', 'path', 'planned', 'proposed', 'quality', 'question', 'ready', 'refactored', 'requirement', 'researched', 'resolved', 'reviewed', 'role', 'rows', 'seq', 'session', 'size', 'started', 'the line', 'to', 'touches', 'ts', 'tuple[object, ...]', 'type', 'url', 'value', 'verdict', 'verdicts', 'why', 'x', '|']

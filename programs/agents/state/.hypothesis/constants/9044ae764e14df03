@@ -1,0 +1,4 @@
+# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/unittest/main.py
+# hypothesis_version: 6.151.10
+
+['%s discover', '*', '*%s*', '--buffer', '--catch', '--durations', '--failfast', '--locals', '--pattern', '--quiet', '--start-directory', '--verbose', '-b', '-c', '-f', '-k', '-p', '-q', '-s', '-t', '-v', '.', '.py', '/', '?', 'N', 'Quiet output', 'Verbose output', '\\', '__main__', 'append', 'buffer', 'catchbreak', 'default', 'discover', 'durations', 'failfast', 'pattern', 'prog', 'start', 'store_const', 'store_true', 'tb_locals', 'test*.py', 'testNamePatterns', 'tests', 'top', 'verbosity']

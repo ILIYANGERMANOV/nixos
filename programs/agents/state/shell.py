@@ -75,7 +75,11 @@ def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  #
         case Override(to=to, why=why):
             return append(log, lines, state, (Overridden(to, why),), cwd)
         case Next():
-            facts = NoFacts() if state.base is None else git_facts(cwd, state.base)
+            facts = (
+                NoFacts()
+                if state.drafted is None
+                else git_facts(cwd, state.drafted.base)
+            )
             return render_advice(advise(state, facts))
         case BriefCmd(role=role):
             return brief(role, state, toplevel(cwd))

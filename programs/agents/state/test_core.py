@@ -10,6 +10,7 @@ from core import (
     NoFacts,
     advise,
     apply,
+    brief,
     fold,
     parse_handback,
     render_advice,
@@ -18,6 +19,7 @@ from core import (
 from hypothesis import given
 from hypothesis import strategies as st
 from model import (
+    ROLES,
     S0,
     STATES,
     Blocked,
@@ -38,6 +40,7 @@ from model import (
     Researched,
     Resolved,
     Reviewed,
+    Role,
     Size,
     Started,
     State,
@@ -45,6 +48,7 @@ from model import (
 )
 from state_fixtures import (
     NOTES,
+    PR,
     accepted,
     advice,
     drafted,
@@ -127,21 +131,47 @@ def test_fixed_targets_an_override_lands_on_its_target_from_any_state(
     assert after.step == to
 
 
+STAY = (Quality, Size, Grew, Defaulted, Researched, Resolved)
+
+
 @given(event_lists)
 def test_fixed_targets_knobs_counts_and_triage_never_move_the_step(
     candidates: list[Event],
 ) -> None:
-    for before, event, after in walk(candidates):
-        match event:
-            case (
-                Quality() | Size() | Grew() | Defaulted() | Researched() | Resolved()
-                | Blocked(kind="answered" | "fact" | "scope")
-            ):  # fmt: skip
-                assert after.step == before.step
-            case Blocked(kind="decision"):
-                assert after.step == "Ctx"
-            case _:
-                pass
+    stays = [
+        (before.step, after.step)
+        for before, event, after in walk(candidates)
+        if isinstance(event, STAY)
+        or (isinstance(event, Blocked) and event.kind != "decision")
+    ]
+
+    assert all(before == after for before, after in stays)
+
+
+@given(event_lists)
+def test_fixed_targets_a_leads_decision_goes_back_to_ctx(
+    candidates: list[Event],
+) -> None:
+    targets = [
+        after.step
+        for _, event, after in walk([Started(NOTES, delegated=False), *candidates])
+        if isinstance(event, Blocked) and event.kind == "decision"
+    ]
+
+    assert all(step == "Ctx" for step in targets)
+
+
+@given(event_lists)
+def test_fixed_targets_a_delegated_decision_never_moves_the_step(
+    candidates: list[Event],
+) -> None:
+    stays = [
+        (before.step, after.step)
+        for before, event, after in walk([Started(NOTES, delegated=True), *candidates])
+        if isinstance(event, Blocked) and event.kind == "decision"
+    ]
+
+    assert all(before == after for before, after in stays)
 
 
 @given(heads, heads, labels, st.lists(labels, max_size=2))
@@ -158,6 +188,9 @@ def test_stuck_guard_the_same_row_in_two_rounds_in_a_row_is_stuck(
     )
 
     assert first_line(text) == f"STUCK row {row} in 2 rounds in a row"
+    assert (
+        f"state record blocked decision <role> 'stuck: row {row} in 2 rounds in a row'"
+    ) in text
 
 
 @given(heads, heads)
@@ -201,6 +234,38 @@ def test_stuck_guard_the_same_question_back_after_it_closed_is_stuck() -> None:
     assert first_line(text) == "STUCK question 'which log?' back in 2 rounds in a row"
 
 
+@given(
+    event_lists,
+    st.sampled_from(ROLES),
+    st.sampled_from([(), (Resolved("stuck: R1", "drop it"),)]),
+)
+def test_stuck_guard_a_stuck_answered_as_a_decision_is_not_stuck_again(
+    candidates: list[Event], role: Role, answer: tuple[Event, ...]
+) -> None:
+    state = reach(
+        *accepted([*candidates, Blocked("stuck: R1", "decision", role), *answer])
+    )
+
+    text = render_advice(advise(state, NoFacts()))
+
+    assert not first_line(text).startswith(("STUCK row", "STUCK check"))
+
+
+@given(
+    st.lists(events.filter(lambda e: not isinstance(e, Overridden)), max_size=40), facts
+)
+def test_delegated_never_asks_never_plans_and_always_reports(
+    candidates: list[Event], git: Facts
+) -> None:
+    state = reach(*accepted([Started(NOTES, delegated=True), *candidates]))
+
+    lines = render_advice(advise(state, git)).splitlines()
+
+    assert not lines[0].startswith("ASK ")
+    assert not any("state record planned" in line for line in lines)
+    assert lines[-1] == "  after each step: state show > <the brief's report file>"
+
+
 def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
     text = advice(
         *drafted("Max", delegated=True),
@@ -229,12 +294,17 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
         ),
         pytest.param(
             [Started(NOTES, delegated=False), Size("Normal")], NoFacts(),
+            "ASK quality", "when nothing is open, before plan.md:",
+            id="Ctx: Quality asked before the plan",
+        ),
+        pytest.param(
+            [Started(NOTES, delegated=False), Size("Normal"), Quality("Balanced")], NoFacts(),
             f"RUN state record planned {NOTES}/plan.md",
             "researchers 0 (at least 1, typically 2-3; Balanced: up to 3, 15 calls, notes)",
             id="Ctx: research and ask, then the plan",
         ),
         pytest.param(
-            [Started(NOTES, delegated=False), Size("Trivial")], NoFacts(),
+            [Started(NOTES, delegated=False), Size("Trivial"), Quality("POC")], NoFacts(),
             f"RUN state record planned {NOTES}/plan.md",
             "researchers 0 (Trivial: none, at most 5 lookups by you)",
             id="Ctx: Trivial researches nothing",
@@ -319,7 +389,7 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
             [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "none"),
             "SPAWN review-lead",
             ("invoke `pragmatic-review` with: Quality: Balanced Size: Normal "
-            f"--requirements {NOTES}/requirements.md 7"),
+            f"--requirements {NOTES}/requirements.md {PR}"),
             id="ImplR: the first review",
         ),
         pytest.param(
@@ -344,7 +414,7 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
         pytest.param(
             [*reviewed(), Fixed("h4", ())], NoFacts(), "SPAWN review-lead",
             ("invoke `pragmatic-review` with: Quality: Balanced Size: Normal --fixes h3 "
-            f"--requirements {NOTES}/requirements-fixes.md 7"),
+            f"--requirements {NOTES}/requirements-fixes.md {PR}"),
             id="Impl'': a --fixes review of the previous Reviewed head",
         ),
         pytest.param(
@@ -391,11 +461,11 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
             id="DraftPR: notify and wait for CI",
         ),
         pytest.param(
-            final_fixed(delegated=True), NoFacts(), "DONE", "hand back: READY 7, the work pushed",
+            final_fixed(delegated=True), NoFacts(), "DONE", f"hand back: READY {PR}, the work pushed",
             id="DraftPR: delegated hands back",
         ),
         pytest.param(
-            [*final_fixed(), Ci("h4", ())], NoFacts(), "RUN gh pr ready 7", "then: state record ready 7",
+            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", f"then: state record ready {PR}",
             id="PR: green CI, ready",
         ),
         pytest.param(
@@ -410,7 +480,7 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
             id="PR: a CI fix gets a --fixes review",
         ),
         pytest.param(
-            [*final_fixed(), Ci("h4", ()), Ready(7)], NoFacts(), "DONE", "the PR is ready", id="Done",
+            [*final_fixed(), Ci("h4", ()), Ready(PR)], NoFacts(), "DONE", "the PR is ready", id="Done",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Blocked("which log?", "answered", "implementer")],
@@ -440,7 +510,7 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
         pytest.param(
             [*drafted(delegated=True), Blocked("plan wrong: x", "decision", "review-lead")],
             NoFacts(), "DONE", "hand back: NEEDS_DECISION plan wrong: x, the work pushed",
-            id="blocker: delegated decision hands back",
+            id="blocker: delegated decision hands back, no re-plan",
         ),
         pytest.param(
             [*drafted(), Blocked("which log?", "fact", "implementer"),
@@ -451,8 +521,36 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
         pytest.param(
             [*reviewed(), Blocked("plan wrong: x", "decision", "review-lead"),
              Planned("p2.md"), Proposed("simplify"), Proposed("alternative")],
-            NoFacts(), "ASK plan", "picked, a re-plan: gh pr edit 7 --body-file",
+            NoFacts(), "ASK plan", f"picked, a re-plan: gh pr edit {PR} --body-file",
             id="re-plan: the chosen plan goes into the PR body",
+        ),
+        pytest.param(
+            [*drafted("Max"), Implemented("h1"), Refactored("h2"), Reviewed("h3", ("R1",), ()),
+             Fixed("h4", ()), Reviewed("h5", ("R1",), ()),
+             Blocked("stuck: row R1", "decision", "review-lead")],
+            NoFacts(), f"RUN state record planned {NOTES}/plan.md",
+            "decision path for 'stuck: row R1'", id="stuck: the answer is a decision, a re-plan",
+        ),
+        pytest.param(
+            [*drafted("Max"), Implemented("h1"), Refactored("h2"), Reviewed("h3", ("R1",), ()),
+             Fixed("h4", ()), Reviewed("h5", ("R1",), ()),
+             Blocked("stuck: row R1", "decision", "review-lead"),
+             Resolved("stuck: row R1", "drop the row")],
+            NoFacts(), f"RUN state record planned {NOTES}/plan.md", "write the plan",
+            id="stuck: a dropped row re-plans, no fixer for it",
+        ),
+        pytest.param(
+            [*drafted(delegated=True), Implemented("h1"),
+             Blocked("plan wrong: x", "decision", "review-lead"), Resolved("plan wrong: x", "y")],
+            NoFacts(), "SPAWN refactorer", "brief: state brief refactorer",
+            id="blocker: delegated, resumed with the answer at its step",
+        ),
+        pytest.param(
+            [*drafted("Max", delegated=True), Implemented("h1"), Refactored("h2"),
+             Reviewed("h3", ("R1",), ()), Fixed("h4", ())],
+            NoFacts(), "SPAWN review-lead",
+            "<the brief's requirements file's directory>/<the brief's task>-fixes.md",
+            id="Impl'': delegated fixes copy beside the brief's requirements",
         ),
     ],
 )  # fmt: skip
@@ -511,7 +609,7 @@ def test_a_trivial_task_that_grew_is_normal() -> None:
 
 
 def test_an_event_off_the_table_is_an_error_naming_the_override() -> None:
-    match fold([Started(NOTES, delegated=False), Ready(7)]):
+    match fold([Started(NOTES, delegated=False), Ready(PR)]):
         case Failure(message=message, fix=fix, code=code):
             assert (message, code) == ("event 2: 'ready' is not an arrow out of Ctx", 2)
             assert "state override <state> <why>" in fix
@@ -621,3 +719,28 @@ def test_handback_without_what_it_needs_is_a_usage_error(
             assert (found, code) == (fix, 2)
         case parsed:
             raise AssertionError(f"parsed {parsed}")
+
+
+# ---- Briefs and views -----------------------------------------------------------------
+
+
+def test_brief_before_quality_is_recorded_gives_the_default_marked_as_one() -> None:
+    state = reach(Started(NOTES, delegated=False))
+
+    lines = brief("researcher", state, "/w").splitlines()
+
+    assert lines[:2] == ["Quality: Balanced (default)", "Size: Normal (default)"]
+
+
+@pytest.mark.parametrize("role", ["researcher", "reviewer", "checker"])
+def test_brief_of_a_non_worker_carries_no_worker_hand_back_rule(role: Role) -> None:
+    text = brief(role, reach(*drafted()), "/w")
+
+    assert "READY, NEEDS_DECISION, GREW" not in text
+
+
+def test_show_before_quality_is_recorded_shows_no_cap() -> None:
+    text = show(reach(Started(NOTES, delegated=False), Size("Normal")))
+
+    assert "Quality: <not set>" in text
+    assert "Re-review: 0/-   " in text

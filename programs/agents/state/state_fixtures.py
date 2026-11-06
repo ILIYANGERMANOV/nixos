@@ -47,6 +47,7 @@ from model import (
 )
 
 NOTES = "/notes/run"
+PR = "https://github.com/o/r/pull/7"
 NO_FACTS = NoFacts()
 
 # ---- Builders -------------------------------------------------------------------
@@ -67,7 +68,7 @@ def drafted(
     started = Started(NOTES, delegated=delegated)
     knobs = [Size(size), Quality(quality)]  # pyright: ignore[reportArgumentType]
     if delegated:
-        return [started, *knobs, Drafted(7, "main")]
+        return [started, *knobs, Drafted(PR, "main")]
     return [
         started,
         knobs[0],
@@ -75,7 +76,7 @@ def drafted(
         knobs[1],
         *(Proposed(m) for m in PROPOSAL_MODES),
         Confirmed(),
-        Drafted(7, "main"),
+        Drafted(PR, "main"),
     ]
 
 
@@ -114,6 +115,7 @@ def first_line(text: str) -> str:
 heads = st.sampled_from(["a1", "b2", "c3"])
 labels = st.sampled_from(["R1", "R2", "R3"])
 questions = st.sampled_from(["q1", "q2"])
+pr_urls = st.integers(1, 9).map(lambda n: f"https://github.com/o/r/pull/{n}")
 
 events: st.SearchStrategy[Event] = st.one_of(
     st.builds(Started, st.just(NOTES), st.booleans()),
@@ -127,7 +129,7 @@ events: st.SearchStrategy[Event] = st.one_of(
     st.builds(Proposed, st.sampled_from(PROPOSAL_MODES)),
     st.builds(Confirmed),
     st.builds(Adjusted),
-    st.builds(Drafted, st.integers(1, 9), st.just("main")),
+    st.builds(Drafted, pr_urls, st.just("main")),
     st.builds(Implemented, heads),
     st.builds(Refactored, heads),
     st.builds(
@@ -150,7 +152,7 @@ events: st.SearchStrategy[Event] = st.one_of(
     ),
     st.builds(Resolved, questions, st.just("yes")),
     st.builds(Overridden, st.sampled_from(STATES), st.just("why")),
-    st.builds(Ready, st.integers(1, 9)),
+    st.builds(Ready, pr_urls),
 )
 event_lists = st.lists(events, max_size=40)
 facts: st.SearchStrategy[Facts] = st.one_of(
@@ -239,6 +241,6 @@ def to_impl(repo: Path, notes: Path) -> None:
         ("record", "planned", f"{notes}/plan.md"),
         ("record", "quality", "Balanced"),
         ("record", "confirmed"),
-        ("record", "drafted", "7", "main"),
+        ("record", "drafted", PR, "main"),
     ):
         _ = ok(repo, *argv)

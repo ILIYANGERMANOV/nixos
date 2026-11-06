@@ -1,0 +1,4 @@
+# file: /home/factory/repos/nixos/.claude/worktrees/bridge-cse_013RcrwGdE6rTqEMBaZurHkB/programs/agents/state/shell.py
+# hypothesis_version: 6.151.10
+
+['+00:00', '--absolute-git-dir', '--numstat', '--quiet', '--show-toplevel', '--summary', '--verify', '.lock', '/', 'HEAD', 'SKILL.md', 'STATE_SESSION', 'Z', 'a', 'changed', 'create mode', 'diff', 'events.jsonl', 'flake.lock', 'git', 'new', 'none', 'package-lock.json', 'pnpm-lock.yaml', 'rev-parse', 'seconds', 'state-notes']

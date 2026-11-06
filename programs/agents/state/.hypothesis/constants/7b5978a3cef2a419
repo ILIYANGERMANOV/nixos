@@ -1,0 +1,4 @@
+# file: /home/factory/repos/nixos/.claude/worktrees/bridge-cse_013RcrwGdE6rTqEMBaZurHkB/programs/agents/state/flow.py
+# hypothesis_version: 6.151.10
+
+[100, '1-2', '10', '3', '4', '5', '6', '7', '8', '9', 'Balanced', 'Ctx', 'Done', 'DraftPR', 'DraftPlan', 'Impl', "Impl'", "Impl''", 'ImplR', 'Implement', 'Max', 'POC', 'PR', 'Prop', 'Proposals', 'Re-reviews', 'Refactor', 'Researchers', 'Skill dry run', 'adjusted', 'alternative', 'always', 'any', 'any skill change', 'as planned', 'asked', 'auth', 'blocked', 'blocked-decision', 'blocker', 'ci', 'confirmed', 'confirmed-replan', 'data model, auth', 'data-model', 'drafted', 'fixed', 'implement: 6', 'implemented', 'knob', 'never', 'notify: 10', 'planned', 'proposed', 'ready', 'refactor: 7', 'refactored', 'researched', 'resolved', 'reviewed-final', 'reviewed-loop', 'simplify', 'started', 'started-delegated', 'stuck', 'up to 2', 'up to 3']

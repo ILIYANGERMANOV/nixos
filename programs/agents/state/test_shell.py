@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from state_fixtures import commit, first_line, log_of, make_repo, ok, run, to_impl
+from state_fixtures import PR, commit, first_line, log_of, make_repo, ok, run, to_impl
 
 COMMANDS = st.sampled_from(
     [
@@ -21,7 +21,7 @@ COMMANDS = st.sampled_from(
         ("record", "grew", "bigger"),
         ("record", "planned", "plan.md"),
         ("record", "confirmed"),
-        ("record", "drafted", "7", "main"),
+        ("record", "drafted", PR, "main"),
         ("record", "implemented"),
         ("record", "bogus"),
         ("override", "PR", "jump"),
@@ -113,7 +113,7 @@ def test_drafting_with_quality_unset_records_it_defaulted(
     ):
         _ = ok(repo, *argv)
 
-    out = ok(repo, "record", "drafted", "7", "main")
+    out = ok(repo, "record", "drafted", PR, "main")
 
     assert out == "recorded 5 defaulted -> Impl\nrecorded 6 drafted -> Impl\n"
     assert "Quality: Balanced (defaulted)" in ok(repo, "show")
@@ -124,10 +124,20 @@ def test_an_event_off_the_table_exits_2_and_appends_nothing(
 ) -> None:
     _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
 
-    code, _, err = run(repo, "record", "ready", "7")
+    code, _, err = run(repo, "record", "ready", PR)
 
     assert code == 2
     assert err.startswith("state record: 'ready' is not an arrow out of Ctx\nfix: ")
+    assert len(log_of(tmp_path / "notes")) == 1
+
+
+def test_drafted_takes_the_pr_url_not_its_number(repo: Path, tmp_path: Path) -> None:
+    _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
+
+    code, _, err = run(repo, "record", "drafted", "7", "main")
+
+    assert code == 2
+    assert "url '7' is not a PR URL, https://<host>/<owner>/<repo>/pull/<n>" in err
     assert len(log_of(tmp_path / "notes")) == 1
 
 
@@ -211,7 +221,7 @@ def test_show_prints_the_progress_view(repo: Path, tmp_path: Path) -> None:
         "Size: Normal",
         "Re-review: 0/2   (round 1 is the first review, not counted)",
         "Reviewed head: h3",
-        f"Notes: {notes}  Plan: {notes}/plan.md  PR: 7  Base: main",
+        f"Notes: {notes}  Plan: {notes}/plan.md  PR: {PR}  Base: main",
         "Researched: 0  Asked: 0",
         "Rounds:",
         "- review 1 - h3 - R1",

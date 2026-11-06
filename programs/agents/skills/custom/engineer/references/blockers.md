@@ -42,6 +42,10 @@ question, and its answer with `state record resolved`. Before `READY` or
 `gh pr ready`, every open decision, a hand-back's prose question included, has
 its row and is done; none is handed on as prose in the PR body or a hand-back.
 
+The user's answer to the stuck guard is a decision, recorded as `state next`
+says: the decision path, a dropped row too. The same row or check in a later
+round is stuck again.
+
 | You find | Kind | Arrow |
 |---|---|---|
 | The plan, the notes or a user answer already settle it | answered | resume with the answer |

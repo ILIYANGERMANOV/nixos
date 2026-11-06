@@ -1,0 +1,4 @@
+# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/email/message.py
+# hypothesis_version: 6.151.10
+
+[b' ', b' \t\r\n\x0c', b'begin ', b'end', '"', '"%s"', '%s="%s"', '%s=%s', '*', '-', '/', '1.0', ';', '; ', '=', 'Content-Disposition', 'Content-Type', 'EmailMessage', 'MIME-Version', 'Message', 'Truncated input', '\\"', '_', 'alternative', 'ascii', 'attachment', 'base64', 'boundary', 'charset', 'content-', 'content-disposition', 'content-id', 'content-type', 'cte', 'decode', 'encode', 'filename', 'html', 'inline', 'make_', 'mime-version', 'mixed', 'multipart', 'multipart/', 'name', 'plain', 'quoted-printable', 'raw-unicode-escape', 'related', 'replace', 'start', 'surrogateescape', 'text', 'text/plain', 'us-ascii', 'utf-8', 'uue', 'uuencode', 'x-uue', 'x-uuencode']

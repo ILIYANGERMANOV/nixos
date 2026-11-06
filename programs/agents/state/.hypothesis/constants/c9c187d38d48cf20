@@ -1,0 +1,4 @@
+# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/json/__init__.py
+# hypothesis_version: 6.151.10
+
+['2.0.9', 'JSONDecodeError', 'JSONDecoder', 'JSONEncoder', 'dump', 'dumps', 'load', 'loads', 'object_hook', 'object_pairs_hook', 'parse_constant', 'parse_float', 'parse_int', 'surrogatepass', 'utf-16', 'utf-16-be', 'utf-16-le', 'utf-32', 'utf-32-be', 'utf-32-le', 'utf-8', 'utf-8-sig', '\ufeff']

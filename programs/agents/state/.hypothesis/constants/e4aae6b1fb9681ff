@@ -1,0 +1,4 @@
+# file: /nix/store/zwfc66mis7dz7pik8ns8r0c86ba1d7rb-python3-3.13.15-env/lib/python3.13/types.py
+# hypothesis_version: 6.151.10
+
+[256, 384, 'CapsuleType', '_', '__code__', '__isabstractmethod__', '__mro_entries__', '__name__', '__orig_bases__', '__prepare__', '__qualname__', "can't set attribute", 'fromkeys', 'metaclass', 'unreadable attribute']
