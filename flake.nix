@@ -173,6 +173,13 @@
               qa-sepolia-key = "/run/secrets/qa-sepolia-key";
             };
           };
+          inherit
+            (import ./adapters/agents.nix {
+              inherit inputs pkgs;
+              root = self;
+            })
+            state
+            ;
         }
       );
 

@@ -1,5 +1,9 @@
 # Every .py in the repository against the root pyproject.toml.
-{ pkgs, claude }:
+{
+  pkgs,
+  claude,
+  state,
+}:
 let
   inherit (pkgs) lib;
 
@@ -70,7 +74,7 @@ in
       CONTEXT_GUARD = lib.getExe claude.guards.context;
       STATUSLINE = lib.getExe claude.statusline;
       # test_e2e.py runs the wrapped `state` binary, as the agents get it.
-      STATE = lib.getExe (import ../agents/state { inherit pkgs; });
+      STATE = lib.getExe state;
       PYTHON_SOURCE = pythonSource;
     }
   ) (builtins.readFile ./python-tests.sh);
