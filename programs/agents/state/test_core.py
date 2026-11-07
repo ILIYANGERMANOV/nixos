@@ -734,7 +734,7 @@ def test_an_event_off_the_table_is_an_error_naming_the_arrows_and_the_override()
         case Failure(message=message, fix=fix, code=code):
             assert (message, code) == ("event 2: 'ready' is not an arrow out of Ctx", 2)
             assert fix == (
-                "here: state record started | asked | planned; "
+                "here: state record asked | planned; "
                 'to record ready: state override PR "<why>", then rerun'
             )
         case State():
@@ -752,24 +752,34 @@ def test_an_ask_from_prop_names_the_override_back_to_ctx() -> None:
             raise AssertionError("asked is no arrow out of Prop")
 
 
-@given(event_lists, events)
-def test_off_arrow_following_the_fix_makes_the_event_an_arrow(
-    candidates: list[Event], event: Event
-) -> None:
-    state = reach(*accepted(candidates))
+def off_arrow(pair: tuple[State, Event]) -> bool:
+    match apply(*pair):
+        case Failure(message=message):
+            return "is not an arrow" in message
+        case State():
+            return False
 
-    match apply(state, event):
-        case Failure(message=message, fix=fix) if "is not an arrow" in message:
-            found = OVERRIDE.search(fix)
-            assert found is not None
-            moved = apply(state, Overridden(found[1], "why"))  # pyright: ignore[reportArgumentType]
-            assert isinstance(moved, State)
-            match apply(moved, event):
-                case Failure(message=again):
-                    assert "is not an arrow" not in again
-                case State():
-                    pass
-        case _:
+
+off_arrows = st.tuples(event_lists.map(lambda c: reach(*accepted(c))), events).filter(
+    off_arrow
+)
+
+
+@given(off_arrows)
+def test_off_arrow_following_the_fix_makes_the_event_an_arrow(
+    pair: tuple[State, Event],
+) -> None:
+    state, event = pair
+    refused = apply(state, event)
+    assert isinstance(refused, Failure)
+    found = OVERRIDE.search(refused.fix)
+    assert found is not None
+    moved = apply(state, Overridden(found[1], "why"))  # pyright: ignore[reportArgumentType]
+    assert isinstance(moved, State)
+    match apply(moved, event):
+        case Failure(message=again):
+            assert "is not an arrow" not in again
+        case State():
             pass
 
 

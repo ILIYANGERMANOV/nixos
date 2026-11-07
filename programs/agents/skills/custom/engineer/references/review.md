@@ -24,9 +24,10 @@ review agent with an action. Choose the rows worth fixing. Every surviving
 house-rule row is fixed, or the reason for leaving it goes in the PR body.
 When your Quality row fixes only blockers (security, irreversible damage,
 broken code), every other row goes in `## Follow-ups`. A Not met verdict
-never does: `Not met always` below. Chosen rows always go to a loop fixer,
-then a `--fixes` review: record them as `--row`s, and `state next` spawns it.
-No row chosen ends the loop: the final fixer.
+never does: `Not met always` below. Below the Re-reviews cap, chosen rows
+go to a loop fixer, then a `--fixes` review: record them as `--row`s, and
+`state next` spawns it. No row chosen, or the cap, ends the loop: the final
+fixer.
 
 A return that starts `NEEDS_DECISION plan wrong`: fix no row, security
 included. Record its rows and triage the line. The re-plan's fresh round 1

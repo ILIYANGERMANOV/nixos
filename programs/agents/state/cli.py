@@ -24,6 +24,7 @@ from state.model import (
     ROLES,
     STATES,
     TOKENS,
+    UNRECORDABLE,
     WORKERS,
     Event,
     Failure,
@@ -118,7 +119,7 @@ state - record the engineer flow as events; advise the next arrow
   state render                             the skill's States block and Quality rows
 
 Events
-{grid(usage_of(name, spec) for name, spec in EVENTS.items() if spec.recordable)}\
+{grid(usage_of(name, spec) for name, spec in EVENTS.items() if name not in UNRECORDABLE)}\
   <head> omitted: HEAD. A row's label stays the same for the same finding.
   ci with no --failing: green.
 
@@ -279,8 +280,8 @@ def parse_args(argv: list[str]) -> Help | Render | Command | Failure:  # noqa: C
 def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:
     """`state record <event> [args]`; a `<head>` left out is HEAD."""
     name, *rest = args
-    match EVENTS.get(name):
-        case Spec(recordable=True) as spec:
+    match None if name in UNRECORDABLE else EVENTS.get(name):
+        case Spec() as spec:
             try:
                 reader = ArgvFields(rest, head)
                 event = spec.read(reader)
@@ -295,7 +296,7 @@ def parse_record(args: tuple[str, ...], head: str | None) -> Event | Failure:
 
 
 def did_you_mean(name: str) -> str:
-    recordable = [n for n, spec in EVENTS.items() if spec.recordable]
+    recordable = [n for n in EVENTS if n not in UNRECORDABLE]
     match get_close_matches(name, recordable, n=1):
         case [found]:
             return f"did you mean: state record {usage_of(found, EVENTS[found])}"

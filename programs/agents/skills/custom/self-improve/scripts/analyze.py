@@ -273,6 +273,8 @@ class ToolCall:
     outcome: Outcome = Ok()
     result_chars: int = 0
     images: int = 0
+    # `state` refusals in the output, by first visible line; a pipe can hide their exit code
+    refusals: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
@@ -1085,6 +1087,15 @@ def record_result(
         call.outcome = Failed(exit_code(text), signature(text))
     elif "command not found" in text:
         call.outcome = Failed(None, signature(text))
+    call.refusals = tuple(
+        found.group(1) or f"fix: {found.group(2)}"
+        for found in STATE_REFUSAL.finditer(text)
+    )
+
+
+# What `state` prints on stderr when it refuses a step, programs/agents/state/main.py:
+# `state <sub>: what - why`, then `fix: ...`. A `| tail -1` keeps only the fix line.
+STATE_REFUSAL = re.compile(r"^(?:(state [a-z-]+: .*)\n)?fix: (.*)$", re.MULTILINE)
 
 
 def result_text(content: Json) -> tuple[str, int]:
@@ -2861,13 +2872,15 @@ STATE_TOOLS = {"state", "ctx"}
 
 
 def state_ctx(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
-    """`state` and `ctx` steps by subcommand; a failed Bash call fails each step in it."""
+    """`state` and `ctx` steps by subcommand; a failed Bash call fails each step
+    in it, and a refusal in its output fails the step it names."""
     groups: dict[str, list[Outcome]] = defaultdict(list)
     overrides: dict[str, list[str]] = defaultdict(list)  # target state: whys
     for c, command in bash_runs(c for _, _, c in calls):
+        refusals = list(c.refusals)
         for s in steps(command):
             if s.name.split()[0] in STATE_TOOLS:
-                groups[s.name].append(c.outcome)
+                groups[s.name].append(step_outcome(s.name, c.outcome, refusals))
             match s.name, s.text.split(maxsplit=3):
                 case "state override", [_, _, target, why]:
                     overrides[target].append(why)
@@ -2891,6 +2904,22 @@ def state_ctx(calls: list[tuple[Session, Agent, ToolCall]]) -> Section:
             *table(["to", "n", "latest why"], override_rows),
         ],
     )
+
+
+def step_outcome(name: str, call: Outcome, refusals: list[str]) -> Outcome:
+    """The call's outcome, else the first unclaimed refusal naming step `name`,
+    else, for a `state` step, the first unclaimed bare `fix:` line, which kept
+    no name. The step claims it, so each refusal fails one step."""
+    named = (r for r in refusals if r.startswith(f"{name}: "))
+    bare = (r for r in refusals if r.startswith("fix: ") and name.startswith("state "))
+    match call, next(named, None) or next(bare, None):
+        case Failed(), _:
+            return call
+        case Ok(), None:
+            return call
+        case Ok(), refusal:
+            refusals.remove(refusal)
+            return Failed(None, signature(refusal))
 
 
 def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:

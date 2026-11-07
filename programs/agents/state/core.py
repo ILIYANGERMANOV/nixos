@@ -40,6 +40,7 @@ from state.model import (
     S0,
     STATES,
     TOKENS,
+    UNRECORDABLE,
     Adjusted,
     Area,
     Asked,
@@ -156,12 +157,12 @@ EVERYWHERE = frozenset(k for _, k in TARGET if all((s, k) in TARGET for s in LIV
 
 
 def arrows_out(step: StateName) -> tuple[str, ...]:
-    """The events this step's own arrows take: a kind's event is its first word."""
-    return tuple(
-        dict.fromkeys(
-            k.partition("-")[0] for s, k in TARGET if s == step and k not in EVERYWHERE
-        )
+    """The recordable events this step's own arrows take: a kind's event is its
+    first word."""
+    events = (
+        k.partition("-")[0] for s, k in TARGET if s == step and k not in EVERYWHERE
     )
+    return tuple(dict.fromkeys(e for e in events if e not in UNRECORDABLE))
 
 
 def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per event

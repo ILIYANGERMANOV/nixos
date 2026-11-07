@@ -2197,6 +2197,52 @@ class TestStateCtx:
             "error: line N starts with 'Done'",
         ]
 
+    def test_a_refusal_in_a_piped_call_that_exits_0_fails_only_its_step(
+        self, home: Home
+    ) -> None:
+        # Given: the refused step's exit code is lost to the pipe
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state record started 2>&1 | tail -2; state next",
+            2,
+            outcome=Outcome(
+                "state record: 'started' is not an event\nfix: state record planned <path>\nSPAWN fixer"
+            ),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state record")[1:] == [
+            "1",
+            "1",
+            "state record: 'started' is not an event",
+        ]
+        assert row(report, "state-ctx", "state next")[1:3] == ["1", "0"]
+
+    def test_a_bare_fix_line_left_by_tail_fails_the_first_state_step(
+        self, home: Home
+    ) -> None:
+        # Given: `tail -1` kept only the fix line of the refusal
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state override Impl why 2>&1 | tail -1; state next; ctx diff main",
+            2,
+            outcome=Outcome("fix: cd <worktree>\nSPAWN fixer"),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state override")[1:] == [
+            "1",
+            "1",
+            "fix: cd <worktree>",
+        ]
+        assert headline(report, "state-ctx") == "3 calls, 1 failed, 1 overrides"
+
     def test_overrides_count_by_target_with_the_latest_why(self, home: Home) -> None:
         # Given
         main = Transcript().human(0, "go")

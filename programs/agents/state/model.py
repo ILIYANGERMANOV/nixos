@@ -293,3 +293,8 @@ def size_of(state: State) -> SizeName:
 
 def name_of(event: Event) -> str:
     return type(event).__name__.lower()
+
+
+# Events another command writes (`init`, a draft PR's defaults, `override`), by
+# `name_of`: `state record` refuses them, and no refusal names them as its fix.
+UNRECORDABLE = frozenset({"started", "defaulted", "overridden"})

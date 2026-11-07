@@ -104,8 +104,6 @@ class Fields(Protocol):
 @dataclass(frozen=True)
 class Spec:
     read: Callable[[Fields], Event]
-    # False: another command writes it (`init`, a draft PR's defaults, `override`).
-    recordable: bool = True
 
 
 def a_text(key: str, value: Json) -> str:
@@ -205,14 +203,11 @@ def read_defaulted(f: Fields) -> Defaulted:
 
 # Keys are `name_of` each event; the readers take fields in the order read.
 EVENTS: dict[str, Spec] = {
-    "started": Spec(
-        lambda f: Started(f.one("notes", TEXT), f.one("delegated", FLAG)),
-        recordable=False,
-    ),
+    "started": Spec(lambda f: Started(f.one("notes", TEXT), f.one("delegated", FLAG))),
     "quality": Spec(lambda f: Quality(f.one("mode", choice(MODES)))),
     "size": Spec(lambda f: Size(f.one("size", choice(SIZES)))),
     "grew": Spec(lambda f: Grew(f.one("why", TEXT))),
-    "defaulted": Spec(read_defaulted, recordable=False),
+    "defaulted": Spec(read_defaulted),
     "researched": Spec(lambda f: Researched(f.optional("n", COUNT, 1))),
     "asked": Spec(lambda f: Asked(f.optional("n", COUNT, 1))),
     "planned": Spec(lambda f: Planned(f.one("path", TEXT))),
@@ -239,8 +234,7 @@ EVENTS: dict[str, Spec] = {
         lambda f: Resolved(f.one("question", TEXT), f.one("answer", TEXT))
     ),
     "overridden": Spec(
-        lambda f: Overridden(f.one("to", choice(STATES)), f.one("why", TEXT)),
-        recordable=False,
+        lambda f: Overridden(f.one("to", choice(STATES)), f.one("why", TEXT))
     ),
     "ready": Spec(lambda f: Ready(f.one("url", PR_URL))),
 }
