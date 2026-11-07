@@ -19,18 +19,25 @@ let
   # interpolated "${root}/..." would reference the whole flake source, so any
   # commit, even docs-only, would change every host's drvPath. Paths only:
   # decrypted values never enter the store.
-  fileFor =
+  fileFor = scope: builtins.path { inherit (sourceFor scope) path name; };
+
+  # The repo-relative ciphertext path, kept apart from `fileFor` so the
+  # assertion can test it: `builtins.path` aborts on a missing file before any
+  # assertion gets to explain how to create it.
+  sourceFor =
     scope:
-    if scope == "global" then
-      builtins.path {
-        path = "${root}/secrets/common.yaml";
-        name = "common.yaml";
-      }
-    else
-      builtins.path {
-        path = "${root}/secrets/hosts/${config.networking.hostName}.yaml";
-        name = "${config.networking.hostName}.yaml";
-      };
+    let
+      rel =
+        if scope == "global" then
+          "secrets/common.yaml"
+        else
+          "secrets/hosts/${config.networking.hostName}.yaml";
+    in
+    {
+      inherit rel;
+      path = "${root}/${rel}";
+      name = baseNameOf rel;
+    };
 
   # sops-nix places neededForUsers secrets in /run/secrets-for-users before any
   # user account exists, so they must stay root-owned; passing owner/mode there
@@ -136,9 +143,9 @@ in
       }
     ]
     ++ lib.mapAttrsToList (name: s: {
-      assertion = builtins.pathExists (fileFor s.scope);
+      assertion = builtins.pathExists (sourceFor s.scope).path;
       message = ''
-        myConfig.secrets.${name} (scope "${s.scope}") expects ${fileFor s.scope}, which does not exist.
+        myConfig.secrets.${name} (scope "${s.scope}") expects ${(sourceFor s.scope).rel}, which does not exist.
         Create it with: just edit-secrets ${if s.scope == "global" then "" else config.networking.hostName}
       '';
     }) cfg;
