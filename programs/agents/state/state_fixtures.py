@@ -3,6 +3,7 @@ events, and the command line run on temp git repos, as test_ctx.py does."""
 
 import io
 import json
+import re
 import subprocess
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -48,6 +49,8 @@ from state.model import (
 )
 
 NOTES = "/notes/run"
+# The override an off-arrow refusal's fix line names; group 1 is the state.
+OVERRIDE = re.compile(r'state override (\S+) "<why>"')
 PR = "https://github.com/o/r/pull/7"
 NO_FACTS = NoFacts()
 

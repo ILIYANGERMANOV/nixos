@@ -25,6 +25,7 @@ from state.model import (
     S0,
     SIZES,
     STATES,
+    Asked,
     Blocked,
     Ci,
     Confirmed,
@@ -54,6 +55,7 @@ from state.model import (
 )
 from state.state_fixtures import (
     NOTES,
+    OVERRIDE,
     PR,
     accepted,
     advice,
@@ -725,13 +727,72 @@ def test_a_trivial_task_that_grew_is_normal() -> None:
     assert reach(Size("Trivial"), Grew("a migration")).size == "Normal"
 
 
-def test_an_event_off_the_table_is_an_error_naming_the_override() -> None:
+def test_an_event_off_the_table_is_an_error_naming_the_arrows_and_the_override() -> (
+    None
+):
     match fold([Started(NOTES, delegated=False), Ready(PR)]):
         case Failure(message=message, fix=fix, code=code):
             assert (message, code) == ("event 2: 'ready' is not an arrow out of Ctx", 2)
-            assert "state override <state> <why>" in fix
+            assert fix == (
+                "here: state record asked | planned; "
+                'to record ready: state override PR "<why>", then rerun'
+            )
         case State():
             raise AssertionError("ready is no arrow out of Ctx")
+
+
+def test_an_ask_from_prop_names_the_override_back_to_ctx() -> None:
+    match fold([Started(NOTES, delegated=False), Planned("p.md"), Asked(1)]):
+        case Failure(fix=fix):
+            assert fix == (
+                "here: state record proposed | confirmed | adjusted; "
+                'to record asked: state override Ctx "<why>", then rerun'
+            )
+        case State():
+            raise AssertionError("asked is no arrow out of Prop")
+
+
+def test_an_event_from_a_step_without_arrows_names_only_the_nearest_override() -> None:
+    done = reach(*drafted(), Overridden("Done", "shipped"))
+    match apply(done, Implemented("a1")):
+        case Failure(fix=fix):
+            assert (
+                fix
+                == 'to record implemented: state override Impl\' "<why>", then rerun'
+            )
+        case State():
+            raise AssertionError("Done has no arrows")
+
+
+def off_arrow(pair: tuple[State, Event]) -> bool:
+    match apply(*pair):
+        case Failure(message=message):
+            return "is not an arrow" in message
+        case State():
+            return False
+
+
+off_arrows = st.tuples(event_lists.map(lambda c: reach(*accepted(c))), events).filter(
+    off_arrow
+)
+
+
+@given(off_arrows)
+def test_off_arrow_following_the_fix_makes_the_event_an_arrow(
+    pair: tuple[State, Event],
+) -> None:
+    state, event = pair
+    refused = apply(state, event)
+    assert isinstance(refused, Failure)
+    found = OVERRIDE.search(refused.fix)
+    assert found is not None
+    moved = apply(state, Overridden(found[1], "why"))  # pyright: ignore[reportArgumentType]
+    assert isinstance(moved, State)
+    match apply(moved, event):
+        case Failure(message=again):
+            assert "is not an arrow" not in again
+        case State():
+            pass
 
 
 # ---- Hand-backs -----------------------------------------------------------------------
@@ -793,6 +854,20 @@ def test_an_event_off_the_table_is_an_error_naming_the_override() -> None:
             id="review-lead plan wrong: a decision, its review recorded",
         ),
         pytest.param(
+            "implementer", "READY", HandbackOptions(head="9f8e7d6"),
+            (Implemented("9f8e7d6"),), id="implementer --head over HEAD",
+        ),
+        pytest.param(
+            "review-lead", "READY", HandbackOptions(head="9f8e7d6", rows=("R1",)),
+            (Reviewed("9f8e7d6", ("R1",), ()),),
+            id="review-lead status line with --head",
+        ),
+        pytest.param(
+            "review-lead", "READY\n\nReviewed head: 1111111",
+            HandbackOptions(head="9f8e7d6"), (Reviewed("9f8e7d6", (), ()),),
+            id="review-lead --head wins over its Reviewed head line",
+        ),
+        pytest.param(
             "fixer", "NEEDS_DECISION stuck: lint in 2 rounds", HandbackOptions(),
             (Blocked("stuck: lint in 2 rounds", "decision", "fixer"),),
             id="a stuck hand-back is a decision",
@@ -815,7 +890,7 @@ def test_handback_records_the_event_its_first_line_names(
         ),
         pytest.param(
             "review-lead", "| table |", HandbackOptions(), "abc1234",
-            "state record reviewed <sha> [--row <label>]... by hand",
+            "state handback review-lead --head <sha> [--row <label>]...",
             id="a review without its Reviewed head",
         ),
         pytest.param(
@@ -834,6 +909,16 @@ def test_handback_without_what_it_needs_is_a_usage_error(
     match parse_handback(role, text, options, head):  # pyright: ignore[reportArgumentType]
         case Failure(fix=found, code=code):
             assert (found, code) == (fix, 2)
+        case parsed:
+            raise AssertionError(f"parsed {parsed}")
+
+
+def test_a_review_without_its_head_names_the_line_it_looks_for() -> None:
+    match parse_handback("review-lead", "| table |", HandbackOptions(), "abc1234"):
+        case Failure(message=message):
+            assert message == (
+                "state handback review-lead: no --head and no 'Reviewed head: <sha>' line"
+            )
         case parsed:
             raise AssertionError(f"parsed {parsed}")
 

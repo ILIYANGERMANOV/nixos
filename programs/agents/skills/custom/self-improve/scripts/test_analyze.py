@@ -274,11 +274,12 @@ class Home:
             }
             _ = base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
-    def report(self, *args: str) -> str:
-        """The report the CLI prints for `args`, run in-process so mutation testing sees it."""
+    def report(self, *args: str, fetch: analyze.Fetch | None = None) -> str:
+        """The report the CLI prints for `args`, run in-process so mutation testing sees it.
+        `fetch` answers for `gh` under `--gh`."""
         out = io.StringIO()
         with redirect_stdout(out):
-            analyze.main(["--root", str(self.root), *args])
+            analyze.main(["--root", str(self.root), *args], fetch)
         return out.getvalue()
 
     def cli_report(self, *args: str) -> str:
@@ -322,6 +323,11 @@ def index_rows(report: str) -> list[list[str]]:
     header, *rows = section(report, "index").strip().splitlines()
     assert header == "section|lines|headline"
     return [line.split("|", 2) for line in rows]
+
+
+def headline(report: str, slug: str) -> str:
+    """The index's headline for section `slug`."""
+    return {name: text for name, _, text in index_rows(report)}[slug]
 
 
 @pytest.fixture
@@ -1906,6 +1912,9 @@ class TestWindow:
         report = home.report("--since", at(500), "--project", "demo")
         # Then
         assert self.sessions(report) == {"work"}
+        assert report.splitlines()[0] == (
+            "# Session report (since 2026-01-01 00:08, project matching `demo`)"
+        )
 
 
 COSTS_1K: JsonObject = {"input_tokens": 1000}
@@ -2048,6 +2057,318 @@ class TestQualityModes:
         home.session("s1", idle_main())
         # When / Then
         assert "Not counted: a PR opened in another session" in home.report()
+
+
+def linked(main: Transcript, t: float, number: int, repo: str = "o/demo") -> Transcript:
+    """A PR link line, written twice as Claude Code does."""
+    for _ in range(2):
+        _ = main.event(
+            t,
+            "pr-link",
+            prNumber=number,
+            prUrl=f"https://github.com/{repo}/pull/{number}",
+            prRepository=repo,
+        )
+    return main
+
+
+@dataclass
+class FakeGh:
+    """`gh pr view` over in-memory PR sizes; an unknown PR fails as gh does."""
+
+    sizes: dict[tuple[str, int], tuple[int, int]]
+
+    def __call__(self, repo: str, number: int) -> analyze.PrSize | analyze.GhFailed:
+        match self.sizes.get((repo, number)):
+            case (additions, deletions):
+                return analyze.PrSize(additions, deletions)
+            case None:
+                return analyze.GhFailed("GraphQL: Could not resolve to a PullRequest")
+
+
+class TestPerPr:
+    def test_a_twice_linked_pr_is_one_row_with_its_session_s_cost(
+        self, home: Home
+    ) -> None:
+        # Given: an engineer session of 10 minutes with two subagents
+        main = linked(Transcript().human(0, "go").reply(1, COSTS_1K), 300, 336)
+        _ = main.reply(600)
+        home.session(
+            "s1",
+            main,
+            {
+                "a": (
+                    "implementer",
+                    "I",
+                    subagent("Quality: Max\nSize: Normal", COSTS_1K),
+                ),
+                "b": ("researcher", "R", subagent("Quality: Max", COSTS_1K)),
+                "c": ("implementer", "I2", subagent("Quality: Max\nSize: Normal")),
+            },
+        )
+        # When
+        cells = row(home.report(), "per-pr", "demo#336")
+        # Then
+        assert cells[1:] == [
+            "1",
+            "Max, Size: Normal",
+            "10m",
+            "3k/0/0/0",
+            "3k",
+            "implementer 2, researcher 1",
+            "-",
+            "-",
+        ]
+
+    def test_follow_up_sessions_on_one_pr_add_up(self, home: Home) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 7))
+        home.session("s2", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 7))
+        home.session("s3", idle_main())
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "per-pr", "demo#7")[1:2] == ["2"]
+        assert headline(report, "per-pr") == "1 PRs, top demo#7 2k"
+
+    def test_gh_gives_changed_lines_and_cost_per_line(self, home: Home) -> None:
+        # Given: 10k effective over two PRs of 50 changed lines each, as many
+        # added as deleted in sum
+        main = Transcript().human(0, "go").reply(1, {"input_tokens": 10_000})
+        home.session("s1", linked(linked(main, 2, 1), 3, 2))
+        gh = FakeGh({("o/demo", 1): (40, 10), ("o/demo", 2): (10, 40)})
+        # When
+        cells = row(home.report("--gh", fetch=gh), "per-pr", "demo#1 demo#2")
+        # Then
+        assert cells[-2:] == ["+50/-50", "100"]
+
+    def test_a_pr_gh_cannot_see_is_marked_and_named(self, home: Home) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1), 2, 9))
+        # When
+        report = home.report("--gh", fetch=FakeGh({}))
+        # Then
+        assert row(report, "per-pr", "demo#9")[-2:] == ["?", "-"]
+        assert "gh failed for demo#9: GraphQL: Could not resolve" in section(
+            report, "per-pr"
+        )
+
+    def test_prs_rank_costliest_first_with_every_mode_and_no_agents_as_a_dash(
+        self, home: Home
+    ) -> None:
+        # Given: demo#1 has two cheap sessions in two modes, demo#2 one dear one
+        home.session(
+            "s1",
+            linked(Transcript().human(0, "Quality: POC").reply(60, COSTS_1K), 2, 1),
+        )
+        home.session(
+            "s2",
+            linked(Transcript().human(0, "Quality: Max").reply(60, COSTS_1K), 2, 1),
+        )
+        home.session(
+            "s3",
+            linked(
+                Transcript().human(0, "go").reply(120, {"input_tokens": 5000}), 2, 2
+            ),
+        )
+        # When
+        report = home.report()
+        # Then
+        assert section(report, "per-pr").splitlines() == [
+            "PR|sessions|mode|wall|tokens|effective|agents|changed lines|effective per line",
+            "demo#2|1|(none stated)|2m|5k/0/0/0|5k|-|-|-",
+            "demo#1|2|POC; Max|2m|2k/0/0/0|2k|-|-|-",
+        ]
+        assert headline(report, "per-pr") == "2 PRs, top demo#2 5k"
+
+
+class TestRealGh:
+    """`--gh` without a stand-in runs `gh`, here a fake that answers as gh does."""
+
+    ARGV: ClassVar[list[str]] = [
+        "gh", "pr", "view", "3", "-R", "o/demo", "--json", "additions,deletions"
+    ]  # fmt: skip
+
+    def fake_gh(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, stderr: str
+    ) -> None:
+        """Answers `ARGV` with the given result; any other command is not found.
+        As `subprocess.run`: bytes unless `text`, uncaptured unless `capture_output`."""
+
+        def run(
+            argv: list[str],
+            *,
+            capture_output: bool = False,
+            text: bool = False,
+            check: bool = False,
+        ) -> subprocess.CompletedProcess[str | bytes | None]:
+            rc, out, err = (
+                (returncode, stdout, stderr)
+                if argv == self.ARGV
+                else (127, "", "not found")
+            )
+            if check and rc:
+                raise subprocess.CalledProcessError(rc, argv, out, err)
+            captured = [
+                (o if text else o.encode()) if capture_output else None
+                for o in (out, err)
+            ]
+            return subprocess.CompletedProcess(argv, rc, *captured)
+
+        monkeypatch.setattr(subprocess, "run", run)
+
+    def test_gh_s_counts_fill_the_row(
+        self, home: Home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 3))
+        self.fake_gh(monkeypatch, 0, '{"additions":7,"deletions":3}\n', "")
+        # When
+        cells = row(home.report("--gh"), "per-pr", "demo#3")
+        # Then
+        assert cells[-2:] == ["+7/-3", "100"]
+
+    def test_a_gh_failure_names_its_first_error_line(
+        self, home: Home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 3))
+        self.fake_gh(monkeypatch, 1, "", "error: HTTP 401: Bad credentials\nmore\n")
+        # When
+        report = home.report("--gh")
+        # Then
+        assert row(report, "per-pr", "demo#3")[-2:] == ["?", "-"]
+        assert "gh failed for demo#3: error: HTTP N: Bad credentials" in section(
+            report, "per-pr"
+        )
+
+
+class TestStateCtx:
+    def test_calls_count_per_subcommand_inside_chains(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, "cd /w && state next", 2)
+        _ = main.bash(3, "state record size Normal >/dev/null; state next", 4)
+        _ = main.bash(5, "ctx diff origin/main | head", 6)
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state next")[1:3] == ["2", "0"]
+        assert row(report, "state-ctx", "state record")[1:3] == ["1", "0"]
+        assert row(report, "state-ctx", "ctx diff")[1:3] == ["1", "0"]
+
+    def test_prose_and_heredoc_bodies_are_not_calls(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, 'git commit -m "state the next step; ctx diff later"', 2)
+        _ = main.bash(3, "state handback implementer <<'EOF'\nstate next\nEOF", 4)
+        home.session("s1", main)
+        # When
+        rows = section(home.report(), "state-ctx").splitlines()
+        # Then
+        assert [r.split("|")[0] for r in rows[1:3]] == ["state handback", "overrides:"]
+
+    def test_a_failed_call_counts_with_its_error(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state handback implementer",
+            2,
+            outcome=Outcome(
+                "Exit code 2\nerror: line 1 starts with 'Done'", error=True
+            ),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state handback")[1:] == [
+            "1",
+            "1",
+            "error: line N starts with 'Done'",
+        ]
+
+    def test_a_refusal_in_a_piped_call_that_exits_0_fails_only_its_step(
+        self, home: Home
+    ) -> None:
+        # Given: the refused step's exit code is lost to the pipe
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state next; state record started 2>&1 | tail -2",
+            2,
+            outcome=Outcome(
+                "state record: 'started' is not an event\nfix: state record planned <path>\nSPAWN fixer"
+            ),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state record")[1:] == [
+            "1",
+            "1",
+            "state record: 'started' is not an event",
+        ]
+        assert row(report, "state-ctx", "state next")[1:3] == ["1", "0"]
+
+    def test_a_bare_fix_line_left_by_tail_fails_the_first_state_step(
+        self, home: Home
+    ) -> None:
+        # Given: `tail -1` kept only the fix line of the refusal
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state override Impl why 2>&1 | tail -1; state next; ctx diff main",
+            2,
+            outcome=Outcome("fix: cd <worktree>\nSPAWN fixer"),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state override")[1:] == [
+            "1",
+            "1",
+            "fix: cd <worktree>",
+        ]
+        assert headline(report, "state-ctx") == "3 calls, 1 failed, 1 overrides"
+
+    def test_overrides_count_by_target_with_the_latest_why(self, home: Home) -> None:
+        # Given
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, 'state override Impl "skip the plan"', 2)
+        _ = main.bash(3, "state override \\\n  Impl 'the plan was done'", 4)
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "Impl") == ["Impl", "2", "'the plan was done'"]
+        assert headline(report, "state-ctx") == "2 calls, 0 failed, 2 overrides"
+
+    def test_both_tables_rank_most_first(self, home: Home) -> None:
+        # Given: ctx diff once, state override three times, to Impl once and
+        # to Plan twice: most first, not by name
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, "ctx diff main", 2)
+        _ = main.bash(3, "state override Impl skip", 4)
+        _ = main.bash(5, "state override Plan redo", 6)
+        _ = main.bash(7, "state override Plan again", 8)
+        home.session("s1", main)
+        # When
+        rows = section(home.report(), "state-ctx").splitlines()
+        # Then
+        assert rows == [
+            "command|calls|failed|top failure",
+            "state override|3|0|-",
+            "ctx diff|1|0|-",
+            "overrides:",
+            "to|n|latest why",
+            "Plan|2|again",
+            "Impl|1|skip",
+        ]
 
 
 class TestStartUp:

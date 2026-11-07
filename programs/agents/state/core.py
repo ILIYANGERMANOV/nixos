@@ -9,6 +9,7 @@ from state.flow import (
     DELEGATED_PR_FLAGS,
     FULL_REVIEW,
     HANDBACK_RULE,
+    LIVE,
     ONE_PLAN_OPTIONS,
     PLAN_OPTIONS,
     PLAN_WRONG,
@@ -37,7 +38,9 @@ from state.model import (
     DEFAULTS,
     MODES,
     S0,
+    STATES,
     TOKENS,
+    UNRECORDABLE,
     Adjusted,
     Area,
     Asked,
@@ -118,18 +121,48 @@ def apply(state: State, event: Event) -> State | Failure:
             target = TARGET.get((state.step, classify(state, event)))
     match target, absorb(state, event):
         case None, _:
-            return Failure(
-                f"'{name_of(event)}' is not an arrow out of {state.step}",
-                (
-                    f"state next shows {state.step}'s arrows; "
-                    f"to leave them, state override <state> <why>"
-                ),
-                2,
-            )
+            return off_arrow(state, event)
         case _, Failure() as failure:
             return failure
         case _, State() as absorbed:
             return replace(absorbed, step=target)
+
+
+def off_arrow(state: State, event: Event) -> Failure:
+    """Refused, with the commands that work now: the arrows out of this step, and
+    the override to the nearest step the event is an arrow out of."""
+    name = name_of(event)
+    kind = classify(state, event)
+    # The nearest such step is the likeliest meant; a tie goes back, a re-do.
+    to = min(
+        (s for s in STATES if (s, kind) in TARGET),
+        key=lambda s: (
+            abs(STATES.index(s) - STATES.index(state.step)),
+            STATES.index(s),
+        ),
+    )
+    here = arrows_out(state.step)
+    return Failure(
+        f"'{name}' is not an arrow out of {state.step}",
+        "; ".join((
+            *([f"here: state record {' | '.join(here)}"] if here else []),
+            f'to record {name}: state override {to} "<why>", then rerun',
+        )),
+        2,
+    )  # fmt: skip
+
+
+# The kinds every live step takes, which no refusal needs to list.
+EVERYWHERE = frozenset(k for _, k in TARGET if all((s, k) in TARGET for s in LIVE))
+
+
+def arrows_out(step: StateName) -> tuple[str, ...]:
+    """The recordable events this step's own arrows take: a kind's event is its
+    first word."""
+    events = (
+        k.partition("-")[0] for s, k in TARGET if s == step and k not in EVERYWHERE
+    )
+    return tuple(dict.fromkeys(e for e in events if e not in UNRECORDABLE))
 
 
 def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per event
@@ -1024,6 +1057,7 @@ def record(
 @dataclass(frozen=True)
 class HandbackOptions:
     kind: BlockerKind | None = None
+    head: str | None = None  # `--head`: the head the worker reports, over any other
     touches: tuple[Area, ...] = ()
     rows: tuple[str, ...] = ()
     verdicts: tuple[Verdict, ...] = ()
@@ -1033,11 +1067,12 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
     role: Worker, text: str, options: HandbackOptions, head: str | None
 ) -> tuple[Event, ...] | Failure:
     """A worker's first line is its status; a review-lead's report ends with
-    `Reviewed head: <sha>` and may start with a plan-wrong line."""
+    `Reviewed head: <sha>`, which `--head` replaces, and may start with a
+    plan-wrong line."""
     lines = [line.strip() for line in text.strip().splitlines()]
     first = lines[0] if lines else ""
     word, _, rest = first.partition(" ")
-    reviewed = reviewed_head(lines)
+    reviewed = options.head or reviewed_head(lines)
     match role, token_of(word):
         case _, "NEEDS_DECISION":
             grew = tuple(
@@ -1066,13 +1101,13 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
         case "review-lead", _:
             if reviewed is None:
                 return Failure(
-                    "state handback review-lead: no 'Reviewed head: <sha>' line",
-                    "state record reviewed <sha> [--row <label>]... by hand",
+                    "state handback review-lead: no --head and no 'Reviewed head: <sha>' line",
+                    "state handback review-lead --head <sha> [--row <label>]...",
                     2,
                 )
             return (Reviewed(reviewed, options.rows, options.verdicts),)
         case _, "READY":
-            return ready(role, head, options.touches)
+            return ready(role, options.head or head, options.touches)
         case _:
             return Failure(
                 f"state handback {role}: line 1 starts '{word}', not one of "

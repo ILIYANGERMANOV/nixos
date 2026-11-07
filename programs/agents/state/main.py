@@ -3,7 +3,8 @@
 The only stored thing is `events.jsonl` in the run's notes directory, an
 append-only JSON Lines log (https://jsonlines.org/). The current state is a
 left fold over it, and the advice is a pure function of that state and the few
-git facts the shell reads. It advises, never refuses: `state override` is the
+git facts the shell reads. An event off the current state's arrows is refused
+with a `fix:` line naming the command that works now: `state override` is the
 way off an arrow. ADR 0014 holds the principles, ADR 0015 this program.
 Stdlib only. This file is the entry point: it parses argv, runs the command
 and turns the outcome into stdout, stderr and an exit code.

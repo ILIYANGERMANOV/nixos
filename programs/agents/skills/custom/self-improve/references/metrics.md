@@ -34,6 +34,14 @@ and pass the copy as `--root DIR`.
   than the rule, not Balanced. An agent counts in its own row, so sessions do
   not add up. Per PR is the median over sessions of a mode's cost divided by
   the PRs it opened (`gh pr create` that did not fail).
+- `per-pr`: cost by the PRs a session linked (Claude Code's `pr-link` lines,
+  so a PR opened by a script or another tool is missing). Follow-up sessions
+  on one PR add up; a session linking several PRs is one row naming them all,
+  as its cost cannot be split. Mode is each session's, as in `quality`;
+  agents are subagents by type; wall adds the sessions up. With `--gh` (the
+  only network call) `gh pr view` gives changed lines, additions plus
+  deletions as GitHub counts them, and effective per changed line; without it
+  both are `-`, and `?` with a note when gh fails.
 - `loop-steps`: each top-level subagent and its children as one step,
   labelled by hand-tuned patterns over type, description and brief head; what
   matches nothing is `other`. Agent wall adds agents up.
@@ -58,6 +66,10 @@ and pass the copy as `--root DIR`.
 - `largest-results`, `tool-times`, `bash-times`: tool results by size, and
   tool time from a call's response end to its result; a background call ends
   at its task notification.
+- `state-ctx`: `state` and `ctx` calls by subcommand, read as Bash steps, so
+  prose, quoted text and heredoc bodies do not count. A failed Bash call
+  fails each step in it. `overrides` lists `state override` by target state,
+  with its latest reason: an arrow the flow may be missing.
 - `reruns`: a check rerun with the same arguments when nothing, or only `.md`
   files, changed since. `chains`: a build, test or lint step run before
   `just check` or `nix flake check` with no edit between.

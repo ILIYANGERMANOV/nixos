@@ -139,7 +139,7 @@ an assumption. With no such question, do not wait.
 | Agent | Brief | Depth |
 |---|---|---|
 | **blockers** | `references/blockers.md`, which it reads | STANDARD; DEEP on the sensitive tier |
-| **regressions** | inline, below | STANDARD |
+| **regressions** | `references/regressions.md`, which it reads | STANDARD |
 | **house rules** | `references/house-rules.md`, which it reads | STANDARD |
 | **tests** | `references/tests.md`, which it reads | STANDARD |
 | **requirement** (one per group) | inline, below | the group's |
@@ -161,8 +161,8 @@ always-check list over `$D/diff` yourself, rows in the report, as the Trivial
 sweep does. Tests runs only when it changes tests or the mutation report lists
 a mutant. Phase 2 makes
 at most 2 requirement groups. At `code` and `sensitive` no regressions agent
-runs while a group exists: the first group's prompt adds its brief, at the
-normal bar, and that agent returns those findings under `regressions`. They are
+runs while a group exists: the first group's prompt names
+`references/regressions.md`, at the normal bar, and that agent returns those findings under `regressions`. They are
 not requirement findings: no 🔍, and Phase 4's step 2 applies. With no tests
 agent, the regressions brief also asks: does a bug fix come with a test that was
 red before it?
@@ -201,22 +201,14 @@ path, which does not resolve between installed skills, and
 `/tmp/mutation-$HEAD_SHA/mutation-diff.json` or `no mutant data: <stale|missing>`. The
 breaker gets that `tests.md` path and mutation input too. A standard agent gets one line: "Requirement agents cover the user's requirements; leave them alone."
 
-**Regressions brief**, pasted:
-
-> You are the regressions agent: a fast sanity check from the patch. Answer two
-> questions. Does it work the first time it runs - null, empty and boundary
-> cases, swallowed errors, inverted logic, off-by-one, races - including old
-> code the diff now drives differently (new caller, new arguments, a loop): read
-> that one function, one hop, no further. What does merging break - callers
-> whose contract changed, consumers outside the diff, existing rows a migration
-> or constraint meets, retry and concurrency that were safe. A concrete path from
-> an input to a wrong outcome is a finding; a category of risk is not. Security
-> and destructive statements belong to the blockers agent.
+A prompt names a brief file, the requirements file and the review files by
+path; it never pastes their text.
 
 **Requirement brief**, pasted with the group filled in:
 
 > You are requirement agent <label>, at <STANDARD | DEEP> depth. Your
-> requirements, restated: <list>. The user's words: <quote>. They are your whole
+> requirements: <numbers> of <requirements file path>, which holds the user's
+> words, each restated as a check in one line: <list>. They are your whole
 > job, unless this prompt adds another, and inside their scope the bar is
 > lower: a real answer the user might dispute is still worth returning. Follow
 > a requirement outside the diff if it leads there; what you find there is `pre-existing`. A requirement about

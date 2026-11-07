@@ -98,6 +98,7 @@ program needs a flake input.
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old`, `software-factory`) or
    `nix eval --raw .#darwinConfigurations.<host>.system.drvPath` (`macos-main`, `macos-work`).
+   The same drvPath as on `origin/main` proves the host unchanged.
    An added, moved or re-pointed import: `nix develop -c just architecture`.
 4. A `.github/` edit: `nix build --no-link .#checks.x86_64-linux.zizmor` and
    `just tech shell`.

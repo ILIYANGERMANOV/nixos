@@ -1,14 +1,19 @@
 # shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 parent=$PPID
 deadline=$((SECONDS + timeout_seconds))
-child=""
 
 # Take the in-flight afplay down with us instead of letting it finish.
 # Never `kill 0`: this process shares its process group with ssh (and
-# therefore with git and the shell's foreground job).
+# therefore with git and the shell's foreground job). Ask the job table, not a
+# saved `$!`: bash lists a job from its fork on, so a signal landing before the
+# script could save the PID still finds it, and a reaped job is not listed, so a
+# recycled PID is never killed.
 cleanup() {
-  if [ -n "$child" ]; then
-    kill "$child" 2>/dev/null || true
+  local running
+  running=$(jobs -pr)
+  if [ -n "$running" ]; then
+    # shellcheck disable=SC2086 # one PID per word
+    kill $running 2>/dev/null || true
   fi
   exit 0
 }
@@ -24,12 +29,8 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   kill -0 "$parent" 2>/dev/null || exit 0
 
   "$afplay" -v "$volume" "$sound" >/dev/null 2>&1 &
-  child=$!
-  wait "$child" || true
-  child="" # reaped — the PID can be recycled, so never kill it again
+  wait "$!" || true
 
   sleep "$interval" &
-  child=$!
-  wait "$child" || true
-  child=""
+  wait "$!" || true
 done

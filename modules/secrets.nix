@@ -14,12 +14,39 @@ let
   # declaration was written: the module system merges every definition into one
   # attrset and erases its origin, so "declared in a host file" is not
   # information that survives to evaluation time.
+  #
+  # `builtins.path` copies only the ciphertext file into the store: an
+  # interpolated "${root}/..." would reference the whole flake source, so any
+  # commit, even docs-only, would change every host's drvPath. Paths only:
+  # decrypted values never enter the store.
   fileFor =
     scope:
+    let
+      source = sourceFor scope;
+    in
+    builtins.path {
+      inherit (source) path;
+      name = baseNameOf source.rel;
+    };
+
+  # The repo-relative ciphertext path, kept apart from `fileFor` so the
+  # assertion can test it: `builtins.path` aborts on a missing file before any
+  # assertion gets to explain how to create it.
+  #
+  # Each path is spelled out in full so `deslop` resolves it to the secrets
+  # file: a "${root}/${rel}" it cannot follow reads as an import of the flake.
+  sourceFor =
+    scope:
     if scope == "global" then
-      "${root}/secrets/common.yaml"
+      {
+        rel = "secrets/common.yaml";
+        path = "${root}/secrets/common.yaml";
+      }
     else
-      "${root}/secrets/hosts/${config.networking.hostName}.yaml";
+      {
+        rel = "secrets/hosts/${config.networking.hostName}.yaml";
+        path = "${root}/secrets/hosts/${config.networking.hostName}.yaml";
+      };
 
   # sops-nix places neededForUsers secrets in /run/secrets-for-users before any
   # user account exists, so they must stay root-owned; passing owner/mode there
@@ -125,9 +152,9 @@ in
       }
     ]
     ++ lib.mapAttrsToList (name: s: {
-      assertion = builtins.pathExists (fileFor s.scope);
+      assertion = builtins.pathExists (sourceFor s.scope).path;
       message = ''
-        myConfig.secrets.${name} (scope "${s.scope}") expects ${fileFor s.scope}, which does not exist.
+        myConfig.secrets.${name} (scope "${s.scope}") expects ${(sourceFor s.scope).rel}, which does not exist.
         Create it with: just edit-secrets ${if s.scope == "global" then "" else config.networking.hostName}
       '';
     }) cfg;
