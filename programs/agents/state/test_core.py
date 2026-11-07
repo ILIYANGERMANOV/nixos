@@ -752,6 +752,18 @@ def test_an_ask_from_prop_names_the_override_back_to_ctx() -> None:
             raise AssertionError("asked is no arrow out of Prop")
 
 
+def test_an_event_from_a_step_without_arrows_names_only_the_nearest_override() -> None:
+    done = reach(*drafted(), Overridden("Done", "shipped"))
+    match apply(done, Implemented("a1")):
+        case Failure(fix=fix):
+            assert (
+                fix
+                == 'to record implemented: state override Impl\' "<why>", then rerun'
+            )
+        case State():
+            raise AssertionError("Done has no arrows")
+
+
 def off_arrow(pair: tuple[State, Event]) -> bool:
     match apply(*pair):
         case Failure(message=message):
@@ -897,6 +909,16 @@ def test_handback_without_what_it_needs_is_a_usage_error(
     match parse_handback(role, text, options, head):  # pyright: ignore[reportArgumentType]
         case Failure(fix=found, code=code):
             assert (found, code) == (fix, 2)
+        case parsed:
+            raise AssertionError(f"parsed {parsed}")
+
+
+def test_a_review_without_its_head_names_the_line_it_looks_for() -> None:
+    match parse_handback("review-lead", "| table |", HandbackOptions(), "abc1234"):
+        case Failure(message=message):
+            assert message == (
+                "state handback review-lead: no --head and no 'Reviewed head: <sha>' line"
+            )
         case parsed:
             raise AssertionError(f"parsed {parsed}")
 

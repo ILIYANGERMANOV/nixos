@@ -1912,6 +1912,9 @@ class TestWindow:
         report = home.report("--since", at(500), "--project", "demo")
         # Then
         assert self.sessions(report) == {"work"}
+        assert report.splitlines()[0] == (
+            "# Session report (since 2026-01-01 00:08, project matching `demo`)"
+        )
 
 
 COSTS_1K: JsonObject = {"input_tokens": 1000}
@@ -2129,14 +2132,15 @@ class TestPerPr:
         assert headline(report, "per-pr") == "1 PRs, top demo#7 2k"
 
     def test_gh_gives_changed_lines_and_cost_per_line(self, home: Home) -> None:
-        # Given: 10k effective over two PRs of 60 and 40 changed lines
+        # Given: 10k effective over two PRs of 50 changed lines each, as many
+        # added as deleted in sum
         main = Transcript().human(0, "go").reply(1, {"input_tokens": 10_000})
         home.session("s1", linked(linked(main, 2, 1), 3, 2))
-        gh = FakeGh({("o/demo", 1): (50, 10), ("o/demo", 2): (30, 10)})
+        gh = FakeGh({("o/demo", 1): (40, 10), ("o/demo", 2): (10, 40)})
         # When
         cells = row(home.report("--gh", fetch=gh), "per-pr", "demo#1 demo#2")
         # Then
-        assert cells[-2:] == ["+80/-20", "100"]
+        assert cells[-2:] == ["+50/-50", "100"]
 
     def test_a_pr_gh_cannot_see_is_marked_and_named(self, home: Home) -> None:
         # Given
@@ -2146,6 +2150,95 @@ class TestPerPr:
         # Then
         assert row(report, "per-pr", "demo#9")[-2:] == ["?", "-"]
         assert "gh failed for demo#9: GraphQL: Could not resolve" in section(
+            report, "per-pr"
+        )
+
+    def test_prs_rank_costliest_first_with_every_mode_and_no_agents_as_a_dash(
+        self, home: Home
+    ) -> None:
+        # Given: demo#1 has two cheap sessions in two modes, demo#2 one dear one
+        home.session(
+            "s1",
+            linked(Transcript().human(0, "Quality: POC").reply(60, COSTS_1K), 2, 1),
+        )
+        home.session(
+            "s2",
+            linked(Transcript().human(0, "Quality: Max").reply(60, COSTS_1K), 2, 1),
+        )
+        home.session(
+            "s3",
+            linked(
+                Transcript().human(0, "go").reply(120, {"input_tokens": 5000}), 2, 2
+            ),
+        )
+        # When
+        report = home.report()
+        # Then
+        assert section(report, "per-pr").splitlines() == [
+            "PR|sessions|mode|wall|tokens|effective|agents|changed lines|effective per line",
+            "demo#2|1|(none stated)|2m|5k/0/0/0|5k|-|-|-",
+            "demo#1|2|POC; Max|2m|2k/0/0/0|2k|-|-|-",
+        ]
+        assert headline(report, "per-pr") == "2 PRs, top demo#2 5k"
+
+
+class TestRealGh:
+    """`--gh` without a stand-in runs `gh`, here a fake that answers as gh does."""
+
+    ARGV: ClassVar[list[str]] = [
+        "gh", "pr", "view", "3", "-R", "o/demo", "--json", "additions,deletions"
+    ]  # fmt: skip
+
+    def fake_gh(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, stderr: str
+    ) -> None:
+        """Answers `ARGV` with the given result; any other command is not found.
+        As `subprocess.run`: bytes unless `text`, uncaptured unless `capture_output`."""
+
+        def run(
+            argv: list[str],
+            *,
+            capture_output: bool = False,
+            text: bool = False,
+            check: bool = False,
+        ) -> subprocess.CompletedProcess[str | bytes | None]:
+            rc, out, err = (
+                (returncode, stdout, stderr)
+                if argv == self.ARGV
+                else (127, "", "not found")
+            )
+            if check and rc:
+                raise subprocess.CalledProcessError(rc, argv, out, err)
+            captured = [
+                (o if text else o.encode()) if capture_output else None
+                for o in (out, err)
+            ]
+            return subprocess.CompletedProcess(argv, rc, *captured)
+
+        monkeypatch.setattr(subprocess, "run", run)
+
+    def test_gh_s_counts_fill_the_row(
+        self, home: Home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 3))
+        self.fake_gh(monkeypatch, 0, '{"additions":7,"deletions":3}\n', "")
+        # When
+        cells = row(home.report("--gh"), "per-pr", "demo#3")
+        # Then
+        assert cells[-2:] == ["+7/-3", "100"]
+
+    def test_a_gh_failure_names_its_first_error_line(
+        self, home: Home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Given
+        home.session("s1", linked(Transcript().human(0, "go").reply(1, COSTS_1K), 2, 3))
+        self.fake_gh(monkeypatch, 1, "", "error: HTTP 401: Bad credentials\nmore\n")
+        # When
+        report = home.report("--gh")
+        # Then
+        assert row(report, "per-pr", "demo#3")[-2:] == ["?", "-"]
+        assert "gh failed for demo#3: error: HTTP N: Bad credentials" in section(
             report, "per-pr"
         )
 
@@ -2204,7 +2297,7 @@ class TestStateCtx:
         main = Transcript().human(0, "go")
         _ = main.bash(
             1,
-            "state record started 2>&1 | tail -2; state next",
+            "state next; state record started 2>&1 | tail -2",
             2,
             outcome=Outcome(
                 "state record: 'started' is not an event\nfix: state record planned <path>\nSPAWN fixer"
@@ -2254,6 +2347,28 @@ class TestStateCtx:
         # Then
         assert row(report, "state-ctx", "Impl") == ["Impl", "2", "'the plan was done'"]
         assert headline(report, "state-ctx") == "2 calls, 0 failed, 2 overrides"
+
+    def test_both_tables_rank_most_first(self, home: Home) -> None:
+        # Given: ctx diff once, state override three times, to Impl once and
+        # to Plan twice: most first, not by name
+        main = Transcript().human(0, "go")
+        _ = main.bash(1, "ctx diff main", 2)
+        _ = main.bash(3, "state override Impl skip", 4)
+        _ = main.bash(5, "state override Plan redo", 6)
+        _ = main.bash(7, "state override Plan again", 8)
+        home.session("s1", main)
+        # When
+        rows = section(home.report(), "state-ctx").splitlines()
+        # Then
+        assert rows == [
+            "command|calls|failed|top failure",
+            "state override|3|0|-",
+            "ctx diff|1|0|-",
+            "overrides:",
+            "to|n|latest why",
+            "Plan|2|again",
+            "Impl|1|skip",
+        ]
 
 
 class TestStartUp:

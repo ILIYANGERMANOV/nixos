@@ -2341,11 +2341,8 @@ def per_pr(sessions: list[Session], fetch: Fetch | None) -> Section:
         agents = [a for s in group for a in s.agents]
         name = " ".join(map(str, links))
         size = changed_lines(links, fetch)
-        match size:
-            case GhFailed(reason):
-                failures.append(f"gh failed for {name}: {reason}")
-            case PrSize() | None:
-                pass
+        if isinstance(size, GhFailed):
+            failures.append(f"gh failed for {name}: {size.reason}")
         rows.append(
             [
                 name,

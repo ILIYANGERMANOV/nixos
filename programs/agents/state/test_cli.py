@@ -34,13 +34,32 @@ def test_help_prints_usage_and_exits_0(repo: Path) -> None:
     assert "  state next " in out
 
 
-def test_an_unknown_event_suggests_the_closest_one(repo: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("name", "fix"),
+    [
+        pytest.param(
+            "plan", "did you mean: state record planned <path>", id="one close match"
+        ),
+        pytest.param(
+            "review",
+            "did you mean: state record reviewed <head> [--row <label>]... [--verdict <requirement>=met|not-met|unverified]...",
+            id="the closest of several",
+        ),
+        pytest.param("zzz", "state --help lists the events", id="no close match"),
+        pytest.param(
+            "started", "state --help lists the events", id="an event state records"
+        ),
+    ],
+)
+def test_an_unknown_event_suggests_the_closest_one(
+    repo: Path, tmp_path: Path, name: str, fix: str
+) -> None:
     _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
 
-    code, _, err = run(repo, "record", "plan", "p.md")
+    code, _, err = run(repo, "record", name)
 
     assert code == 2
-    assert err.splitlines()[1] == "fix: did you mean: state record planned <path>"
+    assert err.splitlines() == [f"state record: no event '{name}'", f"fix: {fix}"]
 
 
 def test_an_off_arrow_event_is_refused_and_its_fix_command_works(
