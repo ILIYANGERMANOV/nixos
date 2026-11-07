@@ -19,25 +19,34 @@ let
   # interpolated "${root}/..." would reference the whole flake source, so any
   # commit, even docs-only, would change every host's drvPath. Paths only:
   # decrypted values never enter the store.
-  fileFor = scope: builtins.path { inherit (sourceFor scope) path name; };
+  fileFor =
+    scope:
+    let
+      source = sourceFor scope;
+    in
+    builtins.path {
+      inherit (source) path;
+      name = baseNameOf source.rel;
+    };
 
   # The repo-relative ciphertext path, kept apart from `fileFor` so the
   # assertion can test it: `builtins.path` aborts on a missing file before any
   # assertion gets to explain how to create it.
+  #
+  # Each path is spelled out in full so `deslop` resolves it to the secrets
+  # file: a "${root}/${rel}" it cannot follow reads as an import of the flake.
   sourceFor =
     scope:
-    let
-      rel =
-        if scope == "global" then
-          "secrets/common.yaml"
-        else
-          "secrets/hosts/${config.networking.hostName}.yaml";
-    in
-    {
-      inherit rel;
-      path = "${root}/${rel}";
-      name = baseNameOf rel;
-    };
+    if scope == "global" then
+      {
+        rel = "secrets/common.yaml";
+        path = "${root}/secrets/common.yaml";
+      }
+    else
+      {
+        rel = "secrets/hosts/${config.networking.hostName}.yaml";
+        path = "${root}/secrets/hosts/${config.networking.hostName}.yaml";
+      };
 
   # sops-nix places neededForUsers secrets in /run/secrets-for-users before any
   # user account exists, so they must stay root-owned; passing owner/mode there
