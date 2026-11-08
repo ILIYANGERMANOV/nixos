@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
+# Generates factory $1's age key into the clipboard, for Bitwarden, and puts its
+# public half in place of the host's marker line in .sops.yaml. An existing
+# secrets file is re-encrypted to the new key. macOS only: pbcopy, sed -i ''.
 set -euo pipefail
-marker='# software-factory-age-key: not generated yet'
+host=$1
+bash "$(dirname "$0")/factory-host.sh" "$host" >/dev/null
+file="secrets/hosts/$host.yaml"
+marker="# $host-age-key: not generated yet"
 grep -qF "$marker" .sops.yaml || {
-  echo "ERROR: .sops.yaml already lists a software-factory key." >&2
-  echo "A new key cannot decrypt secrets/hosts/software-factory.yaml; to rotate," >&2
-  echo "put the marker line back by hand and re-encrypt with 'sops updatekeys'." >&2
+  echo "ERROR: .sops.yaml has no line '$marker'." >&2
+  echo "Either $host's key is listed already - a new key cannot decrypt $file;" >&2
+  echo "to rotate, put the marker line back by hand - or $host has no rule there yet." >&2
   exit 1
 }
 
@@ -24,12 +30,20 @@ public=$(printf '%s\n' "$key" | sed -n 's/^# public key: //p')
 printf '%s\n' "$key" | pbcopy
 unset key
 echo "The private key is on the clipboard. Save it in Bitwarden as"
-echo "'software-factory-age-key' (the whole text, both lines)."
+echo "'$host-age-key' (the whole text, both lines)."
 read -rsp "Press Enter once saved - the clipboard is cleared in 120s either way. " -t 120 || true
 echo
 pbcopy </dev/null
 echo "Clipboard cleared."
 
-sed -i '' "s|$marker|- $public # software-factory|" .sops.yaml
+sed -i '' "s|$marker|- $public # $host|" .sops.yaml
 echo "Added $public to .sops.yaml."
-echo "Next: just factory-secrets"
+
+# A file encrypted before the key existed (to macos-main alone) gets the new
+# recipient; without one, factory-secrets creates it from the rule.
+if [ -f "$file" ]; then
+  sudo -v
+  SOPS_AGE_KEY_CMD="sudo -n cat /var/lib/sops-age/keys.txt" sops updatekeys -y "$file"
+  echo "Re-encrypted $file to $host's key."
+fi
+echo "Next: just factory-secrets $host"

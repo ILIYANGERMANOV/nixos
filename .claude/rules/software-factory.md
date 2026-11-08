@@ -65,10 +65,13 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   outside `packages` so no other host installs it.
 - Each factory has its own sops age key and `.sops.yaml` rule; `secrets/common.yaml`
   is not encrypted to it. A rule whose key is not generated yet holds the marker
-  line `# <host>-age-key: not generated yet`, and its file placeholder values
-  encrypted to macos-main only.
+  line `# <host>-age-key: not generated yet`, and the host has no secrets file
+  until `just factory-secrets <host>` creates it: never a placeholder.
 - **This repository is public.** Never commit IP addresses, tailnet names,
   private repository names or anything that maps the server's attack surface
   beyond what the Nix config itself states. Private repositories are added on
   the box with `factory-ctl start` (the admin agent's `/start-repo`).
-- Recipes are in `just/software-factory.just`.
+- Recipes are in `just/software-factory.just`. Each factory recipe takes the
+  host first and validates it with `just/scripts/factory-host.sh` against
+  `lib.factories`. The deploy workflow's host choice is held to `factories` by
+  `checks.factory-deploy-hosts`.

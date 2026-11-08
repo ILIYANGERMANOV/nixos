@@ -3,10 +3,10 @@
 
 load ../test_helper
 
-@test "deploy: dispatches the workflow on main and waits for it" {
+@test "deploy: dispatches the workflow on main for this factory alone and waits for it" {
   factory-ctl deploy
 
-  called "gh workflow run deploy-factory.yml --repo owner/nixos --ref main"
+  called "gh workflow run deploy-factory.yml --repo owner/nixos --ref main -f host=software-factory"
   called "gh run watch 42 --repo owner/nixos --exit-status"
 }
 

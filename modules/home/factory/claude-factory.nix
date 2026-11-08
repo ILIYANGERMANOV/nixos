@@ -42,6 +42,7 @@ let
     opsStateDir = "/var/lib/factory-ops";
     deployRepo = osConfig.myConfig.factory.deploy.repo;
     deployWorkflow = "deploy-factory.yml";
+    deployHost = osConfig.networking.hostName;
   };
 
   # A systemd unit's PATH holds only systemd's own directories. Agents need

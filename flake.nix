@@ -69,7 +69,7 @@
 
       # Every software factory, by hostname, with the platform it runs on
       # (lib.mkNixosServer). The deploy workflow's host choice is the only
-      # other list of them.
+      # other list of them, held to this one by checks.factory-deploy-hosts.
       factories = {
         software-factory = "hetzner";
         software-factory-lenovo = "thinkpad-t15p";
@@ -141,6 +141,20 @@
           # `.typos.toml`, never the private global allowlist.
           typos = (import ./programs/typos { inherit pkgs; }).mkCheck self;
 
+          # That the deploy workflow's host options (`all`, then every factory)
+          # and its FACTORIES list are `factories` above.
+          factory-deploy-hosts =
+            pkgs.runCommand "factory-deploy-hosts" { nativeBuildInputs = [ pkgs.yq-go ]; }
+              ''
+                workflow=${./.github/workflows/deploy-factory.yml}
+                options=$(yq -o=json -I=0 '.on.workflow_dispatch.inputs.host.options' "$workflow")
+                all=$(yq '.jobs.request.env.FACTORIES' "$workflow")
+                [ "$options" = '${
+                  builtins.toJSON ([ "all" ] ++ builtins.attrNames factories)
+                }' ] && [ "$all" = '${toString (builtins.attrNames factories)}' ] || { echo "ERROR: deploy-factory.yml's host options or FACTORIES differ from factories in flake.nix" >&2; exit 1; }
+                touch "$out"
+              '';
+
           # Static analysis of .github/: pinned actions, token permissions,
           # credential persistence. Offline, against `.github/zizmor.yml`.
           zizmor = import ./programs/zizmor/check.nix {
@@ -199,6 +213,9 @@
             ;
         }
       );
+
+      # `factories` for the just recipes, which validate a host against it.
+      lib = { inherit factories; };
 
       # `just mutation-diff` and `just mutation` run it. Not a check: see
       # programs/mutation/default.nix.
