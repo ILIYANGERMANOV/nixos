@@ -307,7 +307,7 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             if any(b.question == q for b in untriaged(state)):
                 return Failure(
                     f"'{q}' is not triaged yet",
-                    f"state record blocked {'|'.join(BLOCKER_KINDS)} <role> {quoted(q)}",
+                    triage_usage("<role>", q),
                     2,
                 )
             return replace(
@@ -462,12 +462,14 @@ def advise_now(state: State, facts: Facts) -> Advice:
 
 def advise_triage(blocker: UntriagedBlocker) -> Run:
     return Run(
-        (
-            f"state record blocked {'|'.join(BLOCKER_KINDS)} {blocker.role} "
-            f"{quoted(blocker.question)}"
-        ),
+        triage_usage(blocker.role, blocker.question),
         (f"the {blocker.role} asks; triage it as blockers.md says",),
     )
+
+
+def triage_usage(role: str, question: str) -> str:
+    """The `state record blocked` line that triages a worker's question."""
+    return f"state record blocked {'|'.join(BLOCKER_KINDS)} {role} {quoted(question)}"
 
 
 def advise_picks(head: str) -> Run:

@@ -97,15 +97,9 @@ let
     let
       throws = import ../lib/throws.nix;
       declare = name: spec: { hooks.${name} = spec; };
-      resume = {
-        on = "sessionStart";
-        command = [ "resume" ];
-      };
-      spawn = {
-        on = "beforeTool";
-        tools = [ "delegate" ];
-        command = [ "spawn" ];
-      };
+      # The fixtures' specs, declared again under other names.
+      inherit ((import ./fixtures/resume.nix).hooks) resume;
+      inherit ((import ./fixtures/spawn.nix).hooks) spawn;
       events = eval [
         ./fixtures/resume.nix
         ./fixtures/resume.nix

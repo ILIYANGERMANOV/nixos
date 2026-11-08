@@ -130,12 +130,12 @@ def test_a_tool_result_carries_its_output() -> None:
             raise AssertionError(event)
 
 
-def test_a_vendor_free_name_covers_each_of_its_claude_tools() -> None:
-    for name in ["WebFetch", "WebSearch"]:
-        event = parse_claude(SPAWN | {"tool_name": name, "tool_input": {}}, TOOLS)
+@pytest.mark.parametrize("name", ["WebFetch", "WebSearch"])
+def test_a_vendor_free_name_covers_each_of_its_claude_tools(name: str) -> None:
+    event = parse_claude(SPAWN | {"tool_name": name, "tool_input": {}}, TOOLS)
 
-        assert isinstance(event, BeforeTool)
-        assert event.tool == Tool.WEB
+    assert isinstance(event, BeforeTool)
+    assert event.tool == Tool.WEB
 
 
 def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
@@ -294,8 +294,19 @@ def test_the_built_adapter_runs_an_events_hooks_and_answers_claude(
     }
 
 
-def test_the_built_adapter_knows_every_tool_the_table_deploys(tmp_path: Path) -> None:
-    table = cast("dict[str, list[str]]", json.loads(Path(TOOLS_FILE).read_text()))
+DEPLOYED_TOOLS = [
+    (name, claude_tool)
+    for name, claude_tools in cast(
+        "dict[str, list[str]]", json.loads(Path(TOOLS_FILE).read_text())
+    ).items()
+    for claude_tool in claude_tools
+]
+
+
+@pytest.mark.parametrize(("name", "claude_tool"), DEPLOYED_TOOLS)
+def test_the_built_adapter_knows_every_tool_the_table_deploys(
+    tmp_path: Path, name: str, claude_tool: str
+) -> None:
     manifest: JsonObject = {
         "afterTool": [
             declared(
@@ -306,14 +317,9 @@ def test_the_built_adapter_knows_every_tool_the_table_deploys(tmp_path: Path) ->
         ]
     }
 
-    for name, claude_tools in table.items():
-        for claude_tool in claude_tools:
-            done = adapter(tmp_path, manifest, RAN | {"tool_name": claude_tool})
+    done = adapter(tmp_path, manifest, RAN | {"tool_name": claude_tool})
 
-            assert (
-                json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"]
-                == name
-            )
+    assert json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"] == name
 
 
 def test_the_built_adapter_refuses_what_it_cannot_read_and_lets_claude_go_on(

@@ -56,6 +56,7 @@ from state.effects import (
     head_of,
     load,
     locate,
+    next_advice,
 )
 from state.model import (
     ROLES,
@@ -381,10 +382,6 @@ def run_in(cwd: Path) -> Loaded | Failure | None:
 
 def record(run: Loaded, events: tuple[StateEvent, ...], cwd: Path) -> str | Failure:
     return append(run.log, run.lines, run.state, events, cwd)
-
-
-def next_advice(state: State, cwd: Path) -> str:
-    return render_advice(advise(state, facts_of(state, cwd)))
 
 
 def ctx_folder(cwd: Path, base: str) -> str | Failure:

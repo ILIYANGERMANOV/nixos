@@ -249,12 +249,17 @@ def log_of(notes: Path) -> list[dict[str, object]]:
 
 def to_impl(repo: Path, notes: Path) -> None:
     """init, then the shortest recorded path to Impl at Balanced, PR 7 on main."""
+    to_draft(repo, notes)
+    _ = ok(repo, "record", "drafted", PR, "main")
+
+
+def to_draft(repo: Path, notes: Path) -> None:
+    """init, then a Balanced run with its plan confirmed and no draft PR yet."""
     for argv in (
         ("init", "--notes", str(notes)),
         ("record", "size", "Normal"),
         ("record", "planned", f"{notes}/plan.md"),
         ("record", "quality", "Balanced"),
         ("record", "confirmed"),
-        ("record", "drafted", PR, "main"),
     ):
         _ = ok(repo, *argv)

@@ -76,7 +76,7 @@ def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  #
         case Override(to=to, why=why):
             return append(log, lines, state, (Overridden(to, why),), cwd)
         case Next():
-            return render_advice(advise(state, facts_of(state, cwd)))
+            return next_advice(state, cwd)
         case BriefCmd(role=role):
             return brief(role, state, toplevel(cwd))
         case Show():
@@ -153,6 +153,11 @@ def append(
     return "".join(
         f"recorded {line.seq} {name_of(line.event)} -> {reached.step}\n" for line in new
     )
+
+
+def next_advice(state: State, cwd: Path) -> str:
+    """`state next`: the advised arrow, rendered."""
+    return render_advice(advise(state, facts_of(state, cwd)))
 
 
 def facts_of(state: State, cwd: Path) -> Facts:

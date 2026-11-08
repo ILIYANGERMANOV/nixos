@@ -28,7 +28,7 @@ from hypothesis import strategies as st
 
 from state.hook import Create as CreatePr
 from state.hook import HookName, MarkReady, main, pr_command, run_hook
-from state.state_fixtures import PR, commit, git, log_of, ok, to_impl
+from state.state_fixtures import PR, commit, git, log_of, ok, to_draft, to_impl
 
 SESSION = SessionId("s")
 LEAD = None
@@ -111,16 +111,11 @@ def in_ctx(repo: Path, notes: Path) -> None:
     _ = ok(repo, "init", "--notes", str(notes))
 
 
-def to_draft(repo: Path, notes: Path) -> None:
-    """A run with its plan confirmed and no draft PR yet."""
-    for argv in (
-        ("init", "--notes", str(notes)),
-        ("record", "size", "Normal"),
-        ("record", "planned", f"{notes}/plan.md"),
-        ("record", "quality", "Balanced"),
-        ("record", "confirmed"),
-    ):
-        _ = ok(repo, *argv)
+def broken_log(repo: Path, notes: Path) -> None:
+    """A run whose log ends in a line that does not parse."""
+    in_ctx(repo, notes)
+    with (notes / "events.jsonl").open("a") as log:
+        _ = log.write("not json\n")
 
 
 EVENTS: dict[HookName, Callable[[Path], Event]] = {
@@ -145,18 +140,23 @@ def test_a_folder_outside_git_gets_nothing(tmp_path: Path, hook: HookName) -> No
     assert run_hook(hook, EVENTS[hook](tmp_path)) == Allow()
 
 
-@pytest.mark.parametrize("hook", EVENTS)
+@pytest.mark.parametrize("hook", ["resume", "spawn", "pr", "asked"])
 def test_a_log_that_does_not_parse_is_told_not_raised(
     repo: Path, notes: Path, hook: HookName
 ) -> None:
-    in_ctx(repo, notes)
-    with (notes / "events.jsonl").open("a") as log:
-        _ = log.write("not json\n")
+    broken_log(repo, notes)
 
-    told = run_hook(hook, EVENTS[hook](repo))
+    assert "fix:" in context(run_hook(hook, EVENTS[hook](repo)))
 
-    text = context(told) if hook != "handback" else updated(told, "message")
-    assert "fix:" in text
+
+def test_a_log_that_does_not_parse_is_told_on_the_hand_back(
+    repo: Path, notes: Path
+) -> None:
+    broken_log(repo, notes)
+
+    told = run_hook("handback", EVENTS["handback"](repo))
+
+    assert "fix:" in updated(told, "message")
 
 
 def test_main_prints_nothing_for_no_run(repo: Path) -> None:
