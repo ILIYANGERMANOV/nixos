@@ -128,22 +128,10 @@ remove the temp dir
 OpenSSH >= 10.5p1 (a build-time assertion in
 `programs/yubikey-touch-sound` checks it).
 
-Does GitHub mark these signatures **Verified**? Its verifier may insist on the
-touch flag. Check once per host, YubiKey plugged in, from this repository:
-
-```bash
-just yubikey-test-no-touch-signing
-```
-
-It signs one empty commit with the wrapper this checkout builds, pushes it to a
-scratch branch `no-touch-test-<host>-<time>` (SSH auth: tap), prints GitHub's
-`verified` and `reason`, then deletes the branch. Your branch and working tree
-are left alone. It exits non-zero when unverified.
-
-- **Verified:** done.
-- **Unverified:** set `myConfig.yubikey.noTouchSigning = false` in
-  `hosts/<host>/configuration.nix` and `just darwin-rebuild <host>`. Signing
-  taps (and beeps) again, as before.
+GitHub marks these signatures **Verified**: its verifier does not insist on
+the touch flag. To turn tapless signing off, set
+`myConfig.yubikey.noTouchSigning = false` in `hosts/<host>/configuration.nix`
+and `just darwin-rebuild <host>`. Signing taps (and beeps) again.
 
 ---
 
