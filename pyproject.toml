@@ -31,6 +31,8 @@ ignore = [
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "programs/agents/ctx/ctx.py" = ["S603", "S607"]
 "programs/agents/state/effects.py" = ["S603", "S607"]
+# The dispatcher runs each hook's argv as declared in Nix.
+"programs/agents/hooks/agent_hook.py" = ["S603"]
 "programs/agents/skills/custom/self-improve/scripts/analyze.py" = ["S603", "S607"]
 # The state tests' shared helper asserts and runs git, as a test does.
 "programs/agents/state/state_fixtures.py" = ["S101", "S603", "S607"]
@@ -56,6 +58,9 @@ pythonpath = [
   "just/cache-check",
   "programs/mutation",
   "programs/agents/ctx",
+  # The hook contract, and Claude's adapter, which imports it as it does at run time.
+  "programs/agents/hooks",
+  "programs/claude-code/hooks/adapter",
   # `state` is a package, imported as `state.core`: its modules' bare names
   # (core, cli, main) would clash with any other module on this shared path.
   "programs/agents",
@@ -65,6 +70,12 @@ testpaths = ["programs", "just"]
 [tool.basedpyright]
 typeCheckingMode = "recommended"
 pythonVersion = "3.13"
+
+# The adapter imports the hook contract from site-packages at runtime
+# (adapter.nix). First: the guards' environment below would claim it.
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/claude-code/hooks/adapter"
+extraPaths = ["programs/agents/hooks"]
 
 # The guards import their sibling modules from site-packages at runtime
 # (bash-guard.nix), so they are absolute imports, not relative ones.
@@ -90,6 +101,9 @@ root = "programs/mutation"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/ctx"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/agents/hooks"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/state"

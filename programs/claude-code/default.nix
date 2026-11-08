@@ -20,11 +20,23 @@ let
   linkSkills = import ../skills-link { inherit pkgs; };
 
   settings = import ./codegen/settings.nix { inherit lib statusline secretGuard; };
+  hookSettings = import ./codegen/hooks.nix {
+    inherit lib;
+    inherit (agents.hooks.vocabulary) sources;
+  };
+  hookAdapter = import ./hooks/adapter/adapter.nix {
+    inherit pkgs;
+    agentHook = agents.hooks.module;
+    inherit (hookSettings) tools;
+  };
   codegen = import ./codegen/profile.nix {
     inherit pkgs lib;
     inherit (agents.skills) mkSkillFarm;
     inherit (agents) renderLead foldTargets;
     inherit (settings) withSecretFileGuard;
+    # A profile's hooks, every event's entry running the adapter over them.
+    withHooks =
+      hooks: hookSettings.withHooks (hookAdapter.hookFor (agents.hooks.manifest hooks)) hooks;
   };
   renderAgents = import ./codegen/role.nix {
     inherit pkgs lib;
@@ -210,6 +222,10 @@ rec {
     secret = secretGuard.bin;
     context = contextGuard.bin;
   };
+
+  # The adapter running a profile's hooks and the tool table it reads, for
+  # `python-tests` to run.
+  hookAdapter = { inherit (hookAdapter) bin toolsFile; };
 
   # home.file entries for the subagents. Every flavor of a profile gets the same
   # ones, so unlike skills they need no per-flavor relink. The factory profile

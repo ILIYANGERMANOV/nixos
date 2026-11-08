@@ -13,20 +13,18 @@ let
   # Named, because a role must never inherit every tool: that brings each MCP
   # server. Tools deferred behind ToolSearch, such as WebFetch, are dropped by a
   # `tools` list unless listed. Never deny ToolSearch: that inlines them all.
+  # A role that may edit may also write.
   tools = {
-    read = [ "Read" ];
-    edit = [
-      "Edit"
-      "Write"
-    ];
-    shell = [ "Bash" ];
-    web = [
-      "WebFetch"
-      "WebSearch"
-    ];
-    delegate = [ "Agent" ];
-    skill = [ "Skill" ];
+    inherit (claudeTools)
+      read
+      shell
+      web
+      delegate
+      skill
+      ;
+    edit = claudeTools.edit ++ claudeTools.write;
   };
+  claudeTools = import ./tools.nix;
 
   models = {
     small = "haiku";

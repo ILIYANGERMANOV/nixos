@@ -31,6 +31,8 @@ let
           "SKILL.md"
           "blockers.md"
           "quality.md"
+          # test_agent_hook.py holds the enums to the vocabulary Nix reads.
+          "vocabulary.json"
         ]
       ) root)
     ];
@@ -72,6 +74,8 @@ in
       WAIT_GUARD = lib.getExe claude.guards.wait;
       SECRET_GUARD = lib.getExe claude.guards.secret;
       CONTEXT_GUARD = lib.getExe claude.guards.context;
+      AGENT_HOOK_CLAUDE = lib.getExe claude.hookAdapter.bin;
+      AGENT_HOOK_CLAUDE_TOOLS = claude.hookAdapter.toolsFile;
       STATUSLINE = lib.getExe claude.statusline;
       # test_e2e.py runs the wrapped `state` binary, as the agents get it.
       STATE = lib.getExe state;

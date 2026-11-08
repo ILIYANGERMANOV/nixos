@@ -1,6 +1,6 @@
 # Profiles as a monoid. A profile is the vendor-free part of one setup: the
 # skills it adds, its instructions (lib/instructions.nix), its MCP servers, the
-# programs on its PATH and its secret files. Profiles are small
+# programs on its PATH, its secret files and its hooks. Profiles are small
 # deltas that never import each other; whoever selects them lists them and folds
 # them with `append`.
 #
@@ -32,6 +32,7 @@ let
         // spec
         // {
           skills = lib.unique (spec.skills or [ ]);
+          hooks = lib.unique (spec.hooks or [ ]);
           mcp = selectServers (spec.mcp or [ ]);
         };
       unknownSkills = lib.subtractLists skillNames profile.skills;
@@ -40,6 +41,8 @@ let
       throw "profile: unknown field(s) ${toString unknown}"
     else if unknownSkills != [ ] then
       throw "profile: ${toString unknownSkills} not in the skill catalog"
+    else if !lib.all builtins.isPath profile.hooks then
+      throw "profile: a hook module is not a file"
     else
       profile;
 
@@ -49,6 +52,7 @@ let
     mcp = { };
     runtime = [ ];
     secretFiles = { };
+    hooks = [ ];
   };
 
   append = a: b: lib.mapAttrs (field: combine: combine a.${field} b.${field}) fields;
@@ -58,13 +62,15 @@ let
   # How each field combines. skills: catalog skill names. instructions: a value
   # of lib/instructions.nix. mcp: server name -> server, written as a list of
   # names. runtime: packages put on PATH. secretFiles: variable -> secret name,
-  # for a program that reads the file itself.
+  # for a program that reads the file itself. hooks: hook module files
+  # (hooks/default.nix), as paths, so one listed by two profiles counts once.
   fields = {
     skills = union;
     instructions = instructions.append;
     mcp = merge;
     runtime = union;
     secretFiles = merge;
+    hooks = union;
   };
 
   # Lists: concatenated, keeping the first occurrence.
@@ -95,6 +101,7 @@ let
         instructions = instructions.mkInstructions { forAll = [ (at "agent" "a") ]; };
         mcp = [ (server 0) ];
         secretFiles.A_FILE = "a-secret";
+        hooks = [ ../hooks/fixtures/resume.nix ];
       };
       b = mkProfile {
         skills = [
@@ -105,6 +112,10 @@ let
         mcp = [
           (server 0)
           (server 1)
+        ];
+        hooks = [
+          ../hooks/fixtures/spawn.nix
+          ../hooks/fixtures/resume.nix
         ];
       };
       c = mkProfile {
@@ -138,6 +149,15 @@ let
         (server 1)
       ]
     ) "profile: append did not merge the MCP servers";
+    assert lib.assertMsg (
+      (append a b).hooks == [
+        ../hooks/fixtures/resume.nix
+        ../hooks/fixtures/spawn.nix
+      ]
+    ) "profile: append did not union the hook files keeping the first occurrence";
+    assert lib.assertMsg (throws (mkProfile {
+      hooks = [ { hooks.inline.on = "sessionStart"; } ];
+    })) "profile: mkProfile accepted a hook module that is not a file";
     assert lib.assertMsg (throws (
       append a (mkProfile {
         secretFiles.A_FILE = "another-secret";
