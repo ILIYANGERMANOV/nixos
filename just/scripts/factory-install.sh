@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Installs factory $1 on the machine at IPv4 $2 with nixos-anywhere over root SSH, wiping its disk. The age key is
-# pasted from Bitwarden into a private temp directory that nixos-anywhere
-# copies to the new root, and the directory is removed on exit. The system is
-# built on the target: a Mac cannot build x86_64-linux.
+# Installs factory $1 on the machine at IPv4 $2 with nixos-anywhere over root
+# SSH, wiping its disk. The age key is pasted from Bitwarden into a private temp
+# directory that nixos-anywhere copies to the new root, and the directory is
+# removed on exit. The system is built on the target: a Mac cannot build
+# x86_64-linux.
 #
 # Root SSH differs by platform:
 #   hetzner        - the key Hetzner put on the fresh server (YubiKey, or the

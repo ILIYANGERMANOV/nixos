@@ -47,7 +47,6 @@ factory-deploy-token $host: (_factory-host host)
     file="secrets/hosts/$host.yaml"
 
     sudo -v
-    export SOPS_AGE_KEY_CMD="sudo -n cat /var/lib/sops-age/keys.txt"
 
     echo "Your account (not the bot's) > Settings > Developer settings > Fine-grained tokens:"
     echo "only this nixos repository, permission Deployments: Read and write."
@@ -56,7 +55,7 @@ factory-deploy-token $host: (_factory-host host)
         github_pat_*) ;;
         *) echo "ERROR: expected a fine-grained token (github_pat_...)." >&2; exit 1 ;;
     esac
-    printf '%s' "$value" | just _json-string | sops set --value-stdin "$file" '["factory-deploy-token"]'
+    printf '%s' "$value" | just _sops-set-string "$host" factory-deploy-token
     echo "Wrote factory-deploy-token. Commit $file (just factory-secrets-commit $host), then deploy."
 
 # The network a ThinkPad factory joins (modules/nixos/server/platforms/
@@ -72,7 +71,6 @@ factory-wifi $host: (_factory-host host)
     file="secrets/hosts/$host.yaml"
 
     sudo -v
-    export SOPS_AGE_KEY_CMD="sudo -n cat /var/lib/sops-age/keys.txt"
 
     read -rsp "Wi-Fi network name (SSID): " ssid; echo
     read -rsp "Wi-Fi password: " psk; echo
@@ -80,7 +78,7 @@ factory-wifi $host: (_factory-host host)
     escape() { sed -e 's/[\\"$`]/\\&/g'; }
     ssid=$(printf '%s' "$ssid" | escape)
     psk=$(printf '%s' "$psk" | escape)
-    printf 'WIFI_SSID="%s"\nWIFI_PSK="%s"\n' "$ssid" "$psk" | just _json-string | sops set --value-stdin "$file" '["wifi-env"]'
+    printf 'WIFI_SSID="%s"\nWIFI_PSK="%s"\n' "$ssid" "$psk" | just _sops-set-string "$host" wifi-env
     unset ssid psk
     echo "Wrote wifi-env. Commit $file (just factory-secrets-commit $host), then deploy."
 
@@ -248,16 +246,21 @@ factory-restart-admin $host: (_factory-host host)
 _factory-host $host:
     @bash "{{ justfile_directory() }}/just/scripts/factory-host.sh" "$host" >/dev/null
 
-# Reads stdin as one JSON string, the value form `sops set` takes.
+# Writes stdin to secret $name in $host's sops file, as one JSON string: the
+# value form `sops set` takes. The caller runs `sudo -v` first, while it still
+# has the terminal: sops reads the age key with `sudo -n`.
 [private]
-_json-string:
+_sops-set-string $host $name:
     #!/usr/bin/env bash
     set -euo pipefail
     if command -v jq >/dev/null 2>&1; then
-        exec jq -Rs .
+        jq_cmd=(jq)
     else
-        exec nix run --inputs-from . nixpkgs#jq -- -Rs .
+        jq_cmd=(nix run --inputs-from . nixpkgs#jq --)
     fi
+    "${jq_cmd[@]}" -Rs . |
+        SOPS_AGE_KEY_CMD="sudo -n cat /var/lib/sops-age/keys.txt" \
+        sops set --value-stdin "secrets/hosts/$host.yaml" "[\"$name\"]"
 
 # ─── GitHub and Tailscale ────────────────────────────────────────────────────
 
