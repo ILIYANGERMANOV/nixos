@@ -13,8 +13,15 @@
 # Fail if rebuilding macos-main would build anything on the expensive-builds denylist.
 cache-check-aarch64-darwin: (_cache-check "cache-check-aarch64-darwin" ".#darwinConfigurations.macos-main.system")
 
-# Fail if rebuilding software-factory would build anything on the expensive-builds denylist.
-cache-check-x86_64-linux: (_cache-check "cache-check-x86_64-linux" ".#nixosConfigurations.software-factory.config.system.build.toplevel")
+# Every factory in `factories` (flake.nix) is x86_64-linux.
+#
+# Fail if rebuilding any software factory would build anything on the expensive-builds denylist.
+cache-check-x86_64-linux:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for host in $(nix eval --raw .#lib.factories --apply 'f: toString (builtins.attrNames f)'); do
+      {{ just_executable() }} _cache-check "cache-check-x86_64-linux $host" ".#nixosConfigurations.$host.config.system.build.toplevel"
+    done
 
 # The guard itself, for any host: `$label` names the calling recipe in its
 # output, `$installable` is the system to plan. The denylist is

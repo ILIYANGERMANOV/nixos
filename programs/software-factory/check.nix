@@ -68,7 +68,7 @@ let
     opsStateDir = "${work}/ops";
     deployRepo = "owner/nixos";
     deployWorkflow = "deploy-factory.yml";
-    deployHost = "software-factory";
+    deployHost = "software-factory-lenovo";
     inherit gcrootsAuto tmpDir;
   };
 

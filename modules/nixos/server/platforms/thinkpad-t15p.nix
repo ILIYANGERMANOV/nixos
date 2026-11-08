@@ -65,8 +65,16 @@
   };
 
   networking = {
-    # Ethernet gets DHCP on its own; Wi-Fi joins the network in the wifi-env
-    # secret (WIFI_SSID, WIFI_PSK).
+    # No IPv6 on any interface: SLAAC gives LAN devices global addresses, and
+    # egress only rejects private IPv4 and ULA/link-local IPv6, so the agent
+    # could reach the home LAN over IPv6. GitHub is IPv4-only anyway.
+    # NetworkManager re-enables IPv6 on a device whose profile asks for it, so
+    # each profile below disables it too, Ethernet's included: NM's automatic
+    # wired profile would ask for it.
+    enableIPv6 = false;
+
+    # Ethernet gets DHCP; Wi-Fi joins the network in the wifi-env secret
+    # (WIFI_SSID, WIFI_PSK).
     networkmanager = {
       enable = true;
       wifi.powersave = false;
@@ -76,6 +84,14 @@
       dns = "none";
       ensureProfiles = {
         environmentFiles = [ config.sops.secrets.wifi-env.path ];
+        profiles.ethernet = {
+          connection = {
+            id = "ethernet";
+            type = "ethernet";
+          };
+          ipv4.method = "auto";
+          ipv6.method = "disabled";
+        };
         profiles.wifi = {
           connection = {
             id = "wifi";
@@ -90,7 +106,7 @@
             psk = "$WIFI_PSK";
           };
           ipv4.method = "auto";
-          ipv6.method = "auto";
+          ipv6.method = "disabled";
         };
       };
     };
