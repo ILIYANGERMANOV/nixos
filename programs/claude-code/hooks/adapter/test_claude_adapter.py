@@ -7,9 +7,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
-
 from agent_hook import (
     AfterTool,
     Agent,
@@ -32,12 +32,14 @@ ADAPTER = os.environ["AGENT_HOOK_CLAUDE"]
 TOOLS_FILE = os.environ["AGENT_HOOK_CLAUDE_TOOLS"]
 
 TOOLS = parse_tools(
-    json.dumps({
-        "shell": ["Bash"],
-        "delegate": ["Agent"],
-        "handback": ["SubagentHandback"],
-        "web": ["WebFetch", "WebSearch"],
-    })
+    json.dumps(
+        {
+            "shell": ["Bash"],
+            "delegate": ["Agent"],
+            "handback": ["SubagentHandback"],
+            "web": ["WebFetch", "WebSearch"],
+        }
+    )
 )
 
 COMMON: JsonObject = {
@@ -48,12 +50,14 @@ COMMON: JsonObject = {
 }
 WORKER: JsonObject = {"agent_id": "a1b2", "agent_type": "implementer"}
 
-SESSION_START: JsonObject = COMMON | {
+SESSION_START: JsonObject = {
+    **COMMON,
     "hook_event_name": "SessionStart",
     "source": "compact",
     "model": "claude-opus-5-5",
 }
-SPAWN: JsonObject = COMMON | {
+SPAWN: JsonObject = {
+    **COMMON,
     "hook_event_name": "PreToolUse",
     "tool_name": "Agent",
     "tool_input": {
@@ -63,27 +67,27 @@ SPAWN: JsonObject = COMMON | {
     },
     "tool_use_id": "toolu_01",
 }
-HANDBACK: JsonObject = (
-    COMMON
-    | WORKER
-    | {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "SubagentHandback",
-        "tool_input": {"message": "READY commit abc"},
-        "tool_use_id": "toolu_02",
-    }
-)
-RAN: JsonObject = (
-    COMMON
-    | WORKER
-    | {
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": "gh pr create --draft", "description": "Open the PR"},
-        "tool_response": {"stdout": "https://github.com/o/r/pull/7\n", "stderr": "", "interrupted": False},
-        "tool_use_id": "toolu_03",
-    }
-)
+HANDBACK: JsonObject = {
+    **COMMON,
+    **WORKER,
+    "hook_event_name": "PreToolUse",
+    "tool_name": "SubagentHandback",
+    "tool_input": {"message": "READY commit abc"},
+    "tool_use_id": "toolu_02",
+}
+RAN: JsonObject = {
+    **COMMON,
+    **WORKER,
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "gh pr create --draft", "description": "Open the PR"},
+    "tool_response": {
+        "stdout": "https://github.com/o/r/pull/7\n",
+        "stderr": "",
+        "interrupted": False,
+    },
+    "tool_use_id": "toolu_03",
+}
 
 
 def test_a_session_start_reads_its_source() -> None:
@@ -98,7 +102,11 @@ def test_a_lead_tool_call_has_no_agent() -> None:
         Path("/work/repo"),
         None,
         Tool.DELEGATE,
-        {"description": "Implement slice 1", "prompt": "Quality: Max", "subagent_type": "implementer"},
+        {
+            "description": "Implement slice 1",
+            "prompt": "Quality: Max",
+            "subagent_type": "implementer",
+        },
     )
 
 
@@ -140,10 +148,22 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
 @pytest.mark.parametrize(
     ("payload", "error"),
     [
-        pytest.param(SPAWN | {"tool_name": "Grep"}, "Grep has no vendor-free name", id="unmapped tool"),
+        pytest.param(
+            SPAWN | {"tool_name": "Grep"},
+            "Grep has no vendor-free name",
+            id="unmapped tool",
+        ),
         pytest.param(SESSION_START | {"source": "clear"}, "clear", id="unknown source"),
-        pytest.param(COMMON | {"hook_event_name": "Stop"}, "not a SessionStart", id="unknown event"),
-        pytest.param(SPAWN | {"agent_id": "a1"}, "without a string agent_type", id="agent without a type"),
+        pytest.param(
+            COMMON | {"hook_event_name": "Stop"},
+            "not a SessionStart",
+            id="unknown event",
+        ),
+        pytest.param(
+            SPAWN | {"agent_id": "a1"},
+            "without a string agent_type",
+            id="agent without a type",
+        ),
     ],
 )
 def test_a_payload_outside_the_contract_is_an_error(payload: Json, error: str) -> None:
@@ -163,13 +183,23 @@ RAN_EVENT = parse_claude(RAN, TOOLS)
         pytest.param(
             START_EVENT,
             Allow("resume here"),
-            {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "resume here"}},
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": "resume here",
+                }
+            },
             id="context at start",
         ),
         pytest.param(
             RAN_EVENT,
             Allow("recorded"),
-            {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "recorded"}},
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": "recorded",
+                }
+            },
             id="context after a tool",
         ),
         pytest.param(
@@ -199,7 +229,9 @@ RAN_EVENT = parse_claude(RAN, TOOLS)
         ),
     ],
 )
-def test_a_result_becomes_claudes_output(event: BeforeTool, result: Allow | Deny, output: JsonObject) -> None:
+def test_a_result_becomes_claudes_output(
+    event: BeforeTool, result: Allow | Deny, output: JsonObject
+) -> None:
     assert to_claude(event, result) == output
 
 
@@ -213,7 +245,9 @@ print(json.dumps({"context": event["agent"] is None and "lead spawns" or "worker
 """
 
 
-def adapter(tmp_path: Path, manifest: JsonObject, payload: JsonObject) -> subprocess.CompletedProcess[str]:
+def adapter(
+    tmp_path: Path, manifest: JsonObject, payload: JsonObject
+) -> subprocess.CompletedProcess[str]:
     manifest_file = tmp_path / "manifest.json"
     _ = manifest_file.write_text(json.dumps(manifest))
     return subprocess.run(
@@ -225,16 +259,22 @@ def adapter(tmp_path: Path, manifest: JsonObject, payload: JsonObject) -> subpro
     )
 
 
-def declared(name: str, tools: list[str] | None, code: str) -> JsonObject:
+def declared(name: str, tools: list[Json] | None, code: str) -> JsonObject:
     return {"name": name, "tools": tools, "command": [sys.executable, "-c", code]}
 
 
-def test_the_built_adapter_runs_an_events_hooks_and_answers_claude(tmp_path: Path) -> None:
+def test_the_built_adapter_runs_an_events_hooks_and_answers_claude(
+    tmp_path: Path,
+) -> None:
     manifest: JsonObject = {
         "beforeTool": [
             declared("broken", None, "raise SystemExit(2)"),
             declared("diff", ["delegate"], PREPEND),
-            declared("shell-only", ["shell"], "print('{\"decision\": \"deny\", \"reason\": \"no\"}')"),
+            declared(
+                "shell-only",
+                ["shell"],
+                'print(\'{"decision": "deny", "reason": "no"}\')',
+            ),
         ],
     }
 
@@ -255,17 +295,30 @@ def test_the_built_adapter_runs_an_events_hooks_and_answers_claude(tmp_path: Pat
 
 
 def test_the_built_adapter_knows_every_tool_the_table_deploys(tmp_path: Path) -> None:
-    table: dict[str, list[str]] = json.loads(Path(TOOLS_FILE).read_text())
-    manifest: JsonObject = {"afterTool": [declared("seen", None, "import json, sys; print(json.dumps({'context': json.load(sys.stdin)['tool']}))")]}
+    table = cast("dict[str, list[str]]", json.loads(Path(TOOLS_FILE).read_text()))
+    manifest: JsonObject = {
+        "afterTool": [
+            declared(
+                "seen",
+                None,
+                "import json, sys; print(json.dumps({'context': json.load(sys.stdin)['tool']}))",
+            )
+        ]
+    }
 
     for name, claude_tools in table.items():
         for claude_tool in claude_tools:
             done = adapter(tmp_path, manifest, RAN | {"tool_name": claude_tool})
 
-            assert json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"] == name
+            assert (
+                json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"]
+                == name
+            )
 
 
-def test_the_built_adapter_refuses_what_it_cannot_read_and_lets_claude_go_on(tmp_path: Path) -> None:
+def test_the_built_adapter_refuses_what_it_cannot_read_and_lets_claude_go_on(
+    tmp_path: Path,
+) -> None:
     done = adapter(tmp_path, {}, COMMON | {"hook_event_name": "Stop"})
 
     assert done.returncode == 1

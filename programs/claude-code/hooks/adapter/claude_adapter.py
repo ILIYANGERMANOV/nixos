@@ -18,8 +18,8 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from agent_hook import (
-    Agent,
     AfterTool,
+    Agent,
     AgentId,
     Allow,
     BeforeTool,
@@ -54,7 +54,11 @@ def main() -> None:
         event = parse_claude(parse_json(sys.stdin.read()), tools)
     except ValueError as error:
         sys.exit(f"agent-hook-claude: {error}")
-    print(json.dumps(to_claude(event, dispatch(hooks_for(manifest, event), event, run_hook))))
+    print(
+        json.dumps(
+            to_claude(event, dispatch(hooks_for(manifest, event), event, run_hook))
+        )
+    )
 
 
 def parse_tools(text: str) -> ToolNames:

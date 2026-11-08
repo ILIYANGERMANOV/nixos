@@ -4,11 +4,9 @@ wire, results fold as a monoid, and a hook that fails never blocks a call."""
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
-
 from agent_hook import (
     AfterTool,
     Agent,
@@ -38,6 +36,8 @@ from agent_hook import (
     parse_result,
     run_hook,
 )
+from hypothesis import given
+from hypothesis import strategies as st
 
 VOCABULARY = Path(__file__).with_name("vocabulary.json")
 
@@ -50,22 +50,28 @@ RAN = AfterTool(SESSION, CWD, WORKER, Tool.SHELL, {"command": "ls"}, "a\nb\n")
 
 json_values = st.recursive(
     st.none() | st.booleans() | st.integers() | st.text(),
-    lambda children: st.lists(children, max_size=3)
-    | st.dictionaries(st.text(), children, max_size=3),
+    lambda children: (
+        st.lists(children, max_size=3)
+        | st.dictionaries(st.text(), children, max_size=3)
+    ),
     max_leaves=8,
 )
 json_objects = st.dictionaries(st.text(), json_values, max_size=3)
 texts = st.text(min_size=1)
-agents = st.none() | st.builds(
-    Agent, st.text().map(AgentId), st.text().map(Role)
-)
+agents = st.none() | st.builds(Agent, st.text().map(AgentId), st.text().map(Role))
 paths = st.text(alphabet="abc/", min_size=1).map(lambda p: Path("/" + p))
 sessions = st.text().map(SessionId)
 events: st.SearchStrategy[Event] = st.one_of(
     st.builds(SessionStart, sessions, paths, agents, st.sampled_from(Source)),
     st.builds(BeforeTool, sessions, paths, agents, st.sampled_from(Tool), json_objects),
     st.builds(
-        AfterTool, sessions, paths, agents, st.sampled_from(Tool), json_objects, json_values
+        AfterTool,
+        sessions,
+        paths,
+        agents,
+        st.sampled_from(Tool),
+        json_objects,
+        json_values,
     ),
 )
 contexts = st.none() | texts
@@ -75,11 +81,16 @@ results: st.SearchStrategy[Result] = st.one_of(
 )
 
 
-def hook(name: str, tools: frozenset[Tool] | EveryTool = EveryTool()) -> Hook:
+EVERY_TOOL = EveryTool()
+
+
+def hook(name: str, tools: frozenset[Tool] | EveryTool = EVERY_TOOL) -> Hook:
     return Hook(HookName(name), tools, (name,))
 
 
-def python(name: str, code: str, tools: frozenset[Tool] | EveryTool = EveryTool()) -> Hook:
+def python(
+    name: str, code: str, tools: frozenset[Tool] | EveryTool = EVERY_TOOL
+) -> Hook:
     """A real hook: a Python program the dispatcher spawns."""
     return Hook(HookName(name), tools, (sys.executable, "-c", code))
 
@@ -88,7 +99,7 @@ def python(name: str, code: str, tools: frozenset[Tool] | EveryTool = EveryTool(
 
 
 def test_the_enums_hold_the_vocabulary_nix_reads() -> None:
-    vocabulary = json.loads(VOCABULARY.read_text())
+    vocabulary = cast("dict[str, list[str]]", json.loads(VOCABULARY.read_text()))
 
     assert [e.value for e in EventName] == vocabulary["events"]
     assert [t.value for t in Tool] == vocabulary["tools"]
@@ -103,23 +114,46 @@ def test_an_emitted_event_parses_back_to_itself(event: Event) -> None:
 @pytest.mark.parametrize(
     "wire",
     [
-        pytest.param({"event": "beforeLunch", "session": "s", "cwd": "/", "agent": None}, id="unknown event"),
         pytest.param(
-            {"event": "beforeTool", "session": "s", "cwd": "/", "agent": None, "tool": "teleport", "input": {}},
+            {"event": "beforeLunch", "session": "s", "cwd": "/", "agent": None},
+            id="unknown event",
+        ),
+        pytest.param(
+            {
+                "event": "beforeTool",
+                "session": "s",
+                "cwd": "/",
+                "agent": None,
+                "tool": "teleport",
+                "input": {},
+            },
             id="unknown tool",
         ),
         pytest.param(
-            {"event": "sessionStart", "session": "s", "cwd": "/", "agent": None, "source": "clear"},
+            {
+                "event": "sessionStart",
+                "session": "s",
+                "cwd": "/",
+                "agent": None,
+                "source": "clear",
+            },
             id="unknown source",
         ),
         pytest.param(
-            {"event": "beforeTool", "session": "s", "cwd": "/", "agent": {"id": "a"}, "tool": "shell", "input": {}},
+            {
+                "event": "beforeTool",
+                "session": "s",
+                "cwd": "/",
+                "agent": {"id": "a"},
+                "tool": "shell",
+                "input": {},
+            },
             id="agent without a role",
         ),
     ],
 )
 def test_an_event_outside_the_contract_is_an_error(wire: Json) -> None:
-    with pytest.raises(ValueError):  # noqa: PT011 - ValueError is the contract's error.
+    with pytest.raises(ValueError):
         _ = parse_event(json.dumps(wire))
 
 
@@ -138,7 +172,9 @@ def test_an_event_reads_as_the_wire_names_it() -> None:
 
 
 @given(st.sampled_from([SPAWN]), results)
-def test_an_emitted_before_tool_result_parses_back_to_itself(event: Event, result: Result) -> None:
+def test_an_emitted_before_tool_result_parses_back_to_itself(
+    event: Event, result: Result
+) -> None:
     assert parse_result(event, emit_result(result)) == result
 
 
@@ -150,20 +186,57 @@ def test_printing_nothing_allows(printed: str) -> None:
 @pytest.mark.parametrize(
     ("event", "printed", "error"),
     [
-        pytest.param(RAN, '{"decision": "deny", "reason": "no"}', "only beforeTool may deny", id="deny after the tool"),
-        pytest.param(START, '{"decision": "deny", "reason": "no"}', "only beforeTool may deny", id="deny at start"),
-        pytest.param(RAN, '{"updatedInput": {}}', "only beforeTool may rewrite", id="rewrite after the tool"),
-        pytest.param(SPAWN, '{"decision": "deny"}', "needs a reason", id="deny without a reason"),
-        pytest.param(SPAWN, '{"decision": "deny", "reason": "no", "updatedInput": {}}', "rewrites no input", id="deny rewriting"),
-        pytest.param(SPAWN, '{"reason": "why"}', "only a deny has a reason", id="allow with a reason"),
-        pytest.param(SPAWN, '{"decision": "maybe"}', "unknown decision", id="unknown decision"),
-        pytest.param(SPAWN, '{"updated_input": {}}', "unknown field", id="misspelled field"),
-        pytest.param(SPAWN, '{"updatedInput": "x"}', "not an object", id="input not an object"),
-        pytest.param(SPAWN, '{"context": 1}', "not a string", id="context not a string"),
+        pytest.param(
+            RAN,
+            '{"decision": "deny", "reason": "no"}',
+            "only beforeTool may deny",
+            id="deny after the tool",
+        ),
+        pytest.param(
+            START,
+            '{"decision": "deny", "reason": "no"}',
+            "only beforeTool may deny",
+            id="deny at start",
+        ),
+        pytest.param(
+            RAN,
+            '{"updatedInput": {}}',
+            "only beforeTool may rewrite",
+            id="rewrite after the tool",
+        ),
+        pytest.param(
+            SPAWN, '{"decision": "deny"}', "needs a reason", id="deny without a reason"
+        ),
+        pytest.param(
+            SPAWN,
+            '{"decision": "deny", "reason": "no", "updatedInput": {}}',
+            "rewrites no input",
+            id="deny rewriting",
+        ),
+        pytest.param(
+            SPAWN,
+            '{"reason": "why"}',
+            "only a deny has a reason",
+            id="allow with a reason",
+        ),
+        pytest.param(
+            SPAWN, '{"decision": "maybe"}', "unknown decision", id="unknown decision"
+        ),
+        pytest.param(
+            SPAWN, '{"updated_input": {}}', "unknown field", id="misspelled field"
+        ),
+        pytest.param(
+            SPAWN, '{"updatedInput": "x"}', "not an object", id="input not an object"
+        ),
+        pytest.param(
+            SPAWN, '{"context": 1}', "not a string", id="context not a string"
+        ),
         pytest.param(SPAWN, "[]", "not a JSON object", id="not an object"),
     ],
 )
-def test_a_result_the_event_cannot_honour_is_an_error(event: Event, printed: str, error: str) -> None:
+def test_a_result_the_event_cannot_honour_is_an_error(
+    event: Event, printed: str, error: str
+) -> None:
     with pytest.raises(ValueError, match=error):
         _ = parse_result(event, printed)
 
@@ -194,10 +267,12 @@ def test_contexts_and_reasons_join_in_order() -> None:
 
 
 def test_the_later_rewrite_wins() -> None:
-    assert combine(Allow(updated_input={"a": 1}), Allow()) == Allow(updated_input={"a": 1})
-    assert combine(Allow(updated_input={"a": 1}), Allow(updated_input={"b": 2})) == Allow(
-        updated_input={"b": 2}
+    assert combine(Allow(updated_input={"a": 1}), Allow()) == Allow(
+        updated_input={"a": 1}
     )
+    assert combine(
+        Allow(updated_input={"a": 1}), Allow(updated_input={"b": 2})
+    ) == Allow(updated_input={"b": 2})
 
 
 # The dispatcher, with hooks as functions of the event they see.
@@ -247,14 +322,18 @@ def test_no_hooks_allow() -> None:
 
 def test_an_events_hooks_come_from_the_manifest_in_order() -> None:
     manifest = parse_manifest(
-        json.dumps({
-            "sessionStart": [{"name": "resume", "tools": None, "command": ["resume", "--now"]}],
-            "beforeTool": [
-                {"name": "b", "tools": ["delegate"], "command": ["b"]},
-                {"name": "a", "tools": None, "command": ["a"]},
-            ],
-            "afterTool": [],
-        })
+        json.dumps(
+            {
+                "sessionStart": [
+                    {"name": "resume", "tools": None, "command": ["resume", "--now"]}
+                ],
+                "beforeTool": [
+                    {"name": "b", "tools": ["delegate"], "command": ["b"]},
+                    {"name": "a", "tools": None, "command": ["a"]},
+                ],
+                "afterTool": [],
+            }
+        )
     )
 
     assert hooks_for(manifest, START) == (
@@ -267,14 +346,20 @@ def test_an_events_hooks_come_from_the_manifest_in_order() -> None:
 @pytest.mark.parametrize(
     "manifest",
     [
-        pytest.param({"beforeLunch": []}, id="unknown event"),
-        pytest.param({"beforeTool": [{"name": "a", "tools": ["teleport"], "command": ["a"]}]}, id="unknown tool"),
-        pytest.param({"beforeTool": [{"name": "a", "tools": None, "command": []}]}, id="no command"),
+        pytest.param('{"beforeLunch": []}', id="unknown event"),
+        pytest.param(
+            '{"beforeTool": [{"name": "a", "tools": ["teleport"], "command": ["a"]}]}',
+            id="unknown tool",
+        ),
+        pytest.param(
+            '{"beforeTool": [{"name": "a", "tools": null, "command": []}]}',
+            id="no command",
+        ),
     ],
 )
-def test_a_manifest_outside_the_contract_is_an_error(manifest: Json) -> None:
-    with pytest.raises(ValueError):  # noqa: PT011 - ValueError is the contract's error.
-        _ = parse_manifest(json.dumps(manifest))
+def test_a_manifest_outside_the_contract_is_an_error(manifest: str) -> None:
+    with pytest.raises(ValueError):
+        _ = parse_manifest(manifest)
 
 
 # Real hooks, spawned.
@@ -295,10 +380,16 @@ def test_a_hook_reads_the_event_and_its_result_counts() -> None:
 @pytest.mark.parametrize(
     ("code", "told"),
     [
-        pytest.param("import sys; sys.exit('state: no run')", "hook broken: exit 1: state: no run", id="crash"),
+        pytest.param(
+            "import sys; sys.exit('state: no run')",
+            "hook broken: exit 1: state: no run",
+            id="crash",
+        ),
         pytest.param("print('not json')", "hook broken: bad output: ", id="bad output"),
         pytest.param(
-            "print('{\"decision\": \"deny\"}')", "hook broken: bad output: a deny needs a reason", id="output outside the contract"
+            'print(\'{"decision": "deny"}\')',
+            "hook broken: bad output: a deny needs a reason",
+            id="output outside the contract",
         ),
     ],
 )
@@ -313,7 +404,9 @@ def test_a_failing_hook_allows_and_tells(code: str, told: str) -> None:
 
 
 def test_a_missing_hook_program_allows_and_tells() -> None:
-    result = run_hook(Hook(HookName("gone"), EveryTool(), ("/nonexistent/hook",)), SPAWN)
+    result = run_hook(
+        Hook(HookName("gone"), EveryTool(), ("/nonexistent/hook",)), SPAWN
+    )
 
     match result:
         case Allow(context=str(context)):

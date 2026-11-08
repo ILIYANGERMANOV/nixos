@@ -24,7 +24,7 @@ let
     inherit lib;
     inherit (agents.hooks.vocabulary) sources;
   };
-  hookAdapter = import ./hooks/adapter/adapter.nix {
+  claudeHookAdapter = import ./hooks/adapter/adapter.nix {
     inherit pkgs;
     agentHook = agents.hooks.module;
     inherit (hookSettings) tools;
@@ -36,7 +36,7 @@ let
     inherit (settings) withSecretFileGuard;
     # A profile's hooks, every event's entry running the adapter over them.
     withHooks =
-      hooks: hookSettings.withHooks (hookAdapter.hookFor (agents.hooks.manifest hooks)) hooks;
+      hooks: hookSettings.withHooks (claudeHookAdapter.hookFor (agents.hooks.manifest hooks)) hooks;
   };
   renderAgents = import ./codegen/role.nix {
     inherit pkgs lib;
@@ -225,7 +225,7 @@ rec {
 
   # The adapter running a profile's hooks and the tool table it reads, for
   # `python-tests` to run.
-  hookAdapter = { inherit (hookAdapter) bin toolsFile; };
+  hookAdapter = { inherit (claudeHookAdapter) bin toolsFile; };
 
   # home.file entries for the subagents. Every flavor of a profile gets the same
   # ones, so unlike skills they need no per-flavor relink. The factory profile

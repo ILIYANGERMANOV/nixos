@@ -297,7 +297,11 @@ def parse_event(text: str) -> Event:
             "input": dict() as tool_input,
         }:
             return BeforeTool(
-                SessionId(session), Path(cwd), parse_agent(agent), Tool(tool), tool_input
+                SessionId(session),
+                Path(cwd),
+                parse_agent(agent),
+                Tool(tool),
+                tool_input,
             )
         case {
             "event": "afterTool",
@@ -361,35 +365,52 @@ def parse_result(event: Event, text: str) -> Result:
     as a deny after the tool ran, is an error rather than dropped."""
     if not text.strip():
         return Allow()
-    match parse_json(text):
-        case dict() as fields:
-            pass
-        case _:
-            raise ValueError("the result is not a JSON object")
-    unknown = fields.keys() - RESULT_FIELDS
-    if unknown:
-        raise ValueError(f"unknown field(s) {sorted(unknown)}")
+    fields = result_fields(text)
     context = optional_str(fields, "context")
     rewrites = isinstance(event, BeforeTool)
-    match fields.get("decision", "allow"), fields.get("updatedInput"):
-        case "deny", _ if not rewrites:
-            raise ValueError("only beforeTool may deny")
-        case "deny", None:
-            return Deny(parse_reason(fields), context)
-        case "deny", _:
-            raise ValueError("a deny rewrites no input")
-        case "allow", _ if "reason" in fields:
-            raise ValueError("only a deny has a reason")
-        case "allow", None:
-            return Allow(context)
-        case "allow", dict() as updated if rewrites:
-            return Allow(context, updated)
-        case "allow", dict():
-            raise ValueError("only beforeTool may rewrite the input")
-        case "allow", _:
-            raise ValueError("updatedInput is not an object")
-        case decision, _:
+    match fields.get("decision", "allow"):
+        case "deny":
+            return parse_deny(fields, context, rewrites=rewrites)
+        case "allow":
+            return parse_allow(fields, context, rewrites=rewrites)
+        case decision:
             raise ValueError(f"unknown decision {decision!r}")
+
+
+def parse_deny(fields: JsonObject, context: str | None, *, rewrites: bool) -> Deny:
+    match rewrites, fields.get("updatedInput"):
+        case False, _:
+            raise ValueError("only beforeTool may deny")
+        case True, None:
+            return Deny(parse_reason(fields), context)
+        case True, _:
+            raise ValueError("a deny rewrites no input")
+
+
+def parse_allow(fields: JsonObject, context: str | None, *, rewrites: bool) -> Allow:
+    if "reason" in fields:
+        raise ValueError("only a deny has a reason")
+    match fields.get("updatedInput"):
+        case None:
+            return Allow(context)
+        case dict() as updated if rewrites:
+            return Allow(context, updated)
+        case dict():
+            raise ValueError("only beforeTool may rewrite the input")
+        case _:
+            raise ValueError("updatedInput is not an object")
+
+
+def result_fields(text: str) -> JsonObject:
+    match parse_json(text):
+        case dict() as fields if fields.keys() <= RESULT_FIELDS:
+            return fields
+        case dict() as fields:
+            raise ValueError(
+                f"unknown field(s) {sorted(fields.keys() - RESULT_FIELDS)}"
+            )
+        case _:
+            raise ValueError("the result is not a JSON object")
 
 
 def parse_reason(fields: JsonObject) -> str:
