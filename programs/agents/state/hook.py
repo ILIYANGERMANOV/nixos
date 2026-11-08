@@ -39,7 +39,7 @@ from agent_hook import (
     parse_event,
 )
 
-from state.codec import PR_URL_SHAPE, Line
+from state.codec import PR_URL_SHAPE, Line, pick
 from state.core import (
     HandbackOptions,
     Spawn,
@@ -61,6 +61,7 @@ from state.effects import (
 )
 from state.model import (
     ROLES,
+    WORKERS,
     Asked,
     Drafted,
     Failure,
@@ -263,17 +264,17 @@ def handed_back(
 ) -> str | Failure | None:
     """What a role's hand-back records; None for a role whose report the run
     does not follow (a reviewer's goes to its review-lead)."""
-    match role:
-        case "implementer" | "refactorer" | "fixer" | "review-lead":
-            match parse_handback(role, message, HandbackOptions(), head_of(cwd)):
+    match pick(role, WORKERS):
+        case None if role == "researcher" and run.state.step == "Ctx":
+            return record(run, (Researched(1),), cwd)
+        case None:
+            return None
+        case worker:
+            match parse_handback(worker, message, HandbackOptions(), head_of(cwd)):
                 case Failure() as failure:
                     return failure
                 case events:
                     return record(run, events, cwd)
-        case "researcher" if run.state.step == "Ctx":
-            return record(run, (Researched(1),), cwd)
-        case _:
-            return None
 
 
 def pr(cwd: Path, tool_input: JsonObject, output: Json) -> Result:
