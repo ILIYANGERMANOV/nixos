@@ -7,13 +7,13 @@ paths:
 
 `profiles/<name>/profile.nix` - one folder per profile, found by `readDir`. A
 profile is the vendor-free part of one setup: `skills`, `instructions`, `mcp`
-(server names), `runtime` (packages on PATH) and `secretFiles` (variable ->
-secret name). Profiles are deltas and never import each other; a backend's
+(server names), `runtime` (packages on PATH), `secretFiles` (variable ->
+secret name) and `hooks` (hook module files, `agents-frontend.md`). Profiles are deltas and never import each other; a backend's
 flavor lists the ones it gets. `mkProfile` and `append` are in `agents-lib.md`.
 
 - `base` - every flavor: the shared skills, `agent.md`, `lead.md`,
-  `trivial.md`, `runtime` (`programs/playwright`'s `qa`, `ctx` and `state`) and
-  `secretFiles`.
+  `trivial.md`, `runtime` (`programs/playwright`'s `qa`, `ctx` and `state`),
+  `secretFiles` and the state hooks.
 - `web-ui` - figma.
 - `pm` - `self-improve`, linear, superhuman-docs.
 - `local` - `10x-engineer` and its `lead.md` for the lead only: every

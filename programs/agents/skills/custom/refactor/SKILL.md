@@ -32,14 +32,14 @@ directory, and a `..` path does not resolve between installed skills.
 Your input may carry `Quality: <mode>`, scope notes (anything else that is
 not a ref) and a target:
 
+- `Diff: <folder>` - the diff `ctx` wrote: it wins.
 - A PR number or URL - check its branch out first if it is not the current
   one (`gh pr checkout <n>`), then `ctx diff origin/<its baseRefName>`.
 - A base ref - `ctx diff <ref>`.
 - Neither - `ctx diff origin/main`.
 
 `ctx` diffs the merge-base to the work tree, uncommitted work included. Line 1
-is a folder that is the diff, so no `git diff`: read `index`, then ranges of
-`diff`. Fail fast if `ctx` fails or says `0 files`. Scope notes narrow or widen
+is the diff's folder, so no `git diff`: read `index`, then ranges of `diff`. Fail fast if `ctx` fails or says `0 files`. Scope notes narrow or widen
 what the plan covers; follow them.
 
 Read lean: the diff hunks, not whole modules. Read past a hunk only for the

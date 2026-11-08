@@ -22,7 +22,10 @@ The backend contract: `.claude/rules/agents-backend.md`. Installing:
 - `codegen/` - pure, Claude's format: `settings.nix` (base settings,
   `withSecretFileGuard`), `profile.nix` (a folded profile as a flavor's files),
   `role.nix` (a role as `agents/<name>.md`), `mcp.nix` (`toWire`, no
-  derivations, which is what makes it testable).
+  derivations, which is what makes it testable), `hooks.nix` (a profile's
+  hooks as one settings entry per event, appended like `withSecretFileGuard`)
+  and `tools.nix` (Claude's tools by vendor-free name: the one table a role's
+  `tools:`, a hook matcher and the hook adapter read).
 - `budget/` - the sizes only Claude's format adds, and `skillOverrides`.
 - `statusline/` - the program the settings' status line points at.
 - `check.nix` - `checks.claude-code`: the MCP wire shape, `withSecretFileGuard`

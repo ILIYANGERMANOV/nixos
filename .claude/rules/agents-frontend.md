@@ -29,10 +29,22 @@ Each folder has its own rule, loaded when you work in it:
 | `roles/<name>/` | one subagent role | `agents-roles.md` |
 | `skills/` | the skill catalog | `agents-skills.md` |
 | `mcp/` | the MCP catalog | `agents-mcp.md` |
+| `hooks/` | hook declarations, the neutral contract and dispatcher | below |
 
 `default.nix` is the surface: `profiles`, `fold`, `renderLead`, `renderRole`,
-`skills`, `ctx`, `state`, `roles`, `budget` and `check`. `checks.agents`
+`skills`, `ctx`, `state`, `hooks`, `roles`, `budget` and `check`. `checks.agents`
 proves every law and every rejection.
+
+### Hooks
+
+`hooks/default.nix` types a hook module, `hooks.<name> = { on; tools; command;
+order; }`, with the module system: every option `uniq`, events and tools from
+`vocabulary.json`, so a duplicate name or an unknown event, tool or field is an
+eval error. A profile's `hooks` lists module files; `fold` turns them into each
+event's hooks in order. `agent_hook.py` is the neutral contract and the
+dispatcher a backend's adapter calls once per event: deny wins, contexts join,
+rewritten input reaches the next hook. A hook fails open and tells. The state
+hooks are `state/hooks.nix` (`state-hook`). Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
 
 ### Laws
 

@@ -124,11 +124,9 @@ def test_prose_guard_the_stuck_guard_quotes_states_stuck_line() -> None:
 
 
 def test_prose_guard_the_skill_names_exactly_the_roles_state_handback_takes() -> None:
-    roles = f"{', '.join(WORKERS[:-1])} and {WORKERS[-1]}"
+    roles = f"{', '.join(WORKERS[:-1])} or {WORKERS[-1]}"
 
-    assert f"paste each {roles} hand-back into `state handback <role>`" in flat(
-        SKILL.read_text()
-    )
+    assert f"| an {roles} hands back |" in flat(SKILL.read_text())
 
 
 def test_brief_refactorer_holds_the_mechanics_and_the_stop_rule_verbatim(

@@ -37,6 +37,8 @@ Your prompt, or the arguments, may hold, in any order:
 - **`--fixes <sha>`** - this is a re-review of the fixes made since the
   previous round, whose head was `<sha>`, the `Reviewed head` line of its
   return. Without it, this is a first review.
+- **`Diff: <folder>`** - the branch's `ctx diff`, written for you: a first
+  review's `D`. A re-review still writes its fix diff.
 - **`Quality: <mode>`** - your row in the Quality table says which agents run;
   `first-pass.md` and `fixes.md` say how.
 - **`Size: Trivial`** - the caller runs the fast track: `first-pass.md`'s

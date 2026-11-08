@@ -60,3 +60,13 @@ The declared set of things a flavor may draw from - MCP servers in
 absent from a catalog aborts evaluation; a catalog entry filtered out by
 availability is silently absent instead.
 _Avoid_: registry (reserved for `myConfig.secrets`), list
+
+**Hook**:
+A vendor-free program an agent runs at a session start or around a tool call,
+declared in `programs/agents/hooks` and attached by a profile. It reads one
+event and returns allow or deny, context and rewritten input.
+_Avoid_: guard (a Claude-native hook in `programs/claude-code/hooks`)
+
+**Dispatcher**:
+The frontend's one entry point per event that runs that event's hooks in order
+and folds their results, so every backend runs them the same way.
