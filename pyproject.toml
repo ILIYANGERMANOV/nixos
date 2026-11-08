@@ -31,6 +31,8 @@ ignore = [
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "programs/agents/ctx/ctx.py" = ["S603", "S607"]
 "programs/agents/state/effects.py" = ["S603", "S607"]
+# The state hooks run the session's `ctx`.
+"programs/agents/state/hook.py" = ["S603", "S607"]
 # The dispatcher runs each hook's argv as declared in Nix.
 "programs/agents/hooks/agent_hook.py" = ["S603"]
 "programs/agents/skills/custom/self-improve/scripts/analyze.py" = ["S603", "S607"]
@@ -107,4 +109,5 @@ root = "programs/agents/hooks"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/state"
-extraPaths = ["programs/agents"]
+# hook.py imports the hook contract from site-packages at runtime (default.nix).
+extraPaths = ["programs/agents", "programs/agents/hooks"]

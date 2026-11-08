@@ -3,7 +3,17 @@
 # entry point, the other modules beside it hold the logic and each
 # test_<module>.py runs it. It
 # runs the session's own git, the one the agent already works with.
-{ pkgs }:
+#
+# hook.py is a second entry point, `state-hook <name>`: the hooks hooks.nix
+# declares, which record the run as the agents work (passthru.hooks, the file
+# a profile lists).
+{
+  pkgs,
+  # agent_hook.py as a Python library: the contract state-hook reads and prints.
+  agentHook,
+  # `ctx`, which state-hook runs for a diff reader's `Diff:` folder.
+  ctx,
+}:
 
 let
   python = pkgs.python313;
@@ -27,6 +37,7 @@ pkgs.runCommand "state"
   {
     nativeBuildInputs = [ pkgs.makeWrapper ];
     meta.mainProgram = "state";
+    passthru.hooks = ./hooks.nix;
   }
   ''
     mkdir -p "$out/lib/state" "$out/bin"
@@ -36,4 +47,8 @@ pkgs.runCommand "state"
     makeWrapper ${pkgs.lib.getExe python} "$out/bin/state" \
       --add-flags "-P -m state.main" \
       --set PYTHONPATH "$out/lib"
+    makeWrapper ${pkgs.lib.getExe python} "$out/bin/state-hook" \
+      --add-flags "-P -m state.hook" \
+      --set PYTHONPATH "$out/lib:${agentHook}/${python.sitePackages}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ ctx ]}
   ''

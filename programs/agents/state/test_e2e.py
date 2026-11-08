@@ -1,15 +1,20 @@
 """The built `state` command, end to end: the wrapped binary the agents get on
 PATH, run as a process on a temp git repo. No module of the program is imported,
 so this proves the packaging - the wrapper, the package path, the entry point -
-as well as the flow. `python-tests` puts the binary in $STATE."""
+as well as the flow. `python-tests` puts the binary in $STATE, and the hooks'
+entry point, `state-hook`, in $STATE_HOOK."""
 
+import json
 import os
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 from state.state_fixtures import PR, commit
 
 STATE = os.environ["STATE"]
+STATE_HOOK = os.environ["STATE_HOOK"]
 
 
 def state(repo: Path, *argv: str, stdin: str | None = None) -> tuple[int, str, str]:
@@ -100,3 +105,58 @@ def test_a_hand_edited_bad_line_exits_2_naming_the_line(
     assert (code, out) == (2, "")
     assert err.startswith(f"state: {log}:5: not JSON")
     assert f"fix: repair or delete line 5 of {log}" in err
+
+
+def hook(repo: Path, name: str, event: Mapping[str, object]) -> dict[str, object]:
+    """One neutral-contract event through `state-hook <name>`; its result."""
+    stdin = json.dumps({"session": "s", "cwd": str(repo), "agent": None, **event})
+    done = subprocess.run(
+        [STATE_HOOK, name],
+        cwd=repo,
+        input=stdin,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert done.stderr == ""
+    return cast("dict[str, object]", json.loads(done.stdout)) if done.stdout else {}
+
+
+def test_the_hooks_record_a_spawn_and_handback_and_print_nothing_with_no_run(
+    repo: Path, tmp_path: Path
+) -> None:
+    started = {"event": "sessionStart", "source": "startup"}
+    spawn = {
+        "event": "beforeTool",
+        "tool": "delegate",
+        "input": {"prompt": "Fix it.", "subagent_type": "fixer"},
+    }
+    nothing = hook(repo, "resume", started)
+    drafted(repo, tmp_path / "notes")
+    resumed = hook(repo, "resume", started)
+    spawned = hook(repo, "spawn", spawn)
+    _ = commit(repo, {"b.txt": "two\n"}, "implement")
+    handed = hook(
+        repo,
+        "handback",
+        {
+            "event": "beforeTool",
+            "tool": "handback",
+            "agent": {"id": "a1", "role": "implementer"},
+            "input": {"message": "READY done"},
+        },
+    )
+
+    assert nothing == {}
+    assert str(resumed["context"]).startswith("Step: Impl\n")
+    # `ctx` is on the wrapper's PATH: a fixer gets the branch diff's folder.
+    match spawned["updatedInput"]:
+        case {"prompt": str(prompt)}:
+            pass
+        case other:
+            raise AssertionError(f"no prompt rewritten: {other!r}")
+    assert prompt.startswith("Fix it.\nDiff: /")
+    assert Path(prompt.removeprefix("Fix it.\nDiff: ")).joinpath("diff").is_file()
+    assert handed["updatedInput"] == {
+        "message": "READY done\n\nstate: recorded 5 implemented -> Impl'"
+    }

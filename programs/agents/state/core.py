@@ -1250,7 +1250,10 @@ def touched(lines: list[str]) -> tuple[Area, ...] | Failure:
     words = (
         found[-1].removeprefix(TOUCHES_LINE).replace(",", " ").split() if found else []
     )
-    areas = tuple(area for word in words for area in AREAS if area == word)
+    # Declared: pyright widens an inferred tuple(...) of literals to str.
+    areas: tuple[Area, ...] = tuple(
+        area for word in words for area in AREAS if area == word
+    )
     unknown = [word for word in words if word not in (*AREAS, "none")]
     if unknown:
         return Failure(

@@ -4,7 +4,8 @@
 # visible diff that says a change costs every agent more start-up context.
 # It also holds the rendered subagents to their contract: an allowlist of tools
 # with no MCP, only fields that are known, every preload installed, and the
-# factory section in the factory's render alone.
+# factory section in the factory's render alone, and the factory's settings to
+# running the state hooks through the adapter.
 #
 # Sizes are programs/agents' budget and budget/'s, each `<ceiling key> <subject>
 # <bytes>` lines, against their ceilings merged. `.report` prints the table,
@@ -20,6 +21,8 @@
   roleSkills,
   agentSources,
   factoryAgentSources,
+  # The factory flavor's settings.json, as its wrapper writes it.
+  factorySettings,
   # budget-compare, see budget/.
   compare,
   sizes,
@@ -54,6 +57,7 @@ pkgs.runCommand "claude-config-check"
   {
     nativeBuildInputs = [
       compare
+      pkgs.jq
       pkgs.yq-go
     ];
     passthru = { inherit report; };
@@ -95,6 +99,18 @@ pkgs.runCommand "claude-config-check"
           die ${name} "no factory section in the factory's render"
       '') agentSources
     )}
+
+    # The base profile's state hooks reach the factory: one adapter entry per
+    # event, matched on the hooks' tools, all running one manifest.
+    adapters='.hooks | to_entries[] | .key as $event | .value[]
+      | select(.hooks[0].command | contains("/bin/agent-hook-claude "))'
+    [ "$(jq -c "[$adapters | {event: \$event, matcher}]" ${factorySettings})" = \
+      '[{"event":"PostToolUse","matcher":"AskUserQuestion|Bash"},{"event":"PreToolUse","matcher":"Agent|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"}]' ] ||
+      { echo "factory settings: the hook adapter entries differ" >&2; exit 1; }
+    manifest=$(jq -r "[$adapters | .hooks[0].command] | unique | .[] | split(\" \")[2]" ${factorySettings})
+    [ "$(jq -c 'map_values(map(.name))' "$manifest")" = \
+      '{"afterTool":["state-asked","state-pr"],"beforeTool":["state-handback","state-spawn"],"sessionStart":["state-resume"]}' ] ||
+      { echo "factory settings: the state hooks differ" >&2; exit 1; }
 
     # Given synthetic sizes, each way to break the budget must fail.
     echo '{"a": 10, "b": 10}' >ceilings.json

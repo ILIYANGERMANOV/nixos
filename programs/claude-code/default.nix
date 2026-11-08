@@ -246,6 +246,7 @@ rec {
       skillNames = agents.skills.names;
       baseProfileSkills = baseProfile.skills;
       inherit agentSources factoryAgentSources;
+      factorySettings = factory.wrapper.settingsFile;
       roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
       sizes = [
         # A role counts at its largest, the factory's render.

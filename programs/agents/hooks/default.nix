@@ -10,7 +10,13 @@
 # agent_hook.py's dispatcher, and the dispatcher runs that event's hooks in the
 # order `eval` gives. So the order, the threading of rewritten input and what
 # a failing hook does are the same on every agent.
-{ pkgs, lib }:
+{
+  pkgs,
+  lib,
+  # The packages a hook module may take as module arguments, such as `state`
+  # for its own hooks' commands.
+  packages ? { },
+}:
 
 let
   inherit (lib) mkOption types;
@@ -48,6 +54,7 @@ let
     let
       declared =
         (lib.evalModules {
+          specialArgs = packages;
           modules = [
             {
               options.hooks = mkOption {

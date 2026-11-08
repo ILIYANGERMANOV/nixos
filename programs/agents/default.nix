@@ -23,7 +23,10 @@ let
     serverNames = lib.attrNames mcpCatalog;
   };
   targets = import ./lib/targets.nix { inherit pkgs lib; };
-  hooks = import ./hooks { inherit pkgs lib; };
+  hooks = import ./hooks {
+    inherit pkgs lib;
+    packages = { inherit state; };
+  };
   dedupLib = import ./lib/passes/dedup.nix {
     inherit pkgs lib;
     instructions = instructionsLib;
@@ -82,7 +85,10 @@ let
   # `ctx`: the review diff in a cached folder, on PATH in every session.
   ctx = import ./ctx { inherit pkgs; };
   # `state`: the engineer flow's event log and advice, on PATH beside `ctx`.
-  state = import ./state { inherit pkgs; };
+  state = import ./state {
+    inherit pkgs ctx;
+    agentHook = hooks.module;
+  };
   profiles = import ./profiles {
     inherit (profileLib) mkProfile;
     inherit

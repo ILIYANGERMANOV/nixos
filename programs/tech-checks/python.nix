@@ -77,8 +77,9 @@ in
       AGENT_HOOK_CLAUDE = lib.getExe claude.hookAdapter.bin;
       AGENT_HOOK_CLAUDE_TOOLS = claude.hookAdapter.toolsFile;
       STATUSLINE = lib.getExe claude.statusline;
-      # test_e2e.py runs the wrapped `state` binary, as the agents get it.
+      # test_e2e.py runs the wrapped `state` and `state-hook`, as the agents get them.
       STATE = lib.getExe state;
+      STATE_HOOK = "${state}/bin/state-hook";
       PYTHON_SOURCE = pythonSource;
     }
   ) (builtins.readFile ./python-tests.sh);
