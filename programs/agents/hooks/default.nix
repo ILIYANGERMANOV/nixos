@@ -69,8 +69,7 @@ let
       throw "hooks: ${toString toolsAtStart} name tools, but run at sessionStart, which calls none"
     else
       lib.genAttrs vocabulary.events (
-        event:
-        map (h: { inherit (h) name tools command; }) (lib.filter (h: h.on == event) ordered)
+        event: map (h: { inherit (h) name tools command; }) (lib.filter (h: h.on == event) ordered)
       );
 
   # What the dispatcher reads: `eval`'s output as JSON.

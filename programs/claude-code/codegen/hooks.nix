@@ -21,7 +21,9 @@ let
     lib.concatMap (
       tool: tools.${tool} or (throw "claude-code: the hook tool ${tool} has no Claude tool")
     ) (if hook.tools == null then lib.attrNames tools else hook.tools);
-  toolMatcher = hooks: lib.concatStringsSep "|" (lib.unique (lib.sort lib.lessThan (lib.concatMap claudeTools hooks)));
+  toolMatcher =
+    hooks:
+    lib.concatStringsSep "|" (lib.unique (lib.sort lib.lessThan (lib.concatMap claudeTools hooks)));
 
   events = {
     sessionStart = {
@@ -59,7 +61,10 @@ let
           ]
         );
     in
-    if used == { } then settings else lib.recursiveUpdate settings { hooks = lib.mapAttrs' entry used; };
+    if used == { } then
+      settings
+    else
+      lib.recursiveUpdate settings { hooks = lib.mapAttrs' entry used; };
 in
 {
   inherit tools withHooks;
