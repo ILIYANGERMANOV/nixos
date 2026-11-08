@@ -3,8 +3,9 @@ remembering to.
 
     resume    sessionStart          context: `state show` and `state next`
     spawn     beforeTool delegate   context: `state next`, a warning when the
-                                    role spawned is not the one advised, and a
-                                    diff reader's prompt gets `Diff: <folder>`
+                                    role spawned is neither the one advised nor
+                                    one beside it, and a diff reader's prompt
+                                    gets `Diff: <folder>`
     handback  beforeTool handback   records a worker's hand-back and appends
                                     what was recorded, or why not, to it
     pr        afterTool shell       `gh pr create` -> drafted, `gh pr ready` -> ready
@@ -22,7 +23,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from agent_hook import (
     AfterTool,
@@ -66,16 +67,22 @@ from state.model import (
     Ready,
     Researched,
     State,
+    StateName,
+    values_of,
 )
 from state.model import (
     Event as StateEvent,
 )
 
 type HookName = Literal["resume", "spawn", "handback", "pr", "asked"]
-HOOKS: tuple[HookName, ...] = ("resume", "spawn", "handback", "pr", "asked")
+HOOKS = cast("tuple[HookName, ...]", values_of(HookName))
 
 # The roles that read the branch diff, once a draft PR names its base.
 DIFF_READERS = frozenset({"refactorer", "review-lead", "fixer"})
+
+# Spawned beside the advised role, never instead of it: a dry-run reviewer next
+# to the review-lead, a fact-gap researcher, a checker for the full check.
+BESIDE_ADVICE = frozenset({"reviewer", "researcher", "checker"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +206,7 @@ def spawn(cwd: Path, tool_input: JsonObject) -> Result:
     role = tool_input.get("subagent_type")
     warning = (
         [f"state: the advice is SPAWN {advice.role}, not {role}"]
-        if isinstance(advice, Spawn) and advice.role != role
+        if isinstance(advice, Spawn) and off_advice(advice.role, role, state.step)
         else []
     )
     context = "\n".join([render_advice(advice).rstrip("\n"), *warning])
@@ -214,6 +221,19 @@ def spawn(cwd: Path, tool_input: JsonObject) -> Result:
                     )
         case _:
             return Allow(context)
+
+
+def off_advice(advised: str, spawned: Json, step: StateName) -> bool:
+    """A spawn worth a warning: not the advised role, nor one spawned beside it.
+    Implementer slices run one after another, so a later slice spawns while the
+    advice has moved on to the refactorer."""
+    match spawned:
+        case str(role) if role == advised or role in BESIDE_ADVICE:
+            return False
+        case "implementer" if step in ("Impl", "Impl'"):
+            return False
+        case _:
+            return True
 
 
 def handback(role: str, cwd: Path, tool_input: JsonObject) -> Result:
@@ -399,7 +419,15 @@ def ctx_folder(cwd: Path, base: str) -> str | Failure:
             f"run ctx diff origin/{base} and give the worker its folder",
             done.returncode,
         )
-    return done.stdout.splitlines()[0]
+    match done.stdout.splitlines():
+        case [folder, *_]:
+            return folder
+        case _:
+            return Failure(
+                f"state: ctx diff origin/{base} printed no folder",
+                f"run ctx diff origin/{base} and give the worker its folder",
+                1,
+            )
 
 
 def note(recorded: str | Failure) -> str:

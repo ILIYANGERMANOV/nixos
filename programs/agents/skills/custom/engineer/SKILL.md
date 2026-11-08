@@ -94,7 +94,7 @@ Hooks record the rest and add context; without them, record it yourself.
 | When | The hook | You |
 |---|---|---|
 | session start, resume, compact | adds `state show`, `state next` | resume from them and `git log` |
-| you spawn | adds `state next`, a warning off it; once drafted, `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt | follow it; add no diff |
+| you spawn | adds `state next`, a warning off it; once drafted, `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt | advisory, none for a reviewer, researcher, checker or later slice; add no diff |
 | an implementer, refactorer, fixer or review-lead hands back | records it; appends `state: recorded ...`, or a refusal and `fix:` | triage a question, pick a review's rows |
 | Ctx: a researcher back, a question | `researched`, `asked` | - |
 | `gh pr create`, `gh pr ready` | `drafted`, `ready` | - |

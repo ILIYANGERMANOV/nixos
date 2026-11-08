@@ -641,7 +641,7 @@ def advise_ctx(state: State) -> Advice:
         *(f"decision path for {quoted(b.question)}" for b in decisions),
         f"researchers {state.researched} ({researchers})",
         f"questions {state.asked} (at least 1, typically 4-12)",
-        "each: state record researched | state record asked",
+        "each researcher back and question asked: recorded by the hook",
     )
     # The plan states its Quality, so a lead's run picks it before the plan.
     if state.quality is None and not delegated(state):
@@ -721,7 +721,7 @@ def advise_draft(state: State) -> Advice:
             f"state record {knob} <your brief's {knob.capitalize()}: line>",
             ("delegated: the brief sets both knobs",),
         )
-    record = "then: state record drafted <the PR URL gh printed> <base>"
+    record = "drafted: recorded by the hook from the URL gh prints; then: state next"
     knobs = f"Quality: {knob_text(state, 'quality')}  Size: {knob_text(state, 'size')}"
     poc = state.quality == "POC"
     if delegated(state):
@@ -781,7 +781,7 @@ def advise_impl(state: State) -> Advice:
             "slices one after another; in parallel only when independent",
             "a hand-back at the context warning: a successor with "
             + resume_text("<its commit>"),
-            "READY: state handback implementer < text",
+            "READY: recorded by the hook; then: the next slice, or state next",
         ),
     )
 
@@ -806,10 +806,20 @@ def advise_refactor(state: State, facts: Facts) -> Advice:
                 (
                     *unknown,
                     f"brief: state brief refactorer; {mode}: {QUALITY['Refactor'][mode]}",
-                    "proposals: one AskUserQuestion each, in this PR / a follow-up / drop",
-                    "READY: state handback refactorer < text",
+                    proposals_line(state),
+                    "READY: recorded by the hook; then: state next",
                 ),
             )
+
+
+def proposals_line(state: State) -> str:
+    """The refactorer's bigger proposals: the user decides them, through the
+    caller when delegated."""
+    return (
+        "proposals: hand them back to your caller"
+        if delegated(state)
+        else "proposals: one AskUserQuestion for all, in this PR / a follow-up / drop"
+    )
 
 
 def first_review(state: State, facts: Facts, before: tuple[str, ...]) -> Spawn:
@@ -826,7 +836,7 @@ def first_review(state: State, facts: Facts, before: tuple[str, ...]) -> Spawn:
             *dry_run(state, facts),
             "brief: state brief review-lead",
             review_args(state),
-            "back: state handback review-lead < text, then the picks",
+            f"back: recorded by the hook; then: {PICKED_USAGE}",
         ),
     )
 
@@ -905,7 +915,7 @@ def loop_fixer(
                 else []
             ),
             "brief: state brief fixer",
-            "READY: state handback fixer < text; its Touches: line names the areas",
+            "READY: recorded by the hook, with its Touches: areas; then: state next",
         ),
     )
 
@@ -945,7 +955,7 @@ def final_fixer(state: State, rows: tuple[str, ...]) -> Spawn:
             r0_text(base_of(state)),
             "the full check before its push when one is owed",
             "brief: state brief fixer",
-            "READY: state handback fixer < text",
+            "READY: recorded by the hook; then: state next",
         ),
     )
 
@@ -967,7 +977,7 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                     *(f"before: {gate}" for gate in READY_GATES),
                     f"notify, with: {qa}  {final}",
                     f"  {feedback}  {address} (comments from others)",
-                    f"then: state record ready {pr}",
+                    "ready: recorded by the hook; then: state next",
                 ),
             )
         case Ci(failing=failing):
@@ -977,7 +987,7 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                     f"CI fix: {', '.join(failing)}",
                     f"plus {r0_text(base_of(state))}, when the fix changes what the body says",
                     "brief: state brief fixer",
-                    "READY: state handback fixer < text",
+                    "READY: recorded by the hook; then: state next",
                 ),
             )
         case Fixed() if latest_loops(state):
@@ -1345,8 +1355,15 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
             return [
                 rows_line,
                 *(final if state.step == "DraftPR" else []),
-                f"A row that needs the branch's changes: ctx diff origin/{base}",
+                (
+                    "A row that needs the branch's changes: the prompt's Diff: folder, "
+                    f"else ctx diff origin/{base}"
+                ),
                 "Targeted checks only: <the checks>",
+                (
+                    "End your hand-back with a line `Touches: <area>...` naming any of "
+                    f"{', '.join(AREAS)} your fix changed (or `Touches: none`)."
+                ),
             ]
         case "review-lead":
             return (

@@ -3,8 +3,9 @@
 # `hooks.<name> = { on; tools; command; order; }`; a profile lists the files.
 #
 # Typed with the module system, so a misspelled field, an unknown event or tool
-# is an eval error. Every option is `uniq`: a plain submodule would merge two
-# declarations of one name silently, concatenating their tools.
+# is an eval error. Every option is `uniq`, and so is each hook: a plain
+# submodule would merge two declarations of one name silently, concatenating
+# their tools or one adding fields the other left out.
 #
 # A backend registers one entry per event, its adapter hands the event to
 # agent_hook.py's dispatcher, and the dispatcher runs that event's hooks in the
@@ -58,7 +59,7 @@ let
           modules = [
             {
               options.hooks = mkOption {
-                type = types.attrsOf (types.submodule hook);
+                type = types.attrsOf (types.uniq (types.submodule hook));
                 default = { };
               };
             }
@@ -129,6 +130,10 @@ let
       (declare "a" spawn)
       (declare "a" spawn)
     ])) "hooks: one name declared twice did not throw";
+    assert lib.assertMsg (throws (eval [
+      (declare "a" resume)
+      (declare "a" { order = 1; })
+    ])) "hooks: a second declaration setting only other fields of one name did not throw";
     assert lib.assertMsg (throws (eval [
       (declare "a" (spawn // { on = "beforeLunch"; }))
     ])) "hooks: an unknown event did not throw";

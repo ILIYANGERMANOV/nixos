@@ -29,9 +29,9 @@ go to a loop fixer, then a `--fixes` review: record them as `picked`'s
 `--row`s, and `state next` spawns it. No row chosen, or the cap, ends the
 loop: the final fixer.
 
-A return that starts `NEEDS_DECISION plan wrong`: fix no row, security
-included. Record its rows and triage the line. The re-plan's fresh round 1
-finds them again.
+A return that starts `NEEDS_DECISION plan wrong`: fix and record no row,
+security included. The hook records the line as a decision; `state next`
+leads on. The re-plan's round 1 finds the rows again.
 
 ## Final fixer
 

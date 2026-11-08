@@ -36,13 +36,15 @@ LEAD = None
 
 @pytest.fixture(autouse=True)
 def fake_ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A `ctx` printing a folder named after its base, failing when CTX_FAILS."""
+    """A `ctx` printing a folder named after its base, failing when CTX_FAILS
+    and printing nothing when CTX_SILENT."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     script = bin_dir / "ctx"
     _ = script.write_text(
         """#!/bin/sh
 [ -n "$CTX_FAILS" ] && { echo "ctx: bad ref" >&2; exit 2; }
+[ -n "$CTX_SILENT" ] && exit 0
 echo "/tmp/ctx/$1-${2#origin/}"
 echo "refs: $2..HEAD"
 """
@@ -215,9 +217,32 @@ def test_spawn_gives_the_advice_with_no_warning_for_the_advised_role(
 def test_spawn_warns_when_another_role_is_spawned(repo: Path, notes: Path) -> None:
     to_impl(repo, notes)
 
-    spawned = context(run_hook("spawn", delegate(repo, "checker")))
+    spawned = context(run_hook("spawn", delegate(repo, "refactorer")))
 
-    assert spawned.endswith("\nstate: the advice is SPAWN implementer, not checker")
+    assert spawned.endswith("\nstate: the advice is SPAWN implementer, not refactorer")
+
+
+@pytest.mark.parametrize("role", ["reviewer", "researcher", "checker"])
+def test_spawn_gives_no_warning_for_a_role_spawned_beside_the_advice(
+    repo: Path, notes: Path, role: str
+) -> None:
+    to_impl(repo, notes)
+
+    spawned = context(run_hook("spawn", delegate(repo, role)))
+
+    assert "state: the advice is" not in spawned
+
+
+def test_spawn_gives_no_warning_for_a_later_implementer_slice(
+    repo: Path, notes: Path
+) -> None:
+    to_impl(repo, notes)
+    _ = ok(repo, "record", "implemented")
+
+    spawned = context(run_hook("spawn", delegate(repo, "implementer")))
+
+    assert not spawned.startswith("SPAWN implementer\n")
+    assert "state: the advice is" not in spawned
 
 
 @pytest.mark.parametrize("role", ["refactorer", "review-lead", "fixer"])
@@ -255,6 +280,19 @@ def test_spawn_tells_when_ctx_fails_and_leaves_the_prompt(
     assert "\nstate: ctx diff origin/main failed - ctx: bad ref\nfix:" in context(
         spawned
     )
+
+
+def test_spawn_tells_when_ctx_prints_no_folder(
+    repo: Path, notes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    to_impl(repo, notes)
+    monkeypatch.setenv("CTX_SILENT", "1")
+
+    spawned = run_hook("spawn", delegate(repo, "fixer"))
+
+    assert isinstance(spawned, Allow)
+    assert spawned.updated_input is None
+    assert "\nstate: ctx diff origin/main printed no folder\nfix:" in context(spawned)
 
 
 def test_spawn_tells_a_git_failure(repo: Path, notes: Path) -> None:

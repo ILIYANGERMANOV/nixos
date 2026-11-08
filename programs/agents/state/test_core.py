@@ -465,6 +465,16 @@ def ci_fix_reviewed_at_cap(
             "SPAWN refactorer", "Max: always", id="Impl': Max always refactors",
         ),
         pytest.param(
+            [*drafted("Max"), Implemented("h1")], GitFacts(10, "none"), "SPAWN refactorer",
+            "proposals: one AskUserQuestion for all, in this PR / a follow-up / drop",
+            id="Impl': the user decides all proposals in one question",
+        ),
+        pytest.param(
+            [*drafted("Max", delegated=True), Implemented("h1")], GitFacts(10, "none"),
+            "SPAWN refactorer", "proposals: hand them back to your caller",
+            id="Impl': delegated, the proposals go to the caller",
+        ),
+        pytest.param(
             [*drafted(), Implemented("h1")], GitFacts(100, "none"), "SPAWN review-lead",
             "refactor skipped: 100 changed lines, Balanced",
             id="Impl': Balanced skips at 100 lines",
@@ -487,6 +497,12 @@ def ci_fix_reviewed_at_cap(
             ("invoke `pragmatic-review` with: Quality: Balanced Size: Normal "
             f"--requirements {NOTES}/requirements.md {PR}"),
             id="ImplR: the first review",
+        ),
+        pytest.param(
+            [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "none"),
+            "SPAWN review-lead",
+            "back: recorded by the hook; then: state record picked [--row <label>]...",
+            id="ImplR: the hook records the review, the lead picks its rows",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "new"),
@@ -561,7 +577,7 @@ def ci_fix_reviewed_at_cap(
             id="DraftPR: delegated hands back",
         ),
         pytest.param(
-            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", f"then: state record ready {PR}",
+            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", "ready: recorded by the hook; then: state next",
             id="PR: green CI, ready",
         ),
         pytest.param(
@@ -946,6 +962,16 @@ def test_brief_of_a_non_worker_carries_no_worker_hand_back_rule(role: Role) -> N
     text = brief(role, reach(*drafted()), "/w")
 
     assert "READY, NEEDS_DECISION, GREW" not in text
+
+
+def test_brief_of_a_fixer_asks_for_the_touches_line_and_names_the_diff_folder() -> None:
+    text = brief("fixer", reach(*reviewed()), "/w")
+
+    assert "the prompt's Diff: folder, else ctx diff origin/main" in text
+    assert (
+        "End your hand-back with a line `Touches: <area>...` naming any of "
+        "interface, data-model, auth your fix changed (or `Touches: none`)."
+    ) in text
 
 
 def test_show_before_quality_is_recorded_shows_no_cap() -> None:
