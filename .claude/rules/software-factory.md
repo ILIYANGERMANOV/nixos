@@ -8,6 +8,7 @@ paths:
   - "modules/nixos/server/**"
   - "modules/home/factory/**"
   - "hosts/software-factory/**"
+  - "hosts/software-factory-lenovo/**"
   - "just/software-factory.just"
   - "docs/SOFTWARE-FACTORY.md"
   - "docs/adr/0007-*"
@@ -15,13 +16,19 @@ paths:
 
 ## Software factory
 
-**`software-factory` is a headless server whose agents are driven from a phone
+**A software factory is a headless server whose agents are driven from a phone
 via Claude Code Remote Control. Its configuration must never change another
-host.** See `docs/adr/0007-software-factory.md` (design, trust boundaries,
+host.** The factories are `factories` in `flake.nix`, hostname to platform:
+`software-factory` (Hetzner CX33) and `software-factory-lenovo` (ThinkPad T15p
+Gen 2, lid closed 24/7). See `docs/adr/0007-software-factory.md` (design, trust boundaries,
 accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
 
-- `lib.mkNixosServer` imports `modules/nixos/server/` and no desktop module;
-  nothing else imports that directory. The agent account's Home Manager profile
+- `lib.mkNixosServer` imports `modules/nixos/server/`, the host's platform from
+  `modules/nixos/server/platforms/` and `modules/admin-keys.nix`, and no desktop
+  module; nothing else imports that directory. What every factory shares (bot
+  identity, deploy repository, default repositories) is
+  `modules/nixos/server/factory-defaults.nix`; a host overrides it by plain
+  merging or `lib.mkForce`. The agent account's Home Manager profile
   is `modules/home/factory/`, its own import list - `modules/home/default.nix`
   is untouched by it.
 - `programs/software-factory/` holds the logic: managed settings (billing and
@@ -36,7 +43,7 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   `ctl/disk.sh`), plus a named suite for what crosses scripts (`skills.bats`) and
   one helper for the doubles and setup (`test_helper.bash`). A scenario goes
   through `factory-ctl` or an ops script's entry point, never inside a script.
-  `checks.software-factory-activation` reads the relink hook off the host's Home
+  `checks.<factory>-activation` reads the relink hook off each factory's Home
   Manager config, a lazy partial eval.
 - **The admin agent runs the box; `factory-ctl` is its only tool.** Add an
   admin capability as a `factory-ctl` command with a scenario in its suite,
@@ -56,8 +63,10 @@ accepted risks) and `docs/SOFTWARE-FACTORY.md` (runbook).
   there, not in nixpkgs' config. A missing SDK component is added to that SDK.
 - The `claude-factory` flavor is `factory` in `programs/claude-code`, deliberately
   outside `packages` so no other host installs it.
-- The server has its own sops age key; `secrets/common.yaml` is not encrypted
-  to it.
+- Each factory has its own sops age key and `.sops.yaml` rule; `secrets/common.yaml`
+  is not encrypted to it. A rule whose key is not generated yet holds the marker
+  line `# <host>-age-key: not generated yet`, and its file placeholder values
+  encrypted to macos-main only.
 - **This repository is public.** Never commit IP addresses, tailnet names,
   private repository names or anything that maps the server's attack surface
   beyond what the Nix config itself states. Private repositories are added on

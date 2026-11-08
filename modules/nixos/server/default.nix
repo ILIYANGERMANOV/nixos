@@ -8,11 +8,14 @@
 #   admin         - wheel, sudo behind a password. Reachable only with the
 #                   hardware keys in myConfig.admin.authorizedKeys, for deploys.
 #
+# The machine underneath is a platform under ./platforms, which
+# lib.mkNixosServer adds by name.
+#
 # See docs/adr/0007-software-factory.md for the threat model.
 { lib, ... }:
 {
   imports = [
-    ./hetzner.nix
+    ./factory-defaults.nix
     ./users.nix
     ./ssh.nix
     ./tailscale.nix
@@ -24,6 +27,9 @@
     ./claude-policy.nix
     ./ops.nix
   ];
+
+  # No timezone surprises in logs and commit dates.
+  config.time.timeZone = "UTC";
 
   options.myConfig.factory.repos = lib.mkOption {
     type = lib.types.attrsOf lib.types.str;

@@ -68,8 +68,9 @@ in
     };
     environment = lib.mkOption {
       type = lib.types.str;
-      default = "software-factory";
-      description = "The GitHub environment deployments are created for.";
+      default = config.networking.hostName;
+      defaultText = lib.literalExpression "config.networking.hostName";
+      description = "The GitHub environment deployments are created for, one per factory.";
     };
   };
 

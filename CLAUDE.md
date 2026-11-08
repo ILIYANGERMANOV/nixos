@@ -10,7 +10,8 @@ lib/            - system builder helpers (NixOS, Darwin, dev shells)
 adapters/       - bind flake inputs to host-agnostic programs (agents.nix, claude-code.nix)
 hosts/          - per-host identity (hostname, user)
 modules/*.nix   - modules shared by NixOS and Darwin
-modules/nixos/  - NixOS-only system configuration (server/ - software-factory only)
+modules/nixos/  - NixOS-only system configuration (server/ - software factories only,
+                  hardware/ - machines shared by hosts)
 modules/macos/  - nix-darwin-only system configuration
 modules/home/   - Home Manager configuration shared across all hosts
 programs/       - reusable, host-agnostic program configs
@@ -96,7 +97,7 @@ program needs a flake input.
    `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
-   (`lenovo-old`, `software-factory`) or
+   (`lenovo-old`, `software-factory`, `software-factory-lenovo`) or
    `nix eval --raw .#darwinConfigurations.<host>.system.drvPath` (`macos-main`, `macos-work`).
    The same drvPath as on `origin/main` proves the host unchanged.
    An added, moved or re-pointed import: `nix develop -c just architecture`.
@@ -104,8 +105,8 @@ program needs a flake input.
    `just tech shell`.
 5. A script or recipe: `nix develop -c just tech <name>` (`shell`, `python`).
 6. `just quick-check` before handing back mid-work: lint, architecture, format and every
-   `checks` derivation for this system. On Linux that evaluates one host, for
-   `software-factory-activation`.
+   `checks` derivation for this system. On Linux that evaluates each factory host,
+   for `<factory>-activation`.
 7. `just check` once on the final state, run as the Checks rules in
    `programs/agents/instructions/lead.md` say. Never after a docs-only edit, and never
    with a build, lint or test chained in front of it.
@@ -136,9 +137,10 @@ under the folder it covers; why: `docs/adr/0011-agent-compiler.md`.
 
 ## Software factory
 
-**`software-factory` is a headless server whose agents are driven from a phone
-via Claude Code Remote Control. Its configuration must never change another
-host.**
+**A software factory (`software-factory` on Hetzner, `software-factory-lenovo`
+on a ThinkPad) is a headless server whose agents are driven from a phone via
+Claude Code Remote Control. Its configuration must never change another
+host.** The factories are listed once, in `factories` in `flake.nix`.
 
 Details: `.claude/rules/software-factory.md`, loaded under
 `programs/software-factory`, `modules/nixos/server` and `modules/home/factory`.

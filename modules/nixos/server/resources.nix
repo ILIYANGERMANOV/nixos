@@ -66,6 +66,25 @@ let
         maxFree = 30;
       };
     };
+
+    # 8 cores / 16 threads, 64 GB (e.g. a ThinkPad T15p Gen 2).
+    # Three builds at a time, four cores each, leaving the agents four threads.
+    large = {
+      agents = {
+        high = "48G";
+        max = "52G";
+      };
+      builds = {
+        high = "28G";
+        max = "32G";
+        jobs = 3;
+        cores = 4;
+      };
+      disk = {
+        minFree = 20;
+        maxFree = 60;
+      };
+    };
   };
 
   size = sizes.${config.myConfig.factory.size};
@@ -76,7 +95,7 @@ in
     description = ''
       The machine the server runs on, which sets its memory, build and disk
       limits. `small` is 2 vCPU / 4 GB, `medium` 4 vCPU / 8 GB, `standard` 8 vCPU /
-      16 GB.
+      16 GB, `large` 16 threads / 64 GB.
     '';
   };
 
