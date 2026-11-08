@@ -39,9 +39,11 @@ from state.model import (
     Knob,
     Outcome,
     Overridden,
+    Picked,
     Planned,
     Proposed,
     Quality,
+    Raised,
     Ready,
     Refactored,
     Researched,
@@ -217,11 +219,16 @@ EVENTS: dict[str, Spec] = {
     "drafted": Spec(lambda f: Drafted(f.one("url", PR_URL), f.one("base", TEXT))),
     "implemented": Spec(lambda f: Implemented(f.head())),
     "refactored": Spec(lambda f: Refactored(f.head())),
-    "reviewed": Spec(
-        lambda f: Reviewed(f.one("head", TEXT), f.many(ROWS), f.many(VERDICTS))
-    ),
+    "reviewed": Spec(lambda f: Reviewed(f.one("head", TEXT))),
+    "picked": Spec(lambda f: Picked(f.many(ROWS), f.many(VERDICTS))),
     "fixed": Spec(lambda f: Fixed(f.head(), f.many(TOUCHES))),
     "ci": Spec(lambda f: Ci(f.head(), f.many(FAILING))),
+    "raised": Spec(
+        lambda f: Raised(
+            role=f.one("role", choice(ROLES, listed=False)),
+            question=f.one("question", TEXT),
+        )
+    ),
     # Keywords, evaluated left to right: the command line takes kind, role, question.
     "blocked": Spec(
         lambda f: Blocked(

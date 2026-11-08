@@ -20,8 +20,8 @@ from state.model import (
 type Kind = Literal[
     "started", "started-delegated", "knob", "researched", "asked", "planned",
     "proposed", "confirmed", "confirmed-replan", "adjusted", "drafted", "implemented", "refactored",
-    "reviewed-loop", "reviewed-final", "fixed", "ci", "blocked", "blocked-decision",
-    "resolved", "ready",
+    "reviewed", "picked-loop", "picked-final", "fixed", "ci", "raised", "blocked",
+    "blocked-decision", "resolved", "ready",
 ]  # fmt: skip
 
 LIVE: tuple[StateName, ...] = STATES[:-1]
@@ -33,6 +33,7 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
     ("Ctx", "started-delegated"): "DraftPlan",
     **{(s, "knob"): s for s in LIVE},
     **{(s, "researched"): s for s in LIVE},
+    **{(s, "raised"): s for s in LIVE},
     **{(s, "blocked"): s for s in LIVE},
     **{(s, "blocked-decision"): "Ctx" for s in LIVE},
     **{(s, "resolved"): s for s in LIVE},
@@ -47,20 +48,22 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
     ("Impl", "implemented"): "Impl'",
     ("Impl'", "implemented"): "Impl'",
     ("Impl'", "refactored"): "ImplR",
-    # A review in Impl' is one whose refactor the guard skipped.
-    ("Impl'", "reviewed-loop"): "Impl''",
-    ("Impl'", "reviewed-final"): "DraftPR",
-    ("ImplR", "reviewed-loop"): "Impl''",
-    ("ImplR", "reviewed-final"): "DraftPR",
-    ("Impl''", "reviewed-loop"): "Impl''",
-    ("Impl''", "reviewed-final"): "DraftPR",
+    # A review back stays put until the lead's picks say where it goes. One in
+    # Impl' is one whose refactor the guard skipped.
+    **{(s, "reviewed"): s for s in ("Impl'", "ImplR", "Impl''", "PR")},
+    ("Impl'", "picked-loop"): "Impl''",
+    ("Impl'", "picked-final"): "DraftPR",
+    ("ImplR", "picked-loop"): "Impl''",
+    ("ImplR", "picked-final"): "DraftPR",
+    ("Impl''", "picked-loop"): "Impl''",
+    ("Impl''", "picked-final"): "DraftPR",
     ("Impl''", "fixed"): "Impl''",
     ("DraftPR", "fixed"): "DraftPR",
     ("DraftPR", "ci"): "PR",
     ("PR", "ci"): "PR",
     ("PR", "fixed"): "PR",
-    ("PR", "reviewed-loop"): "PR",
-    ("PR", "reviewed-final"): "PR",
+    ("PR", "picked-loop"): "PR",
+    ("PR", "picked-final"): "PR",
     ("PR", "ready"): "Done",
 }
 

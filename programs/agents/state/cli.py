@@ -9,10 +9,7 @@ from pathlib import Path
 from state.codec import (
     EVENTS,
     KIND,
-    ROWS,
     TEXT,
-    TOUCHES,
-    VERDICTS,
     BadFieldError,
     Codec,
     Option,
@@ -111,7 +108,7 @@ state - record the engineer flow as events; advise the next arrow
 
   state init --notes <dir> [--delegated]   start a run: <dir>/events.jsonl
   state record <event> [args]              append one event (below)
-  state handback <role> [options] < text   parse a worker's hand-back, record it
+  state handback <role> [--kind <k>]       record a worker's hand-back, on stdin
   state next                               the advised next arrow
   state brief <role>                       a brief skeleton for <role>
   state show                               the progress view
@@ -121,17 +118,16 @@ state - record the engineer flow as events; advise the next arrow
 Events
 {grid(usage_of(name, spec) for name, spec in EVENTS.items() if name not in UNRECORDABLE)}\
   <head> omitted: HEAD. A row's label stays the same for the same finding.
+  reviewed: a review back; picked: the lead's rows and verdicts from it.
   ci with no --failing: green.
 
 Hand-backs   roles: {" ".join(WORKERS)}
+  where the state hooks are installed, each is recorded as its worker hands back
   line 1 {" | ".join(token_usage(token) for token in TOKENS)}
-  --kind {KIND.shown}   the triage of a question; a
-                                         `plan wrong:` or `stuck:` one is a decision
-  --touches <area>...                    fixer: what its fix touched
-  --head <sha>                           the worker's head: over HEAD, and over
-                                         a review-lead's `Reviewed head: <sha>` line
-  review-lead: --head or that line; --row and --verdict as reviewed; stdin
-                                         may be the status line alone
+  review-lead: its `Reviewed head: <sha>` line; the lead then records picked
+  fixer: its `Touches: <area>...` line; none when left out
+  a question waits for its triage, record blocked, unless --kind gives it
+  ({KIND.shown}) or it starts `plan wrong:` or `stuck:`: a decision
 Brief roles  {" ".join(ROLES)}
 States       {" ".join(STATES)}
 
@@ -308,14 +304,7 @@ def parse_options(opts: list[str]) -> HandbackOptions | Failure:
     try:
         reader = ArgvFields(opts, None)
         kinds = reader.many(Option("kind", "--kind", "kind", KIND))
-        heads = reader.many(Option("head", "--head", "sha", TEXT))
-        options = HandbackOptions(
-            kinds[0] if kinds else None,
-            heads[-1] if heads else None,
-            reader.many(TOUCHES),
-            reader.many(ROWS),
-            reader.many(VERDICTS),
-        )
+        options = HandbackOptions(kinds[0] if kinds else None)
         reader.done()
     except BadFieldError as error:
         return usage(f"handback: {error}", "state --help")

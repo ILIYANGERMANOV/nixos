@@ -151,10 +151,16 @@ class Verdict:
 
 @dataclass(frozen=True)
 class Reviewed:
-    """A review's return: its `Reviewed head`, the rows the lead chose to fix,
-    labelled so the same finding keeps its label across rounds, and verdicts."""
+    """A review's return, by its `Reviewed head`. The lead's picks follow."""
 
     head: str
+
+
+@dataclass(frozen=True)
+class Picked:
+    """The lead's picks from the review before it: the rows to fix, labelled so
+    the same finding keeps its label across rounds, and the verdicts."""
+
     rows: tuple[str, ...]
     verdicts: tuple[Verdict, ...]
 
@@ -171,6 +177,15 @@ class Ci:
 
     head: str
     failing: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Raised:
+    """A worker's question as its hand-back put it, waiting for the lead's
+    triage: a `blocked` of the same question."""
+
+    question: str
+    role: Role
 
 
 @dataclass(frozen=True)
@@ -201,8 +216,8 @@ class Ready:
 
 type Event = (
     Started | Quality | Size | Grew | Defaulted | Researched | Asked | Planned | Proposed
-    | Confirmed | Adjusted | Drafted | Implemented | Refactored | Reviewed | Fixed | Ci
-    | Blocked | Resolved | Overridden | Ready
+    | Confirmed | Adjusted | Drafted | Implemented | Refactored | Reviewed | Picked | Fixed
+    | Ci | Raised | Blocked | Resolved | Overridden | Ready
 )  # fmt: skip
 
 # ---- State --------------------------------------------------------------------
@@ -222,6 +237,12 @@ class CiRound:
 
 
 @dataclass(frozen=True)
+class UntriagedBlocker:
+    question: str
+    role: Role
+
+
+@dataclass(frozen=True)
 class OpenBlocker:
     question: str
     kind: BlockerKind
@@ -236,9 +257,10 @@ class DoneBlocker:
 
 
 type Round = ReviewRound | CiRound
-type Blocker = OpenBlocker | DoneBlocker
-# What the loop last did, which tells Impl'', DraftPR and PR what comes next.
-type Work = Reviewed | Fixed | Ci
+type Blocker = UntriagedBlocker | OpenBlocker | DoneBlocker
+# What the loop last did, which tells Impl'', DraftPR and PR what comes next. A
+# Reviewed is a review back whose picks the lead has not recorded yet.
+type Work = Reviewed | Picked | Fixed | Ci
 
 
 @dataclass(frozen=True)
@@ -295,6 +317,7 @@ def name_of(event: Event) -> str:
     return type(event).__name__.lower()
 
 
-# Events another command writes (`init`, a draft PR's defaults, `override`), by
-# `name_of`: `state record` refuses them, and no refusal names them as its fix.
-UNRECORDABLE = frozenset({"started", "defaulted", "overridden"})
+# Events another command writes (`init`, a draft PR's defaults, `override`, a
+# hand-back's untriaged question), by `name_of`: `state record` refuses them, and
+# no refusal names them as its fix. A question is recorded triaged: `blocked`.
+UNRECORDABLE = frozenset({"started", "defaulted", "overridden", "raised"})
