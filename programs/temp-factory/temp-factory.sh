@@ -37,20 +37,21 @@ fi
 power=$(pmset -g batt)
 case "$power" in
   *"'Battery Power'"*)
-    echo "temp-factory: warning: on battery. This keeps the Mac awake and drains the battery; plug in for a long run." >&2
+    echo "temp-factory: warning: on battery power. This run will drain the battery, and caffeinate -s only keeps the Mac awake on AC power. Plug in for a long run." >&2
     ;;
   *) ;;
 esac
 
 # Warm the ControlMaster now, while the user is at the YubiKey: one tap covers
-# the session's pushes (ControlPersist, modules/home/ssh.nix). GitHub answers a
-# good login with exit 1, as it gives no shell.
-ssh_status=0
-ssh -T git@github.com || ssh_status=$?
-case "$ssh_status" in
-  1) ;;
+# the session's pushes (ControlPersist, modules/home/ssh.nix). GitHub gives no
+# shell, so ssh exits 1 on success and on a refused key alike: only its
+# greeting tells them apart. tee keeps the touch prompt on the terminal while
+# the output is captured.
+ssh_output=$(ssh -T git@github.com 2>&1 | tee /dev/stderr) || true
+case "$ssh_output" in
+  *"successfully authenticated"*) ;;
   *)
-    echo "temp-factory: ssh to GitHub failed (exit $ssh_status). Plug in the YubiKey and tap it when asked, then retry." >&2
+    echo "temp-factory: GitHub did not confirm the ssh login. Plug in your YubiKey and tap it when asked, then retry." >&2
     exit 1
     ;;
 esac

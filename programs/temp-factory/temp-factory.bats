@@ -90,7 +90,7 @@ assert_serves_my_repo_with_capacity() {
   run --separate-stderr temp_factory
 
   [ "$status" -eq 0 ]
-  [[ $stderr == *"warning: on battery"* ]]
+  [[ $stderr == *"warning: on battery"*"drain the battery"*"caffeinate -s only"*"on AC power"* ]]
   assert_serves_my_repo_with_capacity 4
 }
 
@@ -102,13 +102,34 @@ assert_serves_my_repo_with_capacity() {
   [[ $stderr != *"battery"* ]]
 }
 
-@test "an ssh login that fails aborts before caffeinate, naming the YubiKey" {
-  stub ssh 'echo "git@github.com: Permission denied (publickey)." >&2; exit 255'
+@test "an ssh login that GitHub confirms starts even though ssh exits 1" {
+  stub ssh 'echo "Hi user! You'\''ve successfully authenticated, but GitHub does not provide shell access." >&2; exit 1'
+  cd "$WORK/my-repo"
+
+  run --separate-stderr temp_factory
+
+  [ "$status" -eq 0 ]
+  assert_serves_my_repo_with_capacity 4
+}
+
+@test "an ssh exit 1 without GitHub's greeting aborts before caffeinate, naming the YubiKey" {
+  stub ssh 'echo "git@github.com: Permission denied (publickey)." >&2; exit 1'
   cd "$WORK/my-repo"
 
   run --separate-stderr temp_factory
 
   [ "$status" -eq 1 ]
   [ "$output" = "" ]
-  [[ $stderr == *"exit 255"*"YubiKey"* ]]
+  [[ $stderr == *"Permission denied (publickey)."*"Plug in your YubiKey"* ]]
+}
+
+@test "an ssh that cannot connect aborts before caffeinate, naming the YubiKey" {
+  stub ssh 'echo "ssh: connect to host github.com port 22: Network is unreachable" >&2; exit 255'
+  cd "$WORK/my-repo"
+
+  run --separate-stderr temp_factory
+
+  [ "$status" -eq 1 ]
+  [ "$output" = "" ]
+  [[ $stderr == *"Network is unreachable"*"Plug in your YubiKey"* ]]
 }
