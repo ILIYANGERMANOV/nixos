@@ -1217,11 +1217,12 @@ def off_branch(state: State, branch: str | None) -> str | None:
             return None
 
 
-def pr_closed(pr: PrRead) -> str | None:
-    """Why the hooks stay silent once GitHub is read: the PR is merged or
-    closed, so the run is over whatever its step."""
-    match pr:
-        case Pr(state="MERGED" | "CLOSED" as closed, url=url):
+def pr_closed(state: State, pr: PrRead) -> str | None:
+    """Why the hooks stay silent once GitHub is read: the run's drafted PR is
+    merged or closed, so the run is over whatever its step. Before the run is
+    drafted, a closed PR is an old one on a reused branch name: no PR."""
+    match state.drafted, pr:
+        case Drafted(), Pr(state="MERGED" | "CLOSED" as closed, url=url):
             return f"PR {url} is {closed.lower()}"
         case _:
             return None

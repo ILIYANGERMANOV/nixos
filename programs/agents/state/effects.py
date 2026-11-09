@@ -231,8 +231,8 @@ def viewed(command: Next | Show, git_dir: Path, cwd: Path) -> str | Failure:
 
 def open_run(git_dir: Path, cwd: Path) -> Loaded | Quiet | Failure:
     """The run, synced from GitHub, cheapest check first: a Done run or one
-    bound to another branch is quiet before any `gh` call; a merged or closed
-    PR after it."""
+    bound to another branch is quiet before any `gh` call; one whose drafted
+    PR is merged or closed after it."""
     match load(git_dir):
         case Failure() as failure:
             return failure
@@ -253,7 +253,7 @@ def open_run(git_dir: Path, cwd: Path) -> Loaded | Quiet | Failure:
             return run
         case Pr() as pr:
             run = sync(run, synced(state, pr), cwd)
-    why = pr_closed(pr) or off_branch(run.state, branch)
+    why = pr_closed(run.state, pr) or off_branch(run.state, branch)
     return run if why is None else Quiet(run, why)
 
 

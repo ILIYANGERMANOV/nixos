@@ -230,6 +230,19 @@ def test_once_its_pr_is_merged_or_closed_every_hook_is_silent(
     assert run_hook(hook, EVENTS[hook](repo)) == NOTHING[hook]
 
 
+@pytest.mark.parametrize("closed", ["MERGED", "CLOSED"])
+def test_at_draft_plan_an_old_merged_or_closed_pr_on_the_branch_is_no_pr(
+    repo: Path, notes: Path, github: GitHub, closed: str
+) -> None:
+    to_draft(repo, notes)
+    github.open(draft=False, state=closed)
+    before = types(notes)
+
+    shown = context(run_hook("resume", start(repo)))
+
+    assert (shown.startswith("Step: DraftPlan\n"), types(notes)) == (True, before)
+
+
 def test_a_pr_opened_by_any_means_is_recorded_as_drafted(
     repo: Path, notes: Path
 ) -> None:
