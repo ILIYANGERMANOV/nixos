@@ -37,16 +37,17 @@
         # a tap until it expires. It does NOT expose the key (still in hardware) or
         # allow use from another machine — only same-user piggybacking on THIS box
         # during the window. The window is idle time: it restarts whenever a git
-        # operation reuses the master. On macOS it is 2h, so one tap covers a
-        # working session of pushes and pulls; that is a deliberate convenience
-        # trade on the laptops. Elsewhere it stays 1m - long enough to bridge
-        # the sequential connections of one push, short enough to minimize that
-        # window. Commit signing does not use this connection and still needs a
-        # tap per commit. %C is a short hash, keeping the socket path under
-        # macOS's ~104-char UNIX-socket limit. See docs/SSH.md.
+        # operation reuses the master. On macOS it is 8h, so one tap covers a
+        # working day of pushes and pulls, including a `temp-factory` run steered
+        # from the phone; that is a deliberate convenience trade on the laptops.
+        # Elsewhere it stays 1m - long enough to bridge the sequential
+        # connections of one push, short enough to minimize that window. Commit
+        # signing does not use this connection; on macOS it needs no tap at all
+        # (modules/macos/yubikey.nix). %C is a short hash, keeping the socket
+        # path under macOS's ~104-char UNIX-socket limit. See docs/SSH.md.
         ControlMaster = "auto";
         ControlPath = "~/.ssh/control-%C";
-        ControlPersist = if pkgs.stdenv.isDarwin then "2h" else "1m";
+        ControlPersist = if pkgs.stdenv.isDarwin then "8h" else "1m";
       };
 
       # Written last (after specific blocks) so per-host directives win.

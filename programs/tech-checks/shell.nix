@@ -11,6 +11,7 @@ let
   tools = import ./tools.nix { inherit pkgs; };
 
   typos = import ../typos { inherit pkgs; };
+  tempFactory = import ../temp-factory { inherit pkgs; };
   yubikey = import ../yubikey-touch-sound {
     inherit pkgs;
     noTouchSigning = true;
@@ -246,6 +247,7 @@ in
         nativeBuildInputs = [
           tools.bats
           pkgs.jq
+          pkgs.git
         ];
       }
       ''
@@ -261,6 +263,7 @@ in
     map dry (claude.packages ++ [ claude.factory.wrapper ])
     ++ [
       typos.cli
+      tempFactory.cli
       yubikey.ssh
       yubikey.sshKeygen
     ]
