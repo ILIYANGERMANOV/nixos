@@ -48,11 +48,24 @@ mechanics, and not for enforcement or for token savings on prose.
   installed one, and the modes guard scans sources only) and over inline
   shell at skill invocation (not verified for a preloaded skill).
 - **All 10 steps; steps 1 to 3 are two states with self-loops.** `Ctx` loops
-  on `researched` and `asked` without a cap and leaves on `planned`; `Prop`
+  on `researched` and `asked` without a cap and leaves on `planned`; `Propose`
   loops on `proposed` and leaves on `confirmed` or `adjusted`. The program
   drives nothing before step 4. Its advice in `Ctx` shows the counts against
   what is typical (at least one researcher and one question; usually 2 to 3
   researchers and 4 to 12 questions), as information.
+- **A refused record is stored as a `refused` event.** Agents chain
+  `state record ...; state next` or pipe it through `tail`, so a refusal on
+  stderr was lost. The pure `decide(state, parsed) -> Decision(append,
+  reached, reply)` takes the parse result of a `record` or `handback`: a
+  parse or flow refusal decides `append = (Refused(message, fix),)` and
+  `reply` the refusal, success the events `record` folds and no reply. The
+  shell writes `append` and prints `reply`: exit 2, the stderr unchanged.
+  `refused` is taken in every state and never moves the step; the next
+  accepted event or override clears it, a later refusal replaces it. While
+  one is pending, `warning(state)` puts `WARN refused, not recorded:
+  <message>` and its `fix:` line first in `state next`, `state show` and
+  every hook's context. A PR sync the flow refuses is told, never stored.
+  An older `state` cannot read a log holding one.
 - **`state override <state> <why>` is the escape.** The target is explicit so
   the fold stays in sync and `next` stays correct. It is the one event whose
   target is not a function of the table.
@@ -100,6 +113,7 @@ Event =
   | Blocked(q, kind) | Resolved(q, answer)
   | Overridden(to, why)
   | Ready(url)
+  | Refused(message, fix)
 
 Advice = Spawn(role, args) | Ask(what)
        | Wait(ci) | Run(cmd)

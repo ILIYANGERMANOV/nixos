@@ -9,7 +9,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from state.core import NoPr, Pr, Unavailable
-from state.effects import parse_pr_view
+from state.effects import Loaded, parse_pr_view, read_log, sync
+from state.model import Failure, Ready
 from state.state_fixtures import (
     PR,
     GitHub,
@@ -22,7 +23,8 @@ from state.state_fixtures import (
     older_log,
     run,
     to_draft,
-    to_impl,
+    to_implement,
+    types,
 )
 
 COMMANDS = st.sampled_from(
@@ -67,7 +69,8 @@ def test_effects_the_log_is_append_only_with_a_dense_seq_from_1(
             reported = [
                 line for line in out.splitlines() if line.startswith("recorded ")
             ]
-            assert len(appended) == (len(reported) if code == 0 else 0)
+            # A refusal appends the one `refused` line that tells of it.
+            assert len(appended) == (len(reported) if code == 0 else 1)
         seqs = [line["seq"] for line in log_of(notes)]
         assert seqs == list(range(1, len(seqs) + 1))
 
@@ -131,20 +134,67 @@ def test_drafting_with_quality_unset_records_it_defaulted(
 
     out = ok(repo, "record", "drafted", PR, "main", "feature")
 
-    assert out == "recorded 5 defaulted -> Impl\nrecorded 6 drafted -> Impl\n"
+    assert out == "recorded 5 defaulted -> Implement\nrecorded 6 drafted -> Implement\n"
     assert "Quality: Balanced (defaulted)" in ok(repo, "show")
 
 
-def test_an_event_off_the_table_exits_2_and_appends_nothing(
+def test_an_event_off_the_table_exits_2_and_appends_one_refused(
     repo: Path, tmp_path: Path
 ) -> None:
     _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
 
     code, _, err = run(repo, "record", "ready", PR)
 
+    message, fix = err.splitlines()
     assert code == 2
-    assert err.startswith("state record: 'ready' is not an arrow out of Ctx\nfix: ")
-    assert len(log_of(tmp_path / "notes")) == 1
+    assert message == "state record: 'ready' is not an arrow out of Ctx"
+    assert [line["event"] for line in log_of(tmp_path / "notes")][1:] == [
+        {
+            "type": "refused",
+            "message": "'ready' is not an arrow out of Ctx",
+            "fix": fix.removeprefix("fix: "),
+        }
+    ]
+
+
+@pytest.mark.parametrize("view", ["next", "show"])
+def test_a_view_after_a_refusal_starts_with_the_warning_and_its_fix(
+    repo: Path, tmp_path: Path, view: str
+) -> None:
+    _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
+    _, _, err = run(repo, "record", "ready", PR)
+
+    out = ok(repo, view)
+
+    assert out.splitlines()[:2] == [
+        "WARN refused, not recorded: 'ready' is not an arrow out of Ctx",
+        err.splitlines()[1],
+    ]
+
+
+@pytest.mark.parametrize(
+    "accepted", [("record", "researched"), ("override", "Ctx", "start over")]
+)
+def test_an_accepted_event_or_an_override_clears_the_warning(
+    repo: Path, tmp_path: Path, accepted: tuple[str, ...]
+) -> None:
+    _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
+    _ = run(repo, "record", "ready", PR)
+    _ = ok(repo, *accepted)
+
+    assert "WARN" not in ok(repo, "next") + ok(repo, "show")
+
+
+def test_a_later_refusal_replaces_the_warning(repo: Path, tmp_path: Path) -> None:
+    _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
+    _ = run(repo, "record", "ready", PR)
+    _ = run(repo, "record", "bogus")
+
+    out = ok(repo, "next")
+
+    assert [line for line in out.splitlines() if line.startswith("WARN")] == [
+        "WARN refused, not recorded: state record: no event 'bogus'"
+    ]
 
 
 def test_drafted_takes_the_pr_url_not_its_number(repo: Path, tmp_path: Path) -> None:
@@ -154,7 +204,7 @@ def test_drafted_takes_the_pr_url_not_its_number(repo: Path, tmp_path: Path) -> 
 
     assert code == 2
     assert "url '7' is not a PR URL, https://<host>/<owner>/<repo>/pull/<n>" in err
-    assert len(log_of(tmp_path / "notes")) == 1
+    assert types(tmp_path / "notes")[-1] == "refused"
 
 
 def test_override_moves_the_state_and_next_advises_its_arrow(
@@ -162,15 +212,15 @@ def test_override_moves_the_state_and_next_advises_its_arrow(
 ) -> None:
     _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
 
-    out = ok(repo, "override", "Impl", "the plan is in the issue")
+    out = ok(repo, "override", "Implement", "the plan is in the issue")
 
-    assert out == "recorded 2 overridden -> Impl\n"
+    assert out == "recorded 2 overridden -> Implement\n"
     assert first_line(ok(repo, "next")) == "SPAWN implementer"
 
 
 def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "record", "implemented")
     _ = ok(repo, "record", "refactored")
     _ = ok(repo, "handback", "review-lead", stdin="x\nReviewed head: abc\n")
@@ -182,8 +232,8 @@ def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -
     fixed = ok(repo, "handback", "fixer", stdin="READY\n")
 
     assert (blocked, fixed) == (
-        "recorded 11 blocked -> Impl''\n",
-        "recorded 12 fixed -> Impl''\n",
+        "recorded 11 blocked -> Fix\n",
+        "recorded 12 fixed -> Fix\n",
     )
     assert log_of(notes)[9]["event"] == {
         "type": "picked",
@@ -195,7 +245,7 @@ def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -
 def test_next_skips_the_refactor_on_a_small_balanced_diff(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     _ = commit(repo, {"b.txt": "x\n" * 60, "flake.lock": "y\n" * 500}, "work")
     _ = ok(repo, "record", "implemented")
 
@@ -208,7 +258,7 @@ def test_next_skips_the_refactor_on_a_small_balanced_diff(
 def test_next_refactors_a_large_balanced_diff_and_dry_runs_a_new_skill(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     _ = commit(repo, {"b.txt": "x\n" * 101}, "work")
     _ = ok(repo, "record", "implemented")
     refactor = first_line(ok(repo, "next"))
@@ -223,7 +273,7 @@ def test_next_refactors_a_large_balanced_diff_and_dry_runs_a_new_skill(
 
 def test_show_prints_the_progress_view(repo: Path, tmp_path: Path) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "record", "implemented", "h1")
     _ = ok(repo, "record", "refactored", "h2")
     _ = ok(repo, "record", "reviewed", "h3")
@@ -233,7 +283,7 @@ def test_show_prints_the_progress_view(repo: Path, tmp_path: Path) -> None:
     out = ok(repo, "show")
 
     assert out.splitlines() == [
-        "Step: Impl''",
+        "Step: Fix",
         "Head: h3",
         "Quality: Balanced",
         "Size: Normal",
@@ -307,7 +357,7 @@ def test_next_records_the_pr_opened_for_the_branch(repo: Path, tmp_path: Path) -
 
     out = ok(repo, "next")
 
-    assert out.startswith("recorded 6 drafted -> Impl\nSPAWN implementer\n")
+    assert out.startswith("recorded 6 drafted -> Implement\nSPAWN implementer\n")
 
 
 def test_next_with_no_pr_yet_advises_creating_it(
@@ -322,7 +372,7 @@ def test_next_with_no_pr_yet_advises_creating_it(
 def test_next_with_github_down_works_from_the_log_and_says_so(
     repo: Path, tmp_path: Path, github: GitHub
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     github.down("error connecting to api.github.com")
 
     out = ok(repo, "next")
@@ -333,24 +383,44 @@ def test_next_with_github_down_works_from_the_log_and_says_so(
     ]
 
 
+def test_a_sync_the_flow_refuses_is_told_and_appends_nothing(
+    repo: Path, tmp_path: Path
+) -> None:
+    notes = tmp_path / "notes"
+    _ = ok(repo, "init", "--notes", str(notes))
+    log = notes / "events.jsonl"
+    before = log.read_text()
+    match read_log(log):
+        case Failure() as failure:
+            raise AssertionError(failure)
+        case lines, state:
+            pass
+
+    synced = sync(Loaded(log, lines, state), (Ready(PR),), repo)
+
+    assert first_line(synced.told) == "PR sync: 'ready' is not an arrow out of Ctx"
+    assert (synced.lines, synced.state) == (lines, state)
+    assert log.read_text() == before
+
+
 def test_show_on_another_branch_says_the_hooks_are_silent(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     _ = git(repo, "switch", "--quiet", "--create", "other")
 
     out = ok(repo, "show")
 
     assert out.splitlines()[:2] == [
         "state hooks: silent - HEAD is on other, the run is bound to feature",
-        "Step: Impl",
+        "Step: Implement",
     ]
 
 
 def test_show_of_a_merged_pr_says_the_hooks_are_silent(
     repo: Path, tmp_path: Path, github: GitHub
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     github.open(draft=False, state="MERGED")
 
     out = ok(repo, "show")
@@ -362,7 +432,7 @@ def test_show_of_a_log_an_older_state_wrote_says_the_hooks_are_silent(
     repo: Path, tmp_path: Path
 ) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     older_log(notes)
 
     code, _, err = run(repo, "show")

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from state.state_fixtures import OVERRIDE, log_of, ok, run, to_impl
+from state.state_fixtures import OVERRIDE, log_of, ok, run, to_implement
 
 
 @pytest.mark.parametrize(
@@ -76,15 +76,15 @@ def test_an_off_arrow_event_is_refused_and_its_fix_command_works(
     asked = ok(repo, "record", "asked", "1")
 
     assert code == 2
-    assert moved == "recorded 3 overridden -> Ctx\n"
-    assert asked == "recorded 4 asked -> Ctx\n"
+    assert moved == "recorded 4 overridden -> Ctx\n"
+    assert asked == "recorded 5 asked -> Ctx\n"
 
 
 def test_a_review_lead_handback_records_its_head_and_waits_for_the_picks(
     repo: Path, tmp_path: Path
 ) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "record", "implemented", "a1")
 
     handed = ok(
@@ -93,7 +93,7 @@ def test_a_review_lead_handback_records_its_head_and_waits_for_the_picks(
     advised = ok(repo, "next")
     picked = ok(repo, "record", "picked", "--row", "R1")
 
-    assert handed == "recorded 8 reviewed -> Impl'\n"
+    assert handed == "recorded 8 reviewed -> Refactor\n"
     assert advised.splitlines()[0].startswith("RUN state record picked")
-    assert picked == "recorded 9 picked -> Impl''\n"
+    assert picked == "recorded 9 picked -> Fix\n"
     assert log_of(notes)[-2]["event"] == {"type": "reviewed", "head": "9f8e7d6"}

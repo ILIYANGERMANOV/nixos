@@ -8,12 +8,12 @@ from typing import Literal, TypeAliasType, cast, get_args
 
 type StateName = Literal[
     "Ctx",
-    "Prop",
+    "Propose",
     "DraftPlan",
-    "Impl",
-    "Impl'",
-    "ImplR",
-    "Impl''",
+    "Implement",
+    "Refactor",
+    "Review",
+    "Fix",
     "DraftPR",
     "PR",
     "Done",
@@ -216,10 +216,19 @@ class Ready:
     url: str
 
 
+@dataclass(frozen=True)
+class Refused:
+    """A `state record` or `state handback` the run refused: stored, so the next
+    view still warns about it after the agent moved on."""
+
+    message: str
+    fix: str
+
+
 type Event = (
     Started | Quality | Size | Grew | Defaulted | Researched | Asked | Planned | Proposed
     | Confirmed | Adjusted | Drafted | Implemented | Refactored | Reviewed | Picked | Fixed
-    | Ci | Raised | Blocked | Resolved | Overridden | Ready
+    | Ci | Raised | Blocked | Resolved | Overridden | Ready | Refused
 )  # fmt: skip
 
 # ---- State --------------------------------------------------------------------
@@ -260,7 +269,7 @@ class DoneBlocker:
 
 type Round = ReviewRound | CiRound
 type Blocker = UntriagedBlocker | OpenBlocker | DoneBlocker
-# What the loop last did, which tells Impl'', DraftPR and PR what comes next. A
+# What the loop last did, which tells Fix, DraftPR and PR what comes next. A
 # Reviewed is a review back whose picks the lead has not recorded yet.
 type Work = Reviewed | Picked | Fixed | Ci
 
@@ -288,6 +297,8 @@ class State:
     rounds: tuple[Round, ...] = ()
     # In the order each question opened; a re-triage replaces it in place.
     blockers: tuple[Blocker, ...] = ()
+    # The last refusal, until the next accepted event or override.
+    refused: Refused | None = None
 
 
 S0 = State()
@@ -320,6 +331,6 @@ def name_of(event: Event) -> str:
 
 
 # Events another command writes (`init`, a draft PR's defaults, `override`, a
-# hand-back's untriaged question), by `name_of`: `state record` refuses them, and
+# hand-back's untriaged question, a refusal), by `name_of`: `state record` refuses them, and
 # no refusal names them as its fix. A question is recorded triaged: `blocked`.
-UNRECORDABLE = frozenset({"started", "defaulted", "overridden", "raised"})
+UNRECORDABLE = frozenset({"started", "defaulted", "overridden", "raised", "refused"})

@@ -22,28 +22,29 @@ stateDiagram-v2
   direction TB
   [*] --> Ctx: set Size
   Ctx --> Ctx: research, ask
-  Ctx --> Prop: plan
-  state "3 - confirm the plan" as S3 {
-    Prop --> Prop1: simplify
-    Prop1 --> Pair: alternative
+  Ctx --> Propose: plan
+  state "3 - Propose: confirm the plan" as Propose {
+    [*] --> Proposal
+    Proposal --> Revised1: simplify
+    Revised1 --> Pair: alternative
     Pair --> Plan: pi1 / pi2
   }
   Pair --> Ctx: adjust
   Plan --> DraftPlan: draft PR
-  DraftPlan --> Impl: implement
-  Impl --> Impl1: refactor
-  Impl1 --> ImplR: first review
-  ImplR --> Impl2: rows to fix
-  Impl2 --> Impl2: fix, fixes review
-  ImplR --> DraftPR: no rows, final fixer
-  Impl2 --> DraftPR: cap, final fixer
+  DraftPlan --> Implement: implement
+  Implement --> Refactor: refactor
+  Refactor --> Refactor: fixed
+  Refactor --> Review: first review
+  Review --> Review: implemented
+  Review --> Fix: rows to fix
+  Fix --> Fix: fix, fixes review
+  Review --> DraftPR: no rows, final fixer
+  Fix --> DraftPR: cap, final fixer
   DraftPR --> PR: notify
   PR --> PR: CI fix
   PR --> [*]: green, ready
-  Prop1: Prop'
-  Pair: Prop' x Prop'
-  Impl1: Impl'
-  Impl2: Impl''
+  Revised1: Revised
+  Pair: Revised x Revised
   note left of Ctx
     From any state
     NEEDS_DECISION goes to triage
@@ -54,12 +55,12 @@ stateDiagram-v2
 | Step | State | Spec |
 |---|---|---|
 | 1-2 | Ctx | `engineer/SKILL.md` Research, Interview |
-| 3 | Prop, Prop', Prop' x Prop', Plan | Confirm the plan |
+| 3 | Propose (plan values Proposal, Revised, Revised x Revised, Plan) | Confirm the plan |
 | 4 | DraftPlan | Open a draft PR |
-| 5 | Impl | Implement |
-| 6 | Impl' | Refactor |
-| 7 | ImplR | `references/review.md` First review |
-| 8 | Impl'' | `references/review.md` Rounds 2+, Final fixer |
+| 5 | Implement | Implement |
+| 6 | Refactor | Refactor; `fixed` before it stays |
+| 7 | Review | `references/review.md` First review; a late `implemented` stays |
+| 8 | Fix | `references/review.md` Rounds 2+, Final fixer |
 | 9 | DraftPR | Describe and notify: R0 already wrote the body |
 | 10 | PR | Hand over, `references/review.md` CI fix |
 
@@ -102,19 +103,19 @@ table.
 > ```
 >
 > The world holds the current plan, and step 3 acts on it through three pure
-> functions. `Prop'` and `Plan` name a stage, not a new type:
+> functions. `Revised` and `Plan` name a stage, not a new type:
 >
 > ```haskell
-> type Prop' = Prop  -- a revised plan
-> type Plan  = Prop  -- the confirmed plan
-> simplify    :: Prop -> Prop'
-> alternative :: Prop' -> (Prop', Prop')  -- p |-> (p, q), or (p, p)
-> confirm     :: (Prop', Prop') -> Plan   -- fst (pi1) or snd (pi2)
+> type Revised = Proposal  -- a revised plan
+> type Plan    = Proposal  -- the confirmed plan
+> simplify    :: Proposal -> Revised
+> alternative :: Revised -> (Revised, Revised)  -- p |-> (p, q), or (p, p)
+> confirm     :: (Revised, Revised) -> Plan   -- fst (pi1) or snd (pi2)
 > ```
 >
-> So `alternative . simplify :: Prop -> (Prop', Prop')`, the
-> `Prop' x Prop'` state. The world's plan slot holds the stage's value: a
-> `Prop`, a `Prop' x Prop'` pair or a `Plan`. Each step-3 edge lifts its `f`
+> So `alternative . simplify :: Proposal -> (Revised, Revised)`, the
+> `Revised x Revised` state. The world's plan slot holds the stage's value: a
+> `Proposal`, a `Revised x Revised` pair or a `Plan`. Each step-3 edge lifts its `f`
 > to `pure . over plan f`, a Kleisli arrow on `W`. The researcher's run is
 > the effect that computes `f`, and it can still stop with a `Left`.
 >
@@ -377,8 +378,8 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
 - **The review-lead escalates only a wrong plan**: wrong approach, unmeetable
   requirement, new scope, or a data-model or auth redesign.
 - **Proposals are one researcher in proposal mode**
-  (`researcher/references/proposal.md`): `simplify : Prop -> Prop'` revises
-  the plan, then `alternative : Prop' -> Prop' x Prop'` pairs it with
+  (`researcher/references/proposal.md`): `simplify : Proposal -> Revised` revises
+  the plan, then `alternative : Revised -> Revised x Revised` pairs it with
   another plan, or with itself (the diagonal) when it returns the identity.
   Confirm projects with `pi1` or `pi2`, and adjust goes back to Ctx. Both
   end in a MADR-style `Considered options` table (https://adr.github.io/madr/).

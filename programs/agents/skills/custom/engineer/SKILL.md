@@ -72,12 +72,12 @@ Each step is a state. Quality and Size skip arrows, never add them.
 | Step | State | Arrows out |
 |---|---|---|
 | 1-2 | Ctx | research and ask on demand, any order, then a plan: 3 |
-| 3 | Prop | simplify, alternative, then ask: first or second plan: 4; adjust: 2 |
+| 3 | Propose | simplify, alternative, then ask: first or second plan: 4; adjust: 2 |
 | 4 | DraftPlan | draft PR with the plan: 5 |
-| 5 | Impl | implement: 6 |
-| 6 | Impl' | refactor: 7 |
-| 7 | ImplR | first review: rows to fix: 8; none: final fixer, 9 |
-| 8 | Impl'' | fix, then a `--fixes` review: 8 while rounds remain; cap: final fixer, 9 |
+| 5 | Implement | implement: 6 |
+| 6 | Refactor | refactor: 7; fixed: 6 |
+| 7 | Review | first review: rows to fix: 8; none: final fixer, 9; implemented: 7 |
+| 8 | Fix | fix, then a `--fixes` review: 8 while rounds remain; cap: final fixer, 9 |
 | 9 | DraftPR | notify: 10 |
 | 10 | PR | green CI: ready and notify; CI issues: `review.md`'s CI fix, then CI again |
 | any | blocker | a worker's `NEEDS_DECISION`: triage in `blockers.md` |

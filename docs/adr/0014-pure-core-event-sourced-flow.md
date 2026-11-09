@@ -41,7 +41,9 @@ append, read git, print           effect
 
 - **Event sourcing.** The only stored thing is an append-only log of events:
   facts in the past tense, each with a dense sequence number, a timestamp and
-  the head commit where one exists. Commands are not stored, outcomes are.
+  the head commit where one exists. Commands are not stored, outcomes are:
+  a refused command is stored as its refusal, an outcome too, so a later
+  read still sees it.
 - **State is a fold.** `state = fold(apply, S0, events)`. `apply` is a left
   fold step and `S0` its unit, so the fold is a monoid action of the event
   sequence on states: an empty log gives `S0`, and folding a concatenation is

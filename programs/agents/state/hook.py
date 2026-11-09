@@ -198,7 +198,7 @@ def off_advice(advised: str, spawned: Json, step: StateName) -> bool:
     slice spawns while the advice has moved on to the refactorer. A role outside
     the flow (Explore, Plan, a fork) is no step of the run."""
     match spawned:
-        case "implementer" if step in ("Impl", "Impl'"):
+        case "implementer" if step in ("Implement", "Refactor"):
             return False
         case str(role) if role in ROLES:
             return role != advised and role not in BESIDE_ADVICE
@@ -236,11 +236,8 @@ def handed_back(
         case None:
             return None
         case worker:
-            match parse_handback(worker, message, HandbackOptions(), head_of(cwd)):
-                case Failure() as failure:
-                    return failure
-                case events:
-                    return record(run, events, cwd)
+            parsed = parse_handback(worker, message, HandbackOptions(), head_of(cwd))
+            return record(run, parsed, cwd)
 
 
 def asked(cwd: Path) -> Note:
@@ -275,8 +272,10 @@ def run_in(cwd: Path) -> Loaded | None:
             return None
 
 
-def record(run: Loaded, events: tuple[StateEvent, ...], cwd: Path) -> str | Failure:
-    return append(run.log, run.lines, run.state, events, cwd)
+def record(
+    run: Loaded, parsed: tuple[StateEvent, ...] | Failure, cwd: Path
+) -> str | Failure:
+    return append(run.log, run.lines, run.state, parsed, cwd)
 
 
 def note(recorded: str | Failure) -> str:

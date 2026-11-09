@@ -45,6 +45,7 @@ from state.model import (
     Raised,
     Ready,
     Refactored,
+    Refused,
     Researched,
     Resolved,
     Reviewed,
@@ -74,7 +75,7 @@ def reach(*events: Event) -> State:
 def drafted(
     quality: str = "Balanced", size: str = "Normal", *, delegated: bool = False
 ) -> list[Event]:
-    """A run up to Impl: the plan confirmed and the draft PR 7 against main."""
+    """A run up to Implement: the plan confirmed and the draft PR 7 against main."""
     started = Started(NOTES, delegated=delegated)
     knobs = [Size(size), Quality(quality)]  # pyright: ignore[reportArgumentType]
     if delegated:
@@ -171,6 +172,7 @@ events: st.SearchStrategy[Event] = st.one_of(
     st.builds(Resolved, questions, st.just("yes")),
     st.builds(Overridden, st.sampled_from(STATES), st.just("why")),
     st.builds(Ready, pr_urls),
+    st.builds(Refused, st.just("'x' is not an arrow out of Ctx"), st.just("fix")),
 )
 event_lists = st.lists(events, max_size=40)
 facts: st.SearchStrategy[Facts] = st.one_of(
@@ -251,8 +253,17 @@ def log_of(notes: Path) -> list[dict[str, object]]:
     ]
 
 
-def to_impl(repo: Path, notes: Path) -> None:
-    """init, then the shortest recorded path to Impl at Balanced, PR 7 from
+def types(notes: Path) -> list[object]:
+    """The type of each event in the log, in order."""
+    return [
+        event["type"]
+        for line in log_of(notes)
+        if isinstance(event := line["event"], dict)
+    ]
+
+
+def to_implement(repo: Path, notes: Path) -> None:
+    """init, then the shortest recorded path to Implement at Balanced, PR 7 from
     `feature` to main."""
     to_draft(repo, notes)
     _ = ok(repo, "record", "drafted", PR, "main", "feature")

@@ -70,6 +70,7 @@ from state.model import (
     Raised,
     Ready,
     Refactored,
+    Refused,
     Researched,
     Resolved,
     Reviewed,
@@ -115,8 +116,12 @@ def fold_or_stop(events: Iterable[Event], state: State) -> State | tuple[int, Fa
 
 
 def apply(state: State, event: Event) -> State | Failure:
-    """One arrow: the target from TARGET, or the override's; the data from `absorb`."""
+    """One arrow: the target from TARGET, or the override's; the data from `absorb`.
+    A refusal is taken everywhere and never moves the step; every accepted event
+    clears it."""
     match event:
+        case Refused():
+            return replace(state, refused=event)
         case Overridden(to=to):
             target: StateName | None = to
         case (
@@ -132,7 +137,7 @@ def apply(state: State, event: Event) -> State | Failure:
         case _, Failure() as failure:
             return failure
         case _, State() as absorbed:
-            return replace(absorbed, step=target)
+            return replace(absorbed, step=target, refused=None)
 
 
 def off_arrow(state: State, event: Event) -> Failure:
@@ -197,8 +202,8 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
             | Raised() | Resolved() | Ready()
         ):  # fmt: skip
             return cast("Kind", name_of(event))
-        case Overridden():
-            return "knob"  # never looked up: an override names its own target
+        case Overridden() | Refused():
+            return "knob"  # never looked up: neither takes an arrow of the table
 
 
 def loops(unmet: tuple[str, ...], rows: tuple[str, ...], left: int) -> bool:
@@ -318,7 +323,7 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
         case Confirmed():
             # A plan's review starts at round 1: a re-plan resets the cap.
             return replace(state, reviews=0, work=None)
-        case Adjusted() | Overridden() | Ready():
+        case Adjusted() | Overridden() | Ready() | Refused():
             return state
 
 
@@ -605,17 +610,17 @@ def advise_step(state: State, facts: Facts) -> Advice:  # noqa: C901, PLR0911 - 
     match state.step:
         case "Ctx":
             return advise_ctx(state)
-        case "Prop":
-            return advise_prop(state)
+        case "Propose":
+            return advise_propose(state)
         case "DraftPlan":
             return advise_draft(state)
-        case "Impl":
-            return advise_impl(state)
-        case "Impl'":
+        case "Implement":
+            return advise_implement(state)
+        case "Refactor":
             return advise_refactor(state, facts)
-        case "ImplR":
+        case "Review":
             return first_review(state, facts, ())
-        case "Impl''":
+        case "Fix":
             return advise_rounds(state, facts)
         case "DraftPR":
             return advise_final(state)
@@ -664,7 +669,7 @@ def advise_ctx(state: State) -> Advice:
     )
 
 
-def advise_prop(state: State) -> Advice:
+def advise_propose(state: State) -> Advice:
     if state.size == "Trivial":
         return Run(
             "state record confirmed",
@@ -767,7 +772,7 @@ def advise_draft(state: State) -> Advice:
     )
 
 
-def advise_impl(state: State) -> Advice:
+def advise_implement(state: State) -> Advice:
     mode = mode_of(state)
     how = (
         "Trivial: one implementer; a bug fix comes with a test red before it"
@@ -1121,6 +1126,58 @@ def render_advice(advice: Advice) -> str:
 
 
 # ---- Recording ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Accepted:
+    """A `state record` or `state handback` the flow takes: what it appends and
+    the state it reaches."""
+
+    append: tuple[Event, ...]
+    reached: State
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """A refused `state record` or `state handback`: it is stored too, as one
+    `Refused` left pending, and `reply` is what the command answers."""
+
+    refused: Refused
+    reached: State
+    reply: Failure
+
+
+type Decision = Accepted | Refusal
+
+
+def decide(state: State, parsed: tuple[Event, ...] | Failure) -> Decision:
+    """A parse refusal is stored as it is; a refusal of the flow is stored bare
+    and replied to under the command's name."""
+    match parsed:
+        case Failure() as failure:
+            return refuse(state, failure, failure)
+        case events:
+            pass
+    match record(state, events):
+        case Failure() as failure:
+            said = replace(failure, message=f"state record: {failure.message}")
+            return refuse(state, failure, said)
+        case appended, reached:
+            return Accepted(appended, reached)
+
+
+def refuse(state: State, stored: Failure, reply: Failure) -> Refusal:
+    refused = Refused(stored.message, stored.fix)
+    return Refusal(refused, replace(state, refused=refused), reply)
+
+
+def warning(state: State) -> str:
+    """The lines every view starts with while a refusal is pending."""
+    match state.refused:
+        case None:
+            return ""
+        case Refused(message=message, fix=fix):
+            return f"WARN refused, not recorded: {message}\nfix: {fix}\n"
 
 
 def record(

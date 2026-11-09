@@ -46,6 +46,7 @@ from state.model import (
     Raised,
     Ready,
     Refactored,
+    Refused,
     Researched,
     Resolved,
     Reviewed,
@@ -248,6 +249,7 @@ EVENTS: dict[str, Spec] = {
         lambda f: Overridden(f.one("to", choice(STATES)), f.one("why", TEXT))
     ),
     "ready": Spec(lambda f: Ready(f.one("url", PR_URL))),
+    "refused": Spec(lambda f: Refused(f.one("message", TEXT), f.one("fix", TEXT))),
 }
 
 
