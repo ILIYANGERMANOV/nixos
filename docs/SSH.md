@@ -14,7 +14,7 @@ Config is declared in Nix (`modules/home/ssh.nix`, `modules/home/git.nix`); enro
 
 | Attack | Outcome |
 | --- | --- |
-| **Local malware** (e.g. PolinRider) tries to push silently | **Blocked** - no private key on disk or in RAM; a new SSH connection stalls waiting for a physical tap. A warm `ControlMaster` needs no tap, so a push right after one of yours goes through. |
+| **Local malware** (e.g. PolinRider) tries to push silently | **Blocked** - no private key on disk or in RAM; a new SSH connection stalls waiting for a physical tap. A warm `ControlMaster` needs no tap, so a push within its idle window after one of yours goes through: 8h idle on macOS, 1m elsewhere. |
 | **Local malware** tries to sign commits silently (macOS, `noTouchSigning` on) | **Not blocked while the YubiKey is plugged in** - signing needs no tap, so malware can sign as you. It still cannot push without a tap (above), and cannot sign once the YubiKey is unplugged. With `noTouchSigning = false` signing taps again. |
 | **YubiKey stolen alone** | **Blocked** — resident credentials can't be enumerated or extracted (`ssh-keygen -K`) without the FIDO2 PIN; 8 wrong PINs wipe the applet. |
 | **YubiKey + locked MacBook stolen** | **Blocked** — stub files sit on the FileVault-encrypted disk, unreachable without login; the token still needs the PIN to extract anything. |

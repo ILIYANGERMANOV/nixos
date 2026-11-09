@@ -11,10 +11,13 @@ let
   tools = import ./tools.nix { inherit pkgs; };
 
   typos = import ../typos { inherit pkgs; };
-  tempFactory = import ../temp-factory { inherit pkgs; };
   yubikey = import ../yubikey-touch-sound {
     inherit pkgs;
     noTouchSigning = true;
+  };
+  tempFactory = import ../temp-factory {
+    inherit pkgs;
+    touchSsh = lib.getExe yubikey.ssh;
   };
 
   # Same text and same shellcheck phase, without building what the text names:

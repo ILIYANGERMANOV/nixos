@@ -11,12 +11,16 @@ setup() {
   stub caffeinate 'echo "caffeinate $*"; while [[ $1 == -* ]]; do shift; done; exec "$@"'
   stub claude-pm 'echo "claude-pm ran in $(pwd -P)"'
   on_ac_power
-  github_confirms_login
+  # Plain ssh shows no touch prompt with stderr on a pipe, so it must not run.
+  stub ssh 'echo "plain ssh: no touch prompt" >&2; exit 255'
+  export touch_ssh="$BATS_TEST_TMPDIR/bin/yubikey-touch-ssh"
+  github_confirms_login_after_a_tap
 }
 
-# GitHub gives no shell, so even a good login exits 1.
-github_confirms_login() {
-  stub ssh 'echo "Hi user! You'\''ve successfully authenticated, but GitHub does not provide shell access." >&2; exit 1'
+# The wrapper prints the touch prompt itself (its askpass). GitHub gives no
+# shell, so even a good login exits 1.
+github_confirms_login_after_a_tap() {
+  stub yubikey-touch-ssh 'echo "Confirm user presence for key ECDSA-SK SHA256:abc" >&2; echo "Hi user! You'\''ve successfully authenticated, but GitHub does not provide shell access." >&2; exit 1'
 }
 
 on_ac_power() {
@@ -34,7 +38,7 @@ assert_serves_my_repo_with_capacity() {
   [ "${lines[0]}" = "caffeinate -i -s claude-pm remote-control --name my-repo --spawn worktree --capacity $1 --no-create-session-in-dir --permission-mode auto" ]
 }
 
-@test "in a repo it serves it through caffeinate -i -s with worktrees and capacity 4" {
+@test "in a repo whose ssh login GitHub confirms (ssh exits 1) it serves it through caffeinate -i -s with worktrees and capacity 4" {
   cd "$WORK/my-repo"
 
   run --separate-stderr temp_factory
@@ -107,18 +111,16 @@ assert_serves_my_repo_with_capacity() {
   [[ $stderr != *"battery"* ]]
 }
 
-@test "an ssh login that GitHub confirms starts even though ssh exits 1" {
-  github_confirms_login
+@test "the YubiKey touch prompt reaches the terminal during the ssh warm-up" {
   cd "$WORK/my-repo"
 
   run --separate-stderr temp_factory
 
-  [ "$status" -eq 0 ]
-  assert_serves_my_repo_with_capacity 4
+  [[ $stderr == *"Confirm user presence"* ]]
 }
 
 @test "an ssh exit 1 without GitHub's greeting aborts before caffeinate, naming the YubiKey" {
-  stub ssh 'echo "git@github.com: Permission denied (publickey)." >&2; exit 1'
+  stub yubikey-touch-ssh 'echo "git@github.com: Permission denied (publickey)." >&2; exit 1'
   cd "$WORK/my-repo"
 
   run --separate-stderr temp_factory
@@ -129,7 +131,7 @@ assert_serves_my_repo_with_capacity() {
 }
 
 @test "an ssh that cannot connect aborts before caffeinate, naming the YubiKey" {
-  stub ssh 'echo "ssh: connect to host github.com port 22: Network is unreachable" >&2; exit 255'
+  stub yubikey-touch-ssh 'echo "ssh: connect to host github.com port 22: Network is unreachable" >&2; exit 255'
   cd "$WORK/my-repo"
 
   run --separate-stderr temp_factory

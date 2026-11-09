@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2154 # touch_ssh is set by another fragment
 # Serve one repo to the Claude phone app through Remote Control, in the
 # foreground, until Ctrl-C. Each phone session gets its own git worktree.
 
@@ -44,9 +44,11 @@ esac
 # Warm the ControlMaster now, while the user is at the YubiKey: one tap covers
 # the session's pushes (ControlPersist, modules/home/ssh.nix). GitHub gives no
 # shell, so ssh exits 1 on success and on a refused key alike: only its
-# greeting tells them apart. tee keeps the touch prompt on the terminal while
-# the output is captured.
-ssh_output=$(ssh -T git@github.com 2>&1 | tee /dev/stderr) || true
+# greeting tells them apart. Capturing puts stderr on a pipe, where plain ssh
+# prints no touch prompt and seems to hang; touch_ssh shows it through
+# SSH_ASKPASS, only when a tap is needed, and shares the ControlMaster. tee
+# keeps it on the terminal while the output is captured.
+ssh_output=$("$touch_ssh" -T git@github.com 2>&1 | tee /dev/stderr) || true
 case "$ssh_output" in
   *"successfully authenticated"*) ;;
   *)
