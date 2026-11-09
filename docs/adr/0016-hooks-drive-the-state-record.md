@@ -68,6 +68,16 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   JSON to the contract and back. Claude honours `updatedInput` on
   `SubagentHandback` and on `Agent`'s prompt (probed with 2.1.314).
 
+## Scope
+
+The hooks cover the main session, whose hook `cwd` is its worktree. A
+subagent's hook `cwd` is the folder its spawner was in at the spawn, and its
+own `cd` resets after each call (probed with 2.1.314). No payload field names
+a subagent's spawner. So a delegated engineer's hooks never find its own run, and
+it records every step by hand, as before. Considered and out of scope:
+delegated engineers as top-level sessions, reading the worktree from the call,
+and Claude's internal `subagents/*.meta.json` link.
+
 ## Considered options
 
 - **Keep prose only.** Rejected: run #333 above.

@@ -112,6 +112,10 @@ def types(notes: Path) -> list[object]:
     ]
 
 
+def files(root: Path) -> set[Path]:
+    return set(root.rglob("*"))
+
+
 def in_ctx(repo: Path, notes: Path) -> None:
     _ = ok(repo, "init", "--notes", str(notes))
 
@@ -131,6 +135,14 @@ EVENTS: dict[HookName, Callable[[Path], Event]] = {
     "asked": ask,
 }
 
+SUBAGENT_EVENTS: dict[HookName, Callable[[Path, Agent], Event]] = {
+    "resume": start,
+    "spawn": lambda cwd, by: delegate(cwd, "implementer", by),
+    "handback": lambda cwd, by: hand_back(cwd, by.role, "READY done"),
+    "pr": lambda cwd, by: shell(cwd, "gh pr create --base main", PR, by),
+    "asked": ask,
+}
+
 # What each hook says when it has nothing to say.
 NOTHING: dict[HookName, Result] = {
     "resume": Note(),
@@ -147,6 +159,19 @@ NOTHING: dict[HookName, Result] = {
 @pytest.mark.parametrize("hook", EVENTS)
 def test_a_worktree_with_no_run_gets_nothing(repo: Path, hook: HookName) -> None:
     assert run_hook(hook, EVENTS[hook](repo)) == NOTHING[hook]
+
+
+# A subagent's hook `cwd` is its spawner's start folder, never its own worktree.
+@pytest.mark.parametrize("role", ["implementer", "engineer"])
+@pytest.mark.parametrize("hook", SUBAGENT_EVENTS)
+def test_a_subagent_in_a_worktree_with_no_run_gets_nothing_and_writes_nothing(
+    tmp_path: Path, repo: Path, hook: HookName, role: str
+) -> None:
+    before = files(tmp_path)
+
+    said = run_hook(hook, SUBAGENT_EVENTS[hook](repo, agent(role)))
+
+    assert (said, files(tmp_path)) == (NOTHING[hook], before)
 
 
 @pytest.mark.parametrize("hook", EVENTS)

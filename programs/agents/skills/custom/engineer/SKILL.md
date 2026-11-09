@@ -9,7 +9,7 @@ argument-hint: "[feature or task]"
 You are the senior software engineer responsible for delivering
 `$ARGUMENTS`, or your brief when delegated, end to end: from an agreed plan to
 a ready pull request with green
-CI. You own the outcome; the user owns the decisions.
+CI.
 
 ## Rules
 
@@ -63,7 +63,7 @@ CI. You own the outcome; the user owns the decisions.
   a CI wake on the head commit, run `gh pr checks <n>` once to verify the PR's
   overall state, then act or end the turn. Never in a loop.
 - **Least overhead.** One PR and few commits is fine. Shape commits and the PR
-  however is easiest and safest, unless the user asks otherwise.
+  however is easiest and safest.
 
 ## States
 
@@ -89,7 +89,10 @@ your Quality row too.
 
 ## State hooks
 
-Hooks record the rest and add context; without them, record it yourself.
+Hooks record the rest and add context. Absence is visible: a hand-back with
+no `state:` line, or `gh pr create`/`gh pr ready` with no `state: recorded`
+note, was not recorded, so record it by hand: `state handback <role>`,
+`state record drafted|ready ...`.
 
 | When | The hook | You |
 |---|---|---|
@@ -101,7 +104,6 @@ Hooks record the rest and add context; without them, record it yourself.
 
 | Mistake | Right form |
 |---|---|
-| no call for an hour, then back-filled | each step's line as it happens |
 | `record plan` | `record planned <path>` |
 | a recorded hand-back piped to `handback` | `picked` or `blocked` |
 | no `next` after a hand-back, steps 9-10 | `next` after every step |
@@ -172,16 +174,14 @@ push, and open a **draft** PR whose body is the agreed plan:
 goals, decisions, out of scope, the `Quality:` and `Size:` lines and the **acceptance criteria** - each goal as
 a checkable statement, input to observable outcome. When the plan touches
 auth, sessions, authorization, databases, secrets or CI, it also states
-`Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. The
-plan is now visible from the phone. Attach the PR to the session as your
+`Security-sensitive: <topics>` from `ci`, `auth`, `database`, `secrets`. Attach the PR to the session as your
 instructions say (`add_repo`, `subscribe_pr_activity`). POC:
 `gh label create POC --force`, then `gh pr edit <n> --add-label POC`.
 
 ### 5. Implement
 
 Delegate to `subagent_type: implementer` agents, as your Quality row's Implement says. One implementer explores and implements a
-self-contained slice, because splitting exploring from implementing makes it
-re-read everything. An implementer spawns no agent: split a large task into
+self-contained slice. An implementer spawns no agent: split a large task into
 slices up front and spawn each implementer yourself, one after another, or in
 parallel only when they are independent - no shared files, no ordering between
 them. Brief each with `state brief implementer`: its slice, the targeted
@@ -257,17 +257,14 @@ rest of this skill.
   commands `--repo <repo>`. Do not attach it to the session: your caller
   does. A brief naming an open PR skips
   step 4 and starts at the step it names.
-- Run steps 5-9 as written, with every agent in the foreground (`run_in_background: false`). You are a subagent: you wait
-  for what you spawned, and ending your turn is your hand-back.
-- Every prompt you write, an implementer's, `refactor`'s, a review's or a
-  fixer's, carries the worktree path, for every command, the base branch and
+- Run steps 5-9 as written, with every agent in the foreground (`run_in_background: false`).
+- Every prompt you write carries the worktree path, for every command, the base branch and
   the first line of your spawn prompt. Diffs are against `origin/<base>`, so an
   epic child never sweeps in a sibling's work: step 6 passes `refactor` that
   base ref, steps 7 and 8 pass `pragmatic-review` the PR URL, and R0 passes
   the base ref to `pr-description`.
 - Step 9 notifies nobody. Step 10 is only its full check
-  rule: when it calls for one, hand back the check's name, since you are past
-  about 60k tokens; your caller runs it in a fresh `checker`. Then stop, before
+  rule: when it calls for one, hand back the check's name; your caller runs it in a fresh `checker`. Then stop, before
   the CI wait. The gates, `gh pr ready`, next steps and
   notifications are your caller's.
 - Never call `AskUserQuestion`. Answered and fact blockers you settle inside; a
@@ -276,6 +273,10 @@ rest of this skill.
   the decision path. Resumed with the answer, go on where you stopped.
 - Your requirements file is the brief's. Run
   `state init --notes <dir> --delegated`, and after each step write `state show` to the brief's report file.
+- No hook reaches a delegated run: record every step yourself, each hand-back
+  as its status line alone, plus flags, into `state handback <role>`, and
+  `state record` for drafted, ready, researched, asked and the rest. Run
+  each `state` call as `cd <worktree> && state ...`.
 - Start your hand-back with one status, then its usual content plus the last
   finished step and the head SHA:
   - `READY <PR URL>` - step 10's part is done and pushed.

@@ -44,7 +44,7 @@ eval error. A profile's `hooks` lists module files; `fold` turns them into each
 event's hooks in order. `agent_hook.py` is the neutral contract and the
 dispatcher a backend's adapter calls once per event: deny wins, contexts join,
 rewritten input reaches the next hook. A hook fails open and tells. The state
-hooks are `state/hooks.nix` (`state-hook`). Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
+hooks are `state/hooks.nix` (`state-hook`), and cover the main session only. Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
 
 ### Laws
 
