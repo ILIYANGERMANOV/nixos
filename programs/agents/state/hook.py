@@ -5,7 +5,7 @@ remembering to.
     spawn     beforeTool delegate   context: `state next`, a warning when the
                                     flow role spawned is neither the one advised
                                     nor one beside it, and a diff reader's prompt
-                                    gets `Diff: <folder>`
+                                    with no `Diff:` line gets `Diff: <folder>`
     handback  beforeTool handback   records a worker's hand-back and appends
                                     what was recorded, or why not, to it
     asked     afterTool ask         records a question asked while in Ctx
@@ -194,7 +194,12 @@ def spawn(cwd: Path, tool_input: JsonObject) -> Allow:
         else []
     )
     context = joined(note(synced), render_advice(advice).rstrip("\n"), *warning)
+    # A prompt that already has its Diff: line passes unchanged: auto mode
+    # rejects input a hook rewrote after its review and asks for a resend, so
+    # rewriting the resend again would block the spawn forever.
     match state.drafted, tool_input.get("prompt"):
+        case Drafted(), str(prompt) if has_diff_line(prompt):
+            return Allow(context)
         case Drafted(base=base), str(prompt) if role in DIFF_READERS:
             match ctx_folder(cwd, base):
                 case Failure() as failure:
@@ -205,6 +210,10 @@ def spawn(cwd: Path, tool_input: JsonObject) -> Allow:
                     )
         case _:
             return Allow(context)
+
+
+def has_diff_line(prompt: str) -> bool:
+    return any(line.startswith("Diff: ") for line in prompt.splitlines())
 
 
 def off_advice(advised: str, spawned: Json, step: StateName) -> bool:

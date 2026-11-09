@@ -76,8 +76,10 @@ def start(cwd: Path, by: Agent | None = LEAD) -> SessionStart:
     return SessionStart(SESSION, cwd, by, Source.STARTUP)
 
 
-def delegate(cwd: Path, role: str, by: Agent | None = LEAD) -> BeforeTool:
-    tool_input: JsonObject = {"prompt": "Do it.", "subagent_type": role}
+def delegate(
+    cwd: Path, role: str, by: Agent | None = LEAD, prompt: str = "Do it."
+) -> BeforeTool:
+    tool_input: JsonObject = {"prompt": prompt, "subagent_type": role}
     return BeforeTool(SESSION, cwd, by, Tool.DELEGATE, tool_input)
 
 
@@ -396,6 +398,19 @@ def test_spawn_hands_a_diff_reader_the_branch_diff_folder(
     prompt = updated(run_hook("spawn", delegate(repo, role)), "prompt")
 
     assert prompt == "Do it.\nDiff: /tmp/ctx/diff-main"
+
+
+def test_spawn_leaves_a_prompt_that_already_has_a_diff_line(
+    repo: Path, notes: Path
+) -> None:
+    to_impl(repo, notes)
+    resent = "Do it.\nDiff: /tmp/ctx/diff-main\nThen push."
+
+    spawned = run_hook("spawn", delegate(repo, "fixer", prompt=resent))
+
+    assert isinstance(spawned, Allow)
+    assert spawned.updated_input is None
+    assert context(spawned).startswith("SPAWN ")
 
 
 def test_spawn_gives_no_folder_before_a_draft_names_the_base(

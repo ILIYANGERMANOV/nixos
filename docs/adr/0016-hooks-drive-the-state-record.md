@@ -33,7 +33,7 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   | Hook | When | Does |
   |---|---|---|
   | resume | session start, resume, compact | adds `state show` and `state next` |
-  | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; once drafted, appends `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt |
+  | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; once drafted, appends `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt that has no `Diff:` line yet, so a resend passes unchanged |
   | handback | before a worker hands back | records it, and appends what it recorded, or the refusal and `fix:`, to the report |
   | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
   | asked | after the lead asks, in Ctx | records `asked` |
