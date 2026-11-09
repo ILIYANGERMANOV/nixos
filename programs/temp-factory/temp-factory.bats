@@ -11,7 +11,12 @@ setup() {
   stub caffeinate 'echo "caffeinate $*"; while [[ $1 == -* ]]; do shift; done; exec "$@"'
   stub claude-pm 'echo "claude-pm ran in $(pwd -P)"'
   on_ac_power
-  stub ssh 'echo "Hi! You have successfully authenticated, but GitHub does not provide shell access." >&2; exit 1'
+  github_confirms_login
+}
+
+# GitHub gives no shell, so even a good login exits 1.
+github_confirms_login() {
+  stub ssh 'echo "Hi user! You'\''ve successfully authenticated, but GitHub does not provide shell access." >&2; exit 1'
 }
 
 on_ac_power() {
@@ -103,7 +108,7 @@ assert_serves_my_repo_with_capacity() {
 }
 
 @test "an ssh login that GitHub confirms starts even though ssh exits 1" {
-  stub ssh 'echo "Hi user! You'\''ve successfully authenticated, but GitHub does not provide shell access." >&2; exit 1'
+  github_confirms_login
   cd "$WORK/my-repo"
 
   run --separate-stderr temp_factory

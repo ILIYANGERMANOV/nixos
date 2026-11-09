@@ -34,8 +34,7 @@ if ! toplevel=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null); then
 fi
 
 # A read only: no power setting is ever written.
-power=$(pmset -g batt)
-case "$power" in
+case "$(pmset -g batt)" in
   *"'Battery Power'"*)
     echo "temp-factory: warning: on battery power. This run will drain the battery, and caffeinate -s only keeps the Mac awake on AC power. Plug in for a long run." >&2
     ;;
