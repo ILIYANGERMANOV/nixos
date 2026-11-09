@@ -20,21 +20,26 @@ from agent_hook import (
     Hook,
     HookName,
     Json,
-    Result,
+    Note,
     Role,
     SessionId,
     SessionStart,
     Source,
     Tool,
-    combine,
-    dispatch,
+    Verdict,
+    combine_notes,
+    combine_verdicts,
+    dispatch_note,
+    dispatch_verdict,
     emit_event,
     emit_result,
     hooks_for,
     parse_event,
     parse_manifest,
-    parse_result,
-    run_hook,
+    parse_note,
+    parse_verdict,
+    run_note_hook,
+    run_verdict_hook,
 )
 from hypothesis import given
 from hypothesis import strategies as st
@@ -75,10 +80,11 @@ events: st.SearchStrategy[Event] = st.one_of(
     ),
 )
 contexts = st.none() | texts
-results: st.SearchStrategy[Result] = st.one_of(
+verdicts: st.SearchStrategy[Verdict] = st.one_of(
     st.builds(Allow, contexts, st.none() | json_objects),
     st.builds(Deny, texts.filter(str.strip), contexts),
 )
+notes = st.builds(Note, contexts)
 
 
 EVERY_TOOL = EveryTool()
@@ -171,120 +177,132 @@ def test_an_event_reads_as_the_wire_names_it() -> None:
     assert parse_event(json.dumps(wire)) == RAN
 
 
-@given(st.sampled_from([SPAWN]), results)
-def test_an_emitted_before_tool_result_parses_back_to_itself(
-    event: Event, result: Result
-) -> None:
-    assert parse_result(event, emit_result(result)) == result
+@given(verdicts)
+def test_an_emitted_verdict_parses_back_to_itself(verdict: Verdict) -> None:
+    assert parse_verdict(emit_result(verdict)) == verdict
+
+
+@given(notes)
+def test_an_emitted_note_parses_back_to_itself(note: Note) -> None:
+    assert parse_note(emit_result(note)) == note
 
 
 @pytest.mark.parametrize("printed", ["", "  \n"])
-def test_printing_nothing_allows(printed: str) -> None:
-    assert parse_result(SPAWN, printed) == Allow()
+def test_printing_nothing_allows_and_notes_nothing(printed: str) -> None:
+    assert parse_verdict(printed) == Allow()
+    assert parse_note(printed) == Note()
 
 
 @pytest.mark.parametrize(
-    ("event", "printed", "error"),
+    ("printed", "error"),
     [
         pytest.param(
-            RAN,
-            '{"decision": "deny", "reason": "no"}',
-            "only beforeTool may deny",
-            id="deny after the tool",
+            '{"decision": "deny"}', "needs a reason", id="deny without a reason"
         ),
         pytest.param(
-            START,
-            '{"decision": "deny", "reason": "no"}',
-            "only beforeTool may deny",
-            id="deny at start",
-        ),
-        pytest.param(
-            RAN,
-            '{"updatedInput": {}}',
-            "only beforeTool may rewrite",
-            id="rewrite after the tool",
-        ),
-        pytest.param(
-            SPAWN, '{"decision": "deny"}', "needs a reason", id="deny without a reason"
-        ),
-        pytest.param(
-            SPAWN,
             '{"decision": "deny", "reason": "no", "updatedInput": {}}',
             "rewrites no input",
             id="deny rewriting",
         ),
         pytest.param(
-            SPAWN,
-            '{"reason": "why"}',
-            "only a deny has a reason",
-            id="allow with a reason",
+            '{"reason": "why"}', "only a deny has a reason", id="allow with a reason"
         ),
         pytest.param(
-            SPAWN, '{"decision": "maybe"}', "unknown decision", id="unknown decision"
+            '{"decision": "maybe"}', "unknown decision", id="unknown decision"
         ),
+        pytest.param('{"updated_input": {}}', "unknown field", id="misspelled field"),
         pytest.param(
-            SPAWN, '{"updated_input": {}}', "unknown field", id="misspelled field"
+            '{"updatedInput": "x"}', "not an object", id="input not an object"
         ),
-        pytest.param(
-            SPAWN, '{"updatedInput": "x"}', "not an object", id="input not an object"
-        ),
-        pytest.param(
-            SPAWN, '{"context": 1}', "not a string", id="context not a string"
-        ),
-        pytest.param(SPAWN, "[]", "not a JSON object", id="not an object"),
+        pytest.param('{"context": 1}', "not a string", id="context not a string"),
+        pytest.param("[]", "not a JSON object", id="not an object"),
     ],
 )
-def test_a_result_the_event_cannot_honour_is_an_error(
-    event: Event, printed: str, error: str
-) -> None:
+def test_a_verdict_outside_the_contract_is_an_error(printed: str, error: str) -> None:
     with pytest.raises(ValueError, match=error):
-        _ = parse_result(event, printed)
+        _ = parse_verdict(printed)
 
 
-# The fold.
+@pytest.mark.parametrize(
+    ("printed", "error"),
+    [
+        pytest.param(
+            '{"decision": "deny", "reason": "no"}',
+            r"only beforeTool may set \['decision', 'reason'\]",
+            id="deny",
+        ),
+        pytest.param(
+            '{"updatedInput": {}}',
+            r"only beforeTool may set \['updatedInput'\]",
+            id="rewrite",
+        ),
+        pytest.param(
+            '{"decision": "allow", "context": "c"}',
+            r"only beforeTool may set \['decision'\]",
+            id="allow",
+        ),
+        pytest.param('{"contxt": "c"}', "unknown field", id="misspelled field"),
+        pytest.param('{"context": 1}', "not a string", id="context not a string"),
+    ],
+)
+def test_a_note_carrying_a_verdict_is_an_error(printed: str, error: str) -> None:
+    with pytest.raises(ValueError, match=error):
+        _ = parse_note(printed)
 
 
-@given(results)
-def test_allow_is_the_identity(result: Result) -> None:
-    assert combine(Allow(), result) == result
-    assert combine(result, Allow()) == result
+# The folds.
 
 
-@given(results, results, results)
-def test_combining_is_associative(a: Result, b: Result, c: Result) -> None:
-    assert combine(combine(a, b), c) == combine(a, combine(b, c))
+@given(verdicts)
+def test_allow_is_the_identity(verdict: Verdict) -> None:
+    assert combine_verdicts(Allow(), verdict) == verdict
+    assert combine_verdicts(verdict, Allow()) == verdict
 
 
-@given(results, st.builds(Deny, texts.filter(str.strip), contexts))
-def test_a_deny_wins_on_either_side(result: Result, deny: Deny) -> None:
-    assert isinstance(combine(result, deny), Deny)
-    assert isinstance(combine(deny, result), Deny)
+@given(verdicts, verdicts, verdicts)
+def test_combining_verdicts_is_associative(a: Verdict, b: Verdict, c: Verdict) -> None:
+    assert combine_verdicts(combine_verdicts(a, b), c) == combine_verdicts(
+        a, combine_verdicts(b, c)
+    )
+
+
+@given(verdicts, st.builds(Deny, texts.filter(str.strip), contexts))
+def test_a_deny_wins_on_either_side(verdict: Verdict, deny: Deny) -> None:
+    assert isinstance(combine_verdicts(verdict, deny), Deny)
+    assert isinstance(combine_verdicts(deny, verdict), Deny)
 
 
 def test_contexts_and_reasons_join_in_order() -> None:
-    assert combine(Allow("one"), Deny("no", "two")) == Deny("no", "one\n\ntwo")
-    assert combine(Deny("no"), Deny("never")) == Deny("no\nnever")
+    assert combine_verdicts(Allow("one"), Deny("no", "two")) == Deny("no", "one\n\ntwo")
+    assert combine_verdicts(Deny("no"), Deny("never")) == Deny("no\nnever")
 
 
 def test_the_later_rewrite_wins() -> None:
-    assert combine(Allow(updated_input={"a": 1}), Allow()) == Allow(
+    assert combine_verdicts(Allow(updated_input={"a": 1}), Allow()) == Allow(
         updated_input={"a": 1}
     )
-    assert combine(
+    assert combine_verdicts(
         Allow(updated_input={"a": 1}), Allow(updated_input={"b": 2})
     ) == Allow(updated_input={"b": 2})
+
+
+@given(notes, notes, notes)
+def test_notes_fold_as_a_monoid(a: Note, b: Note, c: Note) -> None:
+    assert combine_notes(Note(), a) == a == combine_notes(a, Note())
+    assert combine_notes(combine_notes(a, b), c) == combine_notes(
+        a, combine_notes(b, c)
+    )
 
 
 # The dispatcher, with hooks as functions of the event they see.
 
 
 def test_hooks_run_in_order_each_seeing_the_input_the_one_before_rewrote() -> None:
-    def run(hook: Hook, event: Event) -> Result:
-        assert isinstance(event, BeforeTool)
+    def run(hook: Hook, event: BeforeTool) -> Verdict:
         prompt = f"{event.input['prompt']} +{hook.name}"
         return Allow(context=prompt, updated_input={"prompt": prompt})
 
-    result = dispatch([hook("a"), hook("b")], SPAWN, run)
+    result = dispatch_verdict([hook("a"), hook("b")], SPAWN, run)
 
     assert result == Allow("brief +a\n\nbrief +a +b", {"prompt": "brief +a +b"})
 
@@ -296,28 +314,41 @@ def test_only_hooks_naming_the_tool_run() -> None:
         hook("every"),
     ]
 
-    result = dispatch(hooks, SPAWN, lambda hook, _: Allow(hook.name))
+    result = dispatch_verdict(hooks, SPAWN, lambda hook, _: Allow(hook.name))
 
     assert result == Allow("spawn\n\nevery")
 
 
 def test_every_hook_runs_at_session_start() -> None:
-    result = dispatch([hook("a"), hook("b")], START, lambda hook, _: Allow(hook.name))
+    result = dispatch_note(
+        [hook("a"), hook("b")], START, lambda hook, _: Note(hook.name)
+    )
 
-    assert result == Allow("a\n\nb")
+    assert result == Note("a\n\nb")
+
+
+def test_only_hooks_naming_the_tool_add_to_an_after_tool_note() -> None:
+    hooks = [
+        hook("spawn", frozenset({Tool.DELEGATE})),
+        hook("shell", frozenset({Tool.SHELL})),
+    ]
+
+    result = dispatch_note(hooks, RAN, lambda hook, _: Note(hook.name))
+
+    assert result == Note("shell")
 
 
 def test_the_first_deny_stops_the_chain() -> None:
-    def run(hook: Hook, _: Event) -> Result:
+    def run(hook: Hook, _: BeforeTool) -> Verdict:
         return Deny(hook.name) if hook.name == "guard" else Allow(hook.name)
 
-    result = dispatch([hook("a"), hook("guard"), hook("after")], SPAWN, run)
+    result = dispatch_verdict([hook("a"), hook("guard"), hook("after")], SPAWN, run)
 
     assert result == Deny("guard", "a")
 
 
 def test_no_hooks_allow() -> None:
-    assert dispatch([], SPAWN, lambda _, __: Deny("unreachable")) == Allow()
+    assert dispatch_verdict([], SPAWN, lambda _, __: Deny("unreachable")) == Allow()
 
 
 def test_an_events_hooks_come_from_the_manifest_in_order() -> None:
@@ -372,7 +403,7 @@ print(json.dumps({"updatedInput": {"prompt": event["input"]["prompt"] + " +diff"
 
 
 def test_a_hook_reads_the_event_and_its_result_counts() -> None:
-    assert run_hook(python("diff", ECHO_PROMPT), SPAWN) == Allow(
+    assert run_verdict_hook(python("diff", ECHO_PROMPT), SPAWN) == Allow(
         updated_input={"prompt": "brief +diff"}
     )
 
@@ -394,7 +425,7 @@ def test_a_hook_reads_the_event_and_its_result_counts() -> None:
     ],
 )
 def test_a_failing_hook_allows_and_tells(code: str, told: str) -> None:
-    result = run_hook(python("broken", code), SPAWN)
+    result = run_verdict_hook(python("broken", code), SPAWN)
 
     match result:
         case Allow(context=str(context), updated_input=None):
@@ -404,7 +435,7 @@ def test_a_failing_hook_allows_and_tells(code: str, told: str) -> None:
 
 
 def test_a_missing_hook_program_allows_and_tells() -> None:
-    result = run_hook(
+    result = run_verdict_hook(
         Hook(HookName("gone"), EveryTool(), ("/nonexistent/hook",)), SPAWN
     )
 
@@ -418,6 +449,23 @@ def test_a_missing_hook_program_allows_and_tells() -> None:
 def test_the_chain_goes_on_past_a_failing_hook() -> None:
     hooks = [python("broken", "raise SystemExit(3)"), python("diff", ECHO_PROMPT)]
 
-    result = dispatch(hooks, SPAWN, run_hook)
+    result = dispatch_verdict(hooks, SPAWN, run_verdict_hook)
 
     assert result == Allow("hook broken: exit 3: ", {"prompt": "brief +diff"})
+
+
+@pytest.mark.parametrize("event", [RAN, START])
+@pytest.mark.parametrize(
+    "printed",
+    [
+        pytest.param('{"decision": "deny", "reason": "no"}', id="deny"),
+        pytest.param('{"updatedInput": {"command": "rm -rf /"}}', id="rewrite"),
+    ],
+)
+def test_a_hook_denying_or_rewriting_after_the_fact_is_told_not_honoured(
+    event: SessionStart | AfterTool, printed: str
+) -> None:
+    result = run_note_hook(python("late", f"print({printed!r})"), event)
+
+    assert result.context is not None
+    assert result.context.startswith("hook late: bad output: only beforeTool may set")

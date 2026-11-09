@@ -4,11 +4,16 @@ A hook is a program. It reads one event as JSON on stdin and prints one result
 as JSON on stdout, or nothing, which allows:
 
     stdin:  {event, tool, input, output, cwd, session, agent: {id, role} | null, source}
-    stdout: {decision: allow | deny, reason, context, updatedInput}
+    stdout: beforeTool: {decision: allow | deny, reason, context, updatedInput}
+            sessionStart, afterTool: {context}
+
+A sessionStart or afterTool hook only adds context: the session has started and
+the tool has run, so there is nothing left to deny or rewrite. Each kind of
+event has its own result type, so a deny there cannot even be built.
 
 An agent's backend translates its own hook format to an `Event`, hands it to
-`dispatch` with the hooks declared for that event, and translates the `Result`
-back. So every backend runs the same hooks in the same order with the same
+`dispatch_verdict` or `dispatch_note` with the hooks declared for that event,
+and translates the result back. So every backend runs the same hooks in the same order with the same
 outcome, whatever its own hooks do with order or parallelism.
 
 The names an event, tool or source can take are `vocabulary.json`'s, which the
@@ -20,6 +25,7 @@ import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from functools import reduce
 from pathlib import Path
 from typing import NewType, cast
 
@@ -96,10 +102,13 @@ class AfterTool:
 
 type Event = SessionStart | BeforeTool | AfterTool
 
+# The events a hook can only add context to.
+type Observed = SessionStart | AfterTool
+
 
 @dataclass(frozen=True, slots=True)
 class Allow:
-    """The call goes on. Only a beforeTool hook may rewrite its input."""
+    """The call goes on, with its input rewritten when `updated_input` is set."""
 
     context: str | None = None
     updated_input: JsonObject | None = None
@@ -107,13 +116,25 @@ class Allow:
 
 @dataclass(frozen=True, slots=True)
 class Deny:
-    """The call does not happen. Only a beforeTool hook may deny."""
+    """The call does not happen."""
 
     reason: str
     context: str | None = None
 
 
-type Result = Allow | Deny
+# A beforeTool hook's result.
+type Verdict = Allow | Deny
+
+
+@dataclass(frozen=True, slots=True)
+class Note:
+    """A sessionStart or afterTool hook's result: context for the agent."""
+
+    context: str | None = None
+
+
+# What a hook prints, whatever its event.
+type Result = Verdict | Note
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,32 +152,48 @@ class Hook:
 # The declared hooks, each event's in the order they run.
 type Manifest = Mapping[EventName, tuple[Hook, ...]]
 
-type Runner = Callable[[Hook, Event], Result]
-
 RESULT_FIELDS = frozenset({"decision", "reason", "context", "updatedInput"})
+NOTE_FIELDS = frozenset({"context"})
 
 
-def dispatch(hooks: Sequence[Hook], event: Event, run: Runner) -> Result:
-    """Runs the hooks that match `event` in order and folds their results.
+def dispatch_verdict(
+    hooks: Sequence[Hook],
+    event: BeforeTool,
+    run: Callable[[Hook, BeforeTool], Verdict],
+) -> Verdict:
+    """Runs the hooks that match `event` in order and folds their verdicts.
 
     Each hook sees the input the one before it rewrote. The first deny stops
     the chain: the call it denies never happens, so no later hook sees it.
     """
-    result: Result = Allow()
+    verdict: Verdict = Allow()
     for hook in hooks:
         if not matches(hook, event):
             continue
-        result = combine(result, run(hook, threaded(event, result)))
-        match result:
+        verdict = combine_verdicts(verdict, run(hook, threaded(event, verdict)))
+        match verdict:
             case Deny():
-                return result
+                return verdict
             case Allow():
                 pass
-    return result
+    return verdict
 
 
-def combine(first: Result, second: Result) -> Result:
-    """The results' monoid, `Allow()` its identity: deny wins, contexts and
+def dispatch_note(
+    hooks: Sequence[Hook], event: Observed, run: Callable[[Hook, Observed], Note]
+) -> Note:
+    """Runs the hooks that match `event` in order and joins their notes."""
+    notes = (run(hook, event) for hook in hooks if matches(hook, event))
+    return reduce(combine_notes, notes, Note())
+
+
+def combine_notes(first: Note, second: Note) -> Note:
+    """The notes' monoid, `Note()` its identity: contexts join in order."""
+    return Note(joined(first.context, second.context))
+
+
+def combine_verdicts(first: Verdict, second: Verdict) -> Verdict:
+    """The verdicts' monoid, `Allow()` its identity: deny wins, contexts and
     reasons join in order, and the later rewrite of the input wins."""
     context = joined(first.context, second.context)
     match first, second:
@@ -195,19 +232,29 @@ def matches(hook: Hook, event: Event) -> bool:
                     return tool in tools
 
 
-def threaded(event: Event, result: Result) -> Event:
+def threaded(event: BeforeTool, verdict: Verdict) -> BeforeTool:
     """The event the next hook sees: the input the chain has rewritten so far."""
-    match event, result:
-        case BeforeTool(), Allow(updated_input=dict() as updated):
+    match verdict:
+        case Allow(updated_input=dict() as updated):
             return replace(event, input=updated)
-        case _:
+        case Allow() | Deny():
             return event
 
 
-def run_hook(hook: Hook, event: Event) -> Result:
+def run_verdict_hook(hook: Hook, event: BeforeTool) -> Verdict:
+    return run_hook(hook, event, parse_verdict, lambda told: Allow(context=told))
+
+
+def run_note_hook(hook: Hook, event: Observed) -> Note:
+    return run_hook(hook, event, parse_note, Note)
+
+
+def run_hook[R](
+    hook: Hook, event: Event, parse: Callable[[str], R], tell: Callable[[str], R]
+) -> R:
     """Runs one hook. One that fails, or prints what the contract does not
-    allow, never blocks the call: its error becomes context, so the agent
-    learns of it."""
+    allow, never blocks the call: `tell` turns its error into context, so the
+    agent learns of it."""
     try:
         done = subprocess.run(
             hook.command,
@@ -217,18 +264,18 @@ def run_hook(hook: Hook, event: Event) -> Result:
             check=False,
         )
     except OSError as error:
-        return told(hook, str(error))
+        return tell(told(hook, str(error)))
     if done.returncode != 0:
         lines = done.stderr.strip().splitlines()
-        return told(hook, f"exit {done.returncode}: {lines[-1] if lines else ''}")
+        return tell(told(hook, f"exit {done.returncode}: {lines[-1] if lines else ''}"))
     try:
-        return parse_result(event, done.stdout)
+        return parse(done.stdout)
     except ValueError as error:
-        return told(hook, f"bad output: {error}")
+        return tell(told(hook, f"bad output: {error}"))
 
 
-def told(hook: Hook, error: str) -> Result:
-    return Allow(context=f"hook {hook.name}: {error}")
+def told(hook: Hook, error: str) -> str:
+    return f"hook {hook.name}: {error}"
 
 
 def hooks_for(manifest: Manifest, event: Event) -> tuple[Hook, ...]:
@@ -360,43 +407,50 @@ def emit_agent(agent: Agent | None) -> Json:
             return {"id": agent_id, "role": role}
 
 
-def parse_result(event: Event, text: str) -> Result:
-    """What a hook printed. Empty allows; a field the event cannot honour, such
-    as a deny after the tool ran, is an error rather than dropped."""
+def parse_verdict(text: str) -> Verdict:
+    """What a beforeTool hook printed. Empty allows."""
     if not text.strip():
         return Allow()
     fields = result_fields(text)
     context = optional_str(fields, "context")
-    rewrites = isinstance(event, BeforeTool)
     match fields.get("decision", "allow"):
         case "deny":
-            return parse_deny(fields, context, rewrites=rewrites)
+            return parse_deny(fields, context)
         case "allow":
-            return parse_allow(fields, context, rewrites=rewrites)
+            return parse_allow(fields, context)
         case decision:
             raise ValueError(f"unknown decision {decision!r}")
 
 
-def parse_deny(fields: JsonObject, context: str | None, *, rewrites: bool) -> Deny:
-    match rewrites, fields.get("updatedInput"):
-        case False, _:
-            raise ValueError("only beforeTool may deny")
-        case True, None:
+def parse_note(text: str) -> Note:
+    """What a sessionStart or afterTool hook printed. A field only a verdict
+    has, such as a deny after the tool ran, is an error rather than dropped."""
+    if not text.strip():
+        return Note()
+    fields = result_fields(text)
+    match sorted(fields.keys() - NOTE_FIELDS):
+        case []:
+            return Note(optional_str(fields, "context"))
+        case verdict_fields:
+            raise ValueError(f"only beforeTool may set {verdict_fields}")
+
+
+def parse_deny(fields: JsonObject, context: str | None) -> Deny:
+    match fields.get("updatedInput"):
+        case None:
             return Deny(parse_reason(fields), context)
-        case True, _:
+        case _:
             raise ValueError("a deny rewrites no input")
 
 
-def parse_allow(fields: JsonObject, context: str | None, *, rewrites: bool) -> Allow:
+def parse_allow(fields: JsonObject, context: str | None) -> Allow:
     if "reason" in fields:
         raise ValueError("only a deny has a reason")
     match fields.get("updatedInput"):
         case None:
             return Allow(context)
-        case dict() as updated if rewrites:
+        case dict() as updated:
             return Allow(context, updated)
-        case dict():
-            raise ValueError("only beforeTool may rewrite the input")
         case _:
             raise ValueError("updatedInput is not an object")
 
@@ -429,6 +483,8 @@ def emit_result(result: Result) -> str:
                 fields["updatedInput"] = updated
         case Deny(reason=reason, context=context):
             fields = {"decision": "deny", "reason": reason}
+        case Note(context=context):
+            fields = {}
     if context is not None:
         fields["context"] = context
     return json.dumps(fields)

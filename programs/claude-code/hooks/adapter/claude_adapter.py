@@ -27,19 +27,24 @@ from agent_hook import (
     Event,
     Json,
     JsonObject,
-    Result,
+    Manifest,
+    Note,
+    Observed,
     Role,
     SessionId,
     SessionStart,
     Source,
     Tool,
+    Verdict,
     as_list,
     as_str,
-    dispatch,
+    dispatch_note,
+    dispatch_verdict,
     hooks_for,
     parse_json,
     parse_manifest,
-    run_hook,
+    run_note_hook,
+    run_verdict_hook,
 )
 
 # Claude's tool name -> its vendor-free name.
@@ -54,11 +59,16 @@ def main() -> None:
         event = parse_claude(parse_json(sys.stdin.read()), tools)
     except ValueError as error:
         sys.exit(f"agent-hook-claude: {error}")
-    print(
-        json.dumps(
-            to_claude(event, dispatch(hooks_for(manifest, event), event, run_hook))
-        )
-    )
+    print(json.dumps(answer(manifest, event)))
+
+
+def answer(manifest: Manifest, event: Event) -> JsonObject:
+    hooks = hooks_for(manifest, event)
+    match event:
+        case BeforeTool():
+            return verdict_to_claude(dispatch_verdict(hooks, event, run_verdict_hook))
+        case SessionStart() | AfterTool():
+            return note_to_claude(event, dispatch_note(hooks, event, run_note_hook))
 
 
 def parse_tools(text: str) -> ToolNames:
@@ -139,27 +149,28 @@ def vendor_free(tools: ToolNames, name: str) -> Tool:
             return tool
 
 
-def to_claude(event: Event, result: Result) -> JsonObject:
-    """Claude's hook output. An allow sets no permissionDecision: an `allow`
-    there would skip Claude's own permission check, and Claude applies an
-    updatedInput without one."""
-    match event, result:
-        case SessionStart(), Allow(context=context):
-            return specific("SessionStart", context, {})
-        case BeforeTool(), Allow(context=context, updated_input=updated):
+def verdict_to_claude(verdict: Verdict) -> JsonObject:
+    """Claude's PreToolUse output. An allow sets no permissionDecision: an
+    `allow` there would skip Claude's own permission check, and Claude applies
+    an updatedInput without one."""
+    match verdict:
+        case Allow(context=context, updated_input=updated):
             rewrite: JsonObject = {} if updated is None else {"updatedInput": updated}
             return specific("PreToolUse", context, rewrite)
-        case BeforeTool(), Deny(reason=reason, context=context):
+        case Deny(reason=reason, context=context):
             return specific(
                 "PreToolUse",
                 context,
                 {"permissionDecision": "deny", "permissionDecisionReason": reason},
             )
-        case AfterTool(), Allow(context=context):
-            return specific("PostToolUse", context, {})
-        case SessionStart() | AfterTool(), Deny():
-            # parse_result refuses a deny on any event but beforeTool.
-            raise AssertionError("only beforeTool may deny")
+
+
+def note_to_claude(event: Observed, note: Note) -> JsonObject:
+    match event:
+        case SessionStart():
+            return specific("SessionStart", note.context, {})
+        case AfterTool():
+            return specific("PostToolUse", note.context, {})
 
 
 def specific(event: str, context: str | None, fields: JsonObject) -> JsonObject:

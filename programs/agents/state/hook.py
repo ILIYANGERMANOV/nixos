@@ -33,6 +33,8 @@ from agent_hook import (
     Event,
     Json,
     JsonObject,
+    Note,
+    Observed,
     Result,
     SessionStart,
     emit_result,
@@ -123,7 +125,7 @@ def main(argv: list[str], stdin: str) -> int:
         _ = sys.stderr.write(f"state-hook {hook}: {error}\n")
         return 2
     match run_hook(hook, event):
-        case Allow(context=None, updated_input=None):
+        case Allow(context=None, updated_input=None) | Note(context=None):
             pass
         case result:
             _ = sys.stdout.write(emit_result(result))
@@ -139,41 +141,53 @@ def hook_named(argv: list[str]) -> HookName | None:
 
 
 def run_hook(hook: HookName, event: Event) -> Result:
+    match event:
+        case BeforeTool():
+            return before_tool(hook, event)
+        case SessionStart() | AfterTool():
+            return observed(hook, event)
+
+
+def before_tool(hook: HookName, event: BeforeTool) -> Allow:
     try:
-        return dispatch(hook, event)
+        match hook, event:
+            case "spawn", BeforeTool(agent=agent, cwd=cwd, input=tool_input) if is_lead(
+                agent
+            ):
+                return spawn(cwd, tool_input)
+            case "handback", BeforeTool(
+                agent=Agent(role=role), cwd=cwd, input=tool_input
+            ):
+                return handback(role, cwd, tool_input)
+            case "spawn" | "handback", _:
+                return Allow()
+            case _:
+                raise not_at(hook, event)
     except (GitError, OSError) as error:
         return Allow(context=f"state hook {hook}: {error}")
 
 
-def dispatch(hook: HookName, event: Event) -> Result:
-    match hook, event:
-        case "resume", SessionStart(agent=agent, cwd=cwd) if is_lead(agent):
-            return resume(cwd)
-        case "spawn", BeforeTool(agent=agent, cwd=cwd, input=tool_input) if is_lead(
-            agent
-        ):
-            return spawn(cwd, tool_input)
-        case "handback", BeforeTool(agent=Agent(role=role), cwd=cwd, input=tool_input):
-            return handback(role, cwd, tool_input)
-        case "pr", AfterTool(agent=agent, cwd=cwd, input=tool_input, output=output) if (
-            is_lead(agent)
-        ):
-            return pr(cwd, tool_input, output)
-        case "asked", AfterTool(agent=agent, cwd=cwd) if is_lead(agent):
-            return asked(cwd)
-        case (
-            ("resume", SessionStart())
-            | ("spawn" | "handback", BeforeTool())
-            | (
-                "pr" | "asked",
-                AfterTool(),
-            )
-        ):
-            return Allow()
-        case _:
-            raise ValueError(
-                f"state-hook {hook} does not run at {type(event).__name__}"
-            )
+def observed(hook: HookName, event: Observed) -> Note:
+    try:
+        match hook, event:
+            case "resume", SessionStart(agent=agent, cwd=cwd) if is_lead(agent):
+                return resume(cwd)
+            case "pr", AfterTool(
+                agent=agent, cwd=cwd, input=tool_input, output=output
+            ) if is_lead(agent):
+                return pr(cwd, tool_input, output)
+            case "asked", AfterTool(agent=agent, cwd=cwd) if is_lead(agent):
+                return asked(cwd)
+            case ("resume", SessionStart()) | ("pr" | "asked", AfterTool()):
+                return Note()
+            case _:
+                raise not_at(hook, event)
+    except (GitError, OSError) as error:
+        return Note(f"state hook {hook}: {error}")
+
+
+def not_at(hook: HookName, event: Event) -> ValueError:
+    return ValueError(f"state-hook {hook} does not run at {type(event).__name__}")
 
 
 def is_lead(agent: Agent | None) -> bool:
@@ -185,22 +199,22 @@ def is_lead(agent: Agent | None) -> bool:
 # ---- The hooks -------------------------------------------------------------------
 
 
-def resume(cwd: Path) -> Result:
+def resume(cwd: Path) -> Note:
     match run_in(cwd):
         case None:
-            return Allow()
+            return Note()
         case Failure() as failure:
-            return told("resume", failure)
+            return Note(told("resume", failure))
         case Loaded(state=state):
-            return Allow(context=f"{show(state)}\n{next_advice(state, cwd)}".rstrip())
+            return Note(f"{show(state)}\n{next_advice(state, cwd)}".rstrip())
 
 
-def spawn(cwd: Path, tool_input: JsonObject) -> Result:
+def spawn(cwd: Path, tool_input: JsonObject) -> Allow:
     match run_in(cwd):
         case None:
             return Allow()
         case Failure() as failure:
-            return told("spawn", failure)
+            return Allow(told("spawn", failure))
         case Loaded(state=state):
             pass
     advice = advise(state, facts_of(state, cwd))
@@ -237,7 +251,7 @@ def off_advice(advised: str, spawned: Json, step: StateName) -> bool:
             return True
 
 
-def handback(role: str, cwd: Path, tool_input: JsonObject) -> Result:
+def handback(role: str, cwd: Path, tool_input: JsonObject) -> Allow:
     match tool_input.get("message"):
         case str(message):
             pass
@@ -277,37 +291,37 @@ def handed_back(
                     return record(run, events, cwd)
 
 
-def pr(cwd: Path, tool_input: JsonObject, output: Json) -> Result:
+def pr(cwd: Path, tool_input: JsonObject, output: Json) -> Note:
     match pr_call(tool_input, output):
         case None:
-            return Allow()
+            return Note()
         case found, stdout:
             pass
     match run_in(cwd):
         case None:
-            return Allow()
+            return Note()
         case Failure() as failure:
-            return told("pr", failure)
+            return Note(told("pr", failure))
         case Loaded() as run:
             pass
     match pr_event(found, stdout, run.state, cwd):
         case None:
-            return Allow()
+            return Note()
         case Failure() as failure:
-            return told("pr", failure)
+            return Note(told("pr", failure))
         case event:
-            return Allow(context=note(record(run, (event,), cwd)))
+            return Note(note(record(run, (event,), cwd)))
 
 
-def asked(cwd: Path) -> Result:
+def asked(cwd: Path) -> Note:
     """Only while in Ctx: a question asked later is no step's count."""
     match run_in(cwd):
         case Loaded(state=State(step="Ctx")) as run:
-            return Allow(context=note(record(run, (Asked(1),), cwd)))
+            return Note(note(record(run, (Asked(1),), cwd)))
         case Failure() as failure:
-            return told("asked", failure)
+            return Note(told("asked", failure))
         case _:
-            return Allow()
+            return Note()
 
 
 # ---- `gh pr` -----------------------------------------------------------------------
@@ -442,8 +456,8 @@ def note(recorded: str | Failure) -> str:
             )
 
 
-def told(hook: HookName, failure: Failure) -> Result:
-    return Allow(context=f"state hook {hook}: {note(failure)}")
+def told(hook: HookName, failure: Failure) -> str:
+    return f"state hook {hook}: {note(failure)}"
 
 
 if __name__ == "__main__":

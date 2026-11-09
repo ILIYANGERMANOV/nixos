@@ -16,6 +16,7 @@ from agent_hook import (
     BeforeTool,
     Event,
     JsonObject,
+    Note,
     Result,
     Role,
     SessionId,
@@ -88,9 +89,11 @@ def ask(cwd: Path, by: Agent | None = LEAD) -> AfterTool:
 
 
 def context(result: Result) -> str:
-    assert isinstance(result, Allow)
-    assert result.context is not None
-    return result.context
+    match result:
+        case Allow(context=str(said)) | Note(context=str(said)):
+            return said
+        case _:
+            raise AssertionError(f"no context: {result!r}")
 
 
 def updated(result: Result, field: str) -> str:
@@ -128,18 +131,27 @@ EVENTS: dict[HookName, Callable[[Path], Event]] = {
     "asked": ask,
 }
 
+# What each hook says when it has nothing to say.
+NOTHING: dict[HookName, Result] = {
+    "resume": Note(),
+    "spawn": Allow(),
+    "handback": Allow(),
+    "pr": Note(),
+    "asked": Note(),
+}
+
 
 # ---- Every hook ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("hook", EVENTS)
 def test_a_worktree_with_no_run_gets_nothing(repo: Path, hook: HookName) -> None:
-    assert run_hook(hook, EVENTS[hook](repo)) == Allow()
+    assert run_hook(hook, EVENTS[hook](repo)) == NOTHING[hook]
 
 
 @pytest.mark.parametrize("hook", EVENTS)
 def test_a_folder_outside_git_gets_nothing(tmp_path: Path, hook: HookName) -> None:
-    assert run_hook(hook, EVENTS[hook](tmp_path)) == Allow()
+    assert run_hook(hook, EVENTS[hook](tmp_path)) == NOTHING[hook]
 
 
 @pytest.mark.parametrize("hook", ["resume", "spawn", "pr", "asked"])
@@ -196,7 +208,7 @@ def test_resume_shows_the_run_and_its_advice(repo: Path, notes: Path) -> None:
 def test_resume_tells_a_subagent_nothing(repo: Path, notes: Path) -> None:
     to_impl(repo, notes)
 
-    assert run_hook("resume", start(repo, agent("implementer"))) == Allow()
+    assert run_hook("resume", start(repo, agent("implementer"))) == Note()
 
 
 # ---- spawn -------------------------------------------------------------------------
@@ -406,7 +418,7 @@ def test_pr_records_nothing_when_gh_printed_no_url(repo: Path, notes: Path) -> N
     to_draft(repo, notes)
     before = types(notes)
 
-    assert run_hook("pr", shell(repo, "gh pr create --base main", "")) == Allow()
+    assert run_hook("pr", shell(repo, "gh pr create --base main", "")) == Note()
     assert types(notes) == before
 
 
@@ -435,7 +447,7 @@ def test_pr_tells_ready_with_no_draft_recorded(repo: Path, notes: Path) -> None:
 def test_pr_ignores_other_commands(repo: Path, notes: Path, command: str) -> None:
     to_draft(repo, notes)
 
-    assert run_hook("pr", shell(repo, command, PR)) == Allow()
+    assert run_hook("pr", shell(repo, command, PR)) == Note()
 
 
 def test_pr_by_a_subagent_is_not_the_runs(repo: Path, notes: Path) -> None:
@@ -443,7 +455,7 @@ def test_pr_by_a_subagent_is_not_the_runs(repo: Path, notes: Path) -> None:
 
     assert (
         run_hook("pr", shell(repo, "gh pr create -B main", PR, agent("fixer")))
-        == Allow()
+        == Note()
     )
 
 
@@ -478,11 +490,11 @@ def test_asked_skips_a_question_past_ctx(repo: Path, notes: Path) -> None:
     to_impl(repo, notes)
     before = types(notes)
 
-    assert run_hook("asked", ask(repo)) == Allow()
+    assert run_hook("asked", ask(repo)) == Note()
     assert types(notes) == before
 
 
 def test_asked_by_a_subagent_is_not_the_runs(repo: Path, notes: Path) -> None:
     in_ctx(repo, notes)
 
-    assert run_hook("asked", ask(repo, agent("researcher"))) == Allow()
+    assert run_hook("asked", ask(repo, agent("researcher"))) == Note()

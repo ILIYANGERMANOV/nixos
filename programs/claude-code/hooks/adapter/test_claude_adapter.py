@@ -19,13 +19,16 @@ from agent_hook import (
     Deny,
     Json,
     JsonObject,
+    Note,
+    Observed,
     Role,
     SessionId,
     SessionStart,
     Source,
     Tool,
+    Verdict,
 )
-from claude_adapter import parse_claude, parse_tools, to_claude
+from claude_adapter import note_to_claude, parse_claude, parse_tools, verdict_to_claude
 
 # The built adapter and the tool table it is deployed with (codegen/tools.nix).
 ADAPTER = os.environ["AGENT_HOOK_CLAUDE"]
@@ -171,18 +174,17 @@ def test_a_payload_outside_the_contract_is_an_error(payload: Json, error: str) -
         _ = parse_claude(payload, TOOLS)
 
 
-SPAWN_EVENT = parse_claude(SPAWN, TOOLS)
 START_EVENT = parse_claude(SESSION_START, TOOLS)
 RAN_EVENT = parse_claude(RAN, TOOLS)
 
 
 @pytest.mark.parametrize(
-    ("event", "result", "output"),
+    ("event", "note", "output"),
     [
-        pytest.param(SPAWN_EVENT, Allow(), {}, id="nothing to say"),
+        pytest.param(START_EVENT, Note(), {}, id="nothing to say"),
         pytest.param(
             START_EVENT,
-            Allow("resume here"),
+            Note("resume here"),
             {
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",
@@ -193,7 +195,7 @@ RAN_EVENT = parse_claude(RAN, TOOLS)
         ),
         pytest.param(
             RAN_EVENT,
-            Allow("recorded"),
+            Note("recorded"),
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
@@ -202,8 +204,19 @@ RAN_EVENT = parse_claude(RAN, TOOLS)
             },
             id="context after a tool",
         ),
+    ],
+)
+def test_a_note_becomes_claudes_output(
+    event: Observed, note: Note, output: JsonObject
+) -> None:
+    assert note_to_claude(event, note) == output
+
+
+@pytest.mark.parametrize(
+    ("verdict", "output"),
+    [
+        pytest.param(Allow(), {}, id="nothing to say"),
         pytest.param(
-            SPAWN_EVENT,
             Allow("advice", {"prompt": "Quality: Max\nDiff: /tmp/d"}),
             {
                 "hookSpecificOutput": {
@@ -215,7 +228,6 @@ RAN_EVENT = parse_claude(RAN, TOOLS)
             id="a rewrite sets no permission decision",
         ),
         pytest.param(
-            SPAWN_EVENT,
             Deny("not now", "why"),
             {
                 "hookSpecificOutput": {
@@ -229,10 +241,8 @@ RAN_EVENT = parse_claude(RAN, TOOLS)
         ),
     ],
 )
-def test_a_result_becomes_claudes_output(
-    event: BeforeTool, result: Allow | Deny, output: JsonObject
-) -> None:
-    assert to_claude(event, result) == output
+def test_a_verdict_becomes_claudes_output(verdict: Verdict, output: JsonObject) -> None:
+    assert verdict_to_claude(verdict) == output
 
 
 # End to end: the built adapter, its deployed tool table, real hooks.
@@ -290,6 +300,27 @@ def test_the_built_adapter_runs_an_events_hooks_and_answers_claude(
                 "subagent_type": "implementer",
             },
             "additionalContext": "hook broken: exit 2: \n\nlead spawns",
+        }
+    }
+
+
+def test_the_built_adapter_tells_a_deny_after_the_tool_ran_and_never_denies(
+    tmp_path: Path,
+) -> None:
+    manifest: JsonObject = {
+        "afterTool": [
+            declared("late", None, 'print(\'{"decision": "deny", "reason": "no"}\')')
+        ]
+    }
+
+    done = adapter(tmp_path, manifest, RAN)
+
+    assert done.returncode == 0, done.stderr
+    told = "hook late: bad output: only beforeTool may set ['decision', 'reason']"
+    assert json.loads(done.stdout) == {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": told,
         }
     }
 
