@@ -46,9 +46,15 @@ esac
 # shell, so ssh exits 1 on success and on a refused key alike: only its
 # greeting tells them apart. Capturing puts stderr on a pipe, where plain ssh
 # prints no touch prompt and seems to hang; touch_ssh shows it through
-# SSH_ASKPASS, only when a tap is needed, and shares the ControlMaster. tee
-# keeps it on the terminal while the output is captured.
-ssh_output=$("$touch_ssh" -T git@github.com 2>&1 | tee /dev/stderr) || true
+# SSH_ASKPASS, only when a tap is needed, and shares the ControlMaster. The
+# loop echoes each line to our own stderr as it arrives, so the prompt shows
+# while ssh waits. Not `tee /dev/stderr`: on Linux that reopens the file behind
+# fd 2 and truncates it, erasing what was already written there.
+ssh_output=""
+while IFS= read -r line || [[ -n $line ]]; do
+  printf '%s\n' "$line" >&2
+  ssh_output+="$line"$'\n'
+done < <("$touch_ssh" -T git@github.com 2>&1 || true)
 case "$ssh_output" in
   *"successfully authenticated"*) ;;
   *)
