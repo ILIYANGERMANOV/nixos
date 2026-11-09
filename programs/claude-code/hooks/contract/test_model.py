@@ -3,13 +3,17 @@
 import json
 from typing import cast
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from model import (
     ALLOW,
+    BLOCK,
+    HANDBACK_MESSAGE,
     HANDBACK_TAG,
     ORIGINAL_COMMAND,
     REWRITE_TAG,
+    SPAWN_TAG,
     SUBAGENT_MARKER,
     SUMMARY,
     Json,
@@ -96,10 +100,55 @@ def test_the_subagent_ends_by_handing_back() -> None:
             raise AssertionError(other)
 
 
-def test_the_classifier_is_always_allowed_whatever_the_history() -> None:
-    request = conversation(LEAD_SYSTEM, 7, stop_sequences=["</severity>"], stream=False)
+def classifier(judged: dict[str, str]) -> dict[str, Json]:
+    """Auto mode's classifier request as Claude Code 2.1.314 sends it: the
+    transcript one JSON line per entry, the call it judges last."""
+    return {
+        "model": "claude-opus-5-5",
+        "system": LEAD_SYSTEM,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "<transcript>\n"},
+                    {"type": "text", "text": '{"user":"probe"}\n{"Bash":"pwd"}\n'},
+                    {"type": "text", "text": json.dumps(judged) + "\n"},
+                    {"type": "text", "text": "</transcript>\n"},
+                    {"type": "text", "text": "Respond with <severity>N</severity>."},
+                ],
+            }
+        ],
+        "stop_sequences": ["</severity>"],
+    }
 
-    assert reply(request) == ALLOW
+
+SCRIPTED_SPAWN = {"Agent": f"(probe): Run the probe. {SPAWN_TAG}"}
+SCRIPTED_HANDBACK = {
+    "SubagentHandback": f"hand-back to the agent that spawned this one: {HANDBACK_MESSAGE} {HANDBACK_TAG}"
+}
+
+
+@pytest.mark.parametrize("judged", [SCRIPTED_SPAWN, SCRIPTED_HANDBACK])
+def test_the_classifier_allows_a_call_the_script_issued(judged: dict[str, str]) -> None:
+    request = classifier(judged)
+
+    assert (reply(request), seen(request).blocked) == (ALLOW, None)
+
+
+@pytest.mark.parametrize(
+    "judged",
+    [
+        {"Bash": "rm -rf /"},
+        {"Agent": "(probe): Do something else."},
+        {"Write": f"(probe): Run the probe. {SPAWN_TAG}"},
+    ],
+)
+def test_the_classifier_blocks_a_call_no_script_issued_and_names_it(
+    judged: dict[str, str],
+) -> None:
+    request = classifier(judged)
+
+    assert (reply(request), seen(request).blocked) == (BLOCK, json.dumps(judged))
 
 
 def test_a_summary_request_is_the_compactor_even_with_a_system_note_last() -> None:

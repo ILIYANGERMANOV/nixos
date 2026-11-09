@@ -55,6 +55,16 @@ class ClaudeFailedError(Exception):
     pass
 
 
+class UnscriptedCallError(Exception):
+    """Auto mode's classifier was asked about a call no script issued, and the
+    mock blocked it: the client made a call the probe does not expect."""
+
+    def __init__(self, calls: list[str]) -> None:
+        super().__init__(
+            "the mock's classifier blocked calls no script issued:\n" + "\n".join(calls)
+        )
+
+
 def main(argv: list[str]) -> int:
     match argv:
         case ["hook", log]:
@@ -73,7 +83,7 @@ def check(snapshot: Path, *, update: bool) -> int:
     with tempfile.TemporaryDirectory(prefix="probe-agents-hooks-") as work:
         try:
             observed = record(run(Path(work)))
-        except ClaudeFailedError as error:
+        except (ClaudeFailedError, UnscriptedCallError) as error:
             print(error, file=sys.stderr)
             print(f"probe-agents-hooks: claude-code {version} FAIL")
             return 1
@@ -124,9 +134,9 @@ def run(work: Path) -> Logs:
             "ANTHROPIC_API_KEY": "probe-dummy-key",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         }
-        # Auto mode, not a bypass: Claude Code offers SubagentHandback only
-        # there, and its classifier, which the mock always lets pass, is asked
-        # about the calls no rule below allows.
+        # Auto mode, not a bypass: Claude Code 2.1.314 offers a subagent
+        # SubagentHandback only there. Its classifier is asked about the calls
+        # no rule below allows, and the mock allows only the scripted ones.
         base = ["claude", "-p", "--output-format", "json", "--permission-mode", "auto"]
         base += ["--setting-sources", "project", "--settings", str(settings)]
         session = claude(
@@ -147,7 +157,16 @@ def run(work: Path) -> Logs:
         _ = claude([*base, "--resume", session, "/compact"], repo, env)
     finally:
         server.shutdown()
+        # Even when `claude` failed: a blocked call likely made it fail, and
+        # naming the call is the clearer report.
+        refuse_blocked(read_jsonl(requests_log))
     return Logs(repo, read_jsonl(hooks_log), read_jsonl(requests_log))
+
+
+def refuse_blocked(requests: list[dict[str, Json]]) -> None:
+    calls = [str(call) for request in requests if (call := request.get("blocked"))]
+    if calls:
+        raise UnscriptedCallError(calls)
 
 
 PROBE_AGENT = {

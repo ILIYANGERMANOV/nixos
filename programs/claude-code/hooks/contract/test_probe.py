@@ -123,7 +123,7 @@ def healthy_run(
             "tools": LEAD_TOOLS,
             "witnesses": [REWRITE_TAG] if honours_updated_input else [],
         },
-        {"speaker": "classifier", "tools": [], "witnesses": []},
+        {"speaker": "classifier", "tools": [], "witnesses": [], "blocked": None},
         {
             "speaker": "subagent",
             "tools": ["Bash", handback_tool],

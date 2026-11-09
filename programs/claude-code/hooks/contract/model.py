@@ -97,6 +97,7 @@ SCRIPTS: dict[Speaker, tuple[Turn, ...]] = {
 
 # Auto mode's classifier reads a severity below 50 as allow.
 ALLOW = Text("<severity>0</severity>")
+BLOCK = Text("<severity>100</severity>")
 SUMMARY = Text("<summary>The probe ran.</summary>")
 
 
@@ -108,19 +109,22 @@ class Seen:
     speaker: Speaker
     tools: list[str]
     witnesses: list[str]
+    # The call the classifier was asked about and blocked, when no script issued it.
+    blocked: str | None
 
     def as_json(self) -> Json:
         return {
             "speaker": self.speaker.value,
             "tools": list(self.tools),
             "witnesses": list(self.witnesses),
+            "blocked": self.blocked,
         }
 
 
 def reply(request: dict[str, Json]) -> Turn | Unscripted:
     match speaker(request):
         case Speaker.CLASSIFIER:
-            return ALLOW
+            return ALLOW if unscripted_call(request) is None else BLOCK
         case Speaker.COMPACT:
             return SUMMARY
         case (Speaker.LEAD | Speaker.SUBAGENT) as who:
@@ -147,7 +151,52 @@ def seen(request: dict[str, Json]) -> Seen:
     new = text_of(
         [message.get("content") for message in history[turns[-1] + 1 if turns else 0 :]]
     )
-    return Seen(speaker(request), names, [tag for tag in WITNESSES if tag in new])
+    who = speaker(request)
+    return Seen(
+        who,
+        names,
+        [tag for tag in WITNESSES if tag in new],
+        unscripted_call(request) if who is Speaker.CLASSIFIER else None,
+    )
+
+
+def unscripted_call(request: dict[str, Json]) -> str | None:
+    """The call a classifier request judges, unless a script issued it.
+
+    Claude Code 2.1.314 sends the transcript one JSON line per entry, the
+    judged call last, as `{"<tool>": "<summary>"}`. The summary is the input
+    as the client shows it: a Bash command as is, an Agent prompt or a
+    hand-back message after a prefix, with the tag the probe's hook appended.
+    So a call is scripted when a scripted call of its tool has an input value
+    that ends its untagged summary."""
+    transcript = text_of(request.get("messages")).partition("<transcript>")[2]
+    entries = transcript.partition("</transcript>")[0].splitlines()
+    call = next((entry for entry in reversed(entries) if entry), "")
+    match cast("Json", json.loads(call)) if call.startswith("{") else None:
+        case {**entry} if len(entry) == 1:
+            [(name, summary)] = entry.items()
+            return None if scripted(name, untagged(str(summary))) else call
+        case _:
+            return call or "<no call in the classifier's transcript>"
+
+
+def scripted(name: str, summary: str) -> bool:
+    return any(
+        turn.name == name
+        and any(
+            isinstance(value, str) and summary.endswith(value)
+            for value in turn.input.values()
+        )
+        for script in SCRIPTS.values()
+        for turn in script
+        if isinstance(turn, ToolUse)
+    )
+
+
+def untagged(summary: str) -> str:
+    for tag in WITNESSES:
+        summary = summary.removesuffix(f" {tag}")
+    return summary
 
 
 def speaker(request: dict[str, Json]) -> Speaker:
