@@ -88,6 +88,7 @@ from state.model import (
     name_of,
     not_met,
     size_of,
+    values_of,
 )
 
 # ---- Folding ------------------------------------------------------------------
@@ -721,7 +722,7 @@ def advise_draft(state: State) -> Advice:
             f"state record {knob} <your brief's {knob.capitalize()}: line>",
             ("delegated: the brief sets both knobs",),
         )
-    record = "drafted: recorded by the hook from the URL gh prints; then: state next"
+    record = "then: state next, which records drafted from the PR on GitHub"
     knobs = f"Quality: {knob_text(state, 'quality')}  Size: {knob_text(state, 'size')}"
     poc = state.quality == "POC"
     if delegated(state):
@@ -977,7 +978,7 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                     *(f"before: {gate}" for gate in READY_GATES),
                     f"notify, with: {qa}  {final}",
                     f"  {feedback}  {address} (comments from others)",
-                    "ready: recorded by the hook; then: state next",
+                    "then: state next, which records ready from the PR on GitHub",
                 ),
             )
         case Ci(failing=failing):
@@ -1142,6 +1143,88 @@ def record(
             return appended, reached
         case _, failure:
             return failure
+
+
+# ---- The PR on GitHub ---------------------------------------------------------
+
+type PrState = Literal["OPEN", "CLOSED", "MERGED"]
+PR_STATES = cast("tuple[PrState, ...]", values_of(PrState))
+
+
+@dataclass(frozen=True)
+class Pr:
+    """A PR as `gh pr view --json url,baseRefName,headRefName,isDraft,state`
+    shows it."""
+
+    url: str
+    base: str
+    branch: str
+    draft: bool
+    state: PrState
+
+
+@dataclass(frozen=True)
+class NoPr:
+    """The current branch has no PR."""
+
+
+@dataclass(frozen=True)
+class Unavailable:
+    """GitHub could not be read: no `gh`, offline, a timeout, an auth error."""
+
+    why: str
+
+
+type PrRead = Pr | NoPr | Unavailable
+
+
+def synced(state: State, pr: Pr) -> tuple[Event, ...]:
+    """The one event the step waits for that GitHub shows has happened. Only
+    DraftPlan takes `drafted` and only PR takes `ready`, so a PR marked ready
+    early is picked up once the run reaches PR, and an event, once appended,
+    is never synced again: the step has moved on."""
+    match state.step, pr:
+        case "DraftPlan", Pr(state="OPEN", url=url, base=base, branch=branch):
+            return (Drafted(url, base, branch),)
+        case "PR", Pr(draft=False, url=url):
+            return (Ready(url),)
+        case _:
+            return ()
+
+
+def pr_to_read(state: State) -> tuple[str, ...] | None:
+    """`gh pr view`'s argument: the drafted PR by its URL, so another branch's
+    PR is never read; at DraftPlan none, the current branch's; before that no
+    read, as nothing on GitHub is the run's yet."""
+    match state.drafted, state.step:
+        case Drafted(url=url), _:
+            return (url,)
+        case None, "DraftPlan":
+            return ()
+        case None, _:
+            return None
+
+
+def off_branch(state: State, branch: str | None) -> str | None:
+    """Why the hooks stay silent before reading GitHub: the run is Done, or
+    bound to a branch HEAD is not on (`branch` None is a detached HEAD)."""
+    match state.step, state.drafted:
+        case "Done", _:
+            return "the run is Done"
+        case _, Drafted(branch=bound) if bound != branch:
+            return f"HEAD is on {branch or 'no branch'}, the run is bound to {bound}"
+        case _:
+            return None
+
+
+def pr_closed(pr: PrRead) -> str | None:
+    """Why the hooks stay silent once GitHub is read: the PR is merged or
+    closed, so the run is over whatever its step."""
+    match pr:
+        case Pr(state="MERGED" | "CLOSED" as closed, url=url):
+            return f"PR {url} is {closed.lower()}"
+        case _:
+            return None
 
 
 # ---- Hand-backs ---------------------------------------------------------------

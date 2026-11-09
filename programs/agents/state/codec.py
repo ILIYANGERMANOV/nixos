@@ -216,7 +216,11 @@ EVENTS: dict[str, Spec] = {
     "proposed": Spec(lambda f: Proposed(f.one("mode", choice(PROPOSAL_MODES)))),
     "confirmed": Spec(lambda _: Confirmed()),
     "adjusted": Spec(lambda _: Adjusted()),
-    "drafted": Spec(lambda f: Drafted(f.one("url", PR_URL), f.one("base", TEXT))),
+    "drafted": Spec(
+        lambda f: Drafted(
+            f.one("url", PR_URL), f.one("base", TEXT), f.one("branch", TEXT)
+        )
+    ),
     "implemented": Spec(lambda f: Implemented(f.head())),
     "refactored": Spec(lambda f: Refactored(f.head())),
     "reviewed": Spec(lambda f: Reviewed(f.one("head", TEXT))),
@@ -289,7 +293,8 @@ def bad_line(path: Path, n: int, why: str) -> Failure:
         f"state: {path}:{n}: {why}",
         (
             f"repair or delete line {n} of {path}: the log is append-only, so a bad "
-            "line is a hand edit"
+            "line is a hand edit, or a log an older state wrote; the state hooks "
+            "stay silent until it parses"
         ),
         2,
     )

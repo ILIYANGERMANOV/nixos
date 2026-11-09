@@ -5,6 +5,8 @@ step happens, and left hooks out "for now": the enforcing ones measured 0
 violations. This ADR amends that. Advisory hooks now write every event a
 program can derive, and inject `state` and `ctx` context where it is used. The
 lead records only what it decides. Design and implementation: #335, PR #339.
+ADR 0017 amends it: PR state is read from GitHub, not from shell commands,
+and the `pr` hook is gone.
 
 ## Evidence
 
@@ -33,7 +35,7 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   | resume | session start, resume, compact | adds `state show` and `state next` |
   | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; once drafted, appends `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt |
   | handback | before a worker hands back | records it, and appends what it recorded, or the refusal and `fix:`, to the report |
-  | pr | after `gh pr create`, `gh pr ready` run as a command, not text in an argument or heredoc | records `drafted <url> <base>`, `ready <url>` when it names the drafted PR or none |
+  | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
   | asked | after the lead asks, in Ctx | records `asked` |
 
 - **What stays manual** is what only the model decides: Size, Quality,
