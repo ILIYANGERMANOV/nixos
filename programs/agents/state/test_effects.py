@@ -22,7 +22,7 @@ from state.state_fixtures import (
     older_log,
     run,
     to_draft,
-    to_impl,
+    to_implement,
     types,
 )
 
@@ -219,7 +219,7 @@ def test_override_moves_the_state_and_next_advises_its_arrow(
 
 def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "record", "implemented")
     _ = ok(repo, "record", "refactored")
     _ = ok(repo, "handback", "review-lead", stdin="x\nReviewed head: abc\n")
@@ -244,7 +244,7 @@ def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -
 def test_next_skips_the_refactor_on_a_small_balanced_diff(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     _ = commit(repo, {"b.txt": "x\n" * 60, "flake.lock": "y\n" * 500}, "work")
     _ = ok(repo, "record", "implemented")
 
@@ -257,7 +257,7 @@ def test_next_skips_the_refactor_on_a_small_balanced_diff(
 def test_next_refactors_a_large_balanced_diff_and_dry_runs_a_new_skill(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     _ = commit(repo, {"b.txt": "x\n" * 101}, "work")
     _ = ok(repo, "record", "implemented")
     refactor = first_line(ok(repo, "next"))
@@ -272,7 +272,7 @@ def test_next_refactors_a_large_balanced_diff_and_dry_runs_a_new_skill(
 
 def test_show_prints_the_progress_view(repo: Path, tmp_path: Path) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "record", "implemented", "h1")
     _ = ok(repo, "record", "refactored", "h2")
     _ = ok(repo, "record", "reviewed", "h3")
@@ -371,7 +371,7 @@ def test_next_with_no_pr_yet_advises_creating_it(
 def test_next_with_github_down_works_from_the_log_and_says_so(
     repo: Path, tmp_path: Path, github: GitHub
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     github.down("error connecting to api.github.com")
 
     out = ok(repo, "next")
@@ -385,7 +385,7 @@ def test_next_with_github_down_works_from_the_log_and_says_so(
 def test_show_on_another_branch_says_the_hooks_are_silent(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     _ = git(repo, "switch", "--quiet", "--create", "other")
 
     out = ok(repo, "show")
@@ -399,7 +399,7 @@ def test_show_on_another_branch_says_the_hooks_are_silent(
 def test_show_of_a_merged_pr_says_the_hooks_are_silent(
     repo: Path, tmp_path: Path, github: GitHub
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
     github.open(draft=False, state="MERGED")
 
     out = ok(repo, "show")
@@ -411,7 +411,7 @@ def test_show_of_a_log_an_older_state_wrote_says_the_hooks_are_silent(
     repo: Path, tmp_path: Path
 ) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     older_log(notes)
 
     code, _, err = run(repo, "show")

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from state.state_fixtures import OVERRIDE, log_of, ok, run, to_impl
+from state.state_fixtures import OVERRIDE, log_of, ok, run, to_implement
 
 
 @pytest.mark.parametrize(
@@ -84,7 +84,7 @@ def test_a_review_lead_handback_records_its_head_and_waits_for_the_picks(
     repo: Path, tmp_path: Path
 ) -> None:
     notes = tmp_path / "notes"
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "record", "implemented", "a1")
 
     handed = ok(

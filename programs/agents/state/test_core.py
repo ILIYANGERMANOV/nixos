@@ -725,7 +725,7 @@ def test_next_advises_the_tables_arrow_with_its_payload(
     assert payload in text
 
 
-def test_a_confirmed_re_plan_resumes_at_impl_and_restarts_the_rounds() -> None:
+def test_a_confirmed_re_plan_resumes_at_implement_and_restarts_the_rounds() -> None:
     state = reach(
         *reviewed(),
         Fixed("h4", ()),
@@ -784,7 +784,7 @@ def test_an_event_off_the_table_is_an_error_naming_the_arrows_and_the_override()
             raise AssertionError("ready is no arrow out of Ctx")
 
 
-def test_an_ask_from_prop_names_the_override_back_to_ctx() -> None:
+def test_an_ask_from_propose_names_the_override_back_to_ctx() -> None:
     match fold([Started(NOTES, delegated=False), Planned("p.md"), Asked(1)]):
         case Failure(fix=fix):
             assert fix == (

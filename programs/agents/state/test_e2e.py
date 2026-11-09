@@ -57,7 +57,7 @@ def test_a_run_goes_from_init_through_a_handback_to_the_review(
     _ = ok(repo, "init", "--notes", str(notes), "--delegated")
     recorded = ok(repo, "record", "size", "Normal")
     _ = ok(repo, "record", "quality", "Balanced")
-    to_impl = ok(repo, "record", "drafted", PR, "main", "feature")
+    to_implement = ok(repo, "record", "drafted", PR, "main", "feature")
     first = ok(repo, "next")
     head = commit(repo, {"b.txt": "two\n"}, "implement")
     handed = ok(repo, "handback", "implementer", stdin=f"READY {PR}\ndone\n")
@@ -66,7 +66,7 @@ def test_a_run_goes_from_init_through_a_handback_to_the_review(
 
     assert (notes / "events.jsonl").is_file()
     assert recorded == "recorded 2 size -> DraftPlan\n"
-    assert to_impl == "recorded 4 drafted -> Implement\n"
+    assert to_implement == "recorded 4 drafted -> Implement\n"
     assert first.splitlines()[0] == "SPAWN implementer"
     assert handed == "recorded 5 implemented -> Refactor\n"
     assert second.splitlines()[0] == "SPAWN review-lead"

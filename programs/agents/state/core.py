@@ -611,11 +611,11 @@ def advise_step(state: State, facts: Facts) -> Advice:  # noqa: C901, PLR0911 - 
         case "Ctx":
             return advise_ctx(state)
         case "Propose":
-            return advise_prop(state)
+            return advise_propose(state)
         case "DraftPlan":
             return advise_draft(state)
         case "Implement":
-            return advise_impl(state)
+            return advise_implement(state)
         case "Refactor":
             return advise_refactor(state, facts)
         case "Review":
@@ -669,7 +669,7 @@ def advise_ctx(state: State) -> Advice:
     )
 
 
-def advise_prop(state: State) -> Advice:
+def advise_propose(state: State) -> Advice:
     if state.size == "Trivial":
         return Run(
             "state record confirmed",
@@ -772,7 +772,7 @@ def advise_draft(state: State) -> Advice:
     )
 
 
-def advise_impl(state: State) -> Advice:
+def advise_implement(state: State) -> Advice:
     mode = mode_of(state)
     how = (
         "Trivial: one implementer; a bug fix comes with a test red before it"

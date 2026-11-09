@@ -18,7 +18,7 @@ from state.flow import (
     stuck_line,
 )
 from state.model import WORKERS
-from state.state_fixtures import ok, to_impl
+from state.state_fixtures import ok, to_implement
 
 ROOT = Path(__file__).resolve().parents[3]
 SKILL = ROOT / "programs/agents/skills/custom/engineer/SKILL.md"
@@ -132,7 +132,7 @@ def test_prose_guard_the_skill_names_exactly_the_roles_state_handback_takes() ->
 def test_brief_refactorer_holds_the_mechanics_and_the_stop_rule_verbatim(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
 
     out = ok(repo, "brief", "refactorer")
 
@@ -151,7 +151,7 @@ def test_brief_refactorer_holds_the_mechanics_and_the_stop_rule_verbatim(
 def test_brief_review_lead_gets_the_plan_wrong_line_not_the_stop_rule(
     repo: Path, tmp_path: Path
 ) -> None:
-    to_impl(repo, tmp_path / "notes")
+    to_implement(repo, tmp_path / "notes")
 
     out = ok(repo, "brief", "review-lead")
 

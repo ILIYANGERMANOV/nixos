@@ -262,7 +262,7 @@ def types(notes: Path) -> list[object]:
     ]
 
 
-def to_impl(repo: Path, notes: Path) -> None:
+def to_implement(repo: Path, notes: Path) -> None:
     """init, then the shortest recorded path to Implement at Balanced, PR 7 from
     `feature` to main."""
     to_draft(repo, notes)

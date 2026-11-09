@@ -48,7 +48,7 @@ mechanics, and not for enforcement or for token savings on prose.
   installed one, and the modes guard scans sources only) and over inline
   shell at skill invocation (not verified for a preloaded skill).
 - **All 10 steps; steps 1 to 3 are two states with self-loops.** `Ctx` loops
-  on `researched` and `asked` without a cap and leaves on `planned`; `Prop`
+  on `researched` and `asked` without a cap and leaves on `planned`; `Propose`
   loops on `proposed` and leaves on `confirmed` or `adjusted`. The program
   drives nothing before step 4. Its advice in `Ctx` shows the counts against
   what is typical (at least one researcher and one question; usually 2 to 3

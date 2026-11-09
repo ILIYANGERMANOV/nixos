@@ -34,7 +34,7 @@ from state.state_fixtures import (
     ok,
     older_log,
     to_draft,
-    to_impl,
+    to_implement,
     types,
 )
 
@@ -183,7 +183,7 @@ def test_main_refuses_an_unknown_hook_or_event(argv: list[str], stdin: str) -> N
 
 @pytest.mark.parametrize("hook", EVENTS)
 def test_a_finished_run_gets_nothing(repo: Path, notes: Path, hook: HookName) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "override", "PR", "CI is green")
     _ = ok(repo, "record", "ready", PR)
 
@@ -197,7 +197,7 @@ def test_a_finished_run_gets_nothing(repo: Path, notes: Path, hook: HookName) ->
 def test_on_another_branch_every_hook_is_silent_and_reads_no_github(
     repo: Path, notes: Path, github: GitHub, hook: HookName
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = git(repo, "switch", "--quiet", "--create", "other")
 
     assert run_hook(hook, EVENTS[hook](repo)) == NOTHING[hook]
@@ -205,7 +205,7 @@ def test_on_another_branch_every_hook_is_silent_and_reads_no_github(
 
 
 def test_back_on_its_branch_the_hooks_speak_again(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = git(repo, "switch", "--quiet", "--create", "other")
     _ = git(repo, "switch", "--quiet", "feature")
 
@@ -217,7 +217,7 @@ def test_back_on_its_branch_the_hooks_speak_again(repo: Path, notes: Path) -> No
 def test_once_its_pr_is_merged_or_closed_every_hook_is_silent(
     repo: Path, notes: Path, github: GitHub, hook: HookName, closed: str
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     github.open(draft=False, state=closed)
 
     assert run_hook(hook, EVENTS[hook](repo)) == NOTHING[hook]
@@ -255,7 +255,7 @@ def test_a_pr_opened_by_any_means_is_recorded_as_drafted(
 def test_a_pr_marked_ready_early_records_nothing_until_the_run_is_at_pr(
     repo: Path, notes: Path, github: GitHub
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     github.open(draft=False)
     before = types(notes)
 
@@ -267,7 +267,7 @@ def test_a_pr_marked_ready_early_records_nothing_until_the_run_is_at_pr(
 def test_at_pr_a_ready_pr_is_recorded_and_the_finished_run_is_silent(
     repo: Path, notes: Path, github: GitHub
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "override", "PR", "CI is green")
     github.open(draft=False)
 
@@ -279,7 +279,7 @@ def test_at_pr_a_ready_pr_is_recorded_and_the_finished_run_is_silent(
 def test_github_down_is_told_and_the_hook_works_from_the_log(
     repo: Path, notes: Path, github: GitHub
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     github.down("error connecting to api.github.com")
 
     spawned = context(run_hook("spawn", delegate(repo, "implementer")))
@@ -291,7 +291,7 @@ def test_github_down_is_told_and_the_hook_works_from_the_log(
 
 
 def test_a_log_an_older_state_wrote_is_silent(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     older_log(notes)
 
     assert run_hook("resume", start(repo)) == Note()
@@ -301,7 +301,7 @@ def test_a_log_an_older_state_wrote_is_silent(repo: Path, notes: Path) -> None:
 
 
 def test_resume_shows_the_run_and_its_advice(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     shown = context(run_hook("resume", start(repo)))
 
@@ -310,7 +310,7 @@ def test_resume_shows_the_run_and_its_advice(repo: Path, notes: Path) -> None:
 
 
 def test_resume_tells_a_subagent_nothing(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     assert run_hook("resume", start(repo, agent("implementer"))) == Note()
 
@@ -321,7 +321,7 @@ def test_resume_tells_a_subagent_nothing(repo: Path, notes: Path) -> None:
 def test_spawn_gives_the_advice_with_no_warning_for_the_advised_role(
     repo: Path, notes: Path
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     spawned = run_hook("spawn", delegate(repo, "implementer"))
 
@@ -331,7 +331,7 @@ def test_spawn_gives_the_advice_with_no_warning_for_the_advised_role(
 
 
 def test_spawn_warns_when_another_role_is_spawned(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     spawned = context(run_hook("spawn", delegate(repo, "refactorer")))
 
@@ -342,7 +342,7 @@ def test_spawn_warns_when_another_role_is_spawned(repo: Path, notes: Path) -> No
 def test_spawn_gives_no_warning_for_a_role_spawned_beside_the_advice(
     repo: Path, notes: Path, role: str
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     spawned = context(run_hook("spawn", delegate(repo, role)))
 
@@ -353,7 +353,7 @@ def test_spawn_gives_no_warning_for_a_role_spawned_beside_the_advice(
 def test_spawn_gives_the_advice_with_no_warning_for_a_role_outside_the_flow(
     repo: Path, notes: Path, role: str
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     spawned = context(run_hook("spawn", delegate(repo, role)))
 
@@ -364,7 +364,7 @@ def test_spawn_gives_the_advice_with_no_warning_for_a_role_outside_the_flow(
 def test_spawn_gives_no_warning_for_a_later_implementer_slice(
     repo: Path, notes: Path
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = ok(repo, "record", "implemented")
 
     spawned = context(run_hook("spawn", delegate(repo, "implementer")))
@@ -375,7 +375,7 @@ def test_spawn_gives_no_warning_for_a_later_implementer_slice(
 
 @pytest.mark.parametrize("role", sorted(ROLES))
 def test_spawn_never_rewrites_the_prompt(repo: Path, notes: Path, role: str) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     spawned = run_hook("spawn", delegate(repo, role))
 
@@ -394,7 +394,7 @@ def test_spawn_tells_a_git_failure(repo: Path, notes: Path) -> None:
 
 
 def test_spawn_by_a_review_lead_is_not_the_runs(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     spawned = run_hook("spawn", delegate(repo, "reviewer", agent("review-lead")))
 
@@ -402,7 +402,7 @@ def test_spawn_by_a_review_lead_is_not_the_runs(repo: Path, notes: Path) -> None
 
 
 def test_spawn_by_a_delegated_engineer_steers_the_run(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     spawned = run_hook("spawn", delegate(repo, "implementer", agent("engineer")))
 
@@ -415,7 +415,7 @@ def test_spawn_by_a_delegated_engineer_steers_the_run(repo: Path, notes: Path) -
 def test_handback_records_a_worker_and_appends_it_to_the_report(
     repo: Path, notes: Path
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = commit(repo, {"b.txt": "two\n"}, "implement")
 
     report = updated(
@@ -429,7 +429,7 @@ def test_handback_records_a_worker_and_appends_it_to_the_report(
 def test_handback_appends_a_refusal_and_its_fix_and_records_it_refused(
     repo: Path, notes: Path
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     before = types(notes)
 
     report = updated(
@@ -444,7 +444,7 @@ def test_handback_appends_a_refusal_and_its_fix_and_records_it_refused(
 def test_a_hook_after_a_refused_handback_starts_with_the_warning(
     repo: Path, notes: Path
 ) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     _ = run_hook("handback", hand_back(repo, "implementer", "done"))
 
     spawned = context(run_hook("spawn", delegate(repo, "implementer")))
@@ -466,7 +466,7 @@ def test_handback_records_a_researcher_while_in_ctx(repo: Path, notes: Path) -> 
 
 
 def test_handback_skips_a_researcher_past_ctx(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     before = types(notes)
 
     assert run_hook("handback", hand_back(repo, "researcher", "notes")) == Allow()
@@ -474,7 +474,7 @@ def test_handback_skips_a_researcher_past_ctx(repo: Path, notes: Path) -> None:
 
 
 def test_handback_skips_a_reviewer(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
 
     assert run_hook("handback", hand_back(repo, "reviewer", "READY")) == Allow()
 
@@ -489,7 +489,7 @@ def test_asked_records_a_question_in_ctx(repo: Path, notes: Path) -> None:
 
 
 def test_asked_skips_a_question_past_ctx(repo: Path, notes: Path) -> None:
-    to_impl(repo, notes)
+    to_implement(repo, notes)
     before = types(notes)
 
     assert run_hook("asked", ask(repo)) == Note()
