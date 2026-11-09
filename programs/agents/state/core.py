@@ -1129,13 +1129,25 @@ def render_advice(advice: Advice) -> str:
 
 
 @dataclass(frozen=True)
-class Decision:
-    """What a `state record` or `state handback` appends, the state it reaches,
-    and the refusal to reply with: a refusal appends one `Refused`."""
+class Accepted:
+    """A `state record` or `state handback` the flow takes: what it appends and
+    the state it reaches."""
 
     append: tuple[Event, ...]
     reached: State
-    reply: Failure | None
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """A refused `state record` or `state handback`: it is stored too, as one
+    `Refused` left pending, and `reply` is what the command answers."""
+
+    refused: Refused
+    reached: State
+    reply: Failure
+
+
+type Decision = Accepted | Refusal
 
 
 def decide(state: State, parsed: tuple[Event, ...] | Failure) -> Decision:
@@ -1143,20 +1155,20 @@ def decide(state: State, parsed: tuple[Event, ...] | Failure) -> Decision:
     and replied to under the command's name."""
     match parsed:
         case Failure() as failure:
-            return refusal(state, failure, failure)
+            return refuse(state, failure, failure)
         case events:
             pass
     match record(state, events):
         case Failure() as failure:
             said = replace(failure, message=f"state record: {failure.message}")
-            return refusal(state, failure, said)
+            return refuse(state, failure, said)
         case appended, reached:
-            return Decision(appended, reached, None)
+            return Accepted(appended, reached)
 
 
-def refusal(state: State, stored: Failure, reply: Failure) -> Decision:
+def refuse(state: State, stored: Failure, reply: Failure) -> Refusal:
     refused = Refused(stored.message, stored.fix)
-    return Decision((refused,), replace(state, refused=refused), reply)
+    return Refusal(refused, replace(state, refused=refused), reply)
 
 
 def warning(state: State) -> str:

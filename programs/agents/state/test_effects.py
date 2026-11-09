@@ -9,7 +9,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from state.core import NoPr, Pr, Unavailable
-from state.effects import parse_pr_view
+from state.effects import Loaded, parse_pr_view, read_log, sync
+from state.model import Failure, Ready
 from state.state_fixtures import (
     PR,
     GitHub,
@@ -380,6 +381,26 @@ def test_next_with_github_down_works_from_the_log_and_says_so(
         "PR sync skipped - gh pr view: error connecting to api.github.com",
         "SPAWN implementer",
     ]
+
+
+def test_a_sync_the_flow_refuses_is_told_and_appends_nothing(
+    repo: Path, tmp_path: Path
+) -> None:
+    notes = tmp_path / "notes"
+    _ = ok(repo, "init", "--notes", str(notes))
+    log = notes / "events.jsonl"
+    before = log.read_text()
+    match read_log(log):
+        case Failure() as failure:
+            raise AssertionError(failure)
+        case lines, state:
+            pass
+
+    synced = sync(Loaded(log, lines, state), (Ready(PR),), repo)
+
+    assert first_line(synced.told) == "PR sync: 'ready' is not an arrow out of Ctx"
+    assert (synced.lines, synced.state) == (lines, state)
+    assert log.read_text() == before
 
 
 def test_show_on_another_branch_says_the_hooks_are_silent(

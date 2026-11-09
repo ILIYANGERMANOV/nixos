@@ -33,12 +33,14 @@ from state.codec import (
 )
 from state.core import (
     PR_STATES,
+    Accepted,
     Facts,
     GitFacts,
     NoFacts,
     NoPr,
     Pr,
     PrRead,
+    Refusal,
     Unavailable,
     advise,
     brief,
@@ -180,14 +182,19 @@ def append(
     cwd: Path,
 ) -> str | Failure:
     """What a command or hook records, a refusal included: it is stored too."""
-    decision = decide(state, parsed)
-    match write(log, lines, decision.append, cwd), decision.reply:
-        case Failure() as failure, _:
-            return failure
-        case _, Failure() as refused:
-            return refused
-        case new, None:
-            return recorded(new, decision.reached)
+    match decide(state, parsed):
+        case Accepted(append=appended, reached=reached):
+            match write(log, lines, appended, cwd):
+                case Failure() as failure:
+                    return failure
+                case new:
+                    return recorded(new, reached)
+        case Refusal(refused=refused, reply=reply):
+            match write(log, lines, (refused,), cwd):
+                case Failure() as failure:
+                    return failure
+                case _:
+                    return reply
 
 
 def write(

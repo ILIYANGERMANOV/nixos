@@ -10,12 +10,14 @@ from hypothesis import strategies as st
 
 from state.core import (
     PR_STATES,
+    Accepted,
     Advice,
     Facts,
     GitFacts,
     HandbackOptions,
     NoFacts,
     Pr,
+    Refusal,
     advise,
     apply,
     brief,
@@ -852,18 +854,13 @@ def test_decide_every_refusal_appends_one_refused_left_pending_on_the_same_step(
 ) -> None:
     state = reach(*accepted(candidates))
 
-    decision = decide(state, parsed)
-
-    match decision.reply, decision.append:
-        case None, _:
-            pass
-        case Failure(fix=fix, code=code), (Refused() as refused,):
-            assert (refused.fix, code) == (fix, 2)
-            assert decision.reached.refused == refused
-            assert decision.reached.step == state.step
-        case Failure(), appended:
-            raise AssertionError(f"a refusal appended {appended}")
-    assert fold(decision.append, state) == decision.reached
+    match decide(state, parsed):
+        case Accepted(append=appended, reached=reached):
+            assert fold(appended, state) == reached
+        case Refusal(refused=refused, reached=reached, reply=reply):
+            assert (refused.fix, reply.code) == (reply.fix, 2)
+            assert reached == fold((refused,), state)
+            assert (reached.refused, reached.step) == (refused, state.step)
 
 
 @given(event_lists, st.lists(events, min_size=1, max_size=3).map(tuple))
@@ -874,21 +871,18 @@ def test_decide_an_accepted_record_appends_what_record_does(
 
     decision = decide(state, events_)
 
-    match record(state, events_):
-        case Failure():
-            assert decision.reply is not None
-        case recorded:
-            assert ((decision.append, decision.reached), decision.reply) == (
-                recorded,
-                None,
-            )
+    match record(state, events_), decision:
+        case Failure(), Refusal():
+            pass
+        case (appended, reached), Accepted() as taken:
+            assert (taken.append, taken.reached) == (appended, reached)
+        case other:
+            raise AssertionError(other)
 
 
 def test_decide_stores_a_flow_refusal_bare_and_replies_under_the_command() -> None:
-    decision = decide(S0, (Ready(PR),))
-
-    match decision.append, decision.reply:
-        case (Refused(message=stored),), Failure(message=said):
+    match decide(S0, (Ready(PR),)):
+        case Refusal(refused=Refused(message=stored), reply=Failure(message=said)):
             assert (stored, said) == (
                 "'ready' is not an arrow out of Ctx",
                 "state record: 'ready' is not an arrow out of Ctx",
@@ -898,12 +892,14 @@ def test_decide_stores_a_flow_refusal_bare_and_replies_under_the_command() -> No
 
 
 def test_decide_stores_and_replies_a_parse_refusal_as_it_is() -> None:
-    decision = decide(S0, PARSE_REFUSAL)
-
-    assert (decision.append, decision.reply) == (
-        (Refused(PARSE_REFUSAL.message, PARSE_REFUSAL.fix),),
-        PARSE_REFUSAL,
-    )
+    match decide(S0, PARSE_REFUSAL):
+        case Refusal(refused=refused, reply=reply):
+            assert (refused, reply) == (
+                Refused(PARSE_REFUSAL.message, PARSE_REFUSAL.fix),
+                PARSE_REFUSAL,
+            )
+        case other:
+            raise AssertionError(other)
 
 
 def test_warning_tells_the_pending_refusal_and_its_fix() -> None:
