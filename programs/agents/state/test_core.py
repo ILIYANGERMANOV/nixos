@@ -40,6 +40,7 @@ from state.model import (
     Planned,
     Proposed,
     Quality,
+    Raised,
     Ready,
     Refactored,
     Researched,
@@ -68,6 +69,7 @@ from state.state_fixtures import (
     heads,
     labels,
     reach,
+    review,
     reviewed,
     walk,
 )
@@ -213,9 +215,9 @@ def test_stuck_guard_the_same_row_in_two_rounds_in_a_row_is_stuck(
         *drafted("Max"),
         Implemented("h1"),
         Refactored("h2"),
-        Reviewed(first, (row,), ()),
+        *review(first, (row,), ()),
         Fixed("h4", ()),
-        Reviewed(second, (*others, row), ()),
+        *review(second, (*others, row), ()),
     )
 
     assert first_line(text) == f"STUCK row {row} in 2 rounds in a row"
@@ -231,7 +233,7 @@ def test_stuck_guard_the_same_failing_check_twice_is_stuck(
     text = advice(
         *reviewed("POC"),
         Fixed("h4", ()),
-        Reviewed("h5", (), ()),
+        *review("h5", (), ()),
         Fixed("h6", ()),
         Ci(first, ("lint",)),
         Fixed("h7", ()),
@@ -246,9 +248,9 @@ def test_stuck_guard_different_rows_in_two_rounds_are_not_stuck() -> None:
         *drafted("Max"),
         Implemented("h1"),
         Refactored("h2"),
-        Reviewed("h3", ("R1",), ()),
+        *review("h3", ("R1",), ()),
         Fixed("h4", ()),
-        Reviewed("h5", ("R2",), ()),
+        *review("h5", ("R2",), ()),
     )
 
     assert first_line(text) == "SPAWN fixer"
@@ -258,7 +260,7 @@ def test_stuck_guard_different_failing_checks_in_two_rounds_are_not_stuck() -> N
     text = advice(
         *reviewed("POC"),
         Fixed("h4", ()),
-        Reviewed("h5", (), ()),
+        *review("h5", (), ()),
         Fixed("h6", ()),
         Ci("h6", ("lint",)),
         Fixed("h7", ()),
@@ -295,9 +297,9 @@ def the_same_row_twice(row: str, first: str, second: str) -> list[Event]:
         *drafted("Max"),
         Implemented("h1"),
         Refactored("h2"),
-        Reviewed(first, (row,), ()),
+        *review(first, (row,), ()),
         Fixed("h4", ()),
-        Reviewed(second, (row,), ()),
+        *review(second, (row,), ()),
     ]
 
 
@@ -305,7 +307,7 @@ def the_same_check_twice(check: str, first: str, second: str) -> list[Event]:
     return [
         *reviewed("POC"),
         Fixed("h4", ()),
-        Reviewed("h5", (), ()),
+        *review("h5", (), ()),
         Fixed("h6", ()),
         Ci(first, (check,)),
         Fixed("h7", ()),
@@ -353,9 +355,9 @@ def test_stuck_guard_delegated_hands_the_stuck_back() -> None:
         *drafted("Max", delegated=True),
         Implemented("h1"),
         Refactored("h2"),
-        Reviewed("h3", ("R1",), ()),
+        *review("h3", ("R1",), ()),
         Fixed("h4", ()),
-        Reviewed("h5", ("R1",), ()),
+        *review("h5", ("R1",), ()),
     )
 
     assert text.splitlines()[1] == (
@@ -374,7 +376,7 @@ def ci_fix_reviewed_at_cap(
         *final_fixed("POC"),
         Ci("h4", ("lint",)),
         Fixed("h5", ()),
-        Reviewed("h6", rows, verdicts),
+        *review("h6", rows, verdicts),
     ]
 
 
@@ -463,6 +465,16 @@ def ci_fix_reviewed_at_cap(
             "SPAWN refactorer", "Max: always", id="Impl': Max always refactors",
         ),
         pytest.param(
+            [*drafted("Max"), Implemented("h1")], GitFacts(10, "none"), "SPAWN refactorer",
+            "proposals: one AskUserQuestion for all, in this PR / a follow-up / drop",
+            id="Impl': the user decides all proposals in one question",
+        ),
+        pytest.param(
+            [*drafted("Max", delegated=True), Implemented("h1")], GitFacts(10, "none"),
+            "SPAWN refactorer", "proposals: hand them back to your caller",
+            id="Impl': delegated, the proposals go to the caller",
+        ),
+        pytest.param(
             [*drafted(), Implemented("h1")], GitFacts(100, "none"), "SPAWN review-lead",
             "refactor skipped: 100 changed lines, Balanced",
             id="Impl': Balanced skips at 100 lines",
@@ -485,6 +497,12 @@ def ci_fix_reviewed_at_cap(
             ("invoke `pragmatic-review` with: Quality: Balanced Size: Normal "
             f"--requirements {NOTES}/requirements.md {PR}"),
             id="ImplR: the first review",
+        ),
+        pytest.param(
+            [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "none"),
+            "SPAWN review-lead",
+            "back: recorded by the hook; then: state record picked [--row <label>]...",
+            id="ImplR: the hook records the review, the lead picks its rows",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "new"),
@@ -522,31 +540,31 @@ def ci_fix_reviewed_at_cap(
         ),
         pytest.param(
             [
-                *reviewed(), Fixed("h4", ()), Reviewed("h5", ("R3",), ()),
-                Fixed("h6", ()), Reviewed("h7", ("R4",), ()),
+                *reviewed(), Fixed("h4", ()), *review("h5", ("R3",), ()),
+                Fixed("h6", ()), *review("h7", ("R4",), ()),
             ],
             NoFacts(), "SPAWN fixer", "final fixer: rows R4, R0; nothing reviews it",
             id="Impl'': Balanced's cap of 2 re-reviews goes to the final fixer",
         ),
         pytest.param(
-            [*reviewed("POC"), Fixed("h4", ()), Reviewed("h5", ("R3",), ())],
+            [*reviewed("POC"), Fixed("h4", ()), *review("h5", ("R3",), ())],
             NoFacts(), "SPAWN fixer", "final fixer: rows R3, R0",
             id="Impl'': POC's cap of 1",
         ),
         pytest.param(
             [
                 *reviewed("POC"), Fixed("h4", ()),
-                Reviewed("h5", ("R3",), (Verdict("AC1", "not-met"),)),
+                *review("h5", ("R3",), (Verdict("AC1", "not-met"),)),
             ],
             NoFacts(), "SPAWN fixer", "at the cap: fix only Not met AC1",
             id="Impl'': Not met loops even at the cap",
         ),
         pytest.param(
-            [*drafted(), Implemented("h1"), Refactored("h2"), Reviewed("h3", (), ())],
+            [*drafted(), Implemented("h1"), Refactored("h2"), *review("h3", (), ())],
             NoFacts(), "SPAWN fixer", "final fixer: rows R0", id="ImplR: no rows",
         ),
         pytest.param(
-            [*drafted("Max", "Trivial"), Implemented("h1"), Reviewed("h3", ("R1",), ())],
+            [*drafted("Max", "Trivial"), Implemented("h1"), *review("h3", ("R1",), ())],
             NoFacts(), "SPAWN fixer", "final fixer: rows R1, R0",
             id="Impl': Trivial has no re-review",
         ),
@@ -559,7 +577,7 @@ def ci_fix_reviewed_at_cap(
             id="DraftPR: delegated hands back",
         ),
         pytest.param(
-            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", f"then: state record ready {PR}",
+            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", "ready: recorded by the hook; then: state next",
             id="PR: green CI, ready",
         ),
         pytest.param(
@@ -576,7 +594,7 @@ def ci_fix_reviewed_at_cap(
         pytest.param(
             [
                 *final_fixed(), Ci("h4", ("lint",)), Fixed("h5", ()),
-                Reviewed("h6", (), (Verdict("AC1", "not-met"),)),
+                *review("h6", (), (Verdict("AC1", "not-met"),)),
             ],
             NoFacts(), "SPAWN fixer", "rows: -", id="PR: a Not met with no rows gets a fixer",
         ),
@@ -644,15 +662,15 @@ def ci_fix_reviewed_at_cap(
             id="re-plan: the chosen plan goes into the PR body",
         ),
         pytest.param(
-            [*drafted("Max"), Implemented("h1"), Refactored("h2"), Reviewed("h3", ("R1",), ()),
-             Fixed("h4", ()), Reviewed("h5", ("R1",), ()),
+            [*drafted("Max"), Implemented("h1"), Refactored("h2"), *review("h3", ("R1",), ()),
+             Fixed("h4", ()), *review("h5", ("R1",), ()),
              Blocked("stuck: row R1", "decision", "review-lead")],
             NoFacts(), f"RUN state record planned {NOTES}/plan.md",
             "decision path for 'stuck: row R1'", id="stuck: the answer is a decision, a re-plan",
         ),
         pytest.param(
-            [*drafted("Max"), Implemented("h1"), Refactored("h2"), Reviewed("h3", ("R1",), ()),
-             Fixed("h4", ()), Reviewed("h5", ("R1",), ()),
+            [*drafted("Max"), Implemented("h1"), Refactored("h2"), *review("h3", ("R1",), ()),
+             Fixed("h4", ()), *review("h5", ("R1",), ()),
              Blocked("stuck: row R1", "decision", "review-lead"),
              Resolved("stuck: row R1", "drop the row")],
             NoFacts(), f"RUN state record planned {NOTES}/plan.md", "write the plan",
@@ -666,7 +684,7 @@ def ci_fix_reviewed_at_cap(
         ),
         pytest.param(
             [*drafted("Max", delegated=True), Implemented("h1"), Refactored("h2"),
-             Reviewed("h3", ("R1",), ()), Fixed("h4", ())],
+             *review("h3", ("R1",), ()), Fixed("h4", ())],
             NoFacts(), "SPAWN review-lead",
             "<the brief's requirements file's directory>/<the brief's task>-fixes.md",
             id="Impl'': delegated fixes copy beside the brief's requirements",
@@ -686,7 +704,7 @@ def test_a_confirmed_re_plan_resumes_at_impl_and_restarts_the_rounds() -> None:
     state = reach(
         *reviewed(),
         Fixed("h4", ()),
-        Reviewed("h5", ("R3",), ()),
+        *review("h5", ("R3",), ()),
         Blocked("plan wrong: x", "decision", "review-lead"),
         Planned("p2.md"),
         Proposed("simplify"),
@@ -703,13 +721,13 @@ def test_a_re_plan_keeps_the_stuck_history() -> None:
         *drafted("Max"),
         Implemented("h1"),
         Refactored("h2"),
-        Reviewed("h3", ("R1",), ()),
+        *review("h3", ("R1",), ()),
         Blocked("plan wrong: x", "decision", "review-lead"),
         Planned("p2.md"),
         Confirmed(),
         Implemented("h4"),
         Refactored("h5"),
-        Reviewed("h6", ("R1",), ()),
+        *review("h6", ("R1",), ()),
     )
 
     assert first_line(text) == "STUCK row R1 in 2 rounds in a row"
@@ -810,8 +828,17 @@ def test_off_arrow_following_the_fix_makes_the_event_an_arrow(
             (Refactored("abc1234"),), id="refactorer READY",
         ),
         pytest.param(
-            "fixer", "READY rows R1, R2 fixed in 5e1f2a9", HandbackOptions(touches=("auth",)),
-            (Fixed("abc1234", ("auth",)),), id="fixer READY with what it touched",
+            "fixer", "READY rows R1, R2 fixed in 5e1f2a9\n\nTouches: auth, interface",
+            HandbackOptions(), (Fixed("abc1234", ("auth", "interface")),),
+            id="fixer READY with its Touches line",
+        ),
+        pytest.param(
+            "fixer", "READY rows R1 fixed\nTouches: none", HandbackOptions(),
+            (Fixed("abc1234", ()),), id="fixer READY touching none",
+        ),
+        pytest.param(
+            "fixer", "READY rows R1 fixed", HandbackOptions(),
+            (Fixed("abc1234", ()),), id="fixer READY with no Touches line",
         ),
         pytest.param(
             "implementer",
@@ -820,6 +847,11 @@ def test_off_arrow_following_the_fix_makes_the_event_an_arrow(
             (Blocked("Should the log live in the git dir?", "fact", "implementer"),
              Grew("a second format")),
             id="NEEDS_DECISION then GREW on the next line",
+        ),
+        pytest.param(
+            "implementer", "NEEDS_DECISION which log?", HandbackOptions(),
+            (Raised("which log?", "implementer"),),
+            id="an untriaged question waits for the lead's triage",
         ),
         pytest.param(
             "fixer", "GREW the fix needs a migration", HandbackOptions(),
@@ -831,41 +863,29 @@ def test_off_arrow_following_the_fix_makes_the_event_an_arrow(
             id="BLOCKED triaged",
         ),
         pytest.param(
-            "implementer", "FAILED the test harness is missing",
-            HandbackOptions(kind="scope"),
-            (Blocked("FAILED the test harness is missing", "scope", "implementer"),),
-            id="FAILED triaged",
+            "implementer", "FAILED the test harness is missing", HandbackOptions(),
+            (Raised("FAILED the test harness is missing", "implementer"),),
+            id="FAILED untriaged",
         ),
         pytest.param(
             "review-lead",
             ("| # | Severity | What |\n|---|---|---|\n| 1 | Blocker | x |\n\n"
             "Reviewed head: 9f8e7d6\n"),
-            HandbackOptions(rows=("R1",), verdicts=(Verdict("AC1", "met"),)),
-            (Reviewed("9f8e7d6", ("R1",), (Verdict("AC1", "met"),)),),
-            id="review-lead report",
+            HandbackOptions(), (Reviewed("9f8e7d6"),), id="review-lead report",
+        ),
+        pytest.param(
+            "review-lead", "READY\n\nReviewed head: 1111111\nReviewed head: 9f8e7d6",
+            HandbackOptions(), (Reviewed("9f8e7d6"),),
+            id="review-lead: its last Reviewed head line",
         ),
         pytest.param(
             "review-lead",
             ("NEEDS_DECISION plan wrong: the fold cannot see the PR\n\n| table |\n\n"
             "Reviewed head: 9f8e7d6"),
             HandbackOptions(),
-            (Reviewed("9f8e7d6", (), ()),
+            (Reviewed("9f8e7d6"),
              Blocked("plan wrong: the fold cannot see the PR", "decision", "review-lead")),
             id="review-lead plan wrong: a decision, its review recorded",
-        ),
-        pytest.param(
-            "implementer", "READY", HandbackOptions(head="9f8e7d6"),
-            (Implemented("9f8e7d6"),), id="implementer --head over HEAD",
-        ),
-        pytest.param(
-            "review-lead", "READY", HandbackOptions(head="9f8e7d6", rows=("R1",)),
-            (Reviewed("9f8e7d6", ("R1",), ()),),
-            id="review-lead status line with --head",
-        ),
-        pytest.param(
-            "review-lead", "READY\n\nReviewed head: 1111111",
-            HandbackOptions(head="9f8e7d6"), (Reviewed("9f8e7d6", (), ()),),
-            id="review-lead --head wins over its Reviewed head line",
         ),
         pytest.param(
             "fixer", "NEEDS_DECISION stuck: lint in 2 rounds", HandbackOptions(),
@@ -881,43 +901,46 @@ def test_handback_records_the_event_its_first_line_names(
 
 
 @pytest.mark.parametrize(
-    ("role", "text", "options", "head", "fix"),
+    ("role", "text", "head", "fix"),
     [
         pytest.param(
-            "implementer", "NEEDS_DECISION which log?", HandbackOptions(), "abc1234",
-            "add --kind answered|fact|decision|scope (blockers.md, Triage)",
-            id="an untriaged question",
-        ),
-        pytest.param(
-            "review-lead", "| table |", HandbackOptions(), "abc1234",
-            "state handback review-lead --head <sha> [--row <label>]...",
+            "review-lead", "| table |", "abc1234",
+            "state record reviewed <the head the review read>",
             id="a review without its Reviewed head",
         ),
         pytest.param(
-            "fixer", "Done, all green.", HandbackOptions(), "abc1234",
+            "fixer", "READY\nTouches: auth, the parser", "abc1234",
+            "state record fixed [<head>] [--touches <area>]...",
+            id="a Touches line naming no area",
+        ),
+        pytest.param(
+            "fixer", "Done, all green.", "abc1234",
             "record it by hand: state record fixed ...", id="no status token",
         ),
         pytest.param(
-            "implementer", "READY", HandbackOptions(), None,
+            "implementer", "READY", None,
             "run it in the worktree, or state record implemented <sha>", id="no HEAD",
         ),
     ],
 )  # fmt: skip
 def test_handback_without_what_it_needs_is_a_usage_error(
-    role: str, text: str, options: HandbackOptions, head: str | None, fix: str
+    role: str, text: str, head: str | None, fix: str
 ) -> None:
-    match parse_handback(role, text, options, head):  # pyright: ignore[reportArgumentType]
+    match parse_handback(role, text, HandbackOptions(), head):  # pyright: ignore[reportArgumentType]
         case Failure(fix=found, code=code):
             assert (found, code) == (fix, 2)
         case parsed:
             raise AssertionError(f"parsed {parsed}")
 
 
-def test_a_review_without_its_head_names_the_line_it_looks_for() -> None:
-    match parse_handback("review-lead", "| table |", HandbackOptions(), "abc1234"):
+def test_a_touches_line_naming_no_area_names_the_words_it_did_not_know() -> None:
+    match parse_handback(
+        "fixer", "READY\nTouches: auth, parser", HandbackOptions(), "abc1234"
+    ):
         case Failure(message=message):
             assert message == (
-                "state handback review-lead: no --head and no 'Reviewed head: <sha>' line"
+                "state handback fixer: Touches: names parser, not "
+                "interface | data-model | auth"
             )
         case parsed:
             raise AssertionError(f"parsed {parsed}")
@@ -939,6 +962,16 @@ def test_brief_of_a_non_worker_carries_no_worker_hand_back_rule(role: Role) -> N
     text = brief(role, reach(*drafted()), "/w")
 
     assert "READY, NEEDS_DECISION, GREW" not in text
+
+
+def test_brief_of_a_fixer_asks_for_the_touches_line_and_names_the_diff_folder() -> None:
+    text = brief("fixer", reach(*reviewed()), "/w")
+
+    assert "the prompt's Diff: folder, else ctx diff origin/main" in text
+    assert (
+        "End your hand-back with a line `Touches: <area>...` naming any of "
+        "interface, data-model, auth your fix changed (or `Touches: none`)."
+    ) in text
 
 
 def test_show_before_quality_is_recorded_shows_no_cap() -> None:

@@ -9,6 +9,8 @@
   renderLead,
   foldTargets,
   withSecretFileGuard,
+  # event -> [hook] -> settings -> settings: the profile's hooks appended.
+  withHooks,
 }:
 
 let
@@ -20,7 +22,7 @@ let
     name: instructions: pkgs.concatText "${name}-instructions.md" (renderLead instructions);
 
   # A flavor's target. Its secret files go out as paths, and the settings guard
-  # them against being read from the session.
+  # them against being read from the session and run its hooks.
   mkTarget =
     {
       name,
@@ -29,7 +31,7 @@ let
     }:
     let
       settingsFile = pkgs.writeText "${name}-settings.json" (
-        builtins.toJSON (withSecretFileGuard profile.secretFiles settings)
+        builtins.toJSON (withHooks profile.hooks (withSecretFileGuard profile.secretFiles settings))
       );
       skillFarm = if profile.skills == [ ] then null else mkSkillFarm "${name}-skills" profile.skills;
 

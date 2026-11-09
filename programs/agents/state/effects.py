@@ -22,6 +22,7 @@ from state.cli import (
 )
 from state.codec import BadFieldError, Line, encode_line, parse_log, replay
 from state.core import (
+    Facts,
     GitFacts,
     NoFacts,
     advise,
@@ -75,12 +76,7 @@ def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  #
         case Override(to=to, why=why):
             return append(log, lines, state, (Overridden(to, why),), cwd)
         case Next():
-            facts = (
-                NoFacts()
-                if state.drafted is None
-                else git_facts(cwd, state.drafted.base)
-            )
-            return render_advice(advise(state, facts))
+            return next_advice(state, cwd)
         case BriefCmd(role=role):
             return brief(role, state, toplevel(cwd))
         case Show():
@@ -157,6 +153,16 @@ def append(
     return "".join(
         f"recorded {line.seq} {name_of(line.event)} -> {reached.step}\n" for line in new
     )
+
+
+def next_advice(state: State, cwd: Path) -> str:
+    """`state next`: the advised arrow, rendered."""
+    return render_advice(advise(state, facts_of(state, cwd)))
+
+
+def facts_of(state: State, cwd: Path) -> Facts:
+    """What the advice reads from git: nothing until a draft names the base."""
+    return NoFacts() if state.drafted is None else git_facts(cwd, state.drafted.base)
 
 
 def git_facts(cwd: Path, base: str) -> GitFacts:

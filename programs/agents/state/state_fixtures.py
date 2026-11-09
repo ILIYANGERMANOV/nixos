@@ -34,9 +34,11 @@ from state.model import (
     Grew,
     Implemented,
     Overridden,
+    Picked,
     Planned,
     Proposed,
     Quality,
+    Raised,
     Ready,
     Refactored,
     Researched,
@@ -84,13 +86,20 @@ def drafted(
     ]
 
 
+def review(
+    head: str, rows: tuple[str, ...] = (), verdicts: tuple[Verdict, ...] = ()
+) -> tuple[Reviewed, Picked]:
+    """A review back on `head`, then the lead's picks from it."""
+    return Reviewed(head), Picked(rows, verdicts)
+
+
 def reviewed(quality: str = "Balanced", size: str = "Normal") -> list[Event]:
     """Implemented, refactored, then a first review that chose rows R1 and R2."""
     return [
         *drafted(quality, size),
         Implemented("h1"),
         Refactored("h2"),
-        Reviewed("h3", ("R1", "R2"), ()),
+        *review("h3", ("R1", "R2")),
     ]
 
 
@@ -100,7 +109,7 @@ def final_fixed(quality: str = "Balanced", *, delegated: bool = False) -> list[E
         *drafted(quality, delegated=delegated),
         Implemented("h1"),
         Refactored("h2"),
-        Reviewed("h3", (), ()),
+        *review("h3"),
         Fixed("h4", ()),
     ]
 
@@ -136,9 +145,9 @@ events: st.SearchStrategy[Event] = st.one_of(
     st.builds(Drafted, pr_urls, st.just("main")),
     st.builds(Implemented, heads),
     st.builds(Refactored, heads),
+    st.builds(Reviewed, heads),
     st.builds(
-        Reviewed,
-        heads,
+        Picked,
         st.lists(labels, max_size=2).map(tuple),
         st.lists(
             st.builds(
@@ -151,6 +160,7 @@ events: st.SearchStrategy[Event] = st.one_of(
     st.builds(
         Ci, heads, st.lists(st.sampled_from(["lint", "test"]), max_size=2).map(tuple)
     ),
+    st.builds(Raised, questions, st.sampled_from(ROLES)),
     st.builds(
         Blocked, questions, st.sampled_from(BLOCKER_KINDS), st.sampled_from(ROLES)
     ),
@@ -239,12 +249,17 @@ def log_of(notes: Path) -> list[dict[str, object]]:
 
 def to_impl(repo: Path, notes: Path) -> None:
     """init, then the shortest recorded path to Impl at Balanced, PR 7 on main."""
+    to_draft(repo, notes)
+    _ = ok(repo, "record", "drafted", PR, "main")
+
+
+def to_draft(repo: Path, notes: Path) -> None:
+    """init, then a Balanced run with its plan confirmed and no draft PR yet."""
     for argv in (
         ("init", "--notes", str(notes)),
         ("record", "size", "Normal"),
         ("record", "planned", f"{notes}/plan.md"),
         ("record", "quality", "Balanced"),
         ("record", "confirmed"),
-        ("record", "drafted", PR, "main"),
     ):
         _ = ok(repo, *argv)

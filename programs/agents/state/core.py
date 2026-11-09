@@ -33,6 +33,8 @@ from state.flow import (
     stuck_line,
 )
 from state.model import (
+    AREAS,
+    BLOCKER_KINDS,
     DEFAULT_QUALITY,
     DEFAULT_SIZE,
     DEFAULTS,
@@ -61,9 +63,11 @@ from state.model import (
     Knob,
     OpenBlocker,
     Overridden,
+    Picked,
     Planned,
     Proposed,
     Quality,
+    Raised,
     Ready,
     Refactored,
     Researched,
@@ -77,6 +81,7 @@ from state.model import (
     State,
     StateName,
     Token,
+    UntriagedBlocker,
     Verdict,
     Worker,
     mode_of,
@@ -116,7 +121,8 @@ def apply(state: State, event: Event) -> State | Failure:
         case (
             Started() | Quality() | Size() | Grew() | Defaulted() | Researched() | Asked()
             | Planned() | Proposed() | Confirmed() | Adjusted() | Drafted() | Implemented()
-            | Refactored() | Reviewed() | Fixed() | Ci() | Blocked() | Resolved() | Ready()
+            | Refactored() | Reviewed() | Picked() | Fixed() | Ci() | Raised() | Blocked()
+            | Resolved() | Ready()
         ):  # fmt: skip
             target = TARGET.get((state.step, classify(state, event)))
     match target, absorb(state, event):
@@ -173,10 +179,10 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
             return "started"
         case Quality() | Size() | Grew() | Defaulted():
             return "knob"
-        case Reviewed():
+        case Picked():
             left = cap(state) - state.reviews  # this review is not counted yet
             looping = loops(not_met(event.verdicts), event.rows, left)
-            return "reviewed-loop" if looping else "reviewed-final"
+            return "picked-loop" if looping else "picked-final"
         # A delegated run has no Ctx: its decision goes back to the caller.
         case Blocked(kind="decision") if not delegated(state):
             return "blocked-decision"
@@ -186,8 +192,8 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
             return "blocked"
         case (
             Researched() | Asked() | Planned() | Proposed() | Confirmed() | Adjusted()
-            | Drafted() | Implemented() | Refactored() | Fixed() | Ci() | Resolved()
-            | Ready()
+            | Drafted() | Implemented() | Refactored() | Reviewed() | Fixed() | Ci()
+            | Raised() | Resolved() | Ready()
         ):  # fmt: skip
             return cast("Kind", name_of(event))
         case Overridden():
@@ -247,14 +253,34 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             return replace(state, drafted=event)
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
-        case Reviewed(head=head, rows=rows, verdicts=verdicts):
-            return replace(
-                state,
-                head=head,
-                reviews=state.reviews + 1,
-                work=event,
-                rounds=(*state.rounds, ReviewRound(head, rows, not_met(verdicts))),
-            )
+        case Reviewed(head=head):
+            match state.work:
+                case Reviewed(head=waiting):
+                    return Failure(
+                        f"the review of {waiting} awaits its picks",
+                        PICKED_USAGE,
+                        2,
+                    )
+                case Picked() | Fixed() | Ci() | None:
+                    return replace(state, head=head, work=event)
+        case Picked(rows=rows, verdicts=verdicts):
+            match state.work:
+                case Reviewed(head=head):
+                    return replace(
+                        state,
+                        reviews=state.reviews + 1,
+                        work=event,
+                        rounds=(
+                            *state.rounds,
+                            ReviewRound(head, rows, not_met(verdicts)),
+                        ),
+                    )
+                case Picked() | Fixed() | Ci() | None:
+                    return Failure(
+                        "no review awaits its picks",
+                        "state record reviewed <the review's Reviewed head>, then rerun",
+                        2,
+                    )
         case Fixed(head=head):
             return replace(state, head=head, work=event)
         case Ci(head=head, failing=failing):
@@ -264,20 +290,25 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
                 work=event,
                 rounds=(*state.rounds, CiRound(head, failing)),
             )
+        case Raised(question=q, role=role):
+            return replace(state, blockers=ask(state, UntriagedBlocker(q, role)))
         case Blocked(question=q, kind=kind, role=role):
-            opened = OpenBlocker(q, kind, role)
             # A decision ends the loop's rounds: the stuck guard waits for the
             # next one, so a stuck answered as a decision is no longer stuck.
             work = None if kind == "decision" else state.work
-            if any(b.question == q for b in open_blockers(state)):
-                blockers = settle(state, q, lambda _: opened)
-            else:
-                blockers = (*state.blockers, opened)
-            return replace(state, blockers=blockers, work=work)
+            return replace(
+                state, blockers=ask(state, OpenBlocker(q, kind, role)), work=work
+            )
         case Resolved(question=q, answer=answer):
             if not any(b.question == q for b in state.blockers):
                 return Failure(
                     f"no blocker asks '{q}'", "state show lists the blockers", 2
+                )
+            if any(b.question == q for b in untriaged(state)):
+                return Failure(
+                    f"'{q}' is not triaged yet",
+                    triage_usage("<role>", q),
+                    2,
                 )
             return replace(
                 state,
@@ -303,6 +334,20 @@ def default(state: State, knob: Knob) -> State | Failure:
             return Failure(f"Size is {set_to} already", "drop this line", 2)
 
 
+def ask(state: State, blocker: UntriagedBlocker | OpenBlocker) -> tuple[Blocker, ...]:
+    """The blockers with `blocker` asked: in place of the same question still
+    pending, which a triage or re-triage replaces, else after the others."""
+    if any(b.question == blocker.question for b in pending(state)):
+        return tuple(
+            blocker
+            if isinstance(b, UntriagedBlocker | OpenBlocker)
+            and b.question == blocker.question
+            else b
+            for b in state.blockers
+        )
+    return (*state.blockers, blocker)
+
+
 def settle(
     state: State, question: str, to: Callable[[OpenBlocker], Blocker]
 ) -> tuple[Blocker, ...]:
@@ -315,6 +360,15 @@ def settle(
 
 def open_blockers(state: State) -> list[OpenBlocker]:
     return [b for b in state.blockers if isinstance(b, OpenBlocker)]
+
+
+def untriaged(state: State) -> list[UntriagedBlocker]:
+    return [b for b in state.blockers if isinstance(b, UntriagedBlocker)]
+
+
+def pending(state: State) -> list[UntriagedBlocker | OpenBlocker]:
+    """The questions not answered yet, triaged or not."""
+    return [b for b in state.blockers if isinstance(b, UntriagedBlocker | OpenBlocker)]
 
 
 # ---- Advice -------------------------------------------------------------------
@@ -391,14 +445,42 @@ def advise(state: State, facts: Facts) -> Advice:
 
 
 def advise_now(state: State, facts: Facts) -> Advice:
-    """Stuck first, then an open blocker, then the step's own arrow."""
-    match stuck_why(state), first_open(state):
-        case str() as why, _:
+    """Stuck first, then a question to triage, then an open blocker, then a
+    review's picks, then the step's own arrow."""
+    match stuck_why(state), first_untriaged(state), first_open(state), state.work:
+        case str() as why, _, _, _:
             return Stuck(why, stuck_lines(state, why))
-        case None, OpenBlocker() as blocker:
+        case None, UntriagedBlocker() as blocker, _, _:
+            return advise_triage(blocker)
+        case None, None, OpenBlocker() as blocker, _:
             return advise_blocker(state, blocker)
-        case None, None:
+        case None, None, None, Reviewed(head=head):
+            return advise_picks(head)
+        case None, None, None, Picked() | Fixed() | Ci() | None:
             return advise_step(state, facts)
+
+
+def advise_triage(blocker: UntriagedBlocker) -> Run:
+    return Run(
+        triage_usage(blocker.role, blocker.question),
+        (f"the {blocker.role} asks; triage it as blockers.md says",),
+    )
+
+
+def triage_usage(role: str, question: str) -> str:
+    """The `state record blocked` line that triages a worker's question."""
+    return f"state record blocked {'|'.join(BLOCKER_KINDS)} {role} {quoted(question)}"
+
+
+def advise_picks(head: str) -> Run:
+    return Run(
+        PICKED_USAGE,
+        (
+            f"the review of {head} is back: pick the rows to fix as review.md says,",
+            "  each labelled so the same finding keeps its label across rounds",
+            "no rows and no Not met: state record picked",
+        ),
+    )
 
 
 def stuck_lines(state: State, why: str) -> tuple[str, ...]:
@@ -413,6 +495,10 @@ def stuck_lines(state: State, why: str) -> tuple[str, ...]:
             f"<role> {quoted(f'stuck: {why}')}, then state record resolved"
         ),
     )
+
+
+def first_untriaged(state: State) -> UntriagedBlocker | None:
+    return next(iter(untriaged(state)), None)
 
 
 def first_open(state: State) -> OpenBlocker | None:
@@ -433,7 +519,7 @@ def stuck_why(state: State) -> str | None:
     reviews = review_rounds(state)
     checks = [r for r in state.rounds if isinstance(r, CiRound)]
     match state.work:
-        case Reviewed() if len(reviews) >= IN_A_ROW:
+        case Picked() if len(reviews) >= IN_A_ROW:
             same = labels(reviews[-2]) & labels(reviews[-1])
             if same:
                 return f"row {', '.join(sorted(same))} in 2 rounds in a row"
@@ -441,13 +527,13 @@ def stuck_why(state: State) -> str | None:
             same = set(checks[-2].failing) & set(checks[-1].failing)
             if same:
                 return f"check {', '.join(sorted(same))} failing in 2 rounds in a row"
-        case Reviewed() | Ci() | Fixed() | None:
+        case Reviewed() | Picked() | Ci() | Fixed() | None:
             pass
     asked = [b.question for b in state.blockers]
     if (
         len(asked) >= IN_A_ROW
         and asked[-1] == asked[-2]
-        and any(b.question == asked[-1] for b in open_blockers(state))
+        and any(b.question == asked[-1] for b in pending(state))
     ):
         return f"question '{asked[-1]}' back in 2 rounds in a row"
     return None
@@ -555,7 +641,7 @@ def advise_ctx(state: State) -> Advice:
         *(f"decision path for {quoted(b.question)}" for b in decisions),
         f"researchers {state.researched} ({researchers})",
         f"questions {state.asked} (at least 1, typically 4-12)",
-        "each: state record researched | state record asked",
+        "each researcher back and question asked: recorded by the hook",
     )
     # The plan states its Quality, so a lead's run picks it before the plan.
     if state.quality is None and not delegated(state):
@@ -635,7 +721,7 @@ def advise_draft(state: State) -> Advice:
             f"state record {knob} <your brief's {knob.capitalize()}: line>",
             ("delegated: the brief sets both knobs",),
         )
-    record = "then: state record drafted <the PR URL gh printed> <base>"
+    record = "drafted: recorded by the hook from the URL gh prints; then: state next"
     knobs = f"Quality: {knob_text(state, 'quality')}  Size: {knob_text(state, 'size')}"
     poc = state.quality == "POC"
     if delegated(state):
@@ -695,7 +781,7 @@ def advise_impl(state: State) -> Advice:
             "slices one after another; in parallel only when independent",
             "a hand-back at the context warning: a successor with "
             + resume_text("<its commit>"),
-            "READY: state handback implementer < text",
+            "READY: recorded by the hook; then: the next slice, or state next",
         ),
     )
 
@@ -720,10 +806,20 @@ def advise_refactor(state: State, facts: Facts) -> Advice:
                 (
                     *unknown,
                     f"brief: state brief refactorer; {mode}: {QUALITY['Refactor'][mode]}",
-                    "proposals: one AskUserQuestion each, in this PR / a follow-up / drop",
-                    "READY: state handback refactorer < text",
+                    proposals_line(state),
+                    "READY: recorded by the hook; then: state next",
                 ),
             )
+
+
+def proposals_line(state: State) -> str:
+    """The refactorer's bigger proposals: the user decides them, through the
+    caller when delegated."""
+    return (
+        "proposals: hand them back to your caller"
+        if delegated(state)
+        else "proposals: one AskUserQuestion for all, in this PR / a follow-up / drop"
+    )
 
 
 def first_review(state: State, facts: Facts, before: tuple[str, ...]) -> Spawn:
@@ -740,10 +836,7 @@ def first_review(state: State, facts: Facts, before: tuple[str, ...]) -> Spawn:
             *dry_run(state, facts),
             "brief: state brief review-lead",
             review_args(state),
-            (
-                "back: state handback review-lead [--row <label>]... "
-                "[--verdict <requirement>=not-met]... < text"
-            ),
+            f"back: recorded by the hook; then: {PICKED_USAGE}",
         ),
     )
 
@@ -772,7 +865,7 @@ def dry_run(state: State, facts: Facts) -> tuple[str, ...]:  # noqa: PLR0911 - o
 
 def advise_rounds(state: State, facts: Facts) -> Advice:
     match state.work:
-        case Reviewed(rows=rows, verdicts=verdicts):
+        case Picked(rows=rows, verdicts=verdicts):
             return loop_fixer(state, rows, verdicts)
         case Fixed(touches=touches) if wide(state, touches):
             return Spawn(
@@ -800,7 +893,7 @@ def advise_rounds(state: State, facts: Facts) -> Advice:
                     review_args(state),
                 ),
             )
-        case Ci() | None:
+        case Reviewed() | Ci() | None:
             return first_review(state, facts, ())
 
 
@@ -822,7 +915,7 @@ def loop_fixer(
                 else []
             ),
             "brief: state brief fixer",
-            "READY: state handback fixer [--touches <area>]... < text",
+            "READY: recorded by the hook, with its Touches: areas; then: state next",
         ),
     )
 
@@ -848,9 +941,9 @@ def advise_final(state: State) -> Advice:
                     "each CI result: state record ci [--failing <check>]...",
                 ),
             )
-        case Reviewed(rows=rows):
+        case Picked(rows=rows):
             return final_fixer(state, rows)
-        case Ci() | None:
+        case Reviewed() | Ci() | None:
             return final_fixer(state, ())
 
 
@@ -862,7 +955,7 @@ def final_fixer(state: State, rows: tuple[str, ...]) -> Spawn:
             r0_text(base_of(state)),
             "the full check before its push when one is owed",
             "brief: state brief fixer",
-            "READY: state handback fixer < text",
+            "READY: recorded by the hook; then: state next",
         ),
     )
 
@@ -884,7 +977,7 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                     *(f"before: {gate}" for gate in READY_GATES),
                     f"notify, with: {qa}  {final}",
                     f"  {feedback}  {address} (comments from others)",
-                    f"then: state record ready {pr}",
+                    "ready: recorded by the hook; then: state next",
                 ),
             )
         case Ci(failing=failing):
@@ -894,7 +987,7 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                     f"CI fix: {', '.join(failing)}",
                     f"plus {r0_text(base_of(state))}, when the fix changes what the body says",
                     "brief: state brief fixer",
-                    "READY: state handback fixer < text",
+                    "READY: recorded by the hook; then: state next",
                 ),
             )
         case Fixed() if latest_loops(state):
@@ -906,11 +999,11 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                     review_args(state),
                 ),
             )
-        case Reviewed(rows=rows, verdicts=verdicts) if latest_loops(state):
+        case Picked(rows=rows, verdicts=verdicts) if latest_loops(state):
             return loop_fixer(state, rows, verdicts)
-        case Reviewed(rows=rows) if rows:
+        case Picked(rows=rows) if rows:
             return final_fixer(state, rows)
-        case Fixed() | Reviewed() | None:
+        case Fixed() | Reviewed() | Picked() | None:
             return wait_ci(state)
 
 
@@ -957,7 +1050,7 @@ def review_args(state: State) -> str:
                 f"invoke `pragmatic-review` with: {head} --fixes {reviewed[-1]} "
                 f"--requirements {fixes_copy(state)} {pr}"
             )
-        case Fixed() | Reviewed() | Ci() | None:
+        case Fixed() | Reviewed() | Picked() | Ci() | None:
             return (
                 f"invoke `pragmatic-review` with: {head} --requirements "
                 f"{requirements_of(state)} {pr}"
@@ -1057,22 +1150,25 @@ def record(
 @dataclass(frozen=True)
 class HandbackOptions:
     kind: BlockerKind | None = None
-    head: str | None = None  # `--head`: the head the worker reports, over any other
-    touches: tuple[Area, ...] = ()
-    rows: tuple[str, ...] = ()
-    verdicts: tuple[Verdict, ...] = ()
+
+
+# `state record picked`'s usage, the arrow a review back waits for.
+PICKED_USAGE = (
+    "state record picked [--row <label>]... [--verdict <requirement>=not-met]..."
+)
 
 
 def parse_handback(  # noqa: PLR0911 - one arm per status
     role: Worker, text: str, options: HandbackOptions, head: str | None
 ) -> tuple[Event, ...] | Failure:
     """A worker's first line is its status; a review-lead's report ends with
-    `Reviewed head: <sha>`, which `--head` replaces, and may start with a
-    plan-wrong line."""
+    `Reviewed head: <sha>` and may start with a plan-wrong line, and a fixer's
+    names what its fix touched on a `Touches:` line. A question stays untriaged
+    unless `--kind` or its own words triage it."""
     lines = [line.strip() for line in text.strip().splitlines()]
     first = lines[0] if lines else ""
     word, _, rest = first.partition(" ")
-    reviewed = options.head or reviewed_head(lines)
+    reviewed = reviewed_head(lines)
     match role, token_of(word):
         case _, "NEEDS_DECISION":
             grew = tuple(
@@ -1081,33 +1177,31 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
                 if line.startswith("GREW ")
             )
             review: tuple[Event, ...] = (
-                (Reviewed(reviewed, (), ()),)
+                (Reviewed(reviewed),)
                 if role == "review-lead" and reviewed is not None
                 else ()
             )
-            match triage(rest, options.kind):
-                case Failure() as failure:
-                    return failure
-                case kind:
-                    return (*review, Blocked(rest, kind, role), *grew)
+            return (*review, question(rest, role, options.kind), *grew)
         case _, "GREW":
             return (Grew(rest),)
         case _, "BLOCKED" | "FAILED":
-            match triage(first, options.kind):
-                case Failure() as failure:
-                    return failure
-                case kind:
-                    return (Blocked(first, kind, role),)
+            return (question(first, role, options.kind),)
         case "review-lead", _:
             if reviewed is None:
                 return Failure(
-                    "state handback review-lead: no --head and no 'Reviewed head: <sha>' line",
-                    "state handback review-lead --head <sha> [--row <label>]...",
+                    "state handback review-lead: no 'Reviewed head: <sha>' line",
+                    "state record reviewed <the head the review read>",
                     2,
                 )
-            return (Reviewed(reviewed, options.rows, options.verdicts),)
+            return (Reviewed(reviewed),)
+        case "fixer", "READY":
+            match touched(lines):
+                case Failure() as failure:
+                    return failure
+                case touches:
+                    return ready(role, head, touches)
         case _, "READY":
-            return ready(role, options.head or head, options.touches)
+            return ready(role, head, ())
         case _:
             return Failure(
                 f"state handback {role}: line 1 starts '{word}', not one of "
@@ -1158,20 +1252,41 @@ def reviewed_head(lines: list[str]) -> str | None:
     return found[-1].removeprefix("Reviewed head:").strip() or None if found else None
 
 
-def triage(question: str, kind: BlockerKind | None) -> BlockerKind | Failure:
-    """A plan-wrong or stuck line is a decision; any other question is the
-    lead's triage, passed as --kind."""
+TOUCHES_LINE = "Touches:"
+
+
+def touched(lines: list[str]) -> tuple[Area, ...] | Failure:
+    """The areas on a fixer's last `Touches:` line, split on spaces or commas;
+    `none`, or no such line, is none."""
+    found = [line for line in lines if line.startswith(TOUCHES_LINE)]
+    words = (
+        found[-1].removeprefix(TOUCHES_LINE).replace(",", " ").split() if found else []
+    )
+    # Declared: pyright widens an inferred tuple(...) of literals to str.
+    areas: tuple[Area, ...] = tuple(
+        area for word in words for area in AREAS if area == word
+    )
+    unknown = [word for word in words if word not in (*AREAS, "none")]
+    if unknown:
+        return Failure(
+            f"state handback fixer: Touches: names {', '.join(unknown)}, not "
+            + " | ".join(AREAS),
+            "state record fixed [<head>] [--touches <area>]...",
+            2,
+        )
+    return areas
+
+
+def question(text: str, role: Role, kind: BlockerKind | None) -> Raised | Blocked:
+    """A plan-wrong or stuck line is a decision; any other question waits for
+    the lead's triage, unless `--kind` gives it."""
     match kind:
-        case None if question.startswith(("plan wrong:", "stuck:")):
-            return "decision"
+        case None if text.startswith(("plan wrong:", "stuck:")):
+            return Blocked(text, "decision", role)
         case None:
-            return Failure(
-                f"state handback: triage '{question}' first",
-                "add --kind answered|fact|decision|scope (blockers.md, Triage)",
-                2,
-            )
+            return Raised(text, role)
         case _:
-            return kind
+            return Blocked(text, kind, role)
 
 
 # ---- Briefs -------------------------------------------------------------------
@@ -1225,13 +1340,13 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
             return []
         case "fixer":
             match state.step, state.work:
-                case "DraftPR", Reviewed(rows=rows) | Ci(failing=rows):
+                case "DraftPR", Picked(rows=rows) | Ci(failing=rows):
                     rows_line = f"Rows: {', '.join([*rows, 'R0'])}"
                 case "DraftPR", _:
                     rows_line = "Rows: R0"
-                case _, Reviewed(rows=rows) | Ci(failing=rows) if rows:
+                case _, Picked(rows=rows) | Ci(failing=rows) if rows:
                     rows_line = f"Rows: {', '.join(rows)}"
-                case _, Reviewed() | Ci() | Fixed() | None:
+                case _, Reviewed() | Picked() | Ci() | Fixed() | None:
                     rows_line = "Rows: <the chosen rows>"
             final = [
                 r0_text(base),
@@ -1240,8 +1355,15 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
             return [
                 rows_line,
                 *(final if state.step == "DraftPR" else []),
-                f"A row that needs the branch's changes: ctx diff origin/{base}",
+                (
+                    "A row that needs the branch's changes: the prompt's Diff: folder, "
+                    f"else ctx diff origin/{base}"
+                ),
                 "Targeted checks only: <the checks>",
+                (
+                    "End your hand-back with a line `Touches: <area>...` naming any of "
+                    f"{', '.join(AREAS)} your fix changed (or `Touches: none`)."
+                ),
             ]
         case "review-lead":
             return (
@@ -1293,12 +1415,7 @@ def show(state: State) -> str:
 
     reviewed = [r.head for r in review_rounds(state)]
     rounds = [round_line(i, r) for i, r in enumerate(state.rounds, start=1)]
-    blockers = [
-        f"- {b.question} - {b.kind} - open"
-        if isinstance(b, OpenBlocker)
-        else f"- {b.question} - {b.kind} - done: {b.answer}"
-        for b in state.blockers
-    ]
+    blockers = [blocker_line(b) for b in state.blockers]
     lines = [
         f"Step: {state.step}",
         f"Head: {state.head or '-'}",
@@ -1321,6 +1438,16 @@ def show(state: State) -> str:
         *blockers,
     ]
     return "".join(f"{line}\n" for line in lines)
+
+
+def blocker_line(b: Blocker) -> str:
+    match b:
+        case UntriagedBlocker(question=q, role=role):
+            return f"- {q} - untriaged, from the {role} - open"
+        case OpenBlocker(question=q, kind=kind):
+            return f"- {q} - {kind} - open"
+        case DoneBlocker(question=q, kind=kind, answer=answer):
+            return f"- {q} - {kind} - done: {answer}"
 
 
 def round_line(n: int, r: Round) -> str:

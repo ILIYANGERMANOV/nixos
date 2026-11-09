@@ -1,0 +1,15 @@
+{
+  "events": ["sessionStart", "beforeTool", "afterTool"],
+  "tools": [
+    "shell",
+    "read",
+    "edit",
+    "write",
+    "delegate",
+    "handback",
+    "ask",
+    "web",
+    "skill"
+  ],
+  "sources": ["startup", "resume", "compact"]
+}

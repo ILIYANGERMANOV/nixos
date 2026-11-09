@@ -25,13 +25,13 @@ house-rule row is fixed, or the reason for leaving it goes in the PR body.
 When your Quality row fixes only blockers (security, irreversible damage,
 broken code), every other row goes in `## Follow-ups`. A Not met verdict
 never does: `Not met always` below. Below the Re-reviews cap, chosen rows
-go to a loop fixer, then a `--fixes` review: record them as `--row`s, and
-`state next` spawns it. No row chosen, or the cap, ends the loop: the final
-fixer.
+go to a loop fixer, then a `--fixes` review: record them as `picked`'s
+`--row`s, and `state next` spawns it. No row chosen, or the cap, ends the
+loop: the final fixer.
 
-A return that starts `NEEDS_DECISION plan wrong`: fix no row, security
-included. Record its rows and triage the line. The re-plan's fresh round 1
-finds them again.
+A return that starts `NEEDS_DECISION plan wrong`: fix and record no row,
+security included. The hook records the line as a decision; `state next`
+leads on. The re-plan's round 1 finds the rows again.
 
 ## Final fixer
 
@@ -55,7 +55,8 @@ always runs last. A Not met it cannot fix is a blocker: triage it.
 ## Later rounds and the CI fix
 
 A requirement a `--fixes` review answers "unchanged" keeps its latest verdict.
-Record a fix with `state handback fixer --touches <area>` when it touches what
-your Quality row's Full review of a fix to names: its review covers the whole
-branch. The CI fix loops as `state next` says until CI is green; a CI fixer
-also gets R0 when its fix changes what the body says. Notify only on ready.
+A fixer names what its fix touched on its report's `Touches:` line, which the
+hook records. One that touches what your Quality row's Full review of a fix to
+names gets a review of the whole branch. The CI fix loops as `state next`
+says until CI is green; a CI fixer also gets R0 when its fix changes what the
+body says. Notify only on ready.

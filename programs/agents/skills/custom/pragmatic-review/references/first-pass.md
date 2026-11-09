@@ -15,6 +15,10 @@ HEAD_SHA=$(git rev-parse HEAD)
 out=$(ctx diff "$BASE"); echo "$out"; D=${out%%$'\n'*}   # work tree; D = line 1
 ```
 
+A `Diff: <folder>` line in your prompt is this capture done: `D=<folder>`, and
+no `ctx diff` below. It wins over a PR argument for the diff: keep the local
+`HEAD_SHA`, skip the PR fetch below and read only the PR's text.
+
 With a PR argument, fetch it instead of reading the working tree: set `BASE` to
 `origin/<baseRefName>` from `gh pr view <n> --json baseRefName`, run
 `git fetch -q origin "pull/<n>/head" <baseRefName>`,

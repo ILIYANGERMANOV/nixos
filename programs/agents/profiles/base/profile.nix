@@ -59,4 +59,7 @@
   # /qa's wallet key, handed out as the decrypted file's PATH for qa-wallet to
   # read, never as a value. A host without the secret gets no variable.
   secretFiles.QA_EVM_KEY_FILE = "qa-sepolia-key";
+  # The state hooks keep the engineer flow's record as the agents work; a
+  # worktree with no `state` run sees none of them.
+  hooks = [ state.hooks ];
 }

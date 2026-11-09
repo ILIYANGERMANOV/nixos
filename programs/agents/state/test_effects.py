@@ -167,9 +167,8 @@ def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -
     to_impl(repo, notes)
     _ = ok(repo, "record", "implemented")
     _ = ok(repo, "record", "refactored")
-    _ = ok(
-        repo, "handback", "review-lead", "--row", "R1", stdin="x\nReviewed head: abc\n"
-    )
+    _ = ok(repo, "handback", "review-lead", stdin="x\nReviewed head: abc\n")
+    _ = ok(repo, "record", "picked", "--row", "R1")
 
     blocked = ok(
         repo, "handback", "fixer", "--kind", "fact", stdin="NEEDS_DECISION q?\n"
@@ -177,12 +176,14 @@ def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -
     fixed = ok(repo, "handback", "fixer", stdin="READY\n")
 
     assert (blocked, fixed) == (
-        "recorded 10 blocked -> Impl''\n",
-        "recorded 11 fixed -> Impl''\n",
+        "recorded 11 blocked -> Impl''\n",
+        "recorded 12 fixed -> Impl''\n",
     )
-    assert log_of(notes)[8]["event"] == {
-        "type": "reviewed", "head": "abc", "rows": ["R1"], "verdicts": [],
-    }  # fmt: skip
+    assert log_of(notes)[9]["event"] == {
+        "type": "picked",
+        "rows": ["R1"],
+        "verdicts": [],
+    }
 
 
 def test_next_skips_the_refactor_on_a_small_balanced_diff(
@@ -219,7 +220,8 @@ def test_show_prints_the_progress_view(repo: Path, tmp_path: Path) -> None:
     to_impl(repo, notes)
     _ = ok(repo, "record", "implemented", "h1")
     _ = ok(repo, "record", "refactored", "h2")
-    _ = ok(repo, "record", "reviewed", "h3", "--row", "R1")
+    _ = ok(repo, "record", "reviewed", "h3")
+    _ = ok(repo, "record", "picked", "--row", "R1")
     _ = ok(repo, "record", "blocked", "fact", "fixer", "which log?")
 
     out = ok(repo, "show")

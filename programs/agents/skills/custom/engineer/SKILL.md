@@ -27,14 +27,11 @@ CI. You own the outcome; the user owns the decisions.
 - **Notes directory.** `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug being
   the branch name, from step 1: `state init --notes <dir>` starts the run's
   event log there, beside research notes, proposals and requirements.
-- **`state` holds the record and the mechanics** (`state help`). Each step
-  ends with its `state` line: run it as the step happens, never later, then
-  `state next`, until `DONE`. `state brief <role>` before every spawn;
-  paste each implementer, refactorer, fixer and review-lead hand-back into
-  `state handback <role>` as its status line alone, plus flags. A
-  refusal's `fix:` line names the command that works now: run it. A fresh
-  context resumes from `state show` and `git log`; off the advised
-  arrow: `state override`.
+- **`state` holds the record and the mechanics** (`state help`; `show`,
+  `next` by hand too). A step's `state` line is what only you decide: run it
+  as the step happens, then `state next`, until `DONE`. `state brief <role>`
+  before every spawn. A `fix:` line names the command that works now: run
+  it. Off the advised arrow: `state override`.
 - **Quality and Size** are in your instructions. Your row in the Quality
   table says what each step runs. You set Size, once, before step 1, from the
   prompt and at most 5 lookups: `Size: Trivial` when the Trivial rule holds,
@@ -90,15 +87,27 @@ Every Quality and Size keeps the quick security review, the blocker arrows,
 fact-gap research and the final fixer. A re-plan from a blocker follows
 your Quality row too.
 
-## Common `state` mistakes
+## State hooks
+
+Hooks record the rest and add context. Absence is visible: a hand-back with
+no `state:` line, or `gh pr create`/`gh pr ready` with no `state: recorded`
+note, was not recorded, so record it by hand: `state handback <role>`,
+`state record drafted|ready ...`.
+
+| When | The hook | You |
+|---|---|---|
+| session start, resume, compact | adds `state show`, `state next` | resume from them and `git log` |
+| you spawn | adds `state next`, a warning off it; once drafted, `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt: `ctx diff <base>` output, read by its `index` then `diff` ranges | advisory, none for a reviewer, researcher, checker or later slice; add no diff |
+| an implementer, refactorer, fixer or review-lead hands back | records it; appends `state: recorded ...`, or a refusal and `fix:` | triage a question, pick a review's rows |
+| Ctx: a researcher back, a question | `researched`, `asked` | - |
+| `gh pr create`, `gh pr ready` | `drafted`, `ready` | - |
 
 | Mistake | Right form |
 |---|---|
 | no call for an hour, then back-filled | each step's line as it happens |
 | `record plan` | `record planned <path>` |
-| `record drafted` while in Ctx | the refusal's `fix:` command first |
-| a report retyped into `handback` | only its status line, plus flags |
-| no `next` after `fixed`, steps 9-10 off-state | `next` after every step |
+| a recorded hand-back piped to `handback` | `picked` or `blocked` |
+| no `next` after a hand-back, steps 9-10 | `next` after every step |
 
 ## Steps
 
@@ -115,8 +124,7 @@ the rest after it, as many as your Quality row's Researchers. Its prompt:
 `state brief researcher`, filled in as `## Callers` in
 `~/.claude/skills/researcher/SKILL.md` says. An answer in step
 2 that opens a new fact gap gets research too, on demand.
-`state`: `init --notes <dir>`, `record size <Size>`, then `record researched`
-per researcher.
+`state`: `init --notes <dir>`, `record size <Size>`.
 
 ### 2. Interview
 
@@ -129,7 +137,6 @@ Skip grilling's last confirmation: step 3 is the only one.
 An issue in the design-issue format (`## Decisions`, `## Open questions`), from
 the user or `/architect`, has settled its Decisions: never re-ask them. Interview
 only its Open questions and the gaps research opens; step 3 confirms.
-`state`: `record asked` per answer.
 
 ### 3. Confirm the plan
 
@@ -172,7 +179,6 @@ auth, sessions, authorization, databases, secrets or CI, it also states
 plan is now visible from the phone. Attach the PR to the session as your
 instructions say (`add_repo`, `subscribe_pr_activity`). POC:
 `gh label create POC --force`, then `gh pr edit <n> --add-label POC`.
-`state`: `record drafted <PR URL> <base>`.
 
 ### 5. Implement
 
@@ -187,7 +193,6 @@ sections it needs, and the sha the previous slice started from, if any. One
 that hands back at the context warning gets a successor as
 `references/blockers.md` Resume says, naming its commit and the sha its slice started from. Add
 any security-sensitive topic an implementer reports to the plan's line.
-`state`: `handback implementer < <status line>`.
 
 ### 6. Refactor
 
@@ -197,26 +202,23 @@ your context. Keep only its hand-back. Bring its proposals, the bigger
 refactors past the diff, to the user as one question with their scope and
 payoff: in this PR, a follow-up, or drop. In this PR is a re-plan: the
 decision path in `blockers.md`. Your Quality row's Refactor says when this
-step runs. `state`: `handback refactorer`.
+step runs.
 
 ### 7. Review
 
 Round 1, the first review, as `${CLAUDE_SKILL_DIR}/references/review.md`
 says: requirements, the spawns `state next` prints, then the rows you pick.
-`state`: `handback review-lead --head <Reviewed head>`, a `--row` per chosen
-row, its `--verdict`s.
+`state`: `record picked`, a `--row` per chosen row, its `--verdict`s.
 
 ### 8. Fix and review again
 
 The rounds after it and the final fixer, as `review.md` says, up to your
-Quality row's Re-reviews. `state`: `handback fixer`, then the review's as
-in step 7.
+Quality row's Re-reviews. `state`: each review's picks, as in step 7.
 
 ### 9. Describe and notify
 
 The final fixer's R0 wrote the PR body. Notify the user the way your
-instructions describe: the draft is complete and CI runs. `state`: the final
-fixer's `handback fixer`.
+instructions describe: the draft is complete and CI runs.
 
 ### 10. Hand over
 
@@ -242,8 +244,7 @@ draft, not merge-ready, with no next steps.
   `/address-pr-feedback <PR>` when the PR has comments from anyone else. Only
   the user runs them.
 
-`state`: `record ci [--failing <check>]` per CI result, a CI fixer's
-`handback fixer`, then `record ready <PR URL>`.
+`state`: `record ci [--failing <check>]` per CI result.
 
 ## Delegated
 
@@ -278,6 +279,10 @@ rest of this skill.
   the decision path. Resumed with the answer, go on where you stopped.
 - Your requirements file is the brief's. Run
   `state init --notes <dir> --delegated`, and after each step write `state show` to the brief's report file.
+- No hook reaches a delegated run: record every step yourself, each hand-back
+  as its status line alone, plus flags, into `state handback <role>`, and
+  `state record` for drafted, ready, researched, asked and the rest. Run
+  each `state` call as `cd <worktree> && state ...`.
 - Start your hand-back with one status, then its usual content plus the last
   finished step and the head SHA:
   - `READY <PR URL>` - step 10's part is done and pushed.

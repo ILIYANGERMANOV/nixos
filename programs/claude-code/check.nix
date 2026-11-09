@@ -1,5 +1,5 @@
-# Build-time tests for the ~/.claude.json MCP shape, the secret file guard and
-# load/applies.nix, wired into `nix flake check` (and therefore `just check` in
+# Build-time tests for the ~/.claude.json MCP shape, the secret file guard, the
+# hooks' settings and load/applies.nix, wired into `nix flake check` (and therefore `just check` in
 # CI) as `checks.claude-code`. Which servers a host gets is programs/agents' logic and
 # is tested in `checks.agents`; here the servers are the records it hands over,
 # secrets already resolved to paths.
@@ -59,6 +59,41 @@ let
   };
   # When: the flavor is handed the secret file this host declares.
   guarded = withSecretFileGuard { FIGMA_TOKEN_FILE = "/run/secrets/figma-token"; } flavorSettings;
+
+  hookSettings = import ./codegen/hooks.nix {
+    inherit lib;
+    sources = [
+      "startup"
+      "resume"
+      "compact"
+    ];
+  };
+  adapter = {
+    type = "command";
+    command = "agent-hook-claude tools.json manifest.json";
+  };
+  declared = name: tools: {
+    inherit name tools;
+    command = [ name ];
+  };
+  # Given: a folded profile's hooks, as agents.fold hands them over.
+  profileHooks = {
+    sessionStart = [ (declared "resume" null) ];
+    beforeTool = [
+      (declared "spawn" [ "delegate" ])
+      (declared "pr" [
+        "shell"
+        "delegate"
+      ])
+    ];
+    afterTool = [ ];
+  };
+  # When: the flavor runs them.
+  hooked = hookSettings.withHooks adapter profileHooks flavorSettings;
+  # A copy of programs/agents/lib/throws.nix: a program reaches another only
+  # through its entry point (deslop programs-are-isolated), and one line is not
+  # worth exposing from agents' default.nix.
+  throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
 
   cases = [
     {
@@ -129,6 +164,63 @@ let
       expected = "opus";
     }
     {
+      name = "hooks add one adapter entry per event they use, after the flavor's own, matched on their tools' union";
+      actual = hooked.hooks;
+      expected = {
+        PreToolUse = flavorSettings.hooks.PreToolUse ++ [
+          {
+            matcher = "Agent|Bash";
+            hooks = [ adapter ];
+          }
+        ];
+        SessionStart = [
+          {
+            matcher = "startup|resume|compact";
+            hooks = [ adapter ];
+          }
+        ];
+      };
+    }
+    {
+      name = "a hook with no tools is matched on every tool the table names";
+      actual =
+        (hookSettings.withHooks adapter {
+          afterTool = [ (declared "asked" null) ];
+        } { }).hooks.PostToolUse;
+      expected = [
+        {
+          matcher = "Agent|AskUserQuestion|Bash|Edit|Read|Skill|SubagentHandback|WebFetch|WebSearch|Write";
+          hooks = [ adapter ];
+        }
+      ];
+    }
+    {
+      name = "hooks leave the flavor's other settings as they are";
+      actual = removeAttrs hooked [ "hooks" ];
+      expected = removeAttrs flavorSettings [ "hooks" ];
+    }
+    {
+      name = "a profile with no hooks keeps its settings unchanged";
+      actual = hookSettings.withHooks adapter {
+        sessionStart = [ ];
+        beforeTool = [ ];
+        afterTool = [ ];
+      } flavorSettings;
+      expected = flavorSettings;
+    }
+    {
+      name = "a hook tool with no Claude tool throws";
+      actual = throws (
+        hookSettings.withHooks adapter { beforeTool = [ (declared "x" [ "teleport" ]) ]; } { }
+      );
+      expected = true;
+    }
+    {
+      name = "a hook event with no Claude event throws";
+      actual = throws (hookSettings.withHooks adapter { beforeLunch = [ (declared "x" null) ]; } { });
+      expected = true;
+    }
+    {
       name = "a flavor with no secret file available keeps its settings unchanged";
       actual = withSecretFileGuard { } flavorSettings;
       expected = flavorSettings;
@@ -161,7 +253,7 @@ builtins.deepSeq (import ./load/applies.nix { inherit lib; }) pkgs.runCommand "c
     ${lib.concatMapStringsSep "\n" report cases}
 
     if [ "$status" -ne 0 ]; then
-      echo "claude-code: the MCP shape or the secret file guard is wrong" >&2
+      echo "claude-code: the MCP shape, the secret file guard or the hooks' settings are wrong" >&2
       exit 1
     fi
 

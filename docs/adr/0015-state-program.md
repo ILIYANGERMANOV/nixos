@@ -7,6 +7,9 @@ records every transition of a run as an event, folds the log into the current
 state, and advises the next arrow with its mechanical payload. It never
 refuses. Design: #329; implementation: #331.
 
+Amended by ADR 0016: advisory hooks now write the events a program can
+derive.
+
 ## Evidence
 
 Measured on this machine over 53 lead sessions from 2026-10-24, the 4 runs

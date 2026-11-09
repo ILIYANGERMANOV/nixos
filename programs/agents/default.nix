@@ -23,6 +23,10 @@ let
     serverNames = lib.attrNames mcpCatalog;
   };
   targets = import ./lib/targets.nix { inherit pkgs lib; };
+  hooks = import ./hooks {
+    inherit pkgs lib;
+    packages = { inherit state; };
+  };
   dedupLib = import ./lib/passes/dedup.nix {
     inherit pkgs lib;
     instructions = instructionsLib;
@@ -81,7 +85,10 @@ let
   # `ctx`: the review diff in a cached folder, on PATH in every session.
   ctx = import ./ctx { inherit pkgs; };
   # `state`: the engineer flow's event log and advice, on PATH beside `ctx`.
-  state = import ./state { inherit pkgs; };
+  state = import ./state {
+    inherit pkgs ctx;
+    agentHook = hooks.module;
+  };
   profiles = import ./profiles {
     inherit (profileLib) mkProfile;
     inherit
@@ -96,13 +103,15 @@ let
   };
 
   # A folded profile narrowed to what this host can run: servers whose secrets it
-  # lacks dropped, secret names resolved to their paths.
+  # lacks dropped, secret names resolved to their paths. Its hook files become
+  # each event's hooks in the order they run.
   forHost =
     profile:
     profile
     // {
       mcp = mcpLib.availableServers secrets profile.mcp;
       secretFiles = mcpLib.provided secrets profile.secretFiles;
+      hooks = hooks.eval profile.hooks;
     };
 in
 {
@@ -119,7 +128,8 @@ in
   inherit (instructionsLib) renderLead renderRole;
 
   # Profiles appended in order, refused if the result still holds a duplicate,
-  # then narrowed to this host's secrets: `mcp` and `secretFiles` hold paths.
+  # then narrowed to this host's secrets: `mcp` and `secretFiles` hold paths,
+  # `hooks` each event's hooks in order.
   fold = selected: forHost (dedupLib.dedup (profileLib.fold selected));
 
   # The skill catalog. Agent-agnostic because SKILL.md is a shared format.
@@ -127,6 +137,11 @@ in
 
   # The `ctx` and `state` commands, the ones the base profile's runtime puts on PATH.
   inherit ctx state;
+
+  # The hooks a folded profile carries, for a backend: the `vocabulary` it maps,
+  # the `manifest` its adapter hands the dispatcher, and that dispatcher, the
+  # Python `module` agent_hook. See hooks/default.nix.
+  hooks = { inherit (hooks) vocabulary manifest module; };
 
   # The subagent roles, by name, as records. Each agent program renders them its
   # own way.
@@ -174,6 +189,10 @@ in
     {
       name = "targets";
       path = targets.check;
+    }
+    {
+      name = "hooks";
+      path = hooks.check;
     }
     {
       name = "roles";

@@ -42,7 +42,7 @@ def test_help_prints_usage_and_exits_0(repo: Path) -> None:
         ),
         pytest.param(
             "review",
-            "did you mean: state record reviewed <head> [--row <label>]... [--verdict <requirement>=met|not-met|unverified]...",
+            "did you mean: state record reviewed <head>",
             id="the closest of several",
         ),
         pytest.param("zzz", "state --help lists the events", id="no close match"),
@@ -80,19 +80,20 @@ def test_an_off_arrow_event_is_refused_and_its_fix_command_works(
     assert asked == "recorded 4 asked -> Ctx\n"
 
 
-def test_a_review_lead_handback_takes_its_head_from_the_flag(
+def test_a_review_lead_handback_records_its_head_and_waits_for_the_picks(
     repo: Path, tmp_path: Path
 ) -> None:
     notes = tmp_path / "notes"
     to_impl(repo, notes)
     _ = ok(repo, "record", "implemented", "a1")
 
-    handed = ok(repo, "handback", "review-lead", "--head", "9f8e7d6", stdin="READY\n")
+    handed = ok(
+        repo, "handback", "review-lead", stdin="READY\nReviewed head: 9f8e7d6\n"
+    )
+    advised = ok(repo, "next")
+    picked = ok(repo, "record", "picked", "--row", "R1")
 
-    assert handed.startswith("recorded 8 reviewed -> ")
-    assert log_of(notes)[-1]["event"] == {
-        "type": "reviewed",
-        "head": "9f8e7d6",
-        "rows": [],
-        "verdicts": [],
-    }
+    assert handed == "recorded 8 reviewed -> Impl'\n"
+    assert advised.splitlines()[0].startswith("RUN state record picked")
+    assert picked == "recorded 9 picked -> Impl''\n"
+    assert log_of(notes)[-2]["event"] == {"type": "reviewed", "head": "9f8e7d6"}
