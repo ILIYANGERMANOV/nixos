@@ -90,7 +90,7 @@ let
   };
   # When: the flavor runs them.
   hooked = hookSettings.withHooks adapter profileHooks flavorSettings;
-  throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+  throws = import ../agents/lib/throws.nix;
 
   cases = [
     {

@@ -140,20 +140,54 @@ def hook(repo: Path, name: str, event: Mapping[str, object]) -> dict[str, object
     return cast("dict[str, object]", json.loads(done.stdout)) if done.stdout else {}
 
 
-def test_the_hooks_record_a_spawn_and_handback_and_print_nothing_with_no_run(
+STARTED = {"event": "sessionStart", "source": "startup"}
+
+
+def test_the_resume_hook_prints_nothing_with_no_run(repo: Path) -> None:
+    told = hook(repo, "resume", STARTED)
+
+    assert told == {}
+
+
+def test_the_resume_hook_tells_the_step_of_a_run(repo: Path, tmp_path: Path) -> None:
+    drafted(repo, tmp_path / "notes")
+
+    told = hook(repo, "resume", STARTED)
+
+    assert str(told["context"]).startswith("Step: Impl\n")
+
+
+def test_the_spawn_hook_gives_a_fixer_the_branch_diff_folder(
     repo: Path, tmp_path: Path
 ) -> None:
-    started = {"event": "sessionStart", "source": "startup"}
-    spawn = {
-        "event": "beforeTool",
-        "tool": "delegate",
-        "input": {"prompt": "Fix it.", "subagent_type": "fixer"},
-    }
-    nothing = hook(repo, "resume", started)
     drafted(repo, tmp_path / "notes")
-    resumed = hook(repo, "resume", started)
-    spawned = hook(repo, "spawn", spawn)
+
+    # `ctx` is on the wrapper's PATH.
+    spawned = hook(
+        repo,
+        "spawn",
+        {
+            "event": "beforeTool",
+            "tool": "delegate",
+            "input": {"prompt": "Fix it.", "subagent_type": "fixer"},
+        },
+    )
+
+    match spawned["updatedInput"]:
+        case {"prompt": str(prompt)}:
+            pass
+        case other:
+            raise AssertionError(f"no prompt rewritten: {other!r}")
+    assert prompt.startswith("Fix it.\nDiff: /")
+    assert Path(prompt.removeprefix("Fix it.\nDiff: ")).joinpath("diff").is_file()
+
+
+def test_the_handback_hook_records_the_handback_and_tells_the_worker(
+    repo: Path, tmp_path: Path
+) -> None:
+    drafted(repo, tmp_path / "notes")
     _ = commit(repo, {"b.txt": "two\n"}, "implement")
+
     handed = hook(
         repo,
         "handback",
@@ -165,16 +199,6 @@ def test_the_hooks_record_a_spawn_and_handback_and_print_nothing_with_no_run(
         },
     )
 
-    assert nothing == {}
-    assert str(resumed["context"]).startswith("Step: Impl\n")
-    # `ctx` is on the wrapper's PATH: a fixer gets the branch diff's folder.
-    match spawned["updatedInput"]:
-        case {"prompt": str(prompt)}:
-            pass
-        case other:
-            raise AssertionError(f"no prompt rewritten: {other!r}")
-    assert prompt.startswith("Fix it.\nDiff: /")
-    assert Path(prompt.removeprefix("Fix it.\nDiff: ")).joinpath("diff").is_file()
     assert handed["updatedInput"] == {
         "message": "READY done\n\nstate: recorded 5 implemented -> Impl'"
     }
