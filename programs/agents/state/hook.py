@@ -26,7 +26,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, cast, final, override
 
 from agent_hook import (
     AfterTool,
@@ -369,22 +369,48 @@ def commands(command: str) -> list[list[str]]:
     """Each simple command's words, from its command word on: the env
     assignments before it dropped. A command that does not split, such as one
     with an unclosed quote, the shell would not run either."""
-    lexer = shlex.shlex(
-        drop_heredocs(command), posix=True, punctuation_chars=SHELL_PUNCTUATION
-    )
+    # The shell drops a backslash-newline before it splits words.
+    lexer = QuotingLexer(drop_heredocs(command.replace("\\\n", "")))
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     try:
-        tokens = list(lexer)
+        tokens = [(token, lexer.quoted) for token in lexer]
     except ValueError:
         return []
     found: list[list[str]] = [[]]
-    for token in tokens:
-        if is_separator(token):
+    for token, quoted in tokens:
+        if not quoted and is_separator(token):
             found.append([])
         elif found[-1] or not ENV_ASSIGNMENT.fullmatch(token):
             found[-1].append(token)
     return found
+
+
+@final
+class QuotingLexer(shlex.shlex):
+    """A POSIX shell lexer that also tells whether its last token was quoted or
+    escaped, so `'&&'`, `\\&` and `''` stay words, never operators."""
+
+    def __init__(self, command: str) -> None:
+        self.quoted = False
+        self._state: str | None = None
+        super().__init__(command, posix=True, punctuation_chars=SHELL_PUNCTUATION)
+
+    @override
+    def read_token(self) -> str | None:
+        self.quoted = False
+        return super().read_token()
+
+    # shlex keeps no quoted flag, but it enters a state named by each quote or
+    # escape character it meets: watching its `state` writes recovers the flag.
+    @property
+    def state(self) -> str | None:
+        return self._state
+
+    @state.setter
+    def state(self, value: str | None) -> None:
+        self.quoted = self.quoted or (value is not None and value in "'\"\\")
+        self._state = value
 
 
 # `<<EOF`, `<<-'EOF'`; not a `<<<` here-string, which has no body.

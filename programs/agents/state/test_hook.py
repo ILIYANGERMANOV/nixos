@@ -521,6 +521,10 @@ def test_pr_tells_ready_with_no_draft_recorded(repo: Path, notes: Path) -> None:
         "gh pr edit 7 --body-file - <<EOF\nrun gh pr ready 7\nEOF",
         "gh pr edit 7 --body-file - <<'EOF'\ngh pr create --base main\nEOF\nls",
         "gh pr ready --undo && gh pr view",
+        "'' gh pr ready",
+        'echo "" gh pr ready',
+        "echo '&&' gh pr ready",
+        "echo \\&\\& gh pr ready",
     ],
 )
 def test_pr_ignores_other_commands(repo: Path, notes: Path, command: str) -> None:
@@ -562,6 +566,22 @@ def test_pr_finds_gh_pr_create_as_any_command_in_a_chain(
     )
 
     assert pr_command(command) == CreatePr(base)
+
+
+@pytest.mark.parametrize(
+    ("command", "found"),
+    [
+        (
+            "gh pr create --draft \\\n  --base feat-a \\\n  --title x",
+            CreatePr("feat-a"),
+        ),
+        ("gh pr ready \\\n  12", MarkReady("12")),
+    ],
+)
+def test_pr_reads_a_command_continued_over_lines(
+    command: str, found: CreatePr | MarkReady
+) -> None:
+    assert pr_command(command) == found
 
 
 def test_pr_finds_gh_pr_ready_past_a_heredoc_shlex_cannot_split() -> None:
