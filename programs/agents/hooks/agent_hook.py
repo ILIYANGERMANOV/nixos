@@ -13,8 +13,9 @@ event has its own result type, so a deny there cannot even be built.
 
 An agent's backend translates its own hook format to an `Event`, hands it to
 `dispatch_verdict` or `dispatch_note` with the hooks declared for that event,
-and translates the result back. So every backend runs the same hooks in the same order with the same
-outcome, whatever its own hooks do with order or parallelism.
+and translates the result back. So every backend runs the same hooks in the
+same order with the same outcome, whatever its own hooks do with order or
+parallelism.
 
 The names an event, tool or source can take are `vocabulary.json`'s, which the
 Nix declarations read too; a test holds the enums below to it.
@@ -187,11 +188,6 @@ def dispatch_note(
     return reduce(combine_notes, notes, Note())
 
 
-def combine_notes(first: Note, second: Note) -> Note:
-    """The notes' monoid, `Note()` its identity: contexts join in order."""
-    return Note(joined(first.context, second.context))
-
-
 def combine_verdicts(first: Verdict, second: Verdict) -> Verdict:
     """The verdicts' monoid, `Allow()` its identity: deny wins, contexts and
     reasons join in order, and the later rewrite of the input wins."""
@@ -208,6 +204,11 @@ def combine_verdicts(first: Verdict, second: Verdict) -> Verdict:
             return Deny(reason, context)
         case Deny(reason=one), Deny(reason=other):
             return Deny(f"{one}\n{other}", context)
+
+
+def combine_notes(first: Note, second: Note) -> Note:
+    """The notes' monoid, `Note()` its identity: contexts join in order."""
+    return Note(joined(first.context, second.context))
 
 
 def joined(first: str | None, second: str | None) -> str | None:
@@ -242,7 +243,7 @@ def threaded(event: BeforeTool, verdict: Verdict) -> BeforeTool:
 
 
 def run_verdict_hook(hook: Hook, event: BeforeTool) -> Verdict:
-    return run_hook(hook, event, parse_verdict, lambda told: Allow(context=told))
+    return run_hook(hook, event, parse_verdict, lambda context: Allow(context=context))
 
 
 def run_note_hook(hook: Hook, event: Observed) -> Note:

@@ -50,12 +50,15 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   module files in its `hooks` field.
 - **A neutral contract.** A hook is a program reading one event as JSON
   (`event, tool, input, output, cwd, session, agent, source`) and printing one
-  result (`decision, reason, context, updatedInput`) or nothing
-  (`agent_hook.py`).
+  result or nothing (`agent_hook.py`). Each event has its own result type: a
+  beforeTool hook prints a verdict (`decision, reason, context,
+  updatedInput`); a sessionStart or afterTool hook only a note (`context`),
+  since nothing is left to deny or rewrite.
 - **One dispatcher per event, in the frontend.** A backend registers one entry
-  per event; its adapter hands the event to `agent_hook.dispatch`, which runs
-  the matching hooks in `order` and folds their results as a monoid: deny
-  wins, contexts join, a rewritten input reaches the next hook. Claude runs its
+  per event; its adapter hands the event to `agent_hook.dispatch_verdict` or
+  `agent_hook.dispatch_note`, which run the matching hooks in `order` and fold
+  their results as a monoid: deny wins, contexts join, a rewritten input
+  reaches the next hook. Claude runs its
   own hooks in parallel with no defined winner for a rewrite; OpenCode runs
   them in order. The dispatcher makes both the same.
 - **Claude Code is the first backend.** `codegen/hooks.nix` maps the events to

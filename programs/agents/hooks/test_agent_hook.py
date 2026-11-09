@@ -188,8 +188,12 @@ def test_an_emitted_note_parses_back_to_itself(note: Note) -> None:
 
 
 @pytest.mark.parametrize("printed", ["", "  \n"])
-def test_printing_nothing_allows_and_notes_nothing(printed: str) -> None:
+def test_printing_nothing_before_a_tool_allows(printed: str) -> None:
     assert parse_verdict(printed) == Allow()
+
+
+@pytest.mark.parametrize("printed", ["", "  \n"])
+def test_printing_nothing_otherwise_notes_nothing(printed: str) -> None:
     assert parse_note(printed) == Note()
 
 
@@ -286,9 +290,14 @@ def test_the_later_rewrite_wins() -> None:
     ) == Allow(updated_input={"b": 2})
 
 
+@given(notes)
+def test_an_empty_note_is_the_identity(note: Note) -> None:
+    assert combine_notes(Note(), note) == note
+    assert combine_notes(note, Note()) == note
+
+
 @given(notes, notes, notes)
-def test_notes_fold_as_a_monoid(a: Note, b: Note, c: Note) -> None:
-    assert combine_notes(Note(), a) == a == combine_notes(a, Note())
+def test_combining_notes_is_associative(a: Note, b: Note, c: Note) -> None:
     assert combine_notes(combine_notes(a, b), c) == combine_notes(
         a, combine_notes(b, c)
     )
