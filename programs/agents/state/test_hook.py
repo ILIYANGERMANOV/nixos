@@ -33,6 +33,7 @@ from state.state_fixtures import (
     git,
     log_of,
     ok,
+    older_log,
     to_draft,
     to_impl,
 )
@@ -307,8 +308,7 @@ def test_github_down_is_told_and_the_hook_works_from_the_log(
 
 def test_a_log_an_older_state_wrote_is_silent(repo: Path, notes: Path) -> None:
     to_impl(repo, notes)
-    log = notes / "events.jsonl"
-    _ = log.write_text(log.read_text().replace(',"branch":"feature"', ""))
+    older_log(notes)
 
     assert run_hook("resume", start(repo)) == Note()
 

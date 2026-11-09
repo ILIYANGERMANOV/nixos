@@ -270,6 +270,13 @@ def to_draft(repo: Path, notes: Path) -> None:
         _ = ok(repo, *argv)
 
 
+def older_log(notes: Path) -> None:
+    """Rewrites the log as a `state` from before runs were bound to a branch
+    wrote it: its drafted line has no branch."""
+    log = notes / "events.jsonl"
+    _ = log.write_text(log.read_text().replace(',"branch":"feature"', ""))
+
+
 # ---- GitHub, faked -------------------------------------------------------------
 
 # A `gh` on PATH that answers `gh pr view [<url>] --json <fields>` from a JSON

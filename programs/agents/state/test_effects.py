@@ -19,6 +19,7 @@ from state.state_fixtures import (
     log_of,
     make_repo,
     ok,
+    older_log,
     run,
     to_draft,
     to_impl,
@@ -362,8 +363,7 @@ def test_show_of_a_log_an_older_state_wrote_says_the_hooks_are_silent(
 ) -> None:
     notes = tmp_path / "notes"
     to_impl(repo, notes)
-    log = notes / "events.jsonl"
-    _ = log.write_text(log.read_text().replace(',"branch":"feature"', ""))
+    older_log(notes)
 
     code, _, err = run(repo, "show")
 

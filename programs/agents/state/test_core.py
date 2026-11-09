@@ -9,6 +9,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from state.core import (
+    PR_STATES,
     Advice,
     Facts,
     GitFacts,
@@ -998,7 +999,7 @@ prs = st.builds(
     st.sampled_from(["main", "parent"]),
     st.sampled_from(["feature", "other"]),
     st.booleans(),
-    st.sampled_from(["OPEN", "CLOSED", "MERGED"]),
+    st.sampled_from(PR_STATES),
 )
 
 
@@ -1052,11 +1053,17 @@ def test_sync_at_pr_records_ready_only_once_the_pr_is_no_draft() -> None:
     )
 
 
-@pytest.mark.parametrize("head", ["other", None])
+@pytest.mark.parametrize(
+    ("head", "why"),
+    [
+        ("other", "HEAD is on other, the run is bound to feature"),
+        (None, "HEAD is on no branch, the run is bound to feature"),
+    ],
+)
 def test_a_bound_run_is_off_its_branch_on_another_or_a_detached_head(
-    head: str | None,
+    head: str | None, why: str
 ) -> None:
-    assert off_branch(reach(*drafted()), head) is not None
+    assert off_branch(reach(*drafted()), head) == why
 
 
 def test_a_run_before_its_draft_is_on_any_branch() -> None:

@@ -370,13 +370,17 @@ def locate(cwd: Path) -> Path | Failure:
 
 
 def head_of(cwd: Path) -> str | None:
-    found = run_git(cwd, "rev-parse", "--verify", "--quiet", "HEAD")
-    return found.stdout.strip() or None if found.returncode == 0 else None
+    return git_answer(cwd, "rev-parse", "--verify", "--quiet", "HEAD")
 
 
 def branch_of(cwd: Path) -> str | None:
     """HEAD's branch; None when detached."""
-    found = run_git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD")
+    return git_answer(cwd, "symbolic-ref", "--quiet", "--short", "HEAD")
+
+
+def git_answer(cwd: Path, *args: str) -> str | None:
+    """A `--quiet` query's answer; None when git says there is none."""
+    found = run_git(cwd, *args)
     return found.stdout.strip() or None if found.returncode == 0 else None
 
 

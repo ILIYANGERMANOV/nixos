@@ -14,8 +14,8 @@ Each reads one event of the neutral contract (agent_hook.py) on stdin and
 prints its result, or nothing. Each syncs the run from GitHub first, as
 `state next` does, and adds what that recorded. A worktree with no run prints
 nothing, nor does a run that is Done, bound to another branch than HEAD's, whose
-PR is merged or closed, or whose log does not parse. None denies: a refusal or an error becomes context ("fail open and
-tell"). Only the lead steers the run: a subagent's spawn, shell or question is
+PR is merged or closed, or whose log does not parse. None denies: a refusal or
+an error becomes context ("fail open and tell"). Only the lead steers the run: a subagent's spawn, shell or question is
 not the lead's, except a hand-back, which only a subagent makes.
 """
 
