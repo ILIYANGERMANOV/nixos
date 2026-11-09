@@ -193,6 +193,15 @@ def test_main_refuses_an_unknown_hook_or_event(argv: list[str], stdin: str) -> N
         assert main(argv, stdin) == 2
 
 
+@pytest.mark.parametrize("hook", EVENTS)
+def test_a_finished_run_gets_nothing(repo: Path, notes: Path, hook: HookName) -> None:
+    to_impl(repo, notes)
+    _ = ok(repo, "override", "PR", "CI is green")
+    _ = ok(repo, "record", "ready", PR)
+
+    assert run_hook(hook, EVENTS[hook](repo)) == NOTHING[hook]
+
+
 # ---- resume ------------------------------------------------------------------------
 
 
@@ -242,6 +251,18 @@ def test_spawn_gives_no_warning_for_a_role_spawned_beside_the_advice(
 
     spawned = context(run_hook("spawn", delegate(repo, role)))
 
+    assert "state: the advice is" not in spawned
+
+
+@pytest.mark.parametrize("role", ["Explore", "Plan", "fork", "claude-code-guide"])
+def test_spawn_gives_the_advice_with_no_warning_for_a_role_outside_the_flow(
+    repo: Path, notes: Path, role: str
+) -> None:
+    to_impl(repo, notes)
+
+    spawned = context(run_hook("spawn", delegate(repo, role)))
+
+    assert spawned.startswith("SPAWN implementer\n")
     assert "state: the advice is" not in spawned
 
 
@@ -422,14 +443,36 @@ def test_pr_records_nothing_when_gh_printed_no_url(repo: Path, notes: Path) -> N
     assert types(notes) == before
 
 
-def test_pr_records_ready_with_the_drafted_url(repo: Path, notes: Path) -> None:
+@pytest.mark.parametrize(
+    "command", ["gh pr ready", "gh pr ready 7", f"gh pr ready {PR}"]
+)
+def test_pr_records_ready_with_the_drafted_url(
+    repo: Path, notes: Path, command: str
+) -> None:
     to_impl(repo, notes)
     _ = ok(repo, "override", "PR", "CI is green")
 
-    told = context(run_hook("pr", shell(repo, "gh pr ready 7", "")))
+    told = context(run_hook("pr", shell(repo, command, "")))
 
     assert told == "state: recorded 8 ready -> Done"
     assert log_of(notes)[-1]["event"] == {"type": "ready", "url": PR}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr ready 12",
+        "gh pr ready https://github.com/o/r/pull/12",
+        "gh pr ready -R o/r 12",
+    ],
+)
+def test_pr_ignores_ready_on_another_pr(repo: Path, notes: Path, command: str) -> None:
+    to_impl(repo, notes)
+    _ = ok(repo, "override", "PR", "CI is green")
+    before = types(notes)
+
+    assert run_hook("pr", shell(repo, command, "")) == Note()
+    assert types(notes) == before
 
 
 def test_pr_tells_ready_with_no_draft_recorded(repo: Path, notes: Path) -> None:
@@ -442,12 +485,25 @@ def test_pr_tells_ready_with_no_draft_recorded(repo: Path, notes: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "command", ["gh pr ready --undo", "gh pr view", "echo 'gh pr create'", "ls"]
+    "command",
+    [
+        "gh pr ready --undo",
+        "gh pr view",
+        "echo 'gh pr create'",
+        "ls",
+        "echo gh pr ready",
+        "echo run gh pr create --base main && ls",
+        "gh pr edit 7 --body-file - <<EOF\nrun gh pr ready 7\nEOF",
+        "gh pr edit 7 --body-file - <<'EOF'\ngh pr create --base main\nEOF\nls",
+        "gh pr ready --undo && gh pr view",
+    ],
 )
 def test_pr_ignores_other_commands(repo: Path, notes: Path, command: str) -> None:
     to_draft(repo, notes)
+    before = types(notes)
 
     assert run_hook("pr", shell(repo, command, PR)) == Note()
+    assert types(notes) == before
 
 
 def test_pr_by_a_subagent_is_not_the_runs(repo: Path, notes: Path) -> None:
@@ -460,21 +516,31 @@ def test_pr_by_a_subagent_is_not_the_runs(repo: Path, notes: Path) -> None:
 
 
 WORD = st.text(alphabet="abcxyz-_/.", min_size=1, max_size=8)
+SEPARATOR = st.sampled_from([" && ", " || ", "; ", " | ", "\n", " ("])
+ENV = st.lists(st.sampled_from(["GH_TOKEN=x ", "A_1=b/c "]), max_size=2)
 
 
-@given(prefix=st.lists(st.lists(WORD, min_size=1, max_size=3), max_size=3), base=WORD)
-def test_pr_finds_gh_pr_create_anywhere_in_a_chain(
-    prefix: list[list[str]], base: str
+@given(
+    prefix=st.lists(st.lists(WORD, min_size=1, max_size=3), max_size=3),
+    separator=SEPARATOR,
+    env=ENV,
+    base=WORD,
+)
+def test_pr_finds_gh_pr_create_as_any_command_in_a_chain(
+    prefix: list[list[str]], separator: str, env: list[str], base: str
 ) -> None:
-    command = " && ".join(
-        [*(" ".join(words) for words in prefix), f"gh pr create -B {base}"]
+    command = separator.join(
+        [
+            *(" ".join(words) for words in prefix),
+            f"{''.join(env)}gh pr create -B {base}",
+        ]
     )
 
     assert pr_command(command) == CreatePr(base)
 
 
 def test_pr_finds_gh_pr_ready_past_a_heredoc_shlex_cannot_split() -> None:
-    assert pr_command("cat <<'EOF'\nit's\nEOF\ngh pr ready") == MarkReady()
+    assert pr_command("cat <<'EOF'\nit's\nEOF\ngh pr ready") == MarkReady(None)
 
 
 # ---- asked -------------------------------------------------------------------------

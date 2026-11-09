@@ -26,14 +26,14 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   `state` refusal, lets the call go on and adds `state hook <name>: <error>`
   and the refusal's `fix:` line to the agent's context.
 - **The hooks** (`programs/agents/state/hooks.nix`, `state-hook <name>`). Each
-  does nothing in a worktree with no run.
+  does nothing in a worktree with no run, or with a run at `Done`.
 
   | Hook | When | Does |
   |---|---|---|
   | resume | session start, resume, compact | adds `state show` and `state next` |
-  | spawn | before the lead delegates | adds `state next` and a warning off the advised role; once drafted, appends `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt |
+  | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; once drafted, appends `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt |
   | handback | before a worker hands back | records it, and appends what it recorded, or the refusal and `fix:`, to the report |
-  | pr | after `gh pr create`, `gh pr ready` | records `drafted <url> <base>`, `ready <url>` |
+  | pr | after `gh pr create`, `gh pr ready` run as a command, not text in an argument or heredoc | records `drafted <url> <base>`, `ready <url>` when it names the drafted PR or none |
   | asked | after the lead asks, in Ctx | records `asked` |
 
 - **What stays manual** is what only the model decides: Size, Quality,

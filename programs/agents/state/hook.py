@@ -3,21 +3,24 @@ remembering to.
 
     resume    sessionStart          context: `state show` and `state next`
     spawn     beforeTool delegate   context: `state next`, a warning when the
-                                    role spawned is neither the one advised nor
-                                    one beside it, and a diff reader's prompt
+                                    flow role spawned is neither the one advised
+                                    nor one beside it, and a diff reader's prompt
                                     gets `Diff: <folder>`
     handback  beforeTool handback   records a worker's hand-back and appends
                                     what was recorded, or why not, to it
-    pr        afterTool shell       `gh pr create` -> drafted, `gh pr ready` -> ready
+    pr        afterTool shell       `gh pr create` -> drafted, `gh pr ready` on
+                                    the drafted PR -> ready; run as a command,
+                                    not text in an argument or heredoc
     asked     afterTool ask         records a question asked while in Ctx
 
 Each reads one event of the neutral contract (agent_hook.py) on stdin and
-prints its result, or nothing. A worktree with no run prints nothing. None
-denies: a refusal or an error becomes context ("fail open and tell"). Only the
-lead steers the run: a subagent's spawn, shell or question is not the lead's,
-except a hand-back, which only a subagent makes.
+prints its result, or nothing. A worktree with no run, or a Done one, prints
+nothing. None denies: a refusal or an error becomes context ("fail open and
+tell"). Only the lead steers the run: a subagent's spawn, shell or question is
+not the lead's, except a hand-back, which only a subagent makes.
 """
 
+import re
 import shlex
 import subprocess
 import sys
@@ -106,7 +109,10 @@ class Create:
 
 @dataclass(frozen=True, slots=True)
 class MarkReady:
-    """`gh pr ready`, not `--undo`."""
+    """`gh pr ready`, not `--undo`, with the PR it names: a number, a URL or a
+    branch; None for the current branch's."""
+
+    pr: str | None
 
 
 type PrCommand = Create | MarkReady
@@ -239,16 +245,17 @@ def spawn(cwd: Path, tool_input: JsonObject) -> Allow:
 
 
 def off_advice(advised: str, spawned: Json, step: StateName) -> bool:
-    """A spawn worth a warning: not the advised role, nor one spawned beside it.
-    Implementer slices run one after another, so a later slice spawns while the
-    advice has moved on to the refactorer."""
+    """A spawn worth a warning: a flow role, not the advised one, nor one
+    spawned beside it. Implementer slices run one after another, so a later
+    slice spawns while the advice has moved on to the refactorer. A role outside
+    the flow (Explore, Plan, a fork) is no step of the run."""
     match spawned:
-        case str(role) if role == advised or role in BESIDE_ADVICE:
-            return False
         case "implementer" if step in ("Impl", "Impl'"):
             return False
+        case str(role) if role in ROLES:
+            return role != advised and role not in BESIDE_ADVICE
         case _:
-            return True
+            return False
 
 
 def handback(role: str, cwd: Path, tool_input: JsonObject) -> Allow:
@@ -338,27 +345,84 @@ def pr_call(tool_input: JsonObject, output: Json) -> tuple[PrCommand, str] | Non
 
 
 def pr_command(command: str) -> PrCommand | None:
-    """The `gh pr create` or `gh pr ready` in a shell command, anywhere in a
-    chain such as `git push && gh pr create ...`."""
-    words = split(command)
-    for i in range(len(words) - 2):
-        match words[i : i + 3]:
-            case ["gh", "pr", "create"]:
-                return Create(flag_value(words[i + 3 :], ("--base", "-B")))
-            case ["gh", "pr", "ready"] if "--undo" not in words[i + 3 :]:
-                return MarkReady()
+    """The `gh pr create` or `gh pr ready` a shell command runs, as any command
+    of a chain such as `git push && gh pr create ...`. Text that only mentions
+    one, as an argument or in a heredoc body, runs nothing."""
+    for words in commands(command):
+        match words:
+            case ["gh", "pr", "create", *args]:
+                return Create(flag_value(args, ("--base", "-B")))
+            case ["gh", "pr", "ready", *args] if "--undo" not in args:
+                return MarkReady(positional(args, ("--repo", "-R")))
             case _:
                 pass
     return None
 
 
-def split(command: str) -> list[str]:
-    """Shell words. A heredoc body with a lone quote is no valid shell word
-    list, but its `gh pr` words are plain, so whitespace finds them."""
+# The shell's operator characters: a run of them ends a command (`&&`, `|`, `;`,
+# a newline, a subshell's `(`) or redirects (`>`, `<<`).
+SHELL_PUNCTUATION = "();<>|&\n"
+ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
+
+
+def commands(command: str) -> list[list[str]]:
+    """Each simple command's words, from its command word on: the env
+    assignments before it dropped. A command that does not split, such as one
+    with an unclosed quote, the shell would not run either."""
+    lexer = shlex.shlex(
+        drop_heredocs(command), posix=True, punctuation_chars=SHELL_PUNCTUATION
+    )
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
     try:
-        return shlex.split(command)
+        tokens = list(lexer)
     except ValueError:
-        return command.split()
+        return []
+    found: list[list[str]] = [[]]
+    for token in tokens:
+        if is_separator(token):
+            found.append([])
+        elif found[-1] or not ENV_ASSIGNMENT.fullmatch(token):
+            found[-1].append(token)
+    return found
+
+
+def is_separator(token: str) -> bool:
+    """A run of punctuation that ends a command; a redirection does not."""
+    return all(c in SHELL_PUNCTUATION for c in token) and not any(
+        c in "<>" for c in token
+    )
+
+
+# `<<EOF`, `<<-'EOF'`; not a `<<<` here-string, which has no body.
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z0-9_]+)\1")
+
+
+def drop_heredocs(command: str) -> str:
+    """The command without its heredoc bodies: text a command reads, not runs."""
+    kept: list[str] = []
+    open_bodies: list[str] = []
+    for line in command.split("\n"):
+        if not open_bodies:
+            kept.append(line)
+            open_bodies = [m.group(2) for m in HEREDOC.finditer(line)]
+        elif line.strip() == open_bodies[0]:
+            open_bodies = open_bodies[1:]
+    return "\n".join(kept)
+
+
+def positional(words: list[str], valued: tuple[str, ...]) -> str | None:
+    """The first argument that is no flag, nor the value of a flag in `valued`."""
+    skip = False
+    for word in words:
+        match skip, word.startswith("-"):
+            case True, _:
+                skip = False
+            case False, True:
+                skip = word in valued
+            case False, False:
+                return word
+    return None
 
 
 def flag_value(words: list[str], flags: tuple[str, ...]) -> str | None:
@@ -381,14 +445,20 @@ def pr_event(
             if not urls:
                 return None
             return Drafted(urls[-1], base or default_branch(cwd))
-        case MarkReady(), Drafted(url=url):
-            return Ready(url)
+        case MarkReady(pr=pr), Drafted(url=url):
+            return Ready(url) if pr is None or names(pr, url) else None
         case MarkReady(), None:
             return Failure(
                 "state: gh pr ready, but this run recorded no draft PR",
                 "state record drafted <pr-url> <base>, then state record ready <pr-url>",
                 2,
             )
+
+
+def names(pr: str, url: str) -> bool:
+    """`gh pr ready <pr>` names the PR at `url`: its number or its URL. A branch
+    name is taken as another PR: telling it apart needs `gh`."""
+    return pr in (url, url.rsplit("/", 1)[-1])
 
 
 def default_branch(cwd: Path) -> str:
@@ -401,7 +471,8 @@ def default_branch(cwd: Path) -> str:
 
 
 def run_in(cwd: Path) -> Loaded | Failure | None:
-    """The worktree's run; None outside a git work tree or with no run."""
+    """The worktree's run; None outside a git work tree, with no run, or once
+    the run is Done: a finished run has nothing left to record or advise."""
     match locate(cwd):
         case Failure():
             return None
@@ -409,6 +480,8 @@ def run_in(cwd: Path) -> Loaded | Failure | None:
             match load(git_dir):
                 case Failure() as failure:
                     return failure
+                case _, _, State(step="Done"):
+                    return None
                 case log, lines, state:
                     return Loaded(log, lines, state)
         case _:
