@@ -2345,7 +2345,11 @@ class TestStateCtx:
         # When
         report = home.report()
         # Then
-        assert row(report, "state-ctx", "Implement") == ["Implement", "2", "'the plan was done'"]
+        assert row(report, "state-ctx", "Implement") == [
+            "Implement",
+            "2",
+            "'the plan was done'",
+        ]
         assert headline(report, "state-ctx") == "2 calls, 0 failed, 2 overrides"
 
     def test_both_tables_rank_most_first(self, home: Home) -> None:

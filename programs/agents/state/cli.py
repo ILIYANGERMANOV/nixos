@@ -138,7 +138,8 @@ Output (stdout)
 The run's notes directory is the one `state init` last named in this worktree.
 Exit     0 ok  2 bad usage, bad log line or unexpected event  1 git or disk failure
 An event that is not an arrow here is refused; its fix: line names the arrows
-here and the override that makes it one.
+here and the override that makes it one. A refused record or hand-back is logged
+as `refused`, and next and show start with a WARN line until the next event.
 Errors go to stderr with a fix: line. The log is append-only; nothing rewrites it.
 """
 

@@ -45,6 +45,7 @@ from state.model import (
     Raised,
     Ready,
     Refactored,
+    Refused,
     Researched,
     Resolved,
     Reviewed,
@@ -171,6 +172,7 @@ events: st.SearchStrategy[Event] = st.one_of(
     st.builds(Resolved, questions, st.just("yes")),
     st.builds(Overridden, st.sampled_from(STATES), st.just("why")),
     st.builds(Ready, pr_urls),
+    st.builds(Refused, st.just("'x' is not an arrow out of Ctx"), st.just("fix")),
 )
 event_lists = st.lists(events, max_size=40)
 facts: st.SearchStrategy[Facts] = st.one_of(
@@ -248,6 +250,15 @@ def ok(cwd: Path, *argv: str, stdin: str | None = None) -> str:
 def log_of(notes: Path) -> list[dict[str, object]]:
     return [
         json.loads(line) for line in (notes / "events.jsonl").read_text().splitlines()
+    ]
+
+
+def types(notes: Path) -> list[object]:
+    """The type of each event in the log, in order."""
+    return [
+        event["type"]
+        for line in log_of(notes)
+        if isinstance(event := line["event"], dict)
     ]
 
 

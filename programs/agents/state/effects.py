@@ -42,6 +42,7 @@ from state.core import (
     Unavailable,
     advise,
     brief,
+    decide,
     off_branch,
     parse_handback,
     pr_closed,
@@ -50,6 +51,7 @@ from state.core import (
     render_advice,
     show,
     synced,
+    warning,
 )
 from state.model import Event, Failure, Json, Overridden, Started, State, name_of
 
@@ -89,7 +91,7 @@ class Quiet:
     why: str
 
 
-def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  # noqa: C901, PLR0911, PLR0912 - one arm per command
+def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  # noqa: C901, PLR0911 - one arm per command
     match locate(cwd):
         case Failure() as failure:
             return failure
@@ -106,16 +108,14 @@ def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  #
         case RecordCmd(args=args):
             match parse_record(args, head_of(cwd)):
                 case Failure() as failure:
-                    return failure
+                    parsed: tuple[Event, ...] | Failure = failure
                 case event:
-                    return append(log, lines, state, (event,), cwd)
+                    parsed = (event,)
+            return append(log, lines, state, parsed, cwd)
         case HandbackCmd(role=role, options=options):
             text = sys.stdin.read() if stdin is None else stdin
-            match parse_handback(role, text, options, head_of(cwd)):
-                case Failure() as failure:
-                    return failure
-                case events:
-                    return append(log, lines, state, events, cwd)
+            parsed = parse_handback(role, text, options, head_of(cwd))
+            return append(log, lines, state, parsed, cwd)
         case Override(to=to, why=why):
             return append(log, lines, state, (Overridden(to, why),), cwd)
         case Next() | Show():
@@ -173,24 +173,27 @@ def read_log(log: Path) -> tuple[list[Line], State] | Failure:
 
 
 def append(
-    log: Path, lines: list[Line], state: State, events: tuple[Event, ...], cwd: Path
+    log: Path,
+    lines: list[Line],
+    state: State,
+    parsed: tuple[Event, ...] | Failure,
+    cwd: Path,
 ) -> str | Failure:
-    match write(log, lines, state, events, cwd):
-        case Failure() as failure:
+    """What a command or hook records, a refusal included: it is stored too."""
+    decision = decide(state, parsed)
+    match write(log, lines, decision.append, cwd), decision.reply:
+        case Failure() as failure, _:
             return failure
-        case new, reached:
-            return recorded(new, reached)
+        case _, Failure() as refused:
+            return refused
+        case new, None:
+            return recorded(new, decision.reached)
 
 
 def write(
-    log: Path, lines: list[Line], state: State, events: tuple[Event, ...], cwd: Path
-) -> tuple[list[Line], State] | Failure:
-    """The lines appended for `events` and the state they reach."""
-    match record(state, events):
-        case Failure() as failure:
-            return replace(failure, message=f"state record: {failure.message}")
-        case appended, reached:
-            pass
+    log: Path, lines: list[Line], appended: tuple[Event, ...], cwd: Path
+) -> list[Line] | Failure:
+    """The lines appended for `appended`, decided already."""
     head, ts, sess = head_of(cwd), now(), session()
     new = [
         Line(len(lines) + i, ts, head, sess, e) for i, e in enumerate(appended, start=1)
@@ -202,7 +205,7 @@ def write(
     # One write per call, so lines of one call never interleave with another's.
     with log.open("a") as file:
         _ = file.write(text)
-    return new, reached
+    return new
 
 
 def recorded(new: list[Line], reached: State) -> str:
@@ -230,14 +233,24 @@ def viewed(command: Next | Show, git_dir: Path, cwd: Path) -> str | Failure:
 
 
 def open_run(git_dir: Path, cwd: Path) -> Loaded | Quiet | Failure:
-    """The run, synced from GitHub, cheapest check first: a Done run or one
-    bound to another branch is quiet before any `gh` call; one whose drafted
-    PR is merged or closed after it."""
+    """The run, synced from GitHub, told first of a refusal pending before the
+    sync: a sync event that clears it still shows it once."""
     match load(git_dir):
         case Failure() as failure:
             return failure
         case log, lines, state:
-            run = Loaded(log, lines, state)
+            warn = warning(state)
+    match synced_run(Loaded(log, lines, state), cwd):
+        case Loaded() as run:
+            return replace(run, told=f"{warn}{run.told}")
+        case Quiet(run=run) as quiet:
+            return replace(quiet, run=replace(run, told=f"{warn}{run.told}"))
+
+
+def synced_run(run: Loaded, cwd: Path) -> Loaded | Quiet:
+    """Cheapest check first: a Done run or one bound to another branch is quiet
+    before any `gh` call; one whose drafted PR is merged or closed after it."""
+    state = run.state
     branch = branch_of(cwd)
     match off_branch(state, branch), pr_to_read(state):
         case str(why), _:
@@ -258,12 +271,22 @@ def open_run(git_dir: Path, cwd: Path) -> Loaded | Quiet | Failure:
 
 
 def sync(run: Loaded, events: tuple[Event, ...], cwd: Path) -> Loaded:
-    """The run with what GitHub showed appended; no events append nothing."""
-    match write(run.log, run.lines, run.state, events, cwd):
-        case Failure(message=message, fix=fix):
-            return replace(run, told=f"PR sync: {message}\nfix: {fix}\n")
-        case new, reached:
+    """The run with what GitHub showed appended; no events append nothing. A
+    sync the flow refuses is told, never stored: nobody asked for it."""
+    match record(run.state, events):
+        case Failure() as failure:
+            return sync_failed(run, failure)
+        case appended, reached:
+            pass
+    match write(run.log, run.lines, appended, cwd):
+        case Failure() as failure:
+            return sync_failed(run, failure)
+        case new:
             return Loaded(run.log, [*run.lines, *new], reached, recorded(new, reached))
+
+
+def sync_failed(run: Loaded, failure: Failure) -> Loaded:
+    return replace(run, told=f"PR sync: {failure.message}\nfix: {failure.fix}\n")
 
 
 def gh_pr_view(cwd: Path, args: tuple[str, ...]) -> PrRead:

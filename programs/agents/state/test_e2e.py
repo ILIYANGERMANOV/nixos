@@ -74,6 +74,21 @@ def test_a_run_goes_from_init_through_a_handback_to_the_review(
     assert f"Head: {head}" in shown.splitlines()
 
 
+def test_a_refused_handback_exits_2_and_the_next_view_warns_of_it(
+    repo: Path, tmp_path: Path
+) -> None:
+    drafted(repo, tmp_path / "notes")
+
+    code, _, err = state(repo, "handback", "review-lead", stdin="READY\n")
+    advised = ok(repo, "next")
+
+    assert code == 2
+    assert advised.splitlines()[:2] == [
+        f"WARN refused, not recorded: {err.splitlines()[0]}",
+        err.splitlines()[1],
+    ]
+
+
 def test_override_moves_off_the_advised_arrow_and_next_follows_it(
     repo: Path, tmp_path: Path
 ) -> None:

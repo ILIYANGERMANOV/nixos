@@ -19,6 +19,7 @@ from state.core import (
     advise,
     apply,
     brief,
+    decide,
     fold,
     off_branch,
     parse_handback,
@@ -26,6 +27,7 @@ from state.core import (
     render_advice,
     show,
     synced,
+    warning,
 )
 from state.model import (
     MODES,
@@ -52,6 +54,7 @@ from state.model import (
     Raised,
     Ready,
     Refactored,
+    Refused,
     Researched,
     Resolved,
     Reviewed,
@@ -174,7 +177,7 @@ def test_fixed_targets_an_override_lands_on_its_target_from_any_state(
     assert after.step == to
 
 
-STAY = (Quality, Size, Grew, Defaulted, Researched, Resolved)
+STAY = (Quality, Size, Grew, Defaulted, Researched, Resolved, Refused)
 
 
 @given(event_lists)
@@ -833,6 +836,90 @@ def test_off_arrow_following_the_fix_makes_the_event_an_arrow(
             assert "is not an arrow" not in again
         case State():
             pass
+
+
+# ---- Deciding what to record ----------------------------------------------------------
+
+PARSE_REFUSAL = Failure("state handback implementer: line 1 starts 'done'", "fix", 2)
+parsed_results = st.one_of(
+    st.lists(events, min_size=1, max_size=3).map(tuple), st.just(PARSE_REFUSAL)
+)
+
+
+@given(event_lists, parsed_results)
+def test_decide_every_refusal_appends_one_refused_left_pending_on_the_same_step(
+    candidates: list[Event], parsed: tuple[Event, ...] | Failure
+) -> None:
+    state = reach(*accepted(candidates))
+
+    decision = decide(state, parsed)
+
+    match decision.reply, decision.append:
+        case None, _:
+            pass
+        case Failure(fix=fix, code=code), (Refused() as refused,):
+            assert (refused.fix, code) == (fix, 2)
+            assert decision.reached.refused == refused
+            assert decision.reached.step == state.step
+        case Failure(), appended:
+            raise AssertionError(f"a refusal appended {appended}")
+    assert fold(decision.append, state) == decision.reached
+
+
+@given(event_lists, st.lists(events, min_size=1, max_size=3).map(tuple))
+def test_decide_an_accepted_record_appends_what_record_does(
+    candidates: list[Event], events_: tuple[Event, ...]
+) -> None:
+    state = reach(*accepted(candidates))
+
+    decision = decide(state, events_)
+
+    match record(state, events_):
+        case Failure():
+            assert decision.reply is not None
+        case recorded:
+            assert ((decision.append, decision.reached), decision.reply) == (
+                recorded,
+                None,
+            )
+
+
+def test_decide_stores_a_flow_refusal_bare_and_replies_under_the_command() -> None:
+    decision = decide(S0, (Ready(PR),))
+
+    match decision.append, decision.reply:
+        case (Refused(message=stored),), Failure(message=said):
+            assert (stored, said) == (
+                "'ready' is not an arrow out of Ctx",
+                "state record: 'ready' is not an arrow out of Ctx",
+            )
+        case other:
+            raise AssertionError(other)
+
+
+def test_decide_stores_and_replies_a_parse_refusal_as_it_is() -> None:
+    decision = decide(S0, PARSE_REFUSAL)
+
+    assert (decision.append, decision.reply) == (
+        (Refused(PARSE_REFUSAL.message, PARSE_REFUSAL.fix),),
+        PARSE_REFUSAL,
+    )
+
+
+def test_warning_tells_the_pending_refusal_and_its_fix() -> None:
+    state = reach(Refused("'fixed' is not an arrow out of Refactor", "state show"))
+
+    assert warning(state) == (
+        "WARN refused, not recorded: 'fixed' is not an arrow out of Refactor\n"
+        "fix: state show\n"
+    )
+
+
+@pytest.mark.parametrize("then", [Researched(1), Overridden("DraftPlan", "why")])
+def test_an_accepted_event_or_an_override_clears_the_warning(then: Event) -> None:
+    state = reach(Refused("refused", "fix"), then)
+
+    assert warning(state) == ""
 
 
 # ---- Hand-backs -----------------------------------------------------------------------

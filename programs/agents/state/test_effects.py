@@ -23,6 +23,7 @@ from state.state_fixtures import (
     run,
     to_draft,
     to_impl,
+    types,
 )
 
 COMMANDS = st.sampled_from(
@@ -67,7 +68,8 @@ def test_effects_the_log_is_append_only_with_a_dense_seq_from_1(
             reported = [
                 line for line in out.splitlines() if line.startswith("recorded ")
             ]
-            assert len(appended) == (len(reported) if code == 0 else 0)
+            # A refusal appends the one `refused` line that tells of it.
+            assert len(appended) == (len(reported) if code == 0 else 1)
         seqs = [line["seq"] for line in log_of(notes)]
         assert seqs == list(range(1, len(seqs) + 1))
 
@@ -135,16 +137,63 @@ def test_drafting_with_quality_unset_records_it_defaulted(
     assert "Quality: Balanced (defaulted)" in ok(repo, "show")
 
 
-def test_an_event_off_the_table_exits_2_and_appends_nothing(
+def test_an_event_off_the_table_exits_2_and_appends_one_refused(
     repo: Path, tmp_path: Path
 ) -> None:
     _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
 
     code, _, err = run(repo, "record", "ready", PR)
 
+    message, fix = err.splitlines()
     assert code == 2
-    assert err.startswith("state record: 'ready' is not an arrow out of Ctx\nfix: ")
-    assert len(log_of(tmp_path / "notes")) == 1
+    assert message == "state record: 'ready' is not an arrow out of Ctx"
+    assert [line["event"] for line in log_of(tmp_path / "notes")][1:] == [
+        {
+            "type": "refused",
+            "message": "'ready' is not an arrow out of Ctx",
+            "fix": fix.removeprefix("fix: "),
+        }
+    ]
+
+
+@pytest.mark.parametrize("view", ["next", "show"])
+def test_a_view_after_a_refusal_starts_with_the_warning_and_its_fix(
+    repo: Path, tmp_path: Path, view: str
+) -> None:
+    _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
+    _, _, err = run(repo, "record", "ready", PR)
+
+    out = ok(repo, view)
+
+    assert out.splitlines()[:2] == [
+        "WARN refused, not recorded: 'ready' is not an arrow out of Ctx",
+        err.splitlines()[1],
+    ]
+
+
+@pytest.mark.parametrize(
+    "accepted", [("record", "researched"), ("override", "Ctx", "start over")]
+)
+def test_an_accepted_event_or_an_override_clears_the_warning(
+    repo: Path, tmp_path: Path, accepted: tuple[str, ...]
+) -> None:
+    _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
+    _ = run(repo, "record", "ready", PR)
+    _ = ok(repo, *accepted)
+
+    assert "WARN" not in ok(repo, "next") + ok(repo, "show")
+
+
+def test_a_later_refusal_replaces_the_warning(repo: Path, tmp_path: Path) -> None:
+    _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
+    _ = run(repo, "record", "ready", PR)
+    _ = run(repo, "record", "bogus")
+
+    out = ok(repo, "next")
+
+    assert [line for line in out.splitlines() if line.startswith("WARN")] == [
+        "WARN refused, not recorded: state record: no event 'bogus'"
+    ]
 
 
 def test_drafted_takes_the_pr_url_not_its_number(repo: Path, tmp_path: Path) -> None:
@@ -154,7 +203,7 @@ def test_drafted_takes_the_pr_url_not_its_number(repo: Path, tmp_path: Path) -> 
 
     assert code == 2
     assert "url '7' is not a PR URL, https://<host>/<owner>/<repo>/pull/<n>" in err
-    assert len(log_of(tmp_path / "notes")) == 1
+    assert types(tmp_path / "notes")[-1] == "refused"
 
 
 def test_override_moves_the_state_and_next_advises_its_arrow(

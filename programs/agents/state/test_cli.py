@@ -76,8 +76,8 @@ def test_an_off_arrow_event_is_refused_and_its_fix_command_works(
     asked = ok(repo, "record", "asked", "1")
 
     assert code == 2
-    assert moved == "recorded 3 overridden -> Ctx\n"
-    assert asked == "recorded 4 asked -> Ctx\n"
+    assert moved == "recorded 4 overridden -> Ctx\n"
+    assert asked == "recorded 5 asked -> Ctx\n"
 
 
 def test_a_review_lead_handback_records_its_head_and_waits_for_the_picks(

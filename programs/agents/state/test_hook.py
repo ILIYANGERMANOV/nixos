@@ -35,6 +35,7 @@ from state.state_fixtures import (
     older_log,
     to_draft,
     to_impl,
+    types,
 )
 
 SESSION = SessionId("s")
@@ -84,14 +85,6 @@ def updated(result: Result, field: str) -> str:
     text = result.updated_input[field]
     assert isinstance(text, str)
     return text
-
-
-def types(notes: Path) -> list[object]:
-    return [
-        event["type"]
-        for line in log_of(notes)
-        if isinstance(event := line["event"], dict)
-    ]
 
 
 def files(root: Path) -> set[Path]:
@@ -433,7 +426,7 @@ def test_handback_records_a_worker_and_appends_it_to_the_report(
     assert types(notes)[-1] == "implemented"
 
 
-def test_handback_appends_a_refusal_and_its_fix_and_records_nothing(
+def test_handback_appends_a_refusal_and_its_fix_and_records_it_refused(
     repo: Path, notes: Path
 ) -> None:
     to_impl(repo, notes)
@@ -445,7 +438,21 @@ def test_handback_appends_a_refusal_and_its_fix_and_records_nothing(
 
     assert report.startswith("done\n\nstate handback implementer: line 1 starts 'done'")
     assert "\nfix: record it by hand: state record implemented" in report
-    assert types(notes) == before
+    assert types(notes) == [*before, "refused"]
+
+
+def test_a_hook_after_a_refused_handback_starts_with_the_warning(
+    repo: Path, notes: Path
+) -> None:
+    to_impl(repo, notes)
+    _ = run_hook("handback", hand_back(repo, "implementer", "done"))
+
+    spawned = context(run_hook("spawn", delegate(repo, "implementer")))
+
+    assert spawned.splitlines()[0].startswith(
+        "state: WARN refused, not recorded: state handback implementer: line 1"
+    )
+    assert spawned.splitlines()[1].startswith("state: fix: record it by hand")
 
 
 def test_handback_records_a_researcher_while_in_ctx(repo: Path, notes: Path) -> None:
