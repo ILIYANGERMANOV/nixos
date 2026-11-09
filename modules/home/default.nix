@@ -8,6 +8,7 @@
     ./git.nix
     ./ssh.nix
     ./typos.nix
+    ./temp-factory.nix
     ./direnv.nix
     ./blockchain.nix
     ./languages/typescript.nix

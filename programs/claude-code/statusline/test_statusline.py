@@ -16,7 +16,16 @@ from typing import NotRequired, TypedDict, cast
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from statusline import DARK, LIGHT, Palette, Status, Unreadable, parse, render
+from statusline import (
+    DARK,
+    LIGHT,
+    MAX_PATH_BYTES,
+    Palette,
+    Status,
+    Unreadable,
+    parse,
+    render,
+)
 
 STATUSLINE = os.environ["STATUSLINE"]
 CORPUS = Path(__file__).with_name("statusline-corpus.json")
@@ -328,7 +337,8 @@ def test_a_cwd_past_the_kernels_argument_limit_prints_its_name() -> None:
 
 
 def test_a_long_cwd_the_kernel_still_resolves_shows_its_branch(repo: Path) -> None:
-    nested = f"{repo}{'/.' * ((4000 - len(str(repo))) // 2)}"
+    # Just under the limit, so a limit set past the kernel's makes git fail here.
+    nested = f"{repo}{'/.' * ((MAX_PATH_BYTES - 96 - len(str(repo))) // 2)}"
 
     assert ANSI.sub("", run(json.dumps({"cwd": nested})).stdout) == ".  feature/x\n"
 

@@ -28,8 +28,9 @@ MAX_PERCENT = 1_000_000
 # Spaces and a sign as bash read them. A count this long is garbage too, and
 # Python refuses to print an int past 4300 digits.
 WHOLE_NUMBER = re.compile(r"\s*[+-]?[0-9]{1,18}\s*")
-# The longest path the kernel resolves: git could only fail on a longer one.
-MAX_PATH_BYTES = 4096
+# The longest path the kernel resolves, 4096 on Linux and 1024 on macOS: git
+# could only fail on a longer one.
+MAX_PATH_BYTES = os.pathconf("/", "PC_PATH_MAX")
 WARNING_PERCENT = 50
 CRITICAL_PERCENT = 80
 SECONDS_PER_MINUTE = 60

@@ -15,6 +15,10 @@ let
     inherit pkgs;
     noTouchSigning = true;
   };
+  tempFactory = import ../temp-factory {
+    inherit pkgs;
+    touchSsh = lib.getExe yubikey.ssh;
+  };
 
   # Same text and same shellcheck phase, without building what the text names:
   # keeping the context builds claude-code and `qa`'s browsers, 2.8 GiB against
@@ -246,6 +250,7 @@ in
         nativeBuildInputs = [
           tools.bats
           pkgs.jq
+          pkgs.git
         ];
       }
       ''
@@ -261,6 +266,7 @@ in
     map dry (claude.packages ++ [ claude.factory.wrapper ])
     ++ [
       typos.cli
+      tempFactory.cli
       yubikey.ssh
       yubikey.sshKeygen
     ]
