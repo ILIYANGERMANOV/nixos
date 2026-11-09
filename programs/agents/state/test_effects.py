@@ -8,14 +8,20 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from state.core import NoPr, Pr, Unavailable
+from state.effects import parse_pr_view
 from state.state_fixtures import (
     PR,
+    GitHub,
     commit,
     first_line,
+    git,
     log_of,
     make_repo,
     ok,
+    older_log,
     run,
+    to_draft,
     to_impl,
 )
 
@@ -31,7 +37,7 @@ COMMANDS = st.sampled_from(
         ("record", "grew", "bigger"),
         ("record", "planned", "plan.md"),
         ("record", "confirmed"),
-        ("record", "drafted", PR, "main"),
+        ("record", "drafted", PR, "main", "feature"),
         ("record", "implemented"),
         ("record", "bogus"),
         ("override", "PR", "jump"),
@@ -123,7 +129,7 @@ def test_drafting_with_quality_unset_records_it_defaulted(
     ):
         _ = ok(repo, *argv)
 
-    out = ok(repo, "record", "drafted", PR, "main")
+    out = ok(repo, "record", "drafted", PR, "main", "feature")
 
     assert out == "recorded 5 defaulted -> Impl\nrecorded 6 drafted -> Impl\n"
     assert "Quality: Balanced (defaulted)" in ok(repo, "show")
@@ -144,7 +150,7 @@ def test_an_event_off_the_table_exits_2_and_appends_nothing(
 def test_drafted_takes_the_pr_url_not_its_number(repo: Path, tmp_path: Path) -> None:
     _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
 
-    code, _, err = run(repo, "record", "drafted", "7", "main")
+    code, _, err = run(repo, "record", "drafted", "7", "main", "feature")
 
     assert code == 2
     assert "url '7' is not a PR URL, https://<host>/<owner>/<repo>/pull/<n>" in err
@@ -257,3 +263,110 @@ def test_outside_a_repo_exits_2(tmp_path: Path) -> None:
 
     assert code == 2
     assert err.splitlines()[1] == "fix: cd <worktree>; state keeps one run per worktree"
+
+
+# ---- The PR on GitHub ---------------------------------------------------------------
+
+PR_JSON = (
+    '{"baseRefName":"main","headRefName":"feature","isDraft":true,'
+    f'"state":"OPEN","url":"{PR}"}}\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("code", "stdout", "stderr", "read"),
+    [
+        pytest.param(
+            0, PR_JSON, "", Pr(PR, "main", "feature", draft=True, state="OPEN"),
+            id="a PR",
+        ),
+        pytest.param(
+            1, "", 'no pull requests found for branch "main"\n', NoPr(),
+            id="no PR for the branch",
+        ),
+        pytest.param(
+            1, "", "error connecting to api.github.com\ncheck your internet\n",
+            Unavailable("gh pr view: error connecting to api.github.com"),
+            id="offline",
+        ),
+        pytest.param(4, "", "", Unavailable("gh pr view: exit 4"), id="no stderr"),
+        pytest.param(
+            0, '{"url":"x"}', "", Unavailable('gh pr view printed no PR: {"url":"x"}'),
+            id="another shape",
+        ),
+    ],
+)  # fmt: skip
+def test_gh_pr_view_reads_a_pr_none_or_why_not(
+    code: int, stdout: str, stderr: str, read: Pr | NoPr | Unavailable
+) -> None:
+    assert parse_pr_view(code, stdout, stderr) == read
+
+
+def test_next_records_the_pr_opened_for_the_branch(repo: Path, tmp_path: Path) -> None:
+    to_draft(repo, tmp_path / "notes")
+
+    out = ok(repo, "next")
+
+    assert out.startswith("recorded 6 drafted -> Impl\nSPAWN implementer\n")
+
+
+def test_next_with_no_pr_yet_advises_creating_it(
+    repo: Path, tmp_path: Path, github: GitHub
+) -> None:
+    to_draft(repo, tmp_path / "notes")
+    github.clear()
+
+    assert first_line(ok(repo, "next")) == "RUN gh pr create --draft"
+
+
+def test_next_with_github_down_works_from_the_log_and_says_so(
+    repo: Path, tmp_path: Path, github: GitHub
+) -> None:
+    to_impl(repo, tmp_path / "notes")
+    github.down("error connecting to api.github.com")
+
+    out = ok(repo, "next")
+
+    assert out.splitlines()[:2] == [
+        "PR sync skipped - gh pr view: error connecting to api.github.com",
+        "SPAWN implementer",
+    ]
+
+
+def test_show_on_another_branch_says_the_hooks_are_silent(
+    repo: Path, tmp_path: Path
+) -> None:
+    to_impl(repo, tmp_path / "notes")
+    _ = git(repo, "switch", "--quiet", "--create", "other")
+
+    out = ok(repo, "show")
+
+    assert out.splitlines()[:2] == [
+        "state hooks: silent - HEAD is on other, the run is bound to feature",
+        "Step: Impl",
+    ]
+
+
+def test_show_of_a_merged_pr_says_the_hooks_are_silent(
+    repo: Path, tmp_path: Path, github: GitHub
+) -> None:
+    to_impl(repo, tmp_path / "notes")
+    github.open(draft=False, state="MERGED")
+
+    out = ok(repo, "show")
+
+    assert first_line(out) == f"state hooks: silent - PR {PR} is merged"
+
+
+def test_show_of_a_log_an_older_state_wrote_says_the_hooks_are_silent(
+    repo: Path, tmp_path: Path
+) -> None:
+    notes = tmp_path / "notes"
+    to_impl(repo, notes)
+    older_log(notes)
+
+    code, _, err = run(repo, "show")
+
+    assert code == 2
+    assert err.splitlines()[0].endswith(":6: branch is not a non-empty string")
+    assert err.rstrip().endswith("the state hooks stay silent until it parses")

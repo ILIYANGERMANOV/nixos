@@ -1,0 +1,579 @@
+{
+  "offered": {
+    "lead": [
+      "Agent",
+      "Bash",
+      "DeferredToolPlaceholder",
+      "Edit",
+      "ListAgents",
+      "Read",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "Skill",
+      "ToolSearch",
+      "Workflow",
+      "Write"
+    ],
+    "subagent": [
+      "Bash",
+      "SubagentHandback"
+    ]
+  },
+  "requests": [
+    {
+      "speaker": "lead",
+      "witnesses": []
+    },
+    {
+      "speaker": "lead",
+      "witnesses": [
+        "REWRITTEN"
+      ]
+    },
+    {
+      "speaker": "lead",
+      "witnesses": []
+    },
+    {
+      "speaker": "lead",
+      "witnesses": []
+    },
+    {
+      "speaker": "subagent",
+      "witnesses": [
+        "SPAWN-TAG"
+      ]
+    },
+    {
+      "speaker": "subagent",
+      "witnesses": []
+    },
+    {
+      "speaker": "subagent",
+      "witnesses": []
+    },
+    {
+      "speaker": "subagent",
+      "witnesses": []
+    },
+    {
+      "speaker": "lead",
+      "witnesses": [
+        "HANDBACK-TAG"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "event": "SessionStart",
+      "keys": [
+        "cwd",
+        "hook_event_name",
+        "session_id",
+        "source",
+        "transcript_path"
+      ],
+      "cwd": ".",
+      "hook_runs_in_cwd": true,
+      "source": "startup"
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": ".",
+      "hook_runs_in_cwd": true,
+      "tool": "Bash",
+      "input": {
+        "command": "echo ORIGINAL",
+        "description": "echo ORIGINAL"
+      }
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": ".",
+      "hook_runs_in_cwd": true,
+      "tool": "Bash",
+      "input": {
+        "command": "echo REWRITTEN",
+        "description": "echo ORIGINAL"
+      },
+      "response_keys": [
+        "interrupted",
+        "isImage",
+        "noOutputExpected",
+        "stderr",
+        "stdout"
+      ],
+      "stdout": "REWRITTEN"
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": ".",
+      "hook_runs_in_cwd": true,
+      "tool": "Bash",
+      "input": {
+        "command": "cd sub",
+        "description": "cd sub"
+      }
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "tool": "Bash",
+      "input": {
+        "command": "cd sub",
+        "description": "cd sub"
+      },
+      "response_keys": [
+        "interrupted",
+        "isImage",
+        "noOutputExpected",
+        "stderr",
+        "stdout"
+      ],
+      "stdout": ""
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "tool": "Bash",
+      "input": {
+        "command": "pwd",
+        "description": "pwd"
+      }
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "tool": "Bash",
+      "input": {
+        "command": "pwd",
+        "description": "pwd"
+      },
+      "response_keys": [
+        "interrupted",
+        "isImage",
+        "noOutputExpected",
+        "stderr",
+        "stdout"
+      ],
+      "stdout": "<repo>/sub"
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "tool": "Agent",
+      "input": {
+        "description": "Probe the subagent's hooks",
+        "prompt": "Run the probe.",
+        "subagent_type": "probe",
+        "run_in_background": false
+      }
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "Bash",
+      "input": {
+        "command": "pwd",
+        "description": "pwd"
+      }
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "Bash",
+      "input": {
+        "command": "pwd",
+        "description": "pwd"
+      },
+      "response_keys": [
+        "interrupted",
+        "isImage",
+        "noOutputExpected",
+        "stderr",
+        "stdout"
+      ],
+      "stdout": "<repo>/sub"
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "Bash",
+      "input": {
+        "command": "cd ..",
+        "description": "cd .."
+      }
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "Bash",
+      "input": {
+        "command": "cd ..",
+        "description": "cd .."
+      },
+      "response_keys": [
+        "interrupted",
+        "isImage",
+        "noOutputExpected",
+        "stderr",
+        "stdout"
+      ],
+      "stdout": ""
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "Bash",
+      "input": {
+        "command": "pwd",
+        "description": "pwd"
+      }
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "Bash",
+      "input": {
+        "command": "pwd",
+        "description": "pwd"
+      },
+      "response_keys": [
+        "interrupted",
+        "isImage",
+        "noOutputExpected",
+        "stderr",
+        "stdout"
+      ],
+      "stdout": "<repo>/sub"
+    },
+    {
+      "event": "PreToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "SubagentHandback",
+      "input": {
+        "message": "PROBE-HANDBACK"
+      }
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "agent_id",
+        "agent_type",
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "agent_type": "probe",
+      "tool": "SubagentHandback",
+      "input": {
+        "message": "PROBE-HANDBACK HANDBACK-TAG"
+      },
+      "response_keys": [
+        "message",
+        "success"
+      ]
+    },
+    {
+      "event": "PostToolUse",
+      "keys": [
+        "cwd",
+        "duration_ms",
+        "effort",
+        "hook_event_name",
+        "permission_mode",
+        "prompt_id",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path"
+      ],
+      "cwd": "sub",
+      "hook_runs_in_cwd": true,
+      "tool": "Agent",
+      "input": {
+        "description": "Probe the subagent's hooks",
+        "prompt": "Run the probe. SPAWN-TAG",
+        "subagent_type": "probe",
+        "run_in_background": false
+      },
+      "response_keys": [
+        "agentId",
+        "agentType",
+        "canContinueAgent",
+        "content",
+        "handback",
+        "handbackReport",
+        "harnessNoteCount",
+        "harnessSectionHash",
+        "harnessTailCount",
+        "prompt",
+        "resolvedModel",
+        "status",
+        "toolStats",
+        "toolsUsed",
+        "totalDurationMs",
+        "totalTokens",
+        "totalToolUseCount",
+        "usage"
+      ]
+    },
+    {
+      "event": "SessionStart",
+      "keys": [
+        "context_tokens",
+        "cwd",
+        "estimated_cache_write_usd",
+        "hook_event_name",
+        "prompt_cache_likely_expired",
+        "seconds_since_last_response",
+        "session_id",
+        "source",
+        "transcript_path"
+      ],
+      "cwd": ".",
+      "hook_runs_in_cwd": true,
+      "source": "resume"
+    },
+    {
+      "event": "SessionStart",
+      "keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "prompt_id",
+        "session_id",
+        "source",
+        "transcript_path"
+      ],
+      "cwd": ".",
+      "hook_runs_in_cwd": true,
+      "source": "compact"
+    }
+  ]
+}

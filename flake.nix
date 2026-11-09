@@ -185,9 +185,23 @@
 
       # `just mutation-diff` and `just mutation` run it. Not a check: see
       # programs/mutation/default.nix.
-      packages = lib.forAllSystems (pkgs: {
-        mutation = (import ./programs/mutation { inherit pkgs; }).runner;
-      });
+      packages = lib.forAllSystems (
+        pkgs:
+        let
+          inherit (pkgs.stdenv.hostPlatform) system;
+        in
+        {
+          mutation = (import ./programs/mutation { inherit pkgs; }).runner;
+        }
+        # `just probe-agents-hooks` runs it, see its default.nix. Not on
+        # x86_64-darwin: `llm-agents` has no package there.
+        // pkgs.lib.optionalAttrs (inputs.llm-agents.packages ? ${system}) {
+          probe-agents-hooks = import ./programs/claude-code/hooks/contract {
+            inherit pkgs;
+            inherit (inputs.llm-agents.packages.${system}) claude-code;
+          };
+        }
+      );
 
       devShells = lib.forAllSystems (pkgs: {
         default = import ./shells/default.nix { inherit pkgs inputs; };

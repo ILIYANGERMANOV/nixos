@@ -89,18 +89,21 @@ your Quality row too.
 
 ## State hooks
 
-Hooks record the rest and add context. Absence is visible: a hand-back with
-no `state:` line, or `gh pr create`/`gh pr ready` with no `state: recorded`
-note, was not recorded, so record it by hand: `state handback <role>`,
-`state record drafted|ready ...`.
+Hooks record the rest and add context. A hand-back with no `state:` line was
+not recorded: run `state handback <role>`.
+`state next`, `state show` and every hook first read the PR from GitHub and
+record `drafted` or `ready` when the step waits for it, however the PR was
+made. Offline (`PR sync skipped`): `state record drafted <url>
+<base> <branch>` or `ready <url>`. Once drafted, the hooks go silent off its
+branch, on a merged or closed PR or an older `state`'s log; `state show` says
+why.
 
 | When | The hook | You |
 |---|---|---|
 | session start, resume, compact | adds `state show`, `state next` | resume from them and `git log` |
-| you spawn | adds `state next`, a warning off it; once drafted, `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt: `ctx diff <base>` output, read by its `index` then `diff` ranges | advisory, none for a reviewer, researcher, checker or later slice; add no diff |
+| you spawn | adds `state next`, a warning off it; no prompt change | advisory, none for a reviewer, researcher, checker or later slice |
 | an implementer, refactorer, fixer or review-lead hands back | records it; appends `state: recorded ...`, or a refusal and `fix:` | triage a question, pick a review's rows |
 | Ctx: a researcher back, a question | `researched`, `asked` | - |
-| `gh pr create`, `gh pr ready` | `drafted`, `ready` | - |
 
 | Mistake | Right form |
 |---|---|

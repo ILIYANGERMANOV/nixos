@@ -31,6 +31,8 @@ ignore = [
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "programs/agents/ctx/ctx.py" = ["S603", "S607"]
 "programs/agents/state/effects.py" = ["S603", "S607"]
+# The hook contract probe runs the pinned `claude` its package puts on PATH.
+"programs/claude-code/hooks/contract/probe.py" = ["S603", "S607"]
 # The state hooks run the session's `ctx`.
 "programs/agents/state/hook.py" = ["S603", "S607"]
 # The dispatcher runs each hook's argv as declared in Nix.
@@ -63,6 +65,8 @@ pythonpath = [
   # The hook contract, and Claude's adapter, which imports it as it does at run time.
   "programs/agents/hooks",
   "programs/claude-code/hooks/adapter",
+  # The hook contract probe: probe.py imports the mock beside it.
+  "programs/claude-code/hooks/contract",
   # `state` is a package, imported as `state.core`: its modules' bare names
   # (core, cli, main) would clash with any other module on this shared path.
   "programs/agents",
@@ -78,6 +82,11 @@ pythonVersion = "3.13"
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code/hooks/adapter"
 extraPaths = ["programs/agents/hooks"]
+
+# The probe imports the mock beside it. First: the guards' environment below
+# would claim it.
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/claude-code/hooks/contract"
 
 # The guards import their sibling modules from site-packages at runtime
 # (bash-guard.nix), so they are absolute imports, not relative ones.
