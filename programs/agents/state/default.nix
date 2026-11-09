@@ -12,8 +12,6 @@
   pkgs,
   # agent_hook.py as a Python library: the contract state-hook reads and prints.
   agentHook,
-  # `ctx`, which state-hook runs for a diff reader's `Diff:` folder.
-  ctx,
 }:
 
 let
@@ -54,6 +52,5 @@ pkgs.runCommand "state"
     makeWrapper ${pkgs.lib.getExe python} "$out/bin/state-hook" \
       --add-flags "-P -m state.hook" \
       --set PYTHONPATH "$out/lib:${agentHook}/${python.sitePackages}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ ctx ]} \
       --suffix PATH : ${ghPath}
   ''

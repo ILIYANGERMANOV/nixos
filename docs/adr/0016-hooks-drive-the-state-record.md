@@ -33,7 +33,7 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   | Hook | When | Does |
   |---|---|---|
   | resume | session start, resume, compact | adds `state show` and `state next` |
-  | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; once drafted, appends `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt that has no `Diff:` line yet, so a resend passes unchanged |
+  | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; never rewrites the prompt: auto mode refuses a rewritten spawn once, so `state brief` gives a refactorer, review-lead or fixer a `Diff:` line to run `ctx diff` itself |
   | handback | before a worker hands back | records it, and appends what it recorded, or the refusal and `fix:`, to the report |
   | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
   | asked | after the lead asks, in Ctx | records `asked` |
@@ -96,8 +96,8 @@ and Claude's internal `subagents/*.meta.json` link.
 - The engineer skill teaches what each hook adds and how to act on it, and
   keeps only the records the lead decides. `state help`, `show` and `next`
   still work by hand.
-- A diff-reading worker reads the `Diff:` folder it is given, `index` first,
-  instead of running `ctx diff` again.
+- A diff-reading worker runs the `ctx diff origin/<base>` its brief's `Diff:`
+  line names, then reads its `index` first and the diff ranges.
 - The 4 Claude-native guards stay as they are; porting them to the contract
   is #338. An OpenCode backend reuses every hook through a generated plugin.
 - Logs written before `picked` existed, whose `reviewed` event held rows and

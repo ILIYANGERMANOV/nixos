@@ -86,7 +86,7 @@ let
   ctx = import ./ctx { inherit pkgs; };
   # `state`: the engineer flow's event log and advice, on PATH beside `ctx`.
   state = import ./state {
-    inherit pkgs ctx;
+    inherit pkgs;
     agentHook = hooks.module;
   };
   profiles = import ./profiles {

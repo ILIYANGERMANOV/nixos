@@ -974,10 +974,38 @@ def test_brief_of_a_non_worker_carries_no_worker_hand_back_rule(role: Role) -> N
     assert "READY, NEEDS_DECISION, GREW" not in text
 
 
-def test_brief_of_a_fixer_asks_for_the_touches_line_and_names_the_diff_folder() -> None:
+@pytest.mark.parametrize("role", ["refactorer", "review-lead", "fixer"])
+def test_brief_of_a_diff_reader_tells_it_to_run_ctx_diff_against_the_base(
+    role: Role,
+) -> None:
+    lines = brief(role, reach(*reviewed()), "/w").splitlines()
+
+    assert (
+        "Diff: run ctx diff origin/main, read its index, then the diff ranges" in lines
+    )
+
+
+def test_brief_of_a_diff_reader_before_a_draft_leaves_the_base_to_fill() -> None:
+    lines = brief(
+        "refactorer", reach(Started(NOTES, delegated=False)), "/w"
+    ).splitlines()
+
+    assert (
+        "Diff: run ctx diff origin/<base>, read its index, then the diff ranges"
+        in lines
+    )
+
+
+@pytest.mark.parametrize("role", ["implementer", "researcher", "reviewer", "checker"])
+def test_brief_of_a_role_that_reads_no_diff_has_no_diff_line(role: Role) -> None:
+    text = brief(role, reach(*reviewed()), "/w")
+
+    assert "Diff:" not in text
+
+
+def test_brief_of_a_fixer_asks_for_the_touches_line() -> None:
     text = brief("fixer", reach(*reviewed()), "/w")
 
-    assert "the prompt's Diff: folder, else ctx diff origin/main" in text
     assert (
         "End your hand-back with a line `Touches: <area>...` naming any of "
         "interface, data-model, auth your fix changed (or `Touches: none`)."

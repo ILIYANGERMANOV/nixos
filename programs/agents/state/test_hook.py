@@ -1,8 +1,6 @@
-"""The state hooks against temp git repos, with a run and without one. `ctx` is
-a fake on PATH: the real one writes under /tmp/ctx, which the box shares."""
+"""The state hooks against temp git repos, with a run and without one."""
 
 import io
-import os
 from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -26,6 +24,7 @@ from agent_hook import (
 )
 
 from state.hook import HookName, main, run_hook
+from state.model import ROLES
 from state.state_fixtures import (
     PR,
     GitHub,
@@ -40,25 +39,6 @@ from state.state_fixtures import (
 
 SESSION = SessionId("s")
 LEAD = None
-
-
-@pytest.fixture(autouse=True)
-def fake_ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A `ctx` printing a folder named after its base, failing when CTX_FAILS
-    and printing nothing when CTX_SILENT."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    script = bin_dir / "ctx"
-    _ = script.write_text(
-        """#!/bin/sh
-[ -n "$CTX_FAILS" ] && { echo "ctx: bad ref" >&2; exit 2; }
-[ -n "$CTX_SILENT" ] && exit 0
-echo "/tmp/ctx/$1-${2#origin/}"
-echo "refs: $2..HEAD"
-"""
-    )
-    script.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
 
 @pytest.fixture
@@ -77,10 +57,8 @@ def start(cwd: Path, by: Agent | None = LEAD) -> SessionStart:
     return SessionStart(SESSION, cwd, by, Source.STARTUP)
 
 
-def delegate(
-    cwd: Path, role: str, by: Agent | None = LEAD, prompt: str = "Do it."
-) -> BeforeTool:
-    tool_input: JsonObject = {"prompt": prompt, "subagent_type": role}
+def delegate(cwd: Path, role: str, by: Agent | None = LEAD) -> BeforeTool:
+    tool_input: JsonObject = {"prompt": "Do it.", "subagent_type": role}
     return BeforeTool(SESSION, cwd, by, Tool.DELEGATE, tool_input)
 
 
@@ -389,67 +367,15 @@ def test_spawn_gives_no_warning_for_a_later_implementer_slice(
     assert "state: the advice is" not in spawned
 
 
-@pytest.mark.parametrize("role", ["refactorer", "review-lead", "fixer"])
-def test_spawn_hands_a_diff_reader_the_branch_diff_folder(
-    repo: Path, notes: Path, role: str
-) -> None:
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_spawn_never_rewrites_the_prompt(repo: Path, notes: Path, role: str) -> None:
     to_impl(repo, notes)
 
-    prompt = updated(run_hook("spawn", delegate(repo, role)), "prompt")
-
-    assert prompt == "Do it.\nDiff: /tmp/ctx/diff-main"
-
-
-def test_spawn_leaves_a_prompt_that_already_has_a_diff_line(
-    repo: Path, notes: Path
-) -> None:
-    to_impl(repo, notes)
-    resent = "Do it.\nDiff: /tmp/ctx/diff-main\nThen push."
-
-    spawned = run_hook("spawn", delegate(repo, "fixer", prompt=resent))
+    spawned = run_hook("spawn", delegate(repo, role))
 
     assert isinstance(spawned, Allow)
     assert spawned.updated_input is None
     assert context(spawned).startswith("SPAWN ")
-
-
-def test_spawn_gives_no_folder_before_a_draft_names_the_base(
-    repo: Path, notes: Path
-) -> None:
-    in_ctx(repo, notes)
-
-    spawned = run_hook("spawn", delegate(repo, "refactorer"))
-
-    assert isinstance(spawned, Allow)
-    assert spawned.updated_input is None
-
-
-def test_spawn_tells_when_ctx_fails_and_leaves_the_prompt(
-    repo: Path, notes: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    to_impl(repo, notes)
-    monkeypatch.setenv("CTX_FAILS", "1")
-
-    spawned = run_hook("spawn", delegate(repo, "fixer"))
-
-    assert isinstance(spawned, Allow)
-    assert spawned.updated_input is None
-    assert "\nstate: ctx diff origin/main failed - ctx: bad ref\nfix:" in context(
-        spawned
-    )
-
-
-def test_spawn_tells_when_ctx_prints_no_folder(
-    repo: Path, notes: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    to_impl(repo, notes)
-    monkeypatch.setenv("CTX_SILENT", "1")
-
-    spawned = run_hook("spawn", delegate(repo, "fixer"))
-
-    assert isinstance(spawned, Allow)
-    assert spawned.updated_input is None
-    assert "\nstate: ctx diff origin/main printed no folder\nfix:" in context(spawned)
 
 
 def test_spawn_tells_a_git_failure(repo: Path, notes: Path) -> None:

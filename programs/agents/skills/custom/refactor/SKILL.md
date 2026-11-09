@@ -32,7 +32,7 @@ directory, and a `..` path does not resolve between installed skills.
 Your input may carry `Quality: <mode>`, scope notes (anything else that is
 not a ref) and a target:
 
-- `Diff: <folder>` - the diff `ctx` wrote: it wins.
+- `Diff: run ctx diff <ref>...` - run it: it wins.
 - A PR number or URL - check its branch out first if it is not the current
   one (`gh pr checkout <n>`), then `ctx diff origin/<its baseRefName>`.
 - A base ref - `ctx diff <ref>`.

@@ -4,8 +4,7 @@ remembering to.
     resume    sessionStart          context: `state show` and `state next`
     spawn     beforeTool delegate   context: `state next`, a warning when the
                                     flow role spawned is neither the one advised
-                                    nor one beside it, and a diff reader's prompt
-                                    with no `Diff:` line gets `Diff: <folder>`
+                                    nor one beside it; never rewrites the prompt
     handback  beforeTool handback   records a worker's hand-back and appends
                                     what was recorded, or why not, to it
     asked     afterTool ask         records a question asked while in Ctx
@@ -19,7 +18,6 @@ an error becomes context ("fail open and tell"). Only the lead steers the run: a
 not the lead's, except a hand-back, which only a subagent makes.
 """
 
-import subprocess
 import sys
 from pathlib import Path
 from typing import Literal, cast
@@ -65,7 +63,6 @@ from state.model import (
     ROLES,
     WORKERS,
     Asked,
-    Drafted,
     Failure,
     Researched,
     State,
@@ -78,9 +75,6 @@ from state.model import (
 
 type HookName = Literal["resume", "spawn", "handback", "asked"]
 HOOKS = cast("tuple[HookName, ...]", values_of(HookName))
-
-# The roles that read the branch diff, once a draft PR names its base.
-DIFF_READERS = frozenset({"refactorer", "review-lead", "fixer"})
 
 # Spawned beside the advised role, never instead of it: a dry-run reviewer next
 # to the review-lead, a fact-gap researcher, a checker for the full check.
@@ -193,27 +187,9 @@ def spawn(cwd: Path, tool_input: JsonObject) -> Allow:
         if isinstance(advice, Spawn) and off_advice(advice.role, role, state.step)
         else []
     )
-    context = joined(note(synced), render_advice(advice).rstrip("\n"), *warning)
-    # A prompt that already has its Diff: line passes unchanged: auto mode
-    # rejects input a hook rewrote after its review and asks for a resend, so
-    # rewriting the resend again would block the spawn forever.
-    match state.drafted, tool_input.get("prompt"):
-        case Drafted(), str(prompt) if has_diff_line(prompt):
-            return Allow(context)
-        case Drafted(base=base), str(prompt) if role in DIFF_READERS:
-            match ctx_folder(cwd, base):
-                case Failure() as failure:
-                    return Allow(context=f"{context}\n{note(failure)}")
-                case folder:
-                    return Allow(
-                        context, tool_input | {"prompt": f"{prompt}\nDiff: {folder}"}
-                    )
-        case _:
-            return Allow(context)
-
-
-def has_diff_line(prompt: str) -> bool:
-    return any(line.startswith("Diff: ") for line in prompt.splitlines())
+    # No updatedInput: auto mode reviews the input the lead wrote and refuses
+    # a rewrite of it, so a diff reader's brief tells it to run `ctx diff`.
+    return Allow(joined(note(synced), render_advice(advice).rstrip("\n"), *warning))
 
 
 def off_advice(advised: str, spawned: Json, step: StateName) -> bool:
@@ -301,32 +277,6 @@ def run_in(cwd: Path) -> Loaded | None:
 
 def record(run: Loaded, events: tuple[StateEvent, ...], cwd: Path) -> str | Failure:
     return append(run.log, run.lines, run.state, events, cwd)
-
-
-def ctx_folder(cwd: Path, base: str) -> str | Failure:
-    """The branch diff's folder: `ctx diff`'s line 1."""
-    done = subprocess.run(
-        ["ctx", "diff", f"origin/{base}"],
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if done.returncode != 0:
-        return Failure(
-            f"state: ctx diff origin/{base} failed - {done.stderr.strip()}",
-            f"run ctx diff origin/{base} and give the worker its folder",
-            done.returncode,
-        )
-    match done.stdout.splitlines():
-        case [folder, *_]:
-            return folder
-        case _:
-            return Failure(
-                f"state: ctx diff origin/{base} printed no folder",
-                f"run ctx diff origin/{base} and give the worker its folder",
-                1,
-            )
 
 
 def note(recorded: str | Failure) -> str:

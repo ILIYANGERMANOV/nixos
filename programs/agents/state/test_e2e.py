@@ -114,13 +114,11 @@ def test_a_hand_edited_bad_line_exits_2_naming_the_line(
 
 
 def hook(repo: Path, name: str, event: Mapping[str, object]) -> dict[str, object]:
-    """One neutral-contract event through `state-hook <name>`; its result. The
-    `ctx` it runs keeps its folders beside the repo, not in the host's /tmp."""
+    """One neutral-contract event through `state-hook <name>`; its result."""
     stdin = json.dumps({"session": "s", "cwd": str(repo), "agent": None, **event})
     done = subprocess.run(
         [STATE_HOOK, name],
         cwd=repo,
-        env={**os.environ, "CTX_STORE": str(repo.parent / "ctx")},
         input=stdin,
         capture_output=True,
         text=True,
@@ -147,12 +145,11 @@ def test_the_resume_hook_tells_the_step_of_a_run(repo: Path, tmp_path: Path) -> 
     assert str(told["context"]).startswith("Step: Impl\n")
 
 
-def test_the_spawn_hook_gives_a_fixer_the_branch_diff_folder(
+def test_the_spawn_hook_advises_and_leaves_the_prompt(
     repo: Path, tmp_path: Path
 ) -> None:
     drafted(repo, tmp_path / "notes")
 
-    # `ctx` is on the wrapper's PATH.
     spawned = hook(
         repo,
         "spawn",
@@ -163,13 +160,8 @@ def test_the_spawn_hook_gives_a_fixer_the_branch_diff_folder(
         },
     )
 
-    match spawned["updatedInput"]:
-        case {"prompt": str(prompt)}:
-            pass
-        case other:
-            raise AssertionError(f"no prompt rewritten: {other!r}")
-    assert prompt.startswith("Fix it.\nDiff: /")
-    assert Path(prompt.removeprefix("Fix it.\nDiff: ")).joinpath("diff").is_file()
+    assert "updatedInput" not in spawned
+    assert str(spawned["context"]).startswith("SPAWN ")
 
 
 def test_the_handback_hook_records_the_handback_and_tells_the_worker(

@@ -1420,7 +1420,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 "The previous slice started at <sha>, when there is one.",
             ]
         case "refactorer":
-            return []
+            return [diff_line(base)]
         case "fixer":
             match state.step, state.work:
                 case "DraftPR", Picked(rows=rows) | Ci(failing=rows):
@@ -1438,10 +1438,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
             return [
                 rows_line,
                 *(final if state.step == "DraftPR" else []),
-                (
-                    "A row that needs the branch's changes: the prompt's Diff: folder, "
-                    f"else ctx diff origin/{base}"
-                ),
+                diff_line(base),
                 "Targeted checks only: <the checks>",
                 (
                     "End your hand-back with a line `Touches: <area>...` naming any of "
@@ -1449,9 +1446,14 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 ),
             ]
         case "review-lead":
-            return (
-                ["No children: the Trivial sweep."] if state.size == "Trivial" else []
-            )
+            return [
+                diff_line(base),
+                *(
+                    ["No children: the Trivial sweep."]
+                    if state.size == "Trivial"
+                    else []
+                ),
+            ]
         case "reviewer":
             return [
                 "Dry run: read the changed SKILL.md from the branch, not the installed copy,",
@@ -1471,6 +1473,11 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 "Run: <the check>",
                 "Hand back PASS, or FAIL with each failing check.",
             ]
+
+
+def diff_line(base: str) -> str:
+    """A diff reader runs `ctx diff` itself: no hook rewrites its prompt."""
+    return f"Diff: run ctx diff origin/{base}, read its index, then the diff ranges"
 
 
 # ---- Views --------------------------------------------------------------------
