@@ -90,7 +90,10 @@ let
   };
   # When: the flavor runs them.
   hooked = hookSettings.withHooks adapter profileHooks flavorSettings;
-  throws = import ../agents/lib/throws.nix;
+  # A copy of programs/agents/lib/throws.nix: a program reaches another only
+  # through its entry point (deslop programs-are-isolated), and one line is not
+  # worth exposing from agents' default.nix.
+  throws = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
 
   cases = [
     {
