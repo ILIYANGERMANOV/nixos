@@ -245,7 +245,7 @@ def test_a_verdict_outside_the_contract_is_an_error(printed: str, error: str) ->
             r"only beforeTool may set \['decision'\]",
             id="allow",
         ),
-        pytest.param('{"contxt": "c"}', "unknown field", id="misspelled field"),
+        pytest.param('{"contexts": "c"}', "unknown field", id="misspelled field"),
         pytest.param('{"context": 1}', "not a string", id="context not a string"),
     ],
 )
