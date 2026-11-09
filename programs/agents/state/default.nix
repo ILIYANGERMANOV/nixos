@@ -2,7 +2,8 @@
 # current state, with the next arrow advised. A Python package: main.py is the
 # entry point, the other modules beside it hold the logic and each
 # test_<module>.py runs it. It
-# runs the session's own git, the one the agent already works with.
+# runs the session's own git and gh, the ones the agent already works with: the
+# gh on PATH is the one logged in, so the package's gh only fills in for none.
 #
 # hook.py is a second entry point, `state-hook <name>`: the hooks hooks.nix
 # declares, which record the run as the agents work (passthru.hooks, the file
@@ -17,6 +18,8 @@
 
 let
   python = pkgs.python313;
+  # A fallback after the session's own gh: see the header.
+  ghPath = pkgs.lib.makeBinPath [ pkgs.gh ];
   # The program's modules only: its tests and their helpers stay out of the store.
   modules = pkgs.lib.fileset.toSource {
     root = ./.;
@@ -46,9 +49,11 @@ pkgs.runCommand "state"
     # there would under plain `-m`.
     makeWrapper ${pkgs.lib.getExe python} "$out/bin/state" \
       --add-flags "-P -m state.main" \
-      --set PYTHONPATH "$out/lib"
+      --set PYTHONPATH "$out/lib" \
+      --suffix PATH : ${ghPath}
     makeWrapper ${pkgs.lib.getExe python} "$out/bin/state-hook" \
       --add-flags "-P -m state.hook" \
       --set PYTHONPATH "$out/lib:${agentHook}/${python.sitePackages}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ ctx ]}
+      --prefix PATH : ${pkgs.lib.makeBinPath [ ctx ]} \
+      --suffix PATH : ${ghPath}
   ''
