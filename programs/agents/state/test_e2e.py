@@ -126,11 +126,13 @@ def test_a_hand_edited_bad_line_exits_2_naming_the_line(
 
 
 def hook(repo: Path, name: str, event: Mapping[str, object]) -> dict[str, object]:
-    """One neutral-contract event through `state-hook <name>`; its result."""
+    """One neutral-contract event through `state-hook <name>`; its result. The
+    `ctx` it runs keeps its folders beside the repo, not in the host's /tmp."""
     stdin = json.dumps({"session": "s", "cwd": str(repo), "agent": None, **event})
     done = subprocess.run(
         [STATE_HOOK, name],
         cwd=repo,
+        env={**os.environ, "CTX_STORE": str(repo.parent / "ctx")},
         input=stdin,
         capture_output=True,
         text=True,

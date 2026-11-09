@@ -592,4 +592,8 @@ def decoded(raw: bytes) -> str:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:], Path.cwd()))
+    # CTX_STORE moves the store for a test that runs the built ctx: a darwin
+    # nix build shares the host's /tmp, so /tmp/ctx would end up owned by a
+    # build user, which every other account then refuses.
+    store = os.environ.get("CTX_STORE")
+    sys.exit(main(sys.argv[1:], Path.cwd(), Path(store) if store else STORE))
