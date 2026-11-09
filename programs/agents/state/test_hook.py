@@ -584,6 +584,21 @@ def test_pr_reads_a_command_continued_over_lines(
     assert pr_command(command) == found
 
 
+def test_pr_records_a_draft_whose_command_is_continued_over_lines(
+    repo: Path, notes: Path
+) -> None:
+    to_draft(repo, notes)
+    command = "gh pr create --draft \\\n  --base feat-a \\\n  --title x"
+
+    _ = run_hook("pr", shell(repo, command, f"{PR}\n"))
+
+    assert log_of(notes)[-1]["event"] == {
+        "type": "drafted",
+        "url": PR,
+        "base": "feat-a",
+    }
+
+
 def test_pr_finds_gh_pr_ready_past_a_heredoc_shlex_cannot_split() -> None:
     assert pr_command("cat <<'EOF'\nit's\nEOF\ngh pr ready") == MarkReady(None)
 
