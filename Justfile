@@ -116,6 +116,13 @@ mutation-diff $base="origin/main":
 mutation:
     nix run .#mutation -- full
 
+# Never part of `check`: it runs the real Claude Code, see its probe.py.
+# Run it after a Claude Code or any agent update; `--update` rewrites the snapshot.
+#
+# Snapshot the hook contract of the pinned Claude Code and diff it
+probe-agents-hooks *ARGS:
+    nix run .#probe-agents-hooks -- programs/claude-code/hooks/contract/snapshot.json {{ ARGS }}
+
 # Run all checks (lint + architecture + format + spell + flake check)
 check:
     just lint

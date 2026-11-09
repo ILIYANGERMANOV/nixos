@@ -24,6 +24,11 @@ in
       tools = [ "handback" ];
       command = command "handback";
     };
+    state-pr = {
+      on = "afterTool";
+      tools = [ "shell" ];
+      command = command "pr";
+    };
     state-asked = {
       on = "afterTool";
       tools = [ "ask" ];

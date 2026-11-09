@@ -1,14 +1,12 @@
-"""The effects: the notes pointer, the log on disk, the clock, the session id,
-git and the PR on GitHub. It reads, lets the pure modules decide, then writes."""
+"""The effects: the notes pointer, the log on disk, the clock, the session id
+and git. It reads, lets the pure modules decide, then writes."""
 
-import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
 from state.cli import (
     BriefCmd,
@@ -22,36 +20,19 @@ from state.cli import (
     parse_record,
     usage,
 )
-from state.codec import (
-    PR_URL_SHAPE,
-    BadFieldError,
-    Line,
-    encode_line,
-    parse_log,
-    pick,
-    replay,
-)
+from state.codec import BadFieldError, Line, encode_line, parse_log, replay
 from state.core import (
-    PR_STATES,
     Facts,
     GitFacts,
     NoFacts,
-    NoPr,
-    Pr,
-    PrRead,
-    Unavailable,
     advise,
     brief,
-    off_branch,
     parse_handback,
-    pr_closed,
-    pr_to_read,
     record,
     render_advice,
     show,
-    synced,
 )
-from state.model import Event, Failure, Json, Overridden, Started, State, name_of
+from state.model import Event, Failure, Overridden, Started, State, name_of
 
 # ---- The shell ------------------------------------------------------------------
 
@@ -59,34 +40,10 @@ LOG = "events.jsonl"
 # Per worktree, so each run in its own worktree finds its own log.
 POINTER = "state-notes"
 LOCKFILES = ("flake.lock", "package-lock.json", "pnpm-lock.yaml")
-PR_FIELDS = "url,baseRefName,headRefName,isDraft,state"
-# Seconds: a hook waits on it, and an offline `gh` should not stall a session.
-GH_TIMEOUT = 10
-# What `gh pr view` prints, exit 1, for a branch with no PR (gh 2.103.3).
-NO_PR = "no pull requests found for branch"
 
 
 class GitError(Exception):
     """A git command that should not fail did: an outage, not a bad ref."""
-
-
-@dataclass(frozen=True, slots=True)
-class Loaded:
-    """A worktree's run, synced from GitHub: its log, the lines read, the state
-    they fold to and what the sync recorded or why it was skipped."""
-
-    log: Path
-    lines: list[Line]
-    state: State
-    told: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class Quiet:
-    """A run the hooks stay silent on, and why; `state show` still shows it."""
-
-    run: Loaded
-    why: str
 
 
 def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  # noqa: C901, PLR0911, PLR0912 - one arm per command
@@ -118,10 +75,12 @@ def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  #
                     return append(log, lines, state, events, cwd)
         case Override(to=to, why=why):
             return append(log, lines, state, (Overridden(to, why),), cwd)
-        case Next() | Show():
-            return viewed(command, git_dir, cwd)
+        case Next():
+            return next_advice(state, cwd)
         case BriefCmd(role=role):
             return brief(role, state, toplevel(cwd))
+        case Show():
+            return show(state)
 
 
 def init(git_dir: Path, command: Init, head: str | None) -> str | Failure:
@@ -175,17 +134,6 @@ def read_log(log: Path) -> tuple[list[Line], State] | Failure:
 def append(
     log: Path, lines: list[Line], state: State, events: tuple[Event, ...], cwd: Path
 ) -> str | Failure:
-    match write(log, lines, state, events, cwd):
-        case Failure() as failure:
-            return failure
-        case new, reached:
-            return recorded(new, reached)
-
-
-def write(
-    log: Path, lines: list[Line], state: State, events: tuple[Event, ...], cwd: Path
-) -> tuple[list[Line], State] | Failure:
-    """The lines appended for `events` and the state they reach."""
     match record(state, events):
         case Failure() as failure:
             return replace(failure, message=f"state record: {failure.message}")
@@ -202,120 +150,9 @@ def write(
     # One write per call, so lines of one call never interleave with another's.
     with log.open("a") as file:
         _ = file.write(text)
-    return new, reached
-
-
-def recorded(new: list[Line], reached: State) -> str:
     return "".join(
         f"recorded {line.seq} {name_of(line.event)} -> {reached.step}\n" for line in new
     )
-
-
-def viewed(command: Next | Show, git_dir: Path, cwd: Path) -> str | Failure:
-    """`state next` and `state show`, synced from GitHub first, with why the
-    hooks stay silent when they do."""
-    match open_run(git_dir, cwd):
-        case Failure() as failure:
-            return failure
-        case Quiet(run=run, why=why):
-            silent = f"state hooks: silent - {why}\n"
-        case Loaded() as run:
-            silent = ""
-    match command:
-        case Next():
-            view = next_advice(run.state, cwd)
-        case Show():
-            view = show(run.state)
-    return f"{run.told}{silent}{view}"
-
-
-def open_run(git_dir: Path, cwd: Path) -> Loaded | Quiet | Failure:
-    """The run, synced from GitHub, cheapest check first: a Done run or one
-    bound to another branch is quiet before any `gh` call; a merged or closed
-    PR after it."""
-    match load(git_dir):
-        case Failure() as failure:
-            return failure
-        case log, lines, state:
-            run = Loaded(log, lines, state)
-    branch = branch_of(cwd)
-    match off_branch(state, branch), pr_to_read(state):
-        case str(why), _:
-            return Quiet(run, why)
-        case None, None:
-            return run
-        case None, args:
-            pass
-    match gh_pr_view(cwd, args):
-        case Unavailable(why=why):
-            return replace(run, told=f"PR sync skipped - {why}\n")
-        case NoPr():
-            return run
-        case Pr() as pr:
-            run = sync(run, synced(state, pr), cwd)
-    why = pr_closed(pr) or off_branch(run.state, branch)
-    return run if why is None else Quiet(run, why)
-
-
-def sync(run: Loaded, events: tuple[Event, ...], cwd: Path) -> Loaded:
-    """The run with what GitHub showed appended; no events append nothing."""
-    match write(run.log, run.lines, run.state, events, cwd):
-        case Failure(message=message, fix=fix):
-            return replace(run, told=f"PR sync: {message}\nfix: {fix}\n")
-        case new, reached:
-            return Loaded(run.log, [*run.lines, *new], reached, recorded(new, reached))
-
-
-def gh_pr_view(cwd: Path, args: tuple[str, ...]) -> PrRead:
-    try:
-        done = subprocess.run(
-            ["gh", "pr", "view", *args, "--json", PR_FIELDS],
-            cwd=cwd,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=GH_TIMEOUT,
-        )
-    except FileNotFoundError:
-        return Unavailable("gh is not on PATH")
-    except subprocess.TimeoutExpired:
-        return Unavailable(f"gh pr view timed out after {GH_TIMEOUT}s")
-    return parse_pr_view(done.returncode, done.stdout, done.stderr)
-
-
-def parse_pr_view(code: int, stdout: str, stderr: str) -> PrRead:
-    """`gh pr view --json` PR_FIELDS: a PR, none for the branch, or why not."""
-    match code:
-        case 0:
-            return parse_pr_json(stdout)
-        case 1 if NO_PR in stderr:
-            return NoPr()
-        case _:
-            first = next(iter(stderr.strip().splitlines()), f"exit {code}")
-            return Unavailable(f"gh pr view: {first}")
-
-
-def parse_pr_json(stdout: str) -> PrRead:
-    try:
-        found = cast("Json", json.loads(stdout))
-    except json.JSONDecodeError:
-        found = None
-    match found:
-        case {
-            "url": str(url),
-            "baseRefName": str(base),
-            "headRefName": str(branch),
-            "isDraft": bool(draft),
-            "state": str(shown),
-        } if PR_URL_SHAPE.fullmatch(url) and base and branch:
-            pass
-        case _:
-            return Unavailable(f"gh pr view printed no PR: {stdout.strip()[:200]}")
-    match pick(shown, PR_STATES):
-        case None:
-            return Unavailable(f"gh pr view: unknown PR state {shown}")
-        case state:
-            return Pr(url, base, branch, draft, state)
 
 
 def next_advice(state: State, cwd: Path) -> str:
@@ -371,12 +208,6 @@ def locate(cwd: Path) -> Path | Failure:
 
 def head_of(cwd: Path) -> str | None:
     found = run_git(cwd, "rev-parse", "--verify", "--quiet", "HEAD")
-    return found.stdout.strip() or None if found.returncode == 0 else None
-
-
-def branch_of(cwd: Path) -> str | None:
-    """HEAD's branch; None when detached."""
-    found = run_git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD")
     return found.stdout.strip() or None if found.returncode == 0 else None
 
 

@@ -5,11 +5,8 @@ import io
 import json
 import re
 import subprocess
-import sys
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from hypothesis import strategies as st
 
@@ -36,7 +33,6 @@ from state.model import (
     Fixed,
     Grew,
     Implemented,
-    Json,
     Overridden,
     Picked,
     Planned,
@@ -78,7 +74,7 @@ def drafted(
     started = Started(NOTES, delegated=delegated)
     knobs = [Size(size), Quality(quality)]  # pyright: ignore[reportArgumentType]
     if delegated:
-        return [started, *knobs, Drafted(PR, "main", "feature")]
+        return [started, *knobs, Drafted(PR, "main")]
     return [
         started,
         knobs[0],
@@ -86,7 +82,7 @@ def drafted(
         knobs[1],
         *(Proposed(m) for m in PROPOSAL_MODES),
         Confirmed(),
-        Drafted(PR, "main", "feature"),
+        Drafted(PR, "main"),
     ]
 
 
@@ -146,7 +142,7 @@ events: st.SearchStrategy[Event] = st.one_of(
     st.builds(Proposed, st.sampled_from(PROPOSAL_MODES)),
     st.builds(Confirmed),
     st.builds(Adjusted),
-    st.builds(Drafted, pr_urls, st.just("main"), st.just("feature")),
+    st.builds(Drafted, pr_urls, st.just("main")),
     st.builds(Implemented, heads),
     st.builds(Refactored, heads),
     st.builds(Reviewed, heads),
@@ -252,10 +248,9 @@ def log_of(notes: Path) -> list[dict[str, object]]:
 
 
 def to_impl(repo: Path, notes: Path) -> None:
-    """init, then the shortest recorded path to Impl at Balanced, PR 7 from
-    `feature` to main."""
+    """init, then the shortest recorded path to Impl at Balanced, PR 7 on main."""
     to_draft(repo, notes)
-    _ = ok(repo, "record", "drafted", PR, "main", "feature")
+    _ = ok(repo, "record", "drafted", PR, "main")
 
 
 def to_draft(repo: Path, notes: Path) -> None:
@@ -268,90 +263,3 @@ def to_draft(repo: Path, notes: Path) -> None:
         ("record", "confirmed"),
     ):
         _ = ok(repo, *argv)
-
-
-# ---- GitHub, faked -------------------------------------------------------------
-
-# A `gh` on PATH that answers `gh pr view [<url>] --json <fields>` from a JSON
-# file of PRs, as gh does: by URL, or the current branch's PR, an open one
-# first. It logs each call's arguments, a line each, beside the file.
-FAKE_GH = f"""#!{sys.executable}
-import json, os, subprocess, sys
-from pathlib import Path
-
-world = Path(os.environ["FAKE_GITHUB"])
-with world.with_suffix(".calls").open("a") as calls:
-    calls.write(" ".join(sys.argv[1:]) + "\\n")
-found = json.loads(world.read_text())
-if found["down"]:
-    sys.exit(found["down"])
-match sys.argv[1:]:
-    case ["pr", "view", "--json", fields]:
-        branch = subprocess.run(
-            ["git", "symbolic-ref", "--short", "HEAD"], capture_output=True, text=True
-        ).stdout.strip()
-        prs = [p for p in found["prs"] if p["headRefName"] == branch]
-        prs.sort(key=lambda p: p["state"] != "OPEN")
-        missing = f'no pull requests found for branch "{{branch}}"'
-    case ["pr", "view", url, "--json", fields]:
-        prs = [p for p in found["prs"] if p["url"] == url]
-        missing = (
-            "GraphQL: Could not resolve to a PullRequest with the number of "
-            f"{{url.rsplit('/', 1)[-1]}}. (repository.pullRequest)"
-        )
-    case _:
-        sys.exit(f"fake gh: {{sys.argv[1:]}}")
-if not prs:
-    sys.exit(missing)
-print(json.dumps({{k: prs[0][k] for k in fields.split(",")}}))
-"""
-
-
-@dataclass(frozen=True)
-class GitHub:
-    """The fake `gh`'s world: PRs by URL, and whether it is down."""
-
-    world: Path
-
-    def install(self, bin_dir: Path) -> None:
-        script = bin_dir / "gh"
-        _ = script.write_text(FAKE_GH)
-        script.chmod(0o755)
-        self.clear()
-
-    def clear(self) -> None:
-        _ = self.world.write_text(json.dumps({"down": None, "prs": []}))
-
-    def open(
-        self,
-        url: str = PR,
-        *,
-        base: str = "main",
-        branch: str = "feature",
-        draft: bool = True,
-        state: str = "OPEN",
-    ) -> None:
-        """The PR at `url` as given, replacing what was there."""
-        pr: dict[str, Json] = {
-            "url": url,
-            "baseRefName": base,
-            "headRefName": branch,
-            "isDraft": draft,
-            "state": state,
-        }
-        found = self.read()
-        prs = [
-            p for p in cast("list[dict[str, Json]]", found["prs"]) if p["url"] != url
-        ]
-        _ = self.world.write_text(json.dumps(found | {"prs": [*prs, pr]}))
-
-    def down(self, why: str) -> None:
-        """Every call fails, exit 1, printing `why`, as gh does offline."""
-        _ = self.world.write_text(json.dumps(self.read() | {"down": why}))
-
-    def read(self) -> dict[str, Json]:
-        return cast("dict[str, Json]", json.loads(self.world.read_text()))
-
-    def calls(self) -> list[str]:
-        calls = self.world.with_suffix(".calls")
-        return calls.read_text().splitlines() if calls.exists() else []

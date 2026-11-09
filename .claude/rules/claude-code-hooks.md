@@ -9,6 +9,16 @@ paths:
 at (`codegen/settings.nix`); `checks.python-tests` tests them. These guards are
 Claude-native; porting them to the vendor-free hooks is #338.
 
+### `contract`
+
+The hooks rely on what Claude Code sends and honours: payload keys, tool
+names (`SubagentHandback` among them), `SessionStart` sources, cwd, and
+`updatedInput`. `just probe-agents-hooks` snapshots that from the real client
+against `model.py`, a scripted Messages API on 127.0.0.1, in auto mode, the
+one mode that offers `SubagentHandback`. A Claude Code update must run it
+(`dependency-updates.md`). A new request kind the mock does not know fails
+with a 400 naming it: extend `model.py`, not the snapshot.
+
 ### `adapter`
 
 `agent-hook-claude <tools.json> <manifest.json>` is what `codegen/hooks.nix`

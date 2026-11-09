@@ -73,6 +73,5 @@ def test_a_hand_edited_bad_line_makes_every_command_exit_2_naming_it(
     assert message.startswith(f"state: {log}:3: ") and why in message
     assert fix == (
         f"fix: repair or delete line 3 of {log}: the log is append-only, so a bad "
-        "line is a hand edit, or a log an older state wrote; the state hooks stay "
-        "silent until it parses"
+        "line is a hand edit"
     )

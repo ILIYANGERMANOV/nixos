@@ -1,9 +1,6 @@
 """The issue's laws as properties over generated event lists, the transition
 table row by row and the hand-back parser on real first lines."""
 
-from dataclasses import replace
-from typing import Literal
-
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -14,17 +11,13 @@ from state.core import (
     GitFacts,
     HandbackOptions,
     NoFacts,
-    Pr,
     advise,
     apply,
     brief,
     fold,
-    off_branch,
     parse_handback,
-    record,
     render_advice,
     show,
-    synced,
 )
 from state.model import (
     MODES,
@@ -37,7 +30,6 @@ from state.model import (
     Ci,
     Confirmed,
     Defaulted,
-    Drafted,
     Event,
     Failure,
     Fixed,
@@ -76,7 +68,6 @@ from state.state_fixtures import (
     first_line,
     heads,
     labels,
-    pr_urls,
     reach,
     review,
     reviewed,
@@ -586,7 +577,7 @@ def ci_fix_reviewed_at_cap(
             id="DraftPR: delegated hands back",
         ),
         pytest.param(
-            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", "then: state next, which records ready from the PR on GitHub",
+            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", "ready: recorded by the hook; then: state next",
             id="PR: green CI, ready",
         ),
         pytest.param(
@@ -988,76 +979,3 @@ def test_show_before_quality_is_recorded_shows_no_cap() -> None:
 
     assert "Quality: <not set>" in text
     assert "Re-review: 0/-   " in text
-
-
-# ---- The PR on GitHub ---------------------------------------------------------------
-
-prs = st.builds(
-    Pr,
-    pr_urls,
-    st.sampled_from(["main", "parent"]),
-    st.sampled_from(["feature", "other"]),
-    st.booleans(),
-    st.sampled_from(["OPEN", "CLOSED", "MERGED"]),
-)
-
-
-@given(event_lists, prs)
-def test_sync_appends_only_an_event_the_step_takes(
-    candidates: list[Event], pr: Pr
-) -> None:
-    state = reach(*accepted(candidates))
-
-    assert not isinstance(record(state, synced(state, pr)), Failure)
-
-
-@given(event_lists, prs)
-def test_sync_twice_appends_nothing_the_second_time(
-    candidates: list[Event], pr: Pr
-) -> None:
-    state = reach(*accepted(candidates))
-    match record(state, synced(state, pr)):
-        case Failure() as failure:
-            raise AssertionError(failure.message)
-        case _, after:
-            pass
-
-    assert synced(after, pr) == ()
-
-
-def test_sync_drafts_a_stacked_pr_with_its_real_base_and_branch() -> None:
-    state = reach(*drafted()[:-1])
-
-    found = synced(state, Pr(PR, "parent", "feature", draft=True, state="OPEN"))
-
-    assert found == (Drafted(PR, "parent", "feature"),)
-
-
-@pytest.mark.parametrize("closed", ["MERGED", "CLOSED"])
-def test_sync_drafts_no_merged_or_closed_pr(
-    closed: Literal["MERGED", "CLOSED"],
-) -> None:
-    state = reach(*drafted()[:-1])
-
-    assert synced(state, Pr(PR, "main", "feature", draft=False, state=closed)) == ()
-
-
-def test_sync_at_pr_records_ready_only_once_the_pr_is_no_draft() -> None:
-    state = reach(*final_fixed(), Ci("h4", ()))
-    pr = Pr(PR, "main", "feature", draft=True, state="OPEN")
-
-    assert (synced(state, pr), synced(state, replace(pr, draft=False))) == (
-        (),
-        (Ready(PR),),
-    )
-
-
-@pytest.mark.parametrize("head", ["other", None])
-def test_a_bound_run_is_off_its_branch_on_another_or_a_detached_head(
-    head: str | None,
-) -> None:
-    assert off_branch(reach(*drafted()), head) is not None
-
-
-def test_a_run_before_its_draft_is_on_any_branch() -> None:
-    assert off_branch(reach(*drafted()[:-1]), "other") is None

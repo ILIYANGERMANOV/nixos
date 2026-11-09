@@ -127,12 +127,10 @@ class Adjusted:
 
 @dataclass(frozen=True)
 class Drafted:
-    """The draft PR, by its URL: the branch it targets and its head branch, the
-    one the run is bound to."""
+    """The draft PR, by the URL `gh pr create` prints, and the branch it targets."""
 
     url: str
     base: str
-    branch: str
 
 
 @dataclass(frozen=True)

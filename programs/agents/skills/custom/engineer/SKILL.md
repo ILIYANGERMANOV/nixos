@@ -90,13 +90,9 @@ your Quality row too.
 ## State hooks
 
 Hooks record the rest and add context. Absence is visible: a hand-back with
-no `state:` line was not recorded, so record it by hand: `state handback <role>`.
-`state next`, `state show` and every hook first read the PR from GitHub and
-record `drafted` or `ready` when the step waits for it, however the PR was
-made. Offline they say `PR sync skipped`: then `state record drafted <url>
-<base> <branch>` or `ready <url>`. Once drafted, the run is bound to its
-branch: the hooks go silent on another branch, a merged or closed PR, or a log
-an older `state` wrote, and `state show` says why.
+no `state:` line, or `gh pr create`/`gh pr ready` with no `state: recorded`
+note, was not recorded, so record it by hand: `state handback <role>`,
+`state record drafted|ready ...`.
 
 | When | The hook | You |
 |---|---|---|
@@ -104,6 +100,7 @@ an older `state` wrote, and `state show` says why.
 | you spawn | adds `state next`, a warning off it; once drafted, `Diff: <ctx folder>` to a refactorer, review-lead or fixer prompt: `ctx diff <base>` output, read by its `index` then `diff` ranges | advisory, none for a reviewer, researcher, checker or later slice; add no diff |
 | an implementer, refactorer, fixer or review-lead hands back | records it; appends `state: recorded ...`, or a refusal and `fix:` | triage a question, pick a review's rows |
 | Ctx: a researcher back, a question | `researched`, `asked` | - |
+| `gh pr create`, `gh pr ready` | `drafted`, `ready` | - |
 
 | Mistake | Right form |
 |---|---|

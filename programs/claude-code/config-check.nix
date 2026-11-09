@@ -105,11 +105,11 @@ pkgs.runCommand "claude-config-check"
     adapters='.hooks | to_entries[] | .key as $event | .value[]
       | select(.hooks[0].command | contains("/bin/agent-hook-claude "))'
     [ "$(jq -c "[$adapters | {event: \$event, matcher}]" ${factorySettings})" = \
-      '[{"event":"PostToolUse","matcher":"AskUserQuestion"},{"event":"PreToolUse","matcher":"Agent|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"}]' ] ||
+      '[{"event":"PostToolUse","matcher":"AskUserQuestion|Bash"},{"event":"PreToolUse","matcher":"Agent|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"}]' ] ||
       { echo "factory settings: the hook adapter entries differ" >&2; exit 1; }
     manifest=$(jq -r "[$adapters | .hooks[0].command] | unique | .[] | split(\" \")[2]" ${factorySettings})
     [ "$(jq -c 'map_values(map(.name))' "$manifest")" = \
-      '{"afterTool":["state-asked"],"beforeTool":["state-handback","state-spawn"],"sessionStart":["state-resume"]}' ] ||
+      '{"afterTool":["state-asked","state-pr"],"beforeTool":["state-handback","state-spawn"],"sessionStart":["state-resume"]}' ] ||
       { echo "factory settings: the state hooks differ" >&2; exit 1; }
 
     # Given synthetic sizes, each way to break the budget must fail.
