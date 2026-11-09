@@ -418,17 +418,17 @@ def ci_fix_reviewed_at_cap(
         pytest.param(
             [Started(NOTES, delegated=False), Size("Normal"), Planned("p.md")], NoFacts(),
             "ASK quality", "POC, Balanced (Recommended), Max",
-            id="Prop: Quality asked once",
+            id="Propose: Quality asked once",
         ),
         pytest.param(
             [Started(NOTES, delegated=False), Size("Normal"), Planned("p.md"), Quality("Balanced")],
             NoFacts(), "SPAWN researcher", "modes: simplify, alternative  Quality: Balanced",
-            id="Prop: Balanced proposals",
+            id="Propose: Balanced proposals",
         ),
         pytest.param(
             [Started(NOTES, delegated=False), Size("Normal"), Planned("p.md"), Quality("POC")],
             NoFacts(), "SPAWN researcher", "modes: simplify  Quality: POC",
-            id="Prop: POC simplifies only",
+            id="Propose: POC simplifies only",
         ),
         pytest.param(
             [
@@ -436,12 +436,12 @@ def ci_fix_reviewed_at_cap(
                 Proposed("simplify"), Proposed("alternative"),
             ],
             NoFacts(), "ASK plan", '"First plan", "Second plan", "Adjust"',
-            id="Prop: proposals back, ask the plan",
+            id="Propose: proposals back, ask the plan",
         ),
         pytest.param(
             [Started(NOTES, delegated=False), Size("Trivial"), Planned("p.md")], NoFacts(),
             "RUN state record confirmed", "Trivial: no proposals",
-            id="Prop: Trivial confirms itself",
+            id="Propose: Trivial confirms itself",
         ),
         pytest.param(
             drafted()[:-1], NoFacts(), "RUN gh pr create --draft",
@@ -464,89 +464,101 @@ def ci_fix_reviewed_at_cap(
         ),
         pytest.param(
             drafted(), NoFacts(), "SPAWN implementer", "Balanced: as planned",
-            id="Impl: implementers",
+            id="Implement: implementers",
         ),
         pytest.param(
             drafted("POC"), NoFacts(), "SPAWN implementer",
-            "POC: one implementer, one happy-path proof as its test", id="Impl: POC",
+            "POC: one implementer, one happy-path proof as its test", id="Implement: POC",
         ),
         pytest.param(
             [*drafted("Max"), Implemented("h1")], GitFacts(10, "none"),
-            "SPAWN refactorer", "Max: always", id="Impl': Max always refactors",
+            "SPAWN refactorer", "Max: always", id="Refactor: Max always refactors",
         ),
         pytest.param(
             [*drafted("Max"), Implemented("h1")], GitFacts(10, "none"), "SPAWN refactorer",
             "proposals: one AskUserQuestion for all, in this PR / a follow-up / drop",
-            id="Impl': the user decides all proposals in one question",
+            id="Refactor: the user decides all proposals in one question",
         ),
         pytest.param(
             [*drafted("Max", delegated=True), Implemented("h1")], GitFacts(10, "none"),
             "SPAWN refactorer", "proposals: hand them back to your caller",
-            id="Impl': delegated, the proposals go to the caller",
+            id="Refactor: delegated, the proposals go to the caller",
         ),
         pytest.param(
             [*drafted(), Implemented("h1")], GitFacts(100, "none"), "SPAWN review-lead",
             "refactor skipped: 100 changed lines, Balanced",
-            id="Impl': Balanced skips at 100 lines",
+            id="Refactor: Balanced skips at 100 lines",
         ),
         pytest.param(
             [*drafted(), Implemented("h1")], GitFacts(101, "none"), "SPAWN refactorer",
-            "Balanced: above about 100 changed lines", id="Impl': Balanced above 100",
+            "Balanced: above about 100 changed lines", id="Refactor: Balanced above 100",
+        ),
+        pytest.param(
+            [*drafted(), Implemented("h1"), Fixed("h2", ())], GitFacts(101, "none"),
+            "SPAWN refactorer", "Balanced: above about 100 changed lines",
+            id="Refactor: a fix before the refactor still refactors",
         ),
         pytest.param(
             [*drafted("POC"), Implemented("h1")], GitFacts(5, "none"), "SPAWN refactorer",
-            "POC: quick: items 1-3, no `tests.md`", id="Impl': POC refactors quick",
+            "POC: quick: items 1-3, no `tests.md`", id="Refactor: POC refactors quick",
         ),
         pytest.param(
             [*drafted("Max", "Trivial"), Implemented("h1")], GitFacts(500, "none"),
-            "SPAWN review-lead", "refactor skipped: Trivial", id="Impl': Trivial skips",
+            "SPAWN review-lead", "refactor skipped: Trivial", id="Refactor: Trivial skips",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "none"),
             "SPAWN review-lead",
             ("invoke `pragmatic-review` with: Quality: Balanced Size: Normal "
             f"--requirements {NOTES}/requirements.md {PR}"),
-            id="ImplR: the first review",
+            id="Review: the first review",
+        ),
+        pytest.param(
+            [*drafted(), Implemented("h1"), Refactored("h2"), Implemented("h3")],
+            GitFacts(5, "none"), "SPAWN review-lead",
+            ("invoke `pragmatic-review` with: Quality: Balanced Size: Normal "
+            f"--requirements {NOTES}/requirements.md {PR}"),
+            id="Review: a late slice still gets the whole-branch first review",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "none"),
             "SPAWN review-lead",
             "back: recorded by the hook; then: state record picked [--row <label>]...",
-            id="ImplR: the hook records the review, the lead picks its rows",
+            id="Review: the hook records the review, the lead picks its rows",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "new"),
             "SPAWN review-lead", "also: SPAWN reviewer",
-            id="ImplR: Balanced dry-runs a new skill",
+            id="Review: Balanced dry-runs a new skill",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Refactored("h2")], GitFacts(5, "changed"),
             "SPAWN review-lead", "a dry run only if it is rewritten",
-            id="ImplR: Balanced asks whether a changed skill is rewritten",
+            id="Review: Balanced asks whether a changed skill is rewritten",
         ),
         pytest.param(
             [*drafted("Max"), Implemented("h1"), Refactored("h2")],
             GitFacts(5, "changed"), "SPAWN review-lead", "also: SPAWN reviewer",
-            id="ImplR: Max dry-runs any skill change",
+            id="Review: Max dry-runs any skill change",
         ),
         pytest.param(
             reviewed(), NoFacts(), "SPAWN fixer", "rows: R1, R2",
-            id="Impl'': fix the chosen rows",
+            id="Fix: fix the chosen rows",
         ),
         pytest.param(
             [*reviewed(), Fixed("h4", ())], NoFacts(), "SPAWN review-lead",
             ("invoke `pragmatic-review` with: Quality: Balanced Size: Normal --fixes h3 "
             f"--requirements {NOTES}/requirements-fixes.md {PR}"),
-            id="Impl'': a --fixes review of the previous Reviewed head",
+            id="Fix: a --fixes review of the previous Reviewed head",
         ),
         pytest.param(
             [*reviewed(), Fixed("h4", ("interface",))], NoFacts(), "SPAWN review-lead",
-            "--fixes h3", id="Impl'': Balanced keeps --fixes for an interface fix",
+            "--fixes h3", id="Fix: Balanced keeps --fixes for an interface fix",
         ),
         pytest.param(
             [*reviewed(), Fixed("h4", ("auth",))], NoFacts(), "SPAWN review-lead",
             "a fix to auth: a first review of the whole branch, a round",
-            id="Impl'': an auth fix gets a whole-branch review",
+            id="Fix: an auth fix gets a whole-branch review",
         ),
         pytest.param(
             [
@@ -554,12 +566,12 @@ def ci_fix_reviewed_at_cap(
                 Fixed("h6", ()), *review("h7", ("R4",), ()),
             ],
             NoFacts(), "SPAWN fixer", "final fixer: rows R4, R0; nothing reviews it",
-            id="Impl'': Balanced's cap of 2 re-reviews goes to the final fixer",
+            id="Fix: Balanced's cap of 2 re-reviews goes to the final fixer",
         ),
         pytest.param(
             [*reviewed("POC"), Fixed("h4", ()), *review("h5", ("R3",), ())],
             NoFacts(), "SPAWN fixer", "final fixer: rows R3, R0",
-            id="Impl'': POC's cap of 1",
+            id="Fix: POC's cap of 1",
         ),
         pytest.param(
             [
@@ -567,16 +579,16 @@ def ci_fix_reviewed_at_cap(
                 *review("h5", ("R3",), (Verdict("AC1", "not-met"),)),
             ],
             NoFacts(), "SPAWN fixer", "at the cap: fix only Not met AC1",
-            id="Impl'': Not met loops even at the cap",
+            id="Fix: Not met loops even at the cap",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Refactored("h2"), *review("h3", (), ())],
-            NoFacts(), "SPAWN fixer", "final fixer: rows R0", id="ImplR: no rows",
+            NoFacts(), "SPAWN fixer", "final fixer: rows R0", id="Review: no rows",
         ),
         pytest.param(
             [*drafted("Max", "Trivial"), Implemented("h1"), *review("h3", ("R1",), ())],
             NoFacts(), "SPAWN fixer", "final fixer: rows R1, R0",
-            id="Impl': Trivial has no re-review",
+            id="Refactor: Trivial has no re-review",
         ),
         pytest.param(
             final_fixed(), NoFacts(), "WAIT ci", "notify: the draft is complete and CI runs",
@@ -697,7 +709,7 @@ def ci_fix_reviewed_at_cap(
              *review("h3", ("R1",), ()), Fixed("h4", ())],
             NoFacts(), "SPAWN review-lead",
             "<the brief's requirements file's directory>/<the brief's task>-fixes.md",
-            id="Impl'': delegated fixes copy beside the brief's requirements",
+            id="Fix: delegated fixes copy beside the brief's requirements",
         ),
     ],
 )  # fmt: skip
@@ -722,7 +734,7 @@ def test_a_confirmed_re_plan_resumes_at_impl_and_restarts_the_rounds() -> None:
         Confirmed(),
     )
 
-    assert state.step == "Impl"
+    assert state.step == "Implement"
     assert "Re-review: 0/2" in show(state)
 
 
@@ -777,7 +789,7 @@ def test_an_ask_from_prop_names_the_override_back_to_ctx() -> None:
                 'to record asked: state override Ctx "<why>", then rerun'
             )
         case State():
-            raise AssertionError("asked is no arrow out of Prop")
+            raise AssertionError("asked is no arrow out of Propose")
 
 
 def test_an_event_from_a_step_without_arrows_names_only_the_nearest_override() -> None:
@@ -786,7 +798,7 @@ def test_an_event_from_a_step_without_arrows_names_only_the_nearest_override() -
         case Failure(fix=fix):
             assert (
                 fix
-                == 'to record implemented: state override Impl\' "<why>", then rerun'
+                == 'to record implemented: state override Review "<why>", then rerun'
             )
         case State():
             raise AssertionError("Done has no arrows")

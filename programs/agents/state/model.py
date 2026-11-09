@@ -8,12 +8,12 @@ from typing import Literal, TypeAliasType, cast, get_args
 
 type StateName = Literal[
     "Ctx",
-    "Prop",
+    "Propose",
     "DraftPlan",
-    "Impl",
-    "Impl'",
-    "ImplR",
-    "Impl''",
+    "Implement",
+    "Refactor",
+    "Review",
+    "Fix",
     "DraftPR",
     "PR",
     "Done",
@@ -260,7 +260,7 @@ class DoneBlocker:
 
 type Round = ReviewRound | CiRound
 type Blocker = UntriagedBlocker | OpenBlocker | DoneBlocker
-# What the loop last did, which tells Impl'', DraftPR and PR what comes next. A
+# What the loop last did, which tells Fix, DraftPR and PR what comes next. A
 # Reviewed is a review back whose picks the lead has not recorded yet.
 type Work = Reviewed | Picked | Fixed | Ci
 

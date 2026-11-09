@@ -198,7 +198,7 @@ def off_advice(advised: str, spawned: Json, step: StateName) -> bool:
     slice spawns while the advice has moved on to the refactorer. A role outside
     the flow (Explore, Plan, a fork) is no step of the run."""
     match spawned:
-        case "implementer" if step in ("Impl", "Impl'"):
+        case "implementer" if step in ("Implement", "Refactor"):
             return False
         case str(role) if role in ROLES:
             return role != advised and role not in BESIDE_ADVICE

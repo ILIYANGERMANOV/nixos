@@ -93,7 +93,7 @@ def test_a_review_lead_handback_records_its_head_and_waits_for_the_picks(
     advised = ok(repo, "next")
     picked = ok(repo, "record", "picked", "--row", "R1")
 
-    assert handed == "recorded 8 reviewed -> Impl'\n"
+    assert handed == "recorded 8 reviewed -> Refactor\n"
     assert advised.splitlines()[0].startswith("RUN state record picked")
-    assert picked == "recorded 9 picked -> Impl''\n"
+    assert picked == "recorded 9 picked -> Fix\n"
     assert log_of(notes)[-2]["event"] == {"type": "reviewed", "head": "9f8e7d6"}

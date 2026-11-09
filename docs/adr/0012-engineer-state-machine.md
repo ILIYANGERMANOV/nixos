@@ -22,28 +22,29 @@ stateDiagram-v2
   direction TB
   [*] --> Ctx: set Size
   Ctx --> Ctx: research, ask
-  Ctx --> Prop: plan
-  state "3 - confirm the plan" as S3 {
+  Ctx --> Propose: plan
+  state "3 - Propose: confirm the plan" as Propose {
+    [*] --> Prop
     Prop --> Prop1: simplify
     Prop1 --> Pair: alternative
     Pair --> Plan: pi1 / pi2
   }
   Pair --> Ctx: adjust
   Plan --> DraftPlan: draft PR
-  DraftPlan --> Impl: implement
-  Impl --> Impl1: refactor
-  Impl1 --> ImplR: first review
-  ImplR --> Impl2: rows to fix
-  Impl2 --> Impl2: fix, fixes review
-  ImplR --> DraftPR: no rows, final fixer
-  Impl2 --> DraftPR: cap, final fixer
+  DraftPlan --> Implement: implement
+  Implement --> Refactor: refactor
+  Refactor --> Refactor: fixed
+  Refactor --> Review: first review
+  Review --> Review: implemented
+  Review --> Fix: rows to fix
+  Fix --> Fix: fix, fixes review
+  Review --> DraftPR: no rows, final fixer
+  Fix --> DraftPR: cap, final fixer
   DraftPR --> PR: notify
   PR --> PR: CI fix
   PR --> [*]: green, ready
   Prop1: Prop'
   Pair: Prop' x Prop'
-  Impl1: Impl'
-  Impl2: Impl''
   note left of Ctx
     From any state
     NEEDS_DECISION goes to triage
@@ -54,12 +55,12 @@ stateDiagram-v2
 | Step | State | Spec |
 |---|---|---|
 | 1-2 | Ctx | `engineer/SKILL.md` Research, Interview |
-| 3 | Prop, Prop', Prop' x Prop', Plan | Confirm the plan |
+| 3 | Propose (plan values Prop, Prop', Prop' x Prop', Plan) | Confirm the plan |
 | 4 | DraftPlan | Open a draft PR |
-| 5 | Impl | Implement |
-| 6 | Impl' | Refactor |
-| 7 | ImplR | `references/review.md` First review |
-| 8 | Impl'' | `references/review.md` Rounds 2+, Final fixer |
+| 5 | Implement | Implement |
+| 6 | Refactor | Refactor; `fixed` before it stays |
+| 7 | Review | `references/review.md` First review; a late `implemented` stays |
+| 8 | Fix | `references/review.md` Rounds 2+, Final fixer |
 | 9 | DraftPR | Describe and notify: R0 already wrote the body |
 | 10 | PR | Hand over, `references/review.md` CI fix |
 

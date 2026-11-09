@@ -216,7 +216,7 @@ def test_back_on_its_branch_the_hooks_speak_again(repo: Path, notes: Path) -> No
     _ = git(repo, "switch", "--quiet", "--create", "other")
     _ = git(repo, "switch", "--quiet", "feature")
 
-    assert context(run_hook("resume", start(repo))).startswith("Step: Impl\n")
+    assert context(run_hook("resume", start(repo))).startswith("Step: Implement\n")
 
 
 @pytest.mark.parametrize("closed", ["MERGED", "CLOSED"])
@@ -250,7 +250,7 @@ def test_a_pr_opened_by_any_means_is_recorded_as_drafted(
 
     shown = context(run_hook("resume", start(repo)))
 
-    assert shown.startswith("state: recorded 6 drafted -> Impl\nStep: Impl\n")
+    assert shown.startswith("state: recorded 6 drafted -> Implement\nStep: Implement\n")
     assert log_of(notes)[-1]["event"] == {
         "type": "drafted",
         "url": PR,
@@ -312,7 +312,7 @@ def test_resume_shows_the_run_and_its_advice(repo: Path, notes: Path) -> None:
 
     shown = context(run_hook("resume", start(repo)))
 
-    assert shown.startswith("Step: Impl\n")
+    assert shown.startswith("Step: Implement\n")
     assert "\nSPAWN implementer\n" in shown
 
 
@@ -429,7 +429,7 @@ def test_handback_records_a_worker_and_appends_it_to_the_report(
         run_hook("handback", hand_back(repo, "implementer", "READY done")), "message"
     )
 
-    assert report == "READY done\n\nstate: recorded 7 implemented -> Impl'"
+    assert report == "READY done\n\nstate: recorded 7 implemented -> Refactor"
     assert types(notes)[-1] == "implemented"
 
 

@@ -605,17 +605,17 @@ def advise_step(state: State, facts: Facts) -> Advice:  # noqa: C901, PLR0911 - 
     match state.step:
         case "Ctx":
             return advise_ctx(state)
-        case "Prop":
+        case "Propose":
             return advise_prop(state)
         case "DraftPlan":
             return advise_draft(state)
-        case "Impl":
+        case "Implement":
             return advise_impl(state)
-        case "Impl'":
+        case "Refactor":
             return advise_refactor(state, facts)
-        case "ImplR":
+        case "Review":
             return first_review(state, facts, ())
-        case "Impl''":
+        case "Fix":
             return advise_rounds(state, facts)
         case "DraftPR":
             return advise_final(state)

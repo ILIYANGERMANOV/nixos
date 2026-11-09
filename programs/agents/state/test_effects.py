@@ -131,7 +131,7 @@ def test_drafting_with_quality_unset_records_it_defaulted(
 
     out = ok(repo, "record", "drafted", PR, "main", "feature")
 
-    assert out == "recorded 5 defaulted -> Impl\nrecorded 6 drafted -> Impl\n"
+    assert out == "recorded 5 defaulted -> Implement\nrecorded 6 drafted -> Implement\n"
     assert "Quality: Balanced (defaulted)" in ok(repo, "show")
 
 
@@ -162,9 +162,9 @@ def test_override_moves_the_state_and_next_advises_its_arrow(
 ) -> None:
     _ = ok(repo, "init", "--notes", str(tmp_path / "notes"))
 
-    out = ok(repo, "override", "Impl", "the plan is in the issue")
+    out = ok(repo, "override", "Implement", "the plan is in the issue")
 
-    assert out == "recorded 2 overridden -> Impl\n"
+    assert out == "recorded 2 overridden -> Implement\n"
     assert first_line(ok(repo, "next")) == "SPAWN implementer"
 
 
@@ -182,8 +182,8 @@ def test_handback_fixer_records_blocked_then_fixed(repo: Path, tmp_path: Path) -
     fixed = ok(repo, "handback", "fixer", stdin="READY\n")
 
     assert (blocked, fixed) == (
-        "recorded 11 blocked -> Impl''\n",
-        "recorded 12 fixed -> Impl''\n",
+        "recorded 11 blocked -> Fix\n",
+        "recorded 12 fixed -> Fix\n",
     )
     assert log_of(notes)[9]["event"] == {
         "type": "picked",
@@ -233,7 +233,7 @@ def test_show_prints_the_progress_view(repo: Path, tmp_path: Path) -> None:
     out = ok(repo, "show")
 
     assert out.splitlines() == [
-        "Step: Impl''",
+        "Step: Fix",
         "Head: h3",
         "Quality: Balanced",
         "Size: Normal",
@@ -307,7 +307,7 @@ def test_next_records_the_pr_opened_for_the_branch(repo: Path, tmp_path: Path) -
 
     out = ok(repo, "next")
 
-    assert out.startswith("recorded 6 drafted -> Impl\nSPAWN implementer\n")
+    assert out.startswith("recorded 6 drafted -> Implement\nSPAWN implementer\n")
 
 
 def test_next_with_no_pr_yet_advises_creating_it(
@@ -343,7 +343,7 @@ def test_show_on_another_branch_says_the_hooks_are_silent(
 
     assert out.splitlines()[:2] == [
         "state hooks: silent - HEAD is on other, the run is bound to feature",
-        "Step: Impl",
+        "Step: Implement",
     ]
 
 

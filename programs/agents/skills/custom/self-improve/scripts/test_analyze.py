@@ -2321,7 +2321,7 @@ class TestStateCtx:
         main = Transcript().human(0, "go")
         _ = main.bash(
             1,
-            "state override Impl why 2>&1 | tail -1; state next; ctx diff main",
+            "state override Implement why 2>&1 | tail -1; state next; ctx diff main",
             2,
             outcome=Outcome("fix: cd <worktree>\nSPAWN fixer"),
         )
@@ -2339,21 +2339,21 @@ class TestStateCtx:
     def test_overrides_count_by_target_with_the_latest_why(self, home: Home) -> None:
         # Given
         main = Transcript().human(0, "go")
-        _ = main.bash(1, 'state override Impl "skip the plan"', 2)
-        _ = main.bash(3, "state override \\\n  Impl 'the plan was done'", 4)
+        _ = main.bash(1, 'state override Implement "skip the plan"', 2)
+        _ = main.bash(3, "state override \\\n  Implement 'the plan was done'", 4)
         home.session("s1", main)
         # When
         report = home.report()
         # Then
-        assert row(report, "state-ctx", "Impl") == ["Impl", "2", "'the plan was done'"]
+        assert row(report, "state-ctx", "Implement") == ["Implement", "2", "'the plan was done'"]
         assert headline(report, "state-ctx") == "2 calls, 0 failed, 2 overrides"
 
     def test_both_tables_rank_most_first(self, home: Home) -> None:
-        # Given: ctx diff once, state override three times, to Impl once and
+        # Given: ctx diff once, state override three times, to Implement once and
         # to Plan twice: most first, not by name
         main = Transcript().human(0, "go")
         _ = main.bash(1, "ctx diff main", 2)
-        _ = main.bash(3, "state override Impl skip", 4)
+        _ = main.bash(3, "state override Implement skip", 4)
         _ = main.bash(5, "state override Plan redo", 6)
         _ = main.bash(7, "state override Plan again", 8)
         home.session("s1", main)
@@ -2367,7 +2367,7 @@ class TestStateCtx:
             "overrides:",
             "to|n|latest why",
             "Plan|2|again",
-            "Impl|1|skip",
+            "Implement|1|skip",
         ]
 
 

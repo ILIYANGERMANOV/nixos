@@ -74,7 +74,7 @@ def reach(*events: Event) -> State:
 def drafted(
     quality: str = "Balanced", size: str = "Normal", *, delegated: bool = False
 ) -> list[Event]:
-    """A run up to Impl: the plan confirmed and the draft PR 7 against main."""
+    """A run up to Implement: the plan confirmed and the draft PR 7 against main."""
     started = Started(NOTES, delegated=delegated)
     knobs = [Size(size), Quality(quality)]  # pyright: ignore[reportArgumentType]
     if delegated:
@@ -252,7 +252,7 @@ def log_of(notes: Path) -> list[dict[str, object]]:
 
 
 def to_impl(repo: Path, notes: Path) -> None:
-    """init, then the shortest recorded path to Impl at Balanced, PR 7 from
+    """init, then the shortest recorded path to Implement at Balanced, PR 7 from
     `feature` to main."""
     to_draft(repo, notes)
     _ = ok(repo, "record", "drafted", PR, "main", "feature")

@@ -37,7 +37,7 @@ def ok(repo: Path, *argv: str, stdin: str | None = None) -> str:
 
 
 def drafted(repo: Path, notes: Path) -> None:
-    """A delegated run up to Impl: its knobs set and draft PR 7 against main."""
+    """A delegated run up to Implement: its knobs set and draft PR 7 against main."""
     knobs_set(repo, notes)
     _ = ok(repo, "record", "drafted", PR, "main", "feature")
 
@@ -66,11 +66,11 @@ def test_a_run_goes_from_init_through_a_handback_to_the_review(
 
     assert (notes / "events.jsonl").is_file()
     assert recorded == "recorded 2 size -> DraftPlan\n"
-    assert to_impl == "recorded 4 drafted -> Impl\n"
+    assert to_impl == "recorded 4 drafted -> Implement\n"
     assert first.splitlines()[0] == "SPAWN implementer"
-    assert handed == "recorded 5 implemented -> Impl'\n"
+    assert handed == "recorded 5 implemented -> Refactor\n"
     assert second.splitlines()[0] == "SPAWN review-lead"
-    assert "Step: Impl'" in shown.splitlines()
+    assert "Step: Refactor" in shown.splitlines()
     assert f"Head: {head}" in shown.splitlines()
 
 
@@ -142,7 +142,7 @@ def test_the_resume_hook_tells_the_step_of_a_run(repo: Path, tmp_path: Path) -> 
 
     told = hook(repo, "resume", STARTED)
 
-    assert str(told["context"]).startswith("Step: Impl\n")
+    assert str(told["context"]).startswith("Step: Implement\n")
 
 
 def test_the_spawn_hook_advises_and_leaves_the_prompt(
@@ -182,7 +182,7 @@ def test_the_handback_hook_records_the_handback_and_tells_the_worker(
     )
 
     assert handed["updatedInput"] == {
-        "message": "READY done\n\nstate: recorded 5 implemented -> Impl'"
+        "message": "READY done\n\nstate: recorded 5 implemented -> Refactor"
     }
 
 
@@ -199,7 +199,7 @@ def test_next_records_the_draft_pr_the_gh_on_path_shows(
 
     advice = ok(repo, "next")
 
-    assert advice.splitlines()[0] == "recorded 4 drafted -> Impl"
+    assert advice.splitlines()[0] == "recorded 4 drafted -> Implement"
     assert last_event(notes) == {
         "type": "drafted",
         "url": PR,
