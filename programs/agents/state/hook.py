@@ -387,13 +387,6 @@ def commands(command: str) -> list[list[str]]:
     return found
 
 
-def is_separator(token: str) -> bool:
-    """A run of punctuation that ends a command; a redirection does not."""
-    return all(c in SHELL_PUNCTUATION for c in token) and not any(
-        c in "<>" for c in token
-    )
-
-
 # `<<EOF`, `<<-'EOF'`; not a `<<<` here-string, which has no body.
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z0-9_]+)\1")
 
@@ -411,6 +404,23 @@ def drop_heredocs(command: str) -> str:
     return "\n".join(kept)
 
 
+def is_separator(token: str) -> bool:
+    """A run of punctuation that ends a command; a redirection does not."""
+    return all(c in SHELL_PUNCTUATION for c in token) and not any(
+        c in "<>" for c in token
+    )
+
+
+def flag_value(words: list[str], flags: tuple[str, ...]) -> str | None:
+    for i, word in enumerate(words):
+        if word in flags and i + 1 < len(words):
+            return words[i + 1]
+        for flag in flags:
+            if word.startswith(f"{flag}="):
+                return word.removeprefix(f"{flag}=")
+    return None
+
+
 def positional(words: list[str], valued: tuple[str, ...]) -> str | None:
     """The first argument that is no flag, nor the value of a flag in `valued`."""
     skip = False
@@ -422,16 +432,6 @@ def positional(words: list[str], valued: tuple[str, ...]) -> str | None:
                 skip = word in valued
             case False, False:
                 return word
-    return None
-
-
-def flag_value(words: list[str], flags: tuple[str, ...]) -> str | None:
-    for i, word in enumerate(words):
-        if word in flags and i + 1 < len(words):
-            return words[i + 1]
-        for flag in flags:
-            if word.startswith(f"{flag}="):
-                return word.removeprefix(f"{flag}=")
     return None
 
 
