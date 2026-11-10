@@ -149,7 +149,7 @@ rec {
     # claude-web-ui plus the product-work servers. Spelled out rather than
     # derived from claude-web-ui: flavors are flat by design, and one shared
     # `let` binding for a single pair would hide which binary gets what.
-    claude-pm = {
+    claude-all = {
       profiles = [
         base
         web-ui

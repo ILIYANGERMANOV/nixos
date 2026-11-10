@@ -24,6 +24,10 @@
   # is filing and updating issues, not only reading them.
   linear = mkRemote { url = "https://mcp.linear.app/mcp"; };
 
+  # The US data center endpoint; EU projects would need mcp.eu.amplitude.com.
+  # OAuth, done out-of-band like every remote server.
+  amplitude = mkRemote { url = "https://mcp.amplitude.com/mcp"; };
+
   # Coda's docs product, renamed after the Superhuman acquisition. The old
   # coda.io/apis/mcp endpoint still answers but is documented as deprecated.
   superhuman-docs = mkRemote { url = "https://docs.superhuman.com/apis/mcp"; };

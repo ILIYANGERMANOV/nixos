@@ -25,7 +25,7 @@ programs/<vendor>  default.nix: flavors (profile list + vendor settings)
   `factory`. There is no `ts` profile: `claude-ts` is `base` plus a Claude
   plugin, which is a vendor setting.
 - **A flavor lists profiles and folds them with `append`**
-  (`claude-pm = [ base web-ui pm ]`). Profiles are deltas and never import each
+  (`claude-all = [ base web-ui pm ]`). Profiles are deltas and never import each
   other, so what a flavor gets is read off one list, not an import chain.
 - **Conflicts throw.** One key with two different values is an eval error, never
   last-writer-wins; the same value twice is fine. Silent precedence would make

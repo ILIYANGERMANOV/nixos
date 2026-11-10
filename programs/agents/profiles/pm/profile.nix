@@ -4,6 +4,7 @@ _: {
   # python3 that modules/home/languages/python.nix installs.
   skills = [ "self-improve" ];
   mcp = [
+    "amplitude"
     "linear"
   ];
 }

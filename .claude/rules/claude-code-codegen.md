@@ -16,7 +16,7 @@ The backend contract: `.claude/rules/agents-backend.md`. Installing:
 
 - `default.nix` - the flavors, each its list of profiles plus Claude settings:
   `claude` and `claude-ts` get `base local`, `claude-web-ui`
-  `base web-ui local`, `claude-pm` `base web-ui pm local`, `claude-factory`
+  `base web-ui local`, `claude-all` `base web-ui pm local`, `claude-factory`
   `base factory`. The attr key
   is the binary name, so a flavor's name is written once.
 - `codegen/` - pure, Claude's format: `settings.nix` (base settings,

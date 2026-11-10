@@ -9,7 +9,7 @@ setup() {
   mkdir -p "$WORK/my-repo/sub" "$WORK/not-a-repo"
   # caffeinate runs its command after its flags, as the real one does.
   stub caffeinate 'echo "caffeinate $*"; while [[ $1 == -* ]]; do shift; done; exec "$@"'
-  stub claude-pm 'echo "claude-pm ran in $(pwd -P)"'
+  stub claude-all 'echo "claude-all ran in $(pwd -P)"'
   on_ac_power
   # Plain ssh shows no touch prompt with stderr on a pipe, so it must not run.
   stub ssh 'echo "plain ssh: no touch prompt" >&2; exit 255'
@@ -35,7 +35,7 @@ temp_factory() { bash -euo pipefail "$BATS_TEST_DIRNAME/temp-factory.sh" "$@"; }
 
 # The first line of output: what caffeinate was exec'd with.
 assert_serves_my_repo_with_capacity() {
-  [ "${lines[0]}" = "caffeinate -i -s claude-pm remote-control --name my-repo --spawn worktree --capacity $1 --no-create-session-in-dir --permission-mode auto" ]
+  [ "${lines[0]}" = "caffeinate -i -s claude-all remote-control --name my-repo --spawn worktree --capacity $1 --no-create-session-in-dir --permission-mode auto" ]
 }
 
 @test "in a repo whose ssh login GitHub confirms (ssh exits 1) it serves it through caffeinate -i -s with worktrees and capacity 4" {
@@ -53,7 +53,7 @@ assert_serves_my_repo_with_capacity() {
 
   run --separate-stderr temp_factory
 
-  [ "${lines[1]}" = "claude-pm ran in $root" ]
+  [ "${lines[1]}" = "claude-all ran in $root" ]
 }
 
 @test "a dir argument picks the repo instead of the current directory" {
