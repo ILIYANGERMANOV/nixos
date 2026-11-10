@@ -60,4 +60,4 @@ or changing its `url` orphans it (one re-login); logging out of the Claude
 account wipes every grant
 ([claude-code#90647](https://github.com/anthropics/claude-code/issues/90647)).
 A remote server cannot be host-gated: keeping one off a machine means not
-running a flavor that lists it (`claude-pm` on `macos-main`).
+running a flavor that lists it (`claude-all` on `macos-main`).

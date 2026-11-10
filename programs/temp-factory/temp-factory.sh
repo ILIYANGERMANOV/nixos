@@ -68,7 +68,7 @@ cd "$toplevel" || exit
 # so Ctrl-C reaches both and the sleep assertion dies with them. -i -s blocks
 # idle and (on AC) system sleep only: never -d, so the display still sleeps
 # and locks, and a closed lid still sleeps.
-exec caffeinate -i -s claude-pm remote-control \
+exec caffeinate -i -s claude-all remote-control \
   --name "${toplevel##*/}" \
   --spawn worktree \
   --capacity "$capacity" \

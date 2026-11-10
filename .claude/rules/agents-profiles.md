@@ -15,7 +15,7 @@ flavor lists the ones it gets. `mkProfile` and `append` are in `agents-lib.md`.
   `trivial.md`, `runtime` (`programs/playwright`'s `qa`, `ctx` and `state`),
   `secretFiles` and the state hooks.
 - `web-ui` - figma.
-- `pm` - `self-improve`, linear, superhuman-docs.
+- `pm` - `self-improve`, amplitude, linear.
 - `local` - `10x-engineer` and its `lead.md` for the lead only: every
   non-factory flavor.
 - `factory` - `10x-engineer`, `self-improve`, `android`, its `agent.md` in
