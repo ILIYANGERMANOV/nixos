@@ -5,6 +5,5 @@ _: {
   skills = [ "self-improve" ];
   mcp = [
     "linear"
-    "superhuman-docs"
   ];
 }
