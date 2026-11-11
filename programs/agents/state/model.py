@@ -64,6 +64,33 @@ DEFAULTS: dict[Knob, str] = {"quality": DEFAULT_QUALITY, "size": DEFAULT_SIZE}
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 
+# ---- Log versions -------------------------------------------------------------
+
+# A log replays by the rules of the state that started it, named on its
+# `started` line. A new version is one more entry in RULES.
+type Version = Literal[1, 2]
+VERSION: Version = 2  # what a new run writes
+
+
+@dataclass(frozen=True)
+class Rules:
+    # Per event type, the fields this version did not write, with the value their
+    # absence meant.
+    absent: dict[str, dict[str, Json]]
+    # A lead's decision records the step it came from, which `resolved` in Ctx
+    # returns to; without it `resolved` stays in Ctx.
+    resumes: bool
+
+
+RULES: dict[Version, Rules] = {
+    # A `started` without a version is v1. Its `implemented` had no touches: only
+    # Implement, Refactor and Review took one, where touches is unused.
+    1: Rules(
+        {"started": {"version": 1}, "implemented": {"touches": []}}, resumes=False
+    ),
+    2: Rules({}, resumes=True),
+}
+
 # ---- Events -------------------------------------------------------------------
 
 
@@ -71,6 +98,7 @@ type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 class Started:
     notes: str
     delegated: bool
+    version: Version = VERSION
 
 
 @dataclass(frozen=True)
@@ -314,9 +342,8 @@ class State:
     # The last refusal, until the next accepted event or override.
     refused: Refused | None = None
     # In Ctx after a lead's decision: the step it came from, which `resolved`
-    # returns to (a shallow history state, SCXML 3.10). It outlives that return
-    # by one event, so a `planned` there still re-plans; any other event outside
-    # Ctx clears it.
+    # returns to (a shallow history state, SCXML 3.10). Leaving Ctx clears it.
+    # Only a log version whose rules resume records it.
     resume: StateName | None = None
 
 

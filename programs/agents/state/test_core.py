@@ -4,6 +4,7 @@ table row by row and the hand-back parser on real first lines."""
 from dataclasses import replace
 from typing import Literal
 
+import hypothesis
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -35,6 +36,7 @@ from state.model import (
     AREAS,
     MODES,
     ROLES,
+    RULES,
     S0,
     SIZES,
     STATES,
@@ -72,6 +74,7 @@ from state.model import (
     State,
     StateName,
     Verdict,
+    Version,
 )
 from state.state_fixtures import (
     NOTES,
@@ -784,22 +787,44 @@ ANSWERED = Resolved("which api?", "the old one")
 SECOND = Blocked("which db?", "decision", "researcher")
 
 
-@given(event_lists)
-def test_history_a_resolved_decision_resumes_the_step_it_came_from(
-    candidates: list[Event],
+# Runs into each step past Ctx, which every example walks on from.
+LATER = [
+    drafted(),
+    [*drafted(), Implemented("h1")],
+    [*drafted(), Implemented("h1"), Refactored("h2")],
+    reviewed(),
+    final_fixed(),
+    [*simplified(), Ci("h5", ())],
+]
+
+
+def at(version: Version, run: list[Event]) -> list[Event]:
+    """`run` as a log of `version` records it."""
+    return [replace(e, version=version) if isinstance(e, Started) else e for e in run]
+
+
+@given(event_lists, st.sampled_from(tuple(RULES)))
+def test_history_a_resolved_decision_resumes_by_the_logs_version(
+    candidates: list[Event], version: Version
 ) -> None:
     lead = [
         state
-        for _, _, state in walk([Started(NOTES, delegated=False), *candidates])
-        if state.run == Started(NOTES, delegated=False)
+        for prefix in LATER
+        for _, _, state in walk(at(version, [*prefix, *candidates]))
+        if state.run == Started(NOTES, delegated=False, version=version)
         and state.step not in ("Ctx", "Done")
         and not any(
             isinstance(b, OpenBlocker) and b.kind == "decision" for b in state.blockers
         )
     ]
+    for step in {state.step for state in lead}:
+        hypothesis.event(f"v{version} from {step}")
+
     resumed = [then(state, DECISION, ANSWERED).step for state in lead]
 
-    assert resumed == [state.step for state in lead]
+    # v1 is main's rule: `resolved` in Ctx stays there.
+    expected = {1: ["Ctx" for _ in lead], 2: [state.step for state in lead]}
+    assert resumed == expected[version]
 
 
 def reach_from(step: StateName, *events: Event) -> StateName:
@@ -840,14 +865,33 @@ def test_history_a_re_plan_from_a_decision_still_resumes_at_implement() -> None:
     assert state.step == "Implement"
 
 
-def test_history_a_re_plan_right_after_the_answer_still_resumes_at_implement() -> None:
-    # A log from before `resolved` went back: it stayed in Ctx, then re-planned.
+# A v1 log: `resolved` stayed in Ctx, so what followed it is a Ctx event.
+@pytest.mark.parametrize(
+    "between", [(), (Researched(1),), (Raised("why?", "implementer"),), (Asked(1),)]
+)
+def test_history_a_v1_log_re_plans_after_a_resolved_decision(
+    between: tuple[Event, ...],
+) -> None:
     state = reach(
-        *reviewed(), DECISION, ANSWERED,
+        *at(1, reviewed()), DECISION, ANSWERED, *between,
         Planned("p2.md"), Proposed("simplify"), Proposed("alternative"), Confirmed(),
     )  # fmt: skip
 
     assert state.step == "Implement"
+
+
+# `asked` is a Ctx event: in Fix it is off the table.
+@pytest.mark.parametrize(
+    "between", [(), (Researched(1),), (Raised("why?", "implementer"),)]
+)
+def test_history_a_v2_log_resumes_after_a_resolved_decision(
+    between: tuple[Event, ...],
+) -> None:
+    assert reach(*reviewed(), DECISION, ANSWERED, *between).step == "Fix"
+
+
+def test_next_in_ctx_after_a_v1_decision_names_no_way_back() -> None:
+    assert "back to Fix" not in advice(*at(1, reviewed()), DECISION)
 
 
 def test_next_in_ctx_after_a_decision_names_both_ways_out() -> None:

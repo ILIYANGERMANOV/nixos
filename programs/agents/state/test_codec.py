@@ -8,7 +8,7 @@ from hypothesis import given
 
 from state.codec import Line, encode_line, parse_log, replay
 from state.core import fold
-from state.model import Event, Failure, Implemented
+from state.model import Event, Failure, Implemented, Started
 from state.state_fixtures import accepted, event_lists, ok, run
 
 LOG = Path("/notes/run/events.jsonl")
@@ -78,17 +78,59 @@ def test_a_hand_edited_bad_line_makes_every_command_exit_2_naming_it(
     )
 
 
-def test_an_implemented_line_from_before_touches_reads_as_touching_no_area() -> None:
-    old = (
-        '{"seq":1,"ts":"t","head":"h1","session":null,'
-        '"event":{"type":"implemented","head":"h1"}}\n'
+STARTED_V1 = '{"type":"started","notes":"/notes/run","delegated":false}'
+
+
+def a_log(*events: str) -> str:
+    return "".join(
+        f'{{"seq":{n},"ts":"t","head":null,"session":null,"event":{event}}}\n'
+        for n, event in enumerate(events, start=1)
     )
+
+
+def test_a_started_line_without_a_version_is_a_v1_log() -> None:
+    match parse_log(a_log(STARTED_V1), LOG):
+        case Failure() as failure:
+            raise AssertionError(failure.message)
+        case [line]:
+            assert line.event == Started("/notes/run", delegated=False, version=1)
+        case lines:
+            raise AssertionError(lines)
+
+
+def test_an_implemented_line_in_a_v1_log_without_touches_touches_no_area() -> None:
+    old = a_log(STARTED_V1, '{"type":"implemented","head":"h1"}')
 
     match parse_log(old, LOG):
         case Failure() as failure:
             raise AssertionError(failure.message)
-        case [line]:
+        case [_, line]:
             assert line.event == Implemented("h1", ())
             assert '"touches":[]' in encode_line(line)
+        case lines:
+            raise AssertionError(lines)
+
+
+def test_an_implemented_line_in_a_v2_log_needs_its_touches() -> None:
+    started = STARTED_V1.replace("}", ',"version":2}')
+    log = a_log(started, '{"type":"implemented","head":"h1"}')
+
+    match parse_log(log, LOG):
+        case Failure() as failure:
+            assert failure.message == (f"state: {LOG}:2: touches is not a list")
+        case lines:
+            raise AssertionError(lines)
+
+
+@pytest.mark.parametrize("version", ["3", "0", "true", '"2"'])
+def test_a_log_of_an_unknown_version_fails_naming_it(version: str) -> None:
+    started = STARTED_V1.replace("}", f',"version":{version}}}')
+
+    match parse_log(a_log(started), LOG):
+        case Failure() as failure:
+            assert failure.message == (
+                f"state: {LOG}:1: version {version} is a log version this state has "
+                "no rules for; it reads 1, 2: update state"
+            )
         case lines:
             raise AssertionError(lines)

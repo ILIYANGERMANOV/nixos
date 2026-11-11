@@ -86,7 +86,9 @@ def test_init_creates_the_notes_dir_and_a_started_line(
     assert out == f"{notes}/events.jsonl\nstarted: yes\n"
     [line] = log_of(notes)
     assert line["seq"] == 1
-    assert line["event"] == {"type": "started", "notes": str(notes), "delegated": False}
+    assert line["event"] == {
+        "type": "started", "notes": str(notes), "delegated": False, "version": 2
+    }  # fmt: skip
 
 
 def test_init_twice_appends_nothing_and_exits_0(repo: Path, tmp_path: Path) -> None:

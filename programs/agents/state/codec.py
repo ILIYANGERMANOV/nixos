@@ -18,9 +18,11 @@ from state.model import (
     OUTCOMES,
     PROPOSAL_MODES,
     ROLES,
+    RULES,
     S0,
     SIZES,
     STATES,
+    VERSION,
     Adjusted,
     Area,
     Asked,
@@ -55,6 +57,7 @@ from state.model import (
     Started,
     State,
     Verdict,
+    Version,
     name_of,
 )
 
@@ -177,6 +180,23 @@ def parse_verdict(_key: str, value: str) -> Verdict:
     )
 
 
+def a_version(key: str, value: Json) -> Version:
+    """A log version this state has rules for; a later one is a newer state's."""
+    versions: tuple[Version, ...] = tuple(RULES)
+    for version in versions:
+        if not isinstance(value, bool) and value == version:
+            return version
+    read = ", ".join(map(str, versions))
+    shown = json.dumps(value)
+    raise BadFieldError(
+        f"{key} {shown} is a log version this state has no rules for; it reads {read}: update state"
+    )
+
+
+def parse_version(key: str, value: str) -> Version:
+    return a_version(key, int(value) if value.isdigit() else value)
+
+
 def an_object(value: Json, what: str) -> dict[str, Json]:
     if not isinstance(value, dict):
         raise BadFieldError(f"{what} is not a JSON object")
@@ -187,6 +207,7 @@ TEXT = Codec(a_text, a_text, None, "x")
 COUNT = Codec(a_count, parse_count, None, 1)
 PR_URL = Codec(a_pr_url, a_pr_url, "<pr-url>", "https://github.com/o/r/pull/1")
 FLAG = Codec(a_flag, a_flag, None, sample=False)
+LOG_VERSION: Codec[Version] = Codec(a_version, parse_version, None, VERSION)
 # Annotated: with no expected type, pyright solves a choice's literals as str.
 KIND: Codec[BlockerKind] = choice(BLOCKER_KINDS)
 OUTCOME: Codec[Outcome] = choice(OUTCOMES)
@@ -207,7 +228,13 @@ def read_defaulted(f: Fields) -> Defaulted:
 
 # Keys are `name_of` each event; the readers take fields in the order read.
 EVENTS: dict[str, Spec] = {
-    "started": Spec(lambda f: Started(f.one("notes", TEXT), f.one("delegated", FLAG))),
+    "started": Spec(
+        lambda f: Started(
+            f.one("notes", TEXT),
+            f.one("delegated", FLAG),
+            f.one("version", LOG_VERSION),
+        )
+    ),
     "quality": Spec(lambda f: Quality(f.one("mode", choice(MODES)))),
     "size": Spec(lambda f: Size(f.one("size", choice(SIZES)))),
     "grew": Spec(lambda f: Grew(f.one("why", TEXT))),
@@ -273,13 +300,17 @@ def parse_log(text: str, path: Path) -> list[Line] | Failure:
     if text and not text.endswith("\n"):
         return bad_line(path, text.count("\n") + 1, "no newline at its end")
     lines: list[Line] = []
+    # Its `started` line names the version; the oldest reads one without it.
+    version: Version = min(RULES)
     for n, raw in enumerate(text.splitlines(), start=1):
         try:
-            line = decode_line(raw)
+            line = decode_line(raw, version)
         except BadFieldError as error:
             return bad_line(path, n, str(error))
         if line.seq != n:
             return bad_line(path, n, f"seq is {line.seq}, expected {n}")
+        if isinstance(line.event, Started):
+            version = line.event.version
         lines.append(line)
     return lines
 
@@ -343,7 +374,7 @@ def to_json(value: object) -> Json:
             return cast("Json", value)
 
 
-def decode_line(raw: str) -> Line:
+def decode_line(raw: str, version: Version) -> Line:
     try:
         parsed = cast("Json", json.loads(raw))
     except json.JSONDecodeError as error:
@@ -358,33 +389,21 @@ def decode_line(raw: str) -> Line:
         text_of(obj, "ts"),
         optional_text(obj, "head"),
         optional_text(obj, "session"),
-        decode_event(an_object(obj["event"], "event")),
+        decode_event(an_object(obj["event"], "event"), version),
     )
 
 
-def decode_event(obj: dict[str, Json]) -> Event:
+def decode_event(obj: dict[str, Json], version: Version) -> Event:
+    """The event, its fields read as `version` wrote them."""
     kind = text_of(obj, "type")
     match EVENTS.get(kind):
         case None:
             raise BadFieldError(f"unknown event type '{kind}'")
         case spec:
-            reader = JsonFields(upgrade(kind, obj))
+            reader = JsonFields({**RULES[version].absent.get(kind, {}), **obj})
             event = spec.read(reader)
             reader.done(f"event {kind}")
             return event
-
-
-def upgrade(kind: str, obj: dict[str, Json]) -> dict[str, Json]:
-    """An event an older state wrote, in today's shape. An `implemented` without
-    `touches` predates it: then only Implement, Refactor and Review recorded one,
-    where touches is unused, so no area is exact."""
-    match kind, obj:
-        case "implemented", {"touches": _}:
-            return obj
-        case "implemented", _:
-            return {**obj, "touches": []}
-        case _:
-            return obj
 
 
 class JsonFields:

@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from state.flow import (
+    CI_FIX_STEPS,
     DELEGATED_PR_FLAGS,
     FULL_REVIEW,
     HANDBACK_RULE,
@@ -41,10 +42,12 @@ from state.model import (
     DEFAULT_SIZE,
     DEFAULTS,
     MODES,
+    RULES,
     S0,
     STATES,
     TOKENS,
     UNRECORDABLE,
+    VERSION,
     Adjusted,
     Area,
     Asked,
@@ -87,6 +90,7 @@ from state.model import (
     Token,
     UntriagedBlocker,
     Verdict,
+    Version,
     Worker,
     mode_of,
     name_of,
@@ -133,30 +137,27 @@ def apply(state: State, event: Event) -> State | Failure:
             | Refactored() | Reviewed() | Picked() | Fixed() | Ci() | Simplified()
             | Raised() | Blocked() | Resolved() | Ready()
         ):  # fmt: skip
-            target = TARGET.get((source(state, event), classify(state, event)))
+            target = TARGET.get((state.step, classify(state, event)))
     match target, absorb(state, event):
         case None, _:
             return off_arrow(state, event)
         case _, Failure() as failure:
             return failure
         case _, State() as absorbed:
-            back = resumed(absorbed, event)
-            step = back or target
-            resume = absorbed.resume if step == "Ctx" or back else None
+            step = resumed(absorbed, event) or target
+            resume = absorbed.resume if step == "Ctx" else None
             return replace(absorbed, step=step, refused=None, resume=resume)
 
 
-def source(state: State, event: Event) -> StateName:
-    """The step an event leaves from. `planned` right after `resolved` went back
-    leaves from Ctx: on a log older than the return, `resolved` stayed in Ctx and
-    a re-plan followed it, and such a log must still replay."""
-    returned = state.resume is not None and state.step != "Ctx"
-    return "Ctx" if returned and isinstance(event, Planned) else state.step
+def version_of(state: State) -> Version:
+    """The log version whose rules the run replays by; before `started`, today's."""
+    return VERSION if state.run is None else state.run.version
 
 
 def resumed(absorbed: State, event: Event) -> StateName | None:
     """`resolved` in Ctx once no decision is left open goes back to the step the
-    decision came from; a re-plan leaves Ctx through `planned` instead."""
+    decision came from, when the run's rules record one; a re-plan leaves Ctx
+    through `planned` instead."""
     settled = not any(b.kind == "decision" for b in open_blockers(absorbed))
     back = isinstance(event, Resolved) and absorbed.step == "Ctx" and settled
     return absorbed.resume if back else None
@@ -279,8 +280,7 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             return replace(state, proposed=state.proposed | {mode})
         case Drafted():
             return replace(state, drafted=event)
-        # After the final fixer an implementer's slice is a CI fix: the loop's work.
-        case Implemented(head=head, touches=touches) if state.step in ("DraftPR", "PR"):
+        case Implemented(head=head, touches=touches) if state.step in CI_FIX_STEPS:
             return replace(state, head=head, work=Fixed(head, touches))
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
@@ -331,7 +331,8 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             work = None if kind == "decision" else state.work
             # A second decision in Ctx keeps the first one's origin.
             came_from = state.resume if state.step == "Ctx" else state.step
-            resume = came_from if kind == "decision" else state.resume
+            resumes = kind == "decision" and RULES[version_of(state)].resumes
+            resume = came_from if resumes else state.resume
             return replace(
                 state,
                 blockers=ask(state, OpenBlocker(q, kind, role)),
@@ -1519,7 +1520,7 @@ def last_value(lines: list[str], prefix: str) -> str | None:
 
 
 TOUCHES_LINE = "Touches:"
-# A fixer's brief, and an implementer's once it is a CI fix.
+# A fixer's brief, and an implementer's in CI_FIX_STEPS.
 TOUCHES_RULE = (
     "End your hand-back with a line `Touches: <area>...` naming any of "
     f"{', '.join(AREAS)} your fix changed (or `Touches: none`)."
@@ -1605,7 +1606,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 f"Research notes: <paths under {notes_of(state)} and the sections it needs>",
                 "Targeted checks only, never the full check: <the checks>",
                 "The previous slice started at <sha>, when there is one.",
-                *([TOUCHES_RULE] if state.step in ("DraftPR", "PR") else []),
+                *([TOUCHES_RULE] if state.step in CI_FIX_STEPS else []),
             ]
         case "refactorer":
             return [diff_line(base)]

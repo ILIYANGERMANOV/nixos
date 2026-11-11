@@ -25,6 +25,9 @@ type Kind = Literal[
 ]  # fmt: skip
 
 LIVE: tuple[StateName, ...] = STATES[:-1]
+# After the final fixer an implementer's slice is a CI fix: the loop's work, and
+# its `implemented` stays put as a `fixed` would.
+CI_FIX_STEPS: tuple[StateName, ...] = ("DraftPR", "PR")
 
 # Every arrow but an override: (state, kind) -> target. A pair not here is an
 # event the flow does not expect in that state; `state override` gets there.
@@ -65,12 +68,10 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
     ("Fix", "picked-final"): "DraftPR",
     ("Fix", "fixed"): "Fix",
     ("DraftPR", "fixed"): "DraftPR",
-    # An implementer used for a CI fix hands back `implemented`: a fix all the same.
-    ("DraftPR", "implemented"): "DraftPR",
+    **{(s, "implemented"): s for s in CI_FIX_STEPS},
     ("DraftPR", "ci"): "PR",
     ("PR", "ci"): "PR",
     ("PR", "fixed"): "PR",
-    ("PR", "implemented"): "PR",
     # S0 runs while CI does, so it lands before or after the step moves to PR.
     ("DraftPR", "simplified"): "DraftPR",
     ("PR", "simplified"): "PR",
