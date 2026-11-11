@@ -137,7 +137,11 @@ class Drafted:
 
 @dataclass(frozen=True)
 class Implemented:
+    """A slice, or after the final fixer a CI fix, whose areas pick its review
+    as a fixer's do. Unstated, it touched every area: a full review."""
+
     head: str
+    touches: tuple[Area, ...] = AREAS
 
 
 @dataclass(frozen=True)

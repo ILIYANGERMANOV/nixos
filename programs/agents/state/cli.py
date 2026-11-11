@@ -126,6 +126,7 @@ Hand-backs   roles: {" ".join(WORKERS)}
   line 1 {" | ".join(token_usage(token) for token in TOKENS)}
   review-lead: its `Reviewed head: <sha>` line; the lead then records picked
   fixer: its `Touches: <area>...` line; none when left out
+  implementer: the same line; every area when left out
   a question waits for its triage, record blocked, unless --kind gives it
   ({KIND.shown}) or it starts `plan wrong:` or `stuck:`: a decision
 Brief roles  {" ".join(ROLES)}

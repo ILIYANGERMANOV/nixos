@@ -32,12 +32,14 @@ from state.core import (
     warning,
 )
 from state.model import (
+    AREAS,
     MODES,
     ROLES,
     S0,
     SIZES,
     STATES,
     Adjusted,
+    Area,
     Asked,
     Blocked,
     Ci,
@@ -856,12 +858,24 @@ def test_next_in_ctx_after_a_decision_names_both_ways_out() -> None:
 def test_an_implemented_hand_back_in_draftpr_or_pr_is_a_fix_that_stays_put(
     run: list[Event], step: StateName
 ) -> None:
-    state = then(reach(*run), Implemented("h9"))
+    state = then(reach(*run), Implemented("h9", ()))
 
     assert (state.step, state.head) == (step, "h9")
-    assert first_line(advice(*run, Implemented("h9"))) == first_line(
+    assert first_line(advice(*run, Implemented("h9", ()))) == first_line(
         advice(*run, Fixed("h9", ()))
     )
+
+
+@pytest.mark.parametrize(
+    "touches", [AREAS, ("auth",)], ids=["unstated: every area", "auth"]
+)
+def test_an_implemented_ci_fix_to_a_wide_area_reviews_the_whole_branch(
+    touches: tuple[Area, ...],
+) -> None:
+    run = [*simplified(), Ci("h5", ("lint",))]
+
+    assert advice(*run, Implemented("h9", touches)) == advice(*run, Fixed("h9", AREAS))
+    assert advice(*run, Implemented("h9", touches)) != advice(*run, Fixed("h9", ()))
 
 
 def test_a_re_plan_keeps_the_stuck_history() -> None:
@@ -1044,7 +1058,17 @@ def test_an_accepted_event_or_an_override_clears_the_warning(then: Event) -> Non
     [
         pytest.param(
             "implementer", "READY 0c8fe31 [agents] state: core and shell\n\nProof: ruff",
-            HandbackOptions(), (Implemented("abc1234"),), id="implementer READY",
+            HandbackOptions(), (Implemented("abc1234", AREAS),),
+            id="implementer READY with no Touches line touches every area",
+        ),
+        pytest.param(
+            "implementer", "READY CI fix in 0c8fe31\n\nTouches: data-model",
+            HandbackOptions(), (Implemented("abc1234", ("data-model",)),),
+            id="implementer READY with its Touches line",
+        ),
+        pytest.param(
+            "implementer", "READY CI fix\nTouches: none", HandbackOptions(),
+            (Implemented("abc1234", ()),), id="implementer READY touching none",
         ),
         pytest.param(
             "refactorer", "READY - items 1-7 done, no proposals", HandbackOptions(),
@@ -1140,6 +1164,11 @@ def test_handback_records_the_event_its_first_line_names(
             "fixer", "READY\nTouches: auth, the parser", "abc1234",
             "state record fixed [<head>] [--touches <area>]...",
             id="a Touches line naming no area",
+        ),
+        pytest.param(
+            "implementer", "READY\nTouches: the parser", "abc1234",
+            "state record implemented [<head>] [--touches <area>]...",
+            id="an implementer's Touches line naming no area",
         ),
         pytest.param(
             "fixer", "Done, all green.", "abc1234",

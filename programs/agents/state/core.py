@@ -271,8 +271,8 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
         case Drafted():
             return replace(state, drafted=event)
         # After the final fixer an implementer's slice is a CI fix: the loop's work.
-        case Implemented(head=head) if state.step in ("DraftPR", "PR"):
-            return replace(state, head=head, work=Fixed(head, ()))
+        case Implemented(head=head, touches=touches) if state.step in ("DraftPR", "PR"):
+            return replace(state, head=head, work=Fixed(head, touches))
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
         case Reviewed(head=head):
@@ -1419,6 +1419,8 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
             return (Reviewed(reviewed),)
         case "fixer", "READY":
             return fixer_ready(lines, head, simplifying=simplifying)
+        case "implementer", "READY":
+            return implementer_ready(lines, head)
         case _, "READY":
             return ready(role, head, ())
         case _:
@@ -1436,7 +1438,7 @@ def fixer_ready(
     """An S0 fixer's `Simplified:` line, else a fix with its `Touches:` areas.
     An S0 hand-back without the line is refused, not taken as a fix: `Fixed`
     on the same head would re-advise S0, or wait on CI that never comes."""
-    match last_value(lines, "Simplified:"), simplifying, touched(lines):
+    match last_value(lines, "Simplified:"), simplifying, touched("fixer", lines):
         case str() as shortened, _, _:
             return (Simplified(shortened),)
         case None, True, _:
@@ -1449,6 +1451,20 @@ def fixer_ready(
             return failure
         case None, False, touches:
             return ready("fixer", head, touches)
+
+
+def implementer_ready(
+    lines: list[str], head: str | None
+) -> tuple[Event, ...] | Failure:
+    """Its `Touches:` line read as a fixer's. No such line touched every area:
+    a CI fix that does not say what it changed gets the whole-branch review."""
+    match last_value(lines, TOUCHES_LINE), touched("implementer", lines):
+        case _, Failure() as failure:
+            return failure
+        case None, _:
+            return ready("implementer", head, AREAS)
+        case str(), touches:
+            return ready("implementer", head, touches)
 
 
 def ready(
@@ -1464,7 +1480,7 @@ def ready(
                 2,
             )
         case "implementer", str():
-            return (Implemented(head),)
+            return (Implemented(head, touches),)
         case "refactorer", str():
             return (Refactored(head),)
         case "fixer", str():
@@ -1494,10 +1510,17 @@ def last_value(lines: list[str], prefix: str) -> str | None:
 
 
 TOUCHES_LINE = "Touches:"
+# A fixer's brief, and an implementer's once it is a CI fix.
+TOUCHES_RULE = (
+    "End your hand-back with a line `Touches: <area>...` naming any of "
+    f"{', '.join(AREAS)} your fix changed (or `Touches: none`)."
+)
 
 
-def touched(lines: list[str]) -> tuple[Area, ...] | Failure:
-    """The areas on a fixer's last `Touches:` line, split on spaces or commas;
+def touched(
+    role: Literal["implementer", "fixer"], lines: list[str]
+) -> tuple[Area, ...] | Failure:
+    """The areas on the last `Touches:` line, split on spaces or commas;
     `none`, or no such line, is none."""
     words = (last_value(lines, TOUCHES_LINE) or "").replace(",", " ").split()
     # Declared: pyright widens an inferred tuple(...) of literals to str.
@@ -1507,9 +1530,9 @@ def touched(lines: list[str]) -> tuple[Area, ...] | Failure:
     unknown = [word for word in words if word not in (*AREAS, "none")]
     if unknown:
         return Failure(
-            f"state handback fixer: Touches: names {', '.join(unknown)}, not "
+            f"state handback {role}: Touches: names {', '.join(unknown)}, not "
             + " | ".join(AREAS),
-            "state record fixed [<head>] [--touches <area>]...",
+            f"state record {role_event(role)} [<head>] [--touches <area>]...",
             2,
         )
     return areas
@@ -1573,6 +1596,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 f"Research notes: <paths under {notes_of(state)} and the sections it needs>",
                 "Targeted checks only, never the full check: <the checks>",
                 "The previous slice started at <sha>, when there is one.",
+                *([TOUCHES_RULE] if state.step in ("DraftPR", "PR") else []),
             ]
         case "refactorer":
             return [diff_line(base)]
@@ -1597,10 +1621,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 *(final if state.step == "DraftPR" else []),
                 diff_line(base),
                 "Targeted checks only: <the checks>",
-                (
-                    "End your hand-back with a line `Touches: <area>...` naming any of "
-                    f"{', '.join(AREAS)} your fix changed (or `Touches: none`)."
-                ),
+                TOUCHES_RULE,
             ]
         case "review-lead":
             return [

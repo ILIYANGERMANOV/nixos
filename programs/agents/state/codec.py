@@ -223,7 +223,7 @@ EVENTS: dict[str, Spec] = {
             f.one("url", PR_URL), f.one("base", TEXT), f.one("branch", TEXT)
         )
     ),
-    "implemented": Spec(lambda f: Implemented(f.head())),
+    "implemented": Spec(lambda f: Implemented(f.head(), f.many(TOUCHES))),
     "refactored": Spec(lambda f: Refactored(f.head())),
     "reviewed": Spec(lambda f: Reviewed(f.one("head", TEXT))),
     "picked": Spec(lambda f: Picked(f.many(ROWS), f.many(VERDICTS))),
