@@ -5,9 +5,12 @@ paths:
 
 ## Claude Code backend: hooks
 
-`hooks/<guard>/` and `hooks/shared/` are the programs Claude's settings point
-at (`codegen/settings.nix`); `checks.python-tests` tests them. These guards are
-Claude-native; porting them to the vendor-free hooks is #338.
+`hooks/` holds Claude's side of the vendor-free hooks: the `contract` it
+relies on and the `adapter` its settings point at. The hooks themselves, the
+guards among them, are the frontend's (`agents-frontend.md`).
+`checks.python-tests` tests both; its `adapter/test_guards.py` runs every
+flavor's settings.json hook commands on Claude payloads shaped as the snapshot
+recorded.
 
 ### `contract`
 
@@ -31,12 +34,11 @@ tail for a shell call's `history` and a result's `context`; an unreadable one
 gives none. Input it cannot read exits 1, which Claude shows and lets the call
 go on.
 
-### `secret-guard`
+### Secret files
 
 The wrapper exports a secret file's **path**. Where one is exported,
 `withSecretFileGuard` adds `Read` deny rules over `/run/secrets` and
-`/run/secrets.d`, and this Bash hook, which blocks a command naming that
-directory or the file's basename, expanding the variable, or running
-`printenv`/`env` inside a command substitution. **This is protection against
-accidental reads, not a security boundary**: every `qa-node` script must read
-the variable, so no filter over command text can close it.
+`/run/secrets.d`; the frontend's `secret-guard` covers the shell. **This is
+protection against accidental reads, not a security boundary**: every
+`qa-node` script must read the variable, so no filter over command text can
+close it.

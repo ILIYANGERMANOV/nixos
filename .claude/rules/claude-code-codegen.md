@@ -12,7 +12,7 @@ paths:
 
 **Changing the Claude Code setup means editing `default.nix` and nothing else.**
 The backend contract: `.claude/rules/agents-backend.md`. Installing:
-`claude-code-install.md`; guards: `claude-code-hooks.md`.
+`claude-code-install.md`; the hook adapter: `claude-code-hooks.md`.
 
 - `default.nix` - the flavors, each its list of profiles plus Claude settings:
   `claude` and `claude-ts` get `base local`, `claude-web-ui`
@@ -30,7 +30,8 @@ The backend contract: `.claude/rules/agents-backend.md`. Installing:
 - `statusline/` - the program the settings' status line points at.
 - `check.nix` - `checks.claude-code`: the MCP wire shape, `withSecretFileGuard`
   and `applies.nix`. `config-check.nix` - `checks.claude-config`: the real
-  configuration against its rules and ceilings.
+  configuration against its rules and ceilings, every flavor's hooks the
+  adapter alone and its manifest the guards.
 
 ### Budget and hidden skills
 
@@ -80,5 +81,6 @@ that Claude Code expands from the wrapper's environment.
 ### Secret file guard
 
 Where a secret file's path is exported, `withSecretFileGuard` adds `Read` deny
-rules over `/run/secrets` and `/run/secrets.d` and the `hooks/secret-guard`
-Bash hook (`claude-code-hooks.md`).
+rules over `/run/secrets` and `/run/secrets.d`. The shell is the frontend's
+`secret-guard`, a hook every flavor gets through the adapter
+(`claude-code-hooks.md`).
