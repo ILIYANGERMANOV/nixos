@@ -78,7 +78,8 @@ Each step is a state. Quality and Size skip arrows, never add them.
 | 6 | Refactor | refactor: 7; fixed: 6 |
 | 7 | Review | first review: rows to fix: 8; none: final fixer, 9; implemented: 7 |
 | 8 | Fix | fix, then a `--fixes` review: 8 while rounds remain; cap: final fixer, 9 |
-| 9 | DraftPR | notify: 10 |
+| 9 | DraftPR | simplify: 9a; notify: 10 |
+| 9a | Simplify | S0 fixer while CI runs: 10 |
 | 10 | PR | green CI: ready and notify; CI issues: `review.md`'s CI fix, then CI again |
 | any | blocker | a worker's `NEEDS_DECISION`: triage in `blockers.md` |
 | any | stuck | the stuck guard above: ask |
@@ -220,8 +221,14 @@ Quality row's Re-reviews. `state`: each review's picks, as in step 7.
 
 ### 9. Describe and notify
 
-The final fixer's R0 wrote the PR body. Notify the user the way your
-instructions describe: the draft is complete and CI runs.
+The final fixer's R0 wrote the PR body. After step 9a, notify the user the
+way your instructions describe: the draft is complete and CI runs.
+
+### 9a. Simplify
+
+While CI runs, a fresh fixer, row S0 (`state brief fixer`), shortens the body
+as `pr-description`'s `## Simplify (row S0)` says. Its `Simplified: <sha>` line
+is recorded; `gh pr ready` waits for it. A later R0 edits in place.
 
 ### 10. Hand over
 
@@ -240,8 +247,9 @@ draft, not merge-ready, with no next steps.
   aside, is in `gh secret list`, in `gh secret list --env <env>` for a job with
   an `environment:`, or in `gh secret list --org <owner>` for an org
   repository. A missing secret goes to the user.
-- On green, mark the PR ready with `gh pr ready <n>` and notify the user the way
-  your instructions describe, listing optional next steps, each line ready to
+- On green and simplified, mark the PR ready with `gh pr ready <n>` and notify
+  the user the way your instructions describe, pasting the body's
+  `## What & Why`, listing optional next steps, each line ready to
   paste: `/qa <PR>` in a fresh session for a UI or runtime change,
   `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`, and
   `/address-pr-feedback <PR>` when the PR has comments from anyone else. Only
@@ -263,7 +271,7 @@ rest of this skill.
   commands `--repo <repo>`. Do not attach it to the session: your caller
   does. A brief naming an open PR skips
   step 4 and starts at the step it names.
-- Run steps 5-9 as written, with every agent in the foreground (`run_in_background: false`). You are a subagent: you wait
+- Run steps 5-9a as written, with every agent in the foreground (`run_in_background: false`). You are a subagent: you wait
   for what you spawned, and ending your turn is your hand-back.
 - Every prompt you write, an implementer's, `refactor`'s, a review's or a
   fixer's, carries the worktree path, for every command, the base branch and

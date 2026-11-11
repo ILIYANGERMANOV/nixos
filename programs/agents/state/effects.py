@@ -51,6 +51,7 @@ from state.core import (
     pr_to_read,
     record,
     render_advice,
+    s0_due,
     show,
     synced,
     warning,
@@ -116,7 +117,9 @@ def execute(command: Command, cwd: Path, stdin: str | None) -> str | Failure:  #
             return append(log, lines, state, parsed, cwd)
         case HandbackCmd(role=role, options=options):
             text = sys.stdin.read() if stdin is None else stdin
-            parsed = parse_handback(role, text, options, head_of(cwd))
+            parsed = parse_handback(
+                role, text, options, head_of(cwd), simplifying=s0_due(state)
+            )
             return append(log, lines, state, parsed, cwd)
         case Override(to=to, why=why):
             return append(log, lines, state, (Overridden(to, why),), cwd)
