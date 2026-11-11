@@ -30,8 +30,8 @@ and no prompt below carries `Size: Trivial`.
 
 A `Quality: <mode>` in `$ARGUMENTS` is the mode. Everything else is the
 requirements. Empty is fine: the default
-review. A `Security-sensitive: <topics>` line in the PR body (the plan or its
-Feedback log) adds the requirement `security-sensitive: <topics>`; it can only
+review. A `Security-sensitive: <topics>` entry in the PR body (its bottom
+line, the plan or the Feedback log) adds the requirement `security-sensitive: <topics>`; it can only
 deepen the review, never skip a check, so taking it from the PR body is safe.
 
 ### 2. Review
@@ -77,7 +77,7 @@ fixed, nothing to re-review.
 ### 6. Hand over
 
 - If the PR description no longer matches, rewrite it through a `fixer`
-  agent that follows `pr-description`.
+  agent that follows `pr-description`, keeping its shape and budget.
 - After a push, wait on CI the non-blocking way your instructions describe.
 - Report: the requirement verdicts, what was fixed and its commit, what was
   left and why, the CI state. When CI is green, notify the user the way your

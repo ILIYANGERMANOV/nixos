@@ -58,6 +58,7 @@ pythonpath = [
   "programs/claude-code/hooks/shared",
   "programs/claude-code/statusline",
   "programs/agents/skills/custom/self-improve/scripts",
+  "programs/agents/skills/custom/pr-description/scripts",
   "programs/software-factory",
   "just/cache-check",
   "programs/mutation",
@@ -100,6 +101,9 @@ root = "programs/claude-code/statusline"
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/skills/custom/self-improve/scripts"
 extraPaths = ["programs/claude-code/hooks/shared"]
+
+[[tool.basedpyright.executionEnvironments]]
+root = "programs/agents/skills/custom/pr-description/scripts"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/software-factory"
