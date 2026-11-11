@@ -77,7 +77,8 @@ when it changes a goal, a decision or an interface.
 **Decision path.**
 
 1. Back to Ctx: steps 1 and 2 for this question only. Research what it needs,
-   then ask the user what is still open, never what they just answered.
+   then ask the user what is still open, never what they just answered. No
+   plan change: `state record resolved` resumes where you were, with no steps 2-4.
 2. Step 3 at the current Quality, with no Quality question: a new plan, its
    proposals, and the ask. A decision on `Size: Trivial` moves it to Normal
    first (`trivial.md`).

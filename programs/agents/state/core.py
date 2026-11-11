@@ -140,7 +140,17 @@ def apply(state: State, event: Event) -> State | Failure:
         case _, Failure() as failure:
             return failure
         case _, State() as absorbed:
-            return replace(absorbed, step=target, refused=None)
+            step = resumed(absorbed, event) or target
+            resume = absorbed.resume if step == "Ctx" else None
+            return replace(absorbed, step=step, refused=None, resume=resume)
+
+
+def resumed(absorbed: State, event: Event) -> StateName | None:
+    """`resolved` in Ctx once no decision is left open goes back to the step the
+    decision came from; a re-plan leaves Ctx through `planned` instead."""
+    settled = not any(b.kind == "decision" for b in open_blockers(absorbed))
+    back = isinstance(event, Resolved) and absorbed.step == "Ctx" and settled
+    return absorbed.resume if back else None
 
 
 def off_arrow(state: State, event: Event) -> Failure:
@@ -260,6 +270,9 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             return replace(state, proposed=state.proposed | {mode})
         case Drafted():
             return replace(state, drafted=event)
+        # After the final fixer an implementer's slice is a CI fix: the loop's work.
+        case Implemented(head=head) if state.step in ("DraftPR", "PR"):
+            return replace(state, head=head, work=Fixed(head, ()))
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
         case Reviewed(head=head):
@@ -307,8 +320,14 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             # A decision ends the loop's rounds: the stuck guard waits for the
             # next one, so a stuck answered as a decision is no longer stuck.
             work = None if kind == "decision" else state.work
+            # A second decision in Ctx keeps the first one's origin.
+            came_from = state.resume if state.step == "Ctx" else state.step
+            resume = came_from if kind == "decision" else state.resume
             return replace(
-                state, blockers=ask(state, OpenBlocker(q, kind, role)), work=work
+                state,
+                blockers=ask(state, OpenBlocker(q, kind, role)),
+                work=work,
+                resume=resume,
             )
         case Resolved(question=q, answer=answer):
             if not any(b.question == q for b in state.blockers):
@@ -650,6 +669,7 @@ def advise_ctx(state: State) -> Advice:
     )
     counts = (
         *(f"decision path for {quoted(b.question)}" for b in decisions),
+        *ways_out(state.resume, decisions),
         f"researchers {state.researched} ({researchers})",
         f"questions {state.asked} (at least 1, typically 4-12)",
         "each researcher back and question asked: recorded by the hook",
@@ -671,6 +691,20 @@ def advise_ctx(state: State) -> Advice:
             "research and ask on demand, any order; when nothing is open, write the plan",
             *counts,
         ),
+    )
+
+
+def ways_out(resume: StateName | None, decisions: list[OpenBlocker]) -> tuple[str, ...]:
+    """A decision from a later step: the answer keeps the plan or changes it.
+    Once no decision is open, `resolved` goes back to `resume`."""
+    if resume is None or not decisions:
+        return ()
+    return (
+        *(
+            f"no plan change: state record resolved {quoted(b.question)} <answer>, back to {resume}"
+            for b in decisions
+        ),
+        "a plan change: write the plan, then the RUN above",
     )
 
 

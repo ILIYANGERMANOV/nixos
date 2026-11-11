@@ -1,6 +1,7 @@
 """The effects on temp git repos: the log on disk, the notes pointer, the git
 facts and every command run end to end."""
 
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -307,6 +308,16 @@ def test_a_command_before_init_exits_2_naming_init(repo: Path) -> None:
         "state: no run in this worktree\n"
         "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>\n"
     )
+
+
+def test_a_pointer_to_a_deleted_log_is_no_run(repo: Path, tmp_path: Path) -> None:
+    notes = tmp_path / "notes"
+    _ = ok(repo, "init", "--notes", str(notes))
+    shutil.rmtree(notes)
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+
+    assert run(repo, "show") == run(make_repo(fresh), "show")
 
 
 def test_outside_a_repo_exits_2(tmp_path: Path) -> None:

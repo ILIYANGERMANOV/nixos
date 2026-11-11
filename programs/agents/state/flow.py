@@ -65,9 +65,12 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
     ("Fix", "picked-final"): "DraftPR",
     ("Fix", "fixed"): "Fix",
     ("DraftPR", "fixed"): "DraftPR",
+    # An implementer used for a CI fix hands back `implemented`: a fix all the same.
+    ("DraftPR", "implemented"): "DraftPR",
     ("DraftPR", "ci"): "PR",
     ("PR", "ci"): "PR",
     ("PR", "fixed"): "PR",
+    ("PR", "implemented"): "PR",
     # S0 runs while CI does, so it lands before or after the step moves to PR.
     ("DraftPR", "simplified"): "DraftPR",
     ("PR", "simplified"): "PR",
@@ -78,7 +81,7 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
 
 # The `## States` block of the engineer skill, which pastes it from `state render`.
 STEPS: tuple[tuple[str, str, str], ...] = (
-    ("1-2", "Ctx", "research and ask on demand, any order, then a plan: 3"),
+    ("1-2", "Ctx", "research and ask on demand, any order, then a plan: 3; resolved: back to the step the decision came from"),
     ("3", "Propose", "simplify, alternative, then ask: first or second plan: 4; adjust: 2"),
     ("4", "DraftPlan", "draft PR with the plan: 5"),
     ("5", "Implement", "implement: 6"),

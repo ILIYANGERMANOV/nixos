@@ -1,6 +1,7 @@
 """The state hooks against temp git repos, with a run and without one."""
 
 import io
+import shutil
 from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -159,6 +160,20 @@ def test_a_log_that_does_not_parse_gets_nothing(
     broken_log(repo, notes)
 
     assert run_hook(hook, EVENTS[hook](repo)) == NOTHING[hook]
+
+
+# A run's notes dir removed by hand leaves its pointer behind.
+@pytest.mark.parametrize("hook", EVENTS)
+def test_a_pointer_to_a_deleted_log_gets_nothing_and_writes_nothing(
+    tmp_path: Path, repo: Path, notes: Path, hook: HookName
+) -> None:
+    in_ctx(repo, notes)
+    shutil.rmtree(notes)
+    before = files(tmp_path)
+
+    said = run_hook(hook, EVENTS[hook](repo))
+
+    assert (said, files(tmp_path)) == (NOTHING[hook], before)
 
 
 def test_main_prints_nothing_for_no_run(repo: Path) -> None:

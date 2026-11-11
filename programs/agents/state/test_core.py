@@ -37,6 +37,7 @@ from state.model import (
     S0,
     SIZES,
     STATES,
+    Adjusted,
     Asked,
     Blocked,
     Ci,
@@ -49,6 +50,7 @@ from state.model import (
     Grew,
     Implemented,
     Mode,
+    OpenBlocker,
     Overridden,
     Planned,
     Proposed,
@@ -731,8 +733,8 @@ def ci_fix_reviewed_at_cap(
              Fixed("h4", ()), *review("h5", ("R1",), ()),
              Blocked("stuck: row R1", "decision", "review-lead"),
              Resolved("stuck: row R1", "drop the row")],
-            NoFacts(), f"RUN state record planned {NOTES}/plan.md", "write the plan",
-            id="stuck: a dropped row re-plans, no fixer for it",
+            NoFacts(), "SPAWN review-lead", "brief: state brief review-lead",
+            id="stuck: a dropped row resumes Fix, no fixer for it",
         ),
         pytest.param(
             [*drafted(delegated=True), Implemented("h1"),
@@ -772,6 +774,106 @@ def test_a_confirmed_re_plan_resumes_at_implement_and_restarts_the_rounds() -> N
 
     assert state.step == "Implement"
     assert "Re-review: 0/2" in show(state)
+
+
+DECISION = Blocked("which api?", "decision", "implementer")
+ANSWERED = Resolved("which api?", "the old one")
+
+
+@given(event_lists)
+def test_history_a_resolved_decision_resumes_the_step_it_came_from(
+    candidates: list[Event],
+) -> None:
+    lead = [
+        state
+        for _, _, state in walk([Started(NOTES, delegated=False), *candidates])
+        if state.run == Started(NOTES, delegated=False)
+        and state.step not in ("Ctx", "Done")
+        and not any(
+            isinstance(b, OpenBlocker) and b.kind == "decision" for b in state.blockers
+        )
+    ]
+    resumed = [then(state, DECISION, ANSWERED).step for state in lead]
+
+    assert resumed == [state.step for state in lead]
+
+
+def then(state: State, *events: Event) -> State:
+    for event in events:
+        match apply(state, event):
+            case State() as after:
+                state = after
+            case Failure() as failure:
+                raise AssertionError(failure.message)
+    return state
+
+
+def reach_from(step: StateName, *events: Event) -> StateName:
+    """The step `events` reach from a lead's run overridden to `step`."""
+    return reach(Started(NOTES, delegated=False), Overridden(step, "why"), *events).step
+
+
+@pytest.mark.parametrize("step", ["Fix", "Review"])
+def test_history_resolved_returns_to_the_step_the_decision_came_from(
+    step: StateName,
+) -> None:
+    assert reach_from(step, DECISION, ANSWERED) == step
+
+
+def test_history_a_decision_raised_in_ctx_resolves_in_ctx() -> None:
+    assert reach(Started(NOTES, delegated=False), DECISION, ANSWERED).step == "Ctx"
+
+
+def test_history_a_second_decision_keeps_the_first_origin() -> None:
+    second = Blocked("which db?", "decision", "researcher")
+
+    assert reach_from("Fix", DECISION, second, ANSWERED,
+                      Resolved("which db?", "pg")) == "Fix"  # fmt: skip
+
+
+def test_history_resolved_stays_in_ctx_while_a_decision_is_open() -> None:
+    second = Blocked("which db?", "decision", "researcher")
+
+    assert reach_from("Fix", DECISION, second, ANSWERED) == "Ctx"
+
+
+def test_history_a_re_plan_forgets_the_origin() -> None:
+    assert reach_from("Fix", DECISION, Planned("p2.md"), Adjusted(), ANSWERED) == "Ctx"
+
+
+def test_history_a_re_plan_from_a_decision_still_resumes_at_implement() -> None:
+    state = reach(
+        *reviewed(), Fixed("h4", ()), *review("h5", ("R3",), ()), DECISION,
+        Planned("p2.md"), Proposed("simplify"), Proposed("alternative"), Confirmed(),
+    )  # fmt: skip
+
+    assert state.step == "Implement"
+
+
+def test_next_in_ctx_after_a_decision_names_both_ways_out() -> None:
+    text = advice(*reviewed(), DECISION)
+
+    assert first_line(text) == f"RUN state record planned {NOTES}/plan.md"
+    assert (
+        "no plan change: state record resolved 'which api?' <answer>, back to Fix"
+        in text
+    )
+
+
+# An implementer used for a CI fix hands back `implemented`, not `fixed`.
+@pytest.mark.parametrize(
+    ("run", "step"),
+    [(final_fixed(), "DraftPR"), ([*simplified(), Ci("h5", ("lint",))], "PR")],
+)
+def test_an_implemented_hand_back_in_draftpr_or_pr_is_a_fix_that_stays_put(
+    run: list[Event], step: StateName
+) -> None:
+    state = then(reach(*run), Implemented("h9"))
+
+    assert (state.step, state.head) == (step, "h9")
+    assert first_line(advice(*run, Implemented("h9"))) == first_line(
+        advice(*run, Fixed("h9", ()))
+    )
 
 
 def test_a_re_plan_keeps_the_stuck_history() -> None:
@@ -832,10 +934,7 @@ def test_an_event_from_a_step_without_arrows_names_only_the_nearest_override() -
     done = reach(*drafted(), Overridden("Done", "shipped"))
     match apply(done, Implemented("a1")):
         case Failure(fix=fix):
-            assert (
-                fix
-                == 'to record implemented: state override Review "<why>", then rerun'
-            )
+            assert fix == 'to record implemented: state override PR "<why>", then rerun'
         case State():
             raise AssertionError("Done has no arrows")
 

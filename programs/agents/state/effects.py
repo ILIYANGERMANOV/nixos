@@ -148,14 +148,15 @@ def init(git_dir: Path, command: Init, head: str | None) -> str | Failure:
 
 
 def load(git_dir: Path) -> tuple[Path, list[Line], State] | Failure:
+    """A pointer whose log is gone, its notes dir deleted by hand, is no run too."""
     pointer = git_dir / POINTER
-    if not pointer.exists():
+    log = Path(pointer.read_text().strip()) / LOG if pointer.exists() else None
+    if log is None or not log.exists():
         return Failure(
             "state: no run in this worktree",
             "state init --notes /tmp/engineer-<owner>-<repo>-<slug>",
             2,
         )
-    log = Path(pointer.read_text().strip()) / LOG
     match read_log(log):
         case Failure() as failure:
             return failure
@@ -164,8 +165,8 @@ def load(git_dir: Path) -> tuple[Path, list[Line], State] | Failure:
 
 
 def read_log(log: Path) -> tuple[list[Line], State] | Failure:
-    """The log's lines and the state they replay to; no log is an empty one."""
-    match parse_log(log.read_text() if log.exists() else "", log):
+    """The log's lines and the state they replay to."""
+    match parse_log(log.read_text(), log):
         case Failure() as failure:
             return failure
         case lines:
