@@ -65,6 +65,31 @@ BASH_CASES: list[Case[str]] = [
         "printenv after a blank in a substitution is blocked",
         "cat $( printenv QA_KEY_FILE )",
     ),
+    (BLOCKED, "a doubled leading slash is blocked", "cat //run/secrets/q*"),
+    (BLOCKED, "a path through .. is blocked", "cat /tmp/../run/secrets/q*"),
+    (BLOCKED, "a path in a brace expansion is blocked", "cat {x,/run/secrets/q*}"),
+    (BLOCKED, "an escaped leading slash is blocked", "cat \\/run/secrets/q*"),
+    (
+        BLOCKED,
+        "printenv with a redirect in a substitution is blocked",
+        "cat $(printenv<&0 QA_KEY_FILE)",
+    ),
+    (BLOCKED, "env redirected in a substitution is blocked", "cat $(env>/tmp/o)"),
+    (
+        BLOCKED,
+        "an env dump in an unquoted heredoc is blocked",
+        "cat > out.txt <<EOF\n$(env)\nEOF",
+    ),
+    (
+        BLOCKED,
+        "printenv in an unquoted heredoc is blocked",
+        "python3 - <<EOF\nkey = '$(printenv QA_KEY_FILE)'\nEOF",
+    ),
+    (
+        BLOCKED,
+        "the variable expanded in an unquoted heredoc is blocked",
+        "python3 - <<EOF\nprint(open('$QA_KEY_FILE').read())\nEOF",
+    ),
     (
         ALLOWED,
         "naming the variable without expanding it is allowed",

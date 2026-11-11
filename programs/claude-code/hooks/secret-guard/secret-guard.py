@@ -42,7 +42,7 @@ HINT = (
 
 # env or printenv as the whole command word: a markdown code span such as
 # `env.client.ts` in a heredoc body names a file and runs nothing.
-ENV_IN_SUBSTITUTION = re.compile(r"(\$\(|`)\s*(printenv|env)(?=[\s)`;|&]|$)")
+ENV_IN_SUBSTITUTION = re.compile(r"(\$\(|`)\s*(printenv|env)(?=[\s)`;|&<>]|$)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,11 +100,12 @@ def expands(command: str, var: str) -> bool:
 
 
 def at_path_start(directory: str) -> re.Pattern[str]:
-    # A path starts at the text's start or after a blank, quote, `=`, `(`, a
-    # redirect, `:`, `;`, `&` or backtick. Not after `|`, so a search pattern
-    # listing the directory as an alternative passes. `.d` still follows it.
+    # Blocked after anything but a word char or `|`: a denylist, so `//`,
+    # `..`, `\`, `{x,` and every other shell route still match. A word char
+    # means a longer path (/tmp/run/secrets-fixture); `|` a search pattern
+    # listing the directory as an alternative. `.d` still follows it.
     return re.compile(
-        r"(?<![^\s'\"=(<>:;&`])" + re.escape(directory) + r"(?![A-Za-z0-9_-])"
+        r"(?<![A-Za-z0-9_|])" + re.escape(directory) + r"(?![A-Za-z0-9_-])"
     )
 
 
