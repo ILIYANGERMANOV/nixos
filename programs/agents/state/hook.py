@@ -45,6 +45,7 @@ from state.core import (
     advise,
     parse_handback,
     render_advice,
+    s0_due,
     show,
 )
 from state.effects import (
@@ -236,7 +237,13 @@ def handed_back(
         case None:
             return None
         case worker:
-            parsed = parse_handback(worker, message, HandbackOptions(), head_of(cwd))
+            parsed = parse_handback(
+                worker,
+                message,
+                HandbackOptions(),
+                head_of(cwd),
+                simplifying=s0_due(run.state),
+            )
             return record(run, parsed, cwd)
 
 

@@ -1342,12 +1342,18 @@ PICKED_USAGE = (
 
 
 def parse_handback(  # noqa: PLR0911 - one arm per status
-    role: Worker, text: str, options: HandbackOptions, head: str | None
+    role: Worker,
+    text: str,
+    options: HandbackOptions,
+    head: str | None,
+    *,
+    simplifying: bool,
 ) -> tuple[Event, ...] | Failure:
     """A worker's first line is its status; a review-lead's report ends with
     `Reviewed head: <sha>` and may start with a plan-wrong line, and a fixer's
-    names what its fix touched on a `Touches:` line. A question stays untriaged
-    unless `--kind` or its own words triage it."""
+    names what its fix touched on a `Touches:` line, or while S0 is due
+    (`simplifying`) the head it shortened the body at on a `Simplified:` line.
+    A question stays untriaged unless `--kind` or its own words triage it."""
     lines = [line.strip() for line in text.strip().splitlines()]
     first = lines[0] if lines else ""
     word, _, rest = first.partition(" ")
@@ -1378,7 +1384,7 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
                 )
             return (Reviewed(reviewed),)
         case "fixer", "READY":
-            return fixer_ready(lines, head)
+            return fixer_ready(lines, head, simplifying=simplifying)
         case _, "READY":
             return ready(role, head, ())
         case _:
@@ -1390,14 +1396,24 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
             )
 
 
-def fixer_ready(lines: list[str], head: str | None) -> tuple[Event, ...] | Failure:
-    """An S0 fixer's `Simplified:` line, else a fix with its `Touches:` areas."""
-    match last_value(lines, "Simplified:"), touched(lines):
-        case str() as shortened, _:
+def fixer_ready(
+    lines: list[str], head: str | None, *, simplifying: bool
+) -> tuple[Event, ...] | Failure:
+    """An S0 fixer's `Simplified:` line, else a fix with its `Touches:` areas.
+    An S0 hand-back without the line is refused, not taken as a fix: `Fixed`
+    on the same head would re-advise S0, or wait on CI that never comes."""
+    match last_value(lines, "Simplified:"), simplifying, touched(lines):
+        case str() as shortened, _, _:
             return (Simplified(shortened),)
-        case None, Failure() as failure:
+        case None, True, _:
+            return Failure(
+                "state handback fixer: S0 is due and no 'Simplified: <sha>' line",
+                "state record simplified <head> once the body is rewritten",
+                2,
+            )
+        case None, False, Failure() as failure:
             return failure
-        case None, touches:
+        case None, False, touches:
             return ready("fixer", head, touches)
 
 

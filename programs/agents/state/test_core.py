@@ -1038,7 +1038,7 @@ def test_an_accepted_event_or_an_override_clears_the_warning(then: Event) -> Non
 def test_handback_records_the_event_its_first_line_names(
     role: str, text: str, options: HandbackOptions, expected: tuple[Event, ...]
 ) -> None:
-    assert parse_handback(role, text, options, "abc1234") == expected  # pyright: ignore[reportArgumentType]
+    assert parse_handback(role, text, options, "abc1234", simplifying=False) == expected  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.parametrize(
@@ -1067,7 +1067,7 @@ def test_handback_records_the_event_its_first_line_names(
 def test_handback_without_what_it_needs_is_a_usage_error(
     role: str, text: str, head: str | None, fix: str
 ) -> None:
-    match parse_handback(role, text, HandbackOptions(), head):  # pyright: ignore[reportArgumentType]
+    match parse_handback(role, text, HandbackOptions(), head, simplifying=False):  # pyright: ignore[reportArgumentType]
         case Failure(fix=found, code=code):
             assert (found, code) == (fix, 2)
         case parsed:
@@ -1076,12 +1076,33 @@ def test_handback_without_what_it_needs_is_a_usage_error(
 
 def test_a_touches_line_naming_no_area_names_the_words_it_did_not_know() -> None:
     match parse_handback(
-        "fixer", "READY\nTouches: auth, parser", HandbackOptions(), "abc1234"
+        "fixer",
+        "READY\nTouches: auth, parser",
+        HandbackOptions(),
+        "abc1234",
+        simplifying=False,
     ):
         case Failure(message=message):
             assert message == (
                 "state handback fixer: Touches: names parser, not "
                 "interface | data-model | auth"
+            )
+        case parsed:
+            raise AssertionError(f"parsed {parsed}")
+
+
+def test_an_s0_hand_back_without_its_simplified_line_is_refused_not_a_fix() -> None:
+    match parse_handback(
+        "fixer",
+        "READY body shortened\nTouches: none",
+        HandbackOptions(),
+        "abc1234",
+        simplifying=True,
+    ):
+        case Failure(fix=fix, code=code):
+            assert (fix, code) == (
+                "state record simplified <head> once the body is rewritten",
+                2,
             )
         case parsed:
             raise AssertionError(f"parsed {parsed}")

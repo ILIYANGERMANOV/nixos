@@ -271,8 +271,9 @@ Write the QA block (format below) and replace the PR body's existing one
 with it: the whole `<details>` block that holds `## QA`, from its `<details>`
 to its `</details>`. An old body may have a bare `## QA` section instead:
 replace it from that heading to the next `## ` heading or the end. With
-neither, append the block. Keep it the **last** section, so the videos gh
-appends sit right after it. From the run directory:
+neither, insert the block above the closing `Quality: · Size:` line, or
+append it when the body has none. Keep it the **last** section before that
+line, so the videos gh appends sit close after it. From the run directory:
 
 ```sh
 gh pr edit <n> --body-file body.md \
