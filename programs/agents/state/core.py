@@ -47,7 +47,7 @@ from state.model import (
     STATES,
     TOKENS,
     UNRECORDABLE,
-    VERSION,
+    UNVERSIONED,
     Adjusted,
     Area,
     Asked,
@@ -150,8 +150,9 @@ def apply(state: State, event: Event) -> State | Failure:
 
 
 def version_of(state: State) -> Version:
-    """The log version whose rules the run replays by; before `started`, today's."""
-    return VERSION if state.run is None else state.run.version
+    """The log version whose rules the run replays by; before `started`, main's,
+    as `parse_log` reads those lines."""
+    return UNVERSIONED if state.run is None else state.run.version
 
 
 def resumed(absorbed: State, event: Event) -> StateName | None:
@@ -714,7 +715,7 @@ def ways_out(resume: StateName | None, decisions: list[OpenBlocker]) -> tuple[st
             f"no plan change: state record resolved {quoted(b.question)} <answer>, back to {resume}"
             for b in decisions
         ),
-        "a plan change: write the plan, then the RUN above",
+        "a plan change: write the plan, then the RUN above, then resolved",
     )
 
 

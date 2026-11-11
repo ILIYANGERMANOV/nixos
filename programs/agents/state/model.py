@@ -70,6 +70,9 @@ type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 # `started` line. A new version is one more entry in RULES.
 type Version = Literal[1, 2]
 VERSION: Version = 2  # what a new run writes
+# A log main wrote: one with no `started` line (main read a missing log as
+# empty), or whose `started` names no version.
+UNVERSIONED: Version = 1
 
 
 @dataclass(frozen=True)
@@ -83,10 +86,11 @@ class Rules:
 
 
 RULES: dict[Version, Rules] = {
-    # A `started` without a version is v1. Its `implemented` had no touches: only
-    # Implement, Refactor and Review took one, where touches is unused.
-    1: Rules(
-        {"started": {"version": 1}, "implemented": {"touches": []}}, resumes=False
+    # Main's `implemented` had no touches: only Implement, Refactor and Review
+    # took one, where touches is unused.
+    UNVERSIONED: Rules(
+        {"started": {"version": UNVERSIONED}, "implemented": {"touches": []}},
+        resumes=False,
     ),
     2: Rules({}, resumes=True),
 }

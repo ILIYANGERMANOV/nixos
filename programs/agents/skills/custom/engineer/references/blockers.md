@@ -41,8 +41,9 @@ records a `NEEDS_DECISION` hand-back untriaged, a `plan wrong:` or `stuck:`
 one as a decision; `state next` advises the rest. Record the row with
 `state record blocked <kind> <role> <question>`, a prose question's too, and
 its answer with `state record resolved`. A decision's answer that changes the
-plan is a re-plan, `state record planned`, right after it; one that does not
-resumes the step it came from. Before `READY` or
+plan is a re-plan: `state record planned` while the decision is still open,
+then `resolved`. One that does not records `resolved` alone, which resumes the
+step it came from. Before `READY` or
 `gh pr ready`, every open decision, a hand-back's prose question included, has
 its row and is done; none is handed on as prose in the PR body or a hand-back.
 

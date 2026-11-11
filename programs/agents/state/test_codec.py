@@ -8,7 +8,16 @@ from hypothesis import given
 
 from state.codec import Line, encode_line, parse_log, replay
 from state.core import fold
-from state.model import Event, Failure, Implemented, Started
+from state.model import (
+    Blocked,
+    Event,
+    Failure,
+    Implemented,
+    Planned,
+    Resolved,
+    Started,
+    State,
+)
 from state.state_fixtures import accepted, event_lists, ok, run
 
 LOG = Path("/notes/run/events.jsonl")
@@ -120,6 +129,30 @@ def test_an_implemented_line_in_a_v2_log_needs_its_touches() -> None:
             assert failure.message == (f"state: {LOG}:2: touches is not a list")
         case lines:
             raise AssertionError(lines)
+
+
+# Main read a missing log as empty, so a run whose notes were deleted has a log
+# with no `started` line: main's rules replay it, there `resolved` stays in Ctx.
+def test_a_log_without_a_started_line_replays_by_mains_rules() -> None:
+    events = [
+        Planned("p.md"),
+        Blocked("which api?", "decision", "implementer"),
+        Resolved("which api?", "the old one"),
+    ]
+    text = "".join(
+        encode_line(Line(n, "t", None, None, event))
+        for n, event in enumerate(events, start=1)
+    )
+
+    match parse_log(text, LOG):
+        case Failure() as failure:
+            raise AssertionError(failure.message)
+        case lines:
+            match replay(lines, LOG):
+                case State(step=step):
+                    assert step == "Ctx"
+                case failure:
+                    raise AssertionError(failure)
 
 
 @pytest.mark.parametrize("version", ["3", "0", "true", '"2"'])

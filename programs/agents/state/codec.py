@@ -4,7 +4,7 @@ Lines log it reads and writes strictly."""
 import json
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -22,6 +22,7 @@ from state.model import (
     S0,
     SIZES,
     STATES,
+    UNVERSIONED,
     VERSION,
     Adjusted,
     Area,
@@ -90,6 +91,9 @@ class Option[T]:
     flag: str
     meta: str
     codec: Codec[T]
+    # What leaving the flag off the command line means; a JSON list is never
+    # left out.
+    unstated: tuple[T, ...] = ()
 
 
 class Fields(Protocol):
@@ -217,6 +221,8 @@ VERDICT = Codec(
 ROWS = Option("rows", "--row", "label", TEXT)
 VERDICTS = Option("verdicts", "--verdict", "verdict", VERDICT)
 TOUCHES: Option[Area] = Option("touches", "--touches", "area", choice(AREAS))
+# A hand-back with no `Touches:` line touched every area: a full review.
+IMPLEMENTED_TOUCHES = replace(TOUCHES, unstated=AREAS)
 FAILING = Option("failing", "--failing", "check", TEXT)
 
 
@@ -250,7 +256,7 @@ EVENTS: dict[str, Spec] = {
             f.one("url", PR_URL), f.one("base", TEXT), f.one("branch", TEXT)
         )
     ),
-    "implemented": Spec(lambda f: Implemented(f.head(), f.many(TOUCHES))),
+    "implemented": Spec(lambda f: Implemented(f.head(), f.many(IMPLEMENTED_TOUCHES))),
     "refactored": Spec(lambda f: Refactored(f.head())),
     "reviewed": Spec(lambda f: Reviewed(f.one("head", TEXT))),
     "picked": Spec(lambda f: Picked(f.many(ROWS), f.many(VERDICTS))),
@@ -300,8 +306,8 @@ def parse_log(text: str, path: Path) -> list[Line] | Failure:
     if text and not text.endswith("\n"):
         return bad_line(path, text.count("\n") + 1, "no newline at its end")
     lines: list[Line] = []
-    # Its `started` line names the version; the oldest reads one without it.
-    version: Version = min(RULES)
+    # Its `started` line names the version; lines before one are main's.
+    version: Version = UNVERSIONED
     for n, raw in enumerate(text.splitlines(), start=1):
         try:
             line = decode_line(raw, version)
