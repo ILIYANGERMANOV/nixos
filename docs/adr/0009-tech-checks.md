@@ -127,7 +127,7 @@ root `pyproject.toml`. `python-tests` replaced `claude-bash-guards` and
 - `bash_corpus.py` holds what `bash_commands.parse` must read, and `bash -n` judges
   each parse verdict. shfmt's JSON is no stable format and a guard fails open on a
   broken adapter, so this table, not the guard, is what catches a shfmt change. It
-  needs real shfmt: `python-tests` substitutes `@shfmt@` as `bash-guard.nix` does.
+  needs real shfmt: `python-tests` substitutes `@shfmt@` as `programs/agents/hooks/guards/default.nix` does.
 - `analyze.py` reads Bash with regexes, since a single stdlib file cannot import the
   adapter. A differential test in `test_analyze.py` compares `label` and `check_key`
   with shfmt's reading. A difference is allowlisted with its reason, and an entry

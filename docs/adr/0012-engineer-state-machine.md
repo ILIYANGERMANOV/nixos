@@ -328,7 +328,7 @@ Prompt cache and context budget:
 - Fanning out, launch one agent first and the rest after, so they share its
   cached prefix (`programs/agents/instructions/lead.md`).
 - The context guard warns at 150k tokens and stops at 220k
-  (`programs/claude-code/hooks/context-guard/context-guard.py`). An implementer
+  (`programs/agents/hooks/guards/context-guard/context-guard.py`). An implementer
   hands back at the warning for a successor.
 - Never resume a large agent after a gap: spawn a fresh one from a summary.
 
