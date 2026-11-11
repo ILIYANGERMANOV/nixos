@@ -9,7 +9,8 @@
     "handback",
     "ask",
     "web",
-    "skill"
+    "skill",
+    "other"
   ],
   "sources": ["startup", "resume", "compact"]
 }

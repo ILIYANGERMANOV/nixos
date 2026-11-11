@@ -25,8 +25,11 @@ with a 400 naming it: extend `model.py`, not the snapshot.
 registers for a profile's vendor-free hooks (`agents-frontend.md`). It turns
 Claude's hook JSON into the neutral event, runs the frontend's dispatcher in
 process and prints the folded result as Claude's output. A tool with no
-vendor-free name never reaches it. Input it cannot read exits 1, which Claude
-shows and lets the call go on.
+vendor-free name reaches it as `other`, only where a hook names no tools: such
+an event's entry has no matcher. It reads the calling agent's own transcript
+tail for a shell call's `history` and a result's `context`; an unreadable one
+gives none. Input it cannot read exits 1, which Claude shows and lets the call
+go on.
 
 ### `secret-guard`
 

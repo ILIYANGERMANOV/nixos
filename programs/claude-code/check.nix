@@ -182,17 +182,15 @@ let
       };
     }
     {
-      name = "a hook with no tools is matched on every tool the table names";
+      name = "a hook with no tools has its event match every Claude tool, those with no vendor-free name too";
       actual =
         (hookSettings.withHooks adapter {
-          afterTool = [ (declared "asked" null) ];
+          afterTool = [
+            (declared "shell" [ "shell" ])
+            (declared "context" null)
+          ];
         } { }).hooks.PostToolUse;
-      expected = [
-        {
-          matcher = "Agent|AskUserQuestion|Bash|Edit|Read|Skill|SubagentHandback|WebFetch|WebSearch|Write";
-          hooks = [ adapter ];
-        }
-      ];
+      expected = [ { hooks = [ adapter ]; } ];
     }
     {
       name = "hooks leave the flavor's other settings as they are";

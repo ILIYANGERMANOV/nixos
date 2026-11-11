@@ -126,7 +126,7 @@ def before_tool(hook: HookName, event: BeforeTool) -> Allow:
             ):
                 return spawn(cwd, tool_input)
             case "handback", BeforeTool(
-                agent=Agent(role=role), cwd=cwd, input=tool_input
+                agent=Agent(role=str(role)), cwd=cwd, input=tool_input
             ):
                 return handback(role, cwd, tool_input)
             case "spawn" | "handback", _:

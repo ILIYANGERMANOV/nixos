@@ -3,6 +3,7 @@ wire, results fold as a monoid, and a hook that fails never blocks a call."""
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -13,6 +14,7 @@ from agent_hook import (
     AgentId,
     Allow,
     BeforeTool,
+    ContextSize,
     Deny,
     Event,
     EventName,
@@ -63,12 +65,24 @@ json_values = st.recursive(
 )
 json_objects = st.dictionaries(st.text(), json_values, max_size=3)
 texts = st.text(min_size=1)
-agents = st.none() | st.builds(Agent, st.text().map(AgentId), st.text().map(Role))
+agents = st.none() | st.builds(
+    Agent, st.text().map(AgentId), st.none() | st.text().map(Role)
+)
+counts = st.integers(min_value=0)
+context_sizes = st.none() | st.builds(ContextSize, counts, st.none() | counts)
 paths = st.text(alphabet="abc/", min_size=1).map(lambda p: Path("/" + p))
 sessions = st.text().map(SessionId)
 events: st.SearchStrategy[Event] = st.one_of(
     st.builds(SessionStart, sessions, paths, agents, st.sampled_from(Source)),
-    st.builds(BeforeTool, sessions, paths, agents, st.sampled_from(Tool), json_objects),
+    st.builds(
+        BeforeTool,
+        sessions,
+        paths,
+        agents,
+        st.sampled_from(Tool),
+        json_objects,
+        st.lists(st.text()).map(tuple),
+    ),
     st.builds(
         AfterTool,
         sessions,
@@ -77,6 +91,7 @@ events: st.SearchStrategy[Event] = st.one_of(
         st.sampled_from(Tool),
         json_objects,
         json_values,
+        context_sizes,
     ),
 )
 contexts = st.none() | texts
@@ -132,6 +147,7 @@ def test_an_emitted_event_parses_back_to_itself(event: Event) -> None:
                 "agent": None,
                 "tool": "teleport",
                 "input": {},
+                "history": [],
             },
             id="unknown tool",
         ),
@@ -153,8 +169,33 @@ def test_an_emitted_event_parses_back_to_itself(event: Event) -> None:
                 "agent": {"id": "a"},
                 "tool": "shell",
                 "input": {},
+                "history": [],
             },
             id="agent without a role",
+        ),
+        pytest.param(
+            {
+                "event": "beforeTool",
+                "session": "s",
+                "cwd": "/",
+                "agent": None,
+                "tool": "shell",
+                "input": {},
+            },
+            id="no history",
+        ),
+        pytest.param(
+            {
+                "event": "afterTool",
+                "session": "s",
+                "cwd": "/",
+                "agent": None,
+                "tool": "shell",
+                "input": {},
+                "output": "",
+                "context": {"tokens": "150k", "previous": None},
+            },
+            id="context not a count",
         ),
     ],
 )
@@ -172,9 +213,33 @@ def test_an_event_reads_as_the_wire_names_it() -> None:
         "cwd": "/work/repo",
         "session": "s1",
         "agent": {"id": "a1", "role": "implementer"},
+        "context": {"tokens": 150_000, "previous": None},
     }
 
-    assert parse_event(json.dumps(wire)) == RAN
+    assert parse_event(json.dumps(wire)) == replace(
+        RAN, context=ContextSize(150_000, None)
+    )
+
+
+def test_a_subagent_its_agent_names_no_role_reads_as_one_with_no_role() -> None:
+    wire = {
+        "event": "beforeTool",
+        "tool": "shell",
+        "input": {"command": "ls"},
+        "cwd": "/work/repo",
+        "session": "s1",
+        "agent": {"id": "a1", "role": None},
+        "history": ["git status"],
+    }
+
+    assert parse_event(json.dumps(wire)) == BeforeTool(
+        SESSION,
+        CWD,
+        Agent(AgentId("a1"), None),
+        Tool.SHELL,
+        {"command": "ls"},
+        ("git status",),
+    )
 
 
 @given(verdicts)
@@ -345,6 +410,16 @@ def test_only_hooks_naming_the_tool_add_to_an_after_tool_note() -> None:
     result = dispatch_note(hooks, RAN, lambda hook, _: Note(hook.name))
 
     assert result == Note("shell")
+
+
+def test_a_tool_with_no_vendor_free_name_reaches_only_hooks_naming_no_tools() -> None:
+    hooks = [hook("shell", frozenset({Tool.SHELL})), hook("every")]
+
+    result = dispatch_note(
+        hooks, replace(RAN, tool=Tool.OTHER), lambda hook, _: Note(hook.name)
+    )
+
+    assert result == Note("every")
 
 
 def test_the_first_deny_stops_the_chain() -> None:

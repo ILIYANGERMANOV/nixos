@@ -172,6 +172,7 @@ def test_the_spawn_hook_advises_and_leaves_the_prompt(
             "event": "beforeTool",
             "tool": "delegate",
             "input": {"prompt": "Fix it.", "subagent_type": "fixer"},
+            "history": [],
         },
     )
 
@@ -193,6 +194,7 @@ def test_the_handback_hook_records_the_handback_and_tells_the_worker(
             "tool": "handback",
             "agent": {"id": "a1", "role": "implementer"},
             "input": {"message": "READY done"},
+            "history": [],
         },
     )
 

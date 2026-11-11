@@ -3,9 +3,22 @@
 A hook is a program. It reads one event as JSON on stdin and prints one result
 as JSON on stdout, or nothing, which allows:
 
-    stdin:  {event, tool, input, output, cwd, session, agent: {id, role} | null, source}
+    stdin:  {event, tool, input, output, cwd, session, agent: {id, role} | null, source,
+             history, context}
     stdout: beforeTool: {decision: allow | deny, reason, context, updatedInput}
             sessionStart, afterTool: {context}
+
+`agent` is null for the lead; a subagent's `role` is null when its agent does
+not name one. `tool` is `other` for a tool the vocabulary has no name for, which
+only a hook declared with no tools sees. A backend fills two facts from what
+the agent has done so far, so a hook needs no state of its own:
+
+    history: beforeTool: the agent's recent shell commands, oldest first,
+             the call under judgement not among them; [] for any other tool
+             or when the backend cannot tell
+    context: afterTool: {tokens, previous} | null, the tokens of context the
+             newest model call sent, and those of the last earlier call that
+             ran a tool (null when there is none); null when unknown
 
 A sessionStart or afterTool hook only adds context: the session has started and
 the tool has run, so there is nothing left to deny or rewrite. Each kind of
@@ -56,6 +69,7 @@ class Tool(StrEnum):
     ASK = "ask"
     WEB = "web"
     SKILL = "skill"
+    OTHER = "other"
 
 
 class Source(StrEnum):
@@ -68,10 +82,20 @@ class Source(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Agent:
-    """The subagent making the call; the lead is no agent. `role` is its type."""
+    """The subagent making the call; the lead is no agent. `role` is its type,
+    None when its agent names none."""
 
     id: AgentId
-    role: Role
+    role: Role | None
+
+
+@dataclass(frozen=True, slots=True)
+class ContextSize:
+    """Tokens of context: what the newest model call sent, and what the last
+    earlier call that ran a tool sent, None when there is no such call."""
+
+    tokens: int
+    previous: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +113,7 @@ class BeforeTool:
     agent: Agent | None
     tool: Tool
     input: JsonObject
+    history: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +124,7 @@ class AfterTool:
     tool: Tool
     input: JsonObject
     output: Json
+    context: ContextSize | None = None
 
 
 type Event = SessionStart | BeforeTool | AfterTool
@@ -343,6 +369,7 @@ def parse_event(text: str) -> Event:
             "agent": agent,
             "tool": str(tool),
             "input": dict() as tool_input,
+            "history": list() as history,
         }:
             return BeforeTool(
                 SessionId(session),
@@ -350,6 +377,7 @@ def parse_event(text: str) -> Event:
                 parse_agent(agent),
                 Tool(tool),
                 tool_input,
+                tuple(as_str(command) for command in history),
             )
         case {
             "event": "afterTool",
@@ -359,6 +387,7 @@ def parse_event(text: str) -> Event:
             "tool": str(tool),
             "input": dict() as tool_input,
             "output": output,
+            "context": context,
         }:
             return AfterTool(
                 SessionId(session),
@@ -367,6 +396,7 @@ def parse_event(text: str) -> Event:
                 Tool(tool),
                 tool_input,
                 output,
+                parse_context_size(context),
             )
         case _:
             raise ValueError("not a sessionStart, beforeTool or afterTool event")
@@ -378,8 +408,20 @@ def parse_agent(agent: Json) -> Agent | None:
             return None
         case {"id": str(agent_id), "role": str(role)}:
             return Agent(AgentId(agent_id), Role(role))
+        case {"id": str(agent_id), "role": None}:
+            return Agent(AgentId(agent_id), None)
         case _:
             raise ValueError(f"not an agent: {agent!r}")
+
+
+def parse_context_size(context: Json) -> ContextSize | None:
+    match context:
+        case None:
+            return None
+        case {"tokens": int(tokens), "previous": None | int() as previous}:
+            return ContextSize(tokens, previous)
+        case _:
+            raise ValueError(f"not a context size: {context!r}")
 
 
 def emit_event(event: Event) -> str:
@@ -392,11 +434,20 @@ def emit_event(event: Event) -> str:
     match event:
         case SessionStart(source=source):
             return json.dumps(common | {"source": source.value})
-        case BeforeTool(tool=tool, input=tool_input):
-            return json.dumps(common | {"tool": tool.value, "input": tool_input})
-        case AfterTool(tool=tool, input=tool_input, output=output):
+        case BeforeTool(tool=tool, input=tool_input, history=history):
             return json.dumps(
-                common | {"tool": tool.value, "input": tool_input, "output": output}
+                common
+                | {"tool": tool.value, "input": tool_input, "history": list(history)}
+            )
+        case AfterTool(tool=tool, input=tool_input, output=output, context=context):
+            return json.dumps(
+                common
+                | {
+                    "tool": tool.value,
+                    "input": tool_input,
+                    "output": output,
+                    "context": emit_context_size(context),
+                }
             )
 
 
@@ -406,6 +457,14 @@ def emit_agent(agent: Agent | None) -> Json:
             return None
         case Agent(id=agent_id, role=role):
             return {"id": agent_id, "role": role}
+
+
+def emit_context_size(context: ContextSize | None) -> Json:
+    match context:
+        case None:
+            return None
+        case ContextSize(tokens=tokens, previous=previous):
+            return {"tokens": tokens, "previous": previous}
 
 
 def parse_verdict(text: str) -> Verdict:
