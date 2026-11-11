@@ -1351,7 +1351,7 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
     lines = [line.strip() for line in text.strip().splitlines()]
     first = lines[0] if lines else ""
     word, _, rest = first.partition(" ")
-    reviewed = reviewed_head(lines)
+    reviewed = last_value(lines, "Reviewed head:")
     match role, token_of(word):
         case _, "NEEDS_DECISION":
             grew = tuple(
@@ -1392,7 +1392,7 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
 
 def fixer_ready(lines: list[str], head: str | None) -> tuple[Event, ...] | Failure:
     """An S0 fixer's `Simplified:` line, else a fix with its `Touches:` areas."""
-    match simplified_head(lines), touched(lines):
+    match last_value(lines, "Simplified:"), touched(lines):
         case str() as shortened, _:
             return (Simplified(shortened),)
         case None, Failure() as failure:
@@ -1437,15 +1437,6 @@ def token_of(word: str) -> Token | None:
     return next((token for token in TOKENS if token == word), None)
 
 
-def reviewed_head(lines: list[str]) -> str | None:
-    return last_value(lines, "Reviewed head:")
-
-
-def simplified_head(lines: list[str]) -> str | None:
-    """An S0 fixer's `Simplified: <sha>`: it shortened the body, so it is no fix."""
-    return last_value(lines, "Simplified:")
-
-
 def last_value(lines: list[str], prefix: str) -> str | None:
     """The value on the last line starting `prefix`; none when it is empty."""
     found = [line for line in lines if line.startswith(prefix)]
@@ -1458,10 +1449,7 @@ TOUCHES_LINE = "Touches:"
 def touched(lines: list[str]) -> tuple[Area, ...] | Failure:
     """The areas on a fixer's last `Touches:` line, split on spaces or commas;
     `none`, or no such line, is none."""
-    found = [line for line in lines if line.startswith(TOUCHES_LINE)]
-    words = (
-        found[-1].removeprefix(TOUCHES_LINE).replace(",", " ").split() if found else []
-    )
+    words = (last_value(lines, TOUCHES_LINE) or "").replace(",", " ").split()
     # Declared: pyright widens an inferred tuple(...) of literals to str.
     areas: tuple[Area, ...] = tuple(
         area for word in words for area in AREAS if area == word
