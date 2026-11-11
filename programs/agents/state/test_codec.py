@@ -8,7 +8,7 @@ from hypothesis import given
 
 from state.codec import Line, encode_line, parse_log, replay
 from state.core import fold
-from state.model import Event, Failure
+from state.model import Event, Failure, Implemented
 from state.state_fixtures import accepted, event_lists, ok, run
 
 LOG = Path("/notes/run/events.jsonl")
@@ -76,3 +76,19 @@ def test_a_hand_edited_bad_line_makes_every_command_exit_2_naming_it(
         "line is a hand edit, or a log an older state wrote; the state hooks stay "
         "silent until it parses"
     )
+
+
+def test_an_implemented_line_from_before_touches_reads_as_touching_no_area() -> None:
+    old = (
+        '{"seq":1,"ts":"t","head":"h1","session":null,'
+        '"event":{"type":"implemented","head":"h1"}}\n'
+    )
+
+    match parse_log(old, LOG):
+        case Failure() as failure:
+            raise AssertionError(failure.message)
+        case [line]:
+            assert line.event == Implemented("h1", ())
+            assert '"touches":[]' in encode_line(line)
+        case lines:
+            raise AssertionError(lines)

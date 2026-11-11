@@ -368,10 +368,23 @@ def decode_event(obj: dict[str, Json]) -> Event:
         case None:
             raise BadFieldError(f"unknown event type '{kind}'")
         case spec:
-            reader = JsonFields(obj)
+            reader = JsonFields(upgrade(kind, obj))
             event = spec.read(reader)
             reader.done(f"event {kind}")
             return event
+
+
+def upgrade(kind: str, obj: dict[str, Json]) -> dict[str, Json]:
+    """An event an older state wrote, in today's shape. An `implemented` without
+    `touches` predates it: then only Implement, Refactor and Review recorded one,
+    where touches is unused, so no area is exact."""
+    match kind, obj:
+        case "implemented", {"touches": _}:
+            return obj
+        case "implemented", _:
+            return {**obj, "touches": []}
+        case _:
+            return obj
 
 
 class JsonFields:
