@@ -46,6 +46,16 @@ def test_a_large_cat_is_denied_with_the_read_hint(flavor: str, tmp_path: Path) -
 
 
 @flavors
+def test_a_call_two_guards_deny_tells_both_hints(flavor: str, tmp_path: Path) -> None:
+    _ = (tmp_path / "huge").write_bytes(bytes(20_000))
+
+    told = denied(flavor, shell_call(tmp_path, "cat huge; sleep 60"))
+
+    assert "grep -n first" in told
+    assert "run_in_background" in told
+
+
+@flavors
 def test_a_secret_path_is_denied(flavor: str, tmp_path: Path) -> None:
     told = denied(flavor, shell_call(tmp_path, f"cat {QA_KEY_FILE}"))
 

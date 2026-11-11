@@ -190,19 +190,18 @@ def dispatch_verdict(
 ) -> Verdict:
     """Runs the hooks that match `event` in order and folds their verdicts.
 
-    Each hook sees the input the one before it rewrote. The first deny stops
-    the chain: the call it denies never happens, so no later hook sees it.
+    Each hook sees the input the hooks before it rewrote. A deny does not stop
+    the chain: every hook runs, so the agent learns every reason at once
+    rather than one per retry.
     """
     verdict: Verdict = Allow()
+    seen = event
     for hook in hooks:
         if not matches(hook, event):
             continue
-        verdict = combine_verdicts(verdict, run(hook, threaded(event, verdict)))
-        match verdict:
-            case Deny():
-                return verdict
-            case Allow():
-                pass
+        result = run(hook, seen)
+        verdict = combine_verdicts(verdict, result)
+        seen = threaded(seen, result)
     return verdict
 
 
@@ -260,7 +259,7 @@ def matches(hook: Hook, event: Event) -> bool:
 
 
 def threaded(event: BeforeTool, verdict: Verdict) -> BeforeTool:
-    """The event the next hook sees: the input the chain has rewritten so far."""
+    """The event the next hook sees: `event`'s input, as `verdict` rewrote it."""
     match verdict:
         case Allow(updated_input=dict() as updated):
             return replace(event, input=updated)

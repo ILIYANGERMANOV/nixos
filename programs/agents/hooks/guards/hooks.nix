@@ -1,8 +1,8 @@
 # The guards as a hook module (hooks/default.nix), listed by the base profile.
 # `guards` is the package beside it; `secretFiles` the host's secret files, env
 # var -> decrypted-file path, as `fold` narrowed them. A host with none gets no
-# secret guard. The first deny stops the rest, so a shell call runs secret,
-# read, then wait: a command naming a secret is told that first.
+# secret guard. Every guard runs and a deny tells each reason in hook order:
+# secret, read, then wait, so a command naming a secret is told that first.
 {
   lib,
   guards,

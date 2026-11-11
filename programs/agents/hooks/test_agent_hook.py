@@ -422,13 +422,30 @@ def test_a_tool_with_no_vendor_free_name_reaches_only_hooks_naming_no_tools() ->
     assert result == Note("every")
 
 
-def test_the_first_deny_stops_the_chain() -> None:
+def test_every_hook_runs_past_a_deny_and_every_reason_is_told() -> None:
     def run(hook: Hook, _: BeforeTool) -> Verdict:
-        return Deny(hook.name) if hook.name == "guard" else Allow(hook.name)
+        return Deny(hook.name) if hook.name.startswith("guard") else Allow(hook.name)
 
-    result = dispatch_verdict([hook("a"), hook("guard"), hook("after")], SPAWN, run)
+    hooks = [hook("a"), hook("guard-1"), hook("b"), hook("guard-2")]
+    result = dispatch_verdict(hooks, SPAWN, run)
 
-    assert result == Deny("guard", "a")
+    assert result == Deny("guard-1\nguard-2", "a\n\nb")
+
+
+def test_a_hook_after_a_deny_sees_the_input_the_allowing_hooks_rewrote() -> None:
+    def run(hook: Hook, event: BeforeTool) -> Verdict:
+        match hook.name:
+            case "rewrite":
+                return Allow(updated_input={"prompt": "rewritten"})
+            case "guard":
+                return Deny("no")
+            case _:
+                return Allow(context=str(event.input["prompt"]))
+
+    hooks = [hook("rewrite"), hook("guard"), hook("after")]
+    result = dispatch_verdict(hooks, SPAWN, run)
+
+    assert result == Deny("no", "rewritten")
 
 
 def test_no_hooks_allow() -> None:
