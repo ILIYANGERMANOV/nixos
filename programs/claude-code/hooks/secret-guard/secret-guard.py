@@ -11,9 +11,8 @@ JSON argument: {"paths": [...], "vars": [...]}, the decrypted files and the
 environment variables holding their paths. A command exits 2, which makes
 Claude Code block the call and show stderr to the model, when its text:
 
-- names a protected file's directory where a path starts (`/run/secrets`,
-  which also covers the `/run/secrets.d/<n>` it resolves to) or its basename
-  as a word,
+- names a protected file's directory (`/run/secrets`, which also covers the
+  `/run/secrets.d/<n>` it resolves to) or its basename as a word,
 - expands a protected variable ($VAR or ${VAR...}),
 - or runs `printenv` or `env` inside $(...) or backticks, which turns the path
   into an argument.
@@ -40,9 +39,10 @@ HINT = (
     "QA_EVM_KEY_FILE)."
 )
 
-# env or printenv as the whole command word: a markdown code span such as
-# `env.client.ts` in a heredoc body names a file and runs nothing.
-ENV_IN_SUBSTITUTION = re.compile(r"(\$\(|`)\s*(printenv|env)(?=[\s)`;|&<>]|$)")
+# A `.` after the word means a file name: a markdown code span such as
+# `env.client.ts` in a heredoc body runs nothing. Every other char still
+# blocks, so quotes, braces and backslashes cannot split the word off.
+ENV_IN_SUBSTITUTION = re.compile(r"(\$\(|`)\s*(printenv|env)(?![A-Za-z0-9_.-])")
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,25 +87,12 @@ def names_secret(command: str, protected: Protected) -> bool:
 
 def names_file(command: str, path: str) -> bool:
     directory, basename = os.path.split(path)
-    return (
-        at_path_start(directory).search(command) is not None
-        or as_word(basename).search(command) is not None
-    )
+    return directory in command or as_word(basename).search(command) is not None
 
 
 def expands(command: str, var: str) -> bool:
     return (
         re.search(r"\$\{?" + re.escape(var) + r"(?![A-Za-z0-9_])", command) is not None
-    )
-
-
-def at_path_start(directory: str) -> re.Pattern[str]:
-    # Blocked after anything but a word char or `|`: a denylist, so `//`,
-    # `..`, `\`, `{x,` and every other shell route still match. A word char
-    # means a longer path (/tmp/run/secrets-fixture); `|` a search pattern
-    # listing the directory as an alternative. `.d` still follows it.
-    return re.compile(
-        r"(?<![A-Za-z0-9_|])" + re.escape(directory) + r"(?![A-Za-z0-9_-])"
     )
 
 

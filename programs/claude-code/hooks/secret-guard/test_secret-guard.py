@@ -77,6 +77,42 @@ BASH_CASES: list[Case[str]] = [
     (BLOCKED, "env redirected in a substitution is blocked", "cat $(env>/tmp/o)"),
     (
         BLOCKED,
+        "printenv split by empty double quotes is blocked",
+        'cat $(printenv"" QA_KEY_FILE)',
+    ),
+    (
+        BLOCKED,
+        "printenv split by empty single quotes is blocked",
+        "cat $(printenv'' QA_KEY_FILE)",
+    ),
+    (
+        BLOCKED,
+        "printenv followed by an expansion is blocked",
+        "cat $(printenv${X} QA_KEY_FILE)",
+    ),
+    (BLOCKED, "env followed by a brace expansion is blocked", "echo $(env{,})"),
+    (
+        BLOCKED,
+        "env followed by a line continuation is blocked",
+        "echo $(env\\\nQA_KEY_FILE)",
+    ),
+    (
+        BLOCKED,
+        "a path through /proc/self/root is blocked",
+        "cat /proc/self/root/run/secrets/q*",
+    ),
+    (
+        BLOCKED,
+        "a search pattern listing the directory is blocked",
+        "rg -n 'gh-token|path|/run/secrets' modules/secrets.nix",
+    ),
+    (
+        BLOCKED,
+        "the directory inside a longer path is blocked",
+        "ls /tmp/run/secrets-fixture",
+    ),
+    (
+        BLOCKED,
         "an env dump in an unquoted heredoc is blocked",
         "cat > out.txt <<EOF\n$(env)\nEOF",
     ),
@@ -118,16 +154,6 @@ BASH_CASES: list[Case[str]] = [
         ALLOWED,
         "a code span naming an env file in a python heredoc is allowed",
         "python3 - <<'EOF'\n# emptying the key in\n// `env.client.ts` switches\nEOF",
-    ),
-    (
-        ALLOWED,
-        "a search pattern naming the directory as an alternative is allowed",
-        "rg -n 'gh-token|path|/run/secrets' modules/secrets.nix | head -12",
-    ),
-    (
-        ALLOWED,
-        "the directory inside a longer path is allowed",
-        "ls /tmp/run/secrets-fixture",
     ),
 ]
 
