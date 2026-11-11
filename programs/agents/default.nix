@@ -25,7 +25,12 @@ let
   targets = import ./lib/targets.nix { inherit pkgs lib; };
   hooks = import ./hooks {
     inherit pkgs lib;
-    packages = { inherit state; };
+    packages = { inherit state guards; };
+  };
+  # The guards, hook programs the base profile lists (hooks/guards).
+  guards = import ./hooks/guards {
+    inherit pkgs;
+    agentHook = hooks.module;
   };
   dedupLib = import ./lib/passes/dedup.nix {
     inherit pkgs lib;
@@ -104,14 +109,17 @@ let
 
   # A folded profile narrowed to what this host can run: servers whose secrets it
   # lacks dropped, secret names resolved to their paths. Its hook files become
-  # each event's hooks in the order they run.
+  # each event's hooks in the order they run, seeing those secret files.
   forHost =
     profile:
+    let
+      secretFiles = mcpLib.provided secrets profile.secretFiles;
+    in
     profile
     // {
+      inherit secretFiles;
       mcp = mcpLib.availableServers secrets profile.mcp;
-      secretFiles = mcpLib.provided secrets profile.secretFiles;
-      hooks = hooks.eval profile.hooks;
+      hooks = hooks.eval { inherit secretFiles; } profile.hooks;
     };
 in
 {
@@ -137,6 +145,16 @@ in
 
   # The `ctx` and `state` commands, the ones the base profile's runtime puts on PATH.
   inherit ctx state;
+
+  # The guards as they deploy, for the tests to run (hooks/guards).
+  guards = {
+    inherit (guards)
+      read
+      wait
+      secret
+      context
+      ;
+  };
 
   # The hooks a folded profile carries, for a backend: the `vocabulary` it maps,
   # the `manifest` its adapter hands the dispatcher, and that dispatcher, the

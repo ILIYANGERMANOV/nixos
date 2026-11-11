@@ -113,7 +113,9 @@ EVENTS: dict[HookName, Callable[[Path], Event]] = {
 SUBAGENT_EVENTS: dict[HookName, Callable[[Path, Agent], Event]] = {
     "resume": start,
     "spawn": lambda cwd, by: delegate(cwd, "implementer", by),
-    "handback": lambda cwd, by: hand_back(cwd, by.role, "READY done"),
+    "handback": lambda cwd, by: BeforeTool(
+        SESSION, cwd, by, Tool.HANDBACK, {"message": "READY done"}
+    ),
     "asked": ask,
 }
 
@@ -478,6 +480,28 @@ def test_handback_records_a_researcher_while_in_ctx(repo: Path, notes: Path) -> 
     )
 
     assert report == "notes\n\nstate: recorded 2 researched -> Ctx"
+
+
+def test_handback_skips_a_subagent_with_no_role(repo: Path, notes: Path) -> None:
+    to_implement(repo, notes)
+    before = types(notes)
+    no_role = BeforeTool(
+        SESSION, repo, Agent(AgentId("a1"), None), Tool.HANDBACK, {"message": "done"}
+    )
+
+    assert run_hook("handback", no_role) == Allow()
+    assert types(notes) == before
+
+
+def test_handback_skips_a_subagent_with_no_id(repo: Path, notes: Path) -> None:
+    to_implement(repo, notes)
+    before = types(notes)
+    no_id = BeforeTool(
+        SESSION, repo, Agent(None, None), Tool.HANDBACK, {"message": "done"}
+    )
+
+    assert run_hook("handback", no_id) == Allow()
+    assert types(notes) == before
 
 
 def test_handback_skips_a_researcher_past_ctx(repo: Path, notes: Path) -> None:

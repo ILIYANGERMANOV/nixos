@@ -11,7 +11,7 @@ paths:
   - "programs/claude-code/codegen/profile.nix"
   - "programs/claude-code/link/**"
   - "programs/claude-code/load/**"
-  - "programs/claude-code/hooks/secret-guard/**"
+  - "programs/agents/hooks/guards/secret-guard/**"
   - "modules/home-manager.nix"
   - "modules/home/claude-code.nix"
   - "modules/home/factory/claude-factory.nix"

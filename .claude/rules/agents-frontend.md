@@ -32,7 +32,7 @@ Each folder has its own rule, loaded when you work in it:
 | `hooks/` | hook declarations, the neutral contract and dispatcher | below |
 
 `default.nix` is the surface: `profiles`, `fold`, `renderLead`, `renderRole`,
-`skills`, `ctx`, `state`, `hooks`, `roles`, `budget` and `check`. `checks.agents`
+`skills`, `ctx`, `state`, `guards`, `hooks`, `roles`, `budget` and `check`. `checks.agents`
 proves every law and every rejection.
 
 ### Hooks
@@ -43,8 +43,17 @@ order; }`, with the module system: every option `uniq`, events and tools from
 eval error. A profile's `hooks` lists module files; `fold` turns them into each
 event's hooks in order. `agent_hook.py` is the neutral contract and the
 dispatcher a backend's adapter calls once per event: deny wins, contexts join,
-rewritten input reaches the next hook. A hook fails open and tells. The state
-hooks are `state/hooks.nix` (`state-hook`), and cover the main session only. Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
+rewritten input reaches the next hook. A hook fails open and tells. A backend
+fills `history` and `context` from what the agent did, so a hook keeps no state
+and reads no vendor file. The state hooks are `state/hooks.nix` (`state-hook`), and cover the main session only. Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
+
+`hooks/guards/` holds the guards, Python programs on the contract that stop an
+agent's accidents: `secret-guard`, `read-guard` and `wait-guard` deny a shell
+or read call, in that order, and `context-guard` adds the context budget
+notice after any tool. `guards/hooks.nix` is the hook module the base profile
+lists; a host with no secret files gets no `secret-guard`. Each guard's rules
+and hint are its docstring, its scenarios its test. They fail open: input a
+guard cannot read prints nothing.
 
 ### Laws
 

@@ -13,13 +13,9 @@
 
 let
   statusline = import ./statusline/statusline.nix { inherit pkgs theme; };
-  readGuard = import ./hooks/read-guard/read-guard.nix { inherit pkgs; };
-  waitGuard = import ./hooks/wait-guard/wait-guard.nix { inherit pkgs; };
-  contextGuard = import ./hooks/context-guard/context-guard.nix { inherit pkgs; };
-  secretGuard = import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; };
   linkSkills = import ../skills-link { inherit pkgs; };
 
-  settings = import ./codegen/settings.nix { inherit lib statusline secretGuard; };
+  settings = import ./codegen/settings.nix { inherit lib statusline; };
   hookSettings = import ./codegen/hooks.nix {
     inherit lib;
     inherit (agents.hooks.vocabulary) sources;
@@ -178,31 +174,12 @@ rec {
         # Other sessions keep running while this one starts, and read the
         # directory the stock rm -rf would empty under them.
         applySkills = farm: "${lib.getExe linkSkills} ${farm}";
-        # Unattended agents dumped whole files with `cat` and Read, and
-        # subagents blocked on foreground sleeps and polling loops despite
-        # the instructions; the hooks make them read ranges and background
-        # long commands instead, keep subagents off CI, and name the context
-        # budget when an agent crosses it.
         extraSettings = {
           inherit skillOverrides;
           # The Claude Docs connector, used once ever and paid for on every call.
           # claude-code-remote is not a connector: Remote Control's bridge
           # delivers it, so add_repo and subscribe_pr_activity stay.
           disableClaudeAiConnectors = true;
-          hooks.PreToolUse = [
-            {
-              matcher = "Bash";
-              hooks = [
-                readGuard.hook
-                waitGuard.hook
-              ];
-            }
-            {
-              matcher = "Read";
-              hooks = [ readGuard.hook ];
-            }
-          ];
-          hooks.PostToolUse = [ { hooks = [ contextGuard.hook ]; } ];
           enabledPlugins = {
             "typescript-lsp@claude-plugins-official" = true;
           };
@@ -213,14 +190,6 @@ rec {
     agentFiles = toHomeFiles factoryAgentSources;
     # What the wrapper puts on PATH, for hosts whose sessions run `unwrapped`.
     inherit (factoryProfile) runtime;
-  };
-
-  # The hook guards as they deploy, for `python-tests` to run.
-  guards = {
-    read = readGuard.bin;
-    wait = waitGuard.bin;
-    secret = secretGuard.bin;
-    context = contextGuard.bin;
   };
 
   # The adapter running a profile's hooks and the tool table it reads, for
@@ -246,7 +215,9 @@ rec {
       skillNames = agents.skills.names;
       baseProfileSkills = baseProfile.skills;
       inherit agentSources factoryAgentSources;
-      factorySettings = factory.wrapper.settingsFile;
+      flavorSettings = lib.listToAttrs (
+        map (flavor: lib.nameValuePair flavor.name flavor.settingsFile) flavors
+      );
       roleSkills = lib.concatMap (role: role.skills) (lib.attrValues agents.roles);
       sizes = [
         # A role counts at its largest, the factory's render.

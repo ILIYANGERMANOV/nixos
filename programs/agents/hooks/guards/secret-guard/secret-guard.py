@@ -1,4 +1,4 @@
-"""PreToolUse hook: block a Bash command that obviously reads a protected secret.
+"""beforeTool hook on shell: deny a command that obviously reads a protected secret.
 
 This is protection against accidental reads, not a security boundary. Every
 script a session runs (qa-node included) can read the variable and the file it
@@ -8,8 +8,8 @@ and the model is told why.
 
 The secret files a session gets as a path (never a value) are passed as one
 JSON argument: {"paths": [...], "vars": [...]}, the decrypted files and the
-environment variables holding their paths. A command exits 2, which makes
-Claude Code block the call and show stderr to the model, when its text:
+environment variables holding their paths. A command is denied, the hint its
+reason, when its text:
 
 - names a protected file's directory (`/run/secrets`, which also covers the
   `/run/secrets.d/<n>` it resolves to) or its basename as a word,
@@ -20,9 +20,9 @@ Claude Code block the call and show stderr to the model, when its text:
 The text is matched as a whole, heredoc bodies included, because a script
 written from a heredoc can read the file as well as a `cat` can. Naming a
 variable outside a substitution (`printenv VAR >/dev/null`, the availability
-check) shows only the path and is allowed. Everything else exits 0, including
-any input this script does not understand: the guard fails open, and the Read
-deny rules beside it still hold.
+check) shows only the path and is allowed. Everything else prints nothing,
+including any input this script does not understand: the guard fails open, and
+the backend's read deny rules beside it still hold.
 """
 
 import os
@@ -30,7 +30,15 @@ import re
 import sys
 from dataclasses import dataclass
 
-from hook_event import Json, parse_bash_call, parse_json
+from agent_hook import (
+    BeforeTool,
+    Deny,
+    Json,
+    Tool,
+    emit_result,
+    parse_event,
+    parse_json,
+)
 
 HINT = (
     "Blocked: this command names a secret file, its directory or the variable "
@@ -54,13 +62,17 @@ class Protected:
 def main() -> None:
     try:
         protected = parse_protected(parse_json(sys.argv[1]))
-        command = parse_bash_call(parse_json(sys.stdin.read())).command
+        event = parse_event(sys.stdin.read())
     except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
-    if names_secret(command, protected):
-        print(HINT, file=sys.stderr)
-        sys.exit(2)
+    match event:
+        case BeforeTool(tool=Tool.SHELL, input={"command": str(command)}) if (
+            names_secret(command, protected)
+        ):
+            print(emit_result(Deny(HINT)))
+        case _:
+            pass
 
 
 def parse_protected(argument: Json) -> Protected:

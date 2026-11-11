@@ -16,6 +16,7 @@ from agent_hook import (
     AgentId,
     Allow,
     BeforeTool,
+    ContextSize,
     Deny,
     Json,
     JsonObject,
@@ -28,7 +29,23 @@ from agent_hook import (
     Tool,
     Verdict,
 )
-from claude_adapter import note_to_claude, parse_claude, parse_tools, verdict_to_claude
+from claude_adapter import (
+    TAIL_BYTES,
+    ReadLines,
+    note_to_claude,
+    parse_claude,
+    parse_tools,
+    verdict_to_claude,
+)
+from transcript_fixtures import (
+    THINKING,
+    assistant,
+    bash,
+    model_call,
+    read,
+    tool_result,
+    write_transcript,
+)
 
 # The built adapter and the tool table it is deployed with (codegen/tools.nix).
 ADAPTER = os.environ["AGENT_HOOK_CLAUDE"]
@@ -93,14 +110,199 @@ RAN: JsonObject = {
 }
 
 
+# ---- Transcripts, as Claude Code writes them: one line per content block ----------
+
+MAIN_TRANSCRIPT = Path("/home/u/.claude/projects/p/abc123.jsonl")
+WORKER_TRANSCRIPT = Path("/home/u/.claude/projects/p/abc123/subagents/agent-a1b2.jsonl")
+
+
+def transcripts(by_path: dict[Path, list[JsonObject]]) -> ReadLines:
+    """A fake disk: each path's lines; any other path cannot be read."""
+    return lambda path: [json.dumps(line).encode() for line in by_path.get(path, [])]
+
+
+NO_TRANSCRIPT = transcripts({})
+
+
+SHELL_CALL: JsonObject = {
+    **COMMON,
+    **WORKER,
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "gh pr checks 7"},
+    "tool_use_id": "toolu_09",
+}
+WORKER_SO_FAR = [
+    *model_call("m1", 40_000, bash("toolu_05", "git status"), read("toolu_06")),
+    tool_result("toolu_05"),
+    *model_call("m2", 60_000, bash("toolu_07", "gh pr checks 7")),
+    tool_result("toolu_07"),
+    *model_call("m3", 70_000, bash("toolu_09", "gh pr checks 7")),
+]
+
+
+def test_a_shell_call_carries_the_agents_earlier_commands_oldest_first() -> None:
+    disk = transcripts({WORKER_TRANSCRIPT: WORKER_SO_FAR})
+
+    event = parse_claude(SHELL_CALL, TOOLS, disk)
+
+    assert isinstance(event, BeforeTool)
+    assert event.history == ("git status", "gh pr checks 7")
+
+
+def test_the_lead_reads_its_history_from_the_main_transcript() -> None:
+    lead_call = {k: v for k, v in SHELL_CALL.items() if k not in WORKER}
+    disk = transcripts(
+        {MAIN_TRANSCRIPT: model_call("m1", 1_000, bash("toolu_01", "ls"))}
+    )
+
+    event = parse_claude(lead_call, TOOLS, disk)
+
+    assert isinstance(event, BeforeTool)
+    assert event.history == ("ls",)
+
+
+def test_a_call_other_than_shell_carries_no_history() -> None:
+    disk = transcripts({MAIN_TRANSCRIPT: WORKER_SO_FAR})
+
+    event = parse_claude(SPAWN, TOOLS, disk)
+
+    assert isinstance(event, BeforeTool)
+    assert event.history == ()
+
+
+def test_a_tool_result_carries_the_newest_context_and_the_last_that_ran_a_tool() -> (
+    None
+):
+    so_far = [
+        *WORKER_SO_FAR,
+        tool_result("toolu_09"),
+        *model_call("m4", 90_000),
+        *model_call("m5", 155_000, read("toolu_10"), bash("toolu_11", "ls")),
+    ]
+    disk = transcripts({WORKER_TRANSCRIPT: so_far})
+
+    event = parse_claude(RAN, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context == ContextSize(155_000, 70_000)
+
+
+def test_the_first_call_has_no_previous_context() -> None:
+    disk = transcripts({WORKER_TRANSCRIPT: model_call("m1", 20_000, bash("t1", "ls"))})
+
+    event = parse_claude(RAN, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context == ContextSize(20_000, None)
+
+
+NO_USAGE: JsonObject = {
+    "input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+}
+
+
+@pytest.mark.parametrize(
+    ("lines", "context"),
+    [
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("b", 150_000, bash("t2", "ls"), read("t3")),
+            ],
+            ContextSize(150_000, 148_000),
+            id="a call of several lines counts once",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("b", 150_000, bash("t2", "ls")),
+                b'{"type": "assis',
+            ],
+            ContextSize(150_000, 148_000),
+            id="a partial last line is skipped",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("t", 150_000),
+                *model_call("b", 151_000, bash("t2", "ls")),
+            ],
+            ContextSize(151_000, 148_000),
+            id="a text-only reply is no previous call",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 150_000, bash("t1", "ls")),
+                assistant("c", NO_USAGE, bash("t2", "ls")),
+                *model_call("b", 150_000, bash("t3", "ls")),
+            ],
+            ContextSize(150_000, 150_000),
+            id="an empty synthetic call is skipped",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("b", 150_000, THINKING, bash("t2", "ls")),
+                *model_call("c", 151_000, bash("t3", "ls")),
+            ],
+            ContextSize(151_000, 150_000),
+            id="a call's text line does not hide its tool call",
+        ),
+    ],
+)
+def test_the_context_counts_model_calls_that_ran_a_tool(
+    lines: list[JsonObject | bytes], context: ContextSize
+) -> None:
+    raw = [
+        line if isinstance(line, bytes) else json.dumps(line).encode() for line in lines
+    ]
+
+    def disk(path: Path) -> list[bytes]:
+        return raw if path == WORKER_TRANSCRIPT else []
+
+    event = parse_claude(RAN, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context == context
+
+
+def test_a_subagent_is_not_judged_on_the_leads_context() -> None:
+    disk = transcripts({MAIN_TRANSCRIPT: model_call("m1", 150_000, bash("t1", "ls"))})
+
+    event = parse_claude(RAN, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(RAN, id="unreadable transcript"),
+        pytest.param(
+            {k: v for k, v in RAN.items() if k != "transcript_path"},
+            id="no transcript path",
+        ),
+    ],
+)
+def test_no_transcript_gives_no_context(payload: JsonObject) -> None:
+    event = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+    assert isinstance(event, AfterTool)
+    assert event.context is None
+
+
 def test_a_session_start_reads_its_source() -> None:
-    assert parse_claude(SESSION_START, TOOLS) == SessionStart(
+    assert parse_claude(SESSION_START, TOOLS, NO_TRANSCRIPT) == SessionStart(
         SessionId("abc123"), Path("/work/repo"), None, Source.COMPACT
     )
 
 
 def test_a_lead_tool_call_has_no_agent() -> None:
-    assert parse_claude(SPAWN, TOOLS) == BeforeTool(
+    assert parse_claude(SPAWN, TOOLS, NO_TRANSCRIPT) == BeforeTool(
         SessionId("abc123"),
         Path("/work/repo"),
         None,
@@ -114,7 +316,7 @@ def test_a_lead_tool_call_has_no_agent() -> None:
 
 
 def test_a_subagent_is_its_id_and_its_type_as_role() -> None:
-    event = parse_claude(HANDBACK, TOOLS)
+    event = parse_claude(HANDBACK, TOOLS, NO_TRANSCRIPT)
 
     assert event == BeforeTool(
         SessionId("abc123"),
@@ -126,7 +328,7 @@ def test_a_subagent_is_its_id_and_its_type_as_role() -> None:
 
 
 def test_a_tool_result_carries_its_output() -> None:
-    match parse_claude(RAN, TOOLS):
+    match parse_claude(RAN, TOOLS, NO_TRANSCRIPT):
         case AfterTool(tool=Tool.SHELL, output={"stdout": str(stdout)}):
             assert stdout.endswith("/pull/7\n")
         case event:
@@ -135,14 +337,73 @@ def test_a_tool_result_carries_its_output() -> None:
 
 @pytest.mark.parametrize("name", ["WebFetch", "WebSearch"])
 def test_a_vendor_free_name_covers_each_of_its_claude_tools(name: str) -> None:
-    event = parse_claude(SPAWN | {"tool_name": name, "tool_input": {}}, TOOLS)
+    event = parse_claude(
+        SPAWN | {"tool_name": name, "tool_input": {}}, TOOLS, NO_TRANSCRIPT
+    )
 
     assert isinstance(event, BeforeTool)
     assert event.tool == Tool.WEB
 
 
+def test_a_tool_with_no_vendor_free_name_is_other() -> None:
+    event = parse_claude(
+        RAN | {"tool_name": "mcp__github__get_pr", "tool_input": {}},
+        TOOLS,
+        NO_TRANSCRIPT,
+    )
+
+    assert isinstance(event, AfterTool)
+    assert event.tool == Tool.OTHER
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(HANDBACK | {"agent_type": None}, id="null type"),
+        pytest.param(
+            {k: v for k, v in HANDBACK.items() if k != "agent_type"}, id="no type"
+        ),
+    ],
+)
+def test_a_subagent_with_no_type_has_no_role(payload: JsonObject) -> None:
+    event = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+    assert event.agent == Agent(AgentId("a1b2"), None)
+
+
+def test_a_subagent_claude_names_no_id_is_a_subagent_with_no_id() -> None:
+    event = parse_claude(HANDBACK | {"agent_id": None}, TOOLS, NO_TRANSCRIPT)
+
+    assert event.agent == Agent(None, None)
+
+
+def every_path_holds(lines: list[JsonObject]) -> ReadLines:
+    """A fake disk where any path reads as `lines`."""
+    return lambda _: [json.dumps(line).encode() for line in lines]
+
+
+def test_a_subagent_with_no_id_carries_no_history() -> None:
+    disk = every_path_holds(WORKER_SO_FAR)
+
+    event = parse_claude(SHELL_CALL | {"agent_id": None}, TOOLS, disk)
+
+    assert isinstance(event, BeforeTool)
+    assert event.history == ()
+
+
+def test_a_subagent_with_no_id_carries_no_context() -> None:
+    disk = every_path_holds(WORKER_SO_FAR)
+
+    event = parse_claude(RAN | {"agent_id": None}, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context is None
+
+
 def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
-    event = parse_claude(SESSION_START | {"agent_type": "engineer"}, TOOLS)
+    event = parse_claude(
+        SESSION_START | {"agent_type": "engineer"}, TOOLS, NO_TRANSCRIPT
+    )
 
     assert isinstance(event, SessionStart)
     assert event.agent is None
@@ -151,11 +412,6 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
 @pytest.mark.parametrize(
     ("payload", "error"),
     [
-        pytest.param(
-            SPAWN | {"tool_name": "Grep"},
-            "Grep has no vendor-free name",
-            id="unmapped tool",
-        ),
         pytest.param(SESSION_START | {"source": "clear"}, "clear", id="unknown source"),
         pytest.param(
             COMMON | {"hook_event_name": "Stop"},
@@ -163,19 +419,24 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
             id="unknown event",
         ),
         pytest.param(
-            SPAWN | {"agent_id": "a1"},
-            "without a string agent_type",
-            id="agent without a type",
+            SPAWN | {"agent_id": "a1", "agent_type": 7},
+            "agent_type 7 is not a string",
+            id="agent type not a string",
+        ),
+        pytest.param(
+            SPAWN | {"agent_id": 7, "agent_type": "implementer"},
+            "agent_id 7 is not a string",
+            id="agent id not a string",
         ),
     ],
 )
 def test_a_payload_outside_the_contract_is_an_error(payload: Json, error: str) -> None:
     with pytest.raises(ValueError, match=error):
-        _ = parse_claude(payload, TOOLS)
+        _ = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
 
 
-START_EVENT = parse_claude(SESSION_START, TOOLS)
-RAN_EVENT = parse_claude(RAN, TOOLS)
+START_EVENT = parse_claude(SESSION_START, TOOLS, NO_TRANSCRIPT)
+RAN_EVENT = parse_claude(RAN, TOOLS, NO_TRANSCRIPT)
 
 
 @pytest.mark.parametrize(
@@ -361,3 +622,57 @@ def test_the_built_adapter_refuses_what_it_cannot_read_and_lets_claude_go_on(
     assert done.returncode == 1
     assert done.stderr.startswith("agent-hook-claude: not a SessionStart")
     assert done.stdout == ""
+
+
+ECHO = "import json, sys; e = json.load(sys.stdin); print(json.dumps({'context': json.dumps(e[sys.argv[1]])}))"
+
+
+def echoed(done: subprocess.CompletedProcess[str]) -> Json:
+    """What the echo hook saw of its event's field."""
+    assert done.returncode == 0, done.stderr
+    output = cast("dict[str, dict[str, str]]", json.loads(done.stdout))
+    return cast("Json", json.loads(output["hookSpecificOutput"]["additionalContext"]))
+
+
+def echo(field: str) -> JsonObject:
+    return {
+        "name": "echo",
+        "tools": None,
+        "command": [sys.executable, "-c", ECHO, field],
+    }
+
+
+def at(tmp_path: Path, payload: JsonObject) -> JsonObject:
+    return payload | {"transcript_path": str(tmp_path / "abc123.jsonl")}
+
+
+def test_the_built_adapter_hands_a_subagents_hook_its_recent_shell_commands(
+    tmp_path: Path,
+) -> None:
+    worker_transcript = tmp_path / "abc123" / "subagents" / "agent-a1b2.jsonl"
+    write_transcript(worker_transcript, WORKER_SO_FAR, filler=TAIL_BYTES)
+
+    done = adapter(
+        tmp_path, {"beforeTool": [echo("history")]}, at(tmp_path, SHELL_CALL)
+    )
+
+    assert echoed(done) == ["git status", "gh pr checks 7"]
+
+
+def test_the_built_adapter_hands_a_hook_the_context_after_any_tool(
+    tmp_path: Path,
+) -> None:
+    write_transcript(
+        tmp_path / "abc123" / "subagents" / "agent-a1b2.jsonl", WORKER_SO_FAR
+    )
+    mcp_ran = RAN | {"tool_name": "mcp__github__get_pr", "tool_input": {}}
+
+    done = adapter(tmp_path, {"afterTool": [echo("context")]}, at(tmp_path, mcp_ran))
+
+    assert echoed(done) == {"tokens": 70_000, "previous": 60_000}
+
+
+def test_the_built_adapter_runs_the_hooks_without_a_transcript(tmp_path: Path) -> None:
+    done = adapter(tmp_path, {"afterTool": [echo("context")]}, at(tmp_path, RAN))
+
+    assert echoed(done) is None

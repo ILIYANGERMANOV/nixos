@@ -5,10 +5,18 @@
 {
   pkgs,
   claude,
-  # The built `state` command, which python-tests runs end to end.
+  # The built `state` command and guards, which python-tests runs end to end.
   state,
+  guards,
 }:
 import ./shell.nix { inherit pkgs claude; }
 // import ./ts.nix { inherit pkgs; }
-// import ./python.nix { inherit pkgs claude state; }
+// import ./python.nix {
+  inherit
+    pkgs
+    claude
+    state
+    guards
+    ;
+}
 // import ./lua.nix { inherit pkgs; }

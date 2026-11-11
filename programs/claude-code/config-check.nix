@@ -4,8 +4,8 @@
 # visible diff that says a change costs every agent more start-up context.
 # It also holds the rendered subagents to their contract: an allowlist of tools
 # with no MCP, only fields that are known, every preload installed, and the
-# factory section in the factory's render alone, and the factory's settings to
-# running the state hooks through the adapter.
+# factory section in the factory's render alone, and every flavor's settings to
+# running the state hooks and the guards through the adapter, and nothing else.
 #
 # Sizes are programs/agents' budget and budget/'s, each `<ceiling key> <subject>
 # <bytes>` lines, against their ceilings merged. `.report` prints the table,
@@ -21,8 +21,8 @@
   roleSkills,
   agentSources,
   factoryAgentSources,
-  # The factory flavor's settings.json, as its wrapper writes it.
-  factorySettings,
+  # Each flavor's settings.json as its wrapper writes it, by flavor name.
+  flavorSettings,
   # budget-compare, see budget/.
   compare,
   sizes,
@@ -100,17 +100,35 @@ pkgs.runCommand "claude-config-check"
       '') agentSources
     )}
 
-    # The base profile's state hooks reach the factory: one adapter entry per
-    # event, matched on the hooks' tools, all running one manifest.
-    adapters='.hooks | to_entries[] | .key as $event | .value[]
-      | select(.hooks[0].command | contains("/bin/agent-hook-claude "))'
-    [ "$(jq -c "[$adapters | {event: \$event, matcher}]" ${factorySettings})" = \
-      '[{"event":"PostToolUse","matcher":"AskUserQuestion"},{"event":"PreToolUse","matcher":"Agent|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"}]' ] ||
-      { echo "factory settings: the hook adapter entries differ" >&2; exit 1; }
-    manifest=$(jq -r "[$adapters | .hooks[0].command] | unique | .[] | split(\" \")[2]" ${factorySettings})
-    [ "$(jq -c 'map_values(map(.name))' "$manifest")" = \
-      '{"afterTool":["state-asked"],"beforeTool":["state-handback","state-spawn"],"sessionStart":["state-resume"]}' ] ||
-      { echo "factory settings: the state hooks differ" >&2; exit 1; }
+    # The base profile's hooks reach every flavor: one adapter entry per event,
+    # matched on the hooks' tools, every tool after one (the context guard),
+    # all running one manifest, and no hook beside them. The secret guard runs
+    # where a secret file is exported, which its Read deny rules mark.
+    entries='.hooks | to_entries[] | .key as $event | .value[]'
+    check_hooks() {
+      [ "$(jq -c "[$entries | {event: \$event, matcher}]" "$2")" = \
+        '[{"event":"PostToolUse","matcher":null},{"event":"PreToolUse","matcher":"Agent|Bash|Read|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"}]' ] ||
+        { echo "$1 settings: the hook entries differ" >&2; exit 1; }
+      commands=$(jq -r "[$entries | .hooks[].command] | unique | .[]" "$2")
+      case "$commands" in
+        */bin/agent-hook-claude\ *\ *) ;;
+        *) echo "$1 settings: a hook other than the adapter" >&2; exit 1 ;;
+      esac
+      [ "$(wc -l <<<"$commands")" = 1 ] ||
+        { echo "$1 settings: more than one hook command" >&2; exit 1; }
+      secret=
+      if jq -e '.permissions.deny // [] | any(contains("/run/secrets/"))' "$2" >/dev/null; then
+        secret='"secret-guard",'
+      fi
+      [ "$(jq -c 'map_values(map(.name))' "$(cut -d' ' -f3 <<<"$commands")")" = \
+        '{"afterTool":["context-guard","state-asked"],"beforeTool":["state-handback","state-spawn",'"$secret"'"read-guard","wait-guard"],"sessionStart":["state-resume"]}' ] ||
+        { echo "$1 settings: the hooks differ" >&2; exit 1; }
+    }
+    ${lib.concatStrings (
+      lib.mapAttrsToList (name: file: ''
+        check_hooks ${name} ${file}
+      '') flavorSettings
+    )}
 
     # Given synthetic sizes, each way to break the budget must fail.
     echo '{"a": 10, "b": 10}' >ceilings.json

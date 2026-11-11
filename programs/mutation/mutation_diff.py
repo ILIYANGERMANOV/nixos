@@ -45,11 +45,9 @@ LOG = OUT_DIR / "mutation.log"
 # statusline run as subprocesses, where no mutant could ever be killed.
 PYTHON_MODULES = {
     "analyze": "programs/agents/skills/custom/self-improve/scripts/analyze.py",
-    "bash_commands": "programs/claude-code/hooks/shared/bash_commands.py",
+    "bash_commands": "programs/agents/hooks/guards/shared/bash_commands.py",
     "cache_check": "just/cache-check/cache_check.py",
     "disk_plan": "programs/software-factory/disk_plan.py",
-    "hook_event": "programs/claude-code/hooks/shared/hook_event.py",
-    "transcripts": "programs/claude-code/hooks/shared/transcripts.py",
     **{
         f"state.{name}": f"programs/agents/state/{name}.py"
         for name in ("cli", "codec", "core", "effects", "flow", "main", "model")
@@ -58,8 +56,8 @@ PYTHON_MODULES = {
 # What those tests import or read, by the scratch directory it goes to: beside
 # the test, or for `state.state_fixtures` in its package.
 PYTHON_TEST_SUPPORT = {
-    "programs/claude-code/hooks/shared/bash_corpus.py": "tests",
-    "programs/claude-code/hooks/shared/guard_harness.py": "tests",
+    "programs/agents/hooks/guards/shared/bash_corpus.py": "tests",
+    "programs/agents/hooks/guards/shared/guard_harness.py": "tests",
     "just/cache-check/expensive-builds.deny": "tests",
     "programs/agents/state/__init__.py": "src/state",
     "programs/agents/state/state_fixtures.py": "src/state",

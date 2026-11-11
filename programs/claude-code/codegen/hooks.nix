@@ -3,7 +3,7 @@
 # frontend's dispatcher. Claude never sees the hooks themselves, so their order
 # and the threading of rewritten input are the frontend's, not Claude's
 # parallel run. Appended to what the flavor sets, as withSecretFileGuard is,
-# so the guards stay. Values only, no files.
+# so a flavor's own hooks stay. Values only, no files.
 {
   lib,
   # How a session can start, from the vocabulary. Claude's SessionStart sources
@@ -14,16 +14,19 @@
 let
   tools = import ./tools.nix;
 
-  # A hook with no tools sees every tool the table names, not every Claude
-  # tool: an MCP tool or Grep has no vendor-free name to hand it.
-  claudeTools =
-    hook:
-    lib.concatMap (
-      tool: tools.${tool} or (throw "claude-code: the hook tool ${tool} has no Claude tool")
-    ) (if hook.tools == null then lib.attrNames tools else hook.tools);
+  claudeTools = lib.concatMap (
+    tool: tools.${tool} or (throw "claude-code: the hook tool ${tool} has no Claude tool")
+  );
+  # A hook with no tools sees every Claude tool, an MCP tool or Grep too, which
+  # the adapter hands it as `other`: no matcher. Otherwise the tools' union.
   toolMatcher =
     hooks:
-    lib.concatStringsSep "|" (lib.unique (lib.sort lib.lessThan (lib.concatMap claudeTools hooks)));
+    if lib.any (hook: hook.tools == null) hooks then
+      null
+    else
+      lib.concatStringsSep "|" (
+        lib.unique (lib.sort lib.lessThan (lib.concatMap (hook: claudeTools hook.tools) hooks))
+      );
 
   events = {
     sessionStart = {
@@ -54,10 +57,10 @@ let
         lib.nameValuePair claude.name (
           settings.hooks.${claude.name} or [ ]
           ++ [
-            {
+            (lib.filterAttrs (_: value: value != null) {
               matcher = claude.matcher declared;
               hooks = [ hook ];
-            }
+            })
           ]
         );
     in

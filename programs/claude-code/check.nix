@@ -32,12 +32,10 @@ let
     env = { };
   };
 
-  secretGuard = import ./hooks/secret-guard/secret-guard.nix { inherit pkgs; };
-
   # Given: a flavor's own settings, already holding a deny rule and a Bash hook.
   inherit
     (import ./codegen/settings.nix {
-      inherit lib secretGuard;
+      inherit lib;
       statusline = throw "the secret file guard sets no status line";
     })
     withSecretFileGuard
@@ -142,26 +140,9 @@ let
       ];
     }
     {
-      name = "a secret file adds a Bash guard hook after the flavor's own hooks";
-      actual = map (entry: {
-        inherit (entry) matcher;
-        commands = map (hook: lib.head (lib.splitString " " hook.command)) entry.hooks;
-      }) guarded.hooks.PreToolUse;
-      expected = [
-        {
-          matcher = "Bash";
-          commands = [ "own-hook" ];
-        }
-        {
-          matcher = "Bash";
-          commands = [ "${secretGuard.bin}/bin/claude-secret-guard" ];
-        }
-      ];
-    }
-    {
-      name = "a secret file leaves the flavor's other settings as they are";
-      actual = guarded.model;
-      expected = "opus";
+      name = "a secret file leaves the flavor's other settings, hooks included, as they are";
+      actual = removeAttrs guarded [ "permissions" ];
+      expected = removeAttrs flavorSettings [ "permissions" ];
     }
     {
       name = "hooks add one adapter entry per event they use, after the flavor's own, matched on their tools' union";
@@ -182,17 +163,15 @@ let
       };
     }
     {
-      name = "a hook with no tools is matched on every tool the table names";
+      name = "a hook with no tools has its event match every Claude tool, those with no vendor-free name too";
       actual =
         (hookSettings.withHooks adapter {
-          afterTool = [ (declared "asked" null) ];
+          afterTool = [
+            (declared "shell" [ "shell" ])
+            (declared "context" null)
+          ];
         } { }).hooks.PostToolUse;
-      expected = [
-        {
-          matcher = "Agent|AskUserQuestion|Bash|Edit|Read|Skill|SubagentHandback|WebFetch|WebSearch|Write";
-          hooks = [ adapter ];
-        }
-      ];
+      expected = [ { hooks = [ adapter ]; } ];
     }
     {
       name = "hooks leave the flavor's other settings as they are";

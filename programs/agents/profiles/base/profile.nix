@@ -60,6 +60,10 @@
   # read, never as a value. A host without the secret gets no variable.
   secretFiles.QA_EVM_KEY_FILE = "qa-sepolia-key";
   # The state hooks keep the engineer flow's record as the agents work; a
-  # worktree with no `state` run sees none of them.
-  hooks = [ state.hooks ];
+  # worktree with no `state` run sees none of them. The guards stop large
+  # reads, foreground waits, secret reads and a context past its budget.
+  hooks = [
+    state.hooks
+    ../../hooks/guards/hooks.nix
+  ];
 }

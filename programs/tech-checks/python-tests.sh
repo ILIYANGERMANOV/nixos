@@ -3,7 +3,7 @@
 cp -r "$PYTHON_SOURCE" source
 chmod -R u+w source
 cd source || exit 1
-substituteInPlace programs/claude-code/hooks/shared/bash_commands.py \
+substituteInPlace programs/agents/hooks/guards/shared/bash_commands.py \
   --replace-fail @shfmt@ "$SHFMT"
 HOME=$TMPDIR HYPOTHESIS_STORAGE_DIRECTORY=$TMPDIR/hypothesis PYTHONDONTWRITEBYTECODE=1 pytest
 touch "$out"

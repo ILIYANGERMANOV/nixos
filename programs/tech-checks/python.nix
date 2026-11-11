@@ -3,6 +3,7 @@
   pkgs,
   claude,
   state,
+  guards,
 }:
 let
   inherit (pkgs) lib;
@@ -33,6 +34,8 @@ let
           "quality.md"
           # test_agent_hook.py holds the enums to the vocabulary Nix reads.
           "vocabulary.json"
+          # test_guards.py shapes Claude's payloads as the contract recorded them.
+          "snapshot.json"
         ]
       ) root)
     ];
@@ -70,11 +73,20 @@ in
         pkgs.git
         tools.python
       ];
-      READ_GUARD = lib.getExe claude.guards.read;
-      WAIT_GUARD = lib.getExe claude.guards.wait;
-      SECRET_GUARD = lib.getExe claude.guards.secret;
-      CONTEXT_GUARD = lib.getExe claude.guards.context;
+      READ_GUARD = lib.getExe guards.read;
+      WAIT_GUARD = lib.getExe guards.wait;
+      SECRET_GUARD = lib.getExe guards.secret;
+      CONTEXT_GUARD = lib.getExe guards.context;
       AGENT_HOOK_CLAUDE = lib.getExe claude.hookAdapter.bin;
+      # Each flavor's settings.json by name, as installed: test_guards.py runs
+      # the hook commands they hold, as Claude Code does.
+      CLAUDE_SETTINGS = builtins.toJSON (
+        lib.listToAttrs (
+          map (flavor: lib.nameValuePair flavor.name "${flavor.settingsFile}") (
+            claude.packages ++ [ claude.factory.wrapper ]
+          )
+        )
+      );
       AGENT_HOOK_CLAUDE_TOOLS = claude.hookAdapter.toolsFile;
       STATUSLINE = lib.getExe claude.statusline;
       # test_e2e.py runs the wrapped `state` and `state-hook`, as the agents get them.

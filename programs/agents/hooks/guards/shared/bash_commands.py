@@ -1,4 +1,4 @@
-"""Reads a Bash command as Bash would, for the PreToolUse guards.
+"""Reads a Bash command as Bash would, for the beforeTool guards.
 
 `parse` is the interface. It runs shfmt, whose JSON stays inside this module, and
 never raises: whatever goes wrong is an `Unparsable`, which a guard fails open on.
@@ -11,9 +11,9 @@ from dataclasses import dataclass, replace
 from enum import Enum, IntEnum, auto
 from typing import cast
 
-from hook_event import Json, parse_json
+from agent_hook import Json, parse_json
 
-# Substituted at build time: bash-guard.nix for a guard, `python-tests` for a test.
+# Substituted at build time: guards/default.nix for a guard, `python-tests` for a test.
 SHFMT = "@shfmt@"
 SHFMT_TIMEOUT_SECONDS = 2
 # Longest first, so that `>>` is never read as `>`.
@@ -107,7 +107,7 @@ def read_script(command: str) -> Script:
     )
     if shfmt.returncode != 0:
         return Unparsable(shfmt.stderr.decode(errors="replace").strip())
-    tree = cast("Node", parse_json(shfmt.stdout))
+    tree = cast("Node", parse_json(shfmt.stdout.decode()))
     return Parsed(tuple(statements(children(tree, "Stmts"), Simple(()), source)))
 
 
