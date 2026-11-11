@@ -90,6 +90,7 @@ from state.state_fixtures import (
     review,
     reviewed,
     simplified,
+    then,
     walk,
 )
 
@@ -778,6 +779,7 @@ def test_a_confirmed_re_plan_resumes_at_implement_and_restarts_the_rounds() -> N
 
 DECISION = Blocked("which api?", "decision", "implementer")
 ANSWERED = Resolved("which api?", "the old one")
+SECOND = Blocked("which db?", "decision", "researcher")
 
 
 @given(event_lists)
@@ -798,16 +800,6 @@ def test_history_a_resolved_decision_resumes_the_step_it_came_from(
     assert resumed == [state.step for state in lead]
 
 
-def then(state: State, *events: Event) -> State:
-    for event in events:
-        match apply(state, event):
-            case State() as after:
-                state = after
-            case Failure() as failure:
-                raise AssertionError(failure.message)
-    return state
-
-
 def reach_from(step: StateName, *events: Event) -> StateName:
     """The step `events` reach from a lead's run overridden to `step`."""
     return reach(Started(NOTES, delegated=False), Overridden(step, "why"), *events).step
@@ -825,16 +817,12 @@ def test_history_a_decision_raised_in_ctx_resolves_in_ctx() -> None:
 
 
 def test_history_a_second_decision_keeps_the_first_origin() -> None:
-    second = Blocked("which db?", "decision", "researcher")
-
-    assert reach_from("Fix", DECISION, second, ANSWERED,
+    assert reach_from("Fix", DECISION, SECOND, ANSWERED,
                       Resolved("which db?", "pg")) == "Fix"  # fmt: skip
 
 
 def test_history_resolved_stays_in_ctx_while_a_decision_is_open() -> None:
-    second = Blocked("which db?", "decision", "researcher")
-
-    assert reach_from("Fix", DECISION, second, ANSWERED) == "Ctx"
+    assert reach_from("Fix", DECISION, SECOND, ANSWERED) == "Ctx"
 
 
 def test_history_a_re_plan_forgets_the_origin() -> None:

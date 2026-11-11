@@ -66,9 +66,14 @@ NO_FACTS = NoFacts()
 
 
 def reach(*events: Event) -> State:
-    match fold(events):
-        case State() as state:
-            return state
+    return then(S0, *events)
+
+
+def then(state: State, *events: Event) -> State:
+    """The state `events` reach from `state`; an event off the table fails."""
+    match fold(events, state):
+        case State() as reached:
+            return reached
         case Failure() as failure:
             raise AssertionError(failure.message)
 
