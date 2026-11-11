@@ -57,12 +57,10 @@ let
         lib.nameValuePair claude.name (
           settings.hooks.${claude.name} or [ ]
           ++ [
-            (
-              lib.filterAttrs (_: value: value != null) {
-                matcher = claude.matcher declared;
-                hooks = [ hook ];
-              }
-            )
+            (lib.filterAttrs (_: value: value != null) {
+              matcher = claude.matcher declared;
+              hooks = [ hook ];
+            })
           ]
         );
     in
