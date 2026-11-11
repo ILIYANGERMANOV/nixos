@@ -17,10 +17,12 @@ from state.flow import (
     PROPOSALS,
     QUALITY,
     QUALITY_ROWS,
+    R0_IN_PLACE,
     RE_REVIEWS,
     READY_GATES,
     REFACTOR_ABOVE,
     REPO_FLAG,
+    S0_TEXT,
     STATES_FOOTER,
     STATES_INTRO,
     STEPS,
@@ -77,6 +79,7 @@ from state.model import (
     ReviewRound,
     Role,
     Round,
+    Simplified,
     Size,
     Started,
     State,
@@ -127,8 +130,8 @@ def apply(state: State, event: Event) -> State | Failure:
         case (
             Started() | Quality() | Size() | Grew() | Defaulted() | Researched() | Asked()
             | Planned() | Proposed() | Confirmed() | Adjusted() | Drafted() | Implemented()
-            | Refactored() | Reviewed() | Picked() | Fixed() | Ci() | Raised() | Blocked()
-            | Resolved() | Ready()
+            | Refactored() | Reviewed() | Picked() | Fixed() | Ci() | Simplified()
+            | Raised() | Blocked() | Resolved() | Ready()
         ):  # fmt: skip
             target = TARGET.get((state.step, classify(state, event)))
     match target, absorb(state, event):
@@ -199,7 +202,7 @@ def classify(state: State, event: Event) -> Kind:  # noqa: PLR0911 - one arm per
         case (
             Researched() | Asked() | Planned() | Proposed() | Confirmed() | Adjusted()
             | Drafted() | Implemented() | Refactored() | Reviewed() | Fixed() | Ci()
-            | Raised() | Resolved() | Ready()
+            | Simplified() | Raised() | Resolved() | Ready()
         ):  # fmt: skip
             return cast("Kind", name_of(event))
         case Overridden() | Refused():
@@ -296,6 +299,8 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
                 work=event,
                 rounds=(*state.rounds, CiRound(head, failing)),
             )
+        case Simplified(head=head):
+            return replace(state, simplified=head)
         case Raised(question=q, role=role):
             return replace(state, blockers=ask(state, UntriagedBlocker(q, role)))
         case Blocked(question=q, kind=kind, role=role):
@@ -928,6 +933,14 @@ def loop_fixer(
 
 def advise_final(state: State) -> Advice:
     match state.work:
+        case Fixed() if s0_due(state):
+            return simplify(
+                ()
+                if delegated(state)
+                else (
+                    "CI runs meanwhile: state record ci [--failing <check>]... per result",
+                )
+            )
         case Fixed() if delegated(state):
             return Done(
                 (
@@ -953,12 +966,39 @@ def advise_final(state: State) -> Advice:
             return final_fixer(state, ())
 
 
+def simplify(lines: tuple[str, ...]) -> Spawn:
+    return Spawn(
+        "fixer",
+        (
+            "row S0: shorten the PR body to pr-description's shape; nothing reviews it",
+            *lines,
+            "brief: state brief fixer",
+            "READY: recorded by the hook from its Simplified: line; then: state next",
+        ),
+    )
+
+
+def s0_due(state: State) -> bool:
+    """S0 shortens the body once the final fixer is back, and comes before
+    `gh pr ready` when green CI beat it."""
+    match state.step, state.work:
+        case ("DraftPR", Fixed()) | ("PR", Ci(failing=())):
+            return state.simplified is None
+        case _:
+            return False
+
+
+def r0_line(state: State) -> str:
+    """R0 writes the full body until S0 has shortened it, then edits in place."""
+    return r0_text(base_of(state)) if state.simplified is None else R0_IN_PLACE
+
+
 def final_fixer(state: State, rows: tuple[str, ...]) -> Spawn:
     return Spawn(
         "fixer",
         (
             f"final fixer: rows {', '.join([*rows, 'R0'])}; nothing reviews it",
-            r0_text(base_of(state)),
+            r0_line(state),
             "the full check before its push when one is owed",
             "brief: state brief fixer",
             "READY: recorded by the hook; then: state next",
@@ -968,6 +1008,8 @@ def final_fixer(state: State, rows: tuple[str, ...]) -> Spawn:
 
 def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
     match state.work:
+        case Ci(failing=()) if s0_due(state):
+            return simplify(())
         case Ci(failing=()) if state.quality == "POC":
             return Done(
                 ("notify: CI is green; the PR stays a labelled draft, no next steps",)
@@ -991,7 +1033,7 @@ def advise_pr(state: State) -> Advice:  # noqa: PLR0911 - one arm per loop step
                 "fixer",
                 (
                     f"CI fix: {', '.join(failing)}",
-                    f"plus {r0_text(base_of(state))}, when the fix changes what the body says",
+                    f"plus {r0_line(state)}, when the fix changes what the body says",
                     "brief: state brief fixer",
                     "READY: recorded by the hook; then: state next",
                 ),
@@ -1336,11 +1378,7 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
                 )
             return (Reviewed(reviewed),)
         case "fixer", "READY":
-            match touched(lines):
-                case Failure() as failure:
-                    return failure
-                case touches:
-                    return ready(role, head, touches)
+            return fixer_ready(lines, head)
         case _, "READY":
             return ready(role, head, ())
         case _:
@@ -1350,6 +1388,17 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
                 f"record it by hand: state record {role_event(role)} ...",
                 2,
             )
+
+
+def fixer_ready(lines: list[str], head: str | None) -> tuple[Event, ...] | Failure:
+    """An S0 fixer's `Simplified:` line, else a fix with its `Touches:` areas."""
+    match simplified_head(lines), touched(lines):
+        case str() as shortened, _:
+            return (Simplified(shortened),)
+        case None, Failure() as failure:
+            return failure
+        case None, touches:
+            return ready("fixer", head, touches)
 
 
 def ready(
@@ -1389,8 +1438,18 @@ def token_of(word: str) -> Token | None:
 
 
 def reviewed_head(lines: list[str]) -> str | None:
-    found = [line for line in lines if line.startswith("Reviewed head:")]
-    return found[-1].removeprefix("Reviewed head:").strip() or None if found else None
+    return last_value(lines, "Reviewed head:")
+
+
+def simplified_head(lines: list[str]) -> str | None:
+    """An S0 fixer's `Simplified: <sha>`: it shortened the body, so it is no fix."""
+    return last_value(lines, "Simplified:")
+
+
+def last_value(lines: list[str], prefix: str) -> str | None:
+    """The value on the last line starting `prefix`; none when it is empty."""
+    found = [line for line in lines if line.startswith(prefix)]
+    return found[-1].removeprefix(prefix).strip() or None if found else None
 
 
 TOUCHES_LINE = "Touches:"
@@ -1479,6 +1538,8 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
             ]
         case "refactorer":
             return [diff_line(base)]
+        case "fixer" if s0_due(state):
+            return ["Rows: S0", S0_TEXT, diff_line(base)]
         case "fixer":
             match state.step, state.work:
                 case "DraftPR", Picked(rows=rows) | Ci(failing=rows):
@@ -1490,7 +1551,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 case _, Reviewed() | Picked() | Ci() | Fixed() | None:
                     rows_line = "Rows: <the chosen rows>"
             final = [
-                r0_text(base),
+                r0_line(state),
                 "Run the full check before the push: <check>, when one is owed.",
             ]
             return [
@@ -1575,6 +1636,7 @@ def show(state: State) -> str:
             "(round 1 is the first review, not counted)"
         ),
         f"Reviewed head: {reviewed[-1] if reviewed else '-'}",
+        f"Simplified: {state.simplified or '-'}",
         (
             f"Notes: {notes_of(state)}  Plan: {state.plan or '-'}  "
             f"PR: {pr_ref(state)}  Base: {base_of(state)}"

@@ -289,6 +289,7 @@ def test_show_prints_the_progress_view(repo: Path, tmp_path: Path) -> None:
         "Size: Normal",
         "Re-review: 0/2   (round 1 is the first review, not counted)",
         "Reviewed head: h3",
+        "Simplified: -",
         f"Notes: {notes}  Plan: {notes}/plan.md  PR: {PR}  Base: main",
         "Researched: 0  Asked: 0",
         "Rounds:",

@@ -49,6 +49,7 @@ from state.model import (
     Researched,
     Resolved,
     Reviewed,
+    Simplified,
     Size,
     Started,
     State,
@@ -119,6 +120,11 @@ def final_fixed(quality: str = "Balanced", *, delegated: bool = False) -> list[E
     ]
 
 
+def simplified(quality: str = "Balanced", *, delegated: bool = False) -> list[Event]:
+    """A run in DraftPR whose body S0 shortened after the final fixer."""
+    return [*final_fixed(quality, delegated=delegated), Simplified("h4")]
+
+
 def advice(*events: Event, facts: Facts = NO_FACTS) -> str:
     return render_advice(advise(reach(*events), facts))
 
@@ -165,6 +171,7 @@ events: st.SearchStrategy[Event] = st.one_of(
     st.builds(
         Ci, heads, st.lists(st.sampled_from(["lint", "test"]), max_size=2).map(tuple)
     ),
+    st.builds(Simplified, heads),
     st.builds(Raised, questions, st.sampled_from(ROLES)),
     st.builds(
         Blocked, questions, st.sampled_from(BLOCKER_KINDS), st.sampled_from(ROLES)

@@ -50,6 +50,7 @@ from state.model import (
     Researched,
     Resolved,
     Reviewed,
+    Simplified,
     Size,
     Started,
     State,
@@ -228,6 +229,7 @@ EVENTS: dict[str, Spec] = {
     "picked": Spec(lambda f: Picked(f.many(ROWS), f.many(VERDICTS))),
     "fixed": Spec(lambda f: Fixed(f.head(), f.many(TOUCHES))),
     "ci": Spec(lambda f: Ci(f.head(), f.many(FAILING))),
+    "simplified": Spec(lambda f: Simplified(f.head())),
     "raised": Spec(
         lambda f: Raised(
             role=f.one("role", choice(ROLES, listed=False)),

@@ -182,6 +182,14 @@ class Ci:
 
 
 @dataclass(frozen=True)
+class Simplified:
+    """The PR body rewritten to `pr-description`'s short shape (row S0), on
+    `head`. Nothing clears it: an R0 after it edits in place, keeping the shape."""
+
+    head: str
+
+
+@dataclass(frozen=True)
 class Raised:
     """A worker's question as its hand-back put it, waiting for the lead's
     triage: a `blocked` of the same question."""
@@ -228,7 +236,7 @@ class Refused:
 type Event = (
     Started | Quality | Size | Grew | Defaulted | Researched | Asked | Planned | Proposed
     | Confirmed | Adjusted | Drafted | Implemented | Refactored | Reviewed | Picked | Fixed
-    | Ci | Raised | Blocked | Resolved | Overridden | Ready | Refused
+    | Ci | Simplified | Raised | Blocked | Resolved | Overridden | Ready | Refused
 )  # fmt: skip
 
 # ---- State --------------------------------------------------------------------
@@ -297,6 +305,8 @@ class State:
     rounds: tuple[Round, ...] = ()
     # In the order each question opened; a re-triage replaces it in place.
     blockers: tuple[Blocker, ...] = ()
+    # The head S0 shortened the PR body on: `gh pr ready` waits for it.
+    simplified: str | None = None
     # The last refusal, until the next accepted event or override.
     refused: Refused | None = None
 

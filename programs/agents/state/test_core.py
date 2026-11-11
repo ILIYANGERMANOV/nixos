@@ -61,6 +61,7 @@ from state.model import (
     Resolved,
     Reviewed,
     Role,
+    Simplified,
     Size,
     SizeName,
     Started,
@@ -86,6 +87,7 @@ from state.state_fixtures import (
     reach,
     review,
     reviewed,
+    simplified,
     walk,
 )
 
@@ -596,19 +598,48 @@ def ci_fix_reviewed_at_cap(
             id="Refactor: Trivial has no re-review",
         ),
         pytest.param(
-            final_fixed(), NoFacts(), "WAIT ci", "notify: the draft is complete and CI runs",
-            id="DraftPR: notify and wait for CI",
+            final_fixed(), NoFacts(), "SPAWN fixer", "CI runs meanwhile: state record ci",
+            id="DraftPR: S0 while CI runs",
         ),
         pytest.param(
-            final_fixed(delegated=True), NoFacts(), "DONE", f"hand back: READY {PR}, the work pushed",
-            id="DraftPR: delegated hands back",
+            final_fixed(delegated=True), NoFacts(), "SPAWN fixer", "row S0: shorten the PR body",
+            id="DraftPR: delegated runs S0 too",
         ),
         pytest.param(
-            [*final_fixed(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", "then: state next, which records ready from the PR on GitHub",
-            id="PR: green CI, ready",
+            simplified(), NoFacts(), "WAIT ci", "notify: the draft is complete and CI runs",
+            id="DraftPR: simplified, notify and wait for CI",
         ),
         pytest.param(
-            [*final_fixed("POC"), Ci("h4", ())], NoFacts(), "DONE", "the PR stays a labelled draft", id="PR: POC stays a draft",
+            simplified(delegated=True), NoFacts(), "DONE", f"hand back: READY {PR}, the work pushed",
+            id="DraftPR: delegated hands back once simplified",
+        ),
+        pytest.param(
+            [*simplified(), Ci("h4", ())], NoFacts(), f"RUN gh pr ready {PR}", "then: state next, which records ready from the PR on GitHub",
+            id="PR: green CI and simplified, ready",
+        ),
+        pytest.param(
+            [*final_fixed(), Ci("h4", ()), Simplified("h4")], NoFacts(), f"RUN gh pr ready {PR}", "before:",
+            id="PR: S0 back after green CI, ready",
+        ),
+        pytest.param(
+            [*final_fixed(), Ci("h4", ())], NoFacts(), "SPAWN fixer", "row S0: shorten the PR body",
+            id="PR: green CI before S0 gets S0, not ready",
+        ),
+        pytest.param(
+            [*simplified("POC"), Ci("h4", ())], NoFacts(), "DONE", "the PR stays a labelled draft", id="PR: POC stays a draft",
+        ),
+        pytest.param(
+            [*simplified(), Ci("h4", ("lint",)), Fixed("h5", ()), *review("h6"), Ci("h6", ())],
+            NoFacts(), f"RUN gh pr ready {PR}", "before:",
+            id="PR: a CI fix keeps simplified",
+        ),
+        pytest.param(
+            [*simplified(), Ci("h4", ("lint",))], NoFacts(), "SPAWN fixer", "keep the S0 shape",
+            id="PR: a CI fix after S0 edits the body in place",
+        ),
+        pytest.param(
+            [*final_fixed(), Ci("h4", ("lint",))], NoFacts(), "SPAWN fixer", "with the full facts",
+            id="PR: a CI fix before S0 writes the full body",
         ),
         pytest.param(
             [*final_fixed(), Ci("h4", ("lint",))], NoFacts(), "SPAWN fixer", "CI fix: lint", id="PR: CI fix",
@@ -644,7 +675,7 @@ def ci_fix_reviewed_at_cap(
             "gh pr checks", id="PR: after the final fixer, the CI wait",
         ),
         pytest.param(
-            [*final_fixed(), Ci("h4", ()), Ready(PR)], NoFacts(), "DONE", "the PR is ready", id="Done",
+            [*simplified(), Ci("h4", ()), Ready(PR)], NoFacts(), "DONE", "the PR is ready", id="Done",
         ),
         pytest.param(
             [*drafted(), Implemented("h1"), Blocked("which log?", "answered", "implementer")],
@@ -946,6 +977,11 @@ def test_an_accepted_event_or_an_override_clears_the_warning(then: Event) -> Non
             (Fixed("abc1234", ()),), id="fixer READY with no Touches line",
         ),
         pytest.param(
+            "fixer", "READY body shortened, 42 visible lines\n\nSimplified: 5e1f2a9",
+            HandbackOptions(), (Simplified("5e1f2a9"),),
+            id="fixer READY with its Simplified line is S0, no fix",
+        ),
+        pytest.param(
             "implementer",
             "NEEDS_DECISION Should the log live in the git dir?\nGREW a second format\n",
             HandbackOptions(kind="fact"),
@@ -1105,6 +1141,28 @@ def test_brief_of_a_fixer_asks_for_the_touches_line() -> None:
         "End your hand-back with a line `Touches: <area>...` naming any of "
         "interface, data-model, auth your fix changed (or `Touches: none`)."
     ) in text
+
+
+@pytest.mark.parametrize(
+    "run",
+    [final_fixed(), [*final_fixed(), Ci("h4", ())]],
+    ids=["DraftPR", "PR at green CI"],
+)
+def test_brief_of_the_s0_fixer_points_at_pr_descriptions_simplify_section(
+    run: list[Event],
+) -> None:
+    lines = brief("fixer", reach(*run), "/w").splitlines()
+
+    assert "Rows: S0" in lines
+    assert any("`## Simplify (row S0)`" in line for line in lines)
+    assert not any(
+        line.startswith(("R0:", "End your hand-back with a line `Touches:"))
+        for line in lines
+    )
+
+
+def test_show_names_the_head_s0_shortened_the_body_on() -> None:
+    assert "Simplified: h4\n" in show(reach(*simplified()))
 
 
 def test_show_before_quality_is_recorded_shows_no_cap() -> None:

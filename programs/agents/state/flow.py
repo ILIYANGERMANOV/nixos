@@ -20,7 +20,7 @@ from state.model import (
 type Kind = Literal[
     "started", "started-delegated", "knob", "researched", "asked", "planned",
     "proposed", "confirmed", "confirmed-replan", "adjusted", "drafted", "implemented", "refactored",
-    "reviewed", "picked-loop", "picked-final", "fixed", "ci", "raised", "blocked",
+    "reviewed", "picked-loop", "picked-final", "fixed", "ci", "simplified", "raised", "blocked",
     "blocked-decision", "resolved", "ready",
 ]  # fmt: skip
 
@@ -68,6 +68,9 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
     ("DraftPR", "ci"): "PR",
     ("PR", "ci"): "PR",
     ("PR", "fixed"): "PR",
+    # S0 runs while CI does, so it lands before or after the step moves to PR.
+    ("DraftPR", "simplified"): "DraftPR",
+    ("PR", "simplified"): "PR",
     ("PR", "picked-loop"): "PR",
     ("PR", "picked-final"): "PR",
     ("PR", "ready"): "Done",
@@ -82,7 +85,8 @@ STEPS: tuple[tuple[str, str, str], ...] = (
     ("6", "Refactor", "refactor: 7; fixed: 6"),
     ("7", "Review", "first review: rows to fix: 8; none: final fixer, 9; implemented: 7"),
     ("8", "Fix", "fix, then a `--fixes` review: 8 while rounds remain; cap: final fixer, 9"),
-    ("9", "DraftPR", "notify: 10"),
+    ("9", "DraftPR", "simplify: 9a; notify: 10"),
+    ("9a", "Simplify", "S0 fixer while CI runs: 10"),
     ("10", "PR", "green CI: ready and notify; CI issues: `review.md`'s CI fix, then CI again"),
     ("any", "blocker", "a worker's `NEEDS_DECISION`: triage in `blockers.md`"),
     ("any", "stuck", "the stuck guard above: ask"),
@@ -219,7 +223,20 @@ def stuck_line(why: str) -> str:
 def r0_text(base: str) -> str:
     return (
         "R0: the PR body describes the branch in the form `pr-description` picks, "
-        f"read from `ctx diff origin/{base}`; keep any decisions made on the user's "
-        "behalf, every recorded reason for an unfixed row, the research and "
-        "decisions log, and `## Follow-ups`"
+        f"read from `ctx diff origin/{base}`, with the full facts: any decisions made "
+        "on the user's behalf, every recorded reason for an unfixed row, the "
+        "decisions and considered options as one collapsed table, and "
+        "`## Follow-ups`; S0 owns the shape"
     )
+
+
+# R0 once S0 shortened the body: nothing rewrites it whole again.
+R0_IN_PLACE = (
+    "R0: edit the PR body's sections the fix changes in place, keep the S0 shape, "
+    "and rerun `pr-description`'s visible_lines check"
+)
+
+S0_TEXT = (
+    "S0: rewrite the PR body as `pr-description`'s `## Simplify (row S0)` section "
+    "says; end your hand-back with a line `Simplified: <head sha>`"
+)

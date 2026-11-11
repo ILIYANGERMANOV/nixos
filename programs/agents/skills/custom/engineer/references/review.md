@@ -45,6 +45,8 @@ house-rule row or Major row you do not fix goes in `## Follow-ups`, with the
 reason. Size decides fix or record, never drop. A row that blocks the feature
 is a blocker: triage it.
 
+R0 writes the full facts; step 9a's S0 owns the shape.
+
 ## Not met always
 
 A Not met verdict on a requirement or a plan decision never goes in
@@ -59,4 +61,4 @@ A fixer names what its fix touched on its report's `Touches:` line, which the
 hook records. One that touches what your Quality row's Full review of a fix to
 names gets a review of the whole branch. The CI fix loops as `state next`
 says until CI is green; a CI fixer also gets R0 when its fix changes what the
-body says. Notify only on ready.
+body says, in place after S0. Notify only on ready.
