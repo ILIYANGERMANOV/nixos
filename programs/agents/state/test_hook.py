@@ -485,11 +485,22 @@ def test_handback_records_a_researcher_while_in_ctx(repo: Path, notes: Path) -> 
 def test_handback_skips_a_subagent_with_no_role(repo: Path, notes: Path) -> None:
     to_implement(repo, notes)
     before = types(notes)
-    unnamed = BeforeTool(
+    no_role = BeforeTool(
         SESSION, repo, Agent(AgentId("a1"), None), Tool.HANDBACK, {"message": "done"}
     )
 
-    assert run_hook("handback", unnamed) == Allow()
+    assert run_hook("handback", no_role) == Allow()
+    assert types(notes) == before
+
+
+def test_handback_skips_a_subagent_with_no_id(repo: Path, notes: Path) -> None:
+    to_implement(repo, notes)
+    before = types(notes)
+    no_id = BeforeTool(
+        SESSION, repo, Agent(None, None), Tool.HANDBACK, {"message": "done"}
+    )
+
+    assert run_hook("handback", no_id) == Allow()
     assert types(notes) == before
 
 

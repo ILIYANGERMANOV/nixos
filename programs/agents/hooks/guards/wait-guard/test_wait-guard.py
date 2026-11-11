@@ -6,6 +6,7 @@ from typing import Literal
 
 import bash_commands
 import pytest
+from agent_hook import Agent
 from guard_harness import (
     ALLOWED,
     BLOCKED,
@@ -508,6 +509,14 @@ def test_raw_input(want: Decision, given: str) -> None:
 def test_an_earlier_status_read_counts_among_other_commands(earlier: str) -> None:
     history = ["ls", earlier, "git status"]
     event = shell_event("gh pr checks 7", agent=SUBAGENT, history=history)
+
+    assert decision(judge([GUARD], event)) == BLOCKED
+
+
+def test_a_subagent_with_no_id_never_waits_on_ci() -> None:
+    event = shell_event(
+        "gh pr checks 7", agent=Agent(None, None), history=["gh pr checks 7"]
+    )
 
     assert decision(judge([GUARD], event)) == BLOCKED
 

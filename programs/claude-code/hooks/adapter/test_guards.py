@@ -105,11 +105,11 @@ def test_crossing_150k_after_an_mcp_tool_gives_the_notice(
 def test_a_subagent_claude_names_no_id_still_runs_the_guards(
     flavor: str, tmp_path: Path
 ) -> None:
-    unnamed = shell_call(tmp_path, f"cat {QA_KEY_FILE}", agent=WORKER) | {
+    no_id = shell_call(tmp_path, f"cat {QA_KEY_FILE}", agent=WORKER) | {
         "agent_id": None
     }
 
-    assert "Never read it from a shell" in denied(flavor, unnamed)
+    assert "Never read it from a shell" in denied(flavor, no_id)
 
 
 # ---- Claude's side ------------------------------------------------------------------

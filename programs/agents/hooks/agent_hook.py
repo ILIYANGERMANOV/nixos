@@ -8,8 +8,8 @@ as JSON on stdout, or nothing, which allows:
     stdout: beforeTool: {decision: allow | deny, reason, context, updatedInput}
             sessionStart, afterTool: {context}
 
-`agent` is null for the lead; a subagent's `role` is null when its agent does
-not name one. `tool` is `other` for a tool the vocabulary has no name for, which
+`agent` is null for the lead; a subagent's `id` is null when its agent gives
+none, and its `role` null when its agent names none. `tool` is `other` for a tool the vocabulary has no name for, which
 only a hook declared with no tools sees. A backend fills two facts from what
 the agent has done so far, so a hook needs no state of its own:
 
@@ -82,10 +82,11 @@ class Source(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Agent:
-    """The subagent making the call; the lead is no agent. `role` is its type,
-    None when its agent names none."""
+    """The subagent making the call; the lead is no agent. `id` is None when its
+    agent gives none, so such subagents cannot be told apart. `role` is its
+    type, None when its agent names none."""
 
-    id: AgentId
+    id: AgentId | None
     role: Role | None
 
 
@@ -405,10 +406,11 @@ def parse_agent(agent: Json) -> Agent | None:
     match agent:
         case None:
             return None
-        case {"id": str(agent_id), "role": str(role)}:
-            return Agent(AgentId(agent_id), Role(role))
-        case {"id": str(agent_id), "role": None}:
-            return Agent(AgentId(agent_id), None)
+        case {"id": None | str() as agent_id, "role": None | str() as role}:
+            return Agent(
+                None if agent_id is None else AgentId(agent_id),
+                None if role is None else Role(role),
+            )
         case _:
             raise ValueError(f"not an agent: {agent!r}")
 

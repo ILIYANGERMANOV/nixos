@@ -66,7 +66,7 @@ json_values = st.recursive(
 json_objects = st.dictionaries(st.text(), json_values, max_size=3)
 texts = st.text(min_size=1)
 agents = st.none() | st.builds(
-    Agent, st.text().map(AgentId), st.none() | st.text().map(Role)
+    Agent, st.none() | st.text().map(AgentId), st.none() | st.text().map(Role)
 )
 counts = st.integers(min_value=0)
 context_sizes = st.none() | st.builds(ContextSize, counts, st.none() | counts)
@@ -240,6 +240,15 @@ def test_a_subagent_its_agent_names_no_role_reads_as_one_with_no_role() -> None:
         {"command": "ls"},
         ("git status",),
     )
+
+
+def test_a_subagent_its_agent_gives_no_id_reads_as_one_with_no_id() -> None:
+    event = BeforeTool(
+        SESSION, CWD, Agent(None, Role("implementer")), Tool.SHELL, {"command": "ls"}
+    )
+
+    assert json.loads(emit_event(event))["agent"] == {"id": None, "role": "implementer"}
+    assert parse_event(emit_event(event)) == event
 
 
 @given(verdicts)

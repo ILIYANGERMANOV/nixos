@@ -65,10 +65,6 @@ type ReadLines = Callable[[Path], Sequence[bytes]]
 # costs `previous`; and for the shell commands a subagent ran lately.
 TAIL_BYTES = 256 * 1024
 
-# A subagent Claude names with a null `agent_id`, which no transcript is named
-# after. One id for all of them: none can be told apart.
-UNNAMED = Agent(AgentId("unnamed"), None)
-
 
 def main() -> None:
     try:
@@ -163,7 +159,7 @@ def parse_agent(payload: JsonObject) -> Agent | None:
     """Claude names a subagent by `agent_id` and its type; the lead has neither.
     A lead started with --agent has a type but no id: it is still the lead. A
     subagent whose type is null or missing is one with no role, and one whose
-    id is null is UNNAMED: its transcript cannot be found, so it gives none."""
+    id is null has neither id nor role."""
     match payload:
         case {"agent_id": str(agent_id)}:
             match payload.get("agent_type"):
@@ -174,7 +170,7 @@ def parse_agent(payload: JsonObject) -> Agent | None:
                 case role:
                     raise ValueError(f"agent_type {role!r} is not a string")
         case {"agent_id": None}:
-            return UNNAMED
+            return Agent(None, None)
         case {"agent_id": agent_id}:
             raise ValueError(f"agent_id {agent_id!r} is not a string")
         case _:
@@ -209,12 +205,15 @@ def transcript(path: Json, agent: Agent | None, read: ReadLines) -> list[ModelLi
     """The model calls in the tail of the transcript of the agent that called.
 
     `transcript_path` always names the main session's. A subagent's, at any
-    depth, sits under the session's own directory, named after its `agent_id`.
+    depth, sits under the session's own directory, named after its `agent_id`;
+    one with no id has none to find.
     """
     match path, agent:
         case str(main), None:
             own = Path(main)
-        case str(main), Agent(id=agent_id):
+        case _, Agent(id=None):
+            return []
+        case str(main), Agent(id=str(agent_id)):
             own = Path(main).with_suffix("") / "subagents" / f"agent-{agent_id}.jsonl"
         case _:
             return []

@@ -371,10 +371,33 @@ def test_a_subagent_with_no_type_has_no_role(payload: JsonObject) -> None:
     assert event.agent == Agent(AgentId("a1b2"), None)
 
 
-def test_a_subagent_claude_names_no_id_is_an_unnamed_subagent() -> None:
+def test_a_subagent_claude_names_no_id_is_a_subagent_with_no_id() -> None:
     event = parse_claude(HANDBACK | {"agent_id": None}, TOOLS, NO_TRANSCRIPT)
 
-    assert event.agent == Agent(AgentId("unnamed"), None)
+    assert event.agent == Agent(None, None)
+
+
+def every_path_holds(lines: list[JsonObject]) -> ReadLines:
+    """A fake disk where any path reads as `lines`."""
+    return lambda _: [json.dumps(line).encode() for line in lines]
+
+
+def test_a_subagent_with_no_id_carries_no_history() -> None:
+    disk = every_path_holds(WORKER_SO_FAR)
+
+    event = parse_claude(SHELL_CALL | {"agent_id": None}, TOOLS, disk)
+
+    assert isinstance(event, BeforeTool)
+    assert event.history == ()
+
+
+def test_a_subagent_with_no_id_carries_no_context() -> None:
+    disk = every_path_holds(WORKER_SO_FAR)
+
+    event = parse_claude(RAN | {"agent_id": None}, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context is None
 
 
 def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
