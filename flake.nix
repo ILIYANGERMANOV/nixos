@@ -179,6 +179,7 @@
               root = self;
             })
             state
+            guards
             ;
         }
       );

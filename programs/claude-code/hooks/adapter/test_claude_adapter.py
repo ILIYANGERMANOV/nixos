@@ -327,6 +327,12 @@ def test_a_subagent_with_no_type_has_no_role(payload: JsonObject) -> None:
     assert event.agent == Agent(AgentId("a1b2"), None)
 
 
+def test_a_subagent_claude_names_no_id_is_an_unnamed_subagent() -> None:
+    event = parse_claude(HANDBACK | {"agent_id": None}, TOOLS, NO_TRANSCRIPT)
+
+    assert event.agent == Agent(AgentId("unnamed"), None)
+
+
 def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
     event = parse_claude(
         SESSION_START | {"agent_type": "engineer"}, TOOLS, NO_TRANSCRIPT

@@ -3,7 +3,7 @@
 # frontend's dispatcher. Claude never sees the hooks themselves, so their order
 # and the threading of rewritten input are the frontend's, not Claude's
 # parallel run. Appended to what the flavor sets, as withSecretFileGuard is,
-# so the guards stay. Values only, no files.
+# so a flavor's own hooks stay. Values only, no files.
 {
   lib,
   # How a session can start, from the vocabulary. Claude's SessionStart sources

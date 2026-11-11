@@ -1,10 +1,10 @@
-# Claude Code's settings.json: what every flavor starts from, and the guard a
-# flavor's secret files add on top of its own settings. Values only, no files.
+# Claude Code's settings.json: what every flavor starts from, and the deny
+# rules a flavor's secret files add on top of its own settings. Values only, no
+# files.
 {
   lib,
   # The status line program, `claude-statusline` in its bin.
   statusline,
-  secretGuard,
 }:
 
 let
@@ -25,12 +25,12 @@ let
   };
 
   # Settings that keep a session from accidentally reading the secret files it
-  # is handed as paths: Read deny rules over their directory, and a Bash hook
-  # blocking the obvious shell routes to them (secret-guard.py). This is
-  # protection against accidental reads, not a security boundary: the program
-  # that needs the secret reads the variable itself, and so can any script the
-  # session runs. Appended to whatever the flavor sets, so a flavor's own deny
-  # rules and Bash hooks stay. No files, no change.
+  # is handed as paths: Read deny rules over their directory. The shell routes
+  # to them are the frontend's secret guard, a hook every profile's base
+  # carries. This is protection against accidental reads, not a security
+  # boundary: the program that needs the secret reads the variable itself, and
+  # so can any script the session runs. Appended to whatever the flavor sets,
+  # so a flavor's own deny rules stay. No files, no change.
   withSecretFileGuard =
     files: settings:
     if files == { } then
@@ -38,12 +38,6 @@ let
     else
       lib.recursiveUpdate settings {
         permissions.deny = settings.permissions.deny or [ ] ++ secretDirDenyRules files;
-        hooks.PreToolUse = settings.hooks.PreToolUse or [ ] ++ [
-          {
-            matcher = "Bash";
-            hooks = [ (secretGuard.hookFor files) ];
-          }
-        ];
       };
 
   # Read deny rules for every directory holding a secret file, and for the

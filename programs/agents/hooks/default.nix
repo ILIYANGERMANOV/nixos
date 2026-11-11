@@ -48,14 +48,15 @@ let
     };
   };
 
-  # Hook modules -> event -> [{ name, tools, command }], in the order they run.
+  # Module arguments beside the packages, such as a host's `secretFiles`, and
+  # hook modules -> event -> [{ name, tools, command }], in the order they run.
   # Every event is present, an event with no hooks as [].
   eval =
-    modules:
+    args: modules:
     let
       declared =
         (lib.evalModules {
-          specialArgs = packages;
+          specialArgs = packages // args;
           modules = [
             {
               options.hooks = mkOption {
@@ -101,7 +102,12 @@ let
       # The fixtures' specs, declared again under other names.
       inherit ((import ./fixtures/resume.nix).hooks) resume;
       inherit ((import ./fixtures/spawn.nix).hooks) spawn;
-      events = eval [
+      names = map (h: h.name);
+      # The guards on a host with one secret file, and on one with none.
+      secretFile = "/run/secrets/qa-key";
+      guarded = eval { secretFiles.QA_KEY_FILE = secretFile; } [ ./guards/hooks.nix ];
+      unguarded = eval { secretFiles = { }; } [ ./guards/hooks.nix ];
+      events = eval { } [
         ./fixtures/resume.nix
         ./fixtures/resume.nix
         (declare "b" (spawn // { order = 1; }))
@@ -126,26 +132,65 @@ let
       ]
     ) "hooks: one hook file listed twice did not count once";
     assert lib.assertMsg (events.afterTool == [ ]) "hooks: an event with no hooks is not []";
-    assert lib.assertMsg (throws (eval [
-      (declare "a" spawn)
-      (declare "a" spawn)
-    ])) "hooks: one name declared twice did not throw";
-    assert lib.assertMsg (throws (eval [
-      (declare "a" resume)
-      (declare "a" { order = 1; })
-    ])) "hooks: a second declaration setting only other fields of one name did not throw";
-    assert lib.assertMsg (throws (eval [
-      (declare "a" (spawn // { on = "beforeLunch"; }))
-    ])) "hooks: an unknown event did not throw";
-    assert lib.assertMsg (throws (eval [
-      (declare "a" (spawn // { tools = [ "teleport" ]; }))
-    ])) "hooks: an unknown tool did not throw";
-    assert lib.assertMsg (throws (eval [
-      (declare "a" (spawn // { tool = [ "shell" ]; }))
-    ])) "hooks: a misspelled field did not throw";
-    assert lib.assertMsg (throws (eval [
-      (declare "a" (resume // { tools = [ "shell" ]; }))
-    ])) "hooks: a sessionStart hook naming tools did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" spawn)
+        (declare "a" spawn)
+      ]
+    )) "hooks: one name declared twice did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" resume)
+        (declare "a" { order = 1; })
+      ]
+    )) "hooks: a second declaration setting only other fields of one name did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" (spawn // { on = "beforeLunch"; }))
+      ]
+    )) "hooks: an unknown event did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" (spawn // { tools = [ "teleport" ]; }))
+      ]
+    )) "hooks: an unknown tool did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" (spawn // { tool = [ "shell" ]; }))
+      ]
+    )) "hooks: a misspelled field did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" (resume // { tools = [ "shell" ]; }))
+      ]
+    )) "hooks: a sessionStart hook naming tools did not throw";
+    assert lib.assertMsg (
+      names guarded.beforeTool == [
+        "secret-guard"
+        "read-guard"
+        "wait-guard"
+      ]
+    ) "hooks: the guards do not run secret, read, then wait";
+    assert lib.assertMsg (
+      lib.last (lib.head guarded.beforeTool).command == builtins.toJSON {
+        paths = [ secretFile ];
+        vars = [ "QA_KEY_FILE" ];
+      }
+    ) "hooks: the secret guard is not handed the host's secret files";
+    assert lib.assertMsg (
+      names unguarded.beforeTool == [
+        "read-guard"
+        "wait-guard"
+      ]
+    ) "hooks: a host with no secret file got a secret guard";
+    assert lib.assertMsg (
+      map (h: { inherit (h) name tools; }) guarded.afterTool == [
+        {
+          name = "context-guard";
+          tools = null;
+        }
+      ]
+    ) "hooks: the context guard does not see every tool";
     pkgs.writeText "hooks-check" "";
 in
 {

@@ -1,17 +1,17 @@
-"""PreToolUse hook: block a read that puts over MAX_BYTES into context.
+"""beforeTool hook on shell and read: deny a read that puts over MAX_BYTES into context.
 
-Reads the hook input from stdin. A Bash command whose `cat` and `git show
-rev:path` operands total over MAX_BYTES, or a Read with no `limit` of a text
-file over MAX_BYTES, exits 2, which makes Claude Code block the call and show
-stderr to the model. Only Bash reads whose output reaches the screen count: one
+Reads a neutral event (agent_hook.py) on stdin. A shell command whose `cat` and
+`git show rev:path` operands total over MAX_BYTES, or a read with no `limit` of
+a text file over MAX_BYTES, is denied, the hint its reason. Only shell reads whose output reaches the screen count: one
 redirected to a file or piped into another command dumps nothing into context,
 and heredoc bodies are data, not commands. A bare `$(...)` counts as the screen.
 A quoted one, backticks and `<(...)` do not: they feed an argument far more often
 than they print, such as a PR body. Files agents are told to read in
 full are exempt: instruction files and anything in a skill. What is exempt is
 decided on the path as typed, normalised but with links unfollowed: the guard
-stops accidents, it is not a security boundary. Everything else exits 0,
-including any input this script does not understand: the guard fails open.
+stops accidents, it is not a security boundary. Everything else prints
+nothing, including any input this script does not understand: the guard fails
+open.
 """
 
 import glob
@@ -23,7 +23,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from bash_commands import Parsed, Simple, Sink, Unparsable, parse
-from hook_event import Json, ReadCall, parse_bash_call, parse_json, parse_read_call
+from agent_hook import BeforeTool, Deny, Tool, emit_result, parse_event
 
 MAX_BYTES = 16 * 1024
 SHOWN = {Sink.SCREEN, Sink.BARE_SUBSTITUTION}
@@ -41,43 +41,38 @@ INSTRUCTION_FILE = re.compile(
     r"(?:.*/)?(?:instructions|profiles/[^/]+)/(?:agent|lead)\.md"
 )
 SKILL_FILE = re.compile(r"(?:.*/)?skills/[^/]+/.+")
-# The Read tool renders these for the model: their bytes are not text in context.
+# The read tool renders these for the model: their bytes are not text in context.
 MEDIA = {".gif", ".jpeg", ".jpg", ".pdf", ".png", ".webp"}
 
 
 def main() -> None:
     try:
-        event = parse_json(sys.stdin.read())
-        cwd = working_directory(event)
-        match event:
-            case {"tool_name": "Read"}:
-                size = read_tool_size(parse_read_call(event), cwd)
+        match parse_event(sys.stdin.read()):
+            case BeforeTool(
+                tool=Tool.READ, cwd=cwd, input={"file_path": str(path)} as read
+            ):
+                size = read_tool_size(
+                    path, bounded=read.get("limit") is not None, cwd=str(cwd)
+                )
                 hint = READ_HINT
-            case _:
-                size = sum(read_sizes(parse_bash_call(event).command, cwd))
+            case BeforeTool(tool=Tool.SHELL, cwd=cwd, input={"command": str(command)}):
+                size = sum(read_sizes(command, str(cwd)))
                 hint = BASH_HINT
+            case _:
+                return
     except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
     if size > MAX_BYTES:
-        print(hint.format(size=size), file=sys.stderr)
-        sys.exit(2)
+        print(emit_result(Deny(hint.format(size=size))))
 
 
-def working_directory(event: Json) -> str:
-    match event:
-        case {"cwd": str(cwd)} if cwd:
-            return cwd
-        case _:
-            return str(Path.cwd())
-
-
-def read_tool_size(call: ReadCall, cwd: str) -> int:
-    """What a Read tool call puts into context, 0 where it is bounded or exempt."""
-    path = resolve(cwd, call.file_path)
+def read_tool_size(file_path: str, *, bounded: bool, cwd: str) -> int:
+    """What a read call puts into context, 0 where it is bounded or exempt."""
+    path = resolve(cwd, file_path)
     # Not Path.suffix: at Python 3.13 it calls a file named `..png` an image.
     media = os.path.splitext(path)[1].lower() in MEDIA  # noqa: PTH122
-    if media or call.bounded or is_exempt(path) or not is_file(path):
+    if media or bounded or is_exempt(path) or not is_file(path):
         return 0
     return Path(path).stat().st_size
 

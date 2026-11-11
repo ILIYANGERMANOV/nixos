@@ -1,21 +1,21 @@
-"""PreToolUse hook: block a foreground Bash call that waits.
+"""beforeTool hook on shell: deny a foreground shell call that waits.
 
-Reads the hook input from stdin. A call not sent with run_in_background whose
-command sleeps MIN_SLEEP seconds or more in one go, loops with `until` or
-`while` around a `sleep`, or follows a file with `tail -f`, exits 2, which makes
-Claude Code block the call and show stderr to the model. A wait counts behind
+Reads a neutral event (agent_hook.py) on stdin. A call not sent with
+run_in_background whose command sleeps MIN_SLEEP seconds or more in one go,
+loops with `until` or `while` around a `sleep`, or follows a file with
+`tail -f`, is denied, the hint its reason. A wait counts behind
 `bash -c`, `sh -c`, `timeout`, `env`, `nohup`, `command`, `nix develop -c` and an
 assignment prefix, unless a `timeout` under MIN_SLEEP bounds it. A `tail -f` sent to the background with
 `&` follows beside the call instead of holding it. Only commands count, so
 `echo "sleep 30"` and a heredoc body naming one are allowed. Everything else
-exits 0, including any input this script does not understand: the guard fails
-open.
+prints nothing, including any input this script does not understand: the guard
+fails open.
 
 A subagent never waits on CI: its caller does. In a subagent, backgrounded or
 not, the guard also blocks `gh pr checks --watch`, `gh run watch`, `watch` over
 a CI read, a status read (`gh pr checks`, `gh run view`, `gh run list`) in a
 `while`, `until` or `for` loop, and a status read the agent already made, in
-this command or an earlier one of its transcript. One status read stays allowed,
+this command or an earlier one of the event's `history`. One status read stays allowed,
 because review agents read CI as evidence, and so does a log read, in a loop
 too: `gh run view --log` of a finished run returns the same log, and only the
 filter after it changes. This guards accidents, not an adversary: `gh api` goes
@@ -28,25 +28,9 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from enum import Enum, auto
 from itertools import dropwhile, pairwise
-from typing import assert_never
 
+from agent_hook import BeforeTool, Deny, Tool, emit_result, parse_event
 from bash_commands import Loop, Parsed, Simple, Unparsable, parse
-from hook_event import (
-    Json,
-    ToolUseId,
-    parse_agent,
-    parse_bash_call,
-    parse_caller,
-    parse_json,
-)
-from transcripts import (
-    BashUse,
-    OtherUse,
-    ToolUse,
-    in_subagent,
-    own_transcript,
-    parse_assistant_line,
-)
 
 MIN_SLEEP = 10
 # Past this context an agent hands a long check back: a wait over the 5 minute
@@ -96,24 +80,28 @@ TAIL_FOLLOW = re.compile(r"-[\dqvz]*[fF]\w*|--follow(=.*)?")
 
 def main() -> None:
     try:
-        event = parse_json(sys.stdin.read())
-        call = parse_bash_call(event)
-        waits = is_wait(call.command)
-        polls = in_subagent(parse_agent(event)) and polls_ci(
-            call.command, earlier_commands(event, call.tool_use_id)
-        )
+        match parse_event(sys.stdin.read()):
+            case BeforeTool(
+                tool=Tool.SHELL,
+                agent=agent,
+                input={"command": str(command)} as shell,
+                history=history,
+            ):
+                background = shell.get("run_in_background") is True
+                waits = is_wait(command)
+                polls = agent is not None and polls_ci(command, history)
+            case _:
+                return
     except Exception:  # noqa: BLE001 - any failure must let the call through
         sys.exit(0)
 
-    match (polls, call.background, waits):
+    match (polls, background, waits):
         case (True, _, _):
-            print(CI_HINT, file=sys.stderr)
-            sys.exit(2)
+            print(emit_result(Deny(CI_HINT)))
         case (False, False, True):
-            print(HINT, file=sys.stderr)
-            sys.exit(2)
+            print(emit_result(Deny(HINT)))
         case _:
-            sys.exit(0)
+            pass
 
 
 @dataclass(frozen=True)
@@ -211,29 +199,6 @@ def steps_of(simple: Simple, around: Loop) -> Iterator[Step]:
             yield Step(inner, looped)
         case script:
             yield from parsed(script, looped) or [Step(inner, looped)]
-
-
-def earlier_commands(event: Json, skip: ToolUseId | None) -> Iterator[str]:
-    """The agent's Bash commands so far, without the call under judgement.
-
-    Lazy, so a command that is no CI read still gets its verdict with no transcript.
-    """
-    with own_transcript(parse_caller(event)).open("rb") as transcript:
-        for line in transcript:
-            assistant = parse_assistant_line(line)
-            if assistant is not None:
-                yield from bash_commands(assistant.tool_uses, skip)
-
-
-def bash_commands(tool_uses: list[ToolUse], skip: ToolUseId | None) -> Iterator[str]:
-    for use in tool_uses:
-        match use:
-            case BashUse(use_id, command) if use_id != skip:
-                yield command
-            case BashUse() | OtherUse():
-                pass
-            case _:
-                assert_never(use)
 
 
 def is_wait(command: str) -> bool:

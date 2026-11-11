@@ -1,4 +1,4 @@
-"""Reads a Bash command as Bash would, for the PreToolUse guards.
+"""Reads a Bash command as Bash would, for the beforeTool guards.
 
 `parse` is the interface. It runs shfmt, whose JSON stays inside this module, and
 never raises: whatever goes wrong is an `Unparsable`, which a guard fails open on.

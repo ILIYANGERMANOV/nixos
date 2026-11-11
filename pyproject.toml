@@ -22,9 +22,9 @@ ignore = [
 # the parser's shfmt are substituted at build time; a test runs what the check puts
 # on PATH, disk_plan.py what factory-ctl does, ctx.py the agent session's and
 # analyze.py the person's gh.
-"programs/claude-code/hooks/read-guard/read-guard.py" = ["S603", "S607"]
-"programs/claude-code/hooks/shared/bash_commands.py" = ["S603"]
-"programs/claude-code/hooks/shared/guard_harness.py" = ["S603"]
+"programs/agents/hooks/guards/read-guard/read-guard.py" = ["S603", "S607"]
+"programs/agents/hooks/guards/shared/bash_commands.py" = ["S603"]
+"programs/agents/hooks/guards/shared/guard_harness.py" = ["S603"]
 "programs/claude-code/statusline/statusline.py" = ["S603", "S607"]
 "programs/software-factory/disk_plan.py" = ["S603", "S607"]
 "just/cache-check/cache_check.py" = ["S603", "S607"]
@@ -55,7 +55,7 @@ addopts = "--import-mode=importlib -p no:cacheprovider --hypothesis-seed=0 -q"
 # A test imports what sits beside it: the harness, bash_commands.py, disk_plan.py,
 # cache_check.py. The analyzer's differential test imports both programs.
 pythonpath = [
-  "programs/claude-code/hooks/shared",
+  "programs/agents/hooks/guards/shared",
   "programs/claude-code/statusline",
   "programs/agents/skills/custom/self-improve/scripts",
   "programs/agents/skills/custom/pr-description/scripts",
@@ -79,28 +79,28 @@ typeCheckingMode = "recommended"
 pythonVersion = "3.13"
 
 # The adapter imports the hook contract from site-packages at runtime
-# (adapter.nix). First: the guards' environment below would claim it.
+# (adapter.nix).
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code/hooks/adapter"
 extraPaths = ["programs/agents/hooks"]
 
-# The probe imports the mock beside it. First: the guards' environment below
-# would claim it.
+# The probe imports the mock beside it.
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code/hooks/contract"
 
-# The guards import their sibling modules from site-packages at runtime
-# (bash-guard.nix), so they are absolute imports, not relative ones.
+# The guards import the hook contract and their shared modules from
+# site-packages at runtime (guards/default.nix), so they are absolute imports,
+# not relative ones. First: the hooks' environment below would claim them.
 [[tool.basedpyright.executionEnvironments]]
-root = "programs/claude-code/hooks"
-extraPaths = ["programs/claude-code/hooks/shared"]
+root = "programs/agents/hooks/guards"
+extraPaths = ["programs/agents/hooks/guards/shared", "programs/agents/hooks"]
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/claude-code/statusline"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/skills/custom/self-improve/scripts"
-extraPaths = ["programs/claude-code/hooks/shared"]
+extraPaths = ["programs/agents/hooks/guards/shared"]
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/skills/custom/pr-description/scripts"
