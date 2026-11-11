@@ -133,16 +133,25 @@ def apply(state: State, event: Event) -> State | Failure:
             | Refactored() | Reviewed() | Picked() | Fixed() | Ci() | Simplified()
             | Raised() | Blocked() | Resolved() | Ready()
         ):  # fmt: skip
-            target = TARGET.get((state.step, classify(state, event)))
+            target = TARGET.get((source(state, event), classify(state, event)))
     match target, absorb(state, event):
         case None, _:
             return off_arrow(state, event)
         case _, Failure() as failure:
             return failure
         case _, State() as absorbed:
-            step = resumed(absorbed, event) or target
-            resume = absorbed.resume if step == "Ctx" else None
+            back = resumed(absorbed, event)
+            step = back or target
+            resume = absorbed.resume if step == "Ctx" or back else None
             return replace(absorbed, step=step, refused=None, resume=resume)
+
+
+def source(state: State, event: Event) -> StateName:
+    """The step an event leaves from. `planned` right after `resolved` went back
+    leaves from Ctx: on a log older than the return, `resolved` stayed in Ctx and
+    a re-plan followed it, and such a log must still replay."""
+    returned = state.resume is not None and state.step != "Ctx"
+    return "Ctx" if returned and isinstance(event, Planned) else state.step
 
 
 def resumed(absorbed: State, event: Event) -> StateName | None:

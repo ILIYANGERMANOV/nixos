@@ -840,6 +840,16 @@ def test_history_a_re_plan_from_a_decision_still_resumes_at_implement() -> None:
     assert state.step == "Implement"
 
 
+def test_history_a_re_plan_right_after_the_answer_still_resumes_at_implement() -> None:
+    # A log from before `resolved` went back: it stayed in Ctx, then re-planned.
+    state = reach(
+        *reviewed(), DECISION, ANSWERED,
+        Planned("p2.md"), Proposed("simplify"), Proposed("alternative"), Confirmed(),
+    )  # fmt: skip
+
+    assert state.step == "Implement"
+
+
 def test_next_in_ctx_after_a_decision_names_both_ways_out() -> None:
     text = advice(*reviewed(), DECISION)
 
@@ -1278,6 +1288,24 @@ def test_brief_of_a_fixer_asks_for_the_touches_line() -> None:
         "End your hand-back with a line `Touches: <area>...` naming any of "
         "interface, data-model, auth your fix changed (or `Touches: none`)."
     ) in text
+
+
+TOUCHES_ASK = "End your hand-back with a line `Touches: <area>...`"
+
+
+@pytest.mark.parametrize(
+    "run",
+    [final_fixed(), [*final_fixed(), Ci("h4", ())]],
+    ids=["DraftPR", "PR at green CI"],
+)
+def test_brief_of_an_implementer_on_a_ci_fix_asks_for_the_touches_line(
+    run: list[Event],
+) -> None:
+    assert TOUCHES_ASK in brief("implementer", reach(*run), "/w")
+
+
+def test_brief_of_an_implementer_before_the_pr_asks_for_no_touches_line() -> None:
+    assert TOUCHES_ASK not in brief("implementer", reach(*reviewed()), "/w")
 
 
 @pytest.mark.parametrize(

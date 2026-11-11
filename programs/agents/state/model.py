@@ -314,7 +314,9 @@ class State:
     # The last refusal, until the next accepted event or override.
     refused: Refused | None = None
     # In Ctx after a lead's decision: the step it came from, which `resolved`
-    # returns to (a shallow history state, SCXML 3.10). Any step but Ctx clears it.
+    # returns to (a shallow history state, SCXML 3.10). It outlives that return
+    # by one event, so a `planned` there still re-plans; any other event outside
+    # Ctx clears it.
     resume: StateName | None = None
 
 
