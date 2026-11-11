@@ -120,12 +120,14 @@ Events
   <head> omitted: HEAD. A row's label stays the same for the same finding.
   reviewed: a review back; picked: the lead's rows and verdicts from it.
   ci with no --failing: green.
+  implemented with no --touches: every area; fixed with none: no area.
 
 Hand-backs   roles: {" ".join(WORKERS)}
   where the state hooks are installed, each is recorded as its worker hands back
   line 1 {" | ".join(token_usage(token) for token in TOKENS)}
   review-lead: its `Reviewed head: <sha>` line; the lead then records picked
   fixer: its `Touches: <area>...` line; none when left out
+  implementer: the same line; every area when left out
   a question waits for its triage, record blocked, unless --kind gives it
   ({KIND.shown}) or it starts `plan wrong:` or `stuck:`: a decision
 Brief roles  {" ".join(ROLES)}
@@ -346,7 +348,11 @@ class ArgvFields:
     def many[T](self, option: Option[T]) -> tuple[T, ...]:
         found = [value for flag, value in self.options if flag == option.flag]
         self.options = [(f, v) for f, v in self.options if f != option.flag]
-        return tuple(option.codec.parse(option.name, v) for v in found)
+        return (
+            tuple(option.codec.parse(option.name, v) for v in found)
+            if found
+            else option.unstated
+        )
 
     def constant(self, name: str, value: Json) -> None:
         """Never on the command line: a constant is derived, not given."""

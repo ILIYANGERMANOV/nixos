@@ -64,6 +64,37 @@ DEFAULTS: dict[Knob, str] = {"quality": DEFAULT_QUALITY, "size": DEFAULT_SIZE}
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 
+# ---- Log versions -------------------------------------------------------------
+
+# A log replays by the rules of the state that started it, named on its
+# `started` line. A new version is one more entry in RULES.
+type Version = Literal[1, 2]
+VERSION: Version = 2  # what a new run writes
+# A log main wrote: one with no `started` line (main read a missing log as
+# empty), or whose `started` names no version.
+UNVERSIONED: Version = 1
+
+
+@dataclass(frozen=True)
+class Rules:
+    # Per event type, the fields this version did not write, with the value their
+    # absence meant.
+    absent: dict[str, dict[str, Json]]
+    # A lead's decision records the step it came from, which `resolved` in Ctx
+    # returns to; without it `resolved` stays in Ctx.
+    resumes: bool
+
+
+RULES: dict[Version, Rules] = {
+    # Main's `implemented` had no touches: only Implement, Refactor and Review
+    # took one, where touches is unused.
+    UNVERSIONED: Rules(
+        {"started": {"version": UNVERSIONED}, "implemented": {"touches": []}},
+        resumes=False,
+    ),
+    2: Rules({}, resumes=True),
+}
+
 # ---- Events -------------------------------------------------------------------
 
 
@@ -71,6 +102,7 @@ type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 class Started:
     notes: str
     delegated: bool
+    version: Version = VERSION
 
 
 @dataclass(frozen=True)
@@ -137,7 +169,11 @@ class Drafted:
 
 @dataclass(frozen=True)
 class Implemented:
+    """A slice, or after the final fixer a CI fix, whose areas pick its review
+    as a fixer's do. Unstated, it touched every area: a full review."""
+
     head: str
+    touches: tuple[Area, ...] = AREAS
 
 
 @dataclass(frozen=True)
@@ -309,6 +345,10 @@ class State:
     simplified: str | None = None
     # The last refusal, until the next accepted event or override.
     refused: Refused | None = None
+    # In Ctx after a lead's decision: the step it came from, which `resolved`
+    # returns to (a shallow history state, SCXML 3.10). Leaving Ctx clears it.
+    # Only a log version whose rules resume records it.
+    resume: StateName | None = None
 
 
 S0 = State()

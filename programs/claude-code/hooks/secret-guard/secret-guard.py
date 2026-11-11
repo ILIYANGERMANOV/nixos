@@ -39,7 +39,10 @@ HINT = (
     "QA_EVM_KEY_FILE)."
 )
 
-ENV_IN_SUBSTITUTION = re.compile(r"(\$\(|`)\s*(printenv|env)(?![A-Za-z0-9_-])")
+# A `.` after the word means a file name: a markdown code span such as
+# `env.client.ts` in a heredoc body runs nothing. Every other char still
+# blocks, so quotes, braces and backslashes cannot split the word off.
+ENV_IN_SUBSTITUTION = re.compile(r"(\$\(|`)\s*(printenv|env)(?![A-Za-z0-9_.-])")
 
 
 @dataclass(frozen=True, slots=True)

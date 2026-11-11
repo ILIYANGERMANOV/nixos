@@ -50,6 +50,82 @@ BASH_CASES: list[Case[str]] = [
     ),
     (BLOCKED, "the resolved secrets.d path is blocked", "cat /run/secrets.d/5/qa-key"),
     (BLOCKED, "the basename alone is blocked", "cd /tmp/x && cat qa-key"),
+    (BLOCKED, "a single-quoted path is blocked", "cat '/run/secrets/qa-key'"),
+    (BLOCKED, "a double-quoted path is blocked", 'xxd "/run/secrets/qa-key"'),
+    (BLOCKED, "a redirect from the path is blocked", "xxd </run/secrets/qa-key"),
+    (BLOCKED, "a path in an assignment is blocked", "F=/run/secrets/qa-key; cat $F"),
+    (BLOCKED, "a path in a subshell is blocked", "(cat /run/secrets/qa-key)"),
+    (BLOCKED, "listing the bare directory is blocked", "ls /run/secrets"),
+    (BLOCKED, "the directory before && is blocked", "cd /run/secrets&&ls"),
+    (BLOCKED, "a bare env in a substitution is blocked", "echo $(env)"),
+    (BLOCKED, "a bare env in backticks is blocked", "echo `env`"),
+    (BLOCKED, "env piped inside backticks is blocked", "cat `env|grep KEY`"),
+    (
+        BLOCKED,
+        "printenv after a blank in a substitution is blocked",
+        "cat $( printenv QA_KEY_FILE )",
+    ),
+    (BLOCKED, "a doubled leading slash is blocked", "cat //run/secrets/q*"),
+    (BLOCKED, "a path through .. is blocked", "cat /tmp/../run/secrets/q*"),
+    (BLOCKED, "a path in a brace expansion is blocked", "cat {x,/run/secrets/q*}"),
+    (BLOCKED, "an escaped leading slash is blocked", "cat \\/run/secrets/q*"),
+    (
+        BLOCKED,
+        "printenv with a redirect in a substitution is blocked",
+        "cat $(printenv<&0 QA_KEY_FILE)",
+    ),
+    (BLOCKED, "env redirected in a substitution is blocked", "cat $(env>/tmp/o)"),
+    (
+        BLOCKED,
+        "printenv split by empty double quotes is blocked",
+        'cat $(printenv"" QA_KEY_FILE)',
+    ),
+    (
+        BLOCKED,
+        "printenv split by empty single quotes is blocked",
+        "cat $(printenv'' QA_KEY_FILE)",
+    ),
+    (
+        BLOCKED,
+        "printenv followed by an expansion is blocked",
+        "cat $(printenv${X} QA_KEY_FILE)",
+    ),
+    (BLOCKED, "env followed by a brace expansion is blocked", "echo $(env{,})"),
+    (
+        BLOCKED,
+        "env followed by a line continuation is blocked",
+        "echo $(env\\\nQA_KEY_FILE)",
+    ),
+    (
+        BLOCKED,
+        "a path through /proc/self/root is blocked",
+        "cat /proc/self/root/run/secrets/q*",
+    ),
+    (
+        BLOCKED,
+        "a search pattern listing the directory is blocked",
+        "rg -n 'gh-token|path|/run/secrets' modules/secrets.nix",
+    ),
+    (
+        BLOCKED,
+        "the directory inside a longer path is blocked",
+        "ls /tmp/run/secrets-fixture",
+    ),
+    (
+        BLOCKED,
+        "an env dump in an unquoted heredoc is blocked",
+        "cat > out.txt <<EOF\n$(env)\nEOF",
+    ),
+    (
+        BLOCKED,
+        "printenv in an unquoted heredoc is blocked",
+        "python3 - <<EOF\nkey = '$(printenv QA_KEY_FILE)'\nEOF",
+    ),
+    (
+        BLOCKED,
+        "the variable expanded in an unquoted heredoc is blocked",
+        "python3 - <<EOF\nprint(open('$QA_KEY_FILE').read())\nEOF",
+    ),
     (
         ALLOWED,
         "naming the variable without expanding it is allowed",
@@ -69,6 +145,16 @@ BASH_CASES: list[Case[str]] = [
         "qa-node wallet.cjs",
     ),
     (ALLOWED, "running a qa-node script by file is allowed", "qa-node script.cjs"),
+    (
+        ALLOWED,
+        "a markdown code span naming an env file in a heredoc is allowed",
+        "cat > notes.md <<'EOF'\n| S4 | `env.client.ts`: extract it |\nEOF",
+    ),
+    (
+        ALLOWED,
+        "a code span naming an env file in a python heredoc is allowed",
+        "python3 - <<'EOF'\n# emptying the key in\n// `env.client.ts` switches\nEOF",
+    ),
 ]
 
 

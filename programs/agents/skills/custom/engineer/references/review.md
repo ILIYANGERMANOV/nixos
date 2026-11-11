@@ -59,6 +59,7 @@ always runs last. A Not met it cannot fix is a blocker: triage it.
 A requirement a `--fixes` review answers "unchanged" keeps its latest verdict.
 A fixer names what its fix touched on its report's `Touches:` line, which the
 hook records. One that touches what your Quality row's Full review of a fix to
-names gets a review of the whole branch. The CI fix loops as `state next`
+names gets a review of the whole branch. So does an implementer's CI fix
+with no `Touches:` line. The CI fix loops as `state next`
 says until CI is green; a CI fixer also gets R0 when its fix changes what the
 body says, in place after S0. Notify only on ready.

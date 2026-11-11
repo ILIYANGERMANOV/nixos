@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from state.flow import (
+    CI_FIX_STEPS,
     DELEGATED_PR_FLAGS,
     FULL_REVIEW,
     HANDBACK_RULE,
@@ -41,10 +42,12 @@ from state.model import (
     DEFAULT_SIZE,
     DEFAULTS,
     MODES,
+    RULES,
     S0,
     STATES,
     TOKENS,
     UNRECORDABLE,
+    UNVERSIONED,
     Adjusted,
     Area,
     Asked,
@@ -87,6 +90,7 @@ from state.model import (
     Token,
     UntriagedBlocker,
     Verdict,
+    Version,
     Worker,
     mode_of,
     name_of,
@@ -140,7 +144,24 @@ def apply(state: State, event: Event) -> State | Failure:
         case _, Failure() as failure:
             return failure
         case _, State() as absorbed:
-            return replace(absorbed, step=target, refused=None)
+            step = resumed(absorbed, event) or target
+            resume = absorbed.resume if step == "Ctx" else None
+            return replace(absorbed, step=step, refused=None, resume=resume)
+
+
+def version_of(state: State) -> Version:
+    """The log version whose rules the run replays by; before `started`, main's,
+    as `parse_log` reads those lines."""
+    return UNVERSIONED if state.run is None else state.run.version
+
+
+def resumed(absorbed: State, event: Event) -> StateName | None:
+    """`resolved` in Ctx once no decision is left open goes back to the step the
+    decision came from, when the run's rules record one; a re-plan leaves Ctx
+    through `planned` instead."""
+    settled = not any(b.kind == "decision" for b in open_blockers(absorbed))
+    back = isinstance(event, Resolved) and absorbed.step == "Ctx" and settled
+    return absorbed.resume if back else None
 
 
 def off_arrow(state: State, event: Event) -> Failure:
@@ -260,6 +281,8 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             return replace(state, proposed=state.proposed | {mode})
         case Drafted():
             return replace(state, drafted=event)
+        case Implemented(head=head, touches=touches) if state.step in CI_FIX_STEPS:
+            return replace(state, head=head, work=Fixed(head, touches))
         case Implemented(head=head) | Refactored(head=head):
             return replace(state, head=head)
         case Reviewed(head=head):
@@ -307,8 +330,15 @@ def absorb(state: State, event: Event) -> State | Failure:  # noqa: C901, PLR091
             # A decision ends the loop's rounds: the stuck guard waits for the
             # next one, so a stuck answered as a decision is no longer stuck.
             work = None if kind == "decision" else state.work
+            # A second decision in Ctx keeps the first one's origin.
+            came_from = state.resume if state.step == "Ctx" else state.step
+            resumes = kind == "decision" and RULES[version_of(state)].resumes
+            resume = came_from if resumes else state.resume
             return replace(
-                state, blockers=ask(state, OpenBlocker(q, kind, role)), work=work
+                state,
+                blockers=ask(state, OpenBlocker(q, kind, role)),
+                work=work,
+                resume=resume,
             )
         case Resolved(question=q, answer=answer):
             if not any(b.question == q for b in state.blockers):
@@ -650,6 +680,7 @@ def advise_ctx(state: State) -> Advice:
     )
     counts = (
         *(f"decision path for {quoted(b.question)}" for b in decisions),
+        *ways_out(state.resume, decisions),
         f"researchers {state.researched} ({researchers})",
         f"questions {state.asked} (at least 1, typically 4-12)",
         "each researcher back and question asked: recorded by the hook",
@@ -671,6 +702,20 @@ def advise_ctx(state: State) -> Advice:
             "research and ask on demand, any order; when nothing is open, write the plan",
             *counts,
         ),
+    )
+
+
+def ways_out(resume: StateName | None, decisions: list[OpenBlocker]) -> tuple[str, ...]:
+    """A decision from a later step: the answer keeps the plan or changes it.
+    Once no decision is open, `resolved` goes back to `resume`."""
+    if resume is None or not decisions:
+        return ()
+    return (
+        *(
+            f"no plan change: state record resolved {quoted(b.question)} <answer>, back to {resume}"
+            for b in decisions
+        ),
+        "a plan change: write the plan, then the RUN above, then resolved",
     )
 
 
@@ -1385,6 +1430,8 @@ def parse_handback(  # noqa: PLR0911 - one arm per status
             return (Reviewed(reviewed),)
         case "fixer", "READY":
             return fixer_ready(lines, head, simplifying=simplifying)
+        case "implementer", "READY":
+            return implementer_ready(lines, head)
         case _, "READY":
             return ready(role, head, ())
         case _:
@@ -1402,7 +1449,7 @@ def fixer_ready(
     """An S0 fixer's `Simplified:` line, else a fix with its `Touches:` areas.
     An S0 hand-back without the line is refused, not taken as a fix: `Fixed`
     on the same head would re-advise S0, or wait on CI that never comes."""
-    match last_value(lines, "Simplified:"), simplifying, touched(lines):
+    match last_value(lines, "Simplified:"), simplifying, touched("fixer", lines):
         case str() as shortened, _, _:
             return (Simplified(shortened),)
         case None, True, _:
@@ -1415,6 +1462,20 @@ def fixer_ready(
             return failure
         case None, False, touches:
             return ready("fixer", head, touches)
+
+
+def implementer_ready(
+    lines: list[str], head: str | None
+) -> tuple[Event, ...] | Failure:
+    """Its `Touches:` line read as a fixer's. No such line touched every area:
+    a CI fix that does not say what it changed gets the whole-branch review."""
+    match last_value(lines, TOUCHES_LINE), touched("implementer", lines):
+        case _, Failure() as failure:
+            return failure
+        case None, _:
+            return ready("implementer", head, AREAS)
+        case str(), touches:
+            return ready("implementer", head, touches)
 
 
 def ready(
@@ -1430,7 +1491,7 @@ def ready(
                 2,
             )
         case "implementer", str():
-            return (Implemented(head),)
+            return (Implemented(head, touches),)
         case "refactorer", str():
             return (Refactored(head),)
         case "fixer", str():
@@ -1460,10 +1521,17 @@ def last_value(lines: list[str], prefix: str) -> str | None:
 
 
 TOUCHES_LINE = "Touches:"
+# A fixer's brief, and an implementer's in CI_FIX_STEPS.
+TOUCHES_RULE = (
+    "End your hand-back with a line `Touches: <area>...` naming any of "
+    f"{', '.join(AREAS)} your fix changed (or `Touches: none`)."
+)
 
 
-def touched(lines: list[str]) -> tuple[Area, ...] | Failure:
-    """The areas on a fixer's last `Touches:` line, split on spaces or commas;
+def touched(
+    role: Literal["implementer", "fixer"], lines: list[str]
+) -> tuple[Area, ...] | Failure:
+    """The areas on the last `Touches:` line, split on spaces or commas;
     `none`, or no such line, is none."""
     words = (last_value(lines, TOUCHES_LINE) or "").replace(",", " ").split()
     # Declared: pyright widens an inferred tuple(...) of literals to str.
@@ -1473,9 +1541,9 @@ def touched(lines: list[str]) -> tuple[Area, ...] | Failure:
     unknown = [word for word in words if word not in (*AREAS, "none")]
     if unknown:
         return Failure(
-            f"state handback fixer: Touches: names {', '.join(unknown)}, not "
+            f"state handback {role}: Touches: names {', '.join(unknown)}, not "
             + " | ".join(AREAS),
-            "state record fixed [<head>] [--touches <area>]...",
+            f"state record {role_event(role)} [<head>] [--touches <area>]...",
             2,
         )
     return areas
@@ -1539,6 +1607,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 f"Research notes: <paths under {notes_of(state)} and the sections it needs>",
                 "Targeted checks only, never the full check: <the checks>",
                 "The previous slice started at <sha>, when there is one.",
+                *([TOUCHES_RULE] if state.step in CI_FIX_STEPS else []),
             ]
         case "refactorer":
             return [diff_line(base)]
@@ -1563,10 +1632,7 @@ def role_lines(role: Role, state: State) -> list[str]:  # noqa: C901, PLR0911 - 
                 *(final if state.step == "DraftPR" else []),
                 diff_line(base),
                 "Targeted checks only: <the checks>",
-                (
-                    "End your hand-back with a line `Touches: <area>...` naming any of "
-                    f"{', '.join(AREAS)} your fix changed (or `Touches: none`)."
-                ),
+                TOUCHES_RULE,
             ]
         case "review-lead":
             return [

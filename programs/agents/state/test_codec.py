@@ -8,7 +8,16 @@ from hypothesis import given
 
 from state.codec import Line, encode_line, parse_log, replay
 from state.core import fold
-from state.model import Event, Failure
+from state.model import (
+    Blocked,
+    Event,
+    Failure,
+    Implemented,
+    Planned,
+    Resolved,
+    Started,
+    State,
+)
 from state.state_fixtures import accepted, event_lists, ok, run
 
 LOG = Path("/notes/run/events.jsonl")
@@ -76,3 +85,85 @@ def test_a_hand_edited_bad_line_makes_every_command_exit_2_naming_it(
         "line is a hand edit, or a log an older state wrote; the state hooks stay "
         "silent until it parses"
     )
+
+
+STARTED_V1 = '{"type":"started","notes":"/notes/run","delegated":false}'
+
+
+def a_log(*events: str) -> str:
+    return "".join(
+        f'{{"seq":{n},"ts":"t","head":null,"session":null,"event":{event}}}\n'
+        for n, event in enumerate(events, start=1)
+    )
+
+
+def test_a_started_line_without_a_version_is_a_v1_log() -> None:
+    match parse_log(a_log(STARTED_V1), LOG):
+        case Failure() as failure:
+            raise AssertionError(failure.message)
+        case [line]:
+            assert line.event == Started("/notes/run", delegated=False, version=1)
+        case lines:
+            raise AssertionError(lines)
+
+
+def test_an_implemented_line_in_a_v1_log_without_touches_touches_no_area() -> None:
+    old = a_log(STARTED_V1, '{"type":"implemented","head":"h1"}')
+
+    match parse_log(old, LOG):
+        case Failure() as failure:
+            raise AssertionError(failure.message)
+        case [_, line]:
+            assert line.event == Implemented("h1", ())
+            assert '"touches":[]' in encode_line(line)
+        case lines:
+            raise AssertionError(lines)
+
+
+def test_an_implemented_line_in_a_v2_log_needs_its_touches() -> None:
+    started = STARTED_V1.replace("}", ',"version":2}')
+    log = a_log(started, '{"type":"implemented","head":"h1"}')
+
+    match parse_log(log, LOG):
+        case Failure() as failure:
+            assert failure.message == (f"state: {LOG}:2: touches is not a list")
+        case lines:
+            raise AssertionError(lines)
+
+
+# Main read a missing log as empty, so a run whose notes were deleted has a log
+# with no `started` line: main's rules replay it, there `resolved` stays in Ctx.
+def test_a_log_without_a_started_line_replays_by_mains_rules() -> None:
+    events = [
+        Planned("p.md"),
+        Blocked("which api?", "decision", "implementer"),
+        Resolved("which api?", "the old one"),
+    ]
+    text = "".join(
+        encode_line(Line(n, "t", None, None, event))
+        for n, event in enumerate(events, start=1)
+    )
+
+    match parse_log(text, LOG):
+        case Failure() as failure:
+            raise AssertionError(failure.message)
+        case lines:
+            match replay(lines, LOG):
+                case State(step=step):
+                    assert step == "Ctx"
+                case failure:
+                    raise AssertionError(failure)
+
+
+@pytest.mark.parametrize("version", ["3", "0", "true", '"2"'])
+def test_a_log_of_an_unknown_version_fails_naming_it(version: str) -> None:
+    started = STARTED_V1.replace("}", f',"version":{version}}}')
+
+    match parse_log(a_log(started), LOG):
+        case Failure() as failure:
+            assert failure.message == (
+                f"state: {LOG}:1: version {version} is a log version this state has "
+                "no rules for; it reads 1, 2: update state"
+            )
+        case lines:
+            raise AssertionError(lines)

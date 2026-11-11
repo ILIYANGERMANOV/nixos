@@ -25,6 +25,9 @@ type Kind = Literal[
 ]  # fmt: skip
 
 LIVE: tuple[StateName, ...] = STATES[:-1]
+# After the final fixer an implementer's slice is a CI fix: the loop's work, and
+# its `implemented` stays put as a `fixed` would.
+CI_FIX_STEPS: tuple[StateName, ...] = ("DraftPR", "PR")
 
 # Every arrow but an override: (state, kind) -> target. A pair not here is an
 # event the flow does not expect in that state; `state override` gets there.
@@ -65,6 +68,7 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
     ("Fix", "picked-final"): "DraftPR",
     ("Fix", "fixed"): "Fix",
     ("DraftPR", "fixed"): "DraftPR",
+    **{(s, "implemented"): s for s in CI_FIX_STEPS},
     ("DraftPR", "ci"): "PR",
     ("PR", "ci"): "PR",
     ("PR", "fixed"): "PR",
@@ -78,7 +82,7 @@ TARGET: dict[tuple[StateName, Kind], StateName] = {
 
 # The `## States` block of the engineer skill, which pastes it from `state render`.
 STEPS: tuple[tuple[str, str, str], ...] = (
-    ("1-2", "Ctx", "research and ask on demand, any order, then a plan: 3"),
+    ("1-2", "Ctx", "research and ask on demand, any order, then a plan: 3; resolved: back to the step the decision came from"),
     ("3", "Propose", "simplify, alternative, then ask: first or second plan: 4; adjust: 2"),
     ("4", "DraftPlan", "draft PR with the plan: 5"),
     ("5", "Implement", "implement: 6"),

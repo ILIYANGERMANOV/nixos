@@ -4,6 +4,7 @@ table row by row and the hand-back parser on real first lines."""
 from dataclasses import replace
 from typing import Literal
 
+import hypothesis
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -32,11 +33,15 @@ from state.core import (
     warning,
 )
 from state.model import (
+    AREAS,
     MODES,
     ROLES,
+    RULES,
     S0,
     SIZES,
     STATES,
+    Adjusted,
+    Area,
     Asked,
     Blocked,
     Ci,
@@ -49,6 +54,7 @@ from state.model import (
     Grew,
     Implemented,
     Mode,
+    OpenBlocker,
     Overridden,
     Planned,
     Proposed,
@@ -68,6 +74,7 @@ from state.model import (
     State,
     StateName,
     Verdict,
+    Version,
 )
 from state.state_fixtures import (
     NOTES,
@@ -88,6 +95,7 @@ from state.state_fixtures import (
     review,
     reviewed,
     simplified,
+    then,
     walk,
 )
 
@@ -731,8 +739,8 @@ def ci_fix_reviewed_at_cap(
              Fixed("h4", ()), *review("h5", ("R1",), ()),
              Blocked("stuck: row R1", "decision", "review-lead"),
              Resolved("stuck: row R1", "drop the row")],
-            NoFacts(), f"RUN state record planned {NOTES}/plan.md", "write the plan",
-            id="stuck: a dropped row re-plans, no fixer for it",
+            NoFacts(), "SPAWN review-lead", "brief: state brief review-lead",
+            id="stuck: a dropped row resumes Fix, no fixer for it",
         ),
         pytest.param(
             [*drafted(delegated=True), Implemented("h1"),
@@ -772,6 +780,156 @@ def test_a_confirmed_re_plan_resumes_at_implement_and_restarts_the_rounds() -> N
 
     assert state.step == "Implement"
     assert "Re-review: 0/2" in show(state)
+
+
+DECISION = Blocked("which api?", "decision", "implementer")
+ANSWERED = Resolved("which api?", "the old one")
+SECOND = Blocked("which db?", "decision", "researcher")
+
+
+# Runs into each step past Ctx, which every example walks on from.
+LATER = [
+    drafted(),
+    [*drafted(), Implemented("h1")],
+    [*drafted(), Implemented("h1"), Refactored("h2")],
+    reviewed(),
+    final_fixed(),
+    [*simplified(), Ci("h5", ())],
+]
+
+
+def at(version: Version, run: list[Event]) -> list[Event]:
+    """`run` as a log of `version` records it."""
+    return [replace(e, version=version) if isinstance(e, Started) else e for e in run]
+
+
+@given(event_lists, st.sampled_from(tuple(RULES)))
+def test_history_a_resolved_decision_resumes_by_the_logs_version(
+    candidates: list[Event], version: Version
+) -> None:
+    lead = [
+        state
+        for prefix in LATER
+        for _, _, state in walk(at(version, [*prefix, *candidates]))
+        if state.run == Started(NOTES, delegated=False, version=version)
+        and state.step not in ("Ctx", "Done")
+        and not any(
+            isinstance(b, OpenBlocker) and b.kind == "decision" for b in state.blockers
+        )
+    ]
+    for step in {state.step for state in lead}:
+        hypothesis.event(f"v{version} from {step}")
+
+    resumed = [then(state, DECISION, ANSWERED).step for state in lead]
+
+    # v1 is main's rule: `resolved` in Ctx stays there.
+    expected = {1: ["Ctx" for _ in lead], 2: [state.step for state in lead]}
+    assert resumed == expected[version]
+
+
+def reach_from(step: StateName, *events: Event) -> StateName:
+    """The step `events` reach from a lead's run overridden to `step`."""
+    return reach(Started(NOTES, delegated=False), Overridden(step, "why"), *events).step
+
+
+@pytest.mark.parametrize("step", ["Fix", "Review"])
+def test_history_resolved_returns_to_the_step_the_decision_came_from(
+    step: StateName,
+) -> None:
+    assert reach_from(step, DECISION, ANSWERED) == step
+
+
+def test_history_a_decision_raised_in_ctx_resolves_in_ctx() -> None:
+    assert reach(Started(NOTES, delegated=False), DECISION, ANSWERED).step == "Ctx"
+
+
+def test_history_a_second_decision_keeps_the_first_origin() -> None:
+    assert reach_from("Fix", DECISION, SECOND, ANSWERED,
+                      Resolved("which db?", "pg")) == "Fix"  # fmt: skip
+
+
+def test_history_resolved_stays_in_ctx_while_a_decision_is_open() -> None:
+    assert reach_from("Fix", DECISION, SECOND, ANSWERED) == "Ctx"
+
+
+def test_history_a_re_plan_forgets_the_origin() -> None:
+    assert reach_from("Fix", DECISION, Planned("p2.md"), Adjusted(), ANSWERED) == "Ctx"
+
+
+def test_history_a_re_plan_from_a_decision_still_resumes_at_implement() -> None:
+    state = reach(
+        *reviewed(), Fixed("h4", ()), *review("h5", ("R3",), ()), DECISION,
+        Planned("p2.md"), Proposed("simplify"), Proposed("alternative"), Confirmed(),
+    )  # fmt: skip
+
+    assert state.step == "Implement"
+
+
+# A v1 log: `resolved` stayed in Ctx, so what followed it is a Ctx event.
+@pytest.mark.parametrize(
+    "between", [(), (Researched(1),), (Raised("why?", "implementer"),), (Asked(1),)]
+)
+def test_history_a_v1_log_re_plans_after_a_resolved_decision(
+    between: tuple[Event, ...],
+) -> None:
+    state = reach(
+        *at(1, reviewed()), DECISION, ANSWERED, *between,
+        Planned("p2.md"), Proposed("simplify"), Proposed("alternative"), Confirmed(),
+    )  # fmt: skip
+
+    assert state.step == "Implement"
+
+
+# `asked` is a Ctx event: in Fix it is off the table.
+@pytest.mark.parametrize(
+    "between", [(), (Researched(1),), (Raised("why?", "implementer"),)]
+)
+def test_history_a_v2_log_resumes_after_a_resolved_decision(
+    between: tuple[Event, ...],
+) -> None:
+    assert reach(*reviewed(), DECISION, ANSWERED, *between).step == "Fix"
+
+
+def test_next_in_ctx_after_a_v1_decision_names_no_way_back() -> None:
+    assert "back to Fix" not in advice(*at(1, reviewed()), DECISION)
+
+
+def test_next_in_ctx_after_a_decision_names_both_ways_out() -> None:
+    text = advice(*reviewed(), DECISION)
+
+    assert first_line(text) == f"RUN state record planned {NOTES}/plan.md"
+    assert (
+        "no plan change: state record resolved 'which api?' <answer>, back to Fix"
+        in text
+    )
+
+
+# An implementer used for a CI fix hands back `implemented`, not `fixed`.
+@pytest.mark.parametrize(
+    ("run", "step"),
+    [(final_fixed(), "DraftPR"), ([*simplified(), Ci("h5", ("lint",))], "PR")],
+)
+def test_an_implemented_hand_back_in_draftpr_or_pr_is_a_fix_that_stays_put(
+    run: list[Event], step: StateName
+) -> None:
+    state = then(reach(*run), Implemented("h9", ()))
+
+    assert (state.step, state.head) == (step, "h9")
+    assert first_line(advice(*run, Implemented("h9", ()))) == first_line(
+        advice(*run, Fixed("h9", ()))
+    )
+
+
+@pytest.mark.parametrize(
+    "touches", [AREAS, ("auth",)], ids=["unstated: every area", "auth"]
+)
+def test_an_implemented_ci_fix_to_a_wide_area_reviews_the_whole_branch(
+    touches: tuple[Area, ...],
+) -> None:
+    run = [*simplified(), Ci("h5", ("lint",))]
+
+    assert advice(*run, Implemented("h9", touches)) == advice(*run, Fixed("h9", AREAS))
+    assert advice(*run, Implemented("h9", touches)) != advice(*run, Fixed("h9", ()))
 
 
 def test_a_re_plan_keeps_the_stuck_history() -> None:
@@ -832,10 +990,7 @@ def test_an_event_from_a_step_without_arrows_names_only_the_nearest_override() -
     done = reach(*drafted(), Overridden("Done", "shipped"))
     match apply(done, Implemented("a1")):
         case Failure(fix=fix):
-            assert (
-                fix
-                == 'to record implemented: state override Review "<why>", then rerun'
-            )
+            assert fix == 'to record implemented: state override PR "<why>", then rerun'
         case State():
             raise AssertionError("Done has no arrows")
 
@@ -957,7 +1112,17 @@ def test_an_accepted_event_or_an_override_clears_the_warning(then: Event) -> Non
     [
         pytest.param(
             "implementer", "READY 0c8fe31 [agents] state: core and shell\n\nProof: ruff",
-            HandbackOptions(), (Implemented("abc1234"),), id="implementer READY",
+            HandbackOptions(), (Implemented("abc1234", AREAS),),
+            id="implementer READY with no Touches line touches every area",
+        ),
+        pytest.param(
+            "implementer", "READY CI fix in 0c8fe31\n\nTouches: data-model",
+            HandbackOptions(), (Implemented("abc1234", ("data-model",)),),
+            id="implementer READY with its Touches line",
+        ),
+        pytest.param(
+            "implementer", "READY CI fix\nTouches: none", HandbackOptions(),
+            (Implemented("abc1234", ()),), id="implementer READY touching none",
         ),
         pytest.param(
             "refactorer", "READY - items 1-7 done, no proposals", HandbackOptions(),
@@ -1053,6 +1218,11 @@ def test_handback_records_the_event_its_first_line_names(
             "fixer", "READY\nTouches: auth, the parser", "abc1234",
             "state record fixed [<head>] [--touches <area>]...",
             id="a Touches line naming no area",
+        ),
+        pytest.param(
+            "implementer", "READY\nTouches: the parser", "abc1234",
+            "state record implemented [<head>] [--touches <area>]...",
+            id="an implementer's Touches line naming no area",
         ),
         pytest.param(
             "fixer", "Done, all green.", "abc1234",
@@ -1162,6 +1332,24 @@ def test_brief_of_a_fixer_asks_for_the_touches_line() -> None:
         "End your hand-back with a line `Touches: <area>...` naming any of "
         "interface, data-model, auth your fix changed (or `Touches: none`)."
     ) in text
+
+
+TOUCHES_ASK = "End your hand-back with a line `Touches: <area>...`"
+
+
+@pytest.mark.parametrize(
+    "run",
+    [final_fixed(), [*final_fixed(), Ci("h4", ())]],
+    ids=["DraftPR", "PR at green CI"],
+)
+def test_brief_of_an_implementer_on_a_ci_fix_asks_for_the_touches_line(
+    run: list[Event],
+) -> None:
+    assert TOUCHES_ASK in brief("implementer", reach(*run), "/w")
+
+
+def test_brief_of_an_implementer_before_the_pr_asks_for_no_touches_line() -> None:
+    assert TOUCHES_ASK not in brief("implementer", reach(*reviewed()), "/w")
 
 
 @pytest.mark.parametrize(

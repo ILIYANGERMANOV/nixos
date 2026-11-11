@@ -80,6 +80,25 @@ def test_an_off_arrow_event_is_refused_and_its_fix_command_works(
     assert asked == "recorded 5 asked -> Ctx\n"
 
 
+@pytest.mark.parametrize(
+    ("flags", "touches"),
+    [((), ["interface", "data-model", "auth"]), (("--touches", "auth"), ["auth"])],
+)
+def test_implemented_with_no_touches_touches_every_area(
+    repo: Path, tmp_path: Path, flags: tuple[str, ...], touches: list[str]
+) -> None:
+    notes = tmp_path / "notes"
+    to_implement(repo, notes)
+
+    _ = ok(repo, "record", "implemented", "a1", *flags)
+
+    assert log_of(notes)[-1]["event"] == {
+        "type": "implemented",
+        "head": "a1",
+        "touches": touches,
+    }
+
+
 def test_a_review_lead_handback_records_its_head_and_waits_for_the_picks(
     repo: Path, tmp_path: Path
 ) -> None:

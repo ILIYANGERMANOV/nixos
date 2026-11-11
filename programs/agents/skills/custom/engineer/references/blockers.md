@@ -40,7 +40,10 @@ Read the question and its evidence, then pick exactly one row. The hook
 records a `NEEDS_DECISION` hand-back untriaged, a `plan wrong:` or `stuck:`
 one as a decision; `state next` advises the rest. Record the row with
 `state record blocked <kind> <role> <question>`, a prose question's too, and
-its answer with `state record resolved`. Before `READY` or
+its answer with `state record resolved`. A decision's answer that changes the
+plan is a re-plan: `state record planned` while the decision is still open,
+then `resolved`. One that does not records `resolved` alone, which resumes the
+step it came from. Before `READY` or
 `gh pr ready`, every open decision, a hand-back's prose question included, has
 its row and is done; none is handed on as prose in the PR body or a hand-back.
 
@@ -77,7 +80,8 @@ when it changes a goal, a decision or an interface.
 **Decision path.**
 
 1. Back to Ctx: steps 1 and 2 for this question only. Research what it needs,
-   then ask the user what is still open, never what they just answered.
+   then ask the user what is still open, never what they just answered. No
+   plan change: `state record resolved` resumes where you were, with no steps 2-4.
 2. Step 3 at the current Quality, with no Quality question: a new plan, its
    proposals, and the ask. A decision on `Size: Trivial` moves it to Normal
    first (`trivial.md`).
