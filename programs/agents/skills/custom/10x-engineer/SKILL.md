@@ -153,7 +153,7 @@ changes an agreed interface, data model, scope or UX, or is hard to undo. This
 is the only test for answering yourself. Log each answer once, in the ledger's
 Rulings: `Ruling: <what> - <why> - <what it costs if wrong>`, then in a free
 slot send it to the worker with `SendMessage`, or past about 5 idle minutes to
-a fresh engineer, saying "record this ruling in the PR body". The queue, the PR
+a fresh engineer, saying "record this ruling in the PR body's Key decisions block". The queue, the PR
 body and the final report show it.
 
 **Escalate** the rest, and always security and repeated same-theme findings

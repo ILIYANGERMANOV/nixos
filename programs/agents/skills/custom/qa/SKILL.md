@@ -1,6 +1,6 @@
 ---
 name: qa
-description: QAs a pull request in any repo and publishes the proof to it. Reads the QA.md of every repo in the test, the PR's and the hosts it runs in (drafting one when absent), plans with a subagent from the instructions or the PR's acceptance criteria and diff, asks the user to unblock it one question at a time, always gets the plan approved, drives the app in a headless browser with Playwright (an EVM wallet helper included), records a happy-path video first, then unhappy-path videos and key screenshots, has a fresh subagent downgrade any Pass its evidence does not show, and replaces a `## QA` section in the PR body. Reports bugs, never fixes them. Proposes QA.md updates and asks before committing them. Use only when the user asks to QA a PR or feature, never on your own initiative, and run it in the session that can ask the user, never in a delegated subagent.
+description: QAs a pull request in any repo and publishes the proof to it. Reads the QA.md of every repo in the test, the PR's and the hosts it runs in (drafting one when absent), plans with a subagent from the instructions or the PR's acceptance criteria and diff, asks the user to unblock it one question at a time, always gets the plan approved, drives the app in a headless browser with Playwright (an EVM wallet helper included), records a happy-path video first, then unhappy-path videos and key screenshots, has a fresh subagent downgrade any Pass its evidence does not show, and replaces a collapsed QA block in the PR body. Reports bugs, never fixes them. Proposes QA.md updates and asks before committing them. Use only when the user asks to QA a PR or feature, never on your own initiative, and run it in the session that can ask the user, never in a delegated subagent.
 argument-hint: "[instructions] [PR]"
 ---
 
@@ -267,10 +267,12 @@ Pass its artifacts do not show turned Unverified, and why.
 
 ### 8. Publish
 
-Write the `## QA` section (format below) and replace the PR body's existing
-`## QA` section, from that heading to the next `## ` heading or the end, with
-it; with none, append it. Keep it the **last** section, so attachments gh
-appends land inside it. From the run directory:
+Write the QA block (format below) and replace the PR body's existing one
+with it: the whole `<details>` block that holds `## QA`, from its `<details>`
+to its `</details>`. An old body may have a bare `## QA` section instead:
+replace it from that heading to the next `## ` heading or the end. With
+neither, append the block. Keep it the **last** section, so the videos gh
+appends sit right after it. From the run directory:
 
 ```sh
 gh pr edit <n> --body-file body.md \
@@ -321,12 +323,18 @@ never `#<n>` (that resolves to this repo) or shorthand.
   those, and the previous run's findings, which you brief it from.
 - Tell the user the overall verdict, each Fail in one line, and the PR link.
 
-## The `## QA` section
+## The QA block
+
+One collapsed block, so the body keeps its visible-line budget
+(`pr-description`). The summary line carries the verdict:
 
 ```markdown
+<details>
+<summary>QA: <Pass | Fail | Unverified> - <n> pass, <n> fail, <n> unverified (on <short head sha>)</summary>
+
 ## QA
 
-**Verdict:** <Pass | Fail | Unverified> - <n> pass, <n> fail, <n> unverified. Run <UTC timestamp> on <head sha>, in <host owner/repo> at <sha>.
+Run <UTC timestamp> on <head sha>, in <host owner/repo> at <sha>.
 
 ### Happy path
 ./happy-path.mp4
@@ -346,10 +354,16 @@ never `#<n>` (that resolves to this repo) or shorthand.
 | Screenshot | What it shows |
 |---|---|
 | ![<what it shows>](./<name>.png) | <what it shows> |
+
+</details>
 ```
+
+The happy-path video comes first inside the block, the results table before
+the unhappy-path media.
 
 The overall verdict is Fail if any item fails, else Unverified if any item is
 Unverified, else Pass. Omit an empty subsection. `<head sha>` is the
 `headRefOid` from step 1, which the executor confirmed the repo path was at; a
 run whose sha check failed publishes nothing. Drop the host clause when the
-PR's repo is its own host.
+PR's repo is its own host. Once the head moves past the run, the summary says so,
+`(on <short sha>, before <change>)`, never a paragraph.
