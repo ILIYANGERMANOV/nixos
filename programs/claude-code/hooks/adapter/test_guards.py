@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from agent_hook import Json, JsonObject
+from agent_hook import JsonObject
+from transcript_fixtures import bash, model_call, write_transcript
 
 # Flavor name -> its settings.json, as installed.
 SETTINGS = cast("dict[str, str]", json.loads(os.environ["CLAUDE_SETTINGS"]))
@@ -53,7 +54,10 @@ def test_a_secret_path_is_denied(flavor: str, tmp_path: Path) -> None:
 
 @flavors
 def test_a_subagents_second_ci_read_is_denied(flavor: str, tmp_path: Path) -> None:
-    write_transcript(worker_transcript(tmp_path), [bash_call("m1", "gh pr checks 7")])
+    write_transcript(
+        worker_transcript(tmp_path),
+        model_call("m1", 1_000, bash("toolu_m1", "gh pr checks 7")),
+    )
 
     told = denied(flavor, shell_call(tmp_path, "gh pr checks 7", agent=WORKER))
 
@@ -62,7 +66,10 @@ def test_a_subagents_second_ci_read_is_denied(flavor: str, tmp_path: Path) -> No
 
 @flavors
 def test_the_leads_second_ci_read_is_allowed(flavor: str, tmp_path: Path) -> None:
-    write_transcript(lead_transcript(tmp_path), [bash_call("m1", "gh pr checks 7")])
+    write_transcript(
+        lead_transcript(tmp_path),
+        model_call("m1", 1_000, bash("toolu_m1", "gh pr checks 7")),
+    )
 
     assert answer(flavor, "PreToolUse", shell_call(tmp_path, "gh pr checks 7")) == {}
 
@@ -73,7 +80,10 @@ def test_crossing_150k_after_an_mcp_tool_gives_the_notice(
 ) -> None:
     write_transcript(
         lead_transcript(tmp_path),
-        [bash_call("m1", "ls", tokens=148_000), bash_call("m2", "ls", tokens=150_500)],
+        [
+            *model_call("m1", 148_000, bash("toolu_m1", "ls")),
+            *model_call("m2", 150_500, bash("toolu_m2", "ls")),
+        ],
     )
 
     output = answer(flavor, "PostToolUse", mcp_result(tmp_path))
@@ -187,31 +197,3 @@ def lead_transcript(root: Path) -> Path:
 
 def worker_transcript(root: Path) -> Path:
     return root / "abc123" / "subagents" / f"agent-{WORKER}.jsonl"
-
-
-def bash_call(message_id: str, command: str, tokens: int = 1_000) -> Json:
-    """An assistant line of a model call that ran one Bash command."""
-    return {
-        "type": "assistant",
-        "message": {
-            "id": message_id,
-            "usage": {
-                "input_tokens": 3,
-                "cache_read_input_tokens": tokens - 13,
-                "cache_creation_input_tokens": 10,
-            },
-            "content": [
-                {
-                    "type": "tool_use",
-                    "id": f"toolu_{message_id}",
-                    "name": "Bash",
-                    "input": {"command": command},
-                }
-            ],
-        },
-    }
-
-
-def write_transcript(path: Path, lines: list[Json]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _ = path.write_text("".join(json.dumps(line) + "\n" for line in lines))

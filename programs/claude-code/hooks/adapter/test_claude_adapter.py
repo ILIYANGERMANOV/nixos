@@ -37,6 +37,15 @@ from claude_adapter import (
     parse_tools,
     verdict_to_claude,
 )
+from transcript_fixtures import (
+    THINKING,
+    assistant,
+    bash,
+    model_call,
+    read,
+    tool_result,
+    write_transcript,
+)
 
 # The built adapter and the tool table it is deployed with (codegen/tools.nix).
 ADAPTER = os.environ["AGENT_HOOK_CLAUDE"]
@@ -113,52 +122,6 @@ def transcripts(by_path: dict[Path, list[JsonObject]]) -> ReadLines:
 
 
 NO_TRANSCRIPT = transcripts({})
-
-
-THINKING: JsonObject = {"type": "text", "text": "thinking aloud"}
-
-
-def model_call(message_id: str, tokens: int, *blocks: JsonObject) -> list[JsonObject]:
-    """A model call's lines, its usage split as Claude splits it."""
-    usage: JsonObject = {
-        "input_tokens": 3,
-        "cache_read_input_tokens": tokens - 13,
-        "cache_creation_input_tokens": 10,
-        "output_tokens": 99,
-    }
-    return [assistant(message_id, usage, block) for block in blocks or [THINKING]]
-
-
-def assistant(message_id: str, usage: JsonObject, block: Json) -> JsonObject:
-    return {
-        "type": "assistant",
-        "message": {"id": message_id, "usage": usage, "content": [block]},
-    }
-
-
-def bash(use_id: str, command: str) -> JsonObject:
-    return {
-        "type": "tool_use",
-        "id": use_id,
-        "name": "Bash",
-        "input": {"command": command},
-    }
-
-
-def read(use_id: str) -> JsonObject:
-    return {
-        "type": "tool_use",
-        "id": use_id,
-        "name": "Read",
-        "input": {"file_path": "/a"},
-    }
-
-
-def tool_result(use_id: str) -> JsonObject:
-    return {
-        "type": "user",
-        "message": {"content": [{"type": "tool_result", "tool_use_id": use_id}]},
-    }
 
 
 SHELL_CALL: JsonObject = {
@@ -654,15 +617,6 @@ def echo(field: str) -> JsonObject:
         "tools": None,
         "command": [sys.executable, "-c", ECHO, field],
     }
-
-
-def write_transcript(path: Path, lines: list[JsonObject], filler: int = 0) -> None:
-    """Writes a transcript, after `filler` bytes of older lines when asked."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    old = model_call("m0", 1_000, bash("toolu_00", "make old")) if filler else []
-    text = "".join(json.dumps(line) + "\n" for line in old)
-    text += json.dumps({"type": "user", "pad": "x" * filler}) + "\n" if filler else ""
-    _ = path.write_text(text + "".join(json.dumps(line) + "\n" for line in lines))
 
 
 def at(tmp_path: Path, payload: JsonObject) -> JsonObject:

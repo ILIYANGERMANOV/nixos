@@ -2,8 +2,8 @@
 
 Reads a neutral event (agent_hook.py) on stdin. A shell command whose `cat` and
 `git show rev:path` operands total over MAX_BYTES, or a read with no `limit` of
-a text file over MAX_BYTES, is denied, the hint its reason. Only shell reads whose output reaches the screen count: one
-redirected to a file or piped into another command dumps nothing into context,
+a text file over MAX_BYTES, is denied, the hint its reason. Only shell reads
+whose output reaches the screen count: one redirected to a file or piped into another command dumps nothing into context,
 and heredoc bodies are data, not commands. A bare `$(...)` counts as the screen.
 A quoted one, backticks and `<(...)` do not: they feed an argument far more often
 than they print, such as a PR body. Files agents are told to read in
