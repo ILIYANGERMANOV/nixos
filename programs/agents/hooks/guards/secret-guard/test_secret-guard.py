@@ -8,9 +8,12 @@ from guard_harness import (
     BLOCKED,
     FAIL_OPEN_CASES,
     Case,
-    bash_event,
+    Decision,
+    decision,
     guard_cases,
-    run_guard,
+    judge,
+    reason,
+    shell_event,
 )
 
 GUARD = [
@@ -159,17 +162,16 @@ BASH_CASES: list[Case[str]] = [
 
 
 @guard_cases(BASH_CASES)
-def test_bash_call(want: int, given: str) -> None:
-    assert run_guard(GUARD, bash_event(given)).returncode == want
+def test_shell_call(want: Decision, given: str) -> None:
+    assert decision(judge(GUARD, shell_event(given))) == want
 
 
 @guard_cases(FAIL_OPEN_CASES)
-def test_raw_input(want: int, given: str) -> None:
-    assert run_guard(GUARD, given).returncode == want
+def test_raw_input(want: Decision, given: str) -> None:
+    assert decision(judge(GUARD, given)) == want
 
 
-def test_a_block_carries_the_hint() -> None:
-    result = run_guard(GUARD, bash_event("cat /run/secrets/qa-key"))
+def test_a_deny_carries_the_hint() -> None:
+    verdict = judge(GUARD, shell_event("cat /run/secrets/qa-key"))
 
-    assert result.returncode == BLOCKED
-    assert "Never read it from a shell" in result.stderr
+    assert "Never read it from a shell" in reason(verdict)

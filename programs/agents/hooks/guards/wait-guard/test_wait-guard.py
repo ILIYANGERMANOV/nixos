@@ -1,8 +1,8 @@
-"""The wait guard, on the Bash calls of the main agent and of its subagents."""
+"""The wait guard, on the shell calls of the lead and of its subagents."""
 
-import json
 import os
 from pathlib import Path
+from typing import Literal
 
 import bash_commands
 import pytest
@@ -11,15 +11,17 @@ from guard_harness import (
     BLOCKED,
     BROKEN_SHFMT,
     FAIL_OPEN_CASES,
+    SUBAGENT,
     BrokenShfmt,
     Case,
-    agent_fields,
-    bash_event,
+    Decision,
+    decision,
     guard_cases,
     guard_on,
     guard_on_broken,
-    run_guard,
-    session_with,
+    judge,
+    reason,
+    shell_event,
 )
 
 GUARD = os.environ["WAIT_GUARD"]
@@ -277,7 +279,11 @@ BACKGROUND_CASES: list[Case[str]] = [
     ),
 ]
 
-AGENT_CASES: list[Case[tuple[str | None, str, bool]]] = [
+# Who calls: the lead, a subagent that read the checks once already, or one
+# that has not.
+type Caller = Literal["lead", "polled", "fresh"]
+
+AGENT_CASES: list[Case[tuple[Caller, str, bool]]] = [
     (
         BLOCKED,
         "a repeated read in a substitution is blocked",
@@ -320,7 +326,7 @@ AGENT_CASES: list[Case[tuple[str | None, str, bool]]] = [
     ),
     (
         ALLOWED,
-        "a first read is allowed, though the transcript holds the call itself",
+        "a first read is allowed",
         ("fresh", "gh pr checks 7", False),
     ),
     (
@@ -455,70 +461,38 @@ AGENT_CASES: list[Case[tuple[str | None, str, bool]]] = [
         "reads of two pull requests in one command are allowed",
         ("fresh", "gh pr checks 7; gh pr checks 8", False),
     ),
+    (ALLOWED, "the lead may read checks again", ("lead", "gh pr checks 7", False)),
     (
         ALLOWED,
-        "a subagent with no transcript yet may read once",
-        ("missing", "gh pr checks 7", False),
+        "the lead may watch in the background",
+        ("lead", "gh pr checks 7 --watch", True),
     ),
-    (
-        BLOCKED,
-        "a subagent with no transcript still may not watch",
-        ("missing", "gh run watch 12", False),
-    ),
-    (
-        BLOCKED,
-        "a subagent with no transcript still may not loop",
-        ("missing", "until gh pr checks 7; do sleep 30; done", True),
-    ),
-    (ALLOWED, "main may read checks again", (None, "gh pr checks 7", False)),
-    (
-        ALLOWED,
-        "main may watch in the background",
-        (None, "gh pr checks 7 --watch", True),
-    ),
-    (ALLOWED, "main may run gh run watch", (None, "gh run watch 12", False)),
-]
-
-RAW_CASES: list[Case[str]] = [
-    (
-        BLOCKED,
-        "an event with no transcript_path is still judged on its command",
-        '{"agent_id": "a", "tool_input": {"command": "sleep 60"}}',
-    ),
-    (
-        ALLOWED,
-        "a status read with no transcript_path fails open",
-        '{"agent_id": "a", "tool_input": {"command": "gh pr checks 7"}}',
-    ),
+    (ALLOWED, "the lead may run gh run watch", ("lead", "gh run watch 12", False)),
 ]
 
 
 @guard_cases(FOREGROUND_CASES)
-def test_foreground_call(want: int, given: str) -> None:
-    assert run_guard([GUARD], bash_event(given)).returncode == want
+def test_foreground_call(want: Decision, given: str) -> None:
+    assert decision(judge([GUARD], shell_event(given))) == want
 
 
 @guard_cases(BACKGROUND_CASES)
-def test_background_call(want: int, given: str) -> None:
-    assert run_guard([GUARD], bash_event(given, background=True)).returncode == want
+def test_background_call(want: Decision, given: str) -> None:
+    assert decision(judge([GUARD], shell_event(given, background=True))) == want
 
 
 @guard_cases(AGENT_CASES)
-def test_agent_call(
-    session: Path, want: int, given: tuple[str | None, str, bool]
-) -> None:
-    agent, command, background = given
+def test_agent_call(want: Decision, given: tuple[Caller, str, bool]) -> None:
+    caller, command, background = given
 
-    result = run_guard(
-        [GUARD], agent_call(session, agent, command, background=background)
-    )
+    verdict = judge([GUARD], call_by(caller, command, background=background))
 
-    assert result.returncode == want
+    assert decision(verdict) == want
 
 
-@guard_cases(RAW_CASES + FAIL_OPEN_CASES)
-def test_raw_input(want: int, given: str) -> None:
-    assert run_guard([GUARD], given).returncode == want
+@guard_cases(FAIL_OPEN_CASES)
+def test_raw_input(want: Decision, given: str) -> None:
+    assert decision(judge([GUARD], given)) == want
 
 
 @pytest.mark.parametrize(
@@ -531,111 +505,67 @@ def test_raw_input(want: int, given: str) -> None:
         "nix develop -c gh pr checks 7",
     ],
 )
-def test_an_earlier_status_read_counts_among_other_commands(
-    tmp_path: Path, earlier: str
-) -> None:
-    lines = "".join(
-        [
-            bash_line("ls", "before"),
-            bash_line(earlier, "old"),
-            bash_line("git status", "after"),
-            bash_line("gh pr checks 7", "now"),
-        ]
-    )
-    transcript = session_with(tmp_path, "", {"agent": lines})
+def test_an_earlier_status_read_counts_among_other_commands(earlier: str) -> None:
+    history = ["ls", earlier, "git status"]
+    event = shell_event("gh pr checks 7", agent=SUBAGENT, history=history)
 
-    result = run_guard([GUARD], agent_call(transcript, "agent", "gh pr checks 7"))
-
-    assert result.returncode == BLOCKED
+    assert decision(judge([GUARD], event)) == BLOCKED
 
 
 def test_a_working_shfmt_blocks_on_the_runner_of_the_broken_ones() -> None:
     argv = guard_on(SOURCE, bash_commands.SHFMT)
 
-    assert run_guard(argv, bash_event("sleep 30")).returncode == BLOCKED
+    assert decision(judge(argv, shell_event("sleep 30"))) == BLOCKED
 
 
 @guard_cases(BROKEN_SHFMT)
 def test_a_broken_shfmt_allows_a_wait(
-    tmp_path: Path, want: int, given: BrokenShfmt
+    tmp_path: Path, want: Decision, given: BrokenShfmt
 ) -> None:
-    result = run_guard(guard_on_broken(SOURCE, given, tmp_path), bash_event("sleep 30"))
+    verdict = judge(guard_on_broken(SOURCE, given, tmp_path), shell_event("sleep 30"))
 
-    assert (result.returncode, result.stderr) == (want, "")
+    assert decision(verdict) == want
 
 
-def test_a_working_shfmt_blocks_a_repeated_read_on_that_runner(session: Path) -> None:
+def test_a_working_shfmt_blocks_a_repeated_read_on_that_runner() -> None:
     argv = guard_on(SOURCE, bash_commands.SHFMT)
 
-    result = run_guard(argv, agent_call(session, "polled", "gh pr checks 7"))
-
-    assert result.returncode == BLOCKED
+    assert decision(judge(argv, call_by("polled", "gh pr checks 7"))) == BLOCKED
 
 
 @guard_cases(BROKEN_SHFMT)
 def test_a_broken_shfmt_allows_a_repeated_read(
-    tmp_path: Path, session: Path, want: int, given: BrokenShfmt
+    tmp_path: Path, want: Decision, given: BrokenShfmt
 ) -> None:
-    result = run_guard(
-        guard_on_broken(SOURCE, given, tmp_path),
-        agent_call(session, "polled", "gh pr checks 7"),
+    verdict = judge(
+        guard_on_broken(SOURCE, given, tmp_path), call_by("polled", "gh pr checks 7")
     )
 
-    assert (result.returncode, result.stderr) == (want, "")
+    assert decision(verdict) == want
 
 
-def test_a_block_says_to_background_and_when_to_hand_back() -> None:
-    result = run_guard([GUARD], bash_event("sleep 30"))
+def test_a_deny_says_to_background_and_when_to_hand_back() -> None:
+    told = reason(judge([GUARD], shell_event("sleep 30")))
 
-    assert result.returncode == BLOCKED
-    assert "run_in_background" in result.stderr
-    assert "about 60k context" in result.stderr
-
-
-def test_a_repeated_read_says_a_subagent_never_waits_on_ci(session: Path) -> None:
-    result = run_guard([GUARD], agent_call(session, "polled", "gh pr checks 7"))
-
-    assert result.returncode == BLOCKED
-    assert "never waits on CI" in result.stderr
+    assert "run_in_background" in told
+    assert "about 60k context" in told
 
 
-@pytest.fixture(scope="module")
-def session(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The main transcript, with one read of checks by main, by `polled` and by `fresh`.
+def test_a_repeated_read_says_a_subagent_never_waits_on_ci() -> None:
+    told = reason(judge([GUARD], call_by("polled", "gh pr checks 7")))
 
-    `polled` read twice: the transcript holds a call the moment its hook runs,
-    so its second line, `now`, is the call under test, and `old` the earlier one.
-    """
-    read = "gh pr checks 7"
-    return session_with(
-        tmp_path_factory.mktemp("session"),
-        bash_line(read, "old"),
-        {
-            "polled": bash_line(read, "old") + bash_line(read, "now"),
-            "fresh": bash_line(read, "now"),
-        },
-    )
+    assert "never waits on CI" in told
 
 
-def bash_line(command: str, use_id: str) -> str:
-    """An assistant transcript line with one Bash call."""
-    call = {
-        "type": "tool_use",
-        "id": use_id,
-        "name": "Bash",
-        "input": {"command": command},
-    }
-    message = {"id": use_id, "content": [call]}
-    return json.dumps({"type": "assistant", "message": message}) + "\n"
-
-
-def agent_call(
-    session: Path, agent: str | None, command: str, *, background: bool = False
-) -> str:
-    return bash_event(
-        command,
-        background=background,
-        tool_use_id="now",
-        transcript_path=str(session),
-        **agent_fields(agent),
-    )
+def call_by(caller: Caller, command: str, *, background: bool = False) -> str:
+    """A shell call by `caller`, whose history holds one read of PR 7's checks
+    unless it is `fresh`."""
+    read_once = ["gh pr checks 7"]
+    match caller:
+        case "lead":
+            agent, history = None, read_once
+        case "polled":
+            agent, history = SUBAGENT, read_once
+        case "fresh":
+            agent, history = SUBAGENT, []
+    return shell_event(command, background=background, agent=agent, history=history)

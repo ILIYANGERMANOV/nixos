@@ -234,6 +234,87 @@ def test_the_first_call_has_no_previous_context() -> None:
     assert event.context == ContextSize(20_000, None)
 
 
+NO_USAGE: JsonObject = {
+    "input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+}
+
+
+@pytest.mark.parametrize(
+    ("lines", "context"),
+    [
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("b", 150_000, bash("t2", "ls"), read("t3")),
+            ],
+            ContextSize(150_000, 148_000),
+            id="a call of several lines counts once",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("b", 150_000, bash("t2", "ls")),
+                b'{"type": "assis',
+            ],
+            ContextSize(150_000, 148_000),
+            id="a partial last line is skipped",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("t", 150_000),
+                *model_call("b", 151_000, bash("t2", "ls")),
+            ],
+            ContextSize(151_000, 148_000),
+            id="a text-only reply is no previous call",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 150_000, bash("t1", "ls")),
+                assistant("c", NO_USAGE, bash("t2", "ls")),
+                *model_call("b", 150_000, bash("t3", "ls")),
+            ],
+            ContextSize(150_000, 150_000),
+            id="an empty synthetic call is skipped",
+        ),
+        pytest.param(
+            [
+                *model_call("a", 148_000, bash("t1", "ls")),
+                *model_call("b", 150_000, THINKING, bash("t2", "ls")),
+                *model_call("c", 151_000, bash("t3", "ls")),
+            ],
+            ContextSize(151_000, 150_000),
+            id="a call's text line does not hide its tool call",
+        ),
+    ],
+)
+def test_the_context_counts_model_calls_that_ran_a_tool(
+    lines: list[JsonObject | bytes], context: ContextSize
+) -> None:
+    raw = [
+        line if isinstance(line, bytes) else json.dumps(line).encode() for line in lines
+    ]
+
+    def disk(path: Path) -> list[bytes]:
+        return raw if path == WORKER_TRANSCRIPT else []
+
+    event = parse_claude(RAN, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context == context
+
+
+def test_a_subagent_is_not_judged_on_the_leads_context() -> None:
+    disk = transcripts({MAIN_TRANSCRIPT: model_call("m1", 150_000, bash("t1", "ls"))})
+
+    event = parse_claude(RAN, TOOLS, disk)
+
+    assert isinstance(event, AfterTool)
+    assert event.context is None
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -357,8 +438,8 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
             id="agent type not a string",
         ),
         pytest.param(
-            SPAWN | {"agent_id": None, "agent_type": "implementer"},
-            "agent_id None is not a string",
+            SPAWN | {"agent_id": 7, "agent_type": "implementer"},
+            "agent_id 7 is not a string",
             id="agent id not a string",
         ),
     ],

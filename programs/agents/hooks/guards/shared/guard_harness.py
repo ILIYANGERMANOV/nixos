@@ -1,43 +1,105 @@
-"""What the guard tests share: a built guard, run the way Claude Code runs a hook.
+"""What the guard tests share: a built guard, run the way the dispatcher runs a hook.
 
-The guards are black box here. A test feeds real JSON to the real executable the
-check built, and asserts on its exit code and output, so packaging stays covered.
-Cases are plain tables, `(want, name, given)`, for a corpus to extend.
+The guards are black box here. A test feeds a neutral event (agent_hook.py) to
+the real executable the check built, and asserts on the verdict it prints, so
+packaging stays covered. Cases are plain tables, `(want, name, given)`, for a
+corpus to extend.
 """
 
-import json
 import os
 import stat
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import pytest
+from agent_hook import (
+    AfterTool,
+    Agent,
+    AgentId,
+    Allow,
+    BeforeTool,
+    ContextSize,
+    Deny,
+    JsonObject,
+    Note,
+    Role,
+    SessionId,
+    Tool,
+    Verdict,
+    emit_event,
+    parse_note,
+    parse_verdict,
+)
 
-# How Claude Code reads a hook's exit code.
-ALLOWED = 0
-BLOCKED = 2
+type Decision = Literal["allow", "deny"]
+ALLOWED: Decision = "allow"
+BLOCKED: Decision = "deny"
 
-type Case[T, W = int] = tuple[W, str, T]
+type Case[T, W = Decision] = tuple[W, str, T]
 
-# Input no guard understands: every Bash guard fails open on it.
+SESSION = SessionId("s1")
+SUBAGENT = Agent(AgentId("a1b2"), Role("implementer"))
+
+
+def shell_event(
+    command: str,
+    *,
+    background: bool = False,
+    cwd: str = "/",
+    agent: Agent | None = None,
+    history: Sequence[str] = (),
+) -> str:
+    """The event a guard gets for a shell call."""
+    tool_input: JsonObject = {"command": command, "run_in_background": background}
+    return tool_event(Tool.SHELL, tool_input, cwd=cwd, agent=agent, history=history)
+
+
+def tool_event(
+    tool: Tool,
+    tool_input: JsonObject,
+    *,
+    cwd: str = "/",
+    agent: Agent | None = None,
+    history: Sequence[str] = (),
+) -> str:
+    """The beforeTool event a guard gets for a call of `tool`."""
+    return emit_event(
+        BeforeTool(SESSION, Path(cwd), agent, tool, tool_input, tuple(history))
+    )
+
+
+def after_tool_event(context: ContextSize | None) -> str:
+    """The afterTool event of a shell call, with the context it reports."""
+    return emit_event(
+        AfterTool(SESSION, Path("/"), None, Tool.SHELL, {"command": "ls"}, "", context)
+    )
+
+
+# Input no guard understands: every shell guard fails open on it.
 FAIL_OPEN_CASES: list[Case[str]] = [
     (ALLOWED, "malformed input is allowed", "not json"),
-    (ALLOWED, "input without a command is allowed", '{"tool_input": {}}'),
+    (
+        ALLOWED,
+        "a shell call without a command is allowed",
+        tool_event(Tool.SHELL, {}),
+    ),
     (
         ALLOWED,
         "an unterminated quote is allowed",
-        '{"tool_input": {"command": "cat \\"unterminated; sleep 30"}}',
+        shell_event('cat "unterminated; sleep 30'),
     ),
 ]
 
 # A guard's source on another shfmt: a built one holds its store path for good.
-# The guard imports its shared modules from beside this file.
+# The guard imports its shared modules from beside this file, the contract
+# from the hooks directory above.
 ON_SHFMT = """
 import runpy, sys
-shared, guard, shfmt, timeout = sys.argv[1:]
-sys.path.insert(0, shared)
+shared, contract, guard, shfmt, timeout = sys.argv[1:]
+sys.path[:0] = [shared, contract]
 import bash_commands
 bash_commands.SHFMT = shfmt
 bash_commands.SHFMT_TIMEOUT_SECONDS = float(timeout)
@@ -79,9 +141,19 @@ BROKEN_SHFMT: list[Case[BrokenShfmt]] = [
 
 def guard_on(source: Path, shfmt: str, timeout_seconds: float = 2) -> list[str]:
     """Argv for the guard source `source`, parsing with `shfmt`."""
-    shared = str(Path(__file__).parent)
+    here = Path(__file__)
+    shared, contract = str(here.parent), str(here.parents[2])
     python = os.environ["STDLIB_PYTHON"]
-    return [python, "-c", ON_SHFMT, shared, str(source), shfmt, str(timeout_seconds)]
+    return [
+        python,
+        "-c",
+        ON_SHFMT,
+        shared,
+        contract,
+        str(source),
+        shfmt,
+        str(timeout_seconds),
+    ]
 
 
 def guard_on_broken(source: Path, broken: BrokenShfmt, directory: Path) -> list[str]:
@@ -109,40 +181,38 @@ def guard_cases[T, W](rows: list[Case[T, W]]) -> pytest.MarkDecorator:
     )
 
 
-def run_guard(
-    argv: list[str], event: str, env: Mapping[str, str] = os.environ
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+def judge(argv: list[str], event: str, env: Mapping[str, str] = os.environ) -> Verdict:
+    """What a beforeTool guard decides. A guard always exits 0 and never writes
+    to stderr: failing open is printing nothing."""
+    return parse_verdict(run_guard(argv, event, env))
+
+
+def observe(argv: list[str], event: str) -> Note:
+    """What an afterTool guard says."""
+    return parse_note(run_guard(argv, event, os.environ))
+
+
+def decision(verdict: Verdict) -> Decision:
+    match verdict:
+        case Allow():
+            return ALLOWED
+        case Deny():
+            return BLOCKED
+
+
+def reason(verdict: Verdict) -> str:
+    """A deny's reason; an allow fails the test."""
+    match verdict:
+        case Deny(reason=told):
+            return told
+        case Allow():
+            pytest.fail("the call was allowed")
+
+
+def run_guard(argv: list[str], event: str, env: Mapping[str, str]) -> str:
+    done = subprocess.run(
         argv, input=event, capture_output=True, text=True, check=False, env=env
     )
-
-
-def bash_event(command: str, *, background: bool = False, **fields: str) -> str:
-    """The JSON Claude Code sends a PreToolUse hook for a Bash call."""
-    tool_input = {"command": command, "run_in_background": background}
-    return tool_event("Bash", tool_input, **fields)
-
-
-def tool_event(tool: str, tool_input: Mapping[str, object], **fields: str) -> str:
-    """The JSON Claude Code sends a PreToolUse hook."""
-    event: dict[str, object] = {
-        "hook_event_name": "PreToolUse",
-        "tool_name": tool,
-        "tool_input": tool_input,
-    }
-    return json.dumps(event | fields)
-
-
-def agent_fields(agent: str | None) -> dict[str, str]:
-    """What a hook event adds for a subagent. `None` is the main agent."""
-    return {} if agent is None else {"agent_id": agent}
-
-
-def session_with(root: Path, main: str, subagents: Mapping[str, str]) -> Path:
-    """Writes the transcripts in Claude Code's layout. Returns the main one."""
-    (root / "session/subagents").mkdir(parents=True)
-    for agent, lines in subagents.items():
-        _ = (root / f"session/subagents/agent-{agent}.jsonl").write_text(lines)
-    path = root / "session.jsonl"
-    _ = path.write_text(main)
-    return path
+    if (done.returncode, done.stderr) != (0, ""):
+        pytest.fail(f"the guard exited {done.returncode}: {done.stderr}")
+    return done.stdout

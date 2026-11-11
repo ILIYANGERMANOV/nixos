@@ -11,6 +11,7 @@ from pathlib import Path
 
 import bash_commands
 import pytest
+from agent_hook import Tool, Verdict
 from guard_harness import (
     ALLOWED,
     BLOCKED,
@@ -18,11 +19,14 @@ from guard_harness import (
     FAIL_OPEN_CASES,
     BrokenShfmt,
     Case,
-    bash_event,
+    Decision,
+    decision,
     guard_cases,
     guard_on,
     guard_on_broken,
-    run_guard,
+    judge,
+    reason,
+    shell_event,
     tool_event,
 )
 
@@ -320,11 +324,7 @@ READ_CASES: list[Case[tuple[str, ToolInput]]] = [
 ]
 
 RAW_CASES: list[Case[str]] = [
-    (
-        ALLOWED,
-        "a Read without a path is allowed",
-        '{"tool_name": "Read", "tool_input": {}}',
-    ),
+    (ALLOWED, "a read without a path is allowed", tool_event(Tool.READ, {})),
 ]
 
 
@@ -336,23 +336,17 @@ class Project:
     def expand(self, text: str) -> str:
         return text.replace("$DIR", str(self.root)).replace("$HOME", str(self.home))
 
-    def decide(
-        self, event: str, guard: list[str] | None = None
-    ) -> subprocess.CompletedProcess[str]:
+    def decide(self, event: str, guard: list[str] | None = None) -> Verdict:
         env = os.environ | {"HOME": str(self.home)}
-        return run_guard([GUARD] if guard is None else guard, event, env)
+        return judge([GUARD] if guard is None else guard, event, env)
 
-    def bash(
-        self, command: str, guard: list[str] | None = None
-    ) -> subprocess.CompletedProcess[str]:
-        return self.decide(bash_event(self.expand(command), cwd=str(self.root)), guard)
+    def shell(self, command: str, guard: list[str] | None = None) -> Verdict:
+        return self.decide(shell_event(self.expand(command), cwd=str(self.root)), guard)
 
-    def read(
-        self, file_path: str, tool_input: ToolInput
-    ) -> subprocess.CompletedProcess[str]:
+    def read(self, file_path: str, tool_input: ToolInput) -> Verdict:
         return self.decide(
             tool_event(
-                "Read",
+                Tool.READ,
                 {"file_path": self.expand(file_path), **tool_input},
                 cwd=str(self.root),
             )
@@ -360,49 +354,45 @@ class Project:
 
 
 @guard_cases(BASH_CASES)
-def test_bash_call(project: Project, want: int, given: str) -> None:
-    assert project.bash(given).returncode == want
+def test_shell_call(project: Project, want: Decision, given: str) -> None:
+    assert decision(project.shell(given)) == want
 
 
 @guard_cases(READ_CASES)
-def test_read_call(project: Project, want: int, given: tuple[str, ToolInput]) -> None:
-    assert project.read(*given).returncode == want
+def test_read_call(
+    project: Project, want: Decision, given: tuple[str, ToolInput]
+) -> None:
+    assert decision(project.read(*given)) == want
 
 
 @guard_cases(RAW_CASES + FAIL_OPEN_CASES)
-def test_raw_input(project: Project, want: int, given: str) -> None:
-    assert project.decide(given).returncode == want
+def test_raw_input(project: Project, want: Decision, given: str) -> None:
+    assert decision(project.decide(given)) == want
 
 
 def test_a_working_shfmt_blocks_on_the_runner_of_the_broken_ones(
     project: Project,
 ) -> None:
-    result = project.bash("cat huge", guard_on(SOURCE, bash_commands.SHFMT))
+    verdict = project.shell("cat huge", guard_on(SOURCE, bash_commands.SHFMT))
 
-    assert result.returncode == BLOCKED
+    assert decision(verdict) == BLOCKED
 
 
 @guard_cases(BROKEN_SHFMT)
 def test_a_broken_shfmt_allows_a_large_read(
-    project: Project, tmp_path: Path, want: int, given: BrokenShfmt
+    project: Project, tmp_path: Path, want: Decision, given: BrokenShfmt
 ) -> None:
-    result = project.bash("cat huge", guard_on_broken(SOURCE, given, tmp_path))
+    verdict = project.shell("cat huge", guard_on_broken(SOURCE, given, tmp_path))
 
-    assert (result.returncode, result.stderr) == (want, "")
-
-
-def test_a_bash_block_carries_the_hint(project: Project) -> None:
-    result = project.bash("cat big-a big-b")
-
-    assert result.returncode == BLOCKED
-    assert "grep -n first" in result.stderr
+    assert decision(verdict) == want
 
 
-def test_a_read_block_carries_the_hint(project: Project) -> None:
-    result = project.read("$DIR/huge", {})
+def test_a_shell_deny_carries_the_hint(project: Project) -> None:
+    assert "grep -n first" in reason(project.shell("cat big-a big-b"))
 
-    assert result.returncode == BLOCKED
-    assert "offset and limit" in result.stderr
+
+def test_a_read_deny_carries_the_hint(project: Project) -> None:
+    assert "offset and limit" in reason(project.read("$DIR/huge", {}))
 
 
 @pytest.fixture(scope="module")

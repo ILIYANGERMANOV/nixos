@@ -22,8 +22,8 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-from bash_commands import Parsed, Simple, Sink, Unparsable, parse
 from agent_hook import BeforeTool, Deny, Tool, emit_result, parse_event
+from bash_commands import Parsed, Simple, Sink, Unparsable, parse
 
 MAX_BYTES = 16 * 1024
 SHOWN = {Sink.SCREEN, Sink.BARE_SUBSTITUTION}

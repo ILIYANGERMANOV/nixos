@@ -34,6 +34,8 @@ let
           "quality.md"
           # test_agent_hook.py holds the enums to the vocabulary Nix reads.
           "vocabulary.json"
+          # test_guards.py shapes Claude's payloads as the contract recorded them.
+          "snapshot.json"
         ]
       ) root)
     ];
