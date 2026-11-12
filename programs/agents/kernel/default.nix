@@ -15,6 +15,7 @@ let
     {
       mkDerivation,
       base,
+      containers,
       hedgehog,
       hspec,
       hspec-discover,
@@ -41,11 +42,13 @@ let
       isExecutable = true;
       libraryHaskellDepends = [
         base
+        containers
         text
       ];
       executableHaskellDepends = [ base ];
       testHaskellDepends = [
         base
+        containers
         hedgehog
         hspec
         hspec-golden

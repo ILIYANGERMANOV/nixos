@@ -29,8 +29,16 @@ common shared-properties
 library
   import:          shared-properties
   hs-source-dirs:  src
-  exposed-modules: State.Mode
-  build-depends:   text
+  exposed-modules:
+    State.Cap
+    State.Flow
+    State.Graph
+    State.Mode
+    State.Path
+
+  build-depends:
+    , containers
+    , text
 
 executable state
   import:         shared-properties
@@ -48,8 +56,15 @@ test-suite state-test
   hs-source-dirs:     test
   main-is:            Main.hs
   build-tool-depends: hspec-discover:hspec-discover
-  other-modules:      State.ModeSpec
+  other-modules:
+    State.FlowGen
+    State.FlowSpec
+    State.GraphSpec
+    State.ModeSpec
+    State.PathSpec
+
   build-depends:
+    , containers
     , hedgehog
     , hspec
     , hspec-golden

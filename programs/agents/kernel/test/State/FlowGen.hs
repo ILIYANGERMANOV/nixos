@@ -1,0 +1,99 @@
+-- | Generators of well-typed flow terms and of walks through their graphs.
+module State.FlowGen (
+    Kit (..),
+    ctxKit,
+    diffKit,
+    genEndo,
+    genExiting,
+    genFlow,
+    genWalk,
+    pathTo,
+    composes,
+) where
+
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
+import Hedgehog (Gen)
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import State.Cap (EventName, OutcomeEdge (..), Step (..), Ty (..))
+import State.Flow (FanId (..), Flow (..), OnEmpty (..))
+import State.Graph (Edge (..), Node (..), OpenGraph (..))
+
+-- | The steps of one type that a generated flow chains, with and without an exit.
+data Kit a = Kit {endo :: [Flow a 'Nothing a], exiting :: [Flow a ('Just a) a]}
+
+ctxKit :: Kit 'Ctx
+ctxKit = Kit [Do Research] [Do Interview]
+
+planKit :: Kit 'Plan
+planKit = Kit [Do SimplifyP, Do Alternative, Do Draft] []
+
+diffKit :: Kit 'Diff
+diffKit = Kit [Do Refactor, Do Fix] [Do Review, Do Pick]
+
+prKit :: Kit 'PR
+prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi]
+
+-- | A term from @Ctx@ to @PR@ through every type, any combinator on each.
+genFlow :: Gen (Flow 'Ctx 'Nothing 'PR)
+genFlow = do
+    ctx <- genEndo ctxKit
+    plan <- genEndo planKit
+    rest <-
+        Gen.choice
+            [ (\diff pr -> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
+            , pure (Do Breakdown :> Par FEngineers (Do PlanS :> Do Implement :> Do Describe) :> Do Merge)
+            ]
+    pure (ctx :> Do PlanS :> plan :> rest)
+
+genEndo :: Kit a -> Gen (Flow a 'Nothing a)
+genEndo kit =
+    Gen.recursive
+        Gen.choice
+        [Gen.element kit.endo]
+        ( [ Opt <$> Gen.enumBounded <*> genEndo kit
+          , (:>) <$> genEndo kit <*> genEndo kit
+          ]
+            <> [Loop <$> Gen.enumBounded <*> Gen.element [StopOut, ExitOut] <*> genExiting kit | not (null kit.exiting)]
+        )
+
+-- | A term with an exit, an exiting step glued on either side of an endo term.
+genExiting :: Kit a -> Gen (Flow a ('Just a) a)
+genExiting kit =
+    Gen.choice
+        [ (:>) <$> Gen.element kit.exiting <*> genEndo kit
+        , (:>) <$> genEndo kit <*> Gen.element kit.exiting
+        ]
+
+{- | A walk from the in port to 'Out': a few random events that never take an
+exit, then the shortest way on.
+-}
+genWalk :: OpenGraph -> Gen [EventName]
+genWalk g = do
+    detour <- Gen.int (Range.linear 0 12)
+    go detour (At g.inPort)
+  where
+    go 0 node = pure (fromMaybe [] (pathTo g node Out))
+    go n node = case node of
+        At place -> do
+            (event, edge) <- Gen.element [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place, edge.to /= Exit]
+            (event :) <$> go (n - 1 :: Int) edge.to
+        Out -> pure []
+        Exit -> pure []
+
+-- | The events of a shortest walk between two nodes, breadth first.
+pathTo :: OpenGraph -> Node -> Node -> Maybe [EventName]
+pathTo g from target = go (Set.singleton from) [(from, [])]
+  where
+    go _ [] = Nothing
+    go seen ((node, walked) : queue)
+        | node == target = Just (reverse walked)
+        | otherwise =
+            let next = [(edge.to, event : walked) | ((place, event), edge) <- Map.toList g.edges, At place == node, edge.to `Set.notMember` seen]
+             in go (foldr (Set.insert . fst) seen next) (queue <> next)
+
+-- | Each edge starts where the one before it ends: a path of @Cap@.
+composes :: [OutcomeEdge] -> Bool
+composes edges = and (zipWith (\a b -> a.cod == b.dom) edges (drop 1 edges))
