@@ -1,0 +1,19 @@
+stateDiagram-v2
+  direction LR
+  [*] --> research
+  research --> interview: done
+  research --> interview: skipped
+  interview --> plan: enough
+  interview --> research: more
+  plan --> simplify_plan: done
+  simplify_plan --> alternative: done
+  simplify_plan --> alternative: skipped
+  alternative --> confirm: done
+  alternative --> confirm: skipped
+  confirm --> research: adjusted
+  confirm --> breakdown: confirmed
+  breakdown --> engineers: done
+  engineers --> merge: done
+  engineers --> engineers: handed_back
+  engineers --> engineers: spawned
+  merge --> [*]: done

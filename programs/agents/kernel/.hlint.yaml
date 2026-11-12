@@ -1,5 +1,6 @@
-# Parse files the same way the project compiles them (GHC2024 + extra default-extensions
-# from state.cabal), so HLint doesn't choke on e.g. OverloadedRecordDot syntax.
+# state.cabal's language and default-extensions again: hlint 3.10 does not read a
+# .cabal file, and without OverloadedRecordDot it parses `(cfg m).fuel` as a
+# composition and calls the brackets redundant. Keep the two lists in step.
 - arguments:
     - -XGHC2024
     - -XDataKinds

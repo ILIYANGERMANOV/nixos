@@ -1,0 +1,31 @@
+stateDiagram-v2
+  direction LR
+  [*] --> research
+  research --> interview: done
+  research --> interview: skipped
+  interview --> plan: enough
+  interview --> research: more
+  plan --> simplify_plan: done
+  simplify_plan --> alternative: done
+  simplify_plan --> alternative: skipped
+  alternative --> confirm: done
+  alternative --> confirm: skipped
+  confirm --> research: adjusted
+  confirm --> draft: confirmed
+  draft --> implement: done
+  implement --> refactor: done
+  refactor --> review: done
+  refactor --> review: skipped
+  review --> describe: clean
+  review --> pick: rows
+  pick --> describe: final
+  pick --> fix: loop
+  fix --> review: done
+  describe --> simplify_pr: done
+  simplify_pr --> await_ci: done
+  simplify_pr --> await_ci: skipped
+  await_ci --> ready: green
+  await_ci --> fix_pr: red
+  fix_pr --> await_ci: done
+  ready --> [*]: done
+  ready --> [*]: skipped

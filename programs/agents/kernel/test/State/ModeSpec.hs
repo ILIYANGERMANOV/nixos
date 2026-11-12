@@ -1,19 +1,19 @@
 module State.ModeSpec (spec) where
 
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (forAll, tripping)
 import Hedgehog.Gen qualified as Gen
-import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg, cfgLeq, leq, modes, parseQuality, qualityName)
+import State.Flow (LoopId (..))
+import State.Golden (golden)
+import State.Mode (Area (..), Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg, cfgLeq, leq, modes, parseQuality, qualityName)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldMatchList)
-import Test.Hspec.Golden (Golden (..), defaultGolden)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Mode" $ do
     it "spells each quality as the Quality table does" $
-        golden "quality-names" . Text.unlines $
+        golden "quality-names/golden" . Text.unlines $
             map qualityName [minBound .. maxBound]
 
     it "parses a wire name back to its quality" . hedgehog $ do
@@ -29,6 +29,27 @@ spec = describe "State.Mode" $ do
     it "orders the six modes as #351 draws them: the 7 edges and what they imply" $
         [(m, m') | m <- modes, m' <- modes, m /= m', leq m m', not (any (between m m') modes)]
             `shouldMatchList` edges
+
+    it "gives review 2, 3 and 5 re-reviews after the first by Quality, none when Trivial" $
+        [(m, (cfg m).fuel LReview) | m <- modes]
+            `shouldMatchList` [ (Mode Poc Normal, 3)
+                              , (Mode Balanced Normal, 4)
+                              , (Mode Max Normal, 6)
+                              , (Mode Poc Trivial, 1)
+                              , (Mode Balanced Trivial, 1)
+                              , (Mode Max Trivial, 1)
+                              ]
+
+    it "reviews data model and auth fixes in full below Max, and interface ones too at Max" $
+        [(m, (cfg m).areas) | m <- modes]
+            `shouldMatchList` [ (Mode quality size, areas)
+                              | (quality, areas) <-
+                                    [ (Poc, Set.fromList [DataModel, Auth])
+                                    , (Balanced, Set.fromList [DataModel, Auth])
+                                    , (Max, Set.fromList [Interface, DataModel, Auth])
+                                    ]
+                              , size <- [Trivial, Normal]
+                              ]
 
     it "cfg_is_monotone_on_the_7_edges" $
         [(m, m') | (m, m') <- edges, not (cfgLeq (cfg m) (cfg m'))] `shouldBe` []
@@ -59,15 +80,3 @@ edges =
 
 between :: Mode -> Mode -> Mode -> Bool
 between low high m = m /= low && m /= high && leq low m && leq m high
-
-{- | Compares with @test/golden/<name>/golden@. A missing file fails, rather
-than being written and passing, so a check never creates what it should
-compare; delete the file and run the suite twice to accept a new output.
--}
-golden :: String -> Text -> Golden String
-golden name output =
-    (defaultGolden name (Text.unpack output))
-        { goldenFile = "test/golden/" <> name <> "/golden"
-        , actualFile = Nothing
-        , failFirstTime = True
-        }

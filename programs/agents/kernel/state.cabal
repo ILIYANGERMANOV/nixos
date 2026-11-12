@@ -32,9 +32,13 @@ library
   exposed-modules:
     State.Cap
     State.Flow
+    State.Flows.Blocks
+    State.Flows.Engineer
+    State.Flows.TenX
     State.Graph
     State.Mode
     State.Path
+    State.Render.Mermaid
 
   build-depends:
     , containers
@@ -58,10 +62,15 @@ test-suite state-test
   build-tool-depends: hspec-discover:hspec-discover
   other-modules:
     State.FlowGen
+    State.Flows.BlocksSpec
+    State.Flows.EngineerSpec
+    State.Flows.TenXSpec
     State.FlowSpec
+    State.Golden
     State.GraphSpec
     State.ModeSpec
     State.PathSpec
+    State.Render.MermaidSpec
 
   build-depends:
     , containers

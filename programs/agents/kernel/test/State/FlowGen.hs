@@ -8,18 +8,21 @@ module State.FlowGen (
     genFlow,
     genWalk,
     pathTo,
+    bypasses,
     composes,
 ) where
 
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Cap (EventName, OutcomeEdge (..), Step (..), Ty (..))
 import State.Flow (FanId (..), Flow (..), OnEmpty (..))
-import State.Graph (Edge (..), Node (..), OpenGraph (..))
+import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
+import State.Mode (Cfg (..), Mode, SkipWhen (..), cfg)
 
 -- | The steps of one type that a generated flow chains, with and without an exit.
 data Kit a = Kit {endo :: [Flow a 'Nothing a], exiting :: [Flow a ('Just a) a]}
@@ -93,6 +96,18 @@ pathTo g from target = go (Set.singleton from) [(from, [])]
         | otherwise =
             let next = [(edge.to, event : walked) | ((place, event), edge) <- Map.toList g.edges, At place == node, edge.to `Set.notMember` seen]
              in go (foldr (Set.insert . fst) seen next) (queue <> next)
+
+{- | A run in this mode can reach the end without running a step of this
+name: it takes a skip, which leaves the skipped step's state, only where the
+mode may skip.
+-}
+bypasses :: Mode -> OpenGraph -> Text -> Bool
+bypasses mode g name = isJust (pathTo g {edges = Map.filterWithKey taken g.edges} (At g.inPort) Out)
+  where
+    taken (from, _) edge = case edge.arrow of
+        Skip optId -> (cfg mode).skip optId /= Never
+        Along _ -> from.name /= name
+        Stay -> from.name /= name
 
 -- | Each edge starts where the one before it ends: a path of @Cap@.
 composes :: [OutcomeEdge] -> Bool
