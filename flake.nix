@@ -180,6 +180,7 @@
             })
             state
             guards
+            kernel
             ;
         }
       );

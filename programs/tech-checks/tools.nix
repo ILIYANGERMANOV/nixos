@@ -19,5 +19,7 @@
     selene
     stylua
     biome
+    hlint
+    fourmolu
     ;
 }

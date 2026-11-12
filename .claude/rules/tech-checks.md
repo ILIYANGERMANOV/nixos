@@ -28,6 +28,14 @@ A lint, type or test check for a technology rather than a program is
 `<tech>` also joins the `tech` matrix in `check.yml`. See
 `docs/adr/0009-tech-checks.md`.
 
+`just tech haskell` covers `programs/agents/kernel`, the one Haskell package:
+`haskell-tests` builds it, which runs its hspec suite with a fixed seed, and
+`haskell-lint` runs hlint and `fourmolu --mode check`. A spec is
+`test/<Module>Spec.hs`, found by hspec-discover but also listed in
+`state.cabal`; a new dependency goes in both `state.cabal` and `default.nix`.
+A golden file under `test/golden` is never created by the check: a missing
+one fails.
+
 A script uses `writeShellApplication` from `programs/shell-check`, never
 `pkgs.writeShellApplication`.
 A just recipe has no `{{ }}` on a sudo line: use an exported parameter.
