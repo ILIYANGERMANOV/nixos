@@ -7,6 +7,8 @@ module State.Mode (
     qualityName,
     parseQuality,
     Size (..),
+    sizeName,
+    parseSize,
     Mode (..),
     modes,
     leq,
@@ -43,6 +45,15 @@ parseQuality name = lookup name [(qualityName quality, quality) | quality <- [mi
 -- | No 'Ord', as for 'Quality'.
 data Size = Trivial | Normal
     deriving stock (Eq, Show, Enum, Bounded)
+
+-- | The wire name, as a brief's @Size: <size>@ line spells it.
+sizeName :: Size -> Text
+sizeName = \case
+    Trivial -> "Trivial"
+    Normal -> "Normal"
+
+parseSize :: Text -> Maybe Size
+parseSize name = lookup name [(sizeName size, size) | size <- [minBound .. maxBound]]
 
 data Mode = Mode Quality Size
     deriving stock (Eq, Show)

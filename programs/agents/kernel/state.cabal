@@ -31,18 +31,23 @@ library
   hs-source-dirs:  src
   exposed-modules:
     State.Cap
+    State.Codec
+    State.Event
     State.Flow
     State.Flows.Blocks
     State.Flows.Engineer
     State.Flows.TenX
+    State.Fold
     State.Graph
     State.Mode
     State.Path
     State.Render.Mermaid
 
   build-depends:
+    , aeson
     , containers
     , text
+    , time
 
 executable state
   import:         shared-properties
@@ -61,11 +66,14 @@ test-suite state-test
   main-is:            Main.hs
   build-tool-depends: hspec-discover:hspec-discover
   other-modules:
+    State.CodecSpec
+    State.EventGen
     State.FlowGen
     State.Flows.BlocksSpec
     State.Flows.EngineerSpec
     State.Flows.TenXSpec
     State.FlowSpec
+    State.FoldSpec
     State.Golden
     State.GraphSpec
     State.ModeSpec
@@ -80,3 +88,4 @@ test-suite state-test
     , hspec-hedgehog
     , state
     , text
+    , time

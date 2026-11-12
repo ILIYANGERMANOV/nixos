@@ -13,6 +13,10 @@ module State.Cap (
     outcomes,
     EventName (..),
     eventText,
+    continueEvent,
+    exitEvent,
+    skipEvent,
+    skippedOutcome,
     OutcomeEdge (..),
 ) where
 
@@ -122,6 +126,25 @@ data EventName = EventName {step :: Text, outcome :: Text}
 
 eventText :: EventName -> Text
 eventText name = name.step <> "." <> name.outcome
+
+-- | The event a step's continuing outcome appends.
+continueEvent :: Step i e o -> EventName
+continueEvent s = EventName (stepName s) $ case outcomes s of
+    Continues continue -> continue
+    ExitsOr _ continue -> continue
+
+-- | The event a step's exit outcome appends: only a step with an exit has one.
+exitEvent :: Step i ('Just x) o -> EventName
+exitEvent s = case outcomes s of
+    ExitsOr exit _ -> EventName (stepName s) exit
+
+-- | The event a skip appends: only an endo step can sit under an 'State.Flow.Opt'.
+skipEvent :: Step i 'Nothing i -> EventName
+skipEvent s = EventName (stepName s) skippedOutcome
+
+-- | The outcome of a step a mode skipped, which no step has of its own.
+skippedOutcome :: Text
+skippedOutcome = "skipped"
 
 -- | A generating arrow of @Cap@: one outcome of one step, @step.outcome : dom -> cod@.
 data OutcomeEdge = OutcomeEdge {event :: EventName, dom :: Ty, cod :: Ty}

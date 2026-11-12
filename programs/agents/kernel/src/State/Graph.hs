@@ -18,8 +18,10 @@ module State.Graph (
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
-import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), Outcomes (..), Step, Ty (..), outcomes, stepName)
+import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), Outcomes (..), Step, Ty (..), outcomes, skippedOutcome, stepName)
 import State.Flow (FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanName)
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
@@ -52,8 +54,11 @@ data Edge = Edge {to :: Node, arrow :: Arrow, back :: Maybe LoopId}
 data Empty = Stops | Exits
     deriving stock (Eq, Show)
 
--- | A loop's first state, where each round starts.
-data LoopAt = LoopAt {entry :: Place, onEmpty :: Empty}
+{- | A loop's first state, where each round starts, and the states of its
+body. Nested loops can share an entry (gather and plan both start at
+@research@), so the body, not the entry, tells whether a run is inside a loop.
+-}
+data LoopAt = LoopAt {entry :: Place, onEmpty :: Empty, body :: Set Place}
     deriving stock (Eq, Show)
 
 data OpenGraph = OpenGraph
@@ -124,9 +129,11 @@ exitTy (ExitsOr _ _) = tyVal @x
 -- | The body's continue goes back to its in port; its exit is the loop's out.
 closeLoop :: LoopId -> Empty -> OpenGraph -> Either Clash OpenGraph
 closeLoop loopId onEmpty body = do
-    loops <- unionLoops body.loops (Map.singleton loopId (LoopAt body.inPort onEmpty))
+    loops <- unionLoops body.loops (Map.singleton loopId (LoopAt body.inPort onEmpty places))
     pure body {edges = fmap close body.edges, loops}
   where
+    -- Every state has an edge out, so the keys hold them all.
+    places = Set.fromList (body.inPort : map fst (Map.keys body.edges))
     close edge = case edge.to of
         Out -> edge {to = At body.inPort, back = Just loopId}
         Exit -> edge {to = Out}
@@ -143,7 +150,7 @@ skippable optId body = do
     edges <- insertNew (body.inPort, event) (Edge Out (Skip optId) Nothing) body.edges
     pure body {edges}
   where
-    event = EventName body.inPort.name "skipped"
+    event = EventName body.inPort.name skippedOutcome
 
 {- | One state: each child runs the body as a run of its own, so the body is
 not drawn here and gives only its types. Children are spawned and hand back
@@ -172,7 +179,7 @@ within branch g =
     OpenGraph
         { inPort = moved g.inPort
         , edges = Map.fromList [((moved from, event), edge {to = node edge.to}) | ((from, event), edge) <- Map.toList g.edges]
-        , loops = fmap (\at -> at {entry = moved at.entry}) g.loops
+        , loops = fmap (\at -> at {entry = moved at.entry, body = Set.map moved at.body}) g.loops
         }
   where
     moved p = p {path = branch : p.path}

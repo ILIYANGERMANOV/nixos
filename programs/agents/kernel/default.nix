@@ -14,6 +14,7 @@ let
   package =
     {
       mkDerivation,
+      aeson,
       base,
       containers,
       hedgehog,
@@ -22,6 +23,7 @@ let
       hspec-golden,
       hspec-hedgehog,
       text,
+      time,
     }:
     mkDerivation {
       pname = "state";
@@ -41,9 +43,11 @@ let
       isLibrary = true;
       isExecutable = true;
       libraryHaskellDepends = [
+        aeson
         base
         containers
         text
+        time
       ];
       executableHaskellDepends = [ base ];
       testHaskellDepends = [
@@ -54,6 +58,7 @@ let
         hspec-golden
         hspec-hedgehog
         text
+        time
       ];
       testToolDepends = [ hspec-discover ];
       doCheck = true;
