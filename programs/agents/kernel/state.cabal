@@ -1,0 +1,58 @@
+cabal-version: 3.0
+name:          state
+version:       0.1.0.0
+synopsis:      The kernel of the agent flows: typed steps, the run log and its advice
+build-type:    Simple
+
+-- Copied from Ivy-Apps/haskell-template's `shared-properties`, minus relude and
+-- its Prelude mixin: base's Prelude keeps the dependency set small.
+common shared-properties
+  default-language:   GHC2024
+  ghc-options:        -Wall -Werror
+  default-extensions:
+    DataKinds
+    DeriveAnyClass
+    DeriveGeneric
+    DerivingStrategies
+    DuplicateRecordFields
+    FlexibleContexts
+    LambdaCase
+    NoFieldSelectors
+    OverloadedLabels
+    OverloadedRecordDot
+    OverloadedStrings
+    TypeApplications
+    TypeFamilies
+
+  build-depends:      base >=4.18 && <5
+
+library
+  import:          shared-properties
+  hs-source-dirs:  src
+  exposed-modules: State.Mode
+  build-depends:   text
+
+executable state
+  import:         shared-properties
+  hs-source-dirs: app/state
+  main-is:        Main.hs
+
+executable state-hook
+  import:         shared-properties
+  hs-source-dirs: app/state-hook
+  main-is:        Main.hs
+
+test-suite state-test
+  import:             shared-properties
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  main-is:            Main.hs
+  build-tool-depends: hspec-discover:hspec-discover
+  other-modules:      State.ModeSpec
+  build-depends:
+    , hedgehog
+    , hspec
+    , hspec-golden
+    , hspec-hedgehog
+    , state
+    , text

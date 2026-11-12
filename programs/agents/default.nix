@@ -146,6 +146,10 @@ in
   # The `ctx` and `state` commands, the ones the base profile's runtime puts on PATH.
   inherit ctx state;
 
+  # The Haskell `state` and `state-hook` that will replace the Python ones (#360).
+  # Nothing installs them yet: only the haskell tech checks build them.
+  kernel = import ./kernel { inherit pkgs; };
+
   # The guards as they deploy, for the tests to run (hooks/guards).
   guards = {
     inherit (guards)

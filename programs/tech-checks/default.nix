@@ -8,6 +8,8 @@
   # The built `state` command and guards, which python-tests runs end to end.
   state,
   guards,
+  # The Haskell kernel package, whose build runs its own tests.
+  kernel,
 }:
 import ./shell.nix { inherit pkgs claude; }
 // import ./ts.nix { inherit pkgs; }
@@ -20,3 +22,4 @@ import ./shell.nix { inherit pkgs claude; }
     ;
 }
 // import ./lua.nix { inherit pkgs; }
+// import ./haskell.nix { inherit pkgs kernel; }

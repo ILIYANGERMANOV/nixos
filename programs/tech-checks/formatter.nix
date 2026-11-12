@@ -24,6 +24,7 @@ pkgs.treefmt.withConfig {
     justFormatEach
     tools.biome
     tools.ruff
+    tools.fourmolu
   ];
   settings = {
     # treefmt warns by default, too loud for a repo where most files have no formatter.
@@ -70,6 +71,15 @@ pkgs.treefmt.withConfig {
         command = "ruff";
         options = [ "format" ];
         includes = [ "*.py" ];
+      };
+      # Reads the fourmolu.yaml and .cabal extensions beside each file.
+      fourmolu = {
+        command = "fourmolu";
+        options = [
+          "--mode"
+          "inplace"
+        ];
+        includes = [ "*.hs" ];
       };
     };
   };

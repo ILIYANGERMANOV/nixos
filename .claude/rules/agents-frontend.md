@@ -32,7 +32,7 @@ Each folder has its own rule, loaded when you work in it:
 | `hooks/` | hook declarations, the neutral contract and dispatcher | below |
 
 `default.nix` is the surface: `profiles`, `fold`, `renderLead`, `renderRole`,
-`skills`, `ctx`, `state`, `guards`, `hooks`, `roles`, `budget` and `check`. `checks.agents`
+`skills`, `ctx`, `state`, `kernel` (the Haskell `state`, #360), `guards`, `hooks`, `roles`, `budget` and `check`. `checks.agents`
 proves every law and every rejection.
 
 ### Hooks
