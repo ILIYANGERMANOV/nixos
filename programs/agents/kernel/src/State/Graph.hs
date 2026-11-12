@@ -14,6 +14,7 @@ module State.Graph (
     Clash (..),
     graph,
     glue,
+    places,
 ) where
 
 import Data.Map.Strict (Map)
@@ -129,11 +130,9 @@ exitTy (ExitsOr _ _) = tyVal @x
 -- | The body's continue goes back to its in port; its exit is the loop's out.
 closeLoop :: LoopId -> Empty -> OpenGraph -> Either Clash OpenGraph
 closeLoop loopId onEmpty body = do
-    loops <- unionLoops body.loops (Map.singleton loopId (LoopAt body.inPort onEmpty places))
+    loops <- unionLoops body.loops (Map.singleton loopId (LoopAt body.inPort onEmpty (places body)))
     pure body {edges = fmap close body.edges, loops}
   where
-    -- Every state has an edge out, so the keys hold them all.
-    places = Set.fromList (body.inPort : map fst (Map.keys body.edges))
     close edge = case edge.to of
         Out -> edge {to = At body.inPort, back = Just loopId}
         Exit -> edge {to = Out}
@@ -172,6 +171,10 @@ fanOut fan _ =
     place = Place [] (fanName fan)
     event = EventName place.name
     edge outcome target = ((place, event outcome), target)
+
+-- | The graph's states. Every state has an edge out, so the edges' keys hold them all.
+places :: OpenGraph -> Set Place
+places g = Set.fromList (map fst (Map.keys g.edges))
 
 -- | Prefixes every path, so the graph can sit beside another.
 within :: Int -> OpenGraph -> OpenGraph

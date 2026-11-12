@@ -10,7 +10,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Cap (EventName (..))
-import State.Graph (Edge (..), Node (..), OpenGraph (..), Place (..))
+import State.Graph (Edge (..), Node (..), OpenGraph (..), Place (..), places)
 
 {- | In the graph's order, which is the term's: a block's states before the
 next block's. 'Out' and 'Exit' are both ends, @[*]@, told apart by the label.
@@ -37,8 +37,8 @@ placeId shared place
     | place.name `Set.member` shared = Text.intercalate "_" (place.name : map (Text.pack . show) place.path)
     | otherwise = place.name
 
--- | Names of two or more states. Every state has an edge out, so the keys hold them all.
+-- | Names of two or more states.
 sharedNames :: OpenGraph -> Set Text
 sharedNames g =
     Map.keysSet . Map.filter (> (1 :: Int)) $
-        Map.fromListWith (+) [(place.name, 1) | place <- Set.toList (Set.fromList (map fst (Map.keys g.edges)))]
+        Map.fromListWith (+) [(place.name, 1) | place <- Set.toList (places g)]

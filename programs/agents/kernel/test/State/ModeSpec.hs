@@ -54,9 +54,10 @@ spec = describe "State.Mode" $ do
     it "cfg_is_monotone_on_the_7_edges" $
         [(m, m') | (m, m') <- edges, not (cfgLeq (cfg m) (cfg m'))] `shouldBe` []
 
-    it "puts no cfg below one that skips more or has less fuel, fan-out or areas" $ do
-        let base = cfg (Mode Balanced Normal)
+    it "puts a cfg at or below itself" $
         cfgLeq base base `shouldBe` True
+
+    it "puts no cfg below one that skips more or has less fuel, fan-out or areas" $
         map
             (cfgLeq base)
             [ base {skip = const Always}
@@ -65,6 +66,8 @@ spec = describe "State.Mode" $ do
             , base {areas = Set.empty}
             ]
             `shouldBe` [False, False, False, False]
+  where
+    base = cfg (Mode Balanced Normal)
 
 -- | The covering edges of #351's mode diagram, lower mode first.
 edges :: [(Mode, Mode)]

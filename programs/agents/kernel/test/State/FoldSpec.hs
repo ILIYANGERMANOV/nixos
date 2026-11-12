@@ -1,6 +1,5 @@
 module State.FoldSpec (spec) where
 
-import Data.Either (isLeft)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -116,18 +115,25 @@ spec = describe "State.Fold" $ do
     it "refuses an event with no edge where the run is" $
         replay g (logOf (started :| [Took (ReviewClean sha)])) `shouldBe` Left (NoEdge (At research) (outcomeEvent (ReviewClean sha)))
 
-    it "refuses a skip the mode never takes, and takes it where the mode does" $ do
+    it "refuses a skip the mode never takes" $
         replay g (logOf (started :| [Took ResearchSkipped])) `shouldBe` Left (NotSkippable ORes)
+
+    it "takes a skip where the mode does" $
         (.at) <$> replay g (logOf (started :| [SizeSet Trivial, Took ResearchSkipped])) `shouldSatisfy` either (const False) (/= At research)
 
-    it "sets Quality once, and Size once unless it grew" $ do
+    it "refuses a second Quality" $
         replay g (logOf (started :| [QualitySet Max, QualitySet Poc])) `shouldBe` Left (QualitySetOnce Max)
+
+    it "refuses a second Size" $
         replay g (logOf (started :| [SizeSet Trivial, SizeSet Normal])) `shouldBe` Left (SizeSetOnce Trivial)
+
+    it "takes the same Quality again, and a Size that grew" $
         mode <$> replay g (logOf (started :| [QualitySet Max, QualitySet Max, SizeSet Trivial, Grew "bigger"])) `shouldBe` Right (Mode Max Normal)
 
-    it "takes nothing after a stop but a logged refusal" $ do
-        let stop = Stop Blocked "why"
+    it "takes no event after a stop" $
         replay g (logOf (started :| [Stopped stop, Took (ResearchDone 1)])) `shouldBe` Left (AfterStop stop)
+
+    it "logs a refusal after a stop" $
         (.refused) <$> replay g (logOf (started :| [Stopped stop, Refused note])) `shouldBe` Right (Just note)
 
     it "warns of a refusal until the next event" $
@@ -136,11 +142,14 @@ spec = describe "State.Fold" $ do
     it "refuses a line of another run" $
         replay g (line 0 started :| [ofRun (RunId "other") (line 1 (Took (ResearchDone 1)))]) `shouldBe` Left (OtherRun (RunId "other"))
 
-    it "overrides to a named state, and refuses a name the flow does not have" $ do
+    it "overrides to a named state" $
         placeName . (.at) <$> replay g (logOf (started :| [Overridden "review" "why"])) `shouldBe` Right (Just "review")
-        replay g (logOf (started :| [Overridden "nowhere" "why"])) `shouldSatisfy` isLeft
+
+    it "refuses an override to a state the flow does not have" $
+        replay g (logOf (started :| [Overridden "nowhere" "why"])) `shouldBe` Left (NoSingleState "nowhere")
   where
     note = Note "no edge" "state next"
+    stop = Stop Blocked "why"
 
 g :: OpenGraph
 g = either (error . show) id (graph engineer)

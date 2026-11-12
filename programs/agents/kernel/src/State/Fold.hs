@@ -30,7 +30,7 @@ import Numeric.Natural (Natural)
 import State.Cap (EventName)
 import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, Stop, Verdict (..), eventId, outcomeEvent)
 import State.Flow (LoopId, OptId)
-import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..))
+import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
 import State.Path (step)
 
@@ -160,25 +160,23 @@ took g state outcome = do
         Along _ -> Right ()
         Stay -> Right ()
     let noted = fmap (noteProblems (problems outcome)) state.rounds
-    rounds <- enter g (mode state) edge.back state.at edge.to noted
+    rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     Right state {at = edge.to, rounds}
 
 overridden :: OpenGraph -> RunState -> Text -> Either Refusal RunState
-overridden g state name = case Set.toList (Set.filter (\place -> place.name == name) places) of
+overridden g state name = case Set.toList (Set.filter (\place -> place.name == name) (places g)) of
     [place] -> do
-        rounds <- enter g (mode state) Nothing state.at (At place) state.rounds
+        rounds <- enter g (cfg (mode state)).fuel Nothing state.at (At place) state.rounds
         Right state {at = At place, rounds}
     _ -> Left (NoSingleState name)
-  where
-    places = Set.fromList (map fst (Map.keys g.edges))
 
 {- | The rounds after a move from one node to another. A loop's own back edge
 starts its next round, within its budget; one entered from outside, or
 restarted by an enclosing loop's next round, starts at round one; one left
 is closed.
 -}
-enter :: OpenGraph -> Mode -> Maybe LoopId -> Node -> Node -> Map LoopId (NonEmpty Round) -> Either Refusal (Map LoopId (NonEmpty Round))
-enter g m back from to current = Map.traverseMaybeWithKey around g.loops
+enter :: OpenGraph -> (LoopId -> Natural) -> Maybe LoopId -> Node -> Node -> Map LoopId (NonEmpty Round) -> Either Refusal (Map LoopId (NonEmpty Round))
+enter g fuel back from to current = Map.traverseMaybeWithKey around g.loops
   where
     inside loop = \case
         At place -> Set.member place loop.body
@@ -189,7 +187,7 @@ enter g m back from to current = Map.traverseMaybeWithKey around g.loops
         Nothing -> False
     around loopId loop = case (inside loop to, Map.lookup loopId current) of
         (False, _) -> Right Nothing
-        (True, Just done) | back == Just loopId -> Just <$> nextRound loopId ((cfg m).fuel loopId) done
+        (True, Just done) | back == Just loopId -> Just <$> nextRound loopId (fuel loopId) done
         (True, Just done) | inside loop from && not (restarts loop) -> Right (Just done)
         (True, _) -> Right (Just firstRound)
 

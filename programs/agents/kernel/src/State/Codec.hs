@@ -39,6 +39,7 @@ import State.Event (
     DraftPr (..),
     Envelope (..),
     Event (..),
+    EventId (..),
     FlowName (..),
     Judgement (..),
     Label (..),
@@ -57,9 +58,10 @@ import State.Event (
     StopReason (..),
     Url (..),
     Verdict (..),
+    eventId,
     outcomeEvent,
  )
-import State.Mode (Area (..), parseQuality, parseSize, qualityName, sizeName)
+import State.Mode (Area (..), parseQuality, qualityName, sizeName)
 
 -- | The log version this kernel writes and reads.
 version :: Int
@@ -109,7 +111,7 @@ encodeLine :: Envelope -> Text
 encodeLine e =
     Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . pairs $
         "v" .= version
-            <> "id" .= idText e.run e.seq e.source
+            <> "id" .= idText (eventId e)
             <> "seq" .= e.seq
             <> "ts" .= e.ts
             <> "run" .= runText e.run
@@ -131,17 +133,17 @@ envelope obj = do
     pure Envelope {source, seq = n, ts, run, head = sha, session, event}
 
 -- | A CLI record's id is @<run>:<seq>@, a hook record's @h:<hash>@.
-idText :: RunId -> Natural -> Source -> Text
-idText run n = \case
-    Cli -> runText run <> ":" <> Text.pack (show n)
-    Hook (Digest digest) -> "h:" <> digest
+idText :: EventId -> Text
+idText = \case
+    Numbered run n -> runText run <> ":" <> Text.pack (show n)
+    Hashed (Digest digest) -> "h:" <> digest
 
 -- | The line's own run and seq are the truth, so a CLI id naming others is refused.
 sourceOf :: RunId -> Natural -> Text -> Parser Source
 sourceOf run n raw
-    | raw == idText run n Cli = pure Cli
+    | raw == idText (Numbered run n) = pure Cli
     | Just digest <- Text.stripPrefix "h:" raw, not (Text.null digest) = pure (Hook (Digest digest))
-    | otherwise = fail ("id " <> show raw <> " is neither " <> show (idText run n Cli) <> " nor h:<hash>")
+    | otherwise = fail ("id " <> show raw <> " is neither " <> show (idText (Numbered run n)) <> " nor h:<hash>")
 
 eventType :: Event -> Text
 eventType = \case
@@ -174,7 +176,7 @@ eventOf :: Text -> Object -> Parser Event
 eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
     "quality" -> QualitySet <$> (obj .: "mode" >>= named "quality" parseQuality)
-    "size" -> SizeSet <$> (obj .: "size" >>= named "size" parseSize)
+    "size" -> SizeSet <$> (obj .: "size" >>= named "size" (parseBy sizeName))
     "grew" -> Grew <$> obj .: "why"
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseBy reasonText)) <*> obj .: "why")
     "overridden" -> Overridden <$> obj .: "to" <*> obj .: "why"

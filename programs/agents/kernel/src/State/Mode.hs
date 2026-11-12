@@ -8,7 +8,6 @@ module State.Mode (
     parseQuality,
     Size (..),
     sizeName,
-    parseSize,
     Mode (..),
     modes,
     leq,
@@ -51,9 +50,6 @@ sizeName :: Size -> Text
 sizeName = \case
     Trivial -> "Trivial"
     Normal -> "Normal"
-
-parseSize :: Text -> Maybe Size
-parseSize name = lookup name [(sizeName size, size) | size <- [minBound .. maxBound]]
 
 data Mode = Mode Quality Size
     deriving stock (Eq, Show)
