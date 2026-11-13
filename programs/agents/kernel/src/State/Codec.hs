@@ -49,7 +49,7 @@ import State.Event (
     Picks (..),
     Principal (..),
     Requirement (..),
-    RunId (..),
+    RunId,
     SessionId (..),
     Sha (..),
     Source (..),
@@ -60,8 +60,10 @@ import State.Event (
     Verdict (..),
     eventId,
     outcomeEvent,
+    parseRunId,
+    runIdText,
  )
-import State.Mode (Area (..), parseQuality, qualityName, sizeName)
+import State.Mode (Area (..), parseByName, parseQuality, qualityName, sizeName)
 
 -- | The log version this kernel writes and reads.
 version :: Int
@@ -114,7 +116,7 @@ encodeLine e =
             <> "id" .= idText (eventId e)
             <> "seq" .= e.seq
             <> "ts" .= e.ts
-            <> "run" .= runText e.run
+            <> "run" .= runIdText e.run
             <> "head" .= fmap shaText e.head
             <> "session" .= fmap (\(SessionId session) -> session) e.session
             <> "type" .= eventType e.event
@@ -123,7 +125,7 @@ encodeLine e =
 envelope :: Object -> Parser Envelope
 envelope obj = do
     n <- obj .: "seq"
-    run <- RunId <$> obj .: "run"
+    run <- obj .: "run" >>= runIdOf
     source <- obj .: "id" >>= sourceOf run n
     ts <- obj .: "ts"
     sha <- fmap Sha <$> obj .: "head"
@@ -135,7 +137,7 @@ envelope obj = do
 -- | A CLI record's id is @<run>:<seq>@, a hook record's @h:<hash>@.
 idText :: EventId -> Text
 idText = \case
-    Numbered run n -> runText run <> ":" <> Text.pack (show n)
+    Numbered run n -> runIdText run <> ":" <> Text.pack (show n)
     Hashed (Digest digest) -> "h:" <> digest
 
 -- | The line's own run and seq are the truth, so a CLI id naming others is refused.
@@ -176,9 +178,9 @@ eventOf :: Text -> Object -> Parser Event
 eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
     "quality" -> QualitySet <$> (obj .: "mode" >>= named "quality" parseQuality)
-    "size" -> SizeSet <$> (obj .: "size" >>= named "size" (parseBy sizeName))
+    "size" -> SizeSet <$> (obj .: "size" >>= named "size" (parseByName sizeName))
     "grew" -> Grew <$> obj .: "why"
-    "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseBy reasonText)) <*> obj .: "why")
+    "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
     "overridden" -> Overridden <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
     _ -> case Map.lookup kind outcomeParsers of
@@ -188,22 +190,22 @@ eventOf kind obj = case kind of
 startOf :: Object -> Parser Start
 startOf obj =
     Start
-        <$> (obj .: "flow" >>= named "flow" (parseBy flowText))
+        <$> (obj .: "flow" >>= named "flow" (parseByName flowText))
         <*> obj .: "notes"
         <*> (obj .: "principal" >>= principalOf)
-        <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseBy opText))))
+        <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
         <*> obj .: "task"
 
 -- | The user is a bare word; a parent run is its id and its log.
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser -> text "user"
-    ByRole run logPath -> pairs ("run" .= runText run <> "log" .= logPath)
+    ByRole run logPath -> pairs ("run" .= runIdText run <> "log" .= logPath)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
     String "user" -> pure ByUser
-    Object obj -> ByRole . RunId <$> obj .: "run" <*> obj .: "log"
+    Object obj -> ByRole <$> (obj .: "run" >>= runIdOf) <*> obj .: "log"
     other -> fail ("a principal is \"user\" or {run, log}, not " <> show other)
 
 outcomeData :: Outcome -> Series
@@ -287,9 +289,9 @@ outcomeParsers =
     headOf obj = Sha <$> obj .: "head"
     urlOf obj = Url <$> obj .: "url"
     draftOf obj = DraftPr <$> urlOf obj <*> (Branch <$> obj .: "base") <*> (Branch <$> obj .: "branch")
-    commitOf obj = Commit <$> headOf obj <*> (Set.fromList <$> (obj .: "touches" >>= traverse (named "area" (parseBy areaText))))
+    commitOf obj = Commit <$> headOf obj <*> (Set.fromList <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaText))))
     picksOf obj = Picks . map Label <$> obj .: "rows" <*> (obj .: "verdicts" >>= traverse (withObject "verdict" verdictOf))
-    verdictOf obj = Verdict . Requirement <$> obj .: "requirement" <*> (obj .: "outcome" >>= named "outcome" (parseBy judgementText))
+    verdictOf obj = Verdict . Requirement <$> obj .: "requirement" <*> (obj .: "outcome" >>= named "outcome" (parseByName judgementText))
 
 (~>) :: EventName -> (Object -> Parser Outcome) -> (EventName, Object -> Parser Outcome)
 (~>) = (,)
@@ -299,12 +301,8 @@ infixr 0 ~>
 named :: String -> (Text -> Maybe a) -> Text -> Parser a
 named what parse raw = maybe (fail ("unknown " <> what <> " " <> show raw)) pure (parse raw)
 
--- | Exact spelling only, as 'parseQuality'.
-parseBy :: (Bounded a, Enum a) => (a -> Text) -> Text -> Maybe a
-parseBy name raw = lookup raw [(name value, value) | value <- [minBound .. maxBound]]
-
-runText :: RunId -> Text
-runText (RunId run) = run
+runIdOf :: Text -> Parser RunId
+runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h or holds a colon")) pure (parseRunId raw)
 
 shaText :: Sha -> Text
 shaText (Sha sha) = sha

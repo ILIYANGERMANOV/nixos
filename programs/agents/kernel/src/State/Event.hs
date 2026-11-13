@@ -8,7 +8,9 @@ module State.Event (
     Source (..),
     EventId (..),
     eventId,
-    RunId (..),
+    RunId,
+    parseRunId,
+    runIdText,
     SessionId (..),
     Digest (..),
     Event (..),
@@ -37,6 +39,7 @@ module State.Event (
 import Data.List.NonEmpty (NonEmpty)
 import Data.Set (Set)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
 import State.Cap (EventName, Step (..), continueEvent, exitEvent, skipEvent)
@@ -71,9 +74,23 @@ eventId envelope = case envelope.source of
     Cli -> Numbered envelope.run envelope.seq
     Hook digest -> Hashed digest
 
--- | Short and random, set by @init@; one log holds one run.
+{- | Short and random, set by @init@; one log holds one run. Built only by
+'parseRunId'.
+-}
 newtype RunId = RunId Text
     deriving stock (Eq, Ord, Show)
+
+{- | A CLI record's id is @<run>:<seq>@ and a hook record's @h:<hash>@ (#360),
+so a run id is never @h@ and holds no @:@: either would let a CLI id spell a
+hook id, and append-by-id drop a distinct event. Empty is no id at all.
+-}
+parseRunId :: Text -> Maybe RunId
+parseRunId raw
+    | Text.null raw || raw == "h" || Text.elem ':' raw = Nothing
+    | otherwise = Just (RunId raw)
+
+runIdText :: RunId -> Text
+runIdText (RunId run) = run
 
 newtype SessionId = SessionId Text
     deriving stock (Eq, Show)

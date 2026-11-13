@@ -7,13 +7,14 @@ module State.FlowGen (
     genExiting,
     genFlow,
     genWalk,
+    genWalkTo,
     pathTo,
     bypasses,
     composes,
 ) where
 
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Hedgehog (Gen)
@@ -70,21 +71,25 @@ genExiting kit =
         , (:>) <$> genEndo kit <*> Gen.element kit.exiting
         ]
 
-{- | A walk from the in port to 'Out': a few random events that never take an
-exit, then the shortest way on.
--}
+-- | A walk from the in port to 'Out'.
 genWalk :: OpenGraph -> Gen [EventName]
-genWalk g = do
+genWalk = genWalkTo Out
+
+{- | A walk from the in port to this port: a few random events between
+states, then the shortest way on. Retried when the detour wandered where the
+port is out of reach, as an exit is past a loop that stops when empty.
+-}
+genWalkTo :: Node -> OpenGraph -> Gen [EventName]
+genWalkTo port g = Gen.just $ do
     detour <- Gen.int (Range.linear 0 12)
-    go detour (At g.inPort)
+    go detour g.inPort
   where
-    go 0 node = pure (fromMaybe [] (pathTo g node Out))
-    go n node = case node of
-        At place -> do
-            (event, edge) <- Gen.element [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place, edge.to /= Exit]
-            (event :) <$> go (n - 1 :: Int) edge.to
-        Out -> pure []
-        Exit -> pure []
+    go 0 place = pure (pathTo g (At place) port)
+    go n place = case [(event, next) | ((from, event), Edge {to = At next}) <- Map.toList g.edges, from == place] of
+        [] -> pure (pathTo g (At place) port)
+        inside -> do
+            (event, next) <- Gen.element inside
+            fmap (event :) <$> go (n - 1 :: Int) next
 
 -- | The events of a shortest walk between two nodes, breadth first.
 pathTo :: OpenGraph -> Node -> Node -> Maybe [EventName]

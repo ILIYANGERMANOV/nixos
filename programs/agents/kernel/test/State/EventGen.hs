@@ -4,6 +4,8 @@ module State.EventGen (
     genOutcomeNamed,
     outcomeNames,
     genPicks,
+    genRunId,
+    runId,
     run,
     started,
     line,
@@ -13,6 +15,7 @@ module State.EventGen (
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -31,7 +34,7 @@ genEnvelope =
         <$> Gen.choice [pure Cli, Hook <$> genDigest]
         <*> Gen.integral (Range.linear 0 100000)
         <*> genTime
-        <*> (RunId <$> Gen.text (Range.linear 1 8) Gen.alphaNum)
+        <*> genRunId
         <*> Gen.maybe genSha
         <*> Gen.maybe (SessionId <$> genText)
         <*> genEvent
@@ -54,7 +57,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [pure ByUser, ByRole . RunId <$> genText <*> Gen.string (Range.linear 1 30) Gen.unicode]
+        <*> Gen.choice [pure ByUser, ByRole <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode]
         <*> genSet Gen.enumBounded
         <*> genText
 
@@ -162,8 +165,16 @@ genTime =
         <$> Gen.integral (Range.linear 40000 80000)
         <*> (picosecondsToDiffTime <$> Gen.integral (Range.linear 0 (86400 * 1000000000000 - 1)))
 
+-- | Any run id the kernel accepts.
+genRunId :: Gen RunId
+genRunId = Gen.mapMaybe parseRunId (Gen.text (Range.linear 1 8) Gen.unicode)
+
+-- | A run id the test spells, which must be one the kernel accepts.
+runId :: Text -> RunId
+runId raw = fromMaybe (error ("not a run id: " <> show raw)) (parseRunId raw)
+
 run :: RunId
-run = RunId "r7f2"
+run = runId "r7f2"
 
 started :: Event
 started = Started (Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hooks]) "a task")

@@ -6,6 +6,7 @@ module State.Mode (
     Quality (..),
     qualityName,
     parseQuality,
+    parseByName,
     Size (..),
     sizeName,
     Mode (..),
@@ -39,7 +40,13 @@ qualityName = \case
 
 -- | Exact spelling only: a misspelled mode is not silently a default.
 parseQuality :: Text -> Maybe Quality
-parseQuality name = lookup name [(qualityName quality, quality) | quality <- [minBound .. maxBound]]
+parseQuality = parseByName qualityName
+
+{- | The value whose wire name is exactly the given text, for any enum named by
+a total function, so a name and its parser cannot drift.
+-}
+parseByName :: (Bounded a, Enum a) => (a -> Text) -> Text -> Maybe a
+parseByName name raw = lookup raw [(name value, value) | value <- [minBound .. maxBound]]
 
 -- | No 'Ord', as for 'Quality'.
 data Size = Trivial | Normal

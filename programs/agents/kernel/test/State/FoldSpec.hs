@@ -12,7 +12,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
 import State.Event
-import State.EventGen (genOutcomeNamed, hookLine, line, logOf, outcomeNames, started)
+import State.EventGen (genOutcomeNamed, hookLine, line, logOf, outcomeNames, runId, started)
 import State.Flow (LoopId (..), OptId (..))
 import State.FlowGen (composes, genWalk)
 import State.Flows.Engineer (engineer)
@@ -140,7 +140,7 @@ spec = describe "State.Fold" $ do
         (.refused) <$> replay g (logOf (started :| [Refused note, Took (ResearchDone 1)])) `shouldBe` Right Nothing
 
     it "refuses a line of another run" $
-        replay g (line 0 started :| [ofRun (RunId "other") (line 1 (Took (ResearchDone 1)))]) `shouldBe` Left (OtherRun (RunId "other"))
+        replay g (line 0 started :| [ofRun (runId "other") (line 1 (Took (ResearchDone 1)))]) `shouldBe` Left (OtherRun (runId "other"))
 
     it "overrides to a named state" $
         placeName . (.at) <$> replay g (logOf (started :| [Overridden "review" "why"])) `shouldBe` Right (Just "review")

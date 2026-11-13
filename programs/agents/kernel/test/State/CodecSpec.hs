@@ -4,10 +4,12 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..))
 import Data.Time.Calendar (fromGregorian)
-import Hedgehog (forAll, tripping)
+import Hedgehog (Gen, forAll, tripping)
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import State.Codec (LineError (..), LogError (..), decodeLine, decodeLog, encodeLine)
-import State.Event (Envelope (..), Event (..), Outcome (..), RunId (..), Sha (..), Source (..))
-import State.EventGen (genEnvelope)
+import State.Event (Digest (..), Envelope (..), Event (..), FlowName (..), Outcome (..), Principal (..), Sha (..), Source (..), Start (..), parseRunId)
+import State.EventGen (genEnvelope, runId)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -36,6 +38,16 @@ spec = describe "State.Codec" $ do
     it "reads a log line by line, its last newline ending the last line" $
         decodeLog (encodeLine reviewRows <> "\n" <> encodeLine reviewRows <> "\n") `shouldBe` Right [reviewRows, reviewRows]
 
+    it "hook_and_cli_ids_never_collide" . hedgehog $ do
+        hook <- forAll genCollidingHookLine
+        tripping hook encodeLine decodeLine
+
+    it "refuses a line of run h, whose CLI ids read as hook ids" $
+        decodeLine (encodeLine reviewRows `replacing` ("r7f2", "h")) `shouldSatisfy` malformed
+
+    it "refuses a parent run h" $
+        decodeLine (encodeLine parentRun `replacing` ("\"run\":\"r7f2\",\"log\"", "\"run\":\"h\",\"log\"")) `shouldSatisfy` malformed
+
     it "refuses a CLI id that names another seq" $
         decodeLine (encodeLine reviewRows `replacing` ("r7f2:12", "r7f2:11")) `shouldSatisfy` malformed
 
@@ -53,11 +65,26 @@ reviewRows =
         { source = Cli
         , seq = 12
         , ts = UTCTime (fromGregorian 2026 11 12) 36000
-        , run = RunId "r7f2"
+        , run = runId "r7f2"
         , head = Just (Sha "abc123")
         , session = Nothing
         , event = Took (ReviewRows (Sha "abc123"))
         }
+
+{- | A hook line of an accepted run id, drawn with its seq and digest from so
+small a set that a hook id spelling a CLI id is likely, were "h" or a colon
+allowed in a run id.
+-}
+genCollidingHookLine :: Gen Envelope
+genCollidingHookLine = do
+    run <- Gen.mapMaybe parseRunId (Gen.element ["h", "a", "h:a", "ha", "a:h", "h:"])
+    n <- Gen.integral (Range.linear 0 2)
+    digest <- Gen.element ["0", "1", "2", "a:0", "a:1", ":0"]
+    pure reviewRows {source = Hook (Digest digest), seq = n, run}
+
+-- | A started line naming parent run r7f2.
+parentRun :: Envelope
+parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (runId "r7f2") "/p/events.jsonl") mempty "a task")}
 
 -- | Lines the Python @state@ wrote, @programs/agents/state/codec.py@.
 pythonV1, pythonV2 :: Text

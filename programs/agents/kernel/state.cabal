@@ -68,6 +68,7 @@ test-suite state-test
   other-modules:
     State.CodecSpec
     State.EventGen
+    State.EventSpec
     State.FlowGen
     State.Flows.BlocksSpec
     State.Flows.EngineerSpec
