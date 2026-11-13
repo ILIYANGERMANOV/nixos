@@ -13,7 +13,7 @@ module State.Steps (
     agentRoles,
 ) where
 
-import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:))
+import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:), (.:?))
 import Data.ByteString.Lazy (ByteString)
 import Data.Either (lefts, rights)
 import Data.List (nub)
@@ -31,8 +31,11 @@ types and outcomes. Only 'parseSteps' builds one.
 -}
 newtype Steps = Steps (Map StateName Row)
 
--- | What the kernel reads of a row; the types and outcomes are checked, not kept.
-data Row = Row {runner :: Runner, entry :: Text}
+{- | What the kernel reads of a row; the types and outcomes are checked, not
+kept. @state next@ prints the lead's part and the entry, @state brief@ the
+entry alone: a worker's brief holds none of the lead's commands.
+-}
+data Row = Row {runner :: Runner, lead :: Text, entry :: Text}
     deriving stock (Eq, Show)
 
 -- | Who runs a step: the lead itself, or a subagent of this role.
@@ -46,6 +49,7 @@ data Written = Written
     , exit :: Maybe Text
     , outcomes :: [Text]
     , runner :: Text
+    , lead :: Maybe Text
     , entry :: Text
     }
 
@@ -57,6 +61,7 @@ instance FromJSON Written where
             <*> obj .: "exit"
             <*> obj .: "outcomes"
             <*> obj .: "runner"
+            <*> obj .:? "lead"
             <*> obj .: "entry"
 
 -- | The table, or every way it differs from the steps of "State.Cap".
@@ -75,7 +80,7 @@ check :: Map StateName Written -> SomeStep -> Either [Text] (StateName, Row)
 check rows (SomeStep s) = case Map.lookup name rows of
     Nothing -> Left [label <> ": no row"]
     Just written -> case mismatches s written of
-        [] -> Right (name, Row (runnerOf written.runner) written.entry)
+        [] -> Right (name, Row (runnerOf written.runner) (fromMaybe "" written.lead) written.entry)
         found -> Left (map ((label <> ": ") <>) found)
   where
     name@(StateName label) = stepName s

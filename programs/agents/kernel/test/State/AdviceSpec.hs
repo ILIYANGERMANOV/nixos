@@ -78,6 +78,9 @@ spec = describe "State.Advice" $ do
         it "skips ready in POC, leaving the draft" $
             due g withPr (atReady Poc) `shouldBe` Just (ReadySkipped prUrl)
 
+        it "skips ready in POC offline, by the draft the run recorded" $
+            due g noFacts (atReady Poc) `shouldBe` Just (ReadySkipped (Url "u"))
+
         it "records ready once GitHub says the PR is ready" $
             due g withPr {pr = Just (PullRequest draftPr IsReady)} (atReady Balanced) `shouldBe` Just (ReadyDone prUrl)
 

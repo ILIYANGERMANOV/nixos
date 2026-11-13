@@ -3,7 +3,9 @@
 # step's types (`in` is a Nix keyword), `outcomes` its exit outcome first, then
 # the continuing one; `skipped` is no outcome, a mode's skip appends it.
 # `runner` is `inline` (the lead) or the role a subagent runs; `entry` is the
-# text `state next` prints for the step. The kernel's test holds the types and
+# text `state next` prints for the step, and `state brief` for its subagent.
+# A subagent's step has a `lead` too: the lead's part, which only `state next`
+# prints, before the entry. The kernel's test holds the types and
 # outcomes equal to `State.Cap`. Tools, skills, prose and ops come in PR 5.
 {
   research = {
@@ -12,7 +14,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "researcher";
-    entry = "Gather: researchers in parallel, each prompted per the researcher skill's `## Callers`, one per open fact group. When all are back: `state record research.done <n>`.";
+    lead = "Gather: researchers in parallel, each prompted per the researcher skill's `## Callers`, one per open fact group. When all are back: `state record research.done <n>`.";
+    entry = "Research the open fact group your prompt names, as the researcher skill says.";
   };
   interview = {
     dom = "Ctx";
@@ -39,7 +42,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "researcher";
-    entry = "Propose: one researcher in the background on the researcher skill's `references/proposal.md`, mode simplify, naming the plan and the notes directory.";
+    lead = "Propose: one researcher in the background, naming the plan and the notes directory.";
+    entry = "Run the researcher skill's `references/proposal.md`, mode simplify, on the plan your prompt names.";
   };
   alternative = {
     dom = "Plan";
@@ -47,7 +51,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "researcher";
-    entry = "Propose: one researcher in the background on the researcher skill's `references/proposal.md`, mode alternative, naming the plan and the notes directory.";
+    lead = "Propose: one researcher in the background, naming the plan and the notes directory.";
+    entry = "Run the researcher skill's `references/proposal.md`, mode alternative, on the plan your prompt names.";
   };
   confirm = {
     dom = "Plan";
@@ -74,7 +79,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "implementer";
-    entry = "Build: implementers per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice.";
+    lead = "Build: implementers per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice.";
+    entry = "Build the slice your prompt names, as the plan says.";
   };
   refactor = {
     dom = "Diff";
@@ -82,7 +88,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "refactorer";
-    entry = "Build: one refactorer, briefed with `state brief refactorer`; its bigger proposals are a Scope question.";
+    lead = "Build: one refactorer, briefed with `state brief refactorer`.";
+    entry = "Refactor the branch's diff; hand back each bigger proposal as a Scope question.";
   };
   review = {
     dom = "Diff";
@@ -93,7 +100,8 @@
       "rows"
     ];
     runner = "review-lead";
-    entry = "Review: the review-lead runs `pragmatic-review` on the branch, or on the fixes after round 1, against the requirements file.";
+    lead = "Review: one review-lead, briefed with `state brief review-lead`.";
+    entry = "Run `pragmatic-review` on the branch, or on the fixes after round 1, against the requirements file.";
   };
   pick = {
     dom = "Diff";
@@ -112,7 +120,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "fixer";
-    entry = "Review: one fixer for the picked rows, briefed with `state brief fixer`.";
+    lead = "Review: one fixer for the picked rows, briefed with `state brief fixer`.";
+    entry = "Fix the picked rows your prompt names.";
   };
   describe = {
     dom = "Diff";
@@ -120,7 +129,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "fixer";
-    entry = "Describe: the final fixer, row R0 and any picked rows; nothing reviews it.";
+    lead = "Describe: the final fixer, briefed with `state brief fixer`.";
+    entry = "Fix row R0 and any picked rows your prompt names; nothing reviews your fix.";
   };
   simplify_pr = {
     dom = "PR";
@@ -128,7 +138,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "fixer";
-    entry = "Describe: a fixer on row S0, `pr-description`'s Simplify; its hand-back ends `Simplified: <head sha>`.";
+    lead = "Describe: a fixer on row S0, briefed with `state brief fixer`.";
+    entry = "Row S0: `pr-description`'s Simplify; your hand-back ends `Simplified: <head sha>`.";
   };
   await_ci = {
     dom = "PR";
@@ -147,7 +158,8 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "fixer";
-    entry = "Ship: one fixer on the failing checks, as `references/review.md`'s CI fix says.";
+    lead = "Ship: one fixer on the failing checks, as `references/review.md`'s CI fix says, briefed with `state brief fixer`.";
+    entry = "Fix the failing checks your prompt names.";
   };
   ready = {
     dom = "PR";

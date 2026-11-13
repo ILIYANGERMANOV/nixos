@@ -17,6 +17,7 @@ module State.Cli (
     noteOf,
     explain,
     help,
+    recordCommand,
 ) where
 
 import Data.Bifunctor (first)
@@ -29,8 +30,8 @@ import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import State.Ask (Above (..), Basis (..), Kind, OneLine, Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Ask qualified as Ask
-import State.Cap (Step (..), continueEvent, eventText, exitEvent, skipEvent, stateNameText)
-import State.Codec (areaText, judgementText, reasonText)
+import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent, stateNameText)
+import State.Codec (areaText, judgementText, logName, reasonText)
 import State.Codec qualified as Codec
 import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, roleText, runIdText)
 import State.Flow (loopName)
@@ -39,7 +40,7 @@ import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..)
 import State.Handback (parseTouches)
 import State.Id (parseEventId)
 import State.Mode (Cfg (..), Mode, SkipWhen (Never), cfg, parseByName, parseQuality, qualityName, sizeName)
-import State.Shell.Log (logName)
+import State.Show (tshow)
 import State.Steps (Steps, agentRoles)
 import System.FilePath (isAbsolute, takeFileName)
 
@@ -228,7 +229,7 @@ none a = case a.positional of
 oneWord :: Text -> Args -> Either Failure Text
 oneWord what a = case a.positional of
     [word] -> Right word
-    _ -> Left (usage ("one " <> what <> " expected") ("got " <> Text.pack (show (length a.positional))))
+    _ -> Left (usage ("one " <> what <> " expected") ("got " <> tshow (length a.positional)))
 
 -- | Every positional word, joined: a shell user need not quote a sentence.
 sentence :: Text -> Args -> Either Failure Text
@@ -318,6 +319,12 @@ help steps =
         , "pending"
         , "help"
         ]
+
+-- | The @state record@ line for an event, its arguments' usage after it.
+recordCommand :: EventName -> Text
+recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap (.args) [r | r <- recordables, r.name == name])
+  where
+    name = eventText event
 
 -- | An event @state record@ takes: its name, its arguments' usage, and their parser.
 data Recordable = Recordable {name :: Text, args :: Text, flags :: [Text], parse :: Args -> Either Text Recording}
@@ -442,7 +449,7 @@ explain g mode at = \case
         Out -> "the end"
         Exit -> "the end"
     records keep = case at of
-        At place -> case ["state record " <> eventText event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
+        At place -> case [recordCommand event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
             [] -> "state show"
             commands -> Text.intercalate " | " commands
         Out -> "state show"
@@ -458,6 +465,3 @@ explain g mode at = \case
     stateNames = map (stateNameText . (.name)) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
-
-tshow :: (Show a) => a -> Text
-tshow = Text.pack . show

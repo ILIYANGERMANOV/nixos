@@ -13,11 +13,11 @@ import Data.Text (Text)
 import State.Advice (Readiness (..))
 import State.Cap (stepName)
 import State.Cap qualified as Cap
-import State.Event (AgentRole (..), Branch (..), DraftPr (..), Event (..), Outcome (..), Stop (..), StopReason (..), Url (..))
-import State.EventGen (logOf, run, started)
+import State.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (..), Outcome (..), Stop (..), StopReason (..), Url (..))
+import State.EventGen (line, logOf, run, started)
 import State.Graph (Node (..), Place (..))
 import State.Hook
-import State.RunGen (loadSteps, runAt)
+import State.RunGen (commit, loadSteps, runAt)
 import System.Environment (getEnv)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldNotBe, shouldSatisfy)
 
@@ -111,6 +111,18 @@ spec = describe "the hooks" $ do
 
         it "differ between one call's records" $
             nub (ids "READY") `shouldBe` ids "READY"
+
+    describe "a hand-back logged already" $ do
+        let sources = hookSources run (Agent (Just "a1") (Just (AgentRole "fixer"))) (AgentRole "fixer") "READY"
+            -- The fixer's done, as the hook records it under its record's id.
+            hooked n = case line 1 (Took (FixDone commit)) of
+                Envelope _ seq' ts ofRun at session done -> Envelope (sources !! n) seq' ts ofRun at session done
+            logWith = loggedAlready . (line 0 started :|)
+        it "is the one whose first record the log holds" $
+            logWith [hooked 0] sources `shouldBe` True
+
+        it "is not one whose records the log lacks, or holds only past the first" $
+            map (\more -> logWith more sources) [[], [hooked 1]] `shouldBe` [False, False]
 
     describe "the reply" $ do
         it "prints nothing with nothing to say" $

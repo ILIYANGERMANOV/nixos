@@ -25,6 +25,7 @@ import State.Event (AgentRole (..))
 import State.Flow (FanId (..), OptId (..))
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg, qualityName, reReviews)
+import State.Show (tshow)
 import State.Steps (Row (runner), Runner (..), Steps, row)
 
 {- | The flow's states in the term's order: who runs each, and where each of
@@ -179,6 +180,3 @@ rows = Text.unlines . map line
 
 line :: [Text] -> Text
 line cells = "| " <> Text.intercalate " | " cells <> " |"
-
-tshow :: (Show a) => a -> Text
-tshow = Text.pack . show

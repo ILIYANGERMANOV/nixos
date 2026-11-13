@@ -45,10 +45,26 @@ spec = describe "the state binary" $ do
             _ <- drive bin repo [Record ["quality", "Balanced"], Record ["size", "Normal"]]
             refused <- state bin repo ["record", "ready.done", prUrlString]
             (refused.code, refused.err)
-                `shouldBe` (2, ["state record: ready.done - no such arrow out of research", "fix: state record research.done"])
+                `shouldBe` (2, ["state record: ready.done - no such arrow out of research", "fix: state record research.done <n>"])
             warned <- succeeded =<< state bin repo ["next"]
-            take 2 warned
-                `shouldBe` ["refused: ready.done - no such arrow out of research", "fix: state record research.done"]
+            take 3 warned
+                `shouldBe` ["SPAWN researcher background: yes", "refused: ready.done - no such arrow out of research", "fix: state record research.done <n>"]
+            _ <- succeeded =<< state bin repo ["record", "research.done", "2"]
+            moved <- succeeded =<< state bin repo ["next"]
+            moved `shouldSatisfy` (not . mentions "refused:")
+
+        it "prints each record it advises with its arguments" $ \repo -> do
+            _ <- drive bin repo [Record ["quality", "Balanced"], Record ["size", "Normal"], Record ["research.done", "2"], Record ["interview.enough"]]
+            advice <- succeeded =<< state bin repo ["next"]
+            take 1 advice `shouldBe` ["RUN state record plan.done <path>"]
+
+        it "starts a run once per notes dir, and refuses one there after it stopped" $ \repo -> do
+            run <- startedRun bin repo
+            again <- startedRun bin repo
+            again `shouldBe` run
+            _ <- succeeded =<< state bin repo ["stop", "replan", "the", "plan", "is", "wrong"]
+            refused <- state bin repo ["init", "--notes", repo.notes]
+            (refused.code, drop 1 refused.err) `shouldBe` (2, ["fix: state init --notes <a new dir>"])
 
         it "fixes a refused event by the arrows this mode takes, never a skip it refuses" $ \repo -> do
             _ <- drive bin repo (toSimplifyPr repo)
@@ -100,7 +116,7 @@ spec = describe "the state binary" $ do
                 take 1 advice `shouldSatisfy` all ("- no review round is left" `Text.isSuffixOf`)
                 refused <- state bin repo ["record", "pick.loop", "--row", "R5", "--verdict", "docs=not-met"]
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state record: another review round - the loop ran its 4 rounds", "fix: state record pick.final | state stop fuel <why>"])
+                    `shouldBe` (2, ["state record: another review round - the loop ran its 4 rounds", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state stop fuel <why>"])
                 exited <- succeeded =<< state bin repo ["record", "pick.final"]
                 recorded exited `shouldBe` ["pick.final -> describe"]
 
@@ -128,6 +144,14 @@ spec = describe "the state binary" $ do
                 brief <- succeeded =<< state bin repo ["brief", "refactorer"]
                 take 1 brief `shouldBe` ["## refactor"]
                 brief `shouldSatisfy` (stopRule `isSuffixOf`)
+
+            it "gives a fixer only the step the run is at, and a worker no command of the lead's" $ \repo -> do
+                _ <- drive bin repo (atReview <> [Commit, Handback "review-lead" reviewed, Record ["pick.loop", "--row", "R1"]])
+                fixer <- succeeded =<< state bin repo ["brief", "fixer"]
+                filter ("## " `Text.isPrefixOf`) fixer `shouldBe` ["## fix"]
+                for_ ["researcher", "implementer", "refactorer", "fixer"] $ \role -> do
+                    brief <- succeeded =<< state bin repo ["brief", role]
+                    brief `shouldSatisfy` (not . any (\line -> any (`Text.isInfixOf` line) ["state record", "state brief"]))
 
             it "gives a review-lead the plan-wrong line, not the stop rule" $ \repo -> do
                 _ <- drive bin repo []
@@ -185,6 +209,12 @@ spec = describe "the state binary" $ do
                 writeFile (eventsOf repo) "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n"
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
                 said `shouldBe` []
+
+            it "tell a log line they do not read, as context" $ \repo -> do
+                _ <- drive bin repo []
+                appendFile (eventsOf repo) "{\"v\":3,broken\n"
+                said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
+                said `shouldSatisfy` mentions "line 2 is not read"
 
             it "exit 2 on stdin that is no hook event" $ \repo -> do
                 said <- hook hookBin repo "resume" "not json"

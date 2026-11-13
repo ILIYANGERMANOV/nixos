@@ -11,11 +11,11 @@ import Data.Text qualified as Text
 import State.Advice (Facts (..), factLines)
 import State.Ask (Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
-import State.Codec (flowText, reasonText)
+import State.Codec (flowText, logOf, reasonText)
 import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), runIdText)
 import State.Fold (Pending (..), RunState (..), Waits (..), askedAt)
+import State.Graph (Node (..), Place (..))
 import State.Render qualified as Render
-import State.Shell.Log (logOf)
 import State.Steps (Row (..), Runner (..), Steps, row)
 
 -- | Where the run is and what it carries: step, mode, rounds, questions, rulings.
@@ -57,9 +57,10 @@ pendingLines state = map line state.pending
         Subagent (AgentRole role) -> role
         ChildRun run -> runIdText run
 
-{- | A role's brief skeleton: the entry text of each step it runs, then the
-rule its hand-back follows. An engineer, a child flow, gets the line that
-starts its run under this one.
+{- | A role's brief skeleton: the entry text of the step the run is at, or,
+when the role runs no step there, of each step it runs; then the rule its
+hand-back follows. An engineer, a child flow, gets the line that starts its
+run under this one.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe Text -> Text
 brief steps state (AgentRole role) task = case role of
@@ -71,9 +72,12 @@ brief steps state (AgentRole role) task = case role of
             <> " --task "
             <> fromMaybe "<id>" task
             <> "\n"
-    _ -> Text.concat [entry name r | (name, r) <- rows, r.runner == Agent (AgentRole role)] <> rule
+    _ -> Text.concat [entry name r | (name, r) <- briefed] <> rule
   where
-    rows = [(stepName s, row steps s) | SomeStep s <- allSteps]
+    runs = [(stepName s, row steps s) | SomeStep s <- allSteps, (row steps s).runner == Agent (AgentRole role)]
+    briefed = case [step | step@(name, _) <- runs, At place <- [state.at], place.name == name] of
+        [] -> runs
+        here -> here
     entry name r = "## " <> stateNameText name <> "\n\n" <> r.entry <> "\n\n"
     rule
         | role `elem` ["implementer", "refactorer", "fixer"] = Render.stopRule

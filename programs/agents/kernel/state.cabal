@@ -52,6 +52,7 @@ library
     State.Shell
     State.Shell.Log
     State.Shell.Repo
+    State.Show
     State.Steps
     State.View
 

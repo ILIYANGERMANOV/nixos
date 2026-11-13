@@ -29,6 +29,7 @@ module State.Hook (
     silent,
     offAdvice,
     hookSources,
+    loggedAlready,
     Reply (..),
     replyOf,
     toldOf,
@@ -163,16 +164,28 @@ reviewer's goes to its review-lead). A hook at an event it is not declared on
 is an error.
 -}
 wants :: Steps -> HookName -> HookEvent -> Either Text (Maybe Want)
-wants steps hook event = case (hook, event) of
-    (ResumeHook, SessionStart call _) -> Right (lead call ResumeRun)
-    (SpawnHook, BeforeTool call _ input) -> Right (lead call (SpawnRole (AgentRole <$> textAt "subagent_type" input)))
-    (HandbackHook, BeforeTool call _ input) -> Right $ case (call.agent, textAt "message" input) of
-        (Just agent@Agent {role = Just role}, Just message) | role `elem` followed steps -> Just (HandedBack input message agent role)
-        _ -> Nothing
-    (AskedHook, AfterTool call _) -> Right (lead call AskedUser)
-    _ -> Left ("state-hook " <> hookName hook <> " does not run at " <> eventName)
+wants steps hook event = case hook of
+    ResumeHook -> case event of
+        SessionStart call _ -> Right (lead call ResumeRun)
+        BeforeTool {} -> undeclared
+        AfterTool {} -> undeclared
+    SpawnHook -> case event of
+        BeforeTool call _ input -> Right (lead call (SpawnRole (AgentRole <$> textAt "subagent_type" input)))
+        SessionStart {} -> undeclared
+        AfterTool {} -> undeclared
+    HandbackHook -> case event of
+        BeforeTool call _ input -> Right $ case (call.agent, textAt "message" input) of
+            (Just agent@Agent {role = Just role}, Just message) | role `elem` followed steps -> Just (HandedBack input message agent role)
+            _ -> Nothing
+        SessionStart {} -> undeclared
+        AfterTool {} -> undeclared
+    AskedHook -> case event of
+        AfterTool call _ -> Right (lead call AskedUser)
+        SessionStart {} -> undeclared
+        BeforeTool {} -> undeclared
   where
     lead call want = if isLead steps call.agent then Just want else Nothing
+    undeclared = Left ("state-hook " <> hookName hook <> " does not run at " <> eventName)
     eventName = case event of
         SessionStart _ _ -> "sessionStart"
         BeforeTool {} -> "beforeTool"
@@ -256,6 +269,14 @@ hookSources :: RunId -> Agent -> AgentRole -> Text -> [Source]
 hookSources run agent (AgentRole role) message =
     [Hook (Digest (fnv1a (Text.intercalate "\0" [runIdText run, fromMaybe "" agent.agentId, role, message, Text.pack (show n)]))) | n <- [0 :: Int ..]]
 
+{- | A hand-back the log holds already: its first record's id is logged. The
+hook then records nothing, not even a refusal of the step it moved past.
+-}
+loggedAlready :: NonEmpty Envelope -> [Source] -> Bool
+loggedAlready envelopes = \case
+    first : _ -> any (\envelope -> envelope.source == first) envelopes
+    [] -> False
+
 -- | FNV-1a, 64 bits, over the text's UTF-8, in hex: a dedupe key, no security.
 fnv1a :: Text -> Text
 fnv1a = Text.pack . (`showHex` "") . BS.foldl' step 0xcbf29ce484222325 . encodeUtf8
@@ -278,7 +299,9 @@ replyOf want said
     | Text.null said = Quiet
     | otherwise = case want of
         HandedBack input message _ _ -> Allow (Just (KeyMap.insert "message" (String (message <> "\n\n" <> said)) input)) Nothing
-        _ -> toldOf want said
+        ResumeRun -> toldOf want said
+        SpawnRole _ -> toldOf want said
+        AskedUser -> toldOf want said
 
 -- | Context only: what a refusal or an error says, never a deny.
 toldOf :: Want -> Text -> Reply

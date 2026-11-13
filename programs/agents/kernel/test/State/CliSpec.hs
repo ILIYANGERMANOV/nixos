@@ -76,7 +76,7 @@ spec = describe "State.Cli" $ do
             [ (explain g mode (runAt []).at (NoEdge (runAt []).at (outcomeEvent (ReviewClean sha)))).fix
             | mode <- [Mode Balanced Normal, Mode Poc Trivial]
             ]
-                `shouldBe` ["state record research.done", "state record research.done | state record research.skipped"]
+                `shouldBe` ["state record research.done <n>", "state record research.done <n> | state record research.skipped"]
 
         it "help lists every event the flow's arrows take" $
             [event | (_, event) <- Map.keys g.edges, not (eventText event `Text.isInfixOf` help steps)] `shouldBe` []

@@ -28,6 +28,7 @@ module State.Fold (
     askedAt,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
 import Data.Foldable (for_, traverse_)
@@ -36,14 +37,14 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Numeric.Natural (Natural)
 import State.Ask (Above, Kind (Security), Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
 import State.Ask qualified as Ask
 import State.Cap (EventName)
-import State.Event (Asking (..), Check, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, eventId, outcomeEvent)
+import State.Event (Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, eventId, outcomeEvent)
 import State.Flow (LoopId, OptId)
 import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
@@ -70,6 +71,8 @@ data RunState = RunState
     -- ^ The kinds asked since the run last moved, oldest first: advice asks a step's question once.
     , rulings :: [Ruling]
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
+    , drafted :: Maybe DraftPr
+    -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     }
     deriving stock (Eq, Show)
 
@@ -166,6 +169,7 @@ begin g envelope = case envelope.event of
                 , everAsked = Set.empty
                 , askedHere = []
                 , rulings = []
+                , drafted = Nothing
                 }
     QualitySet _ -> Left NotStarted
     SizeSet _ -> Left NotStarted
@@ -222,7 +226,7 @@ took g state outcome = do
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
         traverse_ (nextRound loopId ((cfg (mode state)).fuel loopId)) (Map.lookup loopId rounds)
-    Right state {at = edge.to, rounds, askedHere = []}
+    Right state {at = edge.to, rounds, askedHere = [], drafted = listToMaybe [pr | DraftDone pr <- [outcome]] <|> state.drafted}
 
 {- | The loop whose next round every way out of this node starts, as @fix@ in
 the review loop. A move there with no round left is refused before the work

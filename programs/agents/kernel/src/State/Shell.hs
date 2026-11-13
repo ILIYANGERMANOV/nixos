@@ -12,7 +12,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight)
 import Data.Foldable (traverse_)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -27,7 +27,7 @@ import State.Ask (Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
 import State.Cap (stateNameText)
 import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, noteOf, parseCommand)
-import State.Codec (LineError (..), LogError (..), decodeLine, eventType)
+import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText)
 import State.Event (AgentRole (..), Asker (..), Asking (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
 import State.Flows.Engineer (engineer)
@@ -37,11 +37,12 @@ import State.Fold qualified as Fold
 import State.Graph (Node (..), OpenGraph, graph)
 import State.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Handback qualified as Handback
-import State.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, offAdvice, parseHookEvent, parseHookName, replyOf, silent, toldOf, wants)
+import State.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, parseHookName, replyOf, silent, toldOf, wants)
 import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
-import State.Shell.Log (locked, logOf, readPointer, writePointer)
+import State.Shell.Log (locked, readPointer, writePointer)
+import State.Show (tshow)
 import State.Shell.Repo (gitDir, headBranch, headSha, prView, readFacts)
 import State.Steps (Steps, parseSteps)
 import State.View (brief, pendingLines, showRun)
@@ -92,7 +93,7 @@ hook argv input = case parseHookName argv of
   where
     usage line = Text.hPutStrLn stderr line >> exitWith (ExitFailure 2)
 
--- | What the run says to a hook's want, recording what it must; empty when silent.
+-- | What the run says to a hook's want, recording what it must; empty when silent, a failure as its text.
 hookAnswer :: Steps -> Call -> Want -> IO Text
 hookAnswer steps call want =
     hasRun >>= \case
@@ -113,7 +114,7 @@ hookAnswer steps call want =
             HandedBack _ message agent role ->
                 branchPr >>= \pr -> onHook pr $ \stamp run ->
                     let sources = hookSources run.state.run agent role message
-                     in if any (\line -> Just line.source == listToMaybe sources) run.logged
+                     in if loggedAlready run.logged sources
                             then ([], "")
                             else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
             AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
@@ -126,20 +127,27 @@ hookAnswer steps call want =
             if silent branch ((.readiness) <$> pr) run.logged run.state
                 then ([], Right "")
                 else Right <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
-        pure (fromRight "" result)
+        pure (either (failureText "hook") id result)
     -- GitHub unread is no PR: the hook speaks.
     branchPr = fromRight Nothing <$> prView
+    -- A log of another version is the Python state's, which the hooks leave be (#360).
     hasRun =
         gitDir >>= \case
             Left _ -> pure False
-            Right gd -> readPointer gd >>= maybe (pure False) (doesFileExist . logOf)
+            Right gd -> readPointer gd >>= maybe (pure False) (fmap ours . firstLine . logOf)
+    ours = \case
+        Nothing -> False
+        Just line -> case decodeLine line of
+            Left (Unsupported _) -> False
+            Left (Malformed _) -> True
+            Right _ -> True
 
 -- | A disk or process error is the outage exit, never a crash.
 outageAware :: IO (Either Failure Text) -> IO (Either Failure Text)
 outageAware act =
     try act >>= \case
         Right result -> pure result
-        Left (e :: IOException) -> pure (Left (Failure Outage "a disk or git failure" (Text.pack (show e)) "retry once the disk and git work"))
+        Left (e :: IOException) -> pure (Left (Failure Outage "a disk or git failure" (tshow e) "retry once the disk and git work"))
 
 -- | The flows' step table, which the installed @state@ names in @STATE_STEPS@.
 loadSteps :: IO (Either Failure Steps)
@@ -210,8 +218,9 @@ handbackPlan steps worktreeHead state role child message = do
     triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> roleText role <> " <question>\n"
 
 {- | What @state next@ records and prints, and the advice's action: what GitHub
-and the mode already decide is recorded first, then the advice: its line, its
-facts indented, the step's entry text.
+and the mode already decide is recorded first, then the advice: its line, the
+last refusal until the next event, its facts indented, the step's lead and
+entry text. The advice leads, so a refusal never reads as the next action.
 -}
 adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Text)
 adviceOf steps facts told stamp run = (new, advice.action, out)
@@ -220,8 +229,8 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
     advice = advise steps facts settled.state
     out =
         recordedLines settled.state new
-            <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") run.state.refused
             <> delivered settled.state (deliver settled.state.start advice.action)
+            <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
             <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts]
             <> (if Text.null advice.entry then "" else "\n" <> advice.entry <> "\n")
     settle current = case due current.g facts current.state of
@@ -244,8 +253,8 @@ recordedLines after = foldMap (\e -> "recorded " <> tshow e.seq <> " " <> eventT
 -- | The time, commit and session every line written now carries.
 data Stamp = Stamp {ts :: UTCTime, head :: Maybe Sha, session :: Maybe SessionId}
 
--- | The run as replayed under the lock, its log's lines, and how many they are.
-data Loaded = Loaded {g :: OpenGraph, state :: RunState, logged :: NonEmpty Envelope, count :: Natural}
+-- | The run as replayed under the lock, and its log's lines, those this command wrote included.
+data Loaded = Loaded {g :: OpenGraph, state :: RunState, logged :: NonEmpty Envelope}
 
 {- | The lines for these events, each written by its source, in order, and the
 run they reach, or the first refusal. An id already logged appends nothing.
@@ -256,9 +265,9 @@ commit stamp = go []
     go written run = \case
         [] -> Right (reverse written, run)
         (source, event) : rest -> do
-            let envelope = stamped stamp source run.state.run (run.count + 1) event
+            let envelope = stamped stamp source run.state.run (nextSeq run) event
             Fold.append run.g run.state envelope >>= \case
-                Appended next -> go (envelope : written) run {state = next, count = run.count + 1} rest
+                Appended next -> go (envelope : written) run {state = next, logged = run.logged <> pure envelope} rest
                 AlreadyLogged -> go written run rest
 
 -- | The plan written by these sources, or its refusal logged so the next read warns of it.
@@ -269,7 +278,11 @@ record stamp run sources = \case
         Right (new, after) -> (new, Right (plan.say after.state new))
         Left refusal ->
             let failure = explain run.g (Fold.mode run.state) run.state.at refusal
-             in ([stamped stamp Cli run.state.run (run.count + 1) (Refused (noteOf failure))], Left failure)
+             in ([stamped stamp Cli run.state.run (nextSeq run) (Refused (noteOf failure))], Left failure)
+
+-- | Lines are numbered from 1 in the order written, @started@ first.
+nextSeq :: Loaded -> Natural
+nextSeq run = fromIntegral (length run.logged) + 1
 
 stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
 stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run, head = stamp.head, session = stamp.session, event}
@@ -295,12 +308,15 @@ onRun act =
                                  in pure $ case replay g (first :| rest) of
                                         -- Balanced Normal, the mode until recorded: only what and why are read.
                                         Left refusal -> ([], Left (unreplayed path (explain g (Mode Balanced Normal) Out refusal)))
-                                        Right state -> act stamp (Loaded g state (first :| rest) (fromIntegral (length (first : rest))))
+                                        Right state -> act stamp (Loaded g state (first :| rest))
   where
     noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
-    flowOf first = case first.event of
-        Started start -> start.flow
-        _ -> EngineerFlow
+
+-- | The flow a log's first line starts; a log that starts no run is refused by its replay.
+flowOf :: Envelope -> FlowName
+flowOf first = case first.event of
+    Started start -> start.flow
+    _ -> EngineerFlow
 
 {- | @state init@: idempotent, as a retried brief runs it again. A child names
 its parent's log, which is checked to hold that run before this one starts.
@@ -319,13 +335,24 @@ initRun gd args =
             result <- locked path $ \case
                 Left bad -> pure ([], Left (unreadLine path bad))
                 Right [] -> pure ([stamped stamp Cli fresh 1 (Started start)], Right fresh)
-                Right (first : _) -> pure ([], Right first.run)
+                Right (first : rest) -> pure ([], joined notes (first :| rest))
             traverse (\run -> writePointer gd notes >> pure ("started " <> runIdText run <> "\n")) result
   where
     -- A subagent has no hooks, wakes, notifications or background of its own (#351 s4).
     interfaceOf = \case
         ByUser -> Set.fromList [minBound .. maxBound]
         ByRole _ _ -> Set.empty
+
+{- | The run a retried init joins: the one its log holds. One log holds one
+run, so a run stopped there leaves the dir to no other.
+-}
+joined :: FilePath -> NonEmpty Envelope -> Either Failure RunId
+joined notes logged@(first :| _) = case (.stopped) <$> replay (graphOf (flowOf first)) logged of
+    Right (Just stop) ->
+        Left (Failure BadInput ("--notes " <> Text.pack notes) ("its run " <> runIdText first.run <> " stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>")
+    Right Nothing -> Right first.run
+    -- A log that does not replay is named by next and show; init leaves it be.
+    Left _ -> Right first.run
 
 {- | Who starts the run. A parent's log path was checked by the parser; here
 its first line must be that run's start.
@@ -334,11 +361,17 @@ principalOf :: Maybe (RunId, FilePath) -> IO (Either Failure Principal)
 principalOf = \case
     Nothing -> pure (Right ByUser)
     Just (parent, path) -> do
-        exists <- doesFileExist path
-        firstLine <- if exists then Text.takeWhile (/= '\n') . decodeUtf8Lenient <$> withBinaryFile path ReadMode (`BS.hGet` 65536) else pure ""
-        pure $ case decodeLine firstLine of
+        first <- firstLine path
+        pure $ case decodeLine (fromMaybe "" first) of
             Right envelope | envelope.run == parent, Started _ <- envelope.event -> Right (ByRole parent path)
             _ -> Left (Failure BadInput ("--parent " <> runIdText parent) (Text.pack path <> " does not start that run") "state brief engineer, in the parent's worktree, prints the init line")
+
+-- | A file's first line, if the file exists.
+firstLine :: FilePath -> IO (Maybe Text)
+firstLine path =
+    doesFileExist path >>= \case
+        False -> pure Nothing
+        True -> Just . Text.takeWhile (/= '\n') . decodeUtf8Lenient <$> withBinaryFile path ReadMode (`BS.hGet` 65536)
 
 inWorktree :: (FilePath -> IO (Either Failure a)) -> IO (Either Failure a)
 inWorktree act = gitDir >>= either (pure . Left) act
@@ -384,6 +417,3 @@ graphOf =
     either (error . ("the flow does not glue: " <>) . show) id . \case
         EngineerFlow -> graph engineer
         TenXFlow -> graph tenX
-
-tshow :: (Show a) => a -> Text
-tshow = Text.pack . show

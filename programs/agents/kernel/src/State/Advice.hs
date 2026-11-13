@@ -16,6 +16,7 @@ module State.Advice (
     factLines,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Monad (join)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -26,9 +27,10 @@ import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Delivery (..), Kind, OneLine, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Ask qualified as Ask
-import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, eventText, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
+import State.Cli (recordCommand)
+import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
 import State.Cap qualified as Cap
-import State.Codec (judgementText, reasonText, urlText)
+import State.Codec (reasonText, urlText)
 import State.Event (AgentRole (..), Asker (Itself), Asking (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), Start (..), Stop (..), Url)
 import State.Event qualified as Event
 import State.Flow (LoopId (..), loopName)
@@ -36,7 +38,8 @@ import State.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck 
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Handback (stopLine)
 import State.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
-import State.Steps (Row (entry, runner), Runner (..), Steps, row)
+import State.Show (tshow)
+import State.Steps (Row (entry, lead, runner), Runner (..), Steps, row)
 
 -- | What GitHub and git say, read by the shell before it advises.
 data Facts = Facts {changedLines :: Maybe Natural, pr :: Maybe PullRequest}
@@ -96,7 +99,7 @@ due g facts state = case (state.stopped, state.at) of
         , from == place
         , Skip optId <- [edge.arrow]
         , Just why <- [skipsBecause ((cfg (mode state)).skip optId)]
-        , Just outcome <- [skipOutcome facts why event]
+        , Just outcome <- [skipOutcome facts state why event]
         ]
     skipsBecause = \case
         Never -> Nothing
@@ -108,14 +111,14 @@ due g facts state = case (state.stopped, state.at) of
 {- | The outcome a skip appends. @simplify_pr@ has none here: no mode skips
 it, and its skip names a head these facts lack.
 -}
-skipOutcome :: Facts -> Text -> EventName -> Maybe Outcome
-skipOutcome facts why event =
+skipOutcome :: Facts -> RunState -> Text -> EventName -> Maybe Outcome
+skipOutcome facts state why event =
     join . lookup event $
         [ (skipEvent Research, Just ResearchSkipped)
         , (skipEvent SimplifyP, Just SimplifyPlanSkipped)
         , (skipEvent Alternative, Just AlternativeSkipped)
         , (skipEvent Refactor, Just (RefactorSkipped why))
-        , (skipEvent Ready, (\pr -> ReadySkipped pr.draft.url) <$> facts.pr)
+        , (skipEvent Ready, ReadySkipped <$> prUrl facts state)
         ]
 
 -- | The next action, from the run's state alone.
@@ -132,11 +135,11 @@ advise steps facts state = Advice action (factLines facts state) entry
         (Nothing, [], Just _, Nothing) -> plain (Run (recordOne "size" (map sizeName [minBound .. maxBound])))
         (Nothing, [], Just _, Just _) -> going
     going = case (state.at, stuck state) of
-        (Out, _) -> plain (Done ((.draft.url) <$> facts.pr))
-        (Exit, _) -> plain (Done ((.draft.url) <$> facts.pr))
+        (Out, _) -> plain (Done (prUrl facts state))
+        (Exit, _) -> plain (Done (prUrl facts state))
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) -> case stepNamed place.name of
-            Just (SomeStep s) -> (atStep s, (row steps s).entry)
+            Just (SomeStep s) -> (atStep s, Text.unwords (filter (not . Text.null) [(row steps s).lead, (row steps s).entry]))
             -- Fan-outs are the 10x's (PR 6): the engineer flow has none.
             Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
     atStep :: Step i e o -> Action
@@ -148,12 +151,16 @@ advise steps facts state = Advice action (factLines facts state) entry
     special =
         [ (stepName Confirm, if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes Confirm) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?")
         , (stepName Pick, Run (pickCommand state))
-        , (stepName Cap.AwaitCi, AwaitCi (maybe "the PR" (\pr -> urlText pr.draft.url) facts.pr))
+        , (stepName Cap.AwaitCi, AwaitCi (maybe "the PR" urlText (prUrl facts state)))
         ]
+
+-- | The PR's url as GitHub reports it, else the draft the run recorded: a POC run offline still skips ready.
+prUrl :: Facts -> RunState -> Maybe Url
+prUrl facts state = (.draft.url) <$> facts.pr <|> (.url) <$> state.drafted
 
 -- | The record line for each of a step's outcomes, exit first.
 recordOutcomes :: Step i e o -> Text
-recordOutcomes s = Text.intercalate " | " ["state record " <> eventText event | event <- events]
+recordOutcomes s = Text.intercalate " | " (map recordCommand events)
   where
     events = case outcomes s of
         Continues _ -> [continueEvent s]
@@ -177,9 +184,8 @@ pickCommand state
     fuel = (cfg (mode state)).fuel LReview
     -- Any requirement: 'budget' asks only whether one is Not met.
     anyRequirement = Requirement ""
-    loop = "state record " <> eventText (continueEvent Pick) <> picks
-    final = "state record " <> eventText (exitEvent Pick) <> picks
-    picks = " [--row <label>]... [--verdict <requirement>=<" <> Text.intercalate "|" (map judgementText [minBound .. maxBound]) <> ">]..."
+    loop = recordCommand (continueEvent Pick)
+    final = recordCommand (exitEvent Pick)
 
 stuckText :: Stuck -> Text
 stuckText found =
@@ -211,9 +217,6 @@ factLines facts state =
 
 modeText :: Mode -> Text
 modeText (Mode quality size) = qualityName quality <> " " <> sizeName size
-
-tshow :: (Show a) => a -> Text
-tshow = Text.pack . show
 
 {- | The advice as its first line, for this principal and interface: the only
 place either is read.

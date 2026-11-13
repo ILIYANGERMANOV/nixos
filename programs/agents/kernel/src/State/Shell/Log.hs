@@ -4,8 +4,6 @@ is one read-decide-append under an exclusive lock, so two writers never
 number a line alike.
 -}
 module State.Shell.Log (
-    logName,
-    logOf,
     readPointer,
     writePointer,
     locked,
@@ -21,12 +19,6 @@ import State.Event (Envelope)
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 import System.IO (IOMode (ReadWriteMode), SeekMode (SeekFromEnd), hFileSize, hSeek, withBinaryFile)
-
-logName :: FilePath
-logName = "events.jsonl"
-
-logOf :: FilePath -> FilePath
-logOf notes = notes </> logName
 
 -- | The notes dir the worktree's run keeps, if a run was started here.
 readPointer :: FilePath -> IO (Maybe FilePath)
