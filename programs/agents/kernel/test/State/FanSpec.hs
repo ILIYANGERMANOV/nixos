@@ -56,6 +56,10 @@ spec = describe "State.Fan" $ do
     it "settles a parked task, so the fan-out may leave" $
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave) `shouldBe` Right ()
 
+    it "does not leave while a child runs on a task already in review" $
+        (applied [spawned (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), moved t1 (InReview (Url "pr"))] >>= leave)
+            `shouldBe` Left (Unsettled (t1 :| []))
+
     it "does not settle a task whose PR is in CI" $
         (applied [moved t1 (InCi (Url "pr"))] >>= leave) `shouldBe` Left (Unsettled (t1 :| []))
 

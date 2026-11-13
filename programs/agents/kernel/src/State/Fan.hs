@@ -125,19 +125,22 @@ latest childRun = case reverse childRun.said of
 childrenOf :: Fan -> TaskId -> [ChildRun]
 childrenOf fan task = [childRun | childRun <- fan.children, childRun.child.task == task]
 
-{- | Its PR is in review, merged or parked, or its latest child finished. A
-stopped child leaves the task open: another child may take it, or the 10x
-parks it.
+{- | Parked, or no child of it runs and its PR is in review or merged, or its
+latest child finished. A stopped child leaves the task open: another child
+may take it, or the 10x parks it. Parking settles even a child that never
+handed back, so a lost child cannot keep the fan-out open.
 -}
 settled :: Fan -> TaskId -> Bool
 settled fan task = case Map.lookup task fan.moves of
-    Just (InReview _) -> True
-    Just (Merged _) -> True
     Just (Parked _ _) -> True
+    Just (InReview _) -> idle
+    Just (Merged _) -> idle
     Just (InCi _) -> finished
     Nothing -> finished
   where
-    finished = case latest =<< listToMaybe (reverse (childrenOf fan task)) of
+    children = childrenOf fan task
+    idle = not (any live children)
+    finished = case latest =<< listToMaybe (reverse children) of
         Just (Finished _) -> True
         Just (AsksUp _) -> False
         Just (AwaitsCi _) -> False
