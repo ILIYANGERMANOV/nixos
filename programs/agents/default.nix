@@ -222,5 +222,13 @@ in
       name = "roles";
       path = builtins.deepSeq roles roleLib.check;
     }
+    {
+      name = "rendered";
+      path = import ./kernel/rendered.nix {
+        inherit pkgs state;
+        engineer = ./skills/custom/engineer;
+        quality = ./instructions/topics/quality.md;
+      };
+    }
   ];
 }
