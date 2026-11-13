@@ -2525,6 +2525,20 @@ class TestStateLog:
         assert headline(report, "state-log").startswith("1 runs, 1 questions")
         assert "logs older than version 3, skipped: 1" in section(report, "state-log")
 
+    def test_a_log_whose_start_time_is_not_iso_is_skipped_and_counted(
+        self, home: Home
+    ) -> None:
+        # Given
+        home.log("good", RunLog("r1").ask("r1:1", "Fact", "interview"))
+        bad = RunLog("bad")
+        bad.lines[0]["ts"] = "yesterday"
+        home.log("bad", bad)
+        # When
+        report = home.report()
+        # Then
+        assert headline(report, "state-log").startswith("1 runs, 1 questions")
+        assert "logs older than version 3, skipped: 1" in section(report, "state-log")
+
     def test_only_runs_started_in_the_window_and_project_count(
         self, home: Home
     ) -> None:

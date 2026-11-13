@@ -2989,7 +2989,7 @@ class RunLog:
 @dataclass(frozen=True)
 class StateLogs:
     runs: list[RunLog]
-    older: int  # logs of another version, not read
+    older: int  # logs of another version or with an unreadable start, not read
 
 
 def load_logs(paths: Iterable[Path]) -> StateLogs:
@@ -2999,18 +2999,18 @@ def load_logs(paths: Iterable[Path]) -> StateLogs:
 
 
 def read_log(path: Path) -> RunLog | None:
-    """The run `path` logs, None when its first line is not `LOG_VERSION`."""
+    """The run `path` logs, None when its first line is not a `LOG_VERSION` start."""
     match list(read_jsonl(path)):
         case [
             {"v": v, "type": "started", "run": str(run), "ts": str(ts)} as first,
             *rest,
-        ] if v == LOG_VERSION:
+        ] if v == LOG_VERSION and (start := iso_timestamp(ts)) is not None:
             started = as_object(first.get("data"))
             events = [(line.get("type"), as_object(line.get("data"))) for line in rest]
             flow = text_of(started.get("flow"))
             return RunLog(
                 run,
-                datetime.fromisoformat(ts).timestamp(),
+                start,
                 text_of(started.get("notes")),
                 [
                     question(flow, data)
@@ -3027,6 +3027,14 @@ def read_log(path: Path) -> RunLog | None:
             )
         case _:
             return None
+
+
+def iso_timestamp(value: str) -> float | None:
+    """`value` as a POSIX timestamp, None when it is not ISO 8601."""
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except ValueError:
+        return None
 
 
 def question(flow: str, asked: dict[str, Json]) -> Question:

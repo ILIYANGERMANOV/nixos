@@ -177,11 +177,12 @@ spec = describe "state over the doubles" $ do
                 _ <- succeeded =<< stateIn world "BLOCKED no access\n" ["handback", "implementer"]
 
                 blocked <- succeeded =<< state world ["next"]
-                _ <- succeeded =<< state world ["ask", "--kind", "Stuck", "--from", "implementer", "retry", "with", "a", "token?"]
-                asked <- succeeded =<< state world ["next"]
+                asked : _ <- succeeded =<< state world ["ask", "--kind", "Pick", "--from", "implementer", "retry", "with", "a", "token?"]
+                _ <- succeeded =<< state world ["rule", Text.drop (Text.length "asked ") asked, "--answer", "retry", "--why", "token granted", "--cost", "none"]
+                ruled <- succeeded =<< state world ["next"]
 
                 take 1 blocked `shouldBe` ["RUN state ask --kind <kind> --from implementer <question> - triage: BLOCKED no access"]
-                take 1 asked `shouldSatisfy` all ("RUN state rule " `Text.isPrefixOf`)
+                ruled `shouldSatisfy` (not . any ("triage: BLOCKED no access" `Text.isInfixOf`))
 
             it "refuses a hand-back that is not UTF-8, with exit 2" $ \world -> do
                 _ <- startedRun world
