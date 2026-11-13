@@ -28,6 +28,7 @@ let
       hspec-golden,
       hspec-hedgehog,
       process,
+      temporary,
       text,
       time,
     }:
@@ -73,15 +74,26 @@ let
         hspec
         hspec-golden
         hspec-hedgehog
+        filepath
+        process
+        temporary
         text
         time
       ];
-      testToolDepends = [ hspec-discover ];
+      # git for the e2e spec's temp repos (State.E2ESpec).
+      testToolDepends = [
+        hspec-discover
+        pkgs.git
+      ];
       doCheck = true;
       # hspec-hedgehog seeds Hedgehog from hspec's seed: a fixed one makes a red
       # property replay the same on every machine.
       testFlags = [ "--seed=351" ];
-      preCheck = "export STATE_STEPS=${steps}";
+      # The e2e spec runs the `state` binary this build just linked.
+      preCheck = ''
+        export STATE_STEPS=${steps}
+        export STATE_BIN=$PWD/dist/build/state/state
+      '';
       license = lib.licenses.mit;
       mainProgram = "state";
     };

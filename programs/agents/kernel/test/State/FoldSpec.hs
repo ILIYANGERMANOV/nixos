@@ -55,18 +55,20 @@ spec = describe "State.Fold" $ do
             | (loopId, rounds, state) <- reached
             ]
 
-    it "refuses a review round past the fuel" $
-        replay g (logOf (started :| QualitySet Balanced : SizeSet Trivial : toReview <> reviewRound [] <> [Took (FixDone commit)]))
+    -- At the pick, before the fixer runs, so the run can still take the loop's exit.
+    it "refuses a review round past the fuel at the loop pick" $
+        replay g (logOf (started :| QualitySet Balanced : SizeSet Trivial : toReview <> reviewRound []))
             `shouldBe` Left (OutOfFuel LReview 1)
 
     it "gives one more round after a Not met at the fuel, never two" $ do
         let unmet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
-            twice = toReview <> roundWith unmet <> [Took (FixDone commit)] <> roundWith unmet
-        (.at) <$> replay g (logOf (started :| SizeSet Trivial : twice)) `shouldSatisfy` either (const False) (/= Out)
-        replay g (logOf (started :| SizeSet Trivial : twice <> [Took (FixDone commit)])) `shouldBe` Left (OutOfFuel LReview 1)
+            once = toReview <> roundWith unmet <> [Took (FixDone commit), Took (ReviewRows sha)]
+        (.at) <$> replay g (logOf (started :| SizeSet Trivial : once)) `shouldSatisfy` either (const False) (/= Out)
+        replay g (logOf (started :| SizeSet Trivial : once <> [Took (PickLoop unmet)])) `shouldBe` Left (OutOfFuel LReview 1)
 
     it "stuck_after_two_same_rounds" . hedgehog $ do
-        rows <- forAll (Gen.list (Range.linear 1 6) (Gen.subsequence ["A", "B", "C"]))
+        -- Max's 6 rounds: the last round's loop pick is refused, as no round is left.
+        rows <- forAll (Gen.list (Range.linear 1 5) (Gen.subsequence ["A", "B", "C"]))
         state <- evalEither (replay g (logOf (started :| QualitySet Max : toReview <> reviewRounds rows)))
         let expected = case reverse rows of
                 current : previous : _ -> Set.map (Row . Label) (Set.fromList current `Set.intersection` Set.fromList previous)

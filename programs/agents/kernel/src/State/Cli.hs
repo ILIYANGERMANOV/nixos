@@ -34,11 +34,11 @@ import State.Codec (areaText, judgementText, reasonText)
 import State.Codec qualified as Codec
 import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, runIdText)
 import State.Flow (LoopId (..))
-import State.Fold (Refusal (..))
+import State.Fold (Refusal (..), roundOnly)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Handback (parseTouches)
 import State.Id (parseEventId)
-import State.Mode (parseByName, parseQuality, qualityName, sizeName)
+import State.Mode (Cfg (..), Mode, SkipWhen (Never), cfg, parseByName, parseQuality, qualityName, sizeName)
 import State.Shell.Log (logName)
 import State.Steps (Steps, agentRoles)
 import System.FilePath (isAbsolute, takeFileName)
@@ -405,21 +405,22 @@ choices :: (Bounded a, Enum a) => (a -> Text) -> Text
 choices name = Text.intercalate "|" (map name [minBound .. maxBound])
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
-command to run instead, from the edges out of where the run is.
+command to run instead, from the edges out of where the run is that the
+run's mode would take.
 -}
-explain :: OpenGraph -> Node -> Refusal -> Failure
-explain g at = \case
+explain :: OpenGraph -> Mode -> Node -> Refusal -> Failure
+explain g mode at = \case
     NotStarted -> refused "the log" "its first line is not started" "state init --notes <dir>"
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
-    NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText) (records (const True))
+    NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText) (records taken)
     NotSkippable _ -> refused "the skip" "this mode never skips the step" (records (not . skips))
     OutOfFuel loop fuel ->
         refused
             ("another " <> loopName loop <> " round")
             ("the loop ran its " <> tshow fuel <> " rounds")
-            (records (\edge -> edge.back /= Just loop) <> " | state stop fuel <why>")
+            (records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop fuel <why>")
     QualitySetOnce quality -> refused "quality" ("it is " <> qualityName quality <> " already, set once") "state show"
     SizeSetOnce size -> refused "size" ("it is " <> sizeName size <> " already; only grew changes it") "state record grew <why>"
     NoSingleState (StateName name) ->
@@ -450,6 +451,10 @@ explain g at = \case
         Skip _ -> True
         Along _ -> False
         Stay -> False
+    taken edge = case edge.arrow of
+        Skip optId -> (cfg mode).skip optId /= Never
+        Along _ -> True
+        Stay -> True
     stateNames = map (nameText . (.name)) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid

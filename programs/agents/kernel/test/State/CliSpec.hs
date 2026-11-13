@@ -10,7 +10,7 @@ import State.Cli (Command (..), Exit (..), Failure (..), InitArgs (..), Recordin
 import State.Event (Asker (..), Commit (..), Event (..), Outcome (..), Stop (..), StopReason (..), outcomeEvent)
 import State.Fold (Refusal (..), RunState (..))
 import State.Graph (OpenGraph (..))
-import State.Mode (Quality (..), Size (..))
+import State.Mode (Mode (..), Quality (..), Size (..))
 import State.RunGen (g, loadSteps, runAt, sha)
 import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldSatisfy)
 
@@ -70,11 +70,13 @@ spec = describe "State.Cli" $ do
                 `shouldBe` "state record: size - set once\nfix: state show\n"
 
         it "fixes a second size with grew" $
-            (explain g (runAt []).at (SizeSetOnce Normal)).fix `shouldBe` "state record grew <why>"
+            (explain g (Mode Balanced Normal) (runAt []).at (SizeSetOnce Normal)).fix `shouldBe` "state record grew <why>"
 
-        it "fixes an event with no arrow by the events out of the step" $
-            (explain g (runAt []).at (NoEdge (runAt []).at (outcomeEvent (ReviewClean sha)))).fix
-                `shouldBe` "state record research.done | state record research.skipped"
+        it "fixes an event with no arrow by the events out of the step the mode takes" $
+            [ (explain g mode (runAt []).at (NoEdge (runAt []).at (outcomeEvent (ReviewClean sha)))).fix
+            | mode <- [Mode Balanced Normal, Mode Poc Trivial]
+            ]
+                `shouldBe` ["state record research.done", "state record research.done | state record research.skipped"]
 
         it "help lists every event the flow's arrows take" $
             [event | (_, event) <- Map.keys g.edges, not (eventText event `Text.isInfixOf` help steps)] `shouldBe` []

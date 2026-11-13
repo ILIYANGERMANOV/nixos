@@ -89,6 +89,7 @@ test-suite state-test
     State.AskSpec
     State.CliSpec
     State.CodecSpec
+    State.E2ESpec
     State.EventGen
     State.EventSpec
     State.FlowGen
@@ -112,10 +113,13 @@ test-suite state-test
     , bytestring
     , containers
     , directory
+    , filepath
     , hedgehog
     , hspec
     , hspec-golden
     , hspec-hedgehog
+    , process
     , state
+    , temporary
     , text
     , time

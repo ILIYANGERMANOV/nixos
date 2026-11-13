@@ -34,6 +34,7 @@ import State.Fold qualified as Fold
 import State.Graph (Node (..), OpenGraph, graph)
 import State.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Handback qualified as Handback
+import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
 import State.Shell.Log (locked, logOf, readPointer, writePointer)
@@ -157,7 +158,7 @@ nextAdvice steps facts told stamp run = (new, Right out)
         Nothing -> ([], current, [])
         Just outcome -> case commit stamp current [Took outcome] of
             -- Nobody asked for it, so it is told and not stored.
-            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g current.state.at refusal).why])
+            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.mode current.state) current.state.at refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
 
 -- | A hand-back line under a parent carries the run and its rulings (law Audit).
@@ -198,7 +199,7 @@ record stamp run = \case
     Right plan -> case commit stamp run plan.events of
         Right (new, after) -> (new, Right (plan.say after.state new))
         Left refusal ->
-            let failure = explain run.g run.state.at refusal
+            let failure = explain run.g (Fold.mode run.state) run.state.at refusal
              in ([stamped stamp run.state.run (run.count + 1) (Refused (noteOf failure))], Left failure)
 
 stamped :: Stamp -> RunId -> Natural -> Event -> Envelope
@@ -223,7 +224,8 @@ onRun act =
                             Right (first : rest) ->
                                 let g = graphOf (flowOf first)
                                  in pure $ case replay g (first :| rest) of
-                                        Left refusal -> ([], Left (unreplayed path (explain g Out refusal)))
+                                        -- Balanced Normal, the mode until recorded: only what and why are read.
+                                        Left refusal -> ([], Left (unreplayed path (explain g (Mode Balanced Normal) Out refusal)))
                                         Right state -> act stamp (Loaded g state (fromIntegral (length (first : rest))))
   where
     noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"

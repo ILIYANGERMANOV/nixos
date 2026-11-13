@@ -22,6 +22,7 @@ module State.Fold (
     Stuck (..),
     stuck,
     budget,
+    roundOnly,
     flowRole,
     nextQId,
     askedAt,
@@ -29,6 +30,7 @@ module State.Fold (
 
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
+import Data.Foldable (for_, traverse_)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -218,7 +220,21 @@ took g state outcome = do
         Stay -> Right ()
     let noted = fmap (noteProblems (problems outcome)) state.rounds
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
+    for_ (roundOnly g edge.to) $ \loopId ->
+        traverse_ (nextRound loopId ((cfg (mode state)).fuel loopId)) (Map.lookup loopId rounds)
     Right state {at = edge.to, rounds, askedHere = []}
+
+{- | The loop whose next round every way out of this node starts, as @fix@ in
+the review loop. A move there with no round left is refused before the work
+it starts: the run is still where the loop's exit is open (#360's fold).
+-}
+roundOnly :: OpenGraph -> Node -> Maybe LoopId
+roundOnly g = \case
+    At place -> case [edge.back | ((from, _), edge) <- Map.toList g.edges, from == place] of
+        Just loopId : backs | all (== Just loopId) backs -> Just loopId
+        _ -> Nothing
+    Out -> Nothing
+    Exit -> Nothing
 
 asked :: RunState -> Asking -> Either Refusal RunState
 asked state asking
