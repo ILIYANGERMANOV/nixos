@@ -1093,7 +1093,8 @@ def record_result(
     )
 
 
-# What `state` prints on stderr when it refuses a step, programs/agents/state/main.py:
+# What `state` prints on stderr when it refuses a step, failureText in
+# programs/agents/kernel/src/State/Cli.hs:
 # `state <sub>: what - why`, then `fix: ...`. A `| tail -1` keeps only the fix line.
 STATE_REFUSAL = re.compile(r"^(?:(state [a-z-]+: .*)\n)?fix: (.*)$", re.MULTILINE)
 

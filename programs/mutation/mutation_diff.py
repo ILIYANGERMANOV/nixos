@@ -48,23 +48,12 @@ PYTHON_MODULES = {
     "bash_commands": "programs/agents/hooks/guards/shared/bash_commands.py",
     "cache_check": "just/cache-check/cache_check.py",
     "disk_plan": "programs/software-factory/disk_plan.py",
-    **{
-        f"state.{name}": f"programs/agents/state/{name}.py"
-        for name in ("cli", "codec", "core", "effects", "flow", "main", "model")
-    },
 }
-# What those tests import or read, by the scratch directory it goes to: beside
-# the test, or for `state.state_fixtures` in its package.
+# What those tests import or read, by the scratch directory it goes to.
 PYTHON_TEST_SUPPORT = {
     "programs/agents/hooks/guards/shared/bash_corpus.py": "tests",
     "programs/agents/hooks/guards/shared/guard_harness.py": "tests",
     "just/cache-check/expensive-builds.deny": "tests",
-    "programs/agents/state/__init__.py": "src/state",
-    "programs/agents/state/state_fixtures.py": "src/state",
-    "programs/agents/state/conftest.py": "tests/programs/agents/state",
-    "programs/agents/skills/custom/engineer/SKILL.md": "tests/programs/agents/skills/custom/engineer",
-    "programs/agents/skills/custom/engineer/references/blockers.md": "tests/programs/agents/skills/custom/engineer/references",
-    "programs/agents/instructions/topics/quality.md": "tests/programs/agents/instructions/topics",
 }
 TS_ROOT = Path("programs/playwright")
 # The rest of TS_ROOT is Playwright drivers, which only checks.qa runs.
@@ -481,10 +470,8 @@ def build_scratch(scratch: Path, shfmt: str) -> None:
     for module, repository_path in PYTHON_MODULES.items():
         path = Path(repository_path)
         source = path.read_text().replace("@shfmt@", shfmt)
-        mutated = scratch / "src" / module_file(module)
-        # A top-level module's tests sit flat; a packaged one's keep their
-        # repository path, as test_flow.py finds the repository root from its own.
-        tests = scratch / "tests" / ("" if "." not in module else path.parent)
+        mutated = scratch / "src" / f"{module}.py"
+        tests = scratch / "tests"
         for directory in (mutated.parent, tests):
             directory.mkdir(parents=True, exist_ok=True)
         _ = mutated.write_text(source)
@@ -498,11 +485,6 @@ def build_scratch(scratch: Path, shfmt: str) -> None:
     _ = (scratch / "pyproject.toml").write_text(
         scratch_pyproject(Path("pyproject.toml").read_text())
     )
-
-
-def module_file(module: str) -> Path:
-    """Where mutmut keeps an import name under its source root: `state/core.py`."""
-    return Path(*module.split(".")).with_suffix(".py")
 
 
 def scratch_pyproject(repository_pyproject: str) -> str:
@@ -531,9 +513,7 @@ def read_mutmut(
     path = PYTHON_MODULES[module]
     meta = cast(
         "dict[str, dict[str, int | None]]",
-        json.loads(
-            (scratch / "mutants" / "src" / f"{module_file(module)}.meta").read_text()
-        ),
+        json.loads((scratch / "mutants" / "src" / f"{module}.py.meta").read_text()),
     )
     lines = function_lines(Path(path).read_text())
     mutants: list[Mutant] = []
@@ -543,7 +523,7 @@ def read_mutmut(
             if (cls, function) not in functions:
                 continue
             span = mutmut_span(
-                get_diff_for_mutant(name, path=f"src/{module_file(module)}"),
+                get_diff_for_mutant(name, path=f"src/{module}.py"),
                 lines[cls, function].first,
             )
             status = mutmut_status(status_by_exit_code[exit_code])

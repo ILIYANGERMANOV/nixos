@@ -416,7 +416,7 @@ data Stuck = Stuck {loop :: LoopId, same :: Set Problem}
     deriving stock (Eq, Show)
 
 {- | Only the last two rounds, and only in a row, as #351 decided. #351 noted
-that the Python guard (@core.py:557@) misses rows alternating A, B, A, B; this
+that the Python guard misses rows alternating A, B, A, B; this
 rule misses them too, on purpose: no two rounds in a row share a row, and the
 loop's fuel ends it.
 -}

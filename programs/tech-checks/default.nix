@@ -5,8 +5,7 @@
 {
   pkgs,
   claude,
-  # The built `state` command and guards, which python-tests runs end to end.
-  state,
+  # The guards, which python-tests runs end to end.
   guards,
   # The Haskell kernel package, whose build runs its own tests.
   kernel,
@@ -17,7 +16,6 @@ import ./shell.nix { inherit pkgs claude; }
   inherit
     pkgs
     claude
-    state
     guards
     ;
 }

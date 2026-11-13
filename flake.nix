@@ -178,7 +178,6 @@
               inherit inputs pkgs;
               root = self;
             })
-            state
             guards
             kernel
             ;
