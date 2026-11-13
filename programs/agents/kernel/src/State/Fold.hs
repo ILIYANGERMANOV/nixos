@@ -34,7 +34,7 @@ import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Numeric.Natural (Natural)
-import State.Ask (Above, Kind (Security), Proposal, QId, Question (..), Role (..), Ruling, deliver)
+import State.Ask (Above, Kind (Security), Principal, Proposal, QId, Question (..), Role (..), Ruling, deliver)
 import State.Ask qualified as Ask
 import State.Cap (EventName)
 import State.Event (Asking (..), Check, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName, Stop, eventId, outcomeEvent)
@@ -226,14 +226,14 @@ retagged state qid = do
 ruledOn :: RunState -> QId -> Proposal -> Either Refusal RunState
 ruledOn state qid proposal = do
     question <- forTriage qid state.pending
-    ruling <- Bifunctor.first NotAllowed (Ask.rule (role state) question.kind question proposal)
+    ruling <- Bifunctor.first NotAllowed (Ask.rule (role state.start.flow) question.kind question proposal)
     Right state {pending = close qid state.pending, rulings = state.rulings <> [ruling]}
 
 forwarded :: RunState -> QId -> Above -> Either Refusal RunState
 forwarded state qid to = do
     question <- forTriage qid state.pending
-    void (Bifunctor.first NotAllowed (Ask.pass (role state) question.kind question))
-    fromAbove state to
+    void (Bifunctor.first NotAllowed (Ask.pass (role state.start.flow) question.kind question))
+    fromAbove state.start.principal to
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
 answered :: RunState -> QId -> Above -> Either Refusal RunState
@@ -242,7 +242,7 @@ answered state qid by = do
     case pending.waits of
         ForTriage -> Left (NotForwarded qid)
         ForAnswer -> Right ()
-    fromAbove state by
+    fromAbove state.start.principal by
     Right state {pending = close qid state.pending}
 
 -- | The question this run has yet to rule on or forward.
@@ -265,14 +265,14 @@ pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
 
 -- | Questions go up to, and answers come down from, whoever started the run.
-fromAbove :: RunState -> Above -> Either Refusal ()
-fromAbove state named
-    | named == deliver state.start.principal = Right ()
+fromAbove :: Principal -> Above -> Either Refusal ()
+fromAbove principal named
+    | named == deliver principal = Right ()
     | otherwise = Left (NotAbove named)
 
 -- | The rung of the chain the run's flow stands on.
-role :: RunState -> Role
-role state = case state.start.flow of
+role :: FlowName -> Role
+role = \case
     EngineerFlow -> Engineer
     TenXFlow -> TenX
 

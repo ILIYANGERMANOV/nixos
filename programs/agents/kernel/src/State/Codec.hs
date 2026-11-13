@@ -177,12 +177,12 @@ eventData = \case
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
     Overridden (StateName to) why -> "to" .= to <> "why" .= why
     Refused note -> "message" .= note.message <> "fix" .= note.fix
-    Asked asking ->
-        qidData asking.question.qid
-            <> "kind" .= kindName asking.question.kind
-            <> "question" .= asking.question.text
-            <> "step" .= (\(StateName step) -> step) asking.step
-            <> pair "from" (askerEncoding asking.from)
+    Asked Asking {question, step = StateName step, from} ->
+        qidData question.qid
+            <> "kind" .= kindName question.kind
+            <> "question" .= question.text
+            <> "step" .= step
+            <> pair "from" (askerEncoding from)
     -- #360 writes the kind, though it is only ever Security.
     RetaggedSecurity qid -> qidData qid <> "kind" .= kindName Security
     RuledOn qid proposal ->

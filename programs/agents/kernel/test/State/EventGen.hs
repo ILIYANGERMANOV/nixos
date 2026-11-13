@@ -195,7 +195,7 @@ genQId = QId <$> genRunId <*> Gen.integral (Range.linear 0 1000)
 genQuestion :: Gen Question
 genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genText
 
--- | Any reading: a kind, often the question's own, and a choice.
+-- | Any reading: a kind and a choice.
 genReading :: Gen Reading
 genReading = Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
 

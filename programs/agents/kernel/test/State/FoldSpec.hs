@@ -275,7 +275,7 @@ questions = describe "questions" $ do
         replay g (logOf (started :| [ask 1 Fact, Forwarded (q 1) TheUser])) `shouldBe` Left (NotAllowed (MustAnswer Engineer Fact))
 
     it "refuses a ruling on a question retagged Security that names no basis" $
-        replay g (logOf (Started (Start TenXFlow "notes" ByUser Set.empty "a task") :| [ask 1 Design, RetaggedSecurity (q 1), RuledOn (q 1) proposal]))
+        replay g (logOf (Started (startOf TenXFlow ByUser) :| [ask 1 Design, RetaggedSecurity (q 1), RuledOn (q 1) proposal]))
             `shouldBe` Left (NotAllowed (NoBasis (q 1)))
 
     it "refuses a forward to another than whoever started the run" $
@@ -332,6 +332,10 @@ questions = describe "questions" $ do
 halt :: Stop
 halt = Stop Blocked "no way on"
 
+-- | A run of this flow under this principal, with no ops.
+startOf :: FlowName -> Principal -> Start
+startOf flow principal = Start flow "notes" principal Set.empty "a task"
+
 {- | Up to 60 tries at an ask event on a run of either flow, under the user
 or a parent, keeping those the fold accepts: the run state and the events.
 -}
@@ -339,7 +343,7 @@ genAskLog :: Gen (RunState, [Event])
 genAskLog = do
     flow <- Gen.enumBounded
     principal <- Gen.element [ByUser, ByRole (runId "p1") "p1/events.jsonl"]
-    first <- either (fail . show) pure (replay g (logOf (Started (Start flow "notes" principal Set.empty "a task") :| [])))
+    first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
     go tries first 1 0
   where
@@ -387,7 +391,7 @@ genChain =
             , [rung "e1" EngineerFlow (ByRole (runId "x1") "x1/events.jsonl"), rung "x1" TenXFlow ByUser]
             ]
   where
-    rung name flow principal = Rung (runId name) (Start flow "notes" principal Set.empty "a task")
+    rung name flow principal = Rung (runId name) (startOf flow principal)
 
 {- | A question climbing the chain, each run reading it as an LLM might and
 taking the other choice where the fold refuses its first, or stopping; the
