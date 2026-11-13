@@ -2458,7 +2458,7 @@ class TestStateLog:
             "Confirm 1",
         ]
 
-    def test_a_childs_question_counts_once_at_its_own_step_ruled_by_the_parent(
+    def test_a_child_question_counts_once_at_its_own_step_ruled_by_the_parent(
         self, home: Home
     ) -> None:
         # Given
@@ -2474,7 +2474,7 @@ class TestStateLog:
         assert row(report, "state-log", "engineer plan")[1:3] == ["1", "1"]
         assert "10x engineers|" not in section(report, "state-log")
 
-    def test_a_question_the_parent_raised_on_a_childs_hand_back_is_the_parents(
+    def test_a_question_the_parent_raised_on_a_child_hand_back_is_the_parents(
         self, home: Home
     ) -> None:
         # Given
