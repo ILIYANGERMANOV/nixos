@@ -134,6 +134,8 @@ data Action
       Resume RunId Text
     | -- | A stopped child's stop, for @state ask --from@ before any retry.
       TriageStop RunId Stop
+    | -- | A worker's hand-back line 1, for @state ask --from@ before the run goes on.
+      TriageHandback AgentRole OneLine
     | -- | Tasks with an agent at work, none of them waiting on this run.
       AwaitChildren (NonEmpty TaskId)
     | -- | Tasks neither merged nor parked: the merge loop's, on approval wakes.
@@ -212,7 +214,9 @@ advise steps facts state = Advice action (factLines facts state) entry notify
             ForAnswer -> AwaitAnswer oldest.asking.question
         (Nothing, [], Nothing, _) -> plain (Run (recordOne "quality" (map qualityName [minBound .. maxBound])))
         (Nothing, [], Just _, Nothing) -> plain (Run (recordOne "size" (map sizeName [minBound .. maxBound])))
-        (Nothing, [], Just _, Just _) -> going
+        (Nothing, [], Just _, Just _) -> case state.untriaged of
+            (role, line) : _ -> plain (TriageHandback role line)
+            [] -> going
     fanHere = case state.at of
         At place -> fanNamed place.name
         Out -> Nothing
@@ -275,7 +279,7 @@ recordTask task = "state record task " <> taskIdText task.id <> " " <> taskState
 
 -- | The PR's url as GitHub reports it, else the draft the run recorded: a POC run offline still skips ready.
 prUrl :: Facts -> RunState -> Maybe Url
-prUrl facts state = (.draft.url) <$> facts.pr <|> (.url) <$> state.drafted
+prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$> state.drafted
 
 -- | The record line for each of a step's outcomes, exit first.
 recordOutcomes :: Step i e o -> Text
@@ -392,7 +396,8 @@ deliver start = \case
         ParentRun _ -> "HANDBACK " <> needsDecision question
     AwaitCi ref -> (if has Event.Await then "" else "HANDBACK ") <> "AWAIT ci " <> ref
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
-    TriageStop child stop -> "RUN state ask --kind <kind> --from " <> runIdText child <> " <question> - triage: " <> stopLine stop
+    TriageStop child stop -> triageFrom (runIdText child) (stopLine stop)
+    TriageHandback (AgentRole role) line -> triageFrom role (oneLineText line)
     AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
     AwaitMerge tasks -> "AWAIT merge " <> Text.unwords (map taskIdText (toList tasks))
     Run command -> "RUN " <> command
@@ -404,6 +409,7 @@ deliver start = \case
         ParentRun _ -> "HANDBACK READY" <> foldMap ((" " <>) . urlText) url
   where
     has op = Set.member op start.interface
+    triageFrom from line = "RUN state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
     asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
 {- | The step's entry text, with the notify only a run that can notify
@@ -422,7 +428,8 @@ ownAsk :: RunState -> Kind -> OneLine -> (Question, [Event], Text)
 ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
   where
     question = Question (nextQId state) kind text
-    (forward, line) = case Ask.ask state.start.principal (flowRole state.start.flow) kind of
+    Mode _ size = mode state
+    (forward, line) = case Ask.ask state.start.principal size (flowRole state.start.flow) kind of
         AnswerSelf -> ([], "ANSWER yourself")
         Up above ->
             ( [Forwarded question.qid above]

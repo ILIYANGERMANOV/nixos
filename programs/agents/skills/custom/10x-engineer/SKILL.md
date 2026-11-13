@@ -36,7 +36,7 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 - **One agent per task.** At most one agent per task, so any wake for a task
   with a live agent is held: `state record held <task> <url>`. Held wakes
   stay on the task's line in `state next`; once its agent hands back, re-read
-  each live and act on what is still open.
+  each live, act on what is still open, then `state record acted <task> <url>`.
 - **Nothing waits silently.** A task with no rule for what happens next opens a
   question to the user.
 - **Protect your context.** On each wake run `state next` and read `gh` for

@@ -45,10 +45,10 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Ask (Above, Kind (Security), Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
+import State.Ask (Above, Kind (Security), OneLine, Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
 import State.Ask qualified as Ask
 import State.Cap (EventName)
-import State.Event (Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, eventId, outcomeEvent)
+import State.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, Url, eventId, outcomeEvent)
 import State.Fan (Fan, emptyFan)
 import State.Fan qualified as Fan
 import State.Flow (FanEvent (..), LoopId, OptId, fanEvent)
@@ -81,6 +81,12 @@ data RunState = RunState
     -- ^ Every forwarded question answered from above, oldest first: @show@ lists them.
     , drafted :: Maybe DraftPr
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
+    , untriaged :: [(AgentRole, OneLine)]
+    -- ^ The workers' hand-backs the run has yet to ask as its own question, oldest first.
+    , published :: Maybe Url
+    {- ^ The PR @ready@ recorded last: the url of a run that skipped its draft
+    by override, as a retry does, when GitHub is not read.
+    -}
     , fanOut :: Fan
     -- ^ The 10x's tasks and child runs: empty in a run with no fan-out.
     }
@@ -187,6 +193,8 @@ begin g envelope = case runStart envelope.event of
                 , rulings = []
                 , answers = []
                 , drafted = Nothing
+                , published = Nothing
+                , untriaged = []
                 , fanOut = emptyFan
                 }
 
@@ -212,6 +220,8 @@ runStart = \case
     HandedBack _ _ -> Nothing
     TaskMoved _ _ -> Nothing
     Held _ _ -> Nothing
+    ActedOn _ _ -> Nothing
+    WorkerHandedBack _ _ -> Nothing
 
 -- | A refusal is logged whatever the run's state; anything else needs a run going.
 applyEvent :: OpenGraph -> RunState -> Event -> Either Refusal RunState
@@ -239,16 +249,25 @@ applyEvent g state = \case
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
     TaskMoved task moved -> going (inFan (Fan.moved task moved))
     Held task url -> going (inFan (Fan.held task url))
+    ActedOn task url -> going (inFan (Fan.actedOn task url))
+    WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
   where
     -- A question asked from a stopped child is its stop, triaged.
     fromChild from after = case from of
         ChildRun child -> after {fanOut = Fan.triaged child after.fanOut}
         Itself -> after
-        Subagent _ -> after
+        -- A question asked from a worker triages its oldest hand-back.
+        Subagent role -> after {untriaged = triagedBy role after.untriaged}
     inFan change = (\fanOut -> state {fanOut}) <$> Bifunctor.first FanRefused (change state.fanOut)
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
         Nothing -> (\moved -> moved {refused = Nothing}) <$> next
+
+-- | The worker's oldest hand-back gone, once the run asked it as a question.
+triagedBy :: AgentRole -> [(AgentRole, OneLine)] -> [(AgentRole, OneLine)]
+triagedBy role untriaged = case break ((== role) . fst) untriaged of
+    (before, _ : after) -> before <> after
+    (before, []) -> before
 
 -- | Moves along the outcome's edge, after the outcome's problems join the rounds it ends.
 took :: OpenGraph -> RunState -> Outcome -> Either Refusal RunState
@@ -268,7 +287,7 @@ took g state outcome = do
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
         traverse_ (nextRound loopId ((cfg (mode state)).fuel loopId)) (Map.lookup loopId rounds)
-    Right state {at = edge.to, rounds, fanOut, askedHere = [], drafted = listToMaybe [pr | DraftDone pr <- [outcome]] <|> state.drafted}
+    Right state {at = edge.to, rounds, fanOut, askedHere = [], drafted = listToMaybe [pr | DraftDone pr <- [outcome]] <|> state.drafted, published = listToMaybe ([url | ReadyDone url <- [outcome]] <> [url | ReadySkipped url <- [outcome]]) <|> state.published}
 
 -- | A breakdown sets the fan-out's tasks; the fan-out is left once they are settled.
 fanOutcome :: Outcome -> Fan -> Either Fan.Refusal Fan

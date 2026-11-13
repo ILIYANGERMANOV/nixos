@@ -172,6 +172,17 @@ spec = describe "state over the doubles" $ do
                 (ran.code, ran.err) `shouldBe` (0, [])
                 recorded ran.out `shouldBe` ["simplify_plan.done -> alternative"]
 
+            it "advises a worker's BLOCKED for triage until the run asks it as its own" $ \world -> do
+                _ <- drive world ([Record ["quality", "Balanced"], Record ["size", "Normal"]] <> init toImplement)
+                _ <- succeeded =<< stateIn world "BLOCKED no access\n" ["handback", "implementer"]
+
+                blocked <- succeeded =<< state world ["next"]
+                _ <- succeeded =<< state world ["ask", "--kind", "Stuck", "--from", "implementer", "retry", "with", "a", "token?"]
+                asked <- succeeded =<< state world ["next"]
+
+                take 1 blocked `shouldBe` ["RUN state ask --kind <kind> --from implementer <question> - triage: BLOCKED no access"]
+                take 1 asked `shouldSatisfy` all ("RUN state rule " `Text.isPrefixOf`)
+
             it "refuses a hand-back that is not UTF-8, with exit 2" $ \world -> do
                 _ <- startedRun world
 
@@ -189,6 +200,13 @@ spec = describe "state over the doubles" $ do
                 take 1 ran.err `shouldSatisfy` all ("state handback: " `Text.isPrefixOf`)
 
         describe "override" $ do
+            it "names the PR ready.done recorded in a run that skipped its draft" $ \world -> do
+                _ <- drive world [Record ["quality", "Balanced"], Record ["size", "Normal"], Override "ready", Record ["ready.done", prUrl]]
+
+                done <- succeeded =<< state world ["next"]
+
+                take 1 done `shouldBe` ["DONE " <> prUrl]
+
             it "overrides to a named state, which show then names" $ \world -> do
                 _ <- drive world []
 
@@ -307,6 +325,14 @@ spec = describe "state over the doubles" $ do
                 shown <- succeeded =<< state world ["show"]
 
                 shown `shouldContain` ["task t1: not started, PR review " <> prUrl <> ", tries 0", "task t2: not started, tries 0, held https://github.com/o/r/issues/9"]
+
+            it "clears a held wake once acted on, keeping the others" $ \world -> do
+                _ <- tenXAtFanOut world
+                for_ [["held", "t2", "https://pr/2#a"], ["held", "t2", "https://pr/2#b"], ["acted", "t2", "https://pr/2#a"]] $ \argv -> succeeded =<< state world ("record" : argv)
+
+                shown <- succeeded =<< state world ["show"]
+
+                shown `shouldContain` ["task t2: not started, tries 0, held https://pr/2#b"]
 
             it "briefs an engineer with its task's fields, then its init line" $ \world -> do
                 run <- tenXAtFanOut world

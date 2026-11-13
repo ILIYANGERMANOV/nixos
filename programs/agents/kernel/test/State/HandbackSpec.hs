@@ -29,6 +29,10 @@ spec = describe "State.Handback" $ do
         for_ tokens $ \(first, token) ->
             (.token) <$> parseHandback first `shouldBe` Right token
 
+    it "reads line 1 pasted with the HANDBACK delivery prefix as the bare token" $
+        for_ tokens $ \(first, token) ->
+            (.token) <$> parseHandback ("HANDBACK " <> first) `shouldBe` Right token
+
     it "reads the last of a repeated trailer, and the areas touched" $
         parseHandback "READY\n\nReviewed head: 1111111\nReviewed head: 9f8e7d6\nTouches: auth, data-model"
             `shouldBe` Right (blank (Just (Ready (oneLine "")))) {reviewedHead = Just (Sha "9f8e7d6"), touches = Just (Set.fromList [Auth, DataModel])}
@@ -86,9 +90,9 @@ typing = describe "typeHandback" $ do
         typed atImplement "engineer" "NEEDS_DECISION Design c1:2: which store?\nRun: c1"
             `shouldBe` Right (Typed [Asked (Asking (Question (QId (runId "c1") 2) Design (oneLine "which store?")) implement (ChildRun (runId "c1")))] Nothing)
 
-    it "leaves BLOCKED to the run to triage, recording nothing" $
+    it "leaves BLOCKED to the run to triage, recording it as the worker's" $
         typed atImplement "implementer" "BLOCKED no access"
-            `shouldBe` Right (Typed [] (Just (oneLine "BLOCKED no access")))
+            `shouldBe` Right (Typed [Event.WorkerHandedBack (AgentRole "implementer") (oneLine "BLOCKED no access")] (Just (oneLine "BLOCKED no access")))
 
     it "records a GREW below a stuck question as grew beside the question" $
         typed atImplement "implementer" "NEEDS_DECISION stuck: two stores\nGREW three modules"

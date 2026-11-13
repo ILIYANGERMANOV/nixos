@@ -84,7 +84,8 @@ parseHandback message = do
   where
     (first, rest) = case Text.lines message of
         [] -> ("", [])
-        top : below -> (top, below)
+        -- An agent may paste the line as @state next@ delivered it.
+        top : below -> (fromMaybe top (Text.stripPrefix "HANDBACK " top), below)
     -- The last such line wins, as a re-review's report repeats its head.
     trailer prefix = case [value | line <- rest, Just value <- [Text.stripPrefix prefix line]] of
         [] -> Nothing
@@ -280,7 +281,8 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
     Just token@(Failed _) -> triage [] token
   where
     recorded events = Typed events Nothing
-    triage grown token = Typed grown . Just <$> oneLine (tokenLine token)
+    -- Logged, so @state next@ advises the triage until the run asks it.
+    triage grown token = (\line -> Typed (grown <> [Event.WorkerHandedBack agent line]) (Just line)) <$> oneLine (tokenLine token)
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do

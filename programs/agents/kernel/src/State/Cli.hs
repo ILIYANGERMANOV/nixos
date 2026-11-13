@@ -384,6 +384,9 @@ recordables =
     , stay "held" "<task> <url>" $ \case
         [task, link] -> Right (Held (TaskId task) (Url link))
         _ -> Left "the task and the url"
+    , stay "acted" "<task> <url>" $ \case
+        [task, link] -> Right (ActedOn (TaskId task) (Url link))
+        _ -> Left "the task and the held url acted on"
     , stay "spawning" "<task>" $ \case
         [task] -> Right (Spawning (TaskId task))
         _ -> Left "the task the engineer you spawn takes"

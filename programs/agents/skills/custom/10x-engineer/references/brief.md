@@ -54,7 +54,7 @@ directory, its last line the child's `state init` with `<dir>` filled:
   path, and every `gh` command by `--repo <owner>/<repo>`. Never touch `~/repos/<repo>`.
 - Repo rules: read the worktree's `CLAUDE.md` or `AGENTS.md` and follow them.
 - Issues: <#n each, closed by `Closes #n` in the PR body, or none>
-- Existing PR: <URL and the step to start from, or none>
+- Existing PR: <URL and the step to start from, `draft` at the latest so the run records the PR, or none>
 - Report file: ~/.10x/<run>/reports/<task>.md
 - Requirements file: ~/.10x/<run>/reports/<task>-requirements.md
 

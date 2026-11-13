@@ -83,6 +83,8 @@ genEvent =
         , HandedBack <$> genRunId <*> genSaid
         , TaskMoved <$> genTaskId <*> genTaskState
         , Held <$> genTaskId <*> (Url <$> genText)
+        , ActedOn <$> genTaskId <*> (Url <$> genText)
+        , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         ]
 
 genPath :: Gen FilePath

@@ -74,8 +74,8 @@ spec = describe "State.Advice" $ do
 
         it "asks Confirm once, then advises its outcome" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
-                ruled = runAt (knobs Balanced Normal <> map Took (take 5 happyPath) <> asked <> [RuledOn question.qid ruling])
-            next noFacts ruled `shouldBe` Run "state record confirm.confirmed | state record confirm.adjusted"
+                answered = runAt (knobs Balanced Normal <> map Took (take 5 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
+            next noFacts answered `shouldBe` Run "state record confirm.confirmed | state record confirm.adjusted"
 
     describe "due" $ do
         it "skips research in Trivial" $
@@ -224,6 +224,17 @@ spec = describe "State.Advice" $ do
         it "hands a Design question back to a parent run" $
             ownAsk (runUnder child (knobs Balanced Normal <> map Took (take 7 happyPath))) Design (oneLine "which store?")
                 `shouldBe` askedUp "HANDBACK NEEDS_DECISION Design r7f2:1: which store?" (ParentRun parent)
+
+        it "forwards a Normal task's Confirm to whoever started the run" $
+            [ line
+            | from <- [start, child]
+            , let (_, _, line) = ownAsk (runUnder from (knobs Balanced Normal <> map Took (take 5 happyPath))) Confirm (oneLine "the plan holds?")
+            ]
+                `shouldBe` ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"]
+
+        it "leaves a Trivial task's Confirm to the run itself" $
+            let (_, _, line) = ownAsk (runAt (knobs Balanced Trivial <> map Took (take 5 happyPath))) Confirm (oneLine "the plan holds?")
+             in line `shouldBe` "ANSWER yourself"
 
         it "leaves a Pick question to the run itself" $
             ownAsk atImplement Pick (oneLine "which rows?")

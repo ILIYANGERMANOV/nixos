@@ -8,6 +8,7 @@ import Hedgehog.Range qualified as Range
 import State.Ask
 import State.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
 import State.Id (TaskId (..), breaksLine)
+import State.Mode (Size (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -112,13 +113,16 @@ spec = describe "State.Ask" $ do
 
     describe "ask" $ do
         it "sends a role's own question its row forwards to the user who started the run" $
-            ask ByUser Engineer Design `shouldBe` Up TheUser
+            ask ByUser Normal Engineer Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
-            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1"))) Engineer Design `shouldBe` Up (ParentRun (runId "p1"))
+            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1"))) Normal Engineer Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
-            map (ask ByUser Engineer) [Fact, Confirm] `shouldBe` [AnswerSelf, AnswerSelf]
+            map (ask ByUser Trivial Engineer) [Fact, Confirm] `shouldBe` [AnswerSelf, AnswerSelf]
+
+        it "forwards the Confirm of a task not Trivial, whose row answers it only when Trivial" $
+            ask ByUser Normal Engineer Confirm `shouldBe` Up TheUser
 
     it "spells the hand-back line as #360's wire format" $
         needsDecision (Question qid Design (oneLine "change the data model?"))

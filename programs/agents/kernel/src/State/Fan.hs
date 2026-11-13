@@ -22,6 +22,7 @@ module State.Fan (
     handedBack,
     moved,
     held,
+    actedOn,
     leave,
     closed,
     unmerged,
@@ -171,6 +172,10 @@ moved task state fan = fan {moves = Map.insert task state fan.moves} <$ known ta
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan
+
+-- | A wake acted on is held no more; one acted on already stays so.
+actedOn :: TaskId -> Url -> Fan -> Either Refusal Fan
+actedOn task url fan = fan {held = filter (/= (task, url)) fan.held} <$ known task fan
 
 -- | The fan-out may leave its state: every task is settled.
 leave :: Fan -> Either Refusal ()

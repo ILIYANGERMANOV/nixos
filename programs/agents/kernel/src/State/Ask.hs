@@ -60,7 +60,7 @@ import Data.Text qualified as Text
 import GHC.Records (HasField (..))
 import Numeric.Natural (Natural)
 import State.Id (EventId, RunId, TaskId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
-import State.Mode (parseByName)
+import State.Mode (Size (..), parseByName)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
 above every other kind and the rest are not ordered, so no 'Ord': only
@@ -334,14 +334,25 @@ data Above
       ParentRun RunId
     deriving stock (Eq, Show)
 
--- | Where a role's own question goes: its own row first, then its principal.
-ask :: Principal -> Role -> Kind -> Delivery
-ask principal role kind = case authority role kind of
+{- | Where a role's own question goes: its own row first, then its principal.
+The run knows its size, so 'TrivialSize' is decided here; the LLM judges every
+other condition, and may still forward.
+-}
+ask :: Principal -> Size -> Role -> Kind -> Delivery
+ask principal size role kind = case authority role kind of
     Answers -> AnswerSelf
-    AnswersIf _ -> AnswerSelf
-    Forwards -> Up (deliver principal)
+    AnswersIf TrivialSize -> case size of
+        Trivial -> AnswerSelf
+        Normal -> up
+    AnswersIf RuleTest -> AnswerSelf
+    AnswersIf FitsBreakdown -> AnswerSelf
+    AnswersIf ObviousOrAnswered -> AnswerSelf
+    AnswersIf OneRetry -> AnswerSelf
+    Forwards -> up
     -- Only the user's Fact cell, and the user runs no flow that asks.
     NeverAsked -> AnswerSelf
+  where
+    up = Up (deliver principal)
 
 -- | Where a forwarded question goes: up to whoever started the run.
 deliver :: Principal -> Above
