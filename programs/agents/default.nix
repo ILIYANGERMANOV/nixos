@@ -89,10 +89,12 @@ let
   };
   # `ctx`: the review diff in a cached folder, on PATH in every session.
   ctx = import ./ctx { inherit pkgs; };
-  # `state`: the engineer flow's event log and advice, on PATH beside `ctx`.
-  state = import ./state {
+  # `state` and `state-hook`: the flows' event log, advice and hooks (the
+  # kernel), on PATH beside `ctx`.
+  state = import ./kernel {
     inherit pkgs;
-    agentHook = hooks.module;
+    inherit (import ./flows { inherit pkgs; }) steps;
+    vocabulary = ./hooks/vocabulary.json;
   };
   profiles = import ./profiles {
     inherit (profileLib) mkProfile;
@@ -146,12 +148,9 @@ in
   # The `ctx` and `state` commands, the ones the base profile's runtime puts on PATH.
   inherit ctx state;
 
-  # The Haskell `state` and `state-hook` that will replace the Python ones (#360).
-  # Nothing installs them yet: only the haskell tech checks build them.
-  kernel = import ./kernel {
-    inherit pkgs;
-    inherit (import ./flows { inherit pkgs; }) steps;
-  };
+  # The kernel's Haskell package, whose build runs its test suite: the haskell
+  # tech checks build and lint it.
+  kernel = state.package;
 
   # The guards as they deploy, for the tests to run (hooks/guards).
   guards = {

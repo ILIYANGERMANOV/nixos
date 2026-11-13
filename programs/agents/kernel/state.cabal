@@ -43,6 +43,7 @@ library
     State.Fold
     State.Graph
     State.Handback
+    State.Hook
     State.Id
     State.Mode
     State.Path
@@ -76,6 +77,10 @@ executable state-hook
   import:         shared-properties
   hs-source-dirs: app/state-hook
   main-is:        Main.hs
+  build-depends:
+    , bytestring
+    , state
+    , text
 
 test-suite state-test
   import:             shared-properties
@@ -101,6 +106,7 @@ test-suite state-test
     State.Golden
     State.GraphSpec
     State.HandbackSpec
+    State.HookSpec
     State.ModeSpec
     State.PathSpec
     State.Render.MermaidSpec

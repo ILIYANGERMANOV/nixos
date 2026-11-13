@@ -5,6 +5,7 @@ cannot be read the advice goes on without it, saying why.
 module State.Shell.Repo (
     gitDir,
     headSha,
+    headBranch,
     readFacts,
     changedLines,
     parsePr,
@@ -33,6 +34,10 @@ gitDir =
 -- | HEAD, or 'Nothing' before the first commit.
 headSha :: IO (Maybe Sha)
 headSha = either (const Nothing) (Just . Sha . Text.strip) <$> git ["rev-parse", "--verify", "--quiet", "HEAD"]
+
+-- | The branch HEAD is on, or 'Nothing' when it is detached.
+headBranch :: IO (Maybe Branch)
+headBranch = either (const Nothing) (Just . Branch . Text.strip) <$> git ["symbolic-ref", "--short", "--quiet", "HEAD"]
 
 {- | The branch's PR on GitHub and the lines it changes, each 'Nothing' when
 it cannot be read, with a line saying why.

@@ -2,15 +2,17 @@
 in pure code, then append to the log and print. Every decision is the
 kernel's; this module moves data between them and the outside.
 -}
-module State.Shell (main) where
+module State.Shell (main, hook) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException, try)
 import Control.Monad ((>=>))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Either (fromRight)
+import Data.Foldable (traverse_)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -34,14 +36,15 @@ import State.Fold qualified as Fold
 import State.Graph (Node (..), OpenGraph, graph)
 import State.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Handback qualified as Handback
+import State.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, offAdvice, parseHookEvent, parseHookName, replyOf, silent, toldOf, wants)
 import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
 import State.Shell.Log (locked, logOf, readPointer, writePointer)
-import State.Shell.Repo (gitDir, headSha, readFacts)
+import State.Shell.Repo (gitDir, headBranch, headSha, readFacts)
 import State.Steps (Steps, parseSteps)
 import State.View (brief, pendingLines, showRun)
-import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, withCurrentDirectory)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (IOMode (ReadMode), stderr, withBinaryFile)
@@ -63,6 +66,68 @@ main argv = do
             exitWith $ case failure.exit of
                 BadInput -> ExitFailure 2
                 Outage -> ExitFailure 1
+
+{- | @state-hook <name>@: one hook event on stdin, its reply on stdout. Bad
+usage or stdin exits 2; past that it never fails the agent: a worktree with no
+run it reads is silence, a refusal or an error is context (fail open and tell).
+-}
+hook :: [Text] -> LBS.ByteString -> IO ()
+hook argv input = case parseHookName argv of
+    Nothing -> usage ("usage: state-hook " <> Text.intercalate " | " (map hookName [minBound .. maxBound]))
+    Just name -> case parseHookEvent input of
+        Left why -> usage ("state-hook " <> hookName name <> ": " <> why)
+        Right event ->
+            loadSteps >>= \case
+                Left failure -> Text.hPutStr stderr (failureText ("hook " <> hookName name) failure) >> exitWith (ExitFailure 1)
+                Right steps -> case wants steps name event of
+                    Left why -> usage why
+                    Right Nothing -> pure ()
+                    Right (Just want) -> do
+                        let call = callOf event
+                        said <- try (withCurrentDirectory call.cwd (hookAnswer steps call want))
+                        traverse_ LBS.putStr . encodeReply $ case said of
+                            Right text -> replyOf want text
+                            Left (e :: IOException) -> toldOf want ("state hook " <> hookName name <> ": " <> tshow e)
+  where
+    usage line = Text.hPutStrLn stderr line >> exitWith (ExitFailure 2)
+
+-- | What the run says to a hook's want, recording what it must; empty when silent.
+hookAnswer :: Steps -> Call -> Want -> IO Text
+hookAnswer steps call want =
+    hasRun >>= \case
+        False -> pure ""
+        True -> case want of
+            ResumeRun -> do
+                -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
+                (facts, told) <- readFacts
+                onHook $ \stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, showRun run.state <> out)
+            SpawnRole spawned -> do
+                (facts, told) <- readFacts
+                onHook $ \stamp run ->
+                    let (new, action, out) = adviceOf steps facts told stamp run
+                        warning = case (action, spawned) of
+                            (Advice.Spawn advised, Just role) -> offAdvice steps run.state.at advised role
+                            _ -> Nothing
+                     in (new, out <> foldMap (<> "\n") warning)
+            HandedBack _ message agent role -> onHook $ \stamp run ->
+                let sources = hookSources run.state.run agent role message
+                 in if any (\line -> Just line.source == listToMaybe sources) run.logged
+                        then ([], "")
+                        else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
+            AskedUser -> onHook $ \_ run -> ([], Text.unlines (awaitingUser run.state))
+  where
+    -- A run that is over or bound to another branch is silent too; the hook's session stamps its lines.
+    onHook act = do
+        branch <- headBranch
+        result <- onRun $ \stamp run ->
+            if silent branch run.logged run.state
+                then ([], Right "")
+                else Right <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
+        pure (fromRight "" result)
+    hasRun =
+        gitDir >>= \case
+            Left _ -> pure False
+            Right gd -> readPointer gd >>= maybe (pure False) (doesFileExist . logOf)
 
 -- | A disk or process error is the outage exit, never a crash.
 outageAware :: IO (Either Failure Text) -> IO (Either Failure Text)
@@ -93,8 +158,8 @@ execute steps = \case
         onRun (nextAdvice steps facts told)
     HandbackOf role child -> do
         message <- Text.getContents
-        onRun (\stamp run -> record stamp run (handbackPlan steps stamp.head run.state role child message))
-    OnRun command -> onRun (\stamp run -> record stamp run (planOf steps stamp.head run.state command))
+        onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
+    OnRun command -> onRun (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head run.state command))
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
 data Plan = Plan {events :: [Event], say :: RunState -> [Envelope] -> Text}
@@ -144,7 +209,11 @@ handbackPlan steps worktreeHead state role child message = do
 then the advice: its line, its facts indented, the step's entry text.
 -}
 nextAdvice :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Either Failure Text)
-nextAdvice steps facts told stamp run = (new, Right out)
+nextAdvice steps facts told stamp run = let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out)
+
+-- | What @state next@ records and prints, and the advice's action.
+adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Text)
+adviceOf steps facts told stamp run = (new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
     advice = advise steps facts settled.state
@@ -156,7 +225,7 @@ nextAdvice steps facts told stamp run = (new, Right out)
             <> (if Text.null advice.entry then "" else "\n" <> advice.entry <> "\n")
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
-        Just outcome -> case commit stamp current [Took outcome] of
+        Just outcome -> case commit stamp current [(Cli, Took outcome)] of
             -- Nobody asked for it, so it is told and not stored.
             Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.mode current.state) current.state.at refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
@@ -177,36 +246,38 @@ nameText (StateName name) = name
 -- | The time, commit and session every line written now carries.
 data Stamp = Stamp {ts :: UTCTime, head :: Maybe Sha, session :: Maybe SessionId}
 
--- | The run as replayed under the lock, and how many lines its log holds.
-data Loaded = Loaded {g :: OpenGraph, state :: RunState, count :: Natural}
+-- | The run as replayed under the lock, its log's lines, and how many they are.
+data Loaded = Loaded {g :: OpenGraph, state :: RunState, logged :: NonEmpty Envelope, count :: Natural}
 
--- | The lines for these events, in order, and the run they reach, or the first refusal.
-commit :: Stamp -> Loaded -> [Event] -> Either Fold.Refusal ([Envelope], Loaded)
+{- | The lines for these events, each written by its source, in order, and the
+run they reach, or the first refusal. An id already logged appends nothing.
+-}
+commit :: Stamp -> Loaded -> [(Source, Event)] -> Either Fold.Refusal ([Envelope], Loaded)
 commit stamp = go []
   where
     go written run = \case
         [] -> Right (reverse written, run)
-        event : rest -> do
-            let envelope = stamped stamp run.state.run (run.count + 1) event
+        (source, event) : rest -> do
+            let envelope = stamped stamp source run.state.run (run.count + 1) event
             Fold.append run.g run.state envelope >>= \case
                 Appended next -> go (envelope : written) run {state = next, count = run.count + 1} rest
                 AlreadyLogged -> go written run rest
 
--- | The plan written, or its refusal logged so the next read warns of it.
-record :: Stamp -> Loaded -> Either Failure Plan -> ([Envelope], Either Failure Text)
-record stamp run = \case
+-- | The plan written by these sources, or its refusal logged so the next read warns of it.
+record :: Stamp -> Loaded -> [Source] -> Either Failure Plan -> ([Envelope], Either Failure Text)
+record stamp run sources = \case
     Left failure -> ([], Left failure)
-    Right plan -> case commit stamp run plan.events of
+    Right plan -> case commit stamp run (zip sources plan.events) of
         Right (new, after) -> (new, Right (plan.say after.state new))
         Left refusal ->
             let failure = explain run.g (Fold.mode run.state) run.state.at refusal
-             in ([stamped stamp run.state.run (run.count + 1) (Refused (noteOf failure))], Left failure)
+             in ([stamped stamp Cli run.state.run (run.count + 1) (Refused (noteOf failure))], Left failure)
 
-stamped :: Stamp -> RunId -> Natural -> Event -> Envelope
-stamped stamp run n event = Envelope {source = Cli, seq = n, ts = stamp.ts, run, head = stamp.head, session = stamp.session, event}
+stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
+stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run, head = stamp.head, session = stamp.session, event}
 
 -- | The worktree's run, locked for one command.
-onRun :: (Stamp -> Loaded -> ([Envelope], Either Failure Text)) -> IO (Either Failure Text)
+onRun :: (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> IO (Either Failure a)
 onRun act =
     inWorktree $
         readPointer >=> \case
@@ -226,7 +297,7 @@ onRun act =
                                  in pure $ case replay g (first :| rest) of
                                         -- Balanced Normal, the mode until recorded: only what and why are read.
                                         Left refusal -> ([], Left (unreplayed path (explain g (Mode Balanced Normal) Out refusal)))
-                                        Right state -> act stamp (Loaded g state (fromIntegral (length (first : rest))))
+                                        Right state -> act stamp (Loaded g state (first :| rest) (fromIntegral (length (first : rest))))
   where
     noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
     flowOf first = case first.event of
@@ -249,7 +320,7 @@ initRun gd args =
                 start = Start {flow = args.flow, notes, principal, interface = interfaceOf principal, task = args.task}
             result <- locked path $ \case
                 Left bad -> pure ([], Left (unreadLine path bad))
-                Right [] -> pure ([stamped stamp fresh 1 (Started start)], Right fresh)
+                Right [] -> pure ([stamped stamp Cli fresh 1 (Started start)], Right fresh)
                 Right (first : _) -> pure ([], Right first.run)
             traverse (\run -> writePointer gd notes >> pure ("started " <> runIdText run <> "\n")) result
   where

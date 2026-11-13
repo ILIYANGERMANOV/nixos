@@ -2,13 +2,23 @@
 # `state-hook`, built with this repo's own haskellPackages so the cache guard
 # sees no second GHC. Why Haskell: docs/adr/0018-category-model-haskell-state.md.
 #
+# The result is the installed command: both binaries wrapped with the step
+# table, on PATH beside `ctx`. `passthru.hooks` is the hook module the base
+# profile lists (hooks.nix); `passthru.package` the Haskell package itself.
+#
 # Hand-written in cabal2nix's shape rather than callCabal2nix, which imports from
 # a derivation, off on hosts and in CI (ADR 0009). So every dependency in
 # state.cabal is named here too: one missing fails the build at once. The test
 # suite runs in checkPhase, so building the package is `haskell-tests`.
 # `steps` is the flows' step table as JSON (programs/agents/flows), which the
-# suite holds equal to the kernel's steps.
-{ pkgs, steps }:
+# suite holds equal to the kernel's steps. `vocabulary` is the hook contract's
+# names (programs/agents/hooks/vocabulary.json), which the suite holds the hook's
+# enums to.
+{
+  pkgs,
+  steps,
+  vocabulary,
+}:
 let
   inherit (pkgs) lib;
   # Through callPackage, not haskellPackages.mkDerivation directly:
@@ -62,6 +72,7 @@ let
       ];
       executableHaskellDepends = [
         base
+        bytestring
         text
       ];
       testHaskellDepends = [
@@ -93,9 +104,36 @@ let
       preCheck = ''
         export STATE_STEPS=${steps}
         export STATE_BIN=$PWD/dist/build/state/state
+        export STATE_HOOK_BIN=$PWD/dist/build/state-hook/state-hook
+        export HOOK_VOCABULARY=${vocabulary}
       '';
       license = lib.licenses.mit;
       mainProgram = "state";
     };
+  built = pkgs.haskell.lib.compose.justStaticExecutables (
+    pkgs.haskellPackages.callPackage package { }
+  );
+  # They run the session's own git and gh, the ones the agent already works
+  # with: the gh on PATH is the one logged in, so these only fill in for none.
+  fallbackPath = lib.makeBinPath [
+    pkgs.gh
+    pkgs.git
+  ];
 in
-pkgs.haskell.lib.compose.justStaticExecutables (pkgs.haskellPackages.callPackage package { })
+pkgs.runCommand "state"
+  {
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    meta.mainProgram = "state";
+    passthru = {
+      hooks = ./hooks.nix;
+      package = built;
+    };
+  }
+  ''
+    mkdir -p "$out/bin"
+    for bin in state state-hook; do
+      makeWrapper "${built}/bin/$bin" "$out/bin/$bin" \
+        --set STATE_STEPS ${steps} \
+        --suffix PATH : ${fallbackPath}
+    done
+  ''
