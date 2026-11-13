@@ -8,6 +8,7 @@ module State.Shell (Shell, main, hook, runShellIO) where
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
 import Control.Monad ((>=>))
+import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight)
@@ -38,7 +39,7 @@ import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
-import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts, advise, deliver, due, ownAsk)
+import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, due, ownAsk, pullRequestOf)
 import State.Advice qualified as Advice
 import State.Ask (Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
@@ -46,7 +47,7 @@ import State.Cap (stateNameText)
 import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
 import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText)
 import State.Codec qualified as Codec
-import State.Event (AgentRole (..), Asker (..), Asking (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
+import State.Event (AgentRole (..), Asker (..), Asking (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
@@ -59,11 +60,11 @@ import State.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hook
 import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
-import State.Shell.Repo (gitDir, readFacts, readPointer, writePointer)
 import State.Show (tshow)
 import State.Steps (Steps, parseSteps)
 import State.View (brief, pendingLines, showRun)
 import System.Exit (ExitCode (..))
+import System.FilePath ((</>))
 
 -- | Every effect the shell runs on.
 type Shell es = (Clock :> es, Console :> es, Environment :> es, FileSystem :> es, Gh :> es, Git :> es, Log :> es, Random :> es)
@@ -153,7 +154,7 @@ hookAnswer steps call want =
                 else Right <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
         pure (either (failureText "hook") id result)
     -- GitHub unread is no PR: the hook speaks.
-    branchPr = fromRight Nothing <$> Gh.prView
+    branchPr = fromRight Nothing . pullRequestOf <$> Gh.prView
     -- A log of another version is the Python state's, which the hooks leave be (#360).
     hasRun =
         gitDir >>= \case
@@ -435,3 +436,32 @@ graphOf =
     either (error . ("the flow does not glue: " <>) . show) id . \case
         EngineerFlow -> graph engineer
         TenXFlow -> graph tenX
+
+-- | The worktree's git dir, where the pointer to its run lives.
+gitDir :: (Git :> es) => Eff es (Either Failure FilePath)
+gitDir = Bifunctor.first (\why -> Failure BadInput "not inside a git work tree" why "cd <worktree>; state keeps one run per worktree") <$> Git.gitDir
+
+-- | The notes dir the worktree's run keeps, if a run was started here.
+readPointer :: (FileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
+readPointer dir = fmap (Text.unpack . Text.strip) <$> FileSystem.readText (pointerOf dir)
+
+writePointer :: (FileSystem :> es) => FilePath -> FilePath -> Eff es ()
+writePointer dir notes = FileSystem.writeText (pointerOf dir) (Text.pack notes <> "\n")
+
+-- | A pointer file in the git dir names the notes dir, which holds @events.jsonl@.
+pointerOf :: FilePath -> FilePath
+pointerOf dir = dir </> "state-notes"
+
+{- | The branch's PR on GitHub and the lines it changes, each 'Nothing' when
+it cannot be read, with a line saying why.
+-}
+readFacts :: (Gh :> es, Git :> es) => Eff es (Facts, [Text])
+readFacts = do
+    reply <- Gh.prView
+    case pullRequestOf reply of
+        Left why -> pure (Facts Nothing Nothing, ["PR sync skipped - " <> why])
+        Right Nothing -> pure (Facts Nothing Nothing, [])
+        Right (Just pr) ->
+            Git.numstat pr.draft.base >>= \case
+                Right out -> pure (Facts (Just (changedLinesOf out)) (Just pr), [])
+                Left why -> pure (Facts Nothing (Just pr), ["changed lines unknown - " <> why])

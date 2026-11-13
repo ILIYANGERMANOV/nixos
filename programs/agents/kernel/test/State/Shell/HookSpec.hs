@@ -7,8 +7,7 @@ module State.Shell.HookSpec (spec) where
 import Data.Aeson (Value (..), decodeStrictText)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Foldable (for_)
-import Data.IORef (modifyIORef', readIORef)
-import Data.Map.Strict qualified as Map
+import Data.IORef (modifyIORef')
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Advice (Readiness (..))
@@ -43,7 +42,7 @@ spec = describe "state-hook over the doubles" $ do
 
             it "is silent on a log it does not read" $ \world -> do
                 _ <- startedRun world
-                modifyIORef' world (\w -> w {logs = Map.insert eventsPath "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n" w.logs})
+                editLog world (const "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n")
 
                 said <- succeeded =<< hook world "resume" sessionStart
 
@@ -51,7 +50,7 @@ spec = describe "state-hook over the doubles" $ do
 
             it "tells a log line it does not read, as context" $ \world -> do
                 _ <- drive world []
-                modifyIORef' world (\w -> w {logs = Map.adjust (<> "{\"v\":3,broken\n") eventsPath w.logs})
+                editLog world (<> "{\"v\":3,broken\n")
 
                 said <- hook world "resume" sessionStart
 
@@ -86,7 +85,7 @@ spec = describe "state-hook over the doubles" $ do
                 before' <- logged world
 
                 for_ [IsMerged, IsClosed] $ \over -> do
-                    modifyIORef' world (\w -> w {pr = Right (Just (draftPr over))})
+                    modifyIORef' world (\w -> w {pr = draftPr over})
                     resumed <- succeeded =<< hook world "resume" sessionStart
                     handed <- succeeded =<< hook world "handback" (handedBack "implementer")
                     (resumed, handed) `shouldBe` ([], [])
@@ -132,11 +131,11 @@ spec = describe "state-hook over the doubles" $ do
 
             it "appends nothing on bad usage" $ \world -> do
                 _ <- drive world []
-                before' <- (.logs) <$> readIORef world
+                before' <- logBytes world
 
                 _ <- hook world "handback" "not json"
 
-                after <- (.logs) <$> readIORef world
+                after <- logBytes world
                 after `shouldBe` before'
 
 -- | The @context@ of the reply printed, if any.

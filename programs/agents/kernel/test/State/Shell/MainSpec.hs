@@ -9,9 +9,9 @@ import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Advice (PullRequest (..), Readiness (..))
+import State.Advice (PrView (..), Readiness (..))
 import State.Cli (help)
-import State.Event (Branch (..), DraftPr (..), Envelope (..), SessionId (..), Url (..))
+import State.Event (Envelope (..), SessionId (..))
 import State.Render qualified as Render
 import State.RunGen (loadSteps)
 import State.Shell.World
@@ -92,7 +92,7 @@ spec = describe "state over the doubles" $ do
 
             it "goes on without GitHub when gh cannot be read, saying why" $ \world -> do
                 _ <- startedRun world
-                modifyIORef' world (\w -> w {pr = Left "gh pr view timed out after 10s"})
+                modifyIORef' world (\w -> w {pr = PrViewTimedOut 10})
 
                 advice <- succeeded =<< state world ["next"]
 
@@ -100,7 +100,7 @@ spec = describe "state over the doubles" $ do
 
             it "says the changed lines are unknown when origin lacks the PR's base" $ \world -> do
                 _ <- drive world [Record ["quality", "Balanced"], Record ["size", "Normal"]]
-                modifyIORef' world (\w -> w {pr = Right (Just (PullRequest (DraftPr (Url prUrl) (Branch "gone") (Branch "feat")) IsDraft))})
+                modifyIORef' world (\w -> w {pr = prOn "gone" IsDraft})
 
                 advice <- succeeded =<< state world ["next"]
 
@@ -114,14 +114,14 @@ spec = describe "state over the doubles" $ do
 
             it "names a hand-edited bad line and appends nothing after it" $ \world -> do
                 _ <- drive world []
-                modifyIORef' world (\w -> w {logs = Map.adjust (<> "{\"v\":3,broken\n") eventsPath w.logs})
-                before' <- (.logs) <$> readIORef world
+                editLog world (<> "{\"v\":3,broken\n")
+                before' <- logBytes world
 
                 for_ [("next", []), ("show", []), ("record", ["quality", "Max"])] $ \(sub, args) -> do
                     bad <- state world (sub : args)
                     (bad.code, map (fst . Text.breakOn " - ") bad.err)
                         `shouldBe` (2, ["state " <> sub <> ": /notes/events.jsonl line 2 is not read", "fix: repair or move /notes/events.jsonl"])
-                after <- (.logs) <$> readIORef world
+                after <- logBytes world
                 after `shouldBe` before'
 
         describe "record" $ do

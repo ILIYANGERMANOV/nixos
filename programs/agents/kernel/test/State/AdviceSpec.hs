@@ -4,6 +4,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Doubles.Gh (printedPr)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
@@ -29,6 +30,26 @@ spec = describe "State.Advice" $ do
         let under from = runUnder start {principal = from.principal, interface = from.interface} events
             decided state = (due g facts state, advise steps facts state)
         decided (under one) === decided (under other)
+
+    describe "pullRequestOf" $ do
+        it "reads back the PR gh prints" . hedgehog $ do
+            pr <- forAll genPullRequest
+            pullRequestOf (printedPr pr) === Right (Just pr)
+
+        it "reads gh's no-PR failure as no PR" $
+            pullRequestOf (PrViewFailed "no pull requests found for branch \"b\"\n") `shouldBe` Right Nothing
+
+        it "says why GitHub was not read" $
+            map
+                pullRequestOf
+                [ PrViewTimedOut 10
+                , PrViewFailed "error connecting to api.github.com\ncheck your internet connection\n"
+                , PrViewPrinted "{\"url\":\"u\",\"baseRefName\":\"main\",\"headRefName\":\"b\",\"isDraft\":false,\"state\":\"LOCKED\"}"
+                ]
+                `shouldBe` [ Left "gh pr view timed out after 10s"
+                           , Left "gh pr view: error connecting to api.github.com"
+                           , Left "gh pr view printed no PR: Error in $: unknown PR state LOCKED"
+                           ]
 
     describe "pick" $ do
         it "offers pick.loop while a review round is left" $

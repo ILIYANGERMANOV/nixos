@@ -8,6 +8,9 @@ module State.Advice (
     changedLinesOf,
     PullRequest (..),
     Readiness (..),
+    PrView (..),
+    prViewFields,
+    pullRequestOf,
     Advice (..),
     Action (..),
     due,
@@ -19,6 +22,8 @@ module State.Advice (
 
 import Control.Applicative ((<|>))
 import Control.Monad (join)
+import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
+import Data.Aeson.Types (parseEither)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
@@ -33,14 +38,14 @@ import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Co
 import State.Cap qualified as Cap
 import State.Cli (recordCommand)
 import State.Codec (reasonText, urlText)
-import State.Event (AgentRole (..), Asker (Itself), Asking (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), Start (..), Stop (..), Url)
+import State.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), Start (..), Stop (..), Url (..))
 import State.Event qualified as Event
 import State.Flow (LoopId (..), loopName)
 import State.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, budget, flowRole, mode, nextQId, stuck)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Handback (stopLine)
 import State.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
-import State.Show (tshow)
+import State.Show (firstLine, tshow)
 import State.Steps (Row (entry, lead, runner), Runner (..), Steps, row)
 
 -- | What GitHub and git say, read by the shell before it advises.
@@ -70,6 +75,36 @@ data PullRequest = PullRequest {draft :: DraftPr, readiness :: Readiness}
 -- | Where the PR stands on GitHub: open as a draft or ready for review, or over.
 data Readiness = IsDraft | IsReady | IsMerged | IsClosed
     deriving stock (Eq, Show)
+
+{- | What @gh pr view --json@ 'prViewFields' did: timed out after so many
+seconds, failed with its stderr, or printed its JSON.
+-}
+data PrView = PrViewTimedOut Int | PrViewFailed Text | PrViewPrinted Text
+    deriving stock (Eq, Show)
+
+-- | The fields 'pullRequestOf' reads, as @gh pr view --json@ takes them.
+prViewFields :: Text
+prViewFields = "url,baseRefName,headRefName,isDraft,state"
+
+-- | The branch's PR, 'Nothing' when it has none, or why GitHub was not read.
+pullRequestOf :: PrView -> Either Text (Maybe PullRequest)
+pullRequestOf = \case
+    PrViewTimedOut seconds -> Left ("gh pr view timed out after " <> tshow seconds <> "s")
+    PrViewFailed err
+        | "no pull requests found" `Text.isInfixOf` err -> Right Nothing
+        | otherwise -> Left ("gh pr view: " <> firstLine (Text.unpack err))
+    PrViewPrinted out -> either (Left . ("gh pr view printed no PR: " <>) . Text.pack) (Right . Just) $ do
+        value <- eitherDecodeStrictText out
+        flip parseEither value $ withObject "PR" $ \o -> do
+            draft <- DraftPr . Url <$> o .: "url" <*> (Branch <$> o .: "baseRefName") <*> (Branch <$> o .: "headRefName")
+            isDraft <- o .: "isDraft"
+            prState <- o .: "state"
+            PullRequest draft <$> case (prState :: Text, isDraft) of
+                ("OPEN", True) -> pure IsDraft
+                ("OPEN", False) -> pure IsReady
+                ("MERGED", _) -> pure IsMerged
+                ("CLOSED", _) -> pure IsClosed
+                _ -> fail ("unknown PR state " <> Text.unpack prState)
 
 -- | The action, the facts the reader weighs it by, and the step's entry text.
 data Advice = Advice {action :: Action, facts :: [Text], entry :: Text}

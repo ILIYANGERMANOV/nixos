@@ -58,7 +58,6 @@ library
     State.Render
     State.Render.Mermaid
     State.Shell
-    State.Shell.Repo
     State.Show
     State.Steps
     State.View

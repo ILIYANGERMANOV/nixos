@@ -12,12 +12,10 @@ module Effects.Log (
 
 import Data.ByteString qualified as BS
 import Data.Text (Text)
-import Data.Text qualified as Text
-import Data.Text.Encoding (decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, send)
 import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hLock)
-import State.Codec (LineError (..), LogError (..), decodeLog, encodeLine)
+import State.Codec (LogError, decodeLogBytes, encodeLines, firstLineBytes, firstLineOf)
 import State.Event (Envelope)
 import System.Directory (doesFileExist)
 import System.IO (IOMode (ReadMode, ReadWriteMode), SeekMode (SeekFromEnd), hFileSize, hSeek, withBinaryFile)
@@ -38,7 +36,7 @@ firstLine = send . FirstLine
 
 {- | The log, created if absent, locked for one decision: @decide@ gets every
 line so far, or the first it cannot read, and returns the lines to append.
-The lock lasts until the lines are written.
+The lock lasts until the lines are written. Its directory must exist.
 -}
 locked :: (Log :> es) => FilePath -> (Either LogError [Envelope] -> ([Envelope], a)) -> Eff es a
 locked path = send . Locked path
@@ -50,18 +48,13 @@ runLogIO = interpret $ \_ -> \case
         liftIO $
             doesFileExist path >>= \case
                 False -> pure Nothing
-                True -> Just . Text.takeWhile (/= '\n') . decodeUtf8Lenient <$> withBinaryFile path ReadMode (`BS.hGet` 65536)
+                True -> Just . firstLineOf <$> withBinaryFile path ReadMode (`BS.hGet` firstLineBytes)
     Locked path decide -> liftIO . withBinaryFile path ReadWriteMode $ \h -> do
         hLock h ExclusiveLock
         size <- hFileSize h
         bytes <- BS.hGet h (fromIntegral size)
-        let (new, result) = decide (decoded bytes)
+        let (new, result) = decide (decodeLogBytes bytes)
         hSeek h SeekFromEnd 0
         -- One write, so a reader without the lock never sees half a call's lines.
-        BS.hPut h (encodeUtf8 (foldMap ((<> "\n") . encodeLine) new))
+        BS.hPut h (encodeLines new)
         pure result
-
-decoded :: BS.ByteString -> Either LogError [Envelope]
-decoded bytes = case decodeUtf8' bytes of
-    Left _ -> Left (LogError 0 (Malformed ("the log is not UTF-8" :: Text)))
-    Right text -> decodeLog text

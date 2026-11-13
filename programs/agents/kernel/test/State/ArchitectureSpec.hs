@@ -25,10 +25,10 @@ spec = describe "kernel architecture" $ do
         sources <- traverse (\file -> (file,) <$> ByteString.readFile file) files
         [file | (file, source) <- sources, ("dele" <> "gated") `ByteString.isInfixOf` ByteString.map toLower source] `shouldBe` []
 
-    -- Read, decide in pure code, write: only the effects and "State.Shell" and
-    -- its modules do IO or name an effect.
+    -- Read, decide in pure code, write: only the effects and "State.Shell" do
+    -- IO or name an effect; the two mains, under @app@, only interpret.
     it "keeps IO and effects out of every module but the effects' and the shell's" $ do
-        decisions <- filter (\name -> not (isShell name || isEffects name)) . mapMaybe moduleOf <$> packageFiles "src"
+        decisions <- filter (\name -> not (name == shell || isEffects name)) . mapMaybe moduleOf <$> packageFiles "src"
         reached <- traverse (\name -> (name,) . Set.toList <$> closure name) decisions
         effects <- traverse (\(name, modules) -> (name,) . concatMap (filter isEffect) <$> traverse imports modules) reached
         [found | found@(_, _ : _) <- effects] `shouldBe` []
@@ -92,9 +92,9 @@ imports name = mapMaybe imported . lines <$> readFile ("src/" <> map slash name 
 isKernel :: String -> Bool
 isKernel name = "State." `isPrefixOf` name || isEffects name
 
--- | The effect shell: @State.Shell@ and the modules below it.
-isShell :: String -> Bool
-isShell name = name == "State.Shell" || "State.Shell." `isPrefixOf` name
+-- | The effect shell, one module.
+shell :: String
+shell = "State.Shell"
 
 -- | The effects, each with its IO interpreter.
 isEffects :: String -> Bool

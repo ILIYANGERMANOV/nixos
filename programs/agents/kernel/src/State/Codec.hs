@@ -14,6 +14,10 @@ module State.Codec (
     encodeLine,
     decodeLine,
     decodeLog,
+    decodeLogBytes,
+    encodeLines,
+    firstLineBytes,
+    firstLineOf,
     LineError (..),
     LogError (..),
     eventType,
@@ -30,6 +34,8 @@ import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, 
 import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list, null_, pair, pairs, text)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -38,6 +44,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
@@ -108,6 +115,22 @@ decodeLog :: Text -> Either LogError [Envelope]
 decodeLog = traverse numbered . zip [1 ..] . Text.lines
   where
     numbered (n, raw) = first (LogError n) (decodeLine raw)
+
+-- | A log file's bytes; bytes that are not UTF-8 are line 0's error.
+decodeLogBytes :: ByteString -> Either LogError [Envelope]
+decodeLogBytes = either (const (Left (LogError 0 (Malformed "the log is not UTF-8")))) decodeLog . decodeUtf8'
+
+-- | The bytes that append these lines to a log, each ending in a newline.
+encodeLines :: [Envelope] -> ByteString
+encodeLines = encodeUtf8 . foldMap ((<> "\n") . encodeLine)
+
+-- | How much of a log 'firstLineOf' reads, so a huge log is not read whole.
+firstLineBytes :: Int
+firstLineBytes = 65536
+
+-- | A log's first line, read leniently from its first 'firstLineBytes' bytes.
+firstLineOf :: ByteString -> Text
+firstLineOf = Text.takeWhile (/= '\n') . decodeUtf8Lenient . BS.take firstLineBytes
 
 decodeLine :: Text -> Either LineError Envelope
 decodeLine raw = do

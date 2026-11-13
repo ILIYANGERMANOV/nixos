@@ -17,6 +17,9 @@ module State.Shell.World (
     loggedEvents,
     headOf,
     draftPr,
+    prOn,
+    editLog,
+    logBytes,
     prUrl,
     notes,
     eventsPath,
@@ -42,6 +45,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -52,13 +56,14 @@ import Doubles.Clock (runClockFixed)
 import Doubles.Console (Streams (..), runConsoleCaptured)
 import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
-import Doubles.Gh (runGhScripted)
+import Doubles.Gh (printedPr, runGhScripted)
 import Doubles.Git (Worktree (..), runGitScripted)
 import Doubles.Log (runLogInMemory)
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
-import State.Advice (PullRequest (..), Readiness (..))
-import State.Codec (LogError (..), decodeLog, eventType, logOf)
+import Effectful.State.Static.Local (runState)
+import State.Advice (PrView (..), PullRequest (..), Readiness (..))
+import State.Codec (LogError (..), decodeLogBytes, eventType, logOf)
 import State.Event (Branch (..), DraftPr (..), Envelope (..), Sha (..), Url (..))
 import State.Shell qualified as Shell
 import System.Environment (getEnv)
@@ -72,11 +77,10 @@ counted: each changes one line, as the e2e's do.
 data World = World
     { env :: Map String String
     , disk :: Disk
-    , logs :: Map FilePath Text
     , gitDir :: Either Text FilePath
     , branch :: Maybe Branch
     , commits :: Int
-    , pr :: Either Text (Maybe PullRequest)
+    , pr :: PrView
     , clock :: UTCTime
     , entropy :: [Word8]
     }
@@ -89,11 +93,10 @@ newWorld = do
         World
             { env = Map.fromList [("STATE_STEPS", stepsPath)]
             , disk = Disk {files = Map.singleton stepsPath steps, dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"], cwd = "/work"}
-            , logs = Map.empty
             , gitDir = Right "/work/.git"
             , branch = Just (Branch "feat")
             , commits = 0
-            , pr = Right Nothing
+            , pr = PrViewFailed "no pull requests found for branch \"feat\"\n"
             , clock = UTCTime (fromGregorian 2026 11 13) 0
             , entropy = cycle [0 .. 255]
             }
@@ -115,18 +118,19 @@ hook world name input = run world (LBS.toStrict input) (Shell.hook [name])
 
 run :: IORef World -> ByteString -> (forall es. (Shell.Shell es) => Eff es ExitCode) -> IO Ran
 run world input program = atomicModifyIORef' world $ \w ->
-    let ((((code, entropy), logs), disk), streams) =
+    let (((code, entropy), disk), streams) =
             runPureEff
                 . runClockFixed w.clock
                 . runConsoleCaptured input
                 . runEnvironmentGiven w.env
-                . runFileSystemInMemory w.disk
+                . runState w.disk
+                . runFileSystemInMemory
                 . runGhScripted w.pr
                 . runGitScripted (worktreeOf w)
-                . runLogInMemory w.logs
+                . runLogInMemory
                 . runRandomFixed w.entropy
                 $ program
-     in (w {entropy, logs, disk}, Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr))
+     in (w {entropy, disk}, Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr))
   where
     exitNumber = \case
         ExitSuccess -> 0
@@ -168,7 +172,7 @@ eventsPath = logOf notes
 logged :: IORef World -> IO [Envelope]
 logged world = do
     w <- readIORef world
-    case decodeLog (Map.findWithDefault "" eventsPath w.logs) of
+    case decodeLogBytes (Map.findWithDefault "" eventsPath w.disk.files) of
         Right lines' -> pure lines'
         Left bad -> [] <$ expectationFailure ("the log does not read: " <> show bad.line)
 
@@ -178,9 +182,22 @@ loggedEvents world = map (eventType . (.event)) <$> logged world
 prUrl :: Text
 prUrl = "https://github.com/o/r/pull/1"
 
--- | The branch's PR, as @gh pr view@ reads it.
-draftPr :: Readiness -> PullRequest
-draftPr = PullRequest (DraftPr (Url prUrl) (Branch "main") (Branch "feat"))
+-- | What @gh pr view@ prints for the branch's PR into @main@.
+draftPr :: Readiness -> PrView
+draftPr = prOn "main"
+
+-- | What @gh pr view@ prints for the branch's PR into this base.
+prOn :: Text -> Readiness -> PrView
+prOn base = printedPr . PullRequest (DraftPr (Url prUrl) (Branch base) (Branch "feat"))
+
+-- | Edit the worktree's log by hand, as the bytes on disk.
+editLog :: IORef World -> (ByteString -> ByteString) -> IO ()
+editLog world edit = modifyIORef' world $ \w ->
+    let disk = w.disk in w {disk = disk {files = Map.alter (Just . edit . fromMaybe "") eventsPath disk.files}}
+
+-- | The worktree's log as the bytes on disk.
+logBytes :: IORef World -> IO (Maybe ByteString)
+logBytes world = Map.lookup eventsPath . (.disk.files) <$> readIORef world
 
 -- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
 hookEvent :: Value -> [Pair] -> LBS.ByteString
@@ -240,7 +257,7 @@ drive world acts = do
             Sha sha <- headOf . (.commits) <$> readIORef world
             succeeded =<< stateIn world (encodeUtf8 (report sha)) ["handback", role]
         Commit -> [] <$ modifyIORef' world (\w -> w {commits = w.commits + 1})
-        OpenPr -> [] <$ modifyIORef' world (\w -> w {pr = Right (Just (draftPr IsDraft))})
+        OpenPr -> [] <$ modifyIORef' world (\w -> w {pr = draftPr IsDraft})
         Override to -> succeeded =<< state world ["override", to, "the", "test", "starts", "here"]
         Refused argv -> do
             ran <- state world ("record" : argv)
