@@ -377,7 +377,7 @@ in
     exit = null;
     outcomes = [ "done" ];
     runner = "inline";
-    entry = "Merge the tasks' PRs into one.";
+    entry = "Merge: the review queue, the merge loop and the final audit, as the 10x skill's Merge says.";
     tools = [ "shell" ];
     skills = [ "10x-engineer" ];
     prose = [ ];

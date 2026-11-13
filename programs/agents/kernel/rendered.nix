@@ -12,6 +12,7 @@
   state,
   # The checked-in files that paste a block.
   engineer,
+  tenX,
   quality,
 }:
 pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
@@ -38,6 +39,8 @@ pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
   block ${engineer}/references/blockers.md plan-wrong
   block ${engineer}/references/blockers.md kinds
   block ${engineer}/references/trivial.md trivial
+  block ${tenX}/SKILL.md "states --flow 10x"
+  block ${tenX}/SKILL.md kinds
   lines ${quality} quality
   touch "$out"
 ''

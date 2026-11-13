@@ -250,6 +250,7 @@ in
       path = import ./kernel/rendered.nix {
         inherit pkgs state;
         engineer = ./skills/custom/engineer;
+        tenX = ./skills/custom/10x-engineer;
         quality = ./instructions/topics/quality.md;
       };
     }

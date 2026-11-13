@@ -26,13 +26,14 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 ## Brief
 
 `~/.10x/<run>/briefs/<task>.md`, with every field. No pasted research: paths.
+Its head is what `state brief engineer --task <id>` prints in the run
+directory, its last line the child's `state init` with `<dir>` filled:
+`/tmp/engineer-<owner>-<repo>-<branch>/`, or a fresh one on a retry.
 
 ```markdown
 # <task>
 
-Mode: delegated.
-Quality: <mode>
-Size: <Trivial | Normal>
+<`state brief engineer --task <id>`: the task's fields, then its `state init` line>
 
 ## The user's words
 
@@ -46,12 +47,9 @@ Size: <Trivial | Normal>
 
 - <input to observable outcome>
 
-Security-sensitive: <topics, or none>
-
 ## Where
 
 - Repo: <owner>/<repo>
-- Base branch: <main or epic/<name>>
 - Worktree: <absolute path>; every command uses it, by `git -C` or an absolute
   path, and every `gh` command by `--repo <owner>/<repo>`. Never touch `~/repos/<repo>`.
 - Repo rules: read the worktree's `CLAUDE.md` or `AGENTS.md` and follow them.
@@ -75,12 +73,13 @@ Security-sensitive: <topics, or none>
 
 ## Spawn prompt
 
-A fresh `subagent_type: engineer` agent, which has `engineer` preloaded:
+A fresh background `subagent_type: engineer` agent, which has `engineer`
+preloaded and runs its whole flow:
 
 ```text
 <the data line from SKILL.md's Rules>
-Quality: <the task's>. You are delegated: your brief is <path>. Read it first and
-follow the preloaded `engineer` skill's `## Delegated` section.
+Quality: <the task's>. Your brief is <path>. Read it first; its `state init`
+line is your first command.
 ```
 
 ## Fixer prompt

@@ -355,7 +355,7 @@ then a line per ruling it made, so the reader sees each one (law Audit).
 handback :: Text -> RunId -> [Ruling] -> Text
 handback first run rulings = Text.unlines (first : ("Run: " <> runIdText run) : map rulingLine rulings)
 
--- | As the 10x ledger writes one: what, why, and what it costs if wrong.
+-- | As @state show@ lists one: what, why, and what it costs if wrong.
 rulingLine :: Ruling -> Text
 rulingLine ruling =
     "Ruling "
