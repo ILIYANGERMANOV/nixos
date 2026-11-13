@@ -530,10 +530,9 @@ mode state = Mode (fromMaybe Balanced state.quality) (fromMaybe Normal state.siz
 data Stuck = Stuck {loop :: LoopId, same :: Set Problem}
     deriving stock (Eq, Show)
 
-{- | Only the last two rounds, and only in a row, as #351 decided. #351 noted
-that the Python guard misses rows alternating A, B, A, B; this
-rule misses them too, on purpose: no two rounds in a row share a row, and the
-loop's fuel ends it.
+{- | Only the last two rounds, and only in a row, as #351 decided. It misses
+rows alternating A, B, A, B on purpose: no two rounds in a row share a row, and
+the loop's fuel ends it.
 -}
 stuck :: RunState -> [Stuck]
 stuck state =

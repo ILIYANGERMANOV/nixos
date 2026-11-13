@@ -2513,7 +2513,7 @@ class TestStateLog:
         assert row(report, "state-log", "blocked") == ["blocked", "1", "no access"]
         assert row(report, "state-log", "r1")[1:] == ["engineer review", "?"]
 
-    def test_a_python_state_log_is_skipped_and_counted(self, home: Home) -> None:
+    def test_a_log_of_an_older_version_is_skipped_and_counted(self, home: Home) -> None:
         # Given
         home.log("v3", RunLog("r1").ask("r1:1", "Fact", "interview"))
         old = RunLog("old")

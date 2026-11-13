@@ -139,8 +139,7 @@ skipWhen quality size = \case
         Normal -> normal
 
 {- | Changed lines at or below which POC and Balanced skip the refactor. POC
-skips too, unlike the Python @state@: a POC that refactors where Balanced does
-not breaks Monotone.
+skips too: a POC that refactors where Balanced does not breaks Monotone.
 -}
 refactorLines :: Natural
 refactorLines = 100

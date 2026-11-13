@@ -2989,7 +2989,7 @@ class RunLog:
 @dataclass(frozen=True)
 class StateLogs:
     runs: list[RunLog]
-    older: int  # logs another version wrote, the Python state's, not read
+    older: int  # logs of another version, not read
 
 
 def load_logs(paths: Iterable[Path]) -> StateLogs:
@@ -2999,12 +2999,12 @@ def load_logs(paths: Iterable[Path]) -> StateLogs:
 
 
 def read_log(path: Path) -> RunLog | None:
-    """The run `path` logs, None when its first line is not version 3."""
+    """The run `path` logs, None when its first line is not `LOG_VERSION`."""
     match list(read_jsonl(path)):
         case [
-            {"v": 3, "type": "started", "run": str(run), "ts": str(ts)} as first,
+            {"v": v, "type": "started", "run": str(run), "ts": str(ts)} as first,
             *rest,
-        ]:
+        ] if v == LOG_VERSION:
             started = as_object(first.get("data"))
             events = [(line.get("type"), as_object(line.get("data"))) for line in rest]
             flow = text_of(started.get("flow"))
