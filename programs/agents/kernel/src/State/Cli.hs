@@ -35,9 +35,9 @@ import State.Ask qualified as Ask
 import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent, stateNameText)
 import State.Codec (areaText, judgementText, logName, reasonText)
 import State.Codec qualified as Codec
-import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, roleText, runIdText)
+import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), TaskId (..), TaskState (..), Url (..), parseRunId, roleText, runIdText)
 import State.Fan qualified as Fan
-import State.Flow (loopName)
+import State.Flow (FanEvent (Leaves), FanId (FEngineers), fanEvent, fanName, loopName)
 import State.Fold (Refusal (..), roundOnly)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Handback (parseTouches)
@@ -81,9 +81,9 @@ data InitArgs = InitArgs
     }
 
 {- | An event to record. Most carry the commit the worktree is at, which only
-the shell can read.
+the shell can read; a breakdown is read from a file, by the shell too.
 -}
-data Recording = Plain Event | AtHead (Sha -> Event)
+data Recording = Plain Event | AtHead (Sha -> Event) | FromFile FilePath (Text -> Either Text Event)
 
 -- | A question kept at its kind, or raised to 'Ask.Security' first.
 data Raise = AsAsked | ToSecurity
@@ -380,6 +380,18 @@ recordables =
     , atHead (continueEvent FixPR) FixPrDone
     , url (continueEvent Ready) ReadyDone
     , url (skipEvent Ready) ReadySkipped
+    , outcome (continueEvent Breakdown) "--tasks <file.json>" ["tasks"] $ \a -> case (a.positional, option "tasks" a) of
+        ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (Took . BreakdownDone) . Codec.decodeBreakdown))
+        _ -> Left "the tasks file, as --tasks <file.json>"
+    , nothing (fanEvent Leaves (fanName FEngineers)) (FanDone FEngineers)
+    , Recordable "task" ("<id> <ci|review|merged> <pr> | <id> parked <why> [--pr <url>]") ["pr"] $ \a -> case a.positional of
+        [task, state, pr] | Just moved <- lookup state [("ci", InCi), ("review", InReview), ("merged", Merged)] -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
+        task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
+        _ -> Left "the task, then ci, review or merged and its PR, or parked and why"
+    , stay "held" "<task> <url>" $ \case
+        [task, link] -> Right (Held (TaskId task) (Url link))
+        _ -> Left "the task and the url"
+    , url (continueEvent Merge) MergeDone
     ]
   where
     stay name usageText build = Recordable name usageText [] (\a -> Plain <$> build a.positional)

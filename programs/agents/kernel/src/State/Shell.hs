@@ -8,6 +8,7 @@ module State.Shell (Shell, main, hook, runShellIO) where
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
 import Control.Monad ((>=>))
+import Control.Monad qualified as Monad
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -200,17 +201,40 @@ execute steps = \case
         case decodeUtf8' input of
             Left _ -> pure (Left (Failure BadInput "the hand-back" "stdin is not UTF-8" "state help"))
             Right message -> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
-    OnRun command -> onRun (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head run.state command))
+    OnRun command -> do
+        -- Read before the lock, as GitHub is.
+        file <- traverse FileSystem.readText (fileOf command)
+        onRun (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.state command))
+  where
+    fileOf = \case
+        Record recording -> case recording of
+            FromFile path _ -> Just path
+            Plain _ -> Nothing
+            AtHead _ -> Nothing
+        Brief _ _ -> Nothing
+        ShowRun -> Nothing
+        Override _ _ -> Nothing
+        AskQuestion {} -> Nothing
+        RuleOn {} -> Nothing
+        Forward _ _ -> Nothing
+        Answer {} -> Nothing
+        StopRun _ -> Nothing
+        Pending -> Nothing
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
 data Plan = Plan {events :: [Event], say :: RunState -> [Envelope] -> Text}
 
-planOf :: Steps -> Maybe Sha -> RunState -> RunCommand -> Either Failure Plan
-planOf steps worktreeHead state = \case
+-- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
+planOf :: Steps -> Maybe Sha -> Maybe Text -> RunState -> RunCommand -> Either Failure Plan
+planOf steps worktreeHead file state = \case
     Record (Plain event) -> Right (Plan [event] recordedLines)
     Record (AtHead event) -> case worktreeHead of
         Just sha -> Right (Plan [event sha] recordedLines)
         Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
+    Record (FromFile path parse) -> case parse <$> file of
+        Just (Right event) -> Right (Plan [event] recordedLines)
+        Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
+        Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
     Override target why -> Right (Plan [Overridden target why] recordedLines)
     AskQuestion kind Itself text ->
         let (question, events, line) = ownAsk state kind text

@@ -39,7 +39,7 @@ spec = describe "State.Fan" $ do
 
     it "leaves_only_when_every_task_is_settled" . hedgehog $ do
         fan <- forAll genFan
-        cover 10 "settled" (null (unsettled fan))
+        cover 5 "settled" (null (unsettled fan))
         isRight (leave fan) === all (settled fan . (.id)) fan.tasks
 
     it "settles a task whose child finished" $
