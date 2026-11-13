@@ -5,7 +5,6 @@ import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -14,16 +13,15 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), Role (Engineer), deliver, handback, oneLineText, qidText)
-import State.Cap (EventName)
 import State.Event
-import State.EventGen (genOneLine, genOutcomeNamed, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started)
+import State.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started)
 import State.Flow (LoopId (..), OptId (..))
 import State.FlowGen (composes, genWalk)
-import State.Flows.Engineer (engineer)
 import State.Fold
-import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
+import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), cfg)
 import State.Path (ty)
+import State.RunGen (commit, g, genAccepted, genKnobs, happyPath, outcomeOf, sha)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -157,9 +155,6 @@ spec = describe "State.Fold" $ do
     note = Note "no edge" "state next"
     stop = Stop Blocked "why"
 
-g :: OpenGraph
-g = either (error . show) id (graph engineer)
-
 research :: Place
 research = g.inPort
 
@@ -171,18 +166,6 @@ placeName = \case
     At place -> Just place.name
     Out -> Nothing
     Exit -> Nothing
-
-sha :: Sha
-sha = Sha "abc123"
-
-commit :: Commit
-commit = Commit sha Set.empty
-
-happyPath :: [Outcome]
-happyPath =
-    [ResearchDone 3, InterviewEnough, PlanDone "plan.md", SimplifyPlanDone, AlternativeDone, ConfirmConfirmed]
-        <> [DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b")), ImplementDone commit, RefactorDone sha, ReviewClean sha]
-        <> [DescribeDone sha, SimplifyPrDone sha, AwaitCiGreen sha, ReadyDone (Url "u")]
 
 -- | From the start to the first review.
 toReview :: [Event]
@@ -221,40 +204,6 @@ genCandidate = do
     names <- Gen.element [walk, take at walk <> [noise] <> drop at walk]
     outcomes <- traverse outcomeOf names
     pure (knobs <> map Took outcomes)
-
-{- | Any mode, then up to 300 tries at an event on an edge out of where the
-run is, keeping those the fold accepts. Edges that stay inside every loop are
-likelier, so loops run out of fuel.
--}
-genAccepted :: Gen [Event]
-genAccepted = do
-    knobs <- genKnobs
-    steps <- Gen.int (Range.linear 0 300)
-    first <- either (fail . show) pure (replay g (logOf (started :| knobs)))
-    (knobs <>) <$> go steps first (fromIntegral (length knobs) + 1)
-  where
-    go :: Int -> RunState -> Natural -> Gen [Event]
-    go 0 _ _ = pure []
-    go k state n = case state.at of
-        At place -> do
-            name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList g.edges, from == place]
-            outcome <- outcomeOf name
-            case append g state (line n (Took outcome)) of
-                Right (Appended next) -> (Took outcome :) <$> go (k - 1) next (n + 1)
-                Right AlreadyLogged -> go (k - 1) state n
-                Left _ -> go (k - 1) state n
-        Out -> pure []
-        Exit -> pure []
-    stays place edge = case edge.to of
-        At to -> all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems g.loops)
-        Out -> False
-        Exit -> False
-
-genKnobs :: Gen [Event]
-genKnobs = (\quality size -> [QualitySet quality, SizeSet size]) <$> Gen.enumBounded <*> Gen.enumBounded
-
-outcomeOf :: EventName -> Gen Outcome
-outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
 
 -- | The ask events, on the engineer flow's graph: they never move the run.
 questions :: Spec

@@ -84,9 +84,11 @@ test-suite state-test
     State.FoldSpec
     State.Golden
     State.GraphSpec
+    State.HandbackSpec
     State.ModeSpec
     State.PathSpec
     State.Render.MermaidSpec
+    State.RunGen
     State.StepsSpec
 
   build-depends:
