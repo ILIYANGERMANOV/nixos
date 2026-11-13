@@ -30,11 +30,26 @@ Each folder has its own rule, loaded when you work in it:
 | `skills/` | the skill catalog | `agents-skills.md` |
 | `mcp/` | the MCP catalog | `agents-mcp.md` |
 | `hooks/` | hook declarations, the neutral contract and dispatcher | below |
+| `flows/` | `steps.nix`, the step table the kernel and the roles derive from | below |
+| `kernel/` | the Haskell `state` and `state-hook` | below, `tech-checks.md` |
 
 `default.nix` is the surface: `profiles`, `fold`, `renderLead`, `renderRole`,
-`skills`, `ctx`, `state`, `kernel` (the Haskell `state`, #360), `guards`, `hooks`, `roles`, `budget` and `check`. `checks.agents`
-proves every law and every rejection, and holds the blocks the engineer skill and
-`quality.md` paste equal to `state render` (`kernel/rendered.nix`).
+`skills`, `ctx`, `state`, `kernel` (the `state` package), `guards`, `hooks`,
+`roles`, `budget` and `check`. `checks.agents` proves every law and every
+rejection, and holds the blocks the engineer skill and `quality.md` paste equal
+to `state render` (`kernel/rendered.nix`).
+
+### Kernel
+
+**`kernel/` is a pure core in `src/State/` behind a thin `effectful` shell:
+every IO action is an effect in `src/Effects/`, one per file with its IO
+interpreter, and tests run the shell on the doubles in `test/Doubles/`.**
+`ArchitectureSpec` refuses IO or effects in any other module. A run appends its
+events to `<notes>/events.jsonl`, version 3 (`State/Codec.hs`); the
+`self-improve` analyzer reads it, so a format change updates `analyze.py` too.
+The step table is `flows/steps.nix`, handed to the kernel as JSON and to the
+roles, whose capabilities and skills derive from it (`lib/derive.nix`). Why:
+`docs/adr/0018-category-model-haskell-state.md`.
 
 ### Hooks
 
@@ -46,7 +61,9 @@ event's hooks in order. `agent_hook.py` is the neutral contract and the
 dispatcher a backend's adapter calls once per event: deny wins, contexts join,
 rewritten input reaches the next hook. A hook fails open and tells. A backend
 fills `history` and `context` from what the agent did, so a hook keeps no state
-and reads no vendor file. The state hooks are `kernel/hooks.nix`, run by the Haskell `state-hook`, and cover the main session only. Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
+and reads no vendor file. The state hooks are `kernel/hooks.nix`, run by the
+Haskell `state-hook`, and cover the main session only. Why:
+`docs/adr/0016-hooks-drive-the-state-record.md`, amended by ADR 0018.
 
 `hooks/guards/` holds the guards, Python programs on the contract that stop an
 agent's accidents: `secret-guard`, `read-guard` and `wait-guard` deny a shell

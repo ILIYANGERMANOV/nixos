@@ -6,8 +6,9 @@ back to the user. Now each step is a state with named arrows. A Quality mode or
 a Size only skips arrows. A worker hands a blocking question back, and the
 engineer sorts it.
 
-Amended by #317, #318, #324, #326 and #328. This text describes the current
-flow.
+Amended by #317, #318, #324, #326 and #328. Superseded by ADR 0018: the
+flow is a typed path the Haskell `state` checks, and the `## States` table is
+rendered from it. This text describes the flow before ADR 0018.
 
 The spec is the `## States` table in
 `programs/agents/skills/custom/engineer/SKILL.md`, with detail in its

@@ -59,6 +59,13 @@ for its engineers, wraps a flow without changing it.
   second nixpkgs or GHC, which the cache guard refuses, and no
   `callCabal2nix`, an import from derivation (ADR 0009). The cabal, test and
   lint setup is copied from Ivy-Apps/haskell-template, without relude.
+- **An `effectful` shell, at the user's request.** Every IO action of `state`
+  and `state-hook` is a dynamic effect in `programs/agents/kernel/src/Effects/`,
+  one per file with its IO interpreter; the mains only run the interpreters.
+  Tests run the same shell on in-memory doubles in `test/Doubles/`, and
+  `ArchitectureSpec` keeps IO and effects out of every module but the
+  effects' and the shell's. #360 planned a plain IO shell; the user asked for
+  algebraic effects mid-stack, and one extra PR added them.
 
 ## Considered options
 
@@ -73,6 +80,5 @@ for its engineers, wraps a flow without changing it.
 
 - `haskell-tests` (the package's own test suite) and `haskell-lint` (hlint and
   fourmolu) join the tech checks and the CI `tech` matrix.
-- The Python `state` stays installed until the kernel replaces it in #360's
-  PR 4; until then the kernel's `state` and `state-hook` are stubs nothing
-  installs.
+- The kernel's `state` and `state-hook` replaced the Python `state` in
+  #360's PR 4, and `programs/agents/state/` is gone.
