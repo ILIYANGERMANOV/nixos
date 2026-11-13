@@ -5,7 +5,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Hedgehog (Gen, assert, evalMaybe, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Cap (EventName (..), OutcomeEdge (..), Step (..), Ty (..))
+import State.Cap (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..), Step (..), Ty (..))
 import State.Flow (Flow (..), OptId (..))
 import State.FlowGen (composes, genFlow, pathTo)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, graph)
@@ -31,8 +31,8 @@ spec = describe "State.Path" $ do
                 g <- either (const Nothing) Just built
                 edge <- step g g.inPort event
                 Just edge.to
-        from (EventName "research" "skipped") `shouldBe` from (EventName "research" "done")
-        from (EventName "research" "skipped") `shouldNotBe` Nothing
+        from (EventName (StateName "research") (OutcomeName "skipped")) `shouldBe` from (EventName (StateName "research") (OutcomeName "done"))
+        from (EventName (StateName "research") (OutcomeName "skipped")) `shouldNotBe` Nothing
 
 -- | A built flow and one of its skip edges.
 genSkip :: Gen (OpenGraph, (Place, EventName, Edge))

@@ -13,9 +13,8 @@ module State.Flow (
 ) where
 
 import Data.Kind (Type)
-import Data.Text (Text)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import State.Cap (KnownTy, Step, Ty (..))
+import State.Cap (KnownTy, StateName (..), Step, Ty (..))
 
 {- | The exit of @f ':>' g@: either side's, and the same type when both have
 one. The last equation turns a mismatch into a message naming both types,
@@ -72,7 +71,8 @@ data FanId = FResearchers | FEngineers
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | The state a 'Par' draws as.
-fanName :: FanId -> Text
-fanName = \case
-    FResearchers -> "researchers"
-    FEngineers -> "engineers"
+fanName :: FanId -> StateName
+fanName =
+    StateName . \case
+        FResearchers -> "researchers"
+        FEngineers -> "engineers"

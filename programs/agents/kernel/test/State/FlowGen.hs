@@ -16,11 +16,10 @@ module State.FlowGen (
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Cap (EventName, OutcomeEdge (..), Step (..), Ty (..))
+import State.Cap (EventName, OutcomeEdge (..), StateName, Step (..), Ty (..))
 import State.Flow (FanId (..), Flow (..), OnEmpty (..))
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Mode (Cfg (..), Mode, SkipWhen (..), cfg)
@@ -106,7 +105,7 @@ pathTo g from target = go (Set.singleton from) [(from, [])]
 name: it takes a skip, which leaves the skipped step's state, only where the
 mode may skip.
 -}
-bypasses :: Mode -> OpenGraph -> Text -> Bool
+bypasses :: Mode -> OpenGraph -> StateName -> Bool
 bypasses mode g name = isJust (pathTo g {edges = Map.filterWithKey taken g.edges} (At g.inPort) Out)
   where
     taken (from, _) edge = case edge.arrow of

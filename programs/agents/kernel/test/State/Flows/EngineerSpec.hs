@@ -1,7 +1,7 @@
 module State.Flows.EngineerSpec (spec) where
 
 import Data.Either (isRight)
-import Data.Text (Text)
+import State.Cap (StateName (..))
 import State.FlowGen (bypasses)
 import State.Flows.Engineer (engineer)
 import State.Graph (graph)
@@ -18,8 +18,8 @@ spec = describe "State.Flows.Engineer" $ do
     research is an answer to an ask, not a state (PR 3).
     -}
     it "no_mode_skips_kept_steps" $
-        [(mode, kept) | mode <- modes, kept <- ["review", "describe"], skips mode kept]
+        [(mode, kept) | mode <- modes, kept <- map StateName ["review", "describe"], skips mode kept]
             `shouldBe` []
 
-skips :: Mode -> Text -> Bool
+skips :: Mode -> StateName -> Bool
 skips mode kept = either (const True) (\g -> bypasses mode g kept) (graph engineer)

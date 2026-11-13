@@ -27,7 +27,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
-import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, StateName (..), Stop, Verdict (..), eventId, outcomeEvent)
+import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, StateName, Stop, Verdict (..), eventId, outcomeEvent)
 import State.Flow (LoopId, OptId)
 import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
@@ -163,7 +163,7 @@ took g state outcome = do
     Right state {at = edge.to, rounds}
 
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
-overridden g state target@(StateName name) = case Set.toList (Set.filter (\place -> place.name == name) (places g)) of
+overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
     [place] -> do
         rounds <- enter g (cfg (mode state)).fuel Nothing state.at (At place) state.rounds
         Right state {at = At place, rounds}

@@ -21,15 +21,14 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
-import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), Outcomes (..), Step, Ty (..), outcomes, skippedOutcome, stepName)
+import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), StateName, Step, Ty (..), outcomes, skippedOutcome, stepName)
 import State.Flow (FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanName)
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
 position in the term, so a step used twice is two states; the name is what
 people read.
 -}
-data Place = Place {path :: [Int], name :: Text}
+data Place = Place {path :: [Int], name :: StateName}
     deriving stock (Eq, Ord, Show)
 
 {- | 'Out' and 'Exit' are the open ports: gluing identifies them with the
@@ -163,15 +162,16 @@ fanOut fan _ =
         { inPort = place
         , edges =
             Map.fromList
-                [ edge "spawned" (Edge (At place) Stay Nothing)
-                , edge "handed_back" (Edge (At place) Stay Nothing)
-                , edge "done" (Edge Out (Along (OutcomeEdge (event "done") (List (tyVal @a)) (List (tyVal @b)))) Nothing)
+                [ edge (OutcomeName "spawned") (Edge (At place) Stay Nothing)
+                , edge (OutcomeName "handed_back") (Edge (At place) Stay Nothing)
+                , edge done (Edge Out (Along (OutcomeEdge (event done) (List (tyVal @a)) (List (tyVal @b)))) Nothing)
                 ]
         , loops = Map.empty
         }
   where
     place = Place [] (fanName fan)
     event = EventName place.name
+    done = OutcomeName "done"
     edge outcome target = ((place, event outcome), target)
 
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.

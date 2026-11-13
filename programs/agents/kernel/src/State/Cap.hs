@@ -8,7 +8,9 @@ module State.Cap (
     Ty (..),
     KnownTy (..),
     Step (..),
+    StateName (..),
     stepName,
+    OutcomeName (..),
     Outcomes (..),
     outcomes,
     EventName (..),
@@ -66,66 +68,77 @@ data Step (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
 
 deriving stock instance Show (Step i e o)
 
+-- | A state of a flow's graph, by name: what people read, and an override's target.
+newtype StateName = StateName Text
+    deriving stock (Eq, Ord, Show)
+
 -- | The wire name: the state a run is at, and the first half of its events.
-stepName :: Step i e o -> Text
-stepName = \case
-    Research -> "research"
-    Interview -> "interview"
-    PlanS -> "plan"
-    SimplifyP -> "simplify_plan"
-    Alternative -> "alternative"
-    Confirm -> "confirm"
-    Draft -> "draft"
-    Implement -> "implement"
-    Refactor -> "refactor"
-    Review -> "review"
-    Pick -> "pick"
-    Fix -> "fix"
-    Describe -> "describe"
-    SimplifyPR -> "simplify_pr"
-    AwaitCi -> "await_ci"
-    FixPR -> "fix_pr"
-    Ready -> "ready"
-    Breakdown -> "breakdown"
-    Merge -> "merge"
+stepName :: Step i e o -> StateName
+stepName =
+    StateName . \case
+        Research -> "research"
+        Interview -> "interview"
+        PlanS -> "plan"
+        SimplifyP -> "simplify_plan"
+        Alternative -> "alternative"
+        Confirm -> "confirm"
+        Draft -> "draft"
+        Implement -> "implement"
+        Refactor -> "refactor"
+        Review -> "review"
+        Pick -> "pick"
+        Fix -> "fix"
+        Describe -> "describe"
+        SimplifyPR -> "simplify_pr"
+        AwaitCi -> "await_ci"
+        FixPR -> "fix_pr"
+        Ready -> "ready"
+        Breakdown -> "breakdown"
+        Merge -> "merge"
+
+-- | One outcome of a step, the second half of its events.
+newtype OutcomeName = OutcomeName Text
+    deriving stock (Eq, Ord, Show)
 
 -- | Indexed by the exit, so a step has an exit outcome exactly when its type does.
 data Outcomes (e :: Maybe Ty) where
-    Continues :: Text -> Outcomes 'Nothing
+    Continues :: OutcomeName -> Outcomes 'Nothing
     -- | The exit outcome, then the continuing one.
-    ExitsOr :: (KnownTy x) => Text -> Text -> Outcomes ('Just x)
+    ExitsOr :: (KnownTy x) => OutcomeName -> OutcomeName -> Outcomes ('Just x)
 
 {- | No outcome is @skipped@: that word is the event a skip appends
 ('State.Graph.graph').
 -}
 outcomes :: Step i e o -> Outcomes e
 outcomes = \case
-    Research -> Continues "done"
-    Interview -> ExitsOr "enough" "more"
-    PlanS -> Continues "done"
-    SimplifyP -> Continues "done"
-    Alternative -> Continues "done"
-    Confirm -> ExitsOr "confirmed" "adjusted"
-    Draft -> Continues "done"
-    Implement -> Continues "done"
-    Refactor -> Continues "done"
-    Review -> ExitsOr "clean" "rows"
-    Pick -> ExitsOr "final" "loop"
-    Fix -> Continues "done"
-    Describe -> Continues "done"
-    SimplifyPR -> Continues "done"
-    AwaitCi -> ExitsOr "green" "red"
-    FixPR -> Continues "done"
-    Ready -> Continues "done"
-    Breakdown -> Continues "done"
-    Merge -> Continues "done"
+    Research -> Continues done
+    Interview -> ExitsOr (OutcomeName "enough") (OutcomeName "more")
+    PlanS -> Continues done
+    SimplifyP -> Continues done
+    Alternative -> Continues done
+    Confirm -> ExitsOr (OutcomeName "confirmed") (OutcomeName "adjusted")
+    Draft -> Continues done
+    Implement -> Continues done
+    Refactor -> Continues done
+    Review -> ExitsOr (OutcomeName "clean") (OutcomeName "rows")
+    Pick -> ExitsOr (OutcomeName "final") (OutcomeName "loop")
+    Fix -> Continues done
+    Describe -> Continues done
+    SimplifyPR -> Continues done
+    AwaitCi -> ExitsOr (OutcomeName "green") (OutcomeName "red")
+    FixPR -> Continues done
+    Ready -> Continues done
+    Breakdown -> Continues done
+    Merge -> Continues done
+  where
+    done = OutcomeName "done"
 
 -- | An event of a run, @<step>.<outcome>@ on the wire, such as @review.rows@.
-data EventName = EventName {step :: Text, outcome :: Text}
+data EventName = EventName {step :: StateName, outcome :: OutcomeName}
     deriving stock (Eq, Ord, Show)
 
 eventText :: EventName -> Text
-eventText name = name.step <> "." <> name.outcome
+eventText (EventName (StateName step) (OutcomeName outcome)) = step <> "." <> outcome
 
 -- | The event a step's continuing outcome appends.
 continueEvent :: Step i e o -> EventName
@@ -143,8 +156,8 @@ skipEvent :: Step i 'Nothing i -> EventName
 skipEvent s = EventName (stepName s) skippedOutcome
 
 -- | The outcome of a step a mode skipped, which no step has of its own.
-skippedOutcome :: Text
-skippedOutcome = "skipped"
+skippedOutcome :: OutcomeName
+skippedOutcome = OutcomeName "skipped"
 
 -- | A generating arrow of @Cap@: one outcome of one step, @step.outcome : dom -> cod@.
 data OutcomeEdge = OutcomeEdge {event :: EventName, dom :: Ty, cod :: Ty}

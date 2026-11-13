@@ -43,7 +43,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Cap (EventName, Step (..), continueEvent, exitEvent, skipEvent)
+import State.Cap (EventName, StateName (..), Step (..), continueEvent, exitEvent, skipEvent)
 import State.Mode (Area, Quality, Size)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
@@ -261,7 +261,3 @@ newtype Requirement = Requirement Text
 -- | A CI check, by name.
 newtype Check = Check Text
     deriving stock (Eq, Ord, Show)
-
--- | A state of the flow's graph, by name: the target of an override.
-newtype StateName = StateName Text
-    deriving stock (Eq, Show)

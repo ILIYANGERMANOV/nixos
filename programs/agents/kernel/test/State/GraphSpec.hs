@@ -4,7 +4,7 @@ import Control.Monad (foldM)
 import Data.Map.Strict qualified as Map
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Cap (EventName (..), Outcomes (..), Step (..), outcomes)
+import State.Cap (EventName (..), OutcomeName (..), Outcomes (..), StateName (..), Step (..), outcomes)
 import State.Flow (Flow (..), LoopId (..), OnEmpty (..), OptId (..))
 import State.FlowGen (ctxKit, diffKit, genEndo, genExiting, genFlow, genWalk, genWalkTo)
 import State.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
@@ -56,7 +56,7 @@ spec = describe "State.Graph" $ do
 
     it "refuses two skips of one state: a log could not say which was skipped" $
         graph (Opt ORes (Opt OSimp (Do Research)))
-            `shouldBe` Left (SameEvent (Place [] "research") (EventName "research" "skipped"))
+            `shouldBe` Left (SameEvent (Place [] (StateName "research")) (EventName (StateName "research") (OutcomeName "skipped")))
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
 seqGraphs :: Gen (Flow a e1 b) -> Gen (Flow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)
