@@ -205,11 +205,26 @@
         }
       );
 
-      devShells = lib.forAllSystems (pkgs: {
-        default = import ./shells/default.nix { inherit pkgs inputs; };
-        nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
-        darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };
-      });
+      devShells = lib.forAllSystems (
+        pkgs:
+        let
+          default = import ./shells/default.nix { inherit pkgs inputs; };
+          kernel = import ./programs/agents/kernel { inherit pkgs; };
+        in
+        {
+          inherit default;
+          # What direnv loads (.envrc): `default` plus the kernel's GHC and deps,
+          # so an editor's HLS finds a matching `ghc`. CI keeps the lean `default`.
+          dev = pkgs.mkShell {
+            inputsFrom = [
+              default
+              kernel.env
+            ];
+          };
+          nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
+          darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };
+        }
+      );
 
       nixosConfigurations = {
         lenovo-old = lib.mkNixosSystem "lenovo-old" "x86_64-linux" { };
