@@ -13,10 +13,10 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), Role (Engineer), deliver, handback, qidText)
+import State.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), Role (Engineer), deliver, handback, oneLineText, qidText)
 import State.Cap (EventName)
 import State.Event
-import State.EventGen (genOutcomeNamed, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, outcomeNames, run, runId, started)
+import State.EventGen (genOneLine, genOutcomeNamed, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started)
 import State.Flow (LoopId (..), OptId (..))
 import State.FlowGen (composes, genWalk)
 import State.Flows.Engineer (engineer)
@@ -300,7 +300,7 @@ questions = describe "questions" $ do
         cover 30 "a ruling" (not (null ruled))
         map (\ruling -> (ruling.qid, ruling.proposal)) state.rulings === ruled
         for_ ruled $ \(qid, ruling) ->
-            assert (any (\sentLine -> all (`Text.isInfixOf` sentLine) [qidText qid <> " ", ruling.answer, ruling.why, ruling.cost]) sent)
+            assert (any (\sentLine -> all (`Text.isInfixOf` sentLine) (qidText qid <> " " : map oneLineText [ruling.answer, ruling.why, ruling.cost])) sent)
 
     it "no_event_retags_security" . hedgehog $ do
         (state, events) <- forAll genAskLog
@@ -324,8 +324,8 @@ questions = describe "questions" $ do
             state.pending === []
   where
     q = QId run
-    ask n kind = Asked (Asking (Question (q n) kind "a question") (StateName "implement") Itself)
-    proposal = Proposal "yes" "reversible" "an hour" Nothing
+    ask n kind = Asked (Asking (Question (q n) kind (oneLine "a question")) (StateName "implement") Itself)
+    proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
     parent = ParentRun (runId "p1")
     forwardedTo events = [to | Forwarded _ to <- events]
 
@@ -356,7 +356,7 @@ genAskLog = do
             same = fmap (,fresh)
         (event, next) <-
             Gen.frequency
-                [ (30, (\kind text -> (Asked (Asking (Question (QId run fresh) kind text) (StateName "implement") Itself), fresh + 1)) <$> Gen.enumBounded <*> genText)
+                [ (30, (\kind text -> (Asked (Asking (Question (QId run fresh) kind text) (StateName "implement") Itself), fresh + 1)) <$> Gen.enumBounded <*> genOneLine)
                 , (10, same (RetaggedSecurity <$> known))
                 , (30, same (RuledOn <$> known <*> genProposal))
                 , (30, same (Forwarded <$> known <*> above))
@@ -416,14 +416,14 @@ climb from question = \case
                 Pass -> Forwarded question.qid up
             tries = case reading.choice of
                 RuleOn ruling -> [Rule ruling, Pass]
-                PassOn -> [Pass, Rule fallback {basis = Just (Obvious "the user said so")}]
+                PassOn -> [Pass, Rule fallback {basis = Just (Obvious (oneLine "the user said so"))}]
             taken = asked <> retag
         case (stops, filter (\choice -> isRight (replay g (runLog rung (taken <> [event choice])))) tries) of
             (True, _) -> pure ([asked <> [Stopped halt]], Halt)
             (False, []) -> do
                 annotate "the run may neither rule nor forward"
                 failure
-            (False, Rule ruling : _) -> pure ([taken <> [event (Rule ruling)]], Answer ruling.answer)
+            (False, Rule ruling : _) -> pure ([taken <> [event (Rule ruling)]], Answer (oneLineText ruling.answer))
             (False, Pass : _) -> do
                 (logs, end) <- climb (ChildRun rung.run) raised above
                 let closing = case end of

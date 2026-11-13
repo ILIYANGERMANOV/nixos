@@ -16,7 +16,7 @@ module State.Codec (
     LogError (..),
 ) where
 
-import Data.Aeson (Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
+import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list, null_, pair, pairs, text)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
@@ -31,7 +31,7 @@ import Data.Text qualified as Text
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
-import State.Ask (Above (..), Basis (..), Kind (Security), Proposal (..), QId, Question (..), kindName, parseKind, parseQId, qidText)
+import State.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent)
 import State.Event (
     AgentRole (..),
@@ -180,16 +180,16 @@ eventData = \case
     Asked Asking {question, step = StateName step, from} ->
         qidData question.qid
             <> "kind" .= kindName question.kind
-            <> "question" .= question.text
+            <> "question" .= oneLineText question.text
             <> "step" .= step
             <> pair "from" (askerEncoding from)
     -- #360 writes the kind, though it is only ever Security.
     RetaggedSecurity qid -> qidData qid <> "kind" .= kindName Security
     RuledOn qid proposal ->
         qidData qid
-            <> "answer" .= proposal.answer
-            <> "why" .= proposal.why
-            <> "cost" .= proposal.cost
+            <> "answer" .= oneLineText proposal.answer
+            <> "why" .= oneLineText proposal.why
+            <> "cost" .= oneLineText proposal.cost
             <> pair "basis" (maybe null_ basisEncoding proposal.basis)
     Forwarded qid to -> qidData qid <> pair "to" (aboveEncoding to)
     Answered qid answer by -> qidData qid <> "answer" .= answer <> pair "by" (aboveEncoding by)
@@ -207,7 +207,7 @@ eventOf kind obj = case kind of
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
     "asked" -> Asked <$> askingOf obj
     "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "kind" >>= security)
-    "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> obj .: "answer" <*> obj .: "why" <*> obj .: "cost" <*> (obj .: "basis" >>= traverse basisOf))
+    "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> oneLineAt "answer" obj <*> oneLineAt "why" obj <*> oneLineAt "cost" obj <*> (obj .: "basis" >>= traverse basisOf))
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
     "answered" -> Answered <$> qidOf obj <*> obj .: "answer" <*> (obj .: "by" >>= aboveOf)
     _ -> case Map.lookup kind outcomeParsers of
@@ -239,7 +239,7 @@ askingOf :: Object -> Parser Asking
 askingOf obj = do
     qid <- qidOf obj
     kind <- obj .: "kind" >>= named "kind" parseKind
-    question <- obj .: "question"
+    question <- oneLineAt "question" obj
     step <- StateName <$> obj .: "step"
     from <- obj .: "from" >>= askerOf
     pure Asking {question = Question qid kind question, step, from}
@@ -281,12 +281,12 @@ aboveOf = \case
 basisEncoding :: Basis -> Encoding
 basisEncoding = \case
     AnsweredBy event -> pairs ("event" .= eventIdText event)
-    Obvious why -> pairs ("obvious" .= why)
+    Obvious why -> pairs ("obvious" .= oneLineText why)
 
 basisOf :: Value -> Parser Basis
 basisOf = withObject "basis" $ \obj ->
     obj .:? "obvious" >>= \case
-        Just why -> pure (Obvious why)
+        Just why -> Obvious <$> oneLineOf why
         Nothing -> AnsweredBy <$> (obj .: "event" >>= named "event id" parseEventId)
 
 outcomeData :: Outcome -> Series
@@ -396,6 +396,12 @@ infixr 0 ~>
 
 named :: String -> (Text -> Maybe a) -> Text -> Parser a
 named what parse raw = maybe (fail ("unknown " <> what <> " " <> show raw)) pure (parse raw)
+
+oneLineAt :: Key -> Object -> Parser OneLine
+oneLineAt key obj = obj .: key >>= oneLineOf
+
+oneLineOf :: Text -> Parser OneLine
+oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneLine raw)
 
 runIdOf :: Text -> Parser RunId
 runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h or holds a colon")) pure (parseRunId raw)

@@ -11,6 +11,8 @@ module State.EventGen (
     genProposal,
     genBasis,
     genText,
+    genOneLine,
+    oneLine,
     runId,
     run,
     started,
@@ -33,7 +35,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Ask (Above (..), Basis (..), Choice (..), Proposal (..), QId (..), Question (..), Reading (..))
+import State.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Cap (EventName)
 import State.Event
 
@@ -175,6 +177,9 @@ genDigest = Digest <$> Gen.text (Range.singleton 64) Gen.hexit
 genText :: Gen Text
 genText = Gen.text (Range.linear 0 20) Gen.unicode
 
+genOneLine :: Gen OneLine
+genOneLine = Gen.mapMaybe parseOneLine genText
+
 genSet :: (Ord a) => Gen a -> Gen (Set a)
 genSet = fmap Set.fromList . Gen.list (Range.linear 0 4)
 
@@ -193,20 +198,24 @@ genQId :: Gen QId
 genQId = QId <$> genRunId <*> Gen.integral (Range.linear 0 1000)
 
 genQuestion :: Gen Question
-genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genText
+genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genOneLine
 
 -- | Any reading: a kind and a choice.
 genReading :: Gen Reading
 genReading = Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
 
 genProposal :: Gen Proposal
-genProposal = Proposal <$> genText <*> genText <*> genText <*> Gen.maybe genBasis
+genProposal = Proposal <$> genOneLine <*> genOneLine <*> genOneLine <*> Gen.maybe genBasis
 
 genBasis :: Gen Basis
-genBasis = Gen.choice [AnsweredBy <$> genEventId, Obvious <$> genText]
+genBasis = Gen.choice [AnsweredBy <$> genEventId, Obvious <$> genOneLine]
 
 genEventId :: Gen EventId
 genEventId = Gen.choice [Numbered <$> genRunId <*> Gen.integral (Range.linear 0 1000), Hashed <$> genDigest]
+
+-- | A line the test spells, which must hold no line break.
+oneLine :: Text -> OneLine
+oneLine raw = fromMaybe (error ("not one line: " <> show raw)) (parseOneLine raw)
 
 -- | A run id the test spells, which must be one the kernel accepts.
 runId :: Text -> RunId

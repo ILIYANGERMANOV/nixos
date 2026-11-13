@@ -1,11 +1,12 @@
 module State.AskSpec (spec) where
 
 import Data.Maybe (isJust)
+import Data.Text qualified as Text
 import Hedgehog (Gen, PropertyT, assert, cover, forAll, tripping, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Ask
-import State.EventGen (genQId, genQuestion, genReading, runId)
+import State.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -21,7 +22,18 @@ spec = describe "State.Ask" $ do
         (forwardAll `andThen` rung handler) question === rung handler question
         (rung handler `andThen` forwardAll) question === rung handler question
 
+    -- #360's law Chain: the parent judges what the child forwards, as raised.
     it "handlers_compose" . hedgehog $ do
+        (child, parent) <- forAll ((,) <$> genRung <*> genRung)
+        question <- forAll genQuestion
+        let byHand = case rung child question of
+                Left refusal -> Left refusal
+                Right (Ruled ruling) -> Right (Ruled ruling)
+                Right (Forward forwarded) -> rung parent forwarded
+        cover 2 "the child raises what it forwards" (raisedBy (rung child question) question)
+        (rung child `andThen` rung parent) question === byHand
+
+    it "andThen_is_associative" . hedgehog $ do
         (first, next, last') <- forAll ((,,) <$> genRung <*> genRung <*> genRung)
         question <- forAll genQuestion
         ((rung first `andThen` rung next) `andThen` rung last') question
@@ -54,7 +66,7 @@ spec = describe "State.Ask" $ do
 
         it "accepts a Security ruling that names its basis" $
             fmap ruledBasis (triage TenX (Reading Security (RuleOn based)) (asking Security))
-                `shouldBe` Right (Just (Obvious "the user named the key"))
+                `shouldBe` Right (Just (Obvious (oneLine "the user named the key")))
 
         it "never re-tags away from Security" $
             triage TenX (Reading Pick PassOn) (asking Security)
@@ -96,12 +108,25 @@ spec = describe "State.Ask" $ do
             map (ask ByUser Engineer) [Fact, Confirm] `shouldBe` [AnswerSelf, AnswerSelf]
 
     it "spells the hand-back line as #360's wire format" $
-        needsDecision (Question qid Design "change the data model?")
+        needsDecision (Question qid Design (oneLine "change the data model?"))
             `shouldBe` "NEEDS_DECISION Design r7f2:3: change the data model?"
 
     it "writes a hand-back's first line, its run, then a line per ruling" $
         fmap (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling]) (rule TenX Security (asking Security) based)
             `shouldBe` Right "READY https://example.test/pr/1\nRun: r7f2\nRuling r7f2:3 Security: yes - reversible - an hour - basis: obvious: the user named the key\n"
+
+    it "keeps every hand-back line one line" . hedgehog $ do
+        question <- forAll genQuestion
+        ruling <- forAll (Gen.mapMaybe (either (const Nothing) Just) (rule TenX Pick <$> genQuestion <*> genProposal))
+        length (Text.lines (needsDecision question)) === 1
+        length (Text.lines (handback "READY ref" (runId "r7f2") [ruling])) === 3
+
+    it "refuses a line break in a line of text" $
+        map (parseOneLine . ("a" <>) . Text.singleton) ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'] `shouldBe` replicate 7 Nothing
+
+    it "parses a line back" . hedgehog $ do
+        text <- forAll genOneLine
+        tripping text oneLineText parseOneLine
 
     it "parses a question id back" . hedgehog $ do
         questionId <- forAll genQId
@@ -115,9 +140,9 @@ spec = describe "State.Ask" $ do
         tripping kind kindName parseKind
   where
     qid = QId (runId "r7f2") 3
-    asking kind = Question qid kind "a question"
-    proposal = Proposal "yes" "reversible" "an hour" Nothing
-    based = proposal {basis = Just (Obvious "the user named the key")}
+    asking kind = Question qid kind (oneLine "a question")
+    proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
+    based = proposal {basis = Just (Obvious (oneLine "the user named the key"))}
 
 -- | #360's table, a row per kind: Worker, Engineer, 10x, User.
 table :: [(Kind, [Rule])]
@@ -150,6 +175,12 @@ holdsBasis = \case
     Right (Ruled ruling) -> assert (isJust ruling.proposal.basis)
     Right (Forward _) -> pure ()
     Left _ -> pure ()
+
+raisedBy :: Either Refusal Verdict -> Question -> Bool
+raisedBy verdict question = case verdict of
+    Right (Forward forwarded) -> forwarded /= question
+    Right (Ruled _) -> False
+    Left _ -> False
 
 isRuled :: Either Refusal Verdict -> Bool
 isRuled = \case

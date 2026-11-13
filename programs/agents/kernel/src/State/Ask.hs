@@ -26,6 +26,9 @@ module State.Ask (
     QId (..),
     qidText,
     parseQId,
+    OneLine,
+    oneLineText,
+    parseOneLine,
     Question (..),
     Reading (..),
     Choice (..),
@@ -161,7 +164,25 @@ qidText (QId run n) = numberedText run n
 parseQId :: Text -> Maybe QId
 parseQId = fmap (uncurry QId) . parseNumbered
 
-data Question = Question {qid :: QId, kind :: Kind, text :: Text}
+{- | Text with no line break, so a hand-back line that quotes it stays one
+line (#360's wire format). Only 'parseOneLine' builds one.
+-}
+newtype OneLine = OneLine Text
+    deriving stock (Eq, Show)
+
+oneLineText :: OneLine -> Text
+oneLineText (OneLine raw) = raw
+
+parseOneLine :: Text -> Maybe OneLine
+parseOneLine raw
+    | Text.any breaksLine raw = Nothing
+    | otherwise = Just (OneLine raw)
+
+-- | Unicode's mandatory line breaks (UAX #14 classes BK, CR, LF and NL).
+breaksLine :: Char -> Bool
+breaksLine = (`elem` ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'])
+
+data Question = Question {qid :: QId, kind :: Kind, text :: OneLine}
     deriving stock (Eq, Show)
 
 -- | What a role made of a question: the kind it reads it as, and its choice.
@@ -172,7 +193,7 @@ data Choice = RuleOn Proposal | PassOn
     deriving stock (Eq, Show)
 
 -- | A role's answer, before 'triage' checks the role may give it.
-data Proposal = Proposal {answer :: Text, why :: Text, cost :: Text, basis :: Maybe Basis}
+data Proposal = Proposal {answer :: OneLine, why :: OneLine, cost :: OneLine, basis :: Maybe Basis}
     deriving stock (Eq, Show)
 
 -- | Why a ruling on a 'Security' question may stand without the user.
@@ -180,7 +201,7 @@ data Basis
     = -- | The user's earlier answer.
       AnsweredBy EventId
     | -- | Why the answer is obvious.
-      Obvious Text
+      Obvious OneLine
     deriving stock (Eq, Show)
 
 {- | A proposal 'triage' accepted, on the kind it ruled as. Only 'triage'
@@ -307,7 +328,7 @@ deliver = \case
 -- | The hand-back's first line for a forwarded question (#360's wire format).
 needsDecision :: Question -> Text
 needsDecision question =
-    "NEEDS_DECISION " <> kindName question.kind <> " " <> qidText question.qid <> ": " <> question.text
+    "NEEDS_DECISION " <> kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
 {- | A flow role's hand-back: its first line (#360's wire format), its run,
 then a line per ruling it made, so the reader sees each one (law Audit).
@@ -323,7 +344,7 @@ rulingLine ruling =
         <> " "
         <> kindName ruling.kind
         <> ": "
-        <> Text.intercalate " - " [proposal.answer, proposal.why, proposal.cost]
+        <> Text.intercalate " - " (map oneLineText [proposal.answer, proposal.why, proposal.cost])
         <> foldMap ((" - basis: " <>) . basisText) proposal.basis
   where
     proposal = ruling.proposal
@@ -331,4 +352,4 @@ rulingLine ruling =
 basisText :: Basis -> Text
 basisText = \case
     AnsweredBy event -> eventIdText event
-    Obvious why -> "obvious: " <> why
+    Obvious why -> "obvious: " <> oneLineText why

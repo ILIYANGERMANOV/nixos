@@ -12,7 +12,7 @@ import Hedgehog.Range qualified as Range
 import State.Ask (Basis (..), Proposal (..), QId (..))
 import State.Codec (LineError (..), LogError (..), decodeLine, decodeLog, encodeLine)
 import State.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Picks (..), Principal (..), Requirement (..), Sha (..), Source (..), Start (..), parseRunId)
-import State.EventGen (genEnvelope, runId)
+import State.EventGen (genEnvelope, oneLine, runId)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -65,8 +65,12 @@ spec = describe "State.Codec" $ do
         decodeLine (encodeLine picked `replacing` ("\"rows\":[\"A\"]", "\"rows\":[\"A\",\"A\"]")) `shouldSatisfy` malformed
 
     it "writes a ruling's answer, why, cost and basis under the question's id" $
-        encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal "v2" "the docs say so" "an hour" (Just (AnsweredBy (Numbered (runId "r7f2") 4))))}
+        encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "the docs say so") (oneLine "an hour") (Just (AnsweredBy (Numbered (runId "r7f2") 4))))}
             `shouldBe` "{\"v\":3,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"ruled\",\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
+
+    it "refuses a ruling whose answer breaks the line" $
+        decodeLine (encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "why") (oneLine "cost") Nothing)} `replacing` ("\"answer\":\"v2\"", "\"answer\":\"v2\\nREADY\""))
+            `shouldSatisfy` malformed
 
     it "refuses a retag to any kind but Security" $
         decodeLine (encodeLine reviewRows {event = RetaggedSecurity (QId (runId "c1") 3)} `replacing` ("\"kind\":\"Security\"", "\"kind\":\"Design\""))
