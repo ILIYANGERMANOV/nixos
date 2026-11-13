@@ -31,8 +31,8 @@ import State.Ask (Above (..), Basis (..), Kind, OneLine, Proposal (..), QId, kin
 import State.Ask qualified as Ask
 import State.Cap (Step (..), continueEvent, eventText, exitEvent, skipEvent)
 import State.Codec (areaText, judgementText, reasonText)
-import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, runIdText)
 import State.Codec qualified as Codec
+import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, runIdText)
 import State.Flow (LoopId (..))
 import State.Fold (Refusal (..))
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
@@ -384,7 +384,7 @@ recordables =
         [] -> (\areas -> AtHead (\sha -> Took (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
         _ -> Left "no arguments: the head is HEAD"
     picks event done = outcome event ("[--row <label>]... [--verdict <requirement>=<" <> choices judgementText <> ">]...") ["row", "verdict"] $ \a -> case a.positional of
-        [] -> (\verdicts -> Plain (Took (done (Picks (Set.fromList (map Label (options "row" a))) verdicts)))) <$> (Map.fromList <$> traverse verdict (options "verdict" a))
+        [] -> Plain . Took . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
         _ -> Left "rows and verdicts are options"
     url event done = outcome event "<url>" [] $ \a -> case a.positional of
         [raw] -> Right (Plain (Took (done (Url raw))))
@@ -414,7 +414,7 @@ explain g at = \case
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
     NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText) (records (const True))
-    NotSkippable _ -> refused "the skip" "this mode never skips the step" (records (\edge -> not (skips edge)))
+    NotSkippable _ -> refused "the skip" "this mode never skips the step" (records (not . skips))
     OutOfFuel loop fuel ->
         refused
             ("another " <> loopName loop <> " round")

@@ -87,6 +87,7 @@ test-suite state-test
     State.AdviceSpec
     State.ArchitectureSpec
     State.AskSpec
+    State.CliSpec
     State.CodecSpec
     State.EventGen
     State.EventSpec

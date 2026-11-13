@@ -5,6 +5,7 @@ module State.View (
     brief,
 ) where
 
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Advice (Facts (..), factLines)
@@ -68,7 +69,7 @@ brief steps state (AgentRole role) task = case role of
             <> " --parent-log "
             <> Text.pack (logOf state.start.notes)
             <> " --task "
-            <> maybe "<id>" id task
+            <> fromMaybe "<id>" task
             <> "\n"
     _ -> Text.concat [entry name r | (name, r) <- rows, r.runner == Agent (AgentRole role)] <> rule
   where

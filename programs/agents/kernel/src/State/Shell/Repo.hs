@@ -80,7 +80,7 @@ parsePr :: Text -> Either Text PullRequest
 parsePr out = either (Left . ("gh pr view printed no PR: " <>) . Text.pack) Right $ do
     value <- eitherDecodeStrictText out
     flip parseEither value $ withObject "PR" $ \o -> do
-        draft <- DraftPr <$> (Url <$> o .: "url") <*> (Branch <$> o .: "baseRefName") <*> (Branch <$> o .: "headRefName")
+        draft <- DraftPr . Url <$> o .: "url" <*> (Branch <$> o .: "baseRefName") <*> (Branch <$> o .: "headRefName")
         isDraft <- o .: "isDraft"
         pure (PullRequest draft (if isDraft then IsDraft else IsReady))
 

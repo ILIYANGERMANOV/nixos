@@ -6,6 +6,7 @@ module State.Shell (main) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException, try)
+import Control.Monad ((>=>))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty (..))
@@ -24,15 +25,15 @@ import State.Ask (Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
 import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, noteOf, parseCommand)
 import State.Codec (LineError (..), LogError (..), decodeLine, eventType)
-import State.Event qualified as Event
 import State.Event (AgentRole (..), Asker (..), Asking (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), StateName (..), parseRunId, runIdText)
+import State.Event qualified as Event
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
 import State.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
 import State.Fold qualified as Fold
 import State.Graph (Node (..), OpenGraph, graph)
-import State.Handback qualified as Handback
 import State.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
+import State.Handback qualified as Handback
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
 import State.Shell.Log (locked, logOf, readPointer, writePointer)
@@ -88,7 +89,7 @@ execute steps = \case
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
-        onRun (\stamp run -> nextAdvice steps facts told stamp run)
+        onRun (nextAdvice steps facts told)
     HandbackOf role child -> do
         message <- Text.getContents
         onRun (\stamp run -> record stamp run (handbackPlan steps stamp.head run.state role child message))
@@ -205,24 +206,25 @@ stamped stamp run n event = Envelope {source = Cli, seq = n, ts = stamp.ts, run,
 
 -- | The worktree's run, locked for one command.
 onRun :: (Stamp -> Loaded -> ([Envelope], Either Failure Text)) -> IO (Either Failure Text)
-onRun act = inWorktree $ \gd ->
-    readPointer gd >>= \case
-        Nothing -> pure (Left noRun)
-        Just notes -> do
-            let path = logOf notes
-            exists <- doesFileExist path
-            if not exists
-                then pure (Left noRun)
-                else do
-                    stamp <- now
-                    locked path $ \case
-                        Left bad -> pure ([], Left (unreadLine path bad))
-                        Right [] -> pure ([], Left noRun)
-                        Right (first : rest) ->
-                            let g = graphOf (flowOf first)
-                             in pure $ case replay g (first :| rest) of
-                                    Left refusal -> ([], Left (unreplayed path (explain g Out refusal)))
-                                    Right state -> act stamp (Loaded g state (fromIntegral (length (first : rest))))
+onRun act =
+    inWorktree $
+        readPointer >=> \case
+            Nothing -> pure (Left noRun)
+            Just notes -> do
+                let path = logOf notes
+                exists <- doesFileExist path
+                if not exists
+                    then pure (Left noRun)
+                    else do
+                        stamp <- now
+                        locked path $ \case
+                            Left bad -> pure ([], Left (unreadLine path bad))
+                            Right [] -> pure ([], Left noRun)
+                            Right (first : rest) ->
+                                let g = graphOf (flowOf first)
+                                 in pure $ case replay g (first :| rest) of
+                                        Left refusal -> ([], Left (unreplayed path (explain g Out refusal)))
+                                        Right state -> act stamp (Loaded g state (fromIntegral (length (first : rest))))
   where
     noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
     flowOf first = case first.event of
@@ -307,9 +309,10 @@ rendered steps block flow = case block of
 
 -- | Each flow's graph glues, as its test holds: a clash here is a bug.
 graphOf :: FlowName -> OpenGraph
-graphOf = either (error . ("the flow does not glue: " <>) . show) id . \case
-    EngineerFlow -> graph engineer
-    TenXFlow -> graph tenX
+graphOf =
+    either (error . ("the flow does not glue: " <>) . show) id . \case
+        EngineerFlow -> graph engineer
+        TenXFlow -> graph tenX
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show
