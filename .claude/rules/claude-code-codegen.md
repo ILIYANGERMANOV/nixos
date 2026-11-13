@@ -30,8 +30,8 @@ The backend contract: `.claude/rules/agents-backend.md`. Installing:
 - `statusline/` - the program the settings' status line points at.
 - `check.nix` - `checks.claude-code`: the MCP wire shape, `withSecretFileGuard`,
   `applies.nix` and where the activation installs. `config-check.nix` -
-  `checks.claude-config`: the real configuration against its rules and ceilings, every flavor's hooks the
-  adapter alone and its manifest the guards.
+  `checks.claude-config`: the real configuration against its rules and
+  ceilings, every flavor's hooks the adapter alone and its manifest the guards.
 
 ### Budget and hidden skills
 
