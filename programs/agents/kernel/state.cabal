@@ -97,6 +97,17 @@ test-suite state-test
   main-is:            Main.hs
   build-tool-depends: hspec-discover:hspec-discover
   other-modules:
+    Doubles.Clock
+    Doubles.Console
+    Doubles.Environment
+    Doubles.FileSystem
+    Doubles.Gh
+    Doubles.Git
+    Doubles.Log
+    Doubles.Random
+    Effects.FileSystemSpec
+    Effects.LogSpec
+    Effects.RandomSpec
     State.AdviceSpec
     State.ArchitectureSpec
     State.AskSpec
@@ -120,6 +131,9 @@ test-suite state-test
     State.Render.MermaidSpec
     State.RenderSpec
     State.RunGen
+    State.Shell.HookSpec
+    State.Shell.MainSpec
+    State.Shell.World
     State.StepsSpec
 
   build-depends:
@@ -127,6 +141,7 @@ test-suite state-test
     , bytestring
     , containers
     , directory
+    , effectful
     , filepath
     , hedgehog
     , hspec

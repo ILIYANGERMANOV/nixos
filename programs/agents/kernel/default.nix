@@ -82,6 +82,7 @@ let
         bytestring
         containers
         directory
+        effectful
         hedgehog
         hspec
         hspec-golden
