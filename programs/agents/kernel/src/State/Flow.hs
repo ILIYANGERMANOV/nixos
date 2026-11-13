@@ -10,13 +10,15 @@ module State.Flow (
     OptId (..),
     FanId (..),
     fanName,
+    FanEvent (..),
+    fanEvent,
     loopName,
 ) where
 
 import Data.Kind (Type)
 import Data.Text (Text)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import State.Cap (KnownTy, StateName (..), Step, Ty (..))
+import State.Cap (EventName (..), KnownTy, OutcomeName (..), StateName (..), Step, Ty (..))
 
 {- | The exit of @f ':>' g@: either side's, and the same type when both have
 one. The last equation turns a mismatch into a message naming both types,
@@ -78,6 +80,20 @@ fanName =
     StateName . \case
         FResearchers -> "researchers"
         FEngineers -> "engineers"
+
+{- | The events at a fan-out's state: a child is spawned or hands back while
+the run stays there; the fan-out is done when it leaves.
+-}
+data FanEvent = Spawns | HandsBack | Leaves
+    deriving stock (Eq, Show, Enum, Bounded)
+
+-- | @engineers.spawned@: the graph's name for a fan-out's event.
+fanEvent :: FanEvent -> StateName -> EventName
+fanEvent event fan =
+    EventName fan . OutcomeName $ case event of
+        Spawns -> "spawned"
+        HandsBack -> "handed_back"
+        Leaves -> "done"
 
 loopName :: LoopId -> Text
 loopName = \case

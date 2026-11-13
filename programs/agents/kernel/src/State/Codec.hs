@@ -28,9 +28,13 @@ module State.Codec (
     opText,
     shaText,
     urlText,
+    taskIdText,
+    taskStateName,
+    topicText,
+    decodeBreakdown,
 ) where
 
-import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
+import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, parseJSON, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list, null_, pair, pairs, text)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
@@ -50,12 +54,15 @@ import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent)
+import State.Flow (FanEvent (Leaves), fanEvent, fanName)
 import State.Event (
     AgentRole (..),
     Asker (..),
     Asking (..),
     Branch (..),
+    BreakdownError (..),
     Check (..),
+    Child (..),
     Commit (..),
     DraftPr (..),
     Envelope (..),
@@ -71,6 +78,7 @@ import State.Event (
     Principal (..),
     Requirement (..),
     RunId,
+    Said (..),
     SessionId (..),
     Sha (..),
     Source (..),
@@ -78,7 +86,14 @@ import State.Event (
     StateName (..),
     Stop (..),
     StopReason (..),
+    Task (..),
+    TaskId (..),
+    TaskState (..),
+    Topic (..),
     Url (..),
+    Tasks,
+    breakdown,
+    taskList,
     eventId,
     outcomeEvent,
     parseRunId,
@@ -202,6 +217,10 @@ eventType = \case
     RuledOn _ _ -> "ruled"
     Forwarded _ _ -> "forwarded"
     Answered {} -> "answered"
+    Spawned _ -> "spawned"
+    HandedBack _ _ -> "handed_back"
+    TaskMoved _ _ -> "task"
+    Held _ _ -> "held"
 
 eventData :: Event -> Series
 eventData = \case
@@ -234,6 +253,14 @@ eventData = \case
             <> pair "basis" (maybe null_ basisEncoding proposal.basis)
     Forwarded qid to -> qidData qid <> pair "to" (aboveEncoding to)
     Answered qid answer by -> qidData qid <> "answer" .= answer <> pair "by" (aboveEncoding by)
+    Spawned child ->
+        "child" .= runIdText child.run
+            <> "task" .= taskIdText child.task
+            <> "log" .= child.log
+            <> "worktree" .= child.worktree
+    HandedBack child said -> "child" .= runIdText child <> saidData said
+    TaskMoved task moved -> "task" .= taskIdText task <> taskStateData moved
+    Held task url -> "task" .= taskIdText task <> "url" .= urlText url
   where
     qidData qid = "qid" .= qidText qid
 
@@ -251,9 +278,108 @@ eventOf kind obj = case kind of
     "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> oneLineAt "answer" obj <*> oneLineAt "why" obj <*> oneLineAt "cost" obj <*> (obj .: "basis" >>= traverse basisOf))
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
     "answered" -> Answered <$> qidOf obj <*> obj .: "answer" <*> (obj .: "by" >>= aboveOf)
+    "spawned" -> Spawned <$> (Child <$> childOf obj <*> taskOf obj <*> obj .: "log" <*> obj .: "worktree")
+    "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
+    "task" -> TaskMoved <$> taskOf obj <*> taskStateOf obj
+    "held" -> Held <$> taskOf obj <*> (Url <$> obj .: "url")
     _ -> case Map.lookup kind outcomeParsers of
         Just parser -> Took <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
+
+childOf :: Object -> Parser RunId
+childOf obj = obj .: "child" >>= runIdOf
+
+taskOf :: Object -> Parser TaskId
+taskOf obj = TaskId <$> obj .: "task"
+
+{- | #360's @token@, @ref@ and @qid@: a child's stop is its reason as the
+hand-back token, @BLOCKED@, and its why as the ref.
+-}
+saidData :: Said -> Series
+saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid
+  where
+    (token, ref, qid) = case said of
+        Finished summary -> ("READY", Just (oneLineText summary), Nothing)
+        AsksUp asked -> ("NEEDS_DECISION", Nothing, Just asked)
+        AwaitsCi on -> ("AWAIT", Just (oneLineText on), Nothing)
+        Ended stop -> (Text.toUpper (reasonText stop.reason), Just stop.why, Nothing)
+
+saidOf :: Object -> Parser Said
+saidOf obj =
+    obj .: "token" >>= \case
+        "READY" -> Finished <$> oneLineAt "ref" obj
+        "NEEDS_DECISION" -> AsksUp <$> qidOf obj
+        "AWAIT" -> AwaitsCi <$> oneLineAt "ref" obj
+        token -> Ended <$> (Stop <$> named "hand-back token" (parseByName (Text.toUpper . reasonText)) token <*> obj .: "ref")
+
+taskStateData :: TaskState -> Series
+taskStateData moved = "state" .= taskStateName moved <> "why" .= why <> "pr" .= fmap urlText pr
+  where
+    (why, pr) = case moved of
+        InCi url -> (Nothing, Just url)
+        InReview url -> (Nothing, Just url)
+        Merged url -> (Nothing, Just url)
+        Parked reason parkedPr -> (Just reason, parkedPr)
+
+taskStateOf :: Object -> Parser TaskState
+taskStateOf obj = do
+    pr <- fmap Url <$> obj .: "pr"
+    let withPr state = maybe (fail ("a task in " <> state <> " names its pr")) pure pr
+    obj .: "state" >>= \case
+        "ci" -> InCi <$> withPr "ci"
+        "review" -> InReview <$> withPr "review"
+        "merged" -> Merged <$> withPr "merged"
+        "parked" -> Parked <$> obj .: "why" <*> pure pr
+        other -> fail ("unknown task state " <> show (other :: Text))
+
+-- | As @state record task@ names it.
+taskStateName :: TaskState -> Text
+taskStateName = \case
+    InCi _ -> "ci"
+    InReview _ -> "review"
+    Merged _ -> "merged"
+    Parked _ _ -> "parked"
+
+-- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
+decodeBreakdown :: Text -> Either Text Tasks
+decodeBreakdown raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither breakdownOf)
+
+breakdownOf :: Value -> Parser Tasks
+breakdownOf value = do
+    tasks <- parseJSON value >>= traverse (withObject "task" taskFieldsOf)
+    case NonEmpty.nonEmpty tasks of
+        Nothing -> fail "a breakdown has a task at least"
+        Just some -> either (fail . Text.unpack . breakdownErrorText) pure (breakdown some)
+  where
+    breakdownErrorText = \case
+        TaskTwice (TaskId task) -> "task " <> task <> " is named twice"
+        DependsLater (TaskId task) (TaskId dep) -> "task " <> task <> " depends on " <> dep <> ", which is not an earlier task"
+
+taskEncoding :: Task -> Encoding
+taskEncoding task =
+    pairs $
+        "id" .= taskIdText task.id
+            <> "deps" .= map taskIdText task.deps
+            <> "base" .= branchText task.base
+            <> "branch" .= branchText task.branch
+            <> "quality" .= qualityName task.quality
+            <> "size" .= sizeName task.size
+            <> "qa" .= task.qa
+            <> "heavy" .= task.heavy
+            <> "security" .= map topicText (Set.toList task.security)
+
+taskFieldsOf :: Object -> Parser Task
+taskFieldsOf obj =
+    Task
+        <$> (TaskId <$> obj .: "id")
+        <*> (map TaskId <$> obj .: "deps")
+        <*> (Branch <$> obj .: "base")
+        <*> (Branch <$> obj .: "branch")
+        <*> (obj .: "quality" >>= named "quality" parseQuality)
+        <*> (obj .: "size" >>= named "size" (parseByName sizeName))
+        <*> obj .: "qa"
+        <*> obj .: "heavy"
+        <*> (obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic")
 
 startOf :: Object -> Parser Start
 startOf obj =
@@ -360,6 +486,9 @@ outcomeData = \case
     FixPrDone sha -> headData sha
     ReadyDone url -> "url" .= urlText url
     ReadySkipped url -> "url" .= urlText url
+    BreakdownDone tasks -> pair "tasks" (list taskEncoding (taskList tasks))
+    FanDone _ -> mempty
+    MergeDone url -> "url" .= urlText url
   where
     headData sha = "head" .= shaText sha
     commitData commit = headData commit.head <> "touches" .= map areaText (Set.toList commit.touches)
@@ -403,7 +532,10 @@ outcomeParsers =
         , continueEvent FixPR ~> fmap FixPrDone . headOf
         , continueEvent Ready ~> fmap ReadyDone . urlOf
         , skipEvent Ready ~> fmap ReadySkipped . urlOf
+        , continueEvent Breakdown ~> \obj -> BreakdownDone <$> (obj .: "tasks" >>= breakdownOf)
+        , continueEvent Merge ~> fmap MergeDone . urlOf
         ]
+            <> [fanEvent Leaves (fanName fan) ~> none (FanDone fan) | fan <- [minBound .. maxBound]]
   where
     none outcome _ = pure outcome
     headOf obj = Sha <$> obj .: "head"
@@ -452,6 +584,16 @@ shaText (Sha sha) = sha
 
 urlText :: Url -> Text
 urlText (Url url) = url
+
+taskIdText :: TaskId -> Text
+taskIdText (TaskId task) = task
+
+topicText :: Topic -> Text
+topicText = \case
+    CiTopic -> "ci"
+    AuthTopic -> "auth"
+    DatabaseTopic -> "database"
+    SecretsTopic -> "secrets"
 
 branchText :: Branch -> Text
 branchText (Branch branch) = branch

@@ -46,7 +46,9 @@ import State.Ask (Above, Kind (Security), Principal, Proposal, QId (..), Questio
 import State.Ask qualified as Ask
 import State.Cap (EventName)
 import State.Event (Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, eventId, outcomeEvent)
-import State.Flow (LoopId, OptId)
+import State.Fan (Fan, emptyFan)
+import State.Fan qualified as Fan
+import State.Flow (FanEvent (..), LoopId, OptId, fanEvent)
 import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
 import State.Path (step)
@@ -74,6 +76,8 @@ data RunState = RunState
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     , drafted :: Maybe DraftPr
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
+    , fanOut :: Fan
+    -- ^ The 10x's tasks and child runs: empty in a run with no fan-out.
     }
     deriving stock (Eq, Show)
 
@@ -124,6 +128,7 @@ data Refusal
       NotAllowed Ask.Refusal
     | -- | A forward or answer naming another than whoever started the run.
       NotAbove Above
+    | FanRefused Fan.Refusal
     deriving stock (Eq, Show)
 
 -- | An id already in the log is not appended twice: the append is a no-op.
@@ -172,6 +177,7 @@ begin g envelope = case runStart envelope.event of
                 , askedHere = []
                 , rulings = []
                 , drafted = Nothing
+                , fanOut = emptyFan
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -190,6 +196,10 @@ runStart = \case
     RuledOn _ _ -> Nothing
     Forwarded _ _ -> Nothing
     Answered {} -> Nothing
+    Spawned _ -> Nothing
+    HandedBack _ _ -> Nothing
+    TaskMoved _ _ -> Nothing
+    Held _ _ -> Nothing
 
 -- | A refusal is logged whatever the run's state; anything else needs a run going.
 applyEvent :: OpenGraph -> RunState -> Event -> Either Refusal RunState
@@ -211,7 +221,12 @@ applyEvent g state = \case
     RuledOn qid proposal -> going (ruledOn state qid proposal)
     Forwarded qid to -> going (forwarded state qid to)
     Answered qid _ by -> going (answered state qid by)
+    Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned child))
+    HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
+    TaskMoved task moved -> going (inFan (Fan.moved task moved))
+    Held task url -> going (inFan (Fan.held task url))
   where
+    inFan change = (\fanOut -> state {fanOut}) <$> Bifunctor.first FanRefused (change state.fanOut)
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
         Nothing -> (\moved -> moved {refused = Nothing}) <$> next
@@ -229,11 +244,55 @@ took g state outcome = do
         Skip _ -> Right ()
         Along _ -> Right ()
         Stay -> Right ()
+    fanOut <- Bifunctor.first FanRefused (fanOutcome outcome state.fanOut)
     let noted = fmap (noteProblems (problems outcome)) state.rounds
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
         traverse_ (nextRound loopId ((cfg (mode state)).fuel loopId)) (Map.lookup loopId rounds)
-    Right state {at = edge.to, rounds, askedHere = [], drafted = listToMaybe [pr | DraftDone pr <- [outcome]] <|> state.drafted}
+    Right state {at = edge.to, rounds, fanOut, askedHere = [], drafted = listToMaybe [pr | DraftDone pr <- [outcome]] <|> state.drafted}
+
+-- | A breakdown sets the fan-out's tasks; the fan-out is left once they are settled.
+fanOutcome :: Outcome -> Fan -> Either Fan.Refusal Fan
+fanOutcome outcome fan = case outcome of
+    BreakdownDone tasks -> Right (Fan.broken tasks fan)
+    FanDone _ -> fan <$ Fan.leave fan
+    ResearchDone _ -> Right fan
+    ResearchSkipped -> Right fan
+    InterviewEnough -> Right fan
+    InterviewMore -> Right fan
+    PlanDone _ -> Right fan
+    SimplifyPlanDone -> Right fan
+    SimplifyPlanSkipped -> Right fan
+    AlternativeDone -> Right fan
+    AlternativeSkipped -> Right fan
+    ConfirmConfirmed -> Right fan
+    ConfirmAdjusted -> Right fan
+    DraftDone _ -> Right fan
+    ImplementDone _ -> Right fan
+    RefactorDone _ -> Right fan
+    RefactorSkipped _ -> Right fan
+    ReviewClean _ -> Right fan
+    ReviewRows _ -> Right fan
+    PickFinal _ -> Right fan
+    PickLoop _ -> Right fan
+    FixDone _ -> Right fan
+    DescribeDone _ -> Right fan
+    SimplifyPrDone _ -> Right fan
+    SimplifyPrSkipped _ -> Right fan
+    AwaitCiGreen _ -> Right fan
+    AwaitCiRed _ _ -> Right fan
+    FixPrDone _ -> Right fan
+    ReadyDone _ -> Right fan
+    ReadySkipped _ -> Right fan
+    MergeDone _ -> Right fan
+
+-- | A child's spawn or hand-back stays where the graph has that fan-out event: at the fan-out.
+atFan :: OpenGraph -> RunState -> FanEvent -> Either Refusal ()
+atFan g state event = case state.at of
+    At place | Just Edge {arrow = Stay} <- step g place name -> Right ()
+    _ -> Left (NoEdge state.at name)
+  where
+    name = fanEvent event (askedAt state)
 
 {- | The loop whose next round every way out of this node starts, as @fix@ in
 the review loop. A move there with no round left is refused before the work
@@ -413,6 +472,9 @@ problems = \case
     FixPrDone _ -> Set.empty
     ReadyDone _ -> Set.empty
     ReadySkipped _ -> Set.empty
+    BreakdownDone _ -> Set.empty
+    FanDone _ -> Set.empty
+    MergeDone _ -> Set.empty
   where
     picked picks =
         Set.map Row picks.rows

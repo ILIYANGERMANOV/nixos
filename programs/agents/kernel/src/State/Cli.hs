@@ -22,6 +22,7 @@ module State.Cli (
 ) where
 
 import Data.Bifunctor (first)
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -35,6 +36,7 @@ import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, ski
 import State.Codec (areaText, judgementText, logName, reasonText)
 import State.Codec qualified as Codec
 import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, roleText, runIdText)
+import State.Fan qualified as Fan
 import State.Flow (loopName)
 import State.Fold (Refusal (..), roundOnly)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
@@ -447,6 +449,13 @@ explain g mode at = \case
         Ask.NeverAskedOf _ kind -> refused (kindName kind) "such a question never reaches this run" "state pending"
         Ask.NoBasis qid -> refused ("a ruling on " <> qidText qid) "a Security ruling names its basis" (rule (qidText qid) <> " --basis <event-id>|obvious:<why>")
     NotAbove _ -> refused "the answer" "only whoever started the run answers it" "state answer <qid> <answer>"
+    FanRefused refusal -> case refusal of
+        Fan.UnknownTask task -> refused ("task " <> Codec.taskIdText task) "the breakdown has no such task" "state show"
+        Fan.StillRunning task child -> refused ("a child for task " <> Codec.taskIdText task) ("child " <> runIdText child <> " still runs it") "state next"
+        Fan.SpawnedTwice child -> refused ("child " <> runIdText child) "it was spawned already" "state next"
+        Fan.UnknownChild child -> refused ("the hand-back of " <> runIdText child) "no such child was spawned" "state show"
+        Fan.ChildOver child -> refused ("the hand-back of " <> runIdText child) "the child finished or stopped already" "state next"
+        Fan.Unsettled tasks -> refused "the fan-out's end" ("tasks not settled: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
   where
     refused = Failure BadInput
     atText = case at of

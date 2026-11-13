@@ -12,6 +12,11 @@ module State.EventGen (
     genBasis,
     genText,
     genOneLine,
+    genTasks,
+    genTaskId,
+    genSaid,
+    genTaskState,
+    tasksOf,
     oneLine,
     runId,
     run,
@@ -31,6 +36,7 @@ import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Time (UTCTime (..), addUTCTime, picosecondsToDiffTime)
 import Data.Time.Calendar (Day (..))
 import Hedgehog (Gen)
@@ -40,7 +46,9 @@ import Numeric.Natural (Natural)
 import State.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Cap (EventName)
 import State.Event
+import State.Flow (FanId (..))
 import State.Id (breaksLine, parseEventId)
+import State.Mode (Quality (..), Size (..))
 
 genEnvelope :: Gen Envelope
 genEnvelope =
@@ -69,7 +77,62 @@ genEvent =
         , RuledOn <$> genQId <*> genProposal
         , Forwarded <$> genQId <*> genAbove
         , Answered <$> genQId <*> genText <*> genAbove
+        , Spawned <$> (Child <$> genRunId <*> genTaskId <*> genPath <*> genPath)
+        , HandedBack <$> genRunId <*> genSaid
+        , TaskMoved <$> genTaskId <*> genTaskState
+        , Held <$> genTaskId <*> (Url <$> genText)
         ]
+
+genPath :: Gen FilePath
+genPath = Gen.string (Range.linear 1 30) Gen.unicode
+
+genSaid :: Gen Said
+genSaid =
+    Gen.choice
+        [ Finished <$> genOneLine
+        , AsksUp <$> genQId
+        , AwaitsCi <$> genOneLine
+        , Ended <$> (Stop <$> Gen.enumBounded <*> genText)
+        ]
+
+genTaskState :: Gen TaskState
+genTaskState =
+    Gen.choice
+        [ InCi . Url <$> genText
+        , InReview . Url <$> genText
+        , Merged . Url <$> genText
+        , Parked <$> genText <*> Gen.maybe (Url <$> genText)
+        ]
+
+-- | Few ids, so tasks, children and moves name the same ones often.
+genTaskId :: Gen TaskId
+genTaskId = TaskId <$> Gen.element ["t1", "t2", "t3", "t4", "t5"]
+
+{- | A breakdown of up to five tasks, @t1@ to @tn@, each depending on some
+earlier ones.
+-}
+genTasks :: Gen Tasks
+genTasks = do
+    n <- Gen.int (Range.linear 1 5)
+    tasks <- traverse genTaskAt [1 .. n]
+    pure (tasksOf (NonEmpty.fromList tasks))
+  where
+    genTaskAt :: Int -> Gen Task
+    genTaskAt i =
+        Task (taskNamed i)
+            <$> Gen.subsequence (map taskNamed [1 .. i - 1])
+            <*> (Branch <$> genText)
+            <*> (Branch <$> genText)
+            <*> Gen.enumBounded
+            <*> Gen.enumBounded
+            <*> Gen.bool
+            <*> Gen.bool
+            <*> genSet Gen.enumBounded
+    taskNamed i = TaskId ("t" <> Text.pack (show i))
+
+-- | A breakdown the test spells, which must be one 'breakdown' accepts.
+tasksOf :: NonEmpty Task -> Tasks
+tasksOf = either (error . show) id . breakdown
 
 genAsker :: Gen Asker
 genAsker = Gen.choice [pure Itself, Subagent . AgentRole <$> genText, ChildRun <$> genRunId]
@@ -127,6 +190,9 @@ templates =
     , FixPrDone (Sha "")
     , ReadyDone (Url "")
     , ReadySkipped (Url "")
+    , BreakdownDone (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced Normal False False Set.empty :| []))
+    , FanDone FEngineers
+    , MergeDone (Url "")
     ]
 
 -- | The same outcome, with generated data.
@@ -160,6 +226,9 @@ like = \case
     FixPrDone _ -> FixPrDone <$> genSha
     ReadyDone _ -> ReadyDone . Url <$> genText
     ReadySkipped _ -> ReadySkipped . Url <$> genText
+    BreakdownDone _ -> BreakdownDone <$> genTasks
+    FanDone fan -> pure (FanDone fan)
+    MergeDone _ -> MergeDone . Url <$> genText
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

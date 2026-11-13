@@ -14,21 +14,47 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), Role (Engineer), deliver, handback, oneLineText, qidText)
 import State.Event
-import State.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started)
-import State.Flow (LoopId (..), OptId (..))
+import State.EventGen (tasksOf, genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started)
+import State.Fan qualified as Fan
+import State.Flow (FanId (..), LoopId (..), OptId (..))
 import State.FlowGen (composes, genWalk)
 import State.Fold
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), cfg)
 import State.Path (ty)
-import State.RunGen (commit, g, genAccepted, genKnobs, happyPath, outcomeOf, sha)
+import State.RunGen (tenXGraph, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, sha)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Fold" $ do
-    it "names every edge of the engineer flow by exactly one kind of outcome" $
-        outcomeNames `shouldBe` Set.fromList [name | ((_, name), edge) <- Map.toList g.edges, edge.arrow /= Stay]
+    it "names every edge of the engineer and 10x flows by exactly one kind of outcome" $
+        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph], ((_, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay]
+
+    describe "the 10x's fan-out" $ do
+        let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
+            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", Took (BreakdownDone (tasksOf (task :| [])))]
+            task = Task (TaskId "t1") [] (Branch "main") (Branch "t1") Balanced Normal False False Set.empty
+            child = Child (runId "c1") (TaskId "t1") "c1/events.jsonl" "c1"
+            atName state = case state.at of
+                At place -> Just place.name
+                Out -> Nothing
+                Exit -> Nothing
+        it "refuses a child's spawn outside the fan-out" $
+            tenXRun [Spawned child] `shouldSatisfy` \case
+                Left (NoEdge _ _) -> True
+                _ -> False
+        it "logs a child's spawn and hand-back at the fan-out, staying there" $
+            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))])
+                `shouldBe` Right (Just (StateName "engineers"))
+        it "refuses to leave the fan-out while a task is unsettled" $
+            tenXRun (toEngineers <> [Spawned child, Took (FanDone FEngineers)])
+                `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
+        it "leaves the fan-out for the merge once every task is settled" $
+            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), Took (FanDone FEngineers)])
+                `shouldBe` Right (Just (StateName "merge"))
+        it "refuses a task the breakdown lacks" $
+            tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
 
     it "runs the engineer flow's happy path to its end" $
         (.at) <$> replay g (logOf (started :| map Took happyPath)) `shouldBe` Right Out

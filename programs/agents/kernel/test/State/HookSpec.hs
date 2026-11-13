@@ -13,7 +13,7 @@ import Data.Text (Text)
 import State.Advice (Readiness (..))
 import State.Cap (stepName)
 import State.Cap qualified as Cap
-import State.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (..), Outcome (..), Stop (..), StopReason (..), Url (..))
+import State.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Stopped, Took), Outcome (..), Stop (..), StopReason (..), Url (..))
 import State.EventGen (line, logOf, run, started)
 import State.Graph (Node (..), Place (..))
 import State.Hook

@@ -1,6 +1,7 @@
 -- | Runs of the engineer flow, for the specs that read a run's state.
 module State.RunGen (
     g,
+    tenXGraph,
     sha,
     commit,
     happyPath,
@@ -26,6 +27,7 @@ import State.Cap (EventName)
 import State.Event
 import State.EventGen (genOutcomeNamed, line, logOf, start, started)
 import State.Flows.Engineer (engineer)
+import State.Flows.TenX (tenX)
 import State.Fold (Append (..), RunState (..), append, replay)
 import State.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
 import State.Steps (Steps, parseSteps)
@@ -33,6 +35,9 @@ import System.Environment (getEnv)
 
 g :: OpenGraph
 g = either (error . show) id (graph engineer)
+
+tenXGraph :: OpenGraph
+tenXGraph = either (error . show) id (graph tenX)
 
 sha :: Sha
 sha = Sha "abc123"

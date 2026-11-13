@@ -44,6 +44,7 @@ library
     State.Cli
     State.Codec
     State.Event
+    State.Fan
     State.Flow
     State.Flows.Blocks
     State.Flows.Engineer
@@ -115,6 +116,7 @@ test-suite state-test
     State.E2ESpec
     State.EventGen
     State.EventSpec
+    State.FanSpec
     State.FlowGen
     State.Flows.BlocksSpec
     State.Flows.EngineerSpec

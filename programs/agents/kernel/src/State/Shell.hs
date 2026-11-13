@@ -56,6 +56,7 @@ import State.Fold qualified as Fold
 import State.Graph (Node (..), OpenGraph, graph)
 import State.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Handback qualified as Handback
+import State.Hook qualified as Hook
 import State.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, parseHookName, replyOf, silent, toldOf, wants)
 import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
@@ -136,7 +137,7 @@ hookAnswer steps call want =
                             (Advice.Spawn advised, Just role) -> offAdvice steps run.state.at advised role
                             _ -> Nothing
                      in (new, out <> foldMap (<> "\n") warning)
-            HandedBack _ message agent role ->
+            Hook.HandedBack _ message agent role ->
                 branchPr >>= \pr -> onHook pr $ \stamp run ->
                     let sources = hookSources run.state.run agent role message
                      in if loggedAlready run.logged sources

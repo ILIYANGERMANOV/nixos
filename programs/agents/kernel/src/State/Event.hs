@@ -1,8 +1,9 @@
 {- | One line of a run's log: what happened, and the envelope that names and
 places it. A step's outcome is an 'Outcome', named by the step it ends
 ('outcomeEvent'), so a log is read off the flow's graph. A question is an
-'Asking' and the events on its id that close it; the 10x's fan-out events
-(PR 6) join as more constructors.
+'Asking' and the events on its id that close it. The 10x's fan-out logs its
+children ('Spawned', 'HandedBack') and its tasks ('TaskMoved', 'Held') as
+stay events.
 -}
 module State.Event (
     Envelope (..),
@@ -39,16 +40,28 @@ module State.Event (
     Requirement (..),
     Check (..),
     StateName (..),
+    TaskId (..),
+    Task (..),
+    Topic (..),
+    Tasks,
+    BreakdownError (..),
+    breakdown,
+    taskList,
+    Child (..),
+    Said (..),
+    TaskState (..),
 ) where
 
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Ask (Above, Op (..), Principal (..), Proposal, QId, Question)
+import State.Ask (Above, OneLine, Op (..), Principal (..), Proposal, QId, Question)
 import State.Cap (EventName, StateName (..), Step (..), continueEvent, exitEvent, skipEvent)
+import State.Flow (FanEvent (Leaves), FanId, fanEvent, fanName)
 import State.Id (Digest (..), EventId (..), RunId, parseRunId, runIdText)
 import State.Mode (Area, Quality, Size)
 
@@ -110,6 +123,14 @@ data Event
       Overridden StateName Text
     | -- | An event the run refused, logged so the next read can warn of it.
       Refused Note
+    | -- | A child run started for a task, at the fan-out (written by the child's @init@).
+      Spawned Child
+    | -- | What a child run's hand-back said, by its run id.
+      HandedBack RunId Said
+    | -- | Where a task's PR stands, as the 10x saw it.
+      TaskMoved TaskId TaskState
+    | -- | A finding held back from a task's PR, at this url.
+      Held TaskId Url
     deriving stock (Eq, Show)
 
 {- | The run's environment is data here, read by whoever delivers advice, never
@@ -190,6 +211,11 @@ data Outcome
     | ReadyDone Url
     | -- | POC keeps a draft: the PR it left.
       ReadySkipped Url
+    | BreakdownDone Tasks
+    | -- | Every task of the fan-out is settled ("State.Fan").
+      FanDone FanId
+    | -- | The one PR the merge left.
+      MergeDone Url
     deriving stock (Eq, Show)
 
 -- | The graph's name for the edge an outcome takes, from "State.Cap"'s names.
@@ -223,6 +249,9 @@ outcomeEvent = \case
     FixPrDone _ -> continueEvent FixPR
     ReadyDone _ -> continueEvent Ready
     ReadySkipped _ -> skipEvent Ready
+    BreakdownDone _ -> continueEvent Breakdown
+    FanDone fan -> fanEvent Leaves (fanName fan)
+    MergeDone _ -> continueEvent Merge
 
 -- | The draft PR, synced from GitHub.
 data DraftPr = DraftPr {url :: Url, base :: Branch, branch :: Branch}
@@ -259,3 +288,75 @@ newtype Requirement = Requirement Text
 -- | A CI check, by name.
 newtype Check = Check Text
     deriving stock (Eq, Ord, Show)
+
+-- | A task of the 10x's breakdown, by the id the breakdown gives it.
+newtype TaskId = TaskId Text
+    deriving stock (Eq, Ord, Show)
+
+-- | What the engineer run for a task is briefed with.
+data Task = Task
+    { id :: TaskId
+    , deps :: [TaskId]
+    -- ^ Tasks whose work this one builds on: earlier ones only.
+    , base :: Branch
+    , branch :: Branch
+    , quality :: Quality
+    , size :: Size
+    , qa :: Bool
+    , heavy :: Bool
+    -- ^ At most one heavy task runs at a time.
+    , security :: Set Topic
+    }
+    deriving stock (Eq, Show)
+
+-- | The security-sensitive work a task's brief flags.
+data Topic = CiTopic | AuthTopic | DatabaseTopic | SecretsTopic
+    deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+{- | The tasks in order, ids unique, each depending on earlier tasks only, so
+the dependencies are acyclic by construction. Built by 'breakdown' alone.
+-}
+newtype Tasks = Tasks (NonEmpty Task)
+    deriving stock (Eq, Show)
+
+data BreakdownError
+    = TaskTwice TaskId
+    | -- | The task names a dependency that is not an earlier task.
+      DependsLater TaskId TaskId
+    deriving stock (Eq, Show)
+
+breakdown :: NonEmpty Task -> Either BreakdownError Tasks
+breakdown tasks = Tasks tasks <$ foldl check (Right []) tasks
+  where
+    check earlier task = do
+        seen <- earlier
+        case (task.id `elem` seen, filter (`notElem` seen) task.deps) of
+            (True, _) -> Left (TaskTwice task.id)
+            (False, later : _) -> Left (DependsLater task.id later)
+            (False, []) -> Right (task.id : seen)
+
+taskList :: Tasks -> [Task]
+taskList (Tasks tasks) = toList tasks
+
+-- | A child run of the fan-out: its run id, its task, its log and worktree.
+data Child = Child {run :: RunId, task :: TaskId, log :: FilePath, worktree :: FilePath}
+    deriving stock (Eq, Show)
+
+-- | A child's hand-back, typed: only 'AsksUp' and 'AwaitsCi' leave it running.
+data Said
+    = Finished OneLine
+    | -- | A question it forwarded up, now pending in this run.
+      AsksUp QId
+    | -- | CI on its PR, which this run waits on, then resumes the child.
+      AwaitsCi OneLine
+    | Ended Stop
+    deriving stock (Eq, Show)
+
+-- | Where a task's PR stands; the child's own hand-back settles it otherwise.
+data TaskState
+    = InCi Url
+    | InReview Url
+    | Merged Url
+    | -- | Set aside, and why: a parked task counts as settled.
+      Parked Text (Maybe Url)
+    deriving stock (Eq, Show)

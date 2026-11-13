@@ -22,8 +22,8 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), SomeStep, StateName, Step, Ty (..), outcomes, skippedOutcome, stepName, stepNamed)
-import State.Flow (FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanName)
+import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), Outcomes (..), SomeStep, StateName, Step, Ty (..), outcomes, skippedOutcome, stepName, stepNamed)
+import State.Flow (FanEvent (..), FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanEvent, fanName)
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
 position in the term, so a step used twice is two states; the name is what
@@ -153,9 +153,9 @@ skippable optId body = do
 
 {- | One state: each child runs the body as a run of its own, so the body is
 not drawn here and gives only its types. Children are spawned and hand back
-while the state stays; @done@ leaves it. No event of that name is logged:
-the fold of Par (PR 6) takes this edge when the last @handed_back@ for every
-task lands, so the edge stays as drawn.
+while the state stays; @done@ leaves it, once every task is settled
+("State.Fan"). The parent logs the stay events under the bare names
+@spawned@ and @handed_back@: they carry the child, not an outcome.
 -}
 fanOut :: forall a b. (KnownTy a, KnownTy b) => FanId -> Flow a 'Nothing b -> OpenGraph
 fanOut fan _ =
@@ -163,17 +163,15 @@ fanOut fan _ =
         { inPort = place
         , edges =
             Map.fromList
-                [ edge (OutcomeName "spawned") (Edge (At place) Stay Nothing)
-                , edge (OutcomeName "handed_back") (Edge (At place) Stay Nothing)
-                , edge done (Edge Out (Along (OutcomeEdge (event done) (List (tyVal @a)) (List (tyVal @b)))) Nothing)
+                [ edge Spawns (Edge (At place) Stay Nothing)
+                , edge HandsBack (Edge (At place) Stay Nothing)
+                , edge Leaves (Edge Out (Along (OutcomeEdge (fanEvent Leaves place.name) (List (tyVal @a)) (List (tyVal @b)))) Nothing)
                 ]
         , loops = Map.empty
         }
   where
     place = Place [] (fanName fan)
-    event = EventName place.name
-    done = OutcomeName "done"
-    edge outcome target = ((place, event outcome), target)
+    edge event target = ((place, fanEvent event place.name), target)
 
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.
 places :: OpenGraph -> Set Place
