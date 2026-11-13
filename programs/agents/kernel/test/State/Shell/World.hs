@@ -13,6 +13,9 @@ module State.Shell.World (
     hook,
     succeeded,
     startedRun,
+    putFile,
+    tenXAtFanOut,
+    childRun,
     logged,
     loggedEvents,
     headOf,
@@ -38,6 +41,7 @@ module State.Shell.World (
 ) where
 
 import Data.Aeson (Value (..), encode, object, (.=))
+import Data.Foldable (for_)
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -157,13 +161,42 @@ succeeded ran
 
 -- | @init@ in the worktree's notes; the run's id.
 startedRun :: IORef World -> IO Text
-startedRun world =
-    (succeeded =<< state world ["init", "--notes", Text.pack notes]) >>= \case
+startedRun world = startedIn world []
+
+-- | @init@ with these arguments, in the worktree's notes unless they name others; the run's id.
+startedIn :: IORef World -> [Text] -> IO Text
+startedIn world argv =
+    (succeeded =<< state world ("init" : (if "--notes" `elem` argv then argv else "--notes" : Text.pack notes : argv))) >>= \case
         [line] | Just runId <- Text.stripPrefix "started " line -> pure runId
         other -> fail ("not started: " <> show other)
 
 notes :: FilePath
 notes = "/notes"
+
+-- | A file written outside @state@, as an agent writes the breakdown.
+putFile :: IORef World -> FilePath -> Text -> IO ()
+putFile world path content = modifyIORef' world $ \w ->
+    let disk = w.disk in w {disk = disk {files = Map.insert path (encodeUtf8 content) disk.files}}
+
+{- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
+@t1@, @t2@ heavy; the run's id.
+-}
+tenXAtFanOut :: IORef World -> IO Text
+tenXAtFanOut world = do
+    tenX <- startedIn world ["--flow", "10x"]
+    putFile world (notes </> "tasks.json") ("[" <> task "t1" "[]" "false" <> "," <> task "t2" "[\"t1\"]" "true" <> "]")
+    for_ [["quality", "Balanced"], ["size", "Normal"]] $ \argv -> succeeded =<< state world ("record" : argv)
+    _ <- succeeded =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
+    _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
+    pure tenX
+  where
+    task name deps heavy =
+        "{\"id\":\"" <> name <> "\",\"deps\":" <> deps <> ",\"base\":\"main\",\"branch\":\"" <> name
+            <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":" <> heavy <> ",\"security\":[]}"
+
+-- | The child run a parent's brief starts for this task, in the notes dir given; its id.
+childRun :: IORef World -> Text -> FilePath -> Text -> IO Text
+childRun world parent dir task = startedIn world ["--notes", Text.pack dir, "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", task]
 
 eventsPath :: FilePath
 eventsPath = logOf notes

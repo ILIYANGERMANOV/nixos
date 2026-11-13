@@ -4,6 +4,7 @@ the current directory. A failed git command is the first line of why.
 module Effects.Git (
     Git (..),
     gitDir,
+    toplevel,
     headSha,
     headBranch,
     numstat,
@@ -21,6 +22,7 @@ import System.Process (readProcessWithExitCode)
 
 data Git :: Effect where
     GitDir :: Git m (Either Text FilePath)
+    Toplevel :: Git m (Either Text FilePath)
     HeadSha :: Git m (Maybe Sha)
     HeadBranch :: Git m (Maybe Branch)
     Numstat :: Branch -> Git m (Either Text Text)
@@ -30,6 +32,10 @@ type instance DispatchOf Git = Dynamic
 -- | The worktree's absolute git dir, or why git found none.
 gitDir :: (Git :> es) => Eff es (Either Text FilePath)
 gitDir = send GitDir
+
+-- | The worktree's absolute top directory, or why git found none.
+toplevel :: (Git :> es) => Eff es (Either Text FilePath)
+toplevel = send Toplevel
 
 -- | HEAD, or 'Nothing' before the first commit.
 headSha :: (Git :> es) => Eff es (Maybe Sha)
@@ -46,6 +52,7 @@ numstat = send . Numstat
 runGitIO :: (IOE :> es) => Eff (Git : es) a -> Eff es a
 runGitIO = interpret $ \_ -> \case
     GitDir -> fmap (Text.unpack . Text.strip) <$> git ["rev-parse", "--absolute-git-dir"]
+    Toplevel -> fmap (Text.unpack . Text.strip) <$> git ["rev-parse", "--show-toplevel"]
     HeadSha -> either (const Nothing) (Just . Sha . Text.strip) <$> git ["rev-parse", "--verify", "--quiet", "HEAD"]
     HeadBranch -> either (const Nothing) (Just . Branch . Text.strip) <$> git ["symbolic-ref", "--short", "--quiet", "HEAD"]
     Numstat (Branch base) -> git ["diff", "--numstat", "origin/" <> base <> "...HEAD"]

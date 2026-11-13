@@ -11,8 +11,9 @@ import Data.Text qualified as Text
 import State.Advice (Facts (..), factLines)
 import State.Ask (Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
-import State.Codec (flowText, logOf, reasonText)
+import State.Codec (flowText, logOf, reasonText, taskIdText, urlText)
 import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), runIdText)
+import State.Fan (Fan (..))
 import State.Fold (Pending (..), RunState (..), Waits (..), askedAt)
 import State.Graph (Node (..), Place (..))
 import State.Render qualified as Render
@@ -30,6 +31,7 @@ showRun state =
             <> ["refused: " <> note.message <> "; fix: " <> note.fix | Just note <- [state.refused]]
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
+            <> section "held:" [taskIdText task <> " " <> urlText url | (task, url) <- state.fanOut.held]
   where
     section title = \case
         [] -> []

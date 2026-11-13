@@ -122,10 +122,10 @@ parseSub steps sub rest = case sub of
         none a
         notes <- required "notes" a
         flow <- maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText)) (option "flow" a)
-        parent <- case (option "parent" a, option "parent-log" a) of
-            (Nothing, Nothing) -> Right Nothing
-            (Just run, Just logPath) -> Just <$> ((,) <$> runId run <*> parentLog logPath)
-            _ -> Left (usage "--parent and --parent-log go together" "a child run names its parent's run and log")
+        parent <- case (option "parent" a, option "parent-log" a, option "task" a) of
+            (Nothing, Nothing, _) -> Right Nothing
+            (Just run, Just logPath, Just _) -> Just <$> ((,) <$> runId run <*> parentLog logPath)
+            _ -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
         Right (Init InitArgs {notes = Text.unpack notes, flow, parent, task = fromMaybe "" (option "task" a)})
     "record" -> case rest of
         [] -> Left (usage "no event" "record names one event")

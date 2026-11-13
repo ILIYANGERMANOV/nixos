@@ -48,8 +48,9 @@ import State.Cap (stateNameText)
 import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
 import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText)
 import State.Codec qualified as Codec
-import State.Event (AgentRole (..), Asker (..), Asking (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
+import State.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), TaskId (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
+import State.Id (digestOf)
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
 import State.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
@@ -342,24 +343,24 @@ stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run
 
 -- | The worktree's run, locked for one command.
 onRun :: (Clock :> es, Environment :> es, FileSystem :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
-onRun act =
-    inWorktree $
-        readPointer >=> \case
-            Nothing -> pure (Left noRun)
-            Just notes -> do
-                let path = logOf notes
-                Log.exists path >>= \case
-                    False -> pure (Left noRun)
-                    True -> do
-                        stamp <- now
-                        Log.locked path $ \case
-                            Left bad -> ([], Left (unreadLine path bad))
-                            Right [] -> ([], Left noRun)
-                            Right (first : rest) -> case replayed path (first :| rest) of
-                                Left failure -> ([], Left failure)
-                                Right (g, state) -> act stamp (Loaded g state (first :| rest))
-  where
-    noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
+onRun act = inWorktree (readPointer >=> maybe (pure (Left noRun)) (onLog act . logOf))
+
+-- | The run this log holds, locked for one command.
+onLog :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> FilePath -> Eff es (Either Failure a)
+onLog act path =
+    Log.exists path >>= \case
+        False -> pure (Left noRun)
+        True -> do
+            stamp <- now
+            Log.locked path $ \case
+                Left bad -> ([], Left (unreadLine path bad))
+                Right [] -> ([], Left noRun)
+                Right (first : rest) -> case replayed path (first :| rest) of
+                    Left failure -> ([], Left failure)
+                    Right (g, state) -> act stamp (Loaded g state (first :| rest))
+
+noRun :: Failure
+noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
 
 -- | A log replayed under the flow its first line starts.
 replayed :: FilePath -> NonEmpty Envelope -> Either Failure (OpenGraph, RunState)
@@ -388,12 +389,29 @@ initRun gd args =
                 Left bad -> ([], Left (unreadLine path bad))
                 Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right fresh)
                 Right (first : rest) -> ([], joined notes (first :| rest))
-            traverse (\run -> writePointer gd notes $> ("started " <> runIdText run <> "\n")) result
+            -- The pointer only once the parent took the child: a refused child has no run here.
+            accepted <- case (result, principal) of
+                (Right run, ByRole parent parentLog) -> fmap (const run) <$> spawnedIn parent parentLog (Child run (TaskId args.task) path)
+                (Right run, ByUser) -> pure (Right run)
+                (Left failure, _) -> pure (Left failure)
+            traverse (\run -> writePointer gd notes $> ("started " <> runIdText run <> "\n")) accepted
   where
     -- A subagent has no hooks, wakes, notifications or background of its own (#351 s4).
     interfaceOf = \case
         ByUser -> Set.fromList [minBound .. maxBound]
         ByRole _ _ -> Set.empty
+
+{- | The child's @spawned@, appended to its parent's log under the parent's
+lock, by an id hashed from both runs: a retried init appends it once.
+-}
+spawnedIn :: (Shell es) => RunId -> FilePath -> (FilePath -> Child) -> Eff es (Either Failure ())
+spawnedIn parent parentLog childAt =
+    Git.toplevel >>= \case
+        Left why -> pure (Left (Failure BadInput "not inside a git work tree" why "cd <worktree>"))
+        Right top ->
+            let child = childAt top
+                source = Hook (digestOf [runIdText parent, runIdText child.run])
+             in fmap (const ()) <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> "")))) parentLog
 
 {- | The run a retried init joins: the one its log holds. One log holds one
 run, so a run stopped there leaves the dir to no other.

@@ -41,23 +41,19 @@ import Data.Aeson (Object, Value (..), eitherDecode, encode, object, withObject,
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
-import Data.Bits (xor)
-import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (encodeUtf8)
-import Data.Word (Word64, Word8)
-import Numeric (showHex)
 import State.Advice (Readiness (..))
 import State.Ask (Principal (..), Question (..), qidText)
 import State.Cap (stepName)
 import State.Cap qualified as Cap
-import State.Event (AgentRole (..), Asking (..), Branch, Digest (..), DraftPr (..), Envelope (..), Event (Took), Outcome (DraftDone), RunId, Source (..), Start (..), childRoles, roleText, runIdText)
+import State.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Took), Outcome (DraftDone), RunId, Source (..), Start (..), childRoles, roleText, runIdText)
 import State.Fold (Pending (..), RunState (..), Waits (..))
 import State.Graph (Node (..), Place (..))
+import State.Id (digestOf)
 import State.Steps (Steps, agentRoles)
 
 data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook
@@ -267,7 +263,7 @@ appends once (#360 call 18).
 -}
 hookSources :: RunId -> Agent -> AgentRole -> Text -> [Source]
 hookSources run agent (AgentRole role) message =
-    [Hook (Digest (fnv1a (Text.intercalate "\0" [runIdText run, fromMaybe "" agent.agentId, role, message, Text.pack (show n)]))) | n <- [0 :: Int ..]]
+    [Hook (digestOf [runIdText run, fromMaybe "" agent.agentId, role, message, Text.pack (show n)]) | n <- [0 :: Int ..]]
 
 {- | A hand-back the log holds already: its first record's id is logged. The
 hook then records nothing, not even a refusal of the step it moved past.
@@ -276,13 +272,6 @@ loggedAlready :: NonEmpty Envelope -> [Source] -> Bool
 loggedAlready envelopes = \case
     first : _ -> any (\envelope -> envelope.source == first) envelopes
     [] -> False
-
--- | FNV-1a, 64 bits, over the text's UTF-8, in hex: a dedupe key, no security.
-fnv1a :: Text -> Text
-fnv1a = Text.pack . (`showHex` "") . BS.foldl' step 0xcbf29ce484222325 . encodeUtf8
-  where
-    step :: Word64 -> Word8 -> Word64
-    step hash byte = (hash `xor` fromIntegral byte) * 0x100000001b3
 
 -- | What a hook prints: nothing, or the result of its event.
 data Reply

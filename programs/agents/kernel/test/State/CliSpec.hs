@@ -53,16 +53,17 @@ spec = describe "State.Cli" $ do
                 _ -> expectationFailure "not a stop"
 
         it "refuses a parent log that is not an absolute events.jsonl" $
-            (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/other.jsonl"]
+            (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/other.jsonl", "--task", "t1"]
                 `shouldBe` Just "--parent-log /p/other.jsonl"
 
         it "keeps an absolute parent log" $
-            case parse ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl"] of
+            case parse ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"] of
                 Right (Init args) -> fmap snd args.parent `shouldBe` Just "/p/events.jsonl"
                 _ -> expectationFailure "not an init"
 
-        it "refuses --parent without its log" $
-            (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1"] `shouldBe` Just "--parent and --parent-log go together"
+        it "refuses --parent without its log or its task" $
+            map (failureWhat . parse) [["init", "--notes", "/n", "--parent", "r1", "--task", "t1"], ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl"]]
+                `shouldBe` replicate 2 (Just "--parent, --parent-log and --task go together")
 
     describe "failures" $ do
         it "prints what, why and the fix as the analyzer parses them" $

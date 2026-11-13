@@ -11,12 +11,18 @@ module State.Id (
     eventIdText,
     parseEventId,
     Digest (..),
+    digestOf,
     breaksLine,
 ) where
 
+import Data.Bits (xor)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (encodeUtf8)
 import Data.Text.Read (decimal)
+import Data.Word (Word64, Word8)
+import Numeric (showHex)
 import Numeric.Natural (Natural)
 
 {- | Short and random, set by @init@; one log holds one run. Built only by
@@ -59,6 +65,15 @@ data EventId = Numbered RunId Natural | Hashed Digest
 -- | A hook record's content hash, hex.
 newtype Digest = Digest Text
     deriving stock (Eq, Ord, Show)
+
+{- | The digest of these parts: FNV-1a, 64 bits, over their UTF-8 joined by
+NUL, in hex. A dedupe key, no security.
+-}
+digestOf :: [Text] -> Digest
+digestOf = Digest . Text.pack . (`showHex` "") . BS.foldl' step 0xcbf29ce484222325 . encodeUtf8 . Text.intercalate "\0"
+  where
+    step :: Word64 -> Word8 -> Word64
+    step hash byte = (hash `xor` fromIntegral byte) * 0x100000001b3
 
 -- | A CLI record's id is @<run>:<seq>@, a hook record's @h:<hash>@.
 eventIdText :: EventId -> Text

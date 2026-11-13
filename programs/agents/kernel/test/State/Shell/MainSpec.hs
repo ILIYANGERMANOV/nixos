@@ -9,6 +9,7 @@ import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (encodeUtf8)
 import State.Advice (PrView (..), Readiness (..))
 import State.Cli (help)
 import State.Event (Envelope (..), SessionId (..))
@@ -237,9 +238,8 @@ spec = describe "state over the doubles" $ do
                 recorded exited `shouldBe` ["pick.final -> describe"]
 
         it "puts every ruling of a child run in show and in its hand-back" $ \world -> do
-            parent <- startedRun world
-            [started] <- succeeded =<< state world ["init", "--notes", "/child", "--parent", parent, "--parent-log", Text.pack eventsPath]
-            let child = Text.drop (Text.length "started ") started
+            parent <- tenXAtFanOut world
+            child <- childRun world parent "/child" "t1"
             [asked, _] <- succeeded =<< state world ["ask", "--kind", "Pick", "which", "lib?"]
             let qid = Text.drop (Text.length "asked ") asked
                 ruling = "Ruling " <> qid <> " Pick: zod - already used - none"
@@ -252,6 +252,78 @@ spec = describe "state over the doubles" $ do
             shown `shouldContain` ["rulings:", "  " <> ruling]
             forwarded `shouldContain` [ruling]
             stopped `shouldBe` ["stopped", "HANDBACK FAILED no access", "Run: " <> child, ruling]
+
+        describe "the 10x" $ do
+            it "spawns the first task, the second waiting on it" $ \world -> do
+                _ <- tenXAtFanOut world
+
+                advised <- succeeded =<< state world ["next"]
+
+                take 1 advised `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+
+            it "logs a child's spawn in its parent's log once, a retried init joining the same run" $ \world -> do
+                parent <- tenXAtFanOut world
+
+                child <- childRun world parent "/child" "t1"
+                again <- childRun world parent "/child" "t1"
+
+                again `shouldBe` child
+                filter (== "spawned") <$> loggedEvents world `shouldReturn` ["spawned"]
+
+            it "refuses a child its parent cannot take, keeping the worktree's run" $ \world -> do
+                parent <- startedRun world
+
+                ran <- state world ["init", "--notes", "/child", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                shown <- succeeded =<< state world ["show"]
+
+                ran.code `shouldBe` 2
+                take 1 shown `shouldBe` ["run: " <> parent <> " (engineer)"]
+
+            it "records a child's hand-back that names its run, and refuses one that does not" $ \world -> do
+                parent <- tenXAtFanOut world
+                child <- childRun world parent "/child" "t1"
+                _ <- succeeded =<< state world ["init", "--notes", Text.pack notes]
+
+                unnamed <- stateIn world "READY https://pr/1\n" ["handback", "engineer"]
+                named <- stateIn world (encodeUtf8 ("READY https://pr/1\nRun: " <> child <> "\n")) ["handback", "engineer"]
+
+                unnamed.code `shouldBe` 2
+                (named.code, recorded named.out) `shouldBe` (0, ["handed_back -> engineers"])
+
+            it "shows each task, its PR and what is held" $ \world -> do
+                _ <- tenXAtFanOut world
+                for_ [["task", "t1", "review", prUrl], ["held", "t2", "https://github.com/o/r/issues/9"]] $ \argv -> succeeded =<< state world ("record" : argv)
+
+                shown <- succeeded =<< state world ["show"]
+
+                shown `shouldContain` ["task t1: not started, PR review " <> prUrl <> ", tries 0", "task t2: not started, tries 0"]
+                shown `shouldContain` ["held:", "  t2 https://github.com/o/r/issues/9"]
+
+            it "briefs an engineer with its task's fields, then its init line" $ \world -> do
+                run <- tenXAtFanOut world
+
+                brief <- succeeded =<< state world ["brief", "engineer", "--task", "t2"]
+
+                brief
+                    `shouldBe` [ "Task: t2"
+                               , "Quality: Balanced"
+                               , "Size: Normal"
+                               , "Base: main"
+                               , "Branch: t2"
+                               , "Depends on: t1"
+                               , "QA: no"
+                               , "Heavy: yes"
+                               , "Security-sensitive: none"
+                               , ""
+                               , "state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t2"
+                               ]
+
+            it "refuses to brief an engineer for a task the breakdown lacks" $ \world -> do
+                _ <- tenXAtFanOut world
+
+                ran <- state world ["brief", "engineer", "--task", "t9"]
+
+                ran.code `shouldBe` 2
 
         describe "brief" $ do
             it "gives a refactorer its step's entry and the stop rule" $ \world -> do
@@ -281,13 +353,6 @@ spec = describe "state over the doubles" $ do
 
                 brief `shouldSatisfy` (planWrong `isSuffixOf`)
                 brief `shouldSatisfy` (not . any (`elem` stopRule))
-
-            it "ends an engineer's brief with the line that starts its run under this one" $ \world -> do
-                run <- startedRun world
-
-                brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
-
-                brief `shouldBe` ["state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
 
         describe "render" $ do
             it "prints a block of the flow without a run" $ \world -> do
