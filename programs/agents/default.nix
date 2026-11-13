@@ -83,9 +83,24 @@ let
     inherit pkgs lib;
     skillNames = skills.names;
   };
+  flows = import ./flows { inherit pkgs lib; };
+  deriveLib = import ./lib/derive.nix {
+    inherit pkgs lib;
+    inherit (roleLib) capabilities;
+  };
+  # The instruction fragments a step's `prose` names (flows/steps.nix).
+  prose = {
+    "shared/building.md" = mkFragment {
+      layer = "role";
+      file = ./roles/shared/building.md;
+    };
+    "topics/quality.md" = topics.quality;
+    "topics/trivial.md" = topics.trivial;
+  };
   roles = import ./roles {
-    inherit lib mkFragment topics;
+    inherit lib mkFragment prose;
     inherit (roleLib) mkRole discover;
+    derived = deriveLib.derive flows.table;
   };
   # `ctx`: the review diff in a cached folder, on PATH in every session.
   ctx = import ./ctx { inherit pkgs; };
@@ -93,7 +108,7 @@ let
   # kernel), on PATH beside `ctx`.
   state = import ./kernel {
     inherit pkgs;
-    inherit (import ./flows { inherit pkgs; }) steps;
+    inherit (flows) steps;
     vocabulary = ./hooks/vocabulary.json;
   };
   profiles = import ./profiles {
@@ -221,6 +236,14 @@ in
     {
       name = "roles";
       path = builtins.deepSeq roles roleLib.check;
+    }
+    {
+      name = "derived-roles";
+      path = deriveLib.check {
+        inherit (flows) table;
+        inherit roles prose;
+        golden = import ./roles/golden.nix;
+      };
     }
     {
       name = "rendered";

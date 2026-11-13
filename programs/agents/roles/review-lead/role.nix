@@ -1,17 +1,5 @@
-# Spawns the `reviewer`s. It needs the Trivial rule, which its sweep reads, and
-# the Quality table.
-{ role, topics }:
+{ role }:
 {
   description = "Runs one pass of pragmatic-review: aims reviewer agents at a diff, judges what they bring back and reports. Changes no code.";
-  instructions = [
-    (role ./role.md)
-    topics.trivial
-    topics.quality
-  ];
-  capabilities = [
-    "read"
-    "shell"
-    "delegate"
-  ];
-  skills = [ "pragmatic-review" ];
+  instructions = [ (role ./role.md) ];
 }
