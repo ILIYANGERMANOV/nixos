@@ -27,7 +27,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
-import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, StateName, Stop, Verdict (..), eventId, outcomeEvent)
+import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, StateName, Stop, eventId, outcomeEvent)
 import State.Flow (LoopId, OptId)
 import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
@@ -247,8 +247,8 @@ problems = \case
     ReadySkipped _ -> Set.empty
   where
     picked picks =
-        Set.fromList (map Row picks.rows)
-            <> Set.fromList [Unmet verdict.requirement | verdict <- picks.verdicts, verdict.judgement == NotMet]
+        Set.map Row picks.rows
+            <> Set.map Unmet (Map.keysSet (Map.filter (== NotMet) picks.verdicts))
 
 -- | Balanced and Normal until recorded, as a brief with no @Quality@ or @Size@ line reads.
 mode :: RunState -> Mode

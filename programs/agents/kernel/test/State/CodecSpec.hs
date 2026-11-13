@@ -1,5 +1,7 @@
 module State.CodecSpec (spec) where
 
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..))
@@ -8,7 +10,7 @@ import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Codec (LineError (..), LogError (..), decodeLine, decodeLog, encodeLine)
-import State.Event (Digest (..), Envelope (..), Event (..), FlowName (..), Outcome (..), Principal (..), Sha (..), Source (..), Start (..), parseRunId)
+import State.Event (Digest (..), Envelope (..), Event (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Picks (..), Principal (..), Requirement (..), Sha (..), Source (..), Start (..), parseRunId)
 import State.EventGen (genEnvelope, runId)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -58,6 +60,12 @@ spec = describe "State.Codec" $ do
         decodeLine (encodeLine reviewRows `replacing` ("review.rows", "await_ci.red") `replacing` ("{\"head\":\"abc123\"}", "{\"head\":\"abc123\",\"failing\":[]}"))
             `shouldSatisfy` malformed
 
+    it "refuses picks naming a row twice" $
+        decodeLine (encodeLine picked `replacing` ("\"rows\":[\"A\"]", "\"rows\":[\"A\",\"A\"]")) `shouldSatisfy` malformed
+
+    it "refuses picks judging a requirement twice" $
+        decodeLine (encodeLine picked `replacing` (metR1, metR1 <> ",{\"requirement\":\"R1\",\"outcome\":\"not-met\"}")) `shouldSatisfy` malformed
+
 -- | #360's example line.
 reviewRows :: Envelope
 reviewRows =
@@ -81,6 +89,13 @@ genCollidingHookLine = do
     n <- Gen.integral (Range.linear 0 2)
     digest <- Gen.element ["0", "1", "2", "a:0", "a:1", ":0"]
     pure reviewRows {source = Hook (Digest digest), seq = n, run}
+
+-- | Picks of row A, with R1 met.
+picked :: Envelope
+picked = reviewRows {event = Took (PickLoop (Picks (Set.singleton (Label "A")) (Map.singleton (Requirement "R1") Met)))}
+
+metR1 :: Text
+metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
 
 -- | A started line naming parent run r7f2.
 parentRun :: Envelope

@@ -26,7 +26,6 @@ module State.Event (
     DraftPr (..),
     Commit (..),
     Picks (..),
-    Verdict (..),
     Judgement (..),
     Sha (..),
     Url (..),
@@ -38,6 +37,7 @@ module State.Event (
 ) where
 
 import Data.List.NonEmpty (NonEmpty)
+import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -234,10 +234,7 @@ data Commit = Commit {head :: Sha, touches :: Set Area}
 {- | The rows to fix, labelled so one finding keeps its label across rounds,
 and the verdict on each requirement.
 -}
-data Picks = Picks {rows :: [Label], verdicts :: [Verdict]}
-    deriving stock (Eq, Show)
-
-data Verdict = Verdict {requirement :: Requirement, judgement :: Judgement}
+data Picks = Picks {rows :: Set Label, verdicts :: Map Requirement Judgement}
     deriving stock (Eq, Show)
 
 data Judgement = Met | NotMet | Unverified

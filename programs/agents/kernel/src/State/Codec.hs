@@ -24,6 +24,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -58,7 +59,6 @@ import State.Event (
     Stop (..),
     StopReason (..),
     Url (..),
-    Verdict (..),
     eventId,
     outcomeEvent,
     parseRunId,
@@ -243,12 +243,10 @@ outcomeData = \case
     headData sha = "head" .= shaText sha
     commitData commit = headData commit.head <> "touches" .= map areaText (Set.toList commit.touches)
     picksData picks =
-        "rows" .= map (\(Label label) -> label) picks.rows
-            <> pair "verdicts" (list verdictEncoding picks.verdicts)
-    verdictEncoding verdict =
-        pairs $
-            "requirement" .= (\(Requirement requirement) -> requirement) verdict.requirement
-                <> "outcome" .= judgementText verdict.judgement
+        "rows" .= map (\(Label label) -> label) (Set.toList picks.rows)
+            <> pair "verdicts" (list verdictEncoding (Map.toList picks.verdicts))
+    verdictEncoding (Requirement requirement, judgement) =
+        pairs ("requirement" .= requirement <> "outcome" .= judgementText judgement)
 
 {- | Keyed by the event names "State.Cap" gives each outcome, so a renamed
 outcome changes the wire with it.
@@ -291,8 +289,25 @@ outcomeParsers =
     urlOf obj = Url <$> obj .: "url"
     draftOf obj = DraftPr <$> urlOf obj <*> (Branch <$> obj .: "base") <*> (Branch <$> obj .: "branch")
     commitOf obj = Commit <$> headOf obj <*> (Set.fromList <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaText))))
-    picksOf obj = Picks . map Label <$> obj .: "rows" <*> (obj .: "verdicts" >>= traverse (withObject "verdict" verdictOf))
-    verdictOf obj = Verdict . Requirement <$> obj .: "requirement" <*> (obj .: "outcome" >>= named "outcome" (parseByName judgementText))
+    picksOf obj =
+        Picks
+            <$> (obj .: "rows" >>= distinct "row" . map Label)
+            <*> (obj .: "verdicts" >>= traverse (withObject "verdict" verdictOf) >>= keyed "requirement")
+    verdictOf obj = (,) . Requirement <$> obj .: "requirement" <*> (obj .: "outcome" >>= named "outcome" (parseByName judgementText))
+
+{- | A list read as a set, refusing a repeat: a set would keep one copy
+silently, and a log naming one twice is a bug in its writer.
+-}
+distinct :: (Ord a) => String -> [a] -> Parser (Set a)
+distinct what = fmap Map.keysSet . keyed what . map (,())
+
+-- | Pairs read as a map, refusing a repeated key, where a map would keep the last.
+keyed :: (Ord k) => String -> [(k, v)] -> Parser (Map k v)
+keyed what entries
+    | Map.size byKey == length entries = pure byKey
+    | otherwise = fail ("repeated " <> what)
+  where
+    byKey = Map.fromList entries
 
 (~>) :: EventName -> (Object -> Parser Outcome) -> (EventName, Object -> Parser Outcome)
 (~>) = (,)

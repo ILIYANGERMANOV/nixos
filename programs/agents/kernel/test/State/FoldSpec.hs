@@ -58,7 +58,7 @@ spec = describe "State.Fold" $ do
             `shouldBe` Left (OutOfFuel LReview 1)
 
     it "gives one more round after a Not met at the fuel, never two" $ do
-        let unmet = Picks [] [Verdict (Requirement "R1") NotMet]
+        let unmet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
             twice = toReview <> roundWith unmet <> [Took (FixDone commit)] <> roundWith unmet
         (.at) <$> replay g (logOf (started :| SizeSet Trivial : twice)) `shouldSatisfy` either (const False) (/= Out)
         replay g (logOf (started :| SizeSet Trivial : twice <> [Took (FixDone commit)])) `shouldBe` Left (OutOfFuel LReview 1)
@@ -187,7 +187,7 @@ toCi :: [Event]
 toCi = map Took (take 9 happyPath <> [ReviewClean sha, DescribeDone sha, SimplifyPrDone sha])
 
 reviewRound :: [Label] -> [Event]
-reviewRound rows = roundWith (Picks rows [])
+reviewRound rows = roundWith (Picks (Set.fromList rows) Map.empty)
 
 roundWith :: Picks -> [Event]
 roundWith picks = [Took (ReviewRows sha), Took (PickLoop picks)]

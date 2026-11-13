@@ -15,6 +15,7 @@ module State.EventGen (
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -91,8 +92,8 @@ templates =
     , RefactorSkipped ""
     , ReviewClean (Sha "")
     , ReviewRows (Sha "")
-    , PickFinal (Picks [] [])
-    , PickLoop (Picks [] [])
+    , PickFinal (Picks Set.empty Map.empty)
+    , PickLoop (Picks Set.empty Map.empty)
     , FixDone (Commit (Sha "") Set.empty)
     , DescribeDone (Sha "")
     , SimplifyPrDone (Sha "")
@@ -140,8 +141,8 @@ like = \case
 genPicks :: Gen Picks
 genPicks =
     Picks
-        <$> Gen.list (Range.linear 0 3) (Label <$> Gen.element ["A", "B", "C"])
-        <*> Gen.list (Range.linear 0 2) (Verdict . Requirement <$> Gen.element ["R1", "R2"] <*> Gen.enumBounded)
+        <$> genSet (Label <$> Gen.element ["A", "B", "C"])
+        <*> (Map.fromList <$> Gen.list (Range.linear 0 2) ((,) . Requirement <$> Gen.element ["R1", "R2"] <*> Gen.enumBounded))
 
 genCommit :: Gen Commit
 genCommit = Commit <$> genSha <*> genSet Gen.enumBounded
