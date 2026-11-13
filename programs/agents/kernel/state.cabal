@@ -30,6 +30,7 @@ library
   import:          shared-properties
   hs-source-dirs:  src
   exposed-modules:
+    State.Advice
     State.Ask
     State.Cap
     State.Codec
