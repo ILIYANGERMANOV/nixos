@@ -84,11 +84,26 @@ new question of that kind.
 
 **Re-plan.** An answer that changes a goal, a decision or an interface, or a
 review-lead's `plan wrong:` line you agree with: `state stop replan <why>`,
-then do what it prints. On `STOP replan`, start a new run in a fresh notes
-directory, `state init --notes <dir>-replan-<n>`, on the same branch and PR,
-at the same Quality: Gather for the open question only, never re-asking what
-was just answered, then Propose and confirm. A `Size: Trivial` task moves to
-Normal first (`trivial.md`). The new plan and its `Considered options` go into
-the PR body. Existing commits stay and the new plan adds commits on top; its
-review starts again at round 1, so the re-review cap resets. The stuck guard
-does not.
+then do what it prints. On `STOP replan`, or resumed after its
+`HANDBACK NEEDS_DECISION plan wrong`, start a new run in a fresh notes
+directory, `state init --notes <dir>-replan-<n>` plus the `--parent`,
+`--parent-log` and `--task` of your first `state init` when it had them, on
+the same branch and PR, at the same Quality: Gather for the open question
+only, never re-asking what was just answered, then Propose and confirm. A
+`Size: Trivial` task moves to Normal first (`trivial.md`). The new plan and
+its `Considered options` go into the PR body. Existing commits stay and the
+new plan adds commits on top; its review starts again at round 1, so the
+re-review cap and the stuck guard reset.
+
+## Stops
+
+`state stop <reason> <why>` ends the run; `state next` then prints `STOP
+<reason>`, or under a parent the `HANDBACK` line to send instead.
+
+- `fuel`: a loop ran out of rounds - gather 6, plan 4, CI 6 in every mode,
+  review as your Quality row's Re-reviews say. Tell the user what is left.
+- `blocked` or `failed`: tell the user why, with the head SHA and what remains.
+- `replan`: the Re-plan above.
+- `grew`: only a run under a parent, briefed `Size: Trivial`, whose task grew
+  past it; it hands back `GREW <why>`. Your own run grows with
+  `state record grew <why>` (`trivial.md`).

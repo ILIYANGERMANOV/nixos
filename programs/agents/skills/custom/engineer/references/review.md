@@ -37,6 +37,12 @@ never does: `Not met always` below. `pick.loop` sends the chosen rows to a
 fixer, then a `--fixes` review; `pick.final`, with no row chosen or no round
 left, ends the loop at the final fixer. Record every requirement's verdict.
 
+A row's `--row <label>` is a short slug you give its finding, such as
+`null-email`, the same slug when that finding comes back: the stuck guard
+compares labels. A recorded review-lead hand-back is `review.rows` even with
+no findings: then `pick.final` with no `--row`. `review.clean` is only for a
+review you record by hand that found nothing.
+
 A return that starts `NEEDS_DECISION plan wrong` is a question: fix and
 record no row, security included. A re-plan's round 1 finds the rows again.
 
@@ -65,4 +71,5 @@ A fixer names what its fix touched on its report's `Touches:` line, which is
 recorded with it. One that touches what your Quality row's Full review of a
 fix to names gets a review of the whole branch: no `--fixes`. So does an
 implementer's CI fix with no `Touches:` line. A CI fixer also gets R0 when
-its fix changes what the body says, in place after S0. Notify only on ready.
+its fix changes what the body says, in place after S0. A CI fix notifies
+nobody: the next notification is on ready.

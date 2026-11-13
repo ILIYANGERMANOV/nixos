@@ -79,7 +79,7 @@
     exit = null;
     outcomes = [ "done" ];
     runner = "implementer";
-    lead = "Build: implementers per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice.";
+    lead = "Build: implementers as your Quality row's Implement says, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice.";
     entry = "Build the slice your prompt names, as the plan says.";
   };
   refactor = {
@@ -150,7 +150,7 @@
       "red"
     ];
     runner = "inline";
-    entry = "Ship: wait for CI on the PR, never by polling in a loop.";
+    entry = "Ship: CI on the PR. `green` when every check passes; `red` names the failing checks.";
   };
   fix_pr = {
     dom = "PR";

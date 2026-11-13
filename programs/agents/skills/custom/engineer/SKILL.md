@@ -21,9 +21,12 @@ who owns each decision.
   - `ANSWER yourself` or `RUN state rule ...`: when your row in the kinds
     table answers, `state rule <qid> --answer <a> --why <w> --cost <c>`; else
     `state forward <qid>`, and do what that prints.
-  - `HANDBACK <line>`: end your turn, that line first, then your last finished
-    step and the head SHA, all work pushed. Resumed with the answer:
-    `state answer <qid> <answer> --by <run>`, then `state next`.
+  - `HANDBACK <line>`: end your turn, the whole block it printed first
+    (`Run:` and `Ruling` lines too), then your last finished step and the head
+    SHA, all work pushed. Resumed with the answer:
+    `state answer <qid> <answer> --by <run>`; after `AWAIT ci`: `gh pr checks
+    <n>` once, `state record await_ci.green` or `await_ci.red <check>...`.
+    Then `state next`.
 
   This covers user-facing wording and naming you are unsure of (slash
   commands, labels, text the user reads); mechanical internal names are yours.
@@ -45,10 +48,11 @@ who owns each decision.
   |---|---|
   | `SPAWN <role> background: yes\|no` | spawn `subagent_type: <role>`, in the background or not as it says; its prompt is `state brief <role>` plus the step's own part below |
   | `ASK <Kind> <what>` | the Ask rule above |
-  | `RUN <command>` | do the step, then run the command |
-  | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions describe |
-  | `HANDBACK <line>` | end your turn with that line first |
-  | `STOP <reason>` | the run is over; a `replan` goes on as `blockers.md` says |
+  | `ASK <Kind> <qid>: <q>` | asked and the user's: the `ASK user` rule |
+  | `RUN <command>` | do the step, then run the command, placeholders filled |
+  | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions describe, then record green or red |
+  | `HANDBACK <line>` | the Ask rule's `HANDBACK` |
+  | `STOP <reason>` | the run is over, as `blockers.md`'s Stops says |
 
   A `fix:` line names the command that works now: run it. Off the advised
   arrow: `state override <state> <why>`.
@@ -59,8 +63,8 @@ who owns each decision.
   you write carries the worktree path and the base.
 - **Quality and Size** are in your instructions. Your row in the Quality
   table says what each step runs. A `Quality:` or `Size:` line in your prompt
-  is set: record it. Else ask Quality first, one `Confirm` question, Balanced
-  recommended; a re-plan keeps it. You set Size, once, before Gather, from the prompt
+  is set: `state record quality <mode>`. Else ask Quality first, one `Confirm`
+  question, Balanced recommended, and record the answer; a re-plan keeps it. You set Size, once, before Gather, from the prompt
   and at most 5 lookups: `Size: Trivial` when the Trivial rule holds, else
   `Size: Normal`. Growing to Normal:
   `${CLAUDE_SKILL_DIR}/references/trivial.md`. Ambiguity, or anything the user
@@ -71,9 +75,9 @@ who owns each decision.
   its path and never inlines it; the PR body is the reader's copy.
 - **Stuck guard.** The same failing check or the same review row in 2 rounds
   in a row, whatever the commit, is stuck: `state ask --kind Stuck "<check or
-  row>"`. It covers the review loop, the CI fix, a re-plan, refactor in this PR
-  and a blocker resume. A fixer that hands back `READY` while the check stays
-  red counts as a round. A re-plan does not reset it.
+  row>"`. It covers the review loop, the CI fix, refactor in this PR and a
+  blocker resume. A fixer that hands back `READY` while the check stays red
+  counts as a round. A re-plan's new run starts it afresh.
 - **You answer the skills you invoke.** `pragmatic-review`'s pickers (which
   findings survive, what to do) and its open questions are `Pick` questions;
   a product, scope or design answer among them is its own kind. `refactor`'s
@@ -137,8 +141,8 @@ Before the first question, list what you need to know and group it into
 research topics: the code the task touches, how similar things work today,
 the external systems, the standards that apply. Plan the topics from the
 prompt and file names (`rg -l`, `ls`), never by reading the files: reading is
-the researchers' job. One researcher per group, one first and the rest after
-it, as many as your Quality row's Researchers, each prompt `state brief
+the researchers' job. One researcher per group, in parallel, as many as your
+Quality row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
 says. An answer that opens a new fact gap gets research too (`more`).
 
