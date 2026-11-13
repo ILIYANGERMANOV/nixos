@@ -224,8 +224,9 @@ dropped or reshaped across tasks, is the user's: ask it, then
 
 **CI.** A child's `AWAIT ci <PR>`: `subscribe_pr_activity`, then
 `gh pr checks <n> --repo <owner>/<repo>` once, since events before the
-subscription never arrive. Pending: end the turn. On the CI wake, resume the
-child as Resume does: "CI finished on `<PR>`." It records green or red, fixes red itself
+subscription never arrive. Pending: end the turn. On the CI wake, `state next`
+prints no `RESUME`: resume the child as Resume does, `state record resumed`
+first: "CI finished on `<PR>`." It records green or red, fixes red itself
 and, green, runs `gh pr ready`. A refused subscription, or one saying another
 agent already watches the PR, delivers no events: follow your instructions'
 fallback, and tell the user now and in the queue that this PR gives no

@@ -34,6 +34,7 @@ module State.Codec (
     taskIdText,
     branchText,
     taskStateName,
+    taskStateArgs,
     prStates,
     topicText,
     decodeBreakdown,
@@ -391,6 +392,16 @@ taskStateName = \case
     InReview _ -> "review"
     Merged _ -> "merged"
     Parked _ _ -> "parked"
+
+-- | The arguments @state record task@ takes after the task's id for this state.
+taskStateArgs :: TaskState -> Text
+taskStateArgs moved =
+    Text.unwords $
+        taskStateName moved : case moved of
+            InCi pr -> [urlText pr]
+            InReview pr -> [urlText pr]
+            Merged pr -> [urlText pr]
+            Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
 
 -- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
 decodeBreakdown :: Text -> Either Text Tasks

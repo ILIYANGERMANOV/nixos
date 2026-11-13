@@ -20,7 +20,7 @@ spec = describe "State.Fan" $ do
     it "spawnable_respects_slots_heavy_and_deps" . hedgehog $ do
         fan <- forAll genFan
         width <- forAll (Gen.integral (Range.linear 1 4))
-        let picks = spawnable width fan
+        let picks = spawnable [] width fan
             busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
         cover 10 "spawns some" (not (null picks))
         cover 5 "a heavy task waits" (any (.heavy) busy && any (.heavy) [task | task <- fan.tasks, task.id `elem` unsettled fan])
@@ -41,58 +41,65 @@ spec = describe "State.Fan" $ do
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
         fan <- forAll genFan
         width <- forAll (Gen.integral (Range.linear 1 4))
-        let picks = zip [0 :: Int ..] (spawnable width fan)
-            spawnedAll = foldl' (\current (n, task) -> fromRight current (spawned (childFor ("new" <> tshow n) task.id) current)) fan picks
-            spawningAll = foldl' (\current (_, task) -> fromRight current (spawning task.id current)) fan picks
-        (spawnable width spawnedAll, spawnable width spawningAll) === ([], [])
+        let picks = zip [0 :: Int ..] (spawnable [] width fan)
+            spawnedAll = foldl' (\current (n, task) -> fromRight current (spawned [] (childFor ("new" <> tshow n) task.id) current)) fan picks
+            spawningAll = foldl' (\current (_, task) -> fromRight current (spawning [] task.id current)) fan picks
+        (spawnable [] width spawnedAll, spawnable [] width spawningAll) === ([], [])
 
     it "settles a task whose child finished" $
-        settledAfter [spawned (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1"))] `shouldBe` Right True
+        settledAfter [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1"))] `shouldBe` Right True
 
     it "leaves a task open after its child stops, to spawn again once the stop is triaged, and counts both tries" $ do
-        let fan = applied [spawned (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access"))]
-        map (.id) . spawnable 3 <$> fan `shouldBe` Right []
-        (fan >>= spawning t1) `shouldBe` Left (StopUntriaged (runId "c1"))
-        map (.id) . spawnable 3 . triaged (runId "c1") <$> fan `shouldBe` Right [t1]
-        (`tries` t1) <$> (fan >>= spawning t1 . triaged (runId "c1") >>= spawned (childFor "c2" t1)) `shouldBe` Right 2
+        let fan = applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access"))]
+        map (.id) . spawnable [] 3 <$> fan `shouldBe` Right []
+        (fan >>= spawning [] t1) `shouldBe` Left (StopUntriaged (runId "c1"))
+        map (.id) . spawnable [] 3 . triaged (runId "c1") <$> fan `shouldBe` Right [t1]
+        (`tries` t1) <$> (fan >>= spawning [] t1 . triaged (runId "c1") >>= spawned [] (childFor "c2" t1)) `shouldBe` Right 2
+
+    it "retries no task while its stopped child's question is open" $ do
+        let fan = triaged (runId "c1") <$> applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access"))]
+            asking = [runId "c1"]
+        map (.id) . spawnable asking 3 <$> fan `shouldBe` Right []
+        (fan >>= spawning asking t1) `shouldBe` Left (AwaitsUser (runId "c1"))
+        (fan >>= spawned asking (childFor "c2" t1)) `shouldBe` Left (AwaitsUser (runId "c1"))
 
     it "refuses a child's init on a task whose last stop is not triaged" $
-        applied [spawned (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access")), spawned (childFor "c2" t1)]
+        applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access")), spawned [] (childFor "c2" t1)]
             `shouldBe` Left (StopUntriaged (runId "c1"))
 
     it "refuses an agent for a heavy task while another heavy task is at work" $ do
         let twoHeavy = broken (tasksOf ((plainTask "t1" []) {heavy = True} :| [(plainTask "t2" []) {heavy = True}])) emptyFan
-        (spawning t1 twoHeavy >>= spawning t2) `shouldBe` Left (HeavyBusy t2 t1)
-        (spawned (childFor "c1" t1) twoHeavy >>= spawned (childFor "c2" t2)) `shouldBe` Left (HeavyBusy t2 t1)
+        (spawning [] t1 twoHeavy >>= spawning [] t2) `shouldBe` Left (HeavyBusy t2 t1)
+        (spawned [] (childFor "c1" t1) twoHeavy >>= spawned [] (childFor "c2" t2)) `shouldBe` Left (HeavyBusy t2 t1)
 
     it "refuses a second spawn of a task an agent works on" $
-        applied [spawning t1, spawning t1] `shouldBe` Left (AtWork t1)
+        applied [spawning [] t1, spawning [] t1] `shouldBe` Left (AtWork t1)
 
     it "refuses to resume a child twice before it hands back" $
-        applied [spawned (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), resumed (runId "c1"), resumed (runId "c1")]
+        applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), resumed (runId "c1"), resumed (runId "c1")]
             `shouldBe` Left (AtWork t1)
 
     it "closes only once every task is merged or parked" $
         map (\state -> applied [moved t1 state] >>= closed) [InReview (Url "pr"), Merged (Url "pr")] `shouldBe` [Left (Unmerged (t1 :| [])), Right ()]
 
     it "keeps a child running while it asks up or awaits CI" $
-        length . running <$> applied [spawned (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1"))] `shouldBe` Right 1
+        length . running <$> applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1"))] `shouldBe` Right 1
 
     it "settles a parked task, so the fan-out may leave" $
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave) `shouldBe` Right ()
 
     it "does not leave while a child runs on a task already in review" $
-        (applied [spawned (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), moved t1 (InReview (Url "pr"))] >>= leave)
+        (applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), moved t1 (InReview (Url "pr"))] >>= leave)
             `shouldBe` Left (Unsettled (t1 :| []))
 
     it "does not settle a task whose PR is in CI" $
         (applied [moved t1 (InCi (Url "pr"))] >>= leave) `shouldBe` Left (Unsettled (t1 :| []))
 
     it "refuses a second child for a task whose child runs" $
-        applied [spawned (childFor "c1" t1), spawned (childFor "c2" t1)] `shouldBe` Left (StillRunning t1 (runId "c1"))
+        applied [spawned [] (childFor "c1" t1), spawned [] (childFor "c2" t1)] `shouldBe` Left (StillRunning t1 (runId "c1"))
 
     it "refuses a hand-back from a child that finished" $
-        applied [spawned (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR")), handedBack (runId "c1") (Finished (oneLine "PR"))]
+        applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR")), handedBack (runId "c1") (Finished (oneLine "PR"))]
             `shouldBe` Left (ChildOver (runId "c1"))
 
     it "refuses a hand-back from a child never spawned" $
@@ -103,11 +110,11 @@ spec = describe "State.Fan" $ do
 
     it "spawns a task only once its dependency settled" $ do
         let two = broken (tasksOf (plainTask "t1" [] :| [plainTask "t2" ["t1"]])) emptyFan
-        map (.id) (spawnable 3 two) `shouldBe` [t1]
-        map (.id) . spawnable 3 <$> (spawned (childFor "c1" t1) two >>= handedBack (runId "c1") (Finished (oneLine "PR"))) `shouldBe` Right [t2]
+        map (.id) (spawnable [] 3 two) `shouldBe` [t1]
+        map (.id) . spawnable [] 3 <$> (spawned [] (childFor "c1" t1) two >>= handedBack (runId "c1") (Finished (oneLine "PR"))) `shouldBe` Right [t2]
 
     it "runs one heavy task at a time" $
-        map (.id) (spawnable 3 (broken (tasksOf ((plainTask "t1" []) {heavy = True} :| [(plainTask "t2" []) {heavy = True}])) emptyFan)) `shouldBe` [t1]
+        map (.id) (spawnable [] 3 (broken (tasksOf ((plainTask "t1" []) {heavy = True} :| [(plainTask "t2" []) {heavy = True}])) emptyFan)) `shouldBe` [t1]
 
     describe "breakdown" $ do
         it "refuses a task named twice" $
@@ -139,7 +146,7 @@ genFan = do
   where
     genChange =
         Gen.choice
-            [ (\taskId n -> spawned (childFor ("c" <> tshow n) taskId)) <$> genTaskId
+            [ (\taskId n -> spawned [] (childFor ("c" <> tshow n) taskId)) <$> genTaskId
             , ( \i said _ fan -> case fan.children of
                     [] -> Right fan
                     children -> handedBack (children !! (i `mod` length children)).child.run said fan
@@ -147,7 +154,7 @@ genFan = do
                 <$> Gen.int (Range.linear 0 10)
                 <*> genSaid
             , (\taskId state _ -> moved taskId state) <$> genTaskId <*> genTaskState
-            , (\taskId _ -> spawning taskId) <$> genTaskId
+            , (\taskId _ -> spawning [] taskId) <$> genTaskId
             , (\i _ fan -> Right (triaged (pickChild i fan) fan)) <$> Gen.int (Range.linear 0 10)
             , (\i _ fan -> resumed (pickChild i fan) fan) <$> Gen.int (Range.linear 0 10)
             ]

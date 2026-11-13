@@ -88,6 +88,8 @@ data Refusal
       AtWork TaskId
     | -- | The child stopped and its stop is not triaged yet: no retry before it.
       StopUntriaged RunId
+    | -- | The child's question is open with the user: no retry before its answer.
+      AwaitsUser RunId
     | -- | The task is heavy and this heavy task is at work already: one at a time.
       HeavyBusy TaskId TaskId
     | -- | The run is not over while these tasks are neither merged nor parked.
@@ -100,34 +102,39 @@ emptyFan = Fan {tasks = [], children = [], moves = Map.empty, held = [], atWork 
 broken :: Tasks -> Fan -> Fan
 broken tasks fan = fan {tasks = taskList tasks}
 
--- | The 10x sends an engineer to the task: refused while one works on it, or as 'free' refuses.
-spawning :: TaskId -> Fan -> Either Refusal Fan
-spawning task fan = do
+{- | The 10x sends an engineer to the task: refused while one works on it, or
+as 'free' refuses. @asking@ is the children whose question is still open.
+-}
+spawning :: [RunId] -> TaskId -> Fan -> Either Refusal Fan
+spawning asking task fan = do
     found <- known task fan
     case Set.member task fan.atWork of
         True -> Left (AtWork task)
-        False -> free found fan
+        False -> free asking found fan
     Right fan {atWork = Set.insert task fan.atWork}
 
 -- | The child's @init@: its task has an agent at work, spawned by the 10x or not.
-spawned :: Child -> Fan -> Either Refusal Fan
-spawned child fan = do
+spawned :: [RunId] -> Child -> Fan -> Either Refusal Fan
+spawned asking child fan = do
     found <- known child.task fan
     case find ((== child.run) . (.child.run)) fan.children of
         Just _ -> Left (SpawnedTwice child.run)
-        Nothing -> free found fan
+        Nothing -> free asking found fan
     Right fan {children = fan.children <> [ChildRun child []], atWork = Set.insert child.task fan.atWork}
 
 {- | A new child may take the task: no child of it runs on, its last child's
-stop is triaged, and no other heavy task is busy when it is heavy.
+stop is triaged, no question of its children is open (@asking@), and no other
+heavy task is busy when it is heavy.
 -}
-free :: Task -> Fan -> Either Refusal ()
-free task fan = case (find ((== task.id) . (.child.task)) (running fan), find ((== task.id) . (.task) . fst) (untriaged fan), heavyBusy) of
-    (Just other, _, _) -> Left (StillRunning task.id other.child.run)
-    (Nothing, Just (stopped, _), _) -> Left (StopUntriaged stopped.run)
-    (Nothing, Nothing, Just heavy) -> Left (HeavyBusy task.id heavy.id)
-    (Nothing, Nothing, Nothing) -> Right ()
+free :: [RunId] -> Task -> Fan -> Either Refusal ()
+free asking task fan = case (find ((== task.id) . (.child.task)) (running fan), find ((== task.id) . (.task) . fst) (untriaged fan), askingUp, heavyBusy) of
+    (Just other, _, _, _) -> Left (StillRunning task.id other.child.run)
+    (Nothing, Just (stopped, _), _, _) -> Left (StopUntriaged stopped.run)
+    (Nothing, Nothing, Just run, _) -> Left (AwaitsUser run)
+    (Nothing, Nothing, Nothing, Just heavy) -> Left (HeavyBusy task.id heavy.id)
+    (Nothing, Nothing, Nothing, Nothing) -> Right ()
   where
+    askingUp = find (`elem` asking) (map (.child.run) (childrenOf fan task.id))
     heavyBusy = find (\other -> task.heavy && other.heavy && other.id /= task.id) (busy fan)
 
 -- | The 10x resumes a child that waits on it: refused while an agent works on its task.
@@ -266,11 +273,12 @@ unsettled :: Fan -> [TaskId]
 unsettled fan = [task.id | task <- fan.tasks, not (settled fan task.id)]
 
 {- | The tasks to spawn now, in the breakdown's order: unsettled, no child
-running and no agent at work, its last stop triaged, dependencies settled,
-within the free slots of @width@, and at most one heavy task busy at once.
+running and no agent at work, its last stop triaged, no question of its
+children open (@asking@), dependencies settled, within the free slots of
+@width@, and at most one heavy task busy at once.
 -}
-spawnable :: Natural -> Fan -> [Task]
-spawnable width fan = pick (fromIntegral width - length (busy fan)) (any (.heavy) (busy fan)) ready
+spawnable :: [RunId] -> Natural -> Fan -> [Task]
+spawnable asking width fan = pick (fromIntegral width - length (busy fan)) (any (.heavy) (busy fan)) ready
   where
     ready =
         [ task
@@ -278,6 +286,7 @@ spawnable width fan = pick (fromIntegral width - length (busy fan)) (any (.heavy
         , not (settled fan task.id)
         , task.id `notElem` map (.id) (busy fan)
         , task.id `notElem` map ((.task) . fst) (untriaged fan)
+        , all ((`notElem` asking) . (.child.run)) (childrenOf fan task.id)
         , all (settled fan) task.deps
         ]
     pick :: Int -> Bool -> [Task] -> [Task]

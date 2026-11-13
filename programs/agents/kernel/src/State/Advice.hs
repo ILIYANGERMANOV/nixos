@@ -40,16 +40,16 @@ import State.Ask qualified as Ask
 import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
 import State.Cap qualified as Cap
 import State.Cli (recordCommand)
-import State.Codec (reasonText, taskIdText, taskStateName, urlText)
+import State.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText)
 import State.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), fanRole, runIdText)
 import State.Event qualified as Event
 import State.Fan (ChildRun (..), Fan (..))
 import State.Fan qualified as Fan
 import State.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
-import State.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, budget, flowRole, mode, nextQId, stuck)
+import State.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, flowRole, mode, nextQId, stuck)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
-import State.Handback (stopLine)
-import State.Mode (Cfg (..), Mode (..), Quality (..), SkipWhen (..), cfg, qualityName, sizeName)
+import State.Handback (readyState, stopLine)
+import State.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
 import State.Show (firstLine, tshow)
 import State.Steps (Row (entry, lead, notifies, runner), Runner (..), Steps, row)
 
@@ -257,7 +257,7 @@ atFan fan state = fromMaybe leave (asum [question, triage, record, resume, spawn
     triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged state.fanOut]
     record = recordFinished state.fanOut
     resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
-    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable ((cfg (mode state)).fan fan) state.fanOut)
+    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) ((cfg (mode state)).fan fan) state.fanOut)
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
     awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList state.fanOut.atWork)
     leave = Run $ case Fan.unsettled state.fanOut of
@@ -271,11 +271,7 @@ recordFinished :: Fan -> Maybe Action
 recordFinished fan = listToMaybe [Run (recordTask task) | task <- fan.tasks, Fan.unrecorded fan task.id]
 
 recordTask :: Task -> Text
-recordTask task =
-    "state record task " <> taskIdText task.id <> case task.quality of
-        Poc -> " parked POC --pr <url>"
-        Balanced -> " review <url>"
-        Max -> " review <url>"
+recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (readyState task.quality (Url "<url>"))
 
 -- | The PR's url as GitHub reports it, else the draft the run recorded: a POC run offline still skips ready.
 prUrl :: Facts -> RunState -> Maybe Url
@@ -384,7 +380,10 @@ deliver start = \case
     Triage question ->
         "RUN state rule "
             <> qidText question.qid
-            <> " --answer <a> --why <w> --cost <c> | state forward "
+            <> " --answer <a> --why <w> --cost <c>"
+            -- 'Ask.rule' refuses a Security ruling with no basis.
+            <> (if question.kind == Ask.Security then " --basis <event-id>|obvious:<why>" else "")
+            <> " | state forward "
             <> qidText question.qid
             <> " - "
             <> asked question

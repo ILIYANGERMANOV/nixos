@@ -27,6 +27,7 @@ module State.Fold (
     roundOnly,
     flowRole,
     nextQId,
+    askingChildren,
     askedAt,
 ) where
 
@@ -232,8 +233,8 @@ applyEvent g state = \case
     RuledOn qid proposal -> going (ruledOn state qid proposal)
     Forwarded qid to -> going (forwarded state qid to)
     Answered qid answer by -> going (answered state qid answer by)
-    Spawning task -> going (inFan (Fan.spawning task))
-    Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned child))
+    Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
+    Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
     TaskMoved task moved -> going (inFan (Fan.moved task moved))
@@ -383,6 +384,10 @@ close qid = filter ((/= qid) . pendingId)
 
 pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
+
+-- | The children whose question is still open, in triage or with the user: none of their tasks is retried.
+askingChildren :: RunState -> [RunId]
+askingChildren state = [run | pending <- state.pending, ChildRun run <- [pending.asking.from]]
 
 -- | The id of the run's next own question: one past the highest it asked.
 nextQId :: RunState -> QId

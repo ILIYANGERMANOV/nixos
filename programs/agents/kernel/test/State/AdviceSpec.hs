@@ -135,6 +135,11 @@ spec = describe "State.Advice" $ do
                 triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
             map (next noFacts . tenXAt (t1 :| [])) [stopped, stopped <> [Asked (Asking triaged (StateName "engineers") (ChildRun (runId "c1"))), RuledOn triaged.qid ruling]]
                 `shouldBe` [TriageStop (runId "c1") stop, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
+        it "waits on the user's answer to a stopped child's question before a retry" $ do
+            let stuckOn = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
+                forwarded = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended (Stop Blocked "no access")), Asked (Asking stuckOn (StateName "engineers") (ChildRun (runId "c1"))), Forwarded stuckOn.qid TheUser]
+            map (next noFacts . tenXAt (t1 :| [])) [forwarded, forwarded <> [Answered stuckOn.qid "retry" TheUser]]
+                `shouldBe` [AwaitAnswer stuckOn, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
         it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
             let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), Took (FanDone FEngineers)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
@@ -147,6 +152,9 @@ spec = describe "State.Advice" $ do
         it "records a finished task's PR when the child's READY named none" $
             map (next noFacts . tenXAt (t1 :| [t2]) . ([Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "done"))] <>)) [[], [TaskMoved (TaskId "t1") (InReview prUrl)]]
                 `shouldBe` [Run "state record task t1 review <url>", Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
+        it "parks a finished POC task's PR as a draft when the child's READY named none" $
+            next noFacts (tenXAt ((plainTask "t1" []) {quality = Poc} :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "done"))])
+                `shouldBe` Run "state record task t1 parked POC --pr <url>"
         it "states a child's question no more once it is answered" $
             filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])))
                 `shouldBe` ["task t1: child c1 waits to resume, tries 1"]
@@ -171,6 +179,12 @@ spec = describe "State.Advice" $ do
         it "spawns in the background only where the interface can" $
             map (\ops -> deliver start {interface = Set.fromList ops} (Spawn (AgentRole "implementer") Nothing)) [[], [Background]]
                 `shouldBe` ["SPAWN implementer background: no", "SPAWN implementer background: yes"]
+
+        it "names a basis in the triage line of a Security question only" $
+            map (\kind -> deliver start (Triage (Question which.qid kind which.text))) [Design, Security]
+                `shouldBe` [ "RUN state rule r7f2:1 --answer <a> --why <w> --cost <c> | state forward r7f2:1 - Design r7f2:1: which store?"
+                           , "RUN state rule r7f2:1 --answer <a> --why <w> --cost <c> --basis <event-id>|obvious:<why> | state forward r7f2:1 - Security r7f2:1: which store?"
+                           ]
 
         it "asks the user a forwarded question, or hands it back to a parent run" $
             map (`deliver` AwaitAnswer which) [start, child]
