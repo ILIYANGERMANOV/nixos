@@ -24,35 +24,13 @@ let
     "review-lead"
   ];
 
-  union = field: rows: lib.unique (lib.concatMap (row: row.${field}) rows);
-  intersection =
-    field: rows:
-    lib.foldl' (kept: row: lib.filter (item: lib.elem item row.${field}) kept) (lib.head rows).${field}
-      (lib.tail rows);
-  isSpawn = lib.hasPrefix "spawn:";
-
-  stepsOf =
-    table: role:
-    lib.attrValues (
-      lib.filterAttrs (
-        _: row: row.runner == role || (row.runner == "inline" && lib.elem role row.flows)
-      ) table
-    );
-
-  # The roles a flow spawns, as ops.
-  spawnsOf =
-    table: flow:
-    map (row: "spawn:${row.runner}") (
-      lib.filter (row: row.runner != "inline" && lib.elem flow row.flows) (lib.attrValues table)
-    );
-
   # role name -> { capabilities, skills, operations, prose }.
   derive =
     table: role:
     let
       rows = stepsOf table role;
-      operations = lib.sort lib.lessThan (lib.unique (union "ops" rows ++ spawnsOf table role));
-      tools = union "tools" rows ++ lib.optional (lib.any isSpawn operations) "delegate";
+      operations = operationsOf table role;
+      tools = toolsOf rows operations;
       prose = if lib.elem role split then intersection "prose" rows else union "prose" rows;
       # A split role's other prose would be entry prose, but `state next`
       # prints only a row's `entry` text: no prose file would reach it.
@@ -100,14 +78,12 @@ let
         role: record:
         let
           rows = stepsOf table role;
-          operations = union "ops" rows ++ spawnsOf table role;
+          operations = operationsOf table role;
           own = lib.filter (
             fragment: lib.hasSuffix "/roles/${role}/role.md" (toString fragment.file)
           ) record.instructions;
         in
-        missing record.capabilities (
-          union "tools" rows ++ lib.optional (lib.any isSpawn record.operations) "delegate"
-        )
+        missing record.capabilities (toolsOf rows operations)
         ++ missing record.skills (union "skills" rows)
         ++ missing record.operations operations
         ++ missing record.instructions (own ++ fragments (union "prose" rows));
@@ -129,6 +105,35 @@ let
       drifted == [ ] && lib.attrNames golden == lib.attrNames roles
     ) "derived_equals_recorded_golden: ${toString drifted} differ from roles/golden.nix";
     pkgs.writeText "derive-check" "";
+
+  stepsOf =
+    table: role:
+    lib.attrValues (
+      lib.filterAttrs (
+        _: row: row.runner == role || (row.runner == "inline" && lib.elem role row.flows)
+      ) table
+    );
+
+  operationsOf =
+    table: role:
+    lib.sort lib.lessThan (lib.unique (union "ops" (stepsOf table role) ++ spawnsOf table role));
+
+  # The roles a flow spawns, as ops.
+  spawnsOf =
+    table: flow:
+    map (row: "spawn:${row.runner}") (
+      lib.filter (row: row.runner != "inline" && lib.elem flow row.flows) (lib.attrValues table)
+    );
+
+  toolsOf =
+    rows: operations: union "tools" rows ++ lib.optional (lib.any isSpawn operations) "delegate";
+  isSpawn = lib.hasPrefix "spawn:";
+
+  union = field: rows: lib.unique (lib.concatMap (row: row.${field}) rows);
+  intersection =
+    field: rows:
+    lib.foldl' (kept: row: lib.filter (item: lib.elem item row.${field}) kept) (lib.head rows).${field}
+      (lib.tail rows);
 in
 {
   inherit derive check;
