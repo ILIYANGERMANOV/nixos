@@ -31,6 +31,7 @@ module State.Codec (
     taskIdText,
     branchText,
     taskStateName,
+    prStates,
     topicText,
     decodeBreakdown,
 ) where
@@ -325,13 +326,15 @@ taskStateData moved = "state" .= taskStateName moved <> "why" .= why <> "pr" .= 
 taskStateOf :: Object -> Parser TaskState
 taskStateOf obj = do
     pr <- fmap Url <$> obj .: "pr"
-    let withPr state = maybe (fail ("a task in " <> state <> " names its pr")) pure pr
-    obj .: "state" >>= \case
-        "ci" -> InCi <$> withPr "ci"
-        "review" -> InReview <$> withPr "review"
-        "merged" -> Merged <$> withPr "merged"
-        "parked" -> Parked <$> obj .: "why" <*> pure pr
-        other -> fail ("unknown task state " <> show (other :: Text))
+    name <- obj .: "state"
+    case (lookup name prStates, name) of
+        (Just state, _) -> maybe (fail ("a task in " <> Text.unpack name <> " names its pr")) (pure . state) pr
+        (Nothing, "parked") -> Parked <$> obj .: "why" <*> pure pr
+        (Nothing, other) -> fail ("unknown task state " <> show other)
+
+-- | The states that name their PR, by the name 'taskStateName' gives each: @state record task@'s and the log's.
+prStates :: [(Text, Url -> TaskState)]
+prStates = [("ci", InCi), ("review", InReview), ("merged", Merged)]
 
 -- | As @state record task@ names it.
 taskStateName :: TaskState -> Text

@@ -17,6 +17,7 @@ module State.Fan (
     moved,
     held,
     leave,
+    lookupTask,
     running,
     latest,
     childrenOf,
@@ -99,7 +100,11 @@ leave :: Fan -> Either Refusal ()
 leave fan = maybe (Right ()) (Left . Unsettled) (NonEmpty.nonEmpty (unsettled fan))
 
 known :: TaskId -> Fan -> Either Refusal Task
-known task fan = maybe (Left (UnknownTask task)) Right (find ((== task) . (.id)) fan.tasks)
+known task fan = maybe (Left (UnknownTask task)) Right (lookupTask fan task)
+
+-- | The breakdown's task of this id.
+lookupTask :: Fan -> TaskId -> Maybe Task
+lookupTask fan task = find ((== task) . (.id)) fan.tasks
 
 -- | The children not yet finished or stopped, oldest first.
 running :: Fan -> [ChildRun]

@@ -68,7 +68,8 @@ import Effectful (Eff, runPureEff)
 import Effectful.State.Static.Local (runState)
 import State.Advice (PrView (..), PullRequest (..), Readiness (..))
 import State.Codec (LogError (..), decodeLogBytes, eventType, logOf)
-import State.Event (Branch (..), DraftPr (..), Envelope (..), Sha (..), Url (..))
+import State.Event (Branch (..), DraftPr (..), Envelope (..), Sha (..), Task (..), Url (..))
+import State.RunGen (breakdownJson, plainTask)
 import State.Shell qualified as Shell
 import System.Environment (getEnv)
 import System.Exit (ExitCode (..))
@@ -184,22 +185,11 @@ putFile world path content = modifyIORef' world $ \w ->
 tenXAtFanOut :: IORef World -> IO Text
 tenXAtFanOut world = do
     tenX <- startedIn world ["--flow", "10x"]
-    putFile world (notes </> "tasks.json") ("[" <> task "t1" "[]" "false" <> "," <> task "t2" "[\"t1\"]" "true" <> "]")
+    putFile world (notes </> "tasks.json") (breakdownJson [plainTask "t1" [], (plainTask "t2" ["t1"]) {heavy = True}])
     for_ [["quality", "Balanced"], ["size", "Normal"]] $ \argv -> succeeded =<< state world ("record" : argv)
     _ <- succeeded =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
     _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
     pure tenX
-  where
-    task name deps heavy =
-        "{\"id\":\""
-            <> name
-            <> "\",\"deps\":"
-            <> deps
-            <> ",\"base\":\"main\",\"branch\":\""
-            <> name
-            <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":"
-            <> heavy
-            <> ",\"security\":[]}"
 
 -- | The child run a parent's brief starts for this task, in the notes dir given; its id.
 childRun :: IORef World -> Text -> FilePath -> Text -> IO Text

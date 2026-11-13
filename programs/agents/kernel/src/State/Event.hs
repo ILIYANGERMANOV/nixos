@@ -54,6 +54,7 @@ module State.Event (
     TaskState (..),
 ) where
 
+import Control.Monad (foldM)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
@@ -339,10 +340,9 @@ data BreakdownError
     deriving stock (Eq, Show)
 
 breakdown :: NonEmpty Task -> Either BreakdownError Tasks
-breakdown tasks = Tasks tasks <$ foldl check (Right []) tasks
+breakdown tasks = Tasks tasks <$ foldM check [] tasks
   where
-    check earlier task = do
-        seen <- earlier
+    check seen task =
         case (task.id `elem` seen, filter (`notElem` seen) task.deps) of
             (True, _) -> Left (TaskTwice task.id)
             (False, later : _) -> Left (DependsLater task.id later)

@@ -266,8 +266,9 @@ question, or a worker's BLOCKED or FAILED, is the run's to triage.
 handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe RunId -> Text -> Either Failure Plan
 handbackPlan steps worktreeHead state role child message = do
     parsed <- unread (parseHandback message)
-    typed <- unread (typeHandback steps state worktreeHead role parsed {Handback.run = parsed.run <|> child})
-    let from = maybe (roleText role) runIdText (parsed.run <|> child)
+    let run = parsed.run <|> child
+    typed <- unread (typeHandback steps state worktreeHead role parsed {Handback.run = run})
+    let from = maybe (roleText role) runIdText run
         triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> from <> " <question>\n"
     Right (Plan typed.events (\after new -> recordedLines after new <> foldMap triage typed.untriaged))
   where

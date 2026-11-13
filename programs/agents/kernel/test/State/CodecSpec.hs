@@ -13,6 +13,7 @@ import State.Ask (Basis (..), Proposal (..), QId (..))
 import State.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, encodeLine)
 import State.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, taskList)
 import State.EventGen (genEnvelope, oneLine, runId)
+import State.RunGen (breakdownJson, plainTask)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -77,10 +78,10 @@ spec = describe "State.Codec" $ do
             `shouldSatisfy` Text.isInfixOf "\"type\":\"handed_back\",\"data\":{\"child\":\"c1\",\"token\":\"BLOCKED\",\"ref\":\"no access\",\"qid\":null}"
 
     it "reads a breakdown's tasks in order" $
-        map (.id) . taskList <$> decodeBreakdown (breakdownOf [task "t1" [], task "t2" ["t1"]]) `shouldBe` Right [TaskId "t1", TaskId "t2"]
+        map (.id) . taskList <$> decodeBreakdown (breakdownJson [plainTask "t1" [], plainTask "t2" ["t1"]]) `shouldBe` Right [TaskId "t1", TaskId "t2"]
 
     it "refuses a breakdown that is empty, names a task twice or depends on a later task" $
-        map (either Left (const (Right ())) . decodeBreakdown . breakdownOf) [[], [task "t1" [], task "t1" []], [task "t1" ["t2"], task "t2" []]]
+        map (either Left (const (Right ())) . decodeBreakdown . breakdownJson) [[], [plainTask "t1" [], plainTask "t1" []], [plainTask "t1" ["t2"], plainTask "t2" []]]
             `shouldBe` [ Left "Error in $: a breakdown has a task at least"
                        , Left "Error in $: task t1 is named twice"
                        , Left "Error in $: task t1 depends on t2, which is not an earlier task"
@@ -141,17 +142,3 @@ malformed = \case
     Left (Malformed _) -> True
     Left (Unsupported _) -> False
     Right _ -> False
-
--- | A breakdown file's JSON: tasks of an id and its dependencies, the rest fixed.
-breakdownOf :: [Text] -> Text
-breakdownOf tasks = "[" <> Text.intercalate "," tasks <> "]"
-
-task :: Text -> [Text] -> Text
-task name deps =
-    "{\"id\":\""
-        <> name
-        <> "\",\"deps\":["
-        <> Text.intercalate "," (map (\dep -> "\"" <> dep <> "\"") deps)
-        <> "],\"base\":\"main\",\"branch\":\""
-        <> name
-        <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":false,\"security\":[]}"

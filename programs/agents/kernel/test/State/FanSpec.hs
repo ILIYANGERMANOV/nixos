@@ -3,7 +3,6 @@ module State.FanSpec (spec) where
 import Data.Either (fromRight, isRight)
 import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (Gen, assert, cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen
@@ -11,8 +10,8 @@ import Hedgehog.Range qualified as Range
 import State.Event
 import State.EventGen (genSaid, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
 import State.Fan
-import State.Mode (Quality (..), Size (..))
-import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
+import State.RunGen (plainTask)
+import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
@@ -77,30 +76,27 @@ spec = describe "State.Fan" $ do
         applied [held (TaskId "t9") (Url "u")] `shouldBe` Left (UnknownTask (TaskId "t9"))
 
     it "spawns a task only once its dependency settled" $ do
-        let two = broken (tasksOf (taskOf t1 [] :| [taskOf t2 [t1]])) emptyFan
+        let two = broken (tasksOf (plainTask "t1" [] :| [plainTask "t2" ["t1"]])) emptyFan
         map (.id) (spawnable 3 two) `shouldBe` [t1]
         map (.id) . spawnable 3 <$> (spawned (childFor "c1" t1) two >>= handedBack (runId "c1") (Finished (oneLine "PR"))) `shouldBe` Right [t2]
 
     it "runs one heavy task at a time" $
-        map (.id) (spawnable 3 (broken (tasksOf ((taskOf t1 []) {heavy = True} :| [(taskOf t2 []) {heavy = True}])) emptyFan)) `shouldBe` [t1]
+        map (.id) (spawnable 3 (broken (tasksOf ((plainTask "t1" []) {heavy = True} :| [(plainTask "t2" []) {heavy = True}])) emptyFan)) `shouldBe` [t1]
 
     describe "breakdown" $ do
         it "refuses a task named twice" $
-            breakdown (taskOf t1 [] :| [taskOf t1 []]) `shouldBe` Left (TaskTwice t1)
+            breakdown (plainTask "t1" [] :| [plainTask "t1" []]) `shouldBe` Left (TaskTwice t1)
 
         it "refuses a dependency on a later task, so dependencies never cycle" $
-            breakdown (taskOf t1 [t2] :| [taskOf t2 []]) `shouldSatisfy` (== Left (DependsLater t1 t2))
+            breakdown (plainTask "t1" ["t2"] :| [plainTask "t2" []]) `shouldBe` Left (DependsLater t1 t2)
   where
     settledAfter changes = (`settled` t1) <$> applied changes
     applied = foldl' (>>=) (Right oneTask)
-    oneTask = broken (tasksOf (taskOf t1 [] :| [])) emptyFan
+    oneTask = broken (tasksOf (plainTask "t1" [] :| [])) emptyFan
 
 t1, t2 :: TaskId
 t1 = TaskId "t1"
 t2 = TaskId "t2"
-
-taskOf :: TaskId -> [TaskId] -> Task
-taskOf taskId deps = Task taskId deps (Branch "main") (Branch "b") Balanced Normal False False Set.empty
 
 childFor :: Text.Text -> TaskId -> Child
 childFor child taskId = Child (runId child) taskId "log" "worktree"

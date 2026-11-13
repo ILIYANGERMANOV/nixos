@@ -385,7 +385,7 @@ recordables =
         _ -> Left "the tasks file, as --tasks <file.json>"
     , nothing (fanEvent Leaves (fanName FEngineers)) (FanDone FEngineers)
     , Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why> [--pr <url>]" ["pr"] $ \a -> case a.positional of
-        [task, state, pr] | Just moved <- lookup state [("ci", InCi), ("review", InReview), ("merged", Merged)] -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
+        [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
         task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
         _ -> Left "the task, then ci, review or merged and its PR, or parked and why"
     , stay "held" "<task> <url>" $ \case

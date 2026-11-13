@@ -15,6 +15,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
+import State.RunGen (breakdownJson, plainTask)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
 import System.Exit (ExitCode (..))
@@ -324,8 +325,12 @@ succeeded ran
 
 -- | @init@ in the worktree's notes; the run's id.
 startedRun :: FilePath -> Repo -> IO Text
-startedRun bin repo =
-    (succeeded =<< state bin repo ["init", "--notes", repo.notes]) >>= \case
+startedRun bin repo = startedIn bin repo ["--notes", repo.notes]
+
+-- | @init@ with these arguments; the run's id.
+startedIn :: FilePath -> Repo -> [String] -> IO Text
+startedIn bin repo argv =
+    (succeeded =<< state bin repo ("init" : argv)) >>= \case
         [line] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
 
@@ -334,30 +339,15 @@ startedRun bin repo =
 -}
 tenXAtFanOut :: FilePath -> Repo -> IO Text
 tenXAtFanOut bin repo = do
-    run <-
-        (succeeded =<< state bin repo ["init", "--notes", repo.notes, "--flow", "10x"]) >>= \case
-            [line] | Just run <- Text.stripPrefix "started " line -> pure run
-            other -> fail ("not started: " <> show other)
+    run <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
     let tasks = repo.root </> "tasks.json"
-    Text.writeFile tasks ("[" <> task "t1" "[]" <> "," <> task "t2" "[\"t1\"]" <> "]")
+    Text.writeFile tasks (breakdownJson [plainTask "t1" [], plainTask "t2" ["t1"]])
     for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo)
     pure run
-  where
-    task name deps =
-        "{\"id\":\""
-            <> name
-            <> "\",\"deps\":"
-            <> deps
-            <> ",\"base\":\"main\",\"branch\":\""
-            <> name
-            <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":false,\"security\":[]}"
 
 -- | The child run a parent's brief starts for this task, its notes in @dir@ under the repo's root; its id.
 childRun :: FilePath -> Repo -> Text -> FilePath -> Text -> IO Text
-childRun bin repo parent dir task =
-    (succeeded =<< state bin repo ["init", "--notes", repo.root </> dir, "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", Text.unpack task]) >>= \case
-        [line] | Just run <- Text.stripPrefix "started " line -> pure run
-        other -> fail ("not started: " <> show other)
+childRun bin repo parent dir task = startedIn bin repo ["--notes", repo.root </> dir, "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", Text.unpack task]
 
 -- | A worktree of its own on a new branch, as a child runs in; the repo as seen from it.
 worktree :: Repo -> String -> IO Repo

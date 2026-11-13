@@ -6,7 +6,6 @@ module State.View (
 ) where
 
 import Data.Bool (bool)
-import Data.Foldable (find)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -15,7 +14,7 @@ import State.Ask (Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
 import State.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
 import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
-import State.Fan (Fan (..))
+import State.Fan (Fan (..), lookupTask)
 import State.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt)
 import State.Graph (Node (..), Place (..))
 import State.Mode (qualityName, sizeName)
@@ -74,7 +73,7 @@ brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state (AgentRole role) task = case role of
     "engineer" -> case task of
         Nothing -> Right (initLine "<id>")
-        Just taskId -> case find ((== taskId) . (.id)) state.fanOut.tasks of
+        Just taskId -> case lookupTask state.fanOut taskId of
             Nothing -> Left taskId
             Just found -> Right (Text.unlines (taskLines found) <> "\n" <> initLine (taskIdText taskId))
     _ -> Right (Text.concat [entry name r | (name, r) <- briefed] <> rule)

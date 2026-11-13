@@ -22,7 +22,7 @@ import State.Fold hiding (Answer (..))
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), cfg)
 import State.Path (ty)
-import State.RunGen (commit, g, genAccepted, genKnobs, happyPath, outcomeOf, sha, tenXGraph)
+import State.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, sha, tenXGraph)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -33,9 +33,8 @@ spec = describe "State.Fold" $ do
 
     describe "the 10x's fan-out" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
-            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", Took (BreakdownDone (tasksOf (task :| [])))]
-            task = Task (TaskId "t1") [] (Branch "main") (Branch "t1") Balanced Normal False False Set.empty
-            child = Child (runId "c1") (TaskId "t1") "c1/events.jsonl" "c1"
+            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", Took (BreakdownDone (tasksOf (plainTask "t1" [] :| [])))]
+            child = childOf "c1" "t1"
             atName state = case state.at of
                 At place -> Just place.name
                 Out -> Nothing

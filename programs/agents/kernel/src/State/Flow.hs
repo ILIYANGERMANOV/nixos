@@ -17,6 +17,7 @@ module State.Flow (
 ) where
 
 import Data.Kind (Type)
+import Data.List (find)
 import Data.Text (Text)
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Cap (EventName (..), KnownTy, OutcomeName (..), StateName (..), Step, Ty (..))
@@ -77,9 +78,7 @@ data FanId = FResearchers | FEngineers
 
 -- | The fan-out whose state this is, if any.
 fanNamed :: StateName -> Maybe FanId
-fanNamed name = case [fan | fan <- [minBound .. maxBound], fanName fan == name] of
-    fan : _ -> Just fan
-    [] -> Nothing
+fanNamed name = find ((== name) . fanName) [minBound .. maxBound]
 
 -- | The state a 'Par' draws as.
 fanName :: FanId -> StateName

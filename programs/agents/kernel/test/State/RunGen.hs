@@ -4,6 +4,7 @@ module State.RunGen (
     tenXGraph,
     tenXAt,
     plainTask,
+    breakdownJson,
     childOf,
     sha,
     commit,
@@ -16,6 +17,8 @@ module State.RunGen (
     outcomeOf,
 ) where
 
+import Data.Aeson (object, (.=))
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -23,18 +26,20 @@ import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
+import State.Codec (branchText, taskIdText, topicText)
 import State.Event
 import State.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
 import State.Fold (Append (..), RunState (..), append, replay)
 import State.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
-import State.Mode (Quality (..), Size (..))
+import State.Mode (Quality (..), Size (..), qualityName, sizeName)
 import State.Steps (Steps, parseSteps)
 import System.Environment (getEnv)
 
@@ -56,6 +61,23 @@ tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started
 -- | A task on its own branch off main, Balanced Normal, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
 plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced Normal False False Set.empty
+
+-- | The breakdown file the 10x writes for these tasks, in this order.
+breakdownJson :: [Task] -> Text
+breakdownJson = decodeUtf8 . LBS.toStrict . Aeson.encode . map taskJson
+  where
+    taskJson task =
+        object
+            [ "id" .= taskIdText task.id
+            , "deps" .= map taskIdText task.deps
+            , "base" .= branchText task.base
+            , "branch" .= branchText task.branch
+            , "quality" .= qualityName task.quality
+            , "size" .= sizeName task.size
+            , "qa" .= task.qa
+            , "heavy" .= task.heavy
+            , "security" .= map topicText (Set.toList task.security)
+            ]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child
