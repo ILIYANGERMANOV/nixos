@@ -7,6 +7,7 @@ module State.Cli (
     Command (..),
     RunCommand (..),
     InitArgs (..),
+    Parent (..),
     Recording (..),
     Raise (..),
     Block (..),
@@ -25,7 +26,6 @@ import Data.Bifunctor (first)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -72,13 +72,10 @@ data RunCommand
     | StopRun Stop
     | Pending
 
-data InitArgs = InitArgs
-    { notes :: FilePath
-    , flow :: FlowName
-    , parent :: Maybe (RunId, FilePath)
-    -- ^ The parent run and its log, as the parent's brief names them.
-    , task :: Text
-    }
+data InitArgs = InitArgs {notes :: FilePath, flow :: FlowName, parent :: Maybe Parent}
+
+-- | The parent run, its log and the task it gave this run, as the parent's brief names them.
+data Parent = Parent {run :: RunId, log :: FilePath, task :: TaskId}
 
 {- | An event to record. Most carry the commit the worktree is at, which only
 the shell can read; a breakdown is read from a file, by the shell too.
@@ -123,10 +120,10 @@ parseSub steps sub rest = case sub of
         notes <- required "notes" a
         flow <- maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText)) (option "flow" a)
         parent <- case (option "parent" a, option "parent-log" a, option "task" a) of
-            (Nothing, Nothing, _) -> Right Nothing
-            (Just run, Just logPath, Just _) -> Just <$> ((,) <$> runId run <*> parentLog logPath)
+            (Nothing, Nothing, Nothing) -> Right Nothing
+            (Just run, Just logPath, Just task) -> (\r l -> Just (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
             _ -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
-        Right (Init InitArgs {notes = Text.unpack notes, flow, parent, task = fromMaybe "" (option "task" a)})
+        Right (Init InitArgs {notes = Text.unpack notes, flow, parent})
     "record" -> case rest of
         [] -> Left (usage "no event" "record names one event")
         name : args -> case [r | r <- recordables, r.name == name] of
@@ -391,6 +388,12 @@ recordables =
     , stay "held" "<task> <url>" $ \case
         [task, link] -> Right (Held (TaskId task) (Url link))
         _ -> Left "the task and the url"
+    , stay "spawning" "<task>" $ \case
+        [task] -> Right (Spawning (TaskId task))
+        _ -> Left "the task the engineer you spawn takes"
+    , stay "resumed" "<child run>" $ \case
+        [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
+        _ -> Left "the child run you resume"
     , url (continueEvent Merge) MergeDone
     ]
   where
@@ -468,6 +471,9 @@ explain g mode at = \case
         Fan.UnknownChild child -> refused ("the hand-back of " <> runIdText child) "no such child was spawned" "state show"
         Fan.ChildOver child -> refused ("the hand-back of " <> runIdText child) "the child finished or stopped already" "state next"
         Fan.Unsettled tasks -> refused "the fan-out's end" ("tasks not settled: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
+        Fan.AtWork task -> refused ("an agent for task " <> Codec.taskIdText task) "one works on it already, until its child hands back" "state next"
+        Fan.StopUntriaged child -> refused ("a retry of child " <> runIdText child) "its stop is not triaged yet" ("state ask --kind <kind> --from " <> runIdText child <> " <question>")
+        Fan.Unmerged tasks -> refused "the run's end" ("tasks neither merged nor parked: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
   where
     refused = Failure BadInput
     atText = case at of

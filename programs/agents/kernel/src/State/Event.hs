@@ -2,8 +2,8 @@
 places it. A step's outcome is an 'Outcome', named by the step it ends
 ('outcomeEvent'), so a log is read off the flow's graph. A question is an
 'Asking' and the events on its id that close it. The 10x's fan-out logs its
-children ('Spawned', 'HandedBack') and its tasks ('TaskMoved', 'Held') as
-stay events.
+children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
+'Resumed') and its tasks ('TaskMoved', 'Held') as stay events.
 -}
 module State.Event (
     Envelope (..),
@@ -126,8 +126,12 @@ data Event
       Overridden StateName Text
     | -- | An event the run refused, logged so the next read can warn of it.
       Refused Note
+    | -- | The 10x spawns an engineer for the task, before the child's @init@ logs 'Spawned'.
+      Spawning TaskId
     | -- | A child run started for a task, at the fan-out (written by the child's @init@).
       Spawned Child
+    | -- | The 10x resumes the child run, which works again until it hands back.
+      Resumed RunId
     | -- | What a child run's hand-back said, by its run id.
       HandedBack RunId Said
     | -- | Where a task's PR stands, as the 10x saw it.
@@ -144,7 +148,8 @@ data Start = Start
     , notes :: FilePath
     , principal :: Principal
     , interface :: Set Op
-    , task :: Text
+    , task :: Maybe TaskId
+    -- ^ The parent's task, in a child run.
     }
     deriving stock (Eq, Show)
 

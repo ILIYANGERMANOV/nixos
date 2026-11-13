@@ -127,7 +127,7 @@ metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
 
 -- | A started line naming parent run r7f2.
 parentRun :: Envelope
-parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (runId "r7f2") "/p/events.jsonl") mempty "a task")}
+parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (runId "r7f2") "/p/events.jsonl") mempty (Just (TaskId "t1")))}
 
 -- | Lines in the shape the Python @state@ wrote, its other keys left out.
 pythonV1, pythonV2 :: Text

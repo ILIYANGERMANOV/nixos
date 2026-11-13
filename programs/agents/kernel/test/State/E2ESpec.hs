@@ -61,8 +61,8 @@ spec = describe "the state binary" $ do
 
         it "starts a run once per notes dir, and refuses one there after it stopped" $ \repo -> do
             run <- startedRun bin repo
-            again <- startedRun bin repo
-            again `shouldBe` run
+            again <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+            again `shouldBe` ["resumed " <> run]
             _ <- succeeded =<< state bin repo ["stop", "replan", "the", "plan", "is", "wrong"]
             refused <- state bin repo ["init", "--notes", repo.notes]
             (refused.code, drop 1 refused.err) `shouldBe` (2, ["fix: state init --notes <a new dir>"])
@@ -154,10 +154,41 @@ spec = describe "the state binary" $ do
                 for_ [["forward", q2], ["answer", q2, "use", "a", "vault"]] (succeeded <=< state bin repo)
                 first <- succeeded =<< state bin repo ["next"]
                 take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1]
-                _ <- succeeded =<< state bin w1 ["answer", q1, "postgres"]
-                relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
+                _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c1]
                 second <- succeeded =<< state bin repo ["next"]
                 take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2]
+                _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c2]
+                twice <- state bin repo ["record", "resumed", Text.unpack c2]
+                twice.code `shouldBe` 2
+                _ <- succeeded =<< state bin w1 ["answer", q1, "postgres", "--by", Text.unpack parent]
+                relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
+                third <- succeeded =<< state bin repo ["next"]
+                take 1 third `shouldBe` ["AWAIT children t2"]
+
+            it "spawns a task once: next waits on it from the recorded spawn, before the child starts" $ \repo -> do
+                _ <- tenXAtFanOut bin repo
+                spawn <- succeeded =<< state bin repo ["next"]
+                take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+                _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
+                waits <- succeeded =<< state bin repo ["next"]
+                take 1 waits `shouldBe` ["AWAIT children t1"]
+                twice <- state bin repo ["record", "spawning", "t1"]
+                twice.code `shouldBe` 2
+
+            it "triages a child's stop before it retries the task" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                relay bin repo ["HANDBACK BLOCKED no access to the registry", "Run: " <> c1]
+                triage <- succeeded =<< state bin repo ["next"]
+                take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c1 <> " <question> - triage: BLOCKED no access to the registry"]
+                asked <- succeeded =<< state bin repo ["ask", "--kind", "Stuck", "--from", Text.unpack c1, "retry", "with", "a", "token?"]
+                qid <- case asked of
+                    line : _ | Just found <- Text.stripPrefix "asked " line -> pure (Text.unpack found)
+                    other -> fail ("not asked: " <> show other)
+                _ <- succeeded =<< state bin repo ["rule", qid, "--answer", "retry", "--why", "first try", "--cost", "one try"]
+                retry <- succeeded =<< state bin repo ["next"]
+                take 1 retry `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
             it "lists, after a crash, the child still running and the question pending" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
@@ -184,6 +215,12 @@ spec = describe "the state binary" $ do
                 relay bin repo =<< succeeded =<< state bin w1 ["next"]
                 left <- succeeded =<< state bin repo ["next"]
                 recorded left `shouldBe` ["engineers.done -> merge"]
+                drop 1 left `shouldSatisfy` mentions "AWAIT merge t1"
+                early <- state bin repo ["record", "merge.done", prUrlString]
+                early.code `shouldBe` 2
+                _ <- succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
+                done <- succeeded =<< state bin repo ["next"]
+                take 1 done `shouldBe` ["RUN state record merge.done <url>"]
 
         describe "brief" $ do
             it "gives a refactorer its step's entry and the stop rule" $ \repo -> do

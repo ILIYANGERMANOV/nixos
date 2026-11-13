@@ -28,7 +28,7 @@ import Data.Foldable (asum, toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -96,6 +96,8 @@ pullRequestOf = \case
     PrViewTimedOut seconds -> Left ("gh pr view timed out after " <> tshow seconds <> "s")
     PrViewFailed err
         | "no pull requests found" `Text.isInfixOf` err -> Right Nothing
+        -- A repo with no remote, as the 10x's run directory, has no PR.
+        | "no git remotes found" `Text.isInfixOf` err -> Right Nothing
         | otherwise -> Left ("gh pr view: " <> firstLine (Text.unpack err))
     PrViewPrinted out -> either (Left . ("gh pr view printed no PR: " <>) . Text.pack) (Right . Just) $ do
         value <- eitherDecodeStrictText out
@@ -127,8 +129,12 @@ data Action
       AwaitCi Text
     | -- | A child to resume, and what with: the answer to its question, or its CI.
       Resume RunId Text
-    | -- | Children at work, none of them waiting on this run.
-      AwaitChildren (NonEmpty RunId)
+    | -- | A stopped child's stop, for @state ask --from@ before any retry.
+      TriageStop RunId Stop
+    | -- | Tasks with an agent at work, none of them waiting on this run.
+      AwaitChildren (NonEmpty TaskId)
+    | -- | Tasks neither merged nor parked: the merge loop's, on approval wakes.
+      AwaitMerge (NonEmpty TaskId)
     | Run Text
     | Stopped Stop
     | Done (Maybe Url)
@@ -218,21 +224,25 @@ advise steps facts state = Advice action (factLines facts state) entry
         [ (stepName Confirm, if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes Confirm) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?")
         , (stepName Pick, Run (pickCommand state))
         , (stepName Cap.AwaitCi, AwaitCi (maybe "the PR" urlText (prUrl facts state)))
+        , (stepName Cap.Merge, maybe (Run (recordOutcomes Cap.Merge)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut)))
         ]
 
-{- | At a fan-out, with no question pending: resume a child its answer or CI
-waits for, else spawn a task with a free slot, else wait on the children.
-With none running and none spawnable, a task is left to park.
+{- | At a fan-out, with no question pending: triage a child's stop, else
+resume a child its answer waits for, else spawn a task with a free slot,
+else wait on CI or the children at work. A child the 10x resumed, or a task
+it spawned, has an agent at work and is advised no more. With none at work
+and none spawnable, a task is left to park.
 -}
 atFan :: FanId -> RunState -> Action
-atFan fan state = fromMaybe leave (asum [resume, spawn, awaitCi, awaitChildren])
+atFan fan state = fromMaybe leave (asum [triage, resume, spawn, awaitCi, awaitChildren])
   where
-    running = Fan.running state.fanOut
+    waiting = Fan.waiting state.fanOut
     open = map (.asking.question.qid) state.pending
-    resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- running, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
+    triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged state.fanOut]
+    resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
     spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable ((cfg (mode state)).fan fan) state.fanOut)
-    awaitCi = listToMaybe [AwaitCi (oneLineText ref) | c <- running, Just (AwaitsCi ref) <- [Fan.latest c]]
-    awaitChildren = AwaitChildren . fmap (.child.run) <$> NonEmpty.nonEmpty running
+    awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
+    awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList state.fanOut.atWork)
     leave = Run $ case Fan.unsettled state.fanOut of
         task : _ -> "state record task " <> taskIdText task <> " parked <why>"
         [] -> recordCommand (fanEvent Leaves (fanName fan))
@@ -305,11 +315,15 @@ taskLine fan task =
     "task "
         <> taskIdText task.id
         <> ": "
-        <> Text.intercalate ", " (childText <> foldMap (pure . movedText) (Map.lookup task.id fan.moves) <> ["tries " <> tshow (Fan.tries fan task.id)])
+        <> Text.intercalate ", " (childText <> foldMap (pure . movedText) (Map.lookup task.id fan.moves) <> atWork <> ["tries " <> tshow (Fan.tries fan task.id)] <> held)
   where
-    childText = case reverse (Fan.childrenOf fan task.id) of
-        [] -> ["not started"]
-        c : _ -> ["child " <> runIdText c.child.run <> " " <> maybe "running" saidText (Fan.latest c)]
+    latestChild = listToMaybe (reverse (Fan.childrenOf fan task.id))
+    childText = case latestChild of
+        Nothing -> ["not started"]
+        Just c -> ["child " <> runIdText c.child.run <> " " <> maybe "running" saidText (Fan.latest c)]
+    -- A child that never handed back says "running" already.
+    atWork = ["agent at work" | Set.member task.id fan.atWork, maybe True (isJust . Fan.latest) latestChild]
+    held = ["held " <> urlText url | (heldTask, url) <- fan.held, heldTask == task.id]
     saidText = \case
         Finished summary -> "finished: " <> oneLineText summary
         AsksUp qid -> "asks " <> qidText qid
@@ -344,7 +358,9 @@ deliver start = \case
         ParentRun _ -> "HANDBACK " <> needsDecision question
     AwaitCi ref -> (if has Event.Await then "" else "HANDBACK ") <> "AWAIT ci " <> ref
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
-    AwaitChildren children -> "AWAIT children " <> Text.unwords (map runIdText (toList children))
+    TriageStop child stop -> "RUN state ask --kind <kind> --from " <> runIdText child <> " <question> - triage: " <> stopLine stop
+    AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
+    AwaitMerge tasks -> "AWAIT merge " <> Text.unwords (map taskIdText (toList tasks))
     Run command -> "RUN " <> command
     Stopped stop -> case Ask.deliver start.principal of
         TheUser -> "STOP " <> reasonText stop.reason <> " " <> stop.why

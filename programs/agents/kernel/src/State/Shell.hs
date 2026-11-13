@@ -45,10 +45,10 @@ import State.Advice qualified as Advice
 import State.Ask (Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
 import State.Cap (stateNameText)
-import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
+import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Parent (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
 import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Codec qualified as Codec
-import State.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), TaskId (..), parseRunId, roleText, runIdText)
+import State.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
@@ -387,17 +387,17 @@ initRun gd args =
             stamp <- now
             fresh <- newRunId
             let path = logOf notes
-                start = Start {flow = args.flow, notes, principal, interface = interfaceOf principal, task = args.task}
+                start = Start {flow = args.flow, notes, principal, interface = interfaceOf principal, task = (.task) <$> args.parent}
             result <- Log.locked path $ \case
                 Left bad -> ([], Left (unreadLine path bad))
-                Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right fresh)
-                Right (first : rest) -> ([], joined notes (first :| rest))
+                Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right ("started", fresh))
+                Right (first : rest) -> ([], ("resumed",) <$> joined notes (first :| rest))
             -- The pointer only once the parent took the child: a refused child has no run here.
-            accepted <- case (result, principal) of
-                (Right run, ByRole parent parentLog) -> fmap (const run) <$> spawnedIn parent parentLog (Child run (TaskId args.task) path)
-                (Right run, ByUser) -> pure (Right run)
+            accepted <- case (result, args.parent) of
+                (Right said@(_, run), Just parent) -> fmap (const said) <$> spawnedIn parent.run parent.log (Child run parent.task path)
+                (Right said, Nothing) -> pure (Right said)
                 (Left failure, _) -> pure (Left failure)
-            traverse (\run -> writePointer gd notes $> ("started " <> runIdText run <> "\n")) accepted
+            traverse (\(verb, run) -> writePointer gd notes $> (verb <> " " <> runIdText run <> "\n")) accepted
   where
     -- A subagent has no hooks, wakes, notifications or background of its own (#351 s4).
     interfaceOf = \case
@@ -430,10 +430,10 @@ joined notes logged@(first :| _) = case (.stopped) . snd <$> replayed (logOf not
 {- | Who starts the run. A parent's log path was checked by the parser; here
 its first line must be that run's start.
 -}
-principalOf :: (Log :> es) => Maybe (RunId, FilePath) -> Eff es (Either Failure Principal)
+principalOf :: (Log :> es) => Maybe Parent -> Eff es (Either Failure Principal)
 principalOf = \case
     Nothing -> pure (Right ByUser)
-    Just (parent, path) -> do
+    Just Parent {run = parent, log = path} -> do
         first <- Log.firstLine path
         pure $ case decodeLine (fromMaybe "" first) of
             Right envelope | envelope.run == parent, Started _ <- envelope.event -> Right (ByRole parent path)

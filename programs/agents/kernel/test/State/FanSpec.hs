@@ -1,6 +1,7 @@
 module State.FanSpec (spec) where
 
-import Data.Either (fromRight, isRight)
+import Data.Either (fromRight)
+import Data.Set qualified as Set
 import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text qualified as Text
@@ -20,7 +21,7 @@ spec = describe "State.Fan" $ do
         fan <- forAll genFan
         width <- forAll (Gen.integral (Range.linear 1 4))
         let picks = spawnable width fan
-            busy = [task | childRun <- running fan, task <- fan.tasks, task.id == childRun.child.task]
+            busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
         cover 10 "spawns some" (not (null picks))
         cover 5 "a heavy task waits" (any (.heavy) busy && any (.heavy) [task | task <- fan.tasks, task.id `elem` unsettled fan])
         assert (length picks <= max 0 (fromIntegral width - length busy))
@@ -29,25 +30,35 @@ spec = describe "State.Fan" $ do
             assert (not (settled fan task.id))
             assert (task.id `notElem` map (.id) busy)
             assert (all (settled fan) task.deps)
+            assert (task.id `notElem` map ((.task) . fst) (untriaged fan))
 
-    it "spawning_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
+    it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
         fan <- forAll genFan
         width <- forAll (Gen.integral (Range.linear 1 4))
-        let spawnedAll = foldl' (\current (n, task) -> fromRight current (spawned (childFor ("new" <> tshow n) task.id) current)) fan (zip [0 :: Int ..] (spawnable width fan))
-        spawnable width spawnedAll === []
-
-    it "leaves_only_when_every_task_is_settled" . hedgehog $ do
-        fan <- forAll genFan
-        cover 5 "settled" (null (unsettled fan))
-        isRight (leave fan) === all (settled fan . (.id)) fan.tasks
+        let picks = zip [0 :: Int ..] (spawnable width fan)
+            spawnedAll = foldl' (\current (n, task) -> fromRight current (spawned (childFor ("new" <> tshow n) task.id) current)) fan picks
+            spawningAll = foldl' (\current (_, task) -> fromRight current (spawning task.id current)) fan picks
+        (spawnable width spawnedAll, spawnable width spawningAll) === ([], [])
 
     it "settles a task whose child finished" $
         settledAfter [spawned (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1"))] `shouldBe` Right True
 
-    it "leaves a task open after its child stops, to spawn again, and counts both tries" $ do
+    it "leaves a task open after its child stops, to spawn again once the stop is triaged, and counts both tries" $ do
         let fan = applied [spawned (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access"))]
-        map (.id) . spawnable 3 <$> fan `shouldBe` Right [t1]
-        (`tries` t1) <$> (fan >>= spawned (childFor "c2" t1)) `shouldBe` Right 2
+        map (.id) . spawnable 3 <$> fan `shouldBe` Right []
+        (fan >>= spawning t1) `shouldBe` Left (StopUntriaged (runId "c1"))
+        map (.id) . spawnable 3 . triaged (runId "c1") <$> fan `shouldBe` Right [t1]
+        (`tries` t1) <$> (fan >>= spawning t1 . triaged (runId "c1") >>= spawned (childFor "c2" t1)) `shouldBe` Right 2
+
+    it "refuses a second spawn of a task an agent works on" $
+        applied [spawning t1, spawning t1] `shouldBe` Left (AtWork t1)
+
+    it "refuses to resume a child twice before it hands back" $
+        applied [spawned (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), resumed (runId "c1"), resumed (runId "c1")]
+            `shouldBe` Left (AtWork t1)
+
+    it "closes only once every task is merged or parked" $
+        map (\state -> applied [moved t1 state] >>= closed) [InReview (Url "pr"), Merged (Url "pr")] `shouldBe` [Left (Unmerged (t1 :| [])), Right ()]
 
     it "keeps a child running while it asks up or awaits CI" $
         length . running <$> applied [spawned (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1"))] `shouldBe` Right 1
@@ -121,4 +132,10 @@ genFan = do
                 <$> Gen.int (Range.linear 0 10)
                 <*> genSaid
             , (\taskId state _ -> moved taskId state) <$> genTaskId <*> genTaskState
+            , (\taskId _ -> spawning taskId) <$> genTaskId
+            , (\i _ fan -> Right (triaged (pickChild i fan) fan)) <$> Gen.int (Range.linear 0 10)
+            , (\i _ fan -> resumed (pickChild i fan) fan) <$> Gen.int (Range.linear 0 10)
             ]
+    pickChild i fan = case fan.children of
+        [] -> runId "none"
+        children -> (children !! (i `mod` length children)).child.run

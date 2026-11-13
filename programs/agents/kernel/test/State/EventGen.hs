@@ -77,7 +77,9 @@ genEvent =
         , RuledOn <$> genQId <*> genProposal
         , Forwarded <$> genQId <*> genAbove
         , Answered <$> genQId <*> genText <*> genAbove
+        , Spawning <$> genTaskId
         , Spawned <$> (Child <$> genRunId <*> genTaskId <*> genPath <*> genPath)
+        , Resumed <$> genRunId
         , HandedBack <$> genRunId <*> genSaid
         , TaskMoved <$> genTaskId <*> genTaskState
         , Held <$> genTaskId <*> (Url <$> genText)
@@ -147,7 +149,7 @@ genStart =
         <*> Gen.string (Range.linear 1 30) Gen.unicode
         <*> Gen.choice [pure ByUser, ByRole <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode]
         <*> genSet Gen.enumBounded
-        <*> genText
+        <*> Gen.maybe genTaskId
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
 genOutcomeNamed :: EventName -> Maybe (Gen Outcome)
@@ -311,7 +313,7 @@ run = runId "r7f2"
 
 -- | A user's engineer run, in a session that can ask the user.
 start :: Start
-start = Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hooks]) "a task"
+start = Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hooks]) Nothing
 
 started :: Event
 started = Started start

@@ -32,12 +32,12 @@ spec = describe "state over the doubles" $ do
 
             it "starts a run once per notes dir, and refuses one there after it stopped" $ \world -> do
                 run <- startedRun world
-                again <- startedRun world
+                again <- succeeded =<< state world ["init", "--notes", Text.pack notes]
                 _ <- succeeded =<< state world ["stop", "replan", "the", "plan", "is", "wrong"]
 
                 refused <- state world ["init", "--notes", "/notes"]
 
-                again `shouldBe` run
+                again `shouldBe` ["resumed " <> run]
                 (refused.code, refused.err)
                     `shouldBe` (2, ["state init: --notes /notes - its run " <> run <> " stopped: replan the plan is wrong", "fix: state init --notes <a new dir>"])
 
@@ -275,9 +275,9 @@ spec = describe "state over the doubles" $ do
                 parent <- tenXAtFanOut world
 
                 child <- childRun world parent "/child" "t1"
-                again <- childRun world parent "/child" "t1"
+                again <- succeeded =<< state world ["init", "--notes", "/child", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
 
-                again `shouldBe` child
+                again `shouldBe` ["resumed " <> child]
                 filter (== "spawned") <$> loggedEvents world `shouldReturn` ["spawned"]
 
             it "refuses a child its parent cannot take, keeping the worktree's run" $ \world -> do
@@ -306,8 +306,7 @@ spec = describe "state over the doubles" $ do
 
                 shown <- succeeded =<< state world ["show"]
 
-                shown `shouldContain` ["task t1: not started, PR review " <> prUrl <> ", tries 0", "task t2: not started, tries 0"]
-                shown `shouldContain` ["held:", "  t2 https://github.com/o/r/issues/9"]
+                shown `shouldContain` ["task t1: not started, PR review " <> prUrl <> ", tries 0", "task t2: not started, tries 0, held https://github.com/o/r/issues/9"]
 
             it "briefs an engineer with its task's fields, then its init line" $ \world -> do
                 run <- tenXAtFanOut world

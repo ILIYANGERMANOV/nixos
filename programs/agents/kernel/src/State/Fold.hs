@@ -47,7 +47,7 @@ import Numeric.Natural (Natural)
 import State.Ask (Above, Kind (Security), Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
 import State.Ask qualified as Ask
 import State.Cap (EventName)
-import State.Event (Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, eventId, outcomeEvent)
+import State.Event (Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, eventId, outcomeEvent)
 import State.Fan (Fan, emptyFan)
 import State.Fan qualified as Fan
 import State.Flow (FanEvent (..), LoopId, OptId, fanEvent)
@@ -205,7 +205,9 @@ runStart = \case
     RuledOn _ _ -> Nothing
     Forwarded _ _ -> Nothing
     Answered {} -> Nothing
+    Spawning _ -> Nothing
     Spawned _ -> Nothing
+    Resumed _ -> Nothing
     HandedBack _ _ -> Nothing
     TaskMoved _ _ -> Nothing
     Held _ _ -> Nothing
@@ -225,16 +227,23 @@ applyEvent g state = \case
     Took outcome -> going (took g state outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
-    Asked asking -> going (asked state asking)
+    Asked asking -> going (fromChild asking.from <$> asked state asking)
     RetaggedSecurity qid -> going (retagged state qid)
     RuledOn qid proposal -> going (ruledOn state qid proposal)
     Forwarded qid to -> going (forwarded state qid to)
     Answered qid answer by -> going (answered state qid answer by)
+    Spawning task -> going (inFan (Fan.spawning task))
     Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned child))
+    Resumed child -> going (inFan (Fan.resumed child))
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
     TaskMoved task moved -> going (inFan (Fan.moved task moved))
     Held task url -> going (inFan (Fan.held task url))
   where
+    -- A question asked from a stopped child is its stop, triaged.
+    fromChild from after = case from of
+        ChildRun child -> after {fanOut = Fan.triaged child after.fanOut}
+        Itself -> after
+        Subagent _ -> after
     inFan change = (\fanOut -> state {fanOut}) <$> Bifunctor.first FanRefused (change state.fanOut)
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
@@ -293,7 +302,7 @@ fanOutcome outcome fan = case outcome of
     FixPrDone _ -> Right fan
     ReadyDone _ -> Right fan
     ReadySkipped _ -> Right fan
-    MergeDone _ -> Right fan
+    MergeDone _ -> fan <$ Fan.closed fan
 
 -- | A child's spawn or hand-back stays where the graph has that fan-out event: at the fan-out.
 atFan :: OpenGraph -> RunState -> FanEvent -> Either Refusal ()

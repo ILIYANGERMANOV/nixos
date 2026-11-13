@@ -116,9 +116,29 @@ spec = describe "State.Advice" $ do
         it "spawns the first task a slot is free for" $
             next noFacts (tenXAt (t1 :| [t2]) [Spawned (childOf "c1" "t1")]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "t2"))
         it "spawns no second heavy task while one runs" $
-            next noFacts (tenXAt (heavy "t1" :| [heavy "t2"]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (runId "c1" :| [])
+            next noFacts (tenXAt (heavy "t1" :| [heavy "t2"]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "waits on the children while a task's dependencies run" $
-            next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (runId "c1" :| [])
+            next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
+        it "spawns the next task once a spawn is recorded, never the same task twice" $
+            map (next noFacts . tenXAt (t1 :| [t2])) [[Spawning (TaskId "t1")], [Spawning (TaskId "t1"), Spawning (TaskId "t2")]]
+                `shouldBe` [Spawn (AgentRole "engineer") (Just (TaskId "t2")), AwaitChildren (TaskId "t1" :| [TaskId "t2"])]
+        it "resumes the next child once a resume is recorded, never the same child twice" $ do
+            let asks2 = Question (QId (runId "c2") 1) Design (oneLine "which queue?")
+                both = fromChild <> [RuledOn asks.qid ruling, Spawned (childOf "c2" "t2"), HandedBack (runId "c2") (AsksUp asks2.qid), Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2"))), RuledOn asks2.qid ruling]
+            map (next noFacts . tenXAt (t1 :| [t2])) [both <> [Resumed (runId "c1")], both <> [Resumed (runId "c1"), Resumed (runId "c2")]]
+                `shouldBe` [Resume (runId "c2") "with the answer to c2:1", AwaitChildren (TaskId "t1" :| [TaskId "t2"])]
+        it "waits on CI no more once the child is resumed" $
+            next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AwaitsCi (oneLine "https://pr/1")), Resumed (runId "c1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
+        it "triages a child's stop before a retry, and retries once it is asked" $ do
+            let stop = Stop Blocked "no access"
+                stopped = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended stop)]
+                triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
+            map (next noFacts . tenXAt (t1 :| [])) [stopped, stopped <> [Asked (Asking triaged (StateName "engineers") (ChildRun (runId "c1"))), RuledOn triaged.qid ruling]]
+                `shouldBe` [TriageStop (runId "c1") stop, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
+        it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
+            let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), Took (FanDone FEngineers)]
+            map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
+                `shouldBe` [AwaitMerge (TaskId "t1" :| []), Run "state record merge.done <url>"]
         it "triages a child's question before anything else" $
             next noFacts (tenXAt (t1 :| [t2]) fromChild) `shouldBe` Triage asks
         it "resumes a child once its question is ruled on" $
@@ -132,6 +152,9 @@ spec = describe "State.Advice" $ do
         it "states each task's child, PR and tries" $
             filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
                 `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
+        it "states a task's agent at work and its held wakes" $
+            filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling, Resumed (runId "c1"), Held (TaskId "t1") (Url "https://pr/1#c")])))
+                `shouldBe` ["task t1: child c1 asks c1:1, agent at work, tries 1, held https://pr/1#c"]
 
     describe "deliver" $ do
         it "spawns in the background only where the interface can" $
@@ -146,8 +169,12 @@ spec = describe "State.Advice" $ do
             deliver start {interface = Set.fromList [Background]} (Spawn (AgentRole "engineer") (Just (TaskId "t1"))) `shouldBe` "SPAWN engineer --task t1 background: yes"
 
         it "resumes a child, or waits on the children" $
-            map (deliver start) [Resume (runId "c1") "with the answer to c1:1", AwaitChildren (runId "c1" :| [runId "c2"])]
-                `shouldBe` ["RESUME c1 with the answer to c1:1", "AWAIT children c1 c2"]
+            map (deliver start) [Resume (runId "c1") "with the answer to c1:1", AwaitChildren (TaskId "t1" :| [TaskId "t2"]), AwaitMerge (TaskId "t1" :| [])]
+                `shouldBe` ["RESUME c1 with the answer to c1:1", "AWAIT children t1 t2", "AWAIT merge t1"]
+
+        it "puts a child's stop to triage as a question from the child" $
+            deliver start (TriageStop (runId "c1") (Stop Blocked "no access"))
+                `shouldBe` "RUN state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
 
         it "waits on CI itself only where the interface can" $
             map (`deliver` AwaitCi "u") [start {interface = Set.singleton Await}, start]

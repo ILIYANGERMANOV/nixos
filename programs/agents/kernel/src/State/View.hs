@@ -13,7 +13,7 @@ import State.Advice (Facts (..), factLines)
 import State.Ask (Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
 import State.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
-import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
+import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, childRoles, runIdText)
 import State.Fan (Fan (..), lookupTask)
 import State.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt)
 import State.Graph (Node (..), Place (..))
@@ -26,7 +26,7 @@ showRun :: RunState -> Text
 showRun state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
-            <> ["task: " <> state.start.task | not (Text.null state.start.task)]
+            <> ["task: " <> taskIdText task | Just task <- [state.start.task]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines (Facts Nothing Nothing) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
@@ -34,7 +34,6 @@ showRun state =
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
             <> section "answered:" (map answerLine state.answers)
-            <> section "held:" [taskIdText task <> " " <> urlText url | (task, url) <- state.fanOut.held]
   where
     answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> answered.given
     section title = \case
@@ -70,13 +69,13 @@ line that starts its run under this one; a task the breakdown lacks is
 returned as the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
-brief steps state (AgentRole role) task = case role of
-    "engineer" -> case task of
+brief steps state agent@(AgentRole role) task
+    | agent `elem` childRoles = case task of
         Nothing -> Right (initLine "<id>")
         Just taskId -> case lookupTask state.fanOut taskId of
             Nothing -> Left taskId
             Just found -> Right (Text.unlines (taskLines found) <> "\n" <> initLine (taskIdText taskId))
-    _ -> Right (Text.concat [entry name r | (name, r) <- briefed] <> rule)
+    | otherwise = Right (Text.concat [entry name r | (name, r) <- briefed] <> rule)
   where
     initLine taskText =
         "state init --notes <dir> --parent "

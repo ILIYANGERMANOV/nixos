@@ -219,7 +219,9 @@ eventType = \case
     RuledOn _ _ -> "ruled"
     Forwarded _ _ -> "forwarded"
     Answered {} -> "answered"
+    Spawning _ -> "spawning"
     Spawned _ -> "spawned"
+    Resumed _ -> "resumed"
     HandedBack _ _ -> "handed_back"
     TaskMoved _ _ -> "task"
     Held _ _ -> "held"
@@ -231,7 +233,7 @@ eventData = \case
             <> "notes" .= start.notes
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
-            <> "task" .= start.task
+            <> "task" .= fmap taskIdText start.task
     QualitySet quality -> "mode" .= qualityName quality
     SizeSet size -> "size" .= sizeName size
     Grew why -> "why" .= why
@@ -260,6 +262,8 @@ eventData = \case
             <> "task" .= taskIdText child.task
             <> "log" .= child.log
             <> "worktree" .= child.worktree
+    Spawning task -> "task" .= taskIdText task
+    Resumed child -> "child" .= runIdText child
     HandedBack child said -> "child" .= runIdText child <> saidData said
     TaskMoved task moved -> "task" .= taskIdText task <> taskStateData moved
     Held task url -> "task" .= taskIdText task <> "url" .= urlText url
@@ -281,6 +285,8 @@ eventOf kind obj = case kind of
     "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
     "answered" -> Answered <$> qidOf obj <*> obj .: "answer" <*> (obj .: "by" >>= aboveOf)
     "spawned" -> Spawned <$> (Child <$> childOf obj <*> taskOf obj <*> obj .: "log" <*> obj .: "worktree")
+    "spawning" -> Spawning <$> taskOf obj
+    "resumed" -> Resumed <$> childOf obj
     "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
     "task" -> TaskMoved <$> taskOf obj <*> taskStateOf obj
     "held" -> Held <$> taskOf obj <*> (Url <$> obj .: "url")
@@ -392,7 +398,14 @@ startOf obj =
         <*> obj .: "notes"
         <*> (obj .: "principal" >>= principalOf)
         <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
-        <*> obj .: "task"
+        <*> (parentTask <$> obj .: "task")
+
+-- | A log written before the task was typed holds "" for none.
+parentTask :: Maybe Text -> Maybe TaskId
+parentTask = \case
+    Nothing -> Nothing
+    Just "" -> Nothing
+    Just task -> Just (TaskId task)
 
 -- | The user is a bare word; a parent run is its id and its log.
 principalEncoding :: Principal -> Encoding

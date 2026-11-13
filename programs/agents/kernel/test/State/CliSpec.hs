@@ -6,7 +6,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Ask (Kind (..), oneLineText)
 import State.Cap (eventText)
-import State.Cli (Command (..), Exit (..), Failure (..), InitArgs (..), Recording (..), RunCommand (..), explain, failureText, help, parseCommand)
+import State.Cli (Command (..), Exit (..), Failure (..), InitArgs (..), Parent (..), Recording (..), RunCommand (..), explain, failureText, help, parseCommand)
 import State.Event (Asker (..), Commit (..), Event (..), Outcome (..), Stop (..), StopReason (..), outcomeEvent)
 import State.Fold (Refusal (..), RunState (..))
 import State.Graph (OpenGraph (..))
@@ -58,12 +58,14 @@ spec = describe "State.Cli" $ do
 
         it "keeps an absolute parent log" $
             case parse ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"] of
-                Right (Init args) -> fmap snd args.parent `shouldBe` Just "/p/events.jsonl"
+                Right (Init args) -> fmap (.log) args.parent `shouldBe` Just "/p/events.jsonl"
                 _ -> expectationFailure "not an init"
 
-        it "refuses --parent without its log or its task" $
-            map (failureWhat . parse) [["init", "--notes", "/n", "--parent", "r1", "--task", "t1"], ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl"]]
-                `shouldBe` replicate 2 (Just "--parent, --parent-log and --task go together")
+        it "refuses --parent, its log or its task without the other two" $
+            map
+                (failureWhat . parse . (["init", "--notes", "/n"] <>))
+                [["--parent", "r1", "--task", "t1"], ["--parent", "r1", "--parent-log", "/p/events.jsonl"], ["--task", "t1"], ["--parent", "r1"]]
+                `shouldBe` replicate 4 (Just "--parent, --parent-log and --task go together")
 
     describe "failures" $ do
         it "prints what, why and the fix as the analyzer parses them" $

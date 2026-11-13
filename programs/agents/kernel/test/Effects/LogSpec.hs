@@ -97,5 +97,5 @@ started =
         , run = fromJust (parseRunId "00010203")
         , head = Nothing
         , session = Nothing
-        , event = Started Start {flow = EngineerFlow, notes = "/notes", principal = ByUser, interface = Set.empty, task = ""}
+        , event = Started Start {flow = EngineerFlow, notes = "/notes", principal = ByUser, interface = Set.empty, task = Nothing}
         }

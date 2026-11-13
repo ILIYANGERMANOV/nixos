@@ -321,7 +321,7 @@ halt = Stop Blocked "no way on"
 
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
-startOf flow principal = Start flow "notes" principal Set.empty "a task"
+startOf flow principal = Start flow "notes" principal Set.empty Nothing
 
 {- | Up to 60 tries at an ask event on a run of either flow, under the user
 or a parent, keeping those the fold accepts: the run state and the events.
