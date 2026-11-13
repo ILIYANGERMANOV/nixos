@@ -114,10 +114,10 @@ metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
 parentRun :: Envelope
 parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (runId "r7f2") "/p/events.jsonl") mempty "a task")}
 
--- | Lines the Python @state@ wrote, @programs/agents/state/codec.py@.
+-- | Lines in the shape the Python @state@ wrote, its other keys left out.
 pythonV1, pythonV2 :: Text
-pythonV1 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"delegated\":false}}"
-pythonV2 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"delegated\":false,\"version\":2}}"
+pythonV1 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\"}}"
+pythonV2 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
 
 replacing :: Text -> (Text, Text) -> Text
 replacing whole (old, new) = Text.replace old new whole

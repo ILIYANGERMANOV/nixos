@@ -1,8 +1,9 @@
--- | Checks on how the kernel's modules import each other.
+-- | Checks on how the kernel's modules import each other, and the words its files use.
 module State.ArchitectureSpec (spec) where
 
+import Data.ByteString.Char8 qualified as ByteString
 import Data.Char (toLower)
-import Data.List (isInfixOf, isSuffixOf, stripPrefix)
+import Data.List (stripPrefix)
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -16,23 +17,24 @@ spec = describe "kernel architecture" $ do
         [(name, Set.toList (Set.intersection modules environment)) | (name, modules) <- reached, not (Set.disjoint modules environment)]
             `shouldBe` []
 
-    -- Law Principal-blind: the kernel has no word for who started a run. The
-    -- test fixtures may still spell the Python log's key.
-    it "no_delegated_word" $ do
-        files <- concat <$> traverse sourceFiles ["src", "app"]
-        sources <- traverse (\file -> (file,) <$> readFile file) files
-        [file | (file, source) <- sources, "delegated" `isInfixOf` map toLower source] `shouldBe` []
+    -- Law Principal-blind: the kernel has no word for who started a run, in
+    -- any file the package builds from, tests and golden files too. The word
+    -- is spelled in two halves so this file does not hold it either.
+    it "names no principal mode in any of its files" $ do
+        files <- (["state.cabal"] <>) . concat <$> traverse packageFiles ["src", "app", "test"]
+        sources <- traverse (\file -> (file,) <$> ByteString.readFile file) files
+        [file | (file, source) <- sources, ("dele" <> "gated") `ByteString.isInfixOf` ByteString.map toLower source] `shouldBe` []
 
--- | Every Haskell file under a directory of the package.
-sourceFiles :: FilePath -> IO [FilePath]
-sourceFiles dir = do
+-- | Every file under a directory of the package.
+packageFiles :: FilePath -> IO [FilePath]
+packageFiles dir = do
     entries <- map ((dir <> "/") <>) <$> listDirectory dir
     concat <$> traverse below entries
   where
     below entry =
         doesDirectoryExist entry >>= \case
-            True -> sourceFiles entry
-            False -> pure [entry | ".hs" `isSuffixOf` entry]
+            True -> packageFiles entry
+            False -> pure [entry]
 
 -- | The modules a flow is built from; none may know who runs it.
 flowModules :: [String]

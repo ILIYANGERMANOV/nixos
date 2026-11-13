@@ -9,6 +9,7 @@ module State.Handback (
     Need (..),
     Waiting (..),
     parseHandback,
+    parseTouches,
     renderHandback,
     tokenLine,
     stopLine,

@@ -51,6 +51,7 @@ module State.Ask (
     deliver,
     needsDecision,
     handback,
+    rulingLine,
 ) where
 
 import Data.Text (Text)

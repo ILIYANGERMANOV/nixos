@@ -10,11 +10,13 @@ module State.Steps (
     Runner (..),
     parseSteps,
     row,
+    agentRoles,
 ) where
 
 import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:))
 import Data.ByteString.Lazy (ByteString)
 import Data.Either (lefts, rights)
+import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -116,3 +118,7 @@ step of "State.Cap", so the lookup cannot miss.
 -}
 row :: Steps -> Step i e o -> Row
 row (Steps rows) s = fromMaybe (error "parseSteps keeps a row for every step") (Map.lookup (stepName s) rows)
+
+-- | The roles a subagent runs a step as, each once, in the order of the steps.
+agentRoles :: Steps -> [AgentRole]
+agentRoles steps = nub [role | SomeStep s <- allSteps, Agent role <- [(row steps s).runner]]

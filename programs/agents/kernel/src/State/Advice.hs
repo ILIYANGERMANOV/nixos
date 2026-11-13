@@ -13,6 +13,7 @@ module State.Advice (
     advise,
     deliver,
     ownAsk,
+    factLines,
 ) where
 
 import Control.Monad (join)
