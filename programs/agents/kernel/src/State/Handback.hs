@@ -26,10 +26,11 @@ import State.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineTe
 import State.Cap (SomeStep (..), StateName (..), Step, stepName)
 import State.Cap qualified as Cap
 import State.Codec (areaText, shaText)
-import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked), Outcome (..), RunId, Sha (..), Stop (..), StopReason (Fuel, Outgrown, Replan), parseRunId, runIdText)
+import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack), Outcome (..), RunId, Said (..), Sha (..), Stop (..), StopReason (Fuel, Outgrown, Replan), fanRole, parseRunId, runIdText)
 import State.Event qualified as Event
 import State.Fold (RunState (..), askedAt, nextQId)
-import State.Graph (nodeStep)
+import State.Flow (fanNamed)
+import State.Graph (Node (..), Place (..), nodeStep)
 import State.Mode (Area, parseByName)
 import State.Steps (Row (..), Runner (..), Steps, row)
 
@@ -221,7 +222,37 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. The sha is the worktree's HEAD.
 -}
 typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
-typeHandback steps state worktreeHead agent handback = case handback.token of
+typeHandback steps state worktreeHead agent handback = case [fan | At place <- [state.at], Just fan <- [fanNamed place.name], fanRole fan == agent] of
+    _ : _ -> fromChild state handback
+    [] -> fromWorker steps state worktreeHead agent handback
+
+{- | A child run's hand-back at the fan-out: what it said, under its run id,
+which it must name. A question it asked joins this run's pending; its stop
+leaves the task to another child or a park, and is this run's to triage.
+-}
+fromChild :: RunState -> Handback -> Either Text Typed
+fromChild state handback = case handback.run of
+    Nothing -> Left "a child's hand-back names its run: add Run: <run id> as line 2"
+    Just child -> case handback.token of
+        Nothing -> Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, GREW, BLOCKED, FAILED"
+        Just (Ready summary) -> Right (Typed [said (Finished summary)] Nothing)
+        -- A GREW below it is the child's own size, not this run's.
+        Just token@(NeedsDecision need _) -> case need of
+            Asks question -> Right (Typed [said (AsksUp question.qid), Asked (Asking question (askedAt state) (ChildRun child))] Nothing)
+            PlanWrong finding -> ended token Replan finding
+            StuckOn _ -> unasked
+            Untyped _ -> unasked
+        Just (Await Ci ref) -> Right (Typed [said (AwaitsCi ref)] Nothing)
+        Just token@(Grew why) -> ended token Outgrown why
+        Just token@(Blocked why) -> ended token Event.Blocked why
+        Just token@(Failed why) -> ended token Event.Failed why
+      where
+        said = HandedBack child
+        ended token reason why = Typed [said (Ended (Stop reason (oneLineText why)))] . Just <$> oneLine (tokenLine token)
+        unasked = Left "a child asks by state ask in its own run: hand back NEEDS_DECISION <Kind> <qid>: <question>"
+
+fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
+fromWorker steps state worktreeHead agent handback = case handback.token of
     Nothing -> recorded <$> done True
     Just (Ready _) -> recorded <$> done False
     Just token@(NeedsDecision need grew) ->

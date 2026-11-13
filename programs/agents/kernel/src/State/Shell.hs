@@ -264,10 +264,11 @@ handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe RunId -> Te
 handbackPlan steps worktreeHead state role child message = do
     parsed <- unread (parseHandback message)
     typed <- unread (typeHandback steps state worktreeHead role parsed {Handback.run = parsed.run <|> child})
+    let from = maybe (roleText role) runIdText (parsed.run <|> child)
+        triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> from <> " <question>\n"
     Right (Plan typed.events (\after new -> recordedLines after new <> foldMap triage typed.untriaged))
   where
     unread = either (\why -> Left (Failure BadInput "the hand-back" why "state help")) Right
-    triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> roleText role <> " <question>\n"
 
 {- | What @state next@ records and prints, and the advice's action: what GitHub
 and the mode already decide is recorded first, then the advice: its line, the

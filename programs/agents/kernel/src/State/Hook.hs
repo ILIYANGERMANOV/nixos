@@ -55,7 +55,7 @@ import State.Advice (Readiness (..))
 import State.Ask (Principal (..), Question (..), qidText)
 import State.Cap (stepName)
 import State.Cap qualified as Cap
-import State.Event (AgentRole (..), Asking (..), Branch, Digest (..), DraftPr (..), Envelope (..), Event (Took), Outcome (DraftDone), RunId, Source (..), Start (..), roleText, runIdText)
+import State.Event (AgentRole (..), Asking (..), Branch, Digest (..), DraftPr (..), Envelope (..), Event (Took), Outcome (DraftDone), RunId, Source (..), Start (..), childRoles, roleText, runIdText)
 import State.Fold (Pending (..), RunState (..), Waits (..))
 import State.Graph (Node (..), Place (..))
 import State.Steps (Steps, agentRoles)
@@ -209,9 +209,9 @@ isLead steps = \case
 flowRoles :: Steps -> [AgentRole]
 flowRoles steps = agentRoles steps <> beside
 
--- | The roles whose hand-back the run records: a step's runner, not one spawned beside it.
+-- | The roles whose hand-back the run records: a step's runner, not one spawned beside it, and a child run.
 followed :: Steps -> [AgentRole]
-followed steps = filter (`notElem` beside) (agentRoles steps)
+followed steps = filter (`notElem` beside) (agentRoles steps) <> childRoles
 
 {- | Spawned beside the advised role, never instead of it: a dry-run reviewer
 next to the review-lead, a fact-gap researcher, a checker for the full check.

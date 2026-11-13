@@ -1,6 +1,7 @@
 module State.HandbackSpec (spec) where
 
 import Data.Foldable (for_)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -9,12 +10,12 @@ import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Ask (Kind (..), QId (..), Question (..))
-import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, Took), Outcome (..), Picks (..), Sha (..), StateName (..))
+import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, Took), Outcome (..), Picks (..), Said (..), Sha (..), StateName (..))
 import State.Event qualified as Event
 import State.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runId)
 import State.Handback
 import State.Mode (Area (..))
-import State.RunGen (happyPath, loadSteps, runAt, sha)
+import State.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -96,11 +97,33 @@ typing = describe "typeHandback" $ do
     it "records GREW as grew" $
         typed atImplement "implementer" "GREW three modules"
             `shouldBe` Right (Typed [Event.Grew "three modules"] Nothing)
+
+    describe "a child's hand-back at the fan-out" $ do
+        let fromChild = typed atFanOut "engineer"
+            c1 = runId "c1"
+        it "refuses one that does not name its run" $
+            fromChild "READY https://pr/1" `shouldSatisfy` either (Text.isInfixOf "add Run: <run id> as line 2") (const False)
+        it "records READY as the child finished" $
+            fromChild "READY https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "https://pr/1"))] Nothing)
+        it "records a question as asked up by the child, which joins this run's pending, its GREW aside" $
+            fromChild "NEEDS_DECISION Design c1:2: which store?\nGREW two modules\nRun: c1"
+                `shouldBe` Right (Typed [HandedBack c1 (AsksUp (QId c1 2)), Asked (Asking (Question (QId c1 2) Design (oneLine "which store?")) engineers (ChildRun c1))] Nothing)
+        it "records AWAIT ci as the child awaiting CI" $
+            fromChild "AWAIT ci https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (AwaitsCi (oneLine "https://pr/1"))] Nothing)
+        it "records a stop as the child ended, for this run to triage" $
+            map fromChild ["BLOCKED no access\nRun: c1", "NEEDS_DECISION plan wrong: no such table\nRun: c1"]
+                `shouldBe` [ Right (Typed [HandedBack c1 (Ended (Event.Stop Event.Blocked "no access"))] (Just (oneLine "BLOCKED no access")))
+                           , Right (Typed [HandedBack c1 (Ended (Event.Stop Event.Replan "no such table"))] (Just (oneLine "NEEDS_DECISION plan wrong: no such table")))
+                           ]
+        it "refuses a question the child did not ask in its own run" $
+            fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
     atImplement = runAt (map Took (take 7 happyPath))
     atReview = runAt (map Took (take 9 happyPath))
     atFix = runAt (map Took (take 9 happyPath <> [ReviewRows sha, PickLoop (Picks Set.empty Map.empty)]))
+    atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
+    engineers = StateName "engineers"
     isLeft = either (const True) (const False)
 
 tokens :: [(Text, Maybe Token)]
