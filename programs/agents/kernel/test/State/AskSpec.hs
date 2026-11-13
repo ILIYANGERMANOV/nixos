@@ -7,6 +7,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Ask
 import State.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
+import State.Id (breaksLine)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -23,15 +24,19 @@ spec = describe "State.Ask" $ do
         (rung handler `andThen` forwardAll) question === rung handler question
 
     -- #360's law Chain: the parent judges what the child forwards, as raised.
+    -- Stated on the child's reading, not on its verdict: a child that rules or
+    -- refuses decides alone; one that passes on, and may, hands the parent the
+    -- question raised to its reading.
     it "handlers_compose" . hedgehog $ do
-        (child, parent) <- forAll ((,) <$> genRung <*> genRung)
+        (child@(_, reading), parent) <- forAll ((,) <$> genRung <*> genRung)
         question <- forAll genQuestion
-        let byHand = case rung child question of
-                Left refusal -> Left refusal
-                Right (Ruled ruling) -> Right (Ruled ruling)
-                Right (Forward forwarded) -> rung parent forwarded
+        let raised = Question question.qid (raise question.kind reading.kind) question.text
+            expected = case (reading.choice, rung child question) of
+                (RuleOn _, alone) -> alone
+                (PassOn, Left refusal) -> Left refusal
+                (PassOn, Right _) -> rung parent raised
         cover 2 "the child raises what it forwards" (raisedBy (rung child question) question)
-        (rung child `andThen` rung parent) question === byHand
+        (rung child `andThen` rung parent) question === expected
 
     it "andThen_is_associative" . hedgehog $ do
         (first, next, last') <- forAll ((,,) <$> genRung <*> genRung <*> genRung)
@@ -84,6 +89,10 @@ spec = describe "State.Ask" $ do
             map (\role -> triage role (Reading Pick PassOn) (asking Pick)) [Engineer, TenX]
                 `shouldBe` [Right (Forward (asking Pick)), Right (Forward (asking Pick))]
 
+        it "refuses a forward at the user, the top of the chain" $
+            triage User (Reading Pick PassOn) (asking Pick)
+                `shouldBe` Left (MustAnswer User Pick)
+
         it "refuses any choice on a kind the row never sees" $
             triage User (Reading Fact (RuleOn proposal)) (asking Fact)
                 `shouldBe` Left (NeverAskedOf User Fact)
@@ -122,8 +131,10 @@ spec = describe "State.Ask" $ do
     it "keeps every hand-back line one line" . hedgehog $ do
         question <- forAll genQuestion
         ruling <- forAll (Gen.mapMaybe (either (const Nothing) Just) (rule TenX Pick <$> genQuestion <*> genProposal))
-        length (Text.lines (needsDecision question)) === 1
-        length (Text.lines (handback "READY ref" (runId "r7f2") [ruling])) === 3
+        assert (not (Text.any breaksLine (needsDecision question)))
+        let handbackLines = Text.lines (handback "READY ref" (runId "r7f2") [ruling])
+        length handbackLines === 3
+        filter (Text.any breaksLine) handbackLines === []
 
     it "refuses a line break in a line of text" $
         map (parseOneLine . ("a" <>) . Text.singleton) ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'] `shouldBe` replicate 7 Nothing

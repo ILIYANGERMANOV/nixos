@@ -11,6 +11,7 @@ module State.Id (
     eventIdText,
     parseEventId,
     Digest (..),
+    breaksLine,
 ) where
 
 import Data.Text (Text)
@@ -26,11 +27,12 @@ newtype RunId = RunId Text
 
 {- | A CLI record's id is @<run>:<seq>@ and a hook record's @h:<hash>@ (#360),
 so a run id is never @h@ and holds no @:@: either would let a CLI id spell a
-hook id, and append-by-id drop a distinct event. Empty is no id at all.
+hook id, and append-by-id drop a distinct event. Empty is no id at all. It
+holds no line break, so a hand-back line naming it stays one line (#360).
 -}
 parseRunId :: Text -> Maybe RunId
 parseRunId raw
-    | Text.null raw || raw == "h" || Text.elem ':' raw = Nothing
+    | Text.null raw || raw == "h" || Text.elem ':' raw || Text.any breaksLine raw = Nothing
     | otherwise = Just (RunId raw)
 
 runIdText :: RunId -> Text
@@ -64,9 +66,15 @@ eventIdText = \case
     Numbered run n -> numberedText run n
     Hashed (Digest digest) -> "h:" <> digest
 
--- | A run id is never @h@, so a hook id never reads as a CLI one.
+{- | A run id is never @h@, so a hook id never reads as a CLI one. Neither id
+holds a line break, so a hand-back line naming it stays one line (#360).
+-}
 parseEventId :: Text -> Maybe EventId
 parseEventId raw = case Text.stripPrefix "h:" raw of
-    Just digest | not (Text.null digest) -> Just (Hashed (Digest digest))
+    Just digest | not (Text.null digest || Text.any breaksLine digest) -> Just (Hashed (Digest digest))
     Just _ -> Nothing
     Nothing -> uncurry Numbered <$> parseNumbered raw
+
+-- | Unicode's mandatory line breaks (UAX #14 classes BK, CR, LF and NL).
+breaksLine :: Char -> Bool
+breaksLine = (`elem` ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'])

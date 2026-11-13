@@ -38,6 +38,7 @@ import Numeric.Natural (Natural)
 import State.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Cap (EventName)
 import State.Event
+import State.Id (breaksLine, parseEventId)
 
 genEnvelope :: Gen Envelope
 genEnvelope =
@@ -192,7 +193,16 @@ genTime =
 
 -- | Any run id the kernel accepts.
 genRunId :: Gen RunId
-genRunId = Gen.mapMaybe parseRunId (Gen.text (Range.linear 1 8) Gen.unicode)
+genRunId = Gen.mapMaybe parseRunId genIdText
+
+{- | Raw id text, often with a line break, so a property sees whether the id
+parsers refuse one: 'Gen.unicode' alone almost never draws one.
+-}
+genIdText :: Gen Text
+genIdText = Gen.text (Range.linear 1 8) (Gen.frequency [(9, Gen.unicode), (1, Gen.element lineBreaks)])
+
+lineBreaks :: [Char]
+lineBreaks = filter breaksLine [minBound .. maxBound]
 
 genQId :: Gen QId
 genQId = QId <$> genRunId <*> Gen.integral (Range.linear 0 1000)
@@ -211,7 +221,11 @@ genBasis :: Gen Basis
 genBasis = Gen.choice [AnsweredBy <$> genEventId, Obvious <$> genOneLine]
 
 genEventId :: Gen EventId
-genEventId = Gen.choice [Numbered <$> genRunId <*> Gen.integral (Range.linear 0 1000), Hashed <$> genDigest]
+genEventId =
+    Gen.choice
+        [ Numbered <$> genRunId <*> Gen.integral (Range.linear 0 1000)
+        , Gen.mapMaybe (parseEventId . ("h:" <>)) genIdText
+        ]
 
 -- | A line the test spells, which must hold no line break.
 oneLine :: Text -> OneLine

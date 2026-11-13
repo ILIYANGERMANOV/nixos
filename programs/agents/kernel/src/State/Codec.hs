@@ -404,7 +404,7 @@ oneLineOf :: Text -> Parser OneLine
 oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneLine raw)
 
 runIdOf :: Text -> Parser RunId
-runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h or holds a colon")) pure (parseRunId raw)
+runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break")) pure (parseRunId raw)
 
 shaText :: Sha -> Text
 shaText (Sha sha) = sha

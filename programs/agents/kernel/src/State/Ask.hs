@@ -57,7 +57,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Records (HasField (..))
 import Numeric.Natural (Natural)
-import State.Id (EventId, RunId, eventIdText, numberedText, parseNumbered, runIdText)
+import State.Id (EventId, RunId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
 import State.Mode (parseByName)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
@@ -176,10 +176,6 @@ parseOneLine raw
     | Text.any breaksLine raw = Nothing
     | otherwise = Just (OneLine raw)
 
--- | Unicode's mandatory line breaks (UAX #14 classes BK, CR, LF and NL).
-breaksLine :: Char -> Bool
-breaksLine = (`elem` ['\n', '\v', '\f', '\r', '\x85', '\x2028', '\x2029'])
-
 data Question = Question {qid :: QId, kind :: Kind, text :: OneLine}
     deriving stock (Eq, Show)
 
@@ -226,7 +222,9 @@ data Verdict = Ruled Ruling | Forward Question
 data Refusal
     = -- | The row forwards this kind.
       MayNotRule Role Kind
-    | -- | The row answers this 'Fact', so it may not forward it.
+    | {- | The row answers this kind and may not forward it: a 'Fact' below the
+      user, or any kind at the user, who has no one to forward to.
+      -}
       MustAnswer Role Kind
     | -- | The row says this kind never reaches the role.
       NeverAskedOf Role Kind
@@ -260,20 +258,27 @@ pass role reading question = case authority role raised.kind of
   where
     raised = raiseTo reading question
 
-{- | A forward from a row that answers. Only a 'Fact' is refused: the user's
-'Fact' cell is 'NeverAsked', so one forwarded could climb to no one (law
-Total). Every other kind reaches a user cell that answers it, so a question
-needing the user's attention may climb (#351's user "may" cell for 'Pick').
+{- | A forward from a row that answers. The user is the top of the chain, so
+it forwards nothing. Below it only a 'Fact' is refused: the user's 'Fact' cell
+is 'NeverAsked', so one forwarded could climb to no one (law Total). Every
+other kind reaches a user cell that answers it, so a question needing the
+user's attention may climb (#351's user "may" cell for 'Pick').
 -}
 forwardAnswered :: Role -> Question -> Either Refusal Question
-forwardAnswered role question = case question.kind of
-    Fact -> Left (MustAnswer role Fact)
-    Pick -> Right question
-    Design -> Right question
-    Scope -> Right question
-    Confirm -> Right question
-    Security -> Right question
-    Stuck -> Right question
+forwardAnswered role question = case role of
+    User -> Left (MustAnswer User question.kind)
+    Worker -> belowUser
+    Engineer -> belowUser
+    TenX -> belowUser
+  where
+    belowUser = case question.kind of
+        Fact -> Left (MustAnswer role Fact)
+        Pick -> Right question
+        Design -> Right question
+        Scope -> Right question
+        Confirm -> Right question
+        Security -> Right question
+        Stuck -> Right question
 
 raiseTo :: Kind -> Question -> Question
 raiseTo reading question = Question question.qid (raise question.kind reading) question.text
