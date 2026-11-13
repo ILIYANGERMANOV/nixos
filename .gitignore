@@ -10,3 +10,4 @@ programs/playwright/.stryker-tmp/
 .direnv/
 __pycache__/
 .hypothesis/
+programs/agents/kernel/dist-newstyle/
