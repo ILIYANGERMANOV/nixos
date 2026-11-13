@@ -136,6 +136,7 @@ test-suite state-test
     State.Run.EventSpec
     State.Run.FanSpec
     State.Run.FoldSpec
+    State.Run.ReplaySpec
     State.Run.RunGen
     State.TableSpec
 

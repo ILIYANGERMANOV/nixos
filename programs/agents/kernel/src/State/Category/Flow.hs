@@ -1,4 +1,4 @@
-{- | #351's category @Flow@: typed terms over the steps of "State.Category.Step". The
+{- | #351's category @Flow@: typed terms over the steps of "State.Category.Step"'s layers. The
 indexes make an ill-typed gluing a compile error (law Typed gluing), and 'Opt'
 and 'Loop' exist only on the shapes #351 allows (law Skip is endo).
 -}
@@ -20,7 +20,7 @@ import Data.Kind (Type)
 import Data.List (find)
 import Data.Text (Text)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), Step)
+import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..))
 import State.Category.Ty (KnownTy, Ty (..))
 
 {- | The exit of @f ':>' g@: either side's, and the same type when both have
@@ -54,7 +54,8 @@ deriving stock instance Show (OnEmpty a b)
 are not numbers in the term: 'State.Category.Mode.cfg' gives each id its value.
 -}
 data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
-    Do :: (KnownTy i, KnownTy o) => Step i e o -> Flow i e o
+    -- | One step, of any layer: its signature is the term's type.
+    Do :: (StepSet k, Drawn s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o) => Sing (s :: k) -> Flow i e o
     -- | Series: an exit of either side exits the whole.
     (:>) :: Flow a e1 b -> Flow b e2 c -> Flow a (Join e1 e2) c
     -- | Repeat the body while it continues; its exit is the loop's out.
