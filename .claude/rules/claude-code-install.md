@@ -14,7 +14,8 @@ The backend contract (`link` and `load` converge, idempotent):
 
 - `link/` - effects that write `~/.claude`: `lib.nix` builds the flavor
   wrapper from the fragments listed in `link/fragments`, `link.sh` writes the
-  files, `activation.nix` is what a rebuild writes.
+  files, `activation.nix` is what a rebuild writes, `demo.sh` is `claude-demo`'s
+  launcher.
 - `load/` - `secrets.sh` (exports MCP secrets), `load.sh` (environment, exec)
   and `applies.nix` (`When` per written file).
 
