@@ -192,6 +192,22 @@ rec {
     inherit (factoryProfile) runtime;
   };
 
+  # claude-demo: the `claude` flavor in its own config dir, so a visitor's
+  # ~/.claude and ~/.claude.json stay untouched. The dir holds their login too.
+  # The roles go in first: no Home Manager installs them there.
+  demo =
+    let
+      claude = lib.findFirst (flavor: flavor.name == "claude") (throw "no claude flavor") packages;
+    in
+    (import ../shell-check { inherit pkgs; }).writeShellApplication {
+      name = "claude-demo";
+      text = ''
+        export CLAUDE_CONFIG_DIR="''${CLAUDE_CONFIG_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/claude-demo}"
+        ${shellActivationScript}
+        exec ${lib.getExe claude} "$@"
+      '';
+    };
+
   # The adapter running a profile's hooks and the tool table it reads, for
   # `python-tests` to run.
   hookAdapter = { inherit (claudeHookAdapter) bin toolsFile; };

@@ -61,7 +61,8 @@ let
       );
     };
 
-  # Shell snippet: rebuild ~/.claude/skills from this flavor's farm.
+  # Shell snippet: rebuild ~/.claude/skills from this flavor's farm. It runs
+  # inside apply_skills, after link.sh has set $claude_dir.
   #
   # The directory is replaced wholesale rather than reconciled, so switching
   # flavors can never leave a stale skill behind. The cost is that anything
@@ -74,11 +75,11 @@ let
   mkApplySkills =
     skillFarm:
     ''
-      rm -rf "$HOME/.claude/skills"
+      rm -rf "$claude_dir/skills"
     ''
     + lib.optionalString (skillFarm != null) ''
-      mkdir -p "$HOME/.claude/skills"
-      ln -s ${skillFarm}/* "$HOME/.claude/skills/"
+      mkdir -p "$claude_dir/skills"
+      ln -s ${skillFarm}/* "$claude_dir/skills/"
     '';
 in
 {

@@ -205,11 +205,18 @@
         }
       );
 
-      devShells = lib.forAllSystems (pkgs: {
-        default = import ./shells/default.nix { inherit pkgs inputs; };
-        nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
-        darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };
-      });
+      devShells = lib.forAllSystems (
+        pkgs:
+        {
+          default = import ./shells/default.nix { inherit pkgs inputs; };
+          nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };
+          darwin-install = import ./shells/darwin-install.nix { inherit pkgs inputs self; };
+        }
+        # Not on x86_64-darwin: `llm-agents` has no package there.
+        // pkgs.lib.optionalAttrs (inputs.llm-agents.packages ? ${pkgs.stdenv.hostPlatform.system}) {
+          factory-demo = import ./shells/factory-demo.nix { inherit pkgs inputs self; };
+        }
+      );
 
       nixosConfigurations = {
         lenovo-old = lib.mkNixosSystem "lenovo-old" "x86_64-linux" { };

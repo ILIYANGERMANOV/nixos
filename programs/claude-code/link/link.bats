@@ -9,6 +9,7 @@ setup() {
   export WORK="$BATS_TEST_TMPDIR"
   export HOME="$WORK/home"
   mkdir -p "$HOME"
+  unset CLAUDE_CONFIG_DIR
 
   # Read-only, as in the store.
   echo instructions >"$WORK/instructions"
@@ -50,6 +51,18 @@ link() {
 
   [ "$(stat -c %a "$HOME/.claude/CLAUDE.md")" = 600 ]
   [ "$(stat -c %a "$HOME/.claude/settings.json")" = 600 ]
+}
+
+@test "with CLAUDE_CONFIG_DIR set, the link writes there and not in HOME" {
+  export CLAUDE_CONFIG_DIR="$WORK/demo"
+
+  link
+
+  [ "$(cat "$CLAUDE_CONFIG_DIR/CLAUDE.md")" = instructions ]
+  [ "$(cat "$CLAUDE_CONFIG_DIR/settings.json")" = '{"model":"opus"}' ]
+  [ "$(jq -c . "$CLAUDE_CONFIG_DIR/.claude.json")" = '{"mcpServers":{"coda":{"url":"https://example.com"}}}' ]
+  [ ! -e "$HOME/.claude" ]
+  [ ! -e "$HOME/.claude.json" ]
 }
 
 @test "a second link rewrites files that came from the read-only store" {

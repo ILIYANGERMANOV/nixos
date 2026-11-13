@@ -263,7 +263,13 @@ in
   # `claude`, and yubikey's private scripts are reached through references, which
   # is why those build for real.
   shell-embedded = pkgs.linkFarmFromDrvs "shell-embedded" (
-    map dry (claude.packages ++ [ claude.factory.wrapper ])
+    map dry (
+      claude.packages
+      ++ [
+        claude.factory.wrapper
+        claude.demo
+      ]
+    )
     ++ [
       typos.cli
       tempFactory.cli
