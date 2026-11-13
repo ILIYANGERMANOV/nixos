@@ -40,18 +40,16 @@ module State.Run.Codec (
     decodeBreakdown,
 ) where
 
-import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, parseJSON, withObject, (.:), (.:?), (.=))
-import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list, null_, pair, pairs, text)
+import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
+import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, null_, pair, pairs, text)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.List (sortOn)
-import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
-import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -59,33 +57,23 @@ import Data.Text.Encoding (decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), fanEvent, fanName)
-import State.Category.Mode (Area (..), parseByName, parseQuality, qualityName, sizeName)
-import State.Category.Step (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent)
+import State.Category.Mode (parseByName, parseQuality, qualityName, sizeName)
+import State.Category.Step (eventText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
     AgentRole (..),
     Asker (..),
     Asking (..),
-    Branch (..),
-    BreakdownError (..),
-    Check (..),
     Child (..),
-    Commit (..),
-    DraftPr (..),
     Envelope (..),
     Event (..),
     EventId (..),
     FlowName (..),
-    Judgement (..),
-    Label (..),
     Note (..),
     Op (..),
-    Outcome (..),
+    AnyOutcome,
     Parent (..),
-    Picks (..),
     Principal (..),
-    Requirement (..),
     RunId,
     Said (..),
     SessionId (..),
@@ -95,20 +83,16 @@ import State.Run.Event (
     StateName (..),
     Stop (..),
     StopReason (..),
-    Task (..),
     TaskId (..),
     TaskState (..),
-    Tasks,
-    Topic (..),
     Url (..),
-    breakdown,
     eventId,
-    outcomeEvent,
     parseRunId,
     runIdText,
-    taskList,
  )
 import State.Run.Id (eventIdText, parseEventId)
+import State.Step.Artifact (areaText, branchText, decodeBreakdown, judgementText, named, shaText, taskIdText, topicText, urlText)
+import State.Step.Catalog (outcomeData, outcomeDecoders, outcomeEvent)
 import System.FilePath ((</>))
 
 -- | The log's file in a run's notes dir.
@@ -305,6 +289,10 @@ eventOf kind obj = case kind of
         Just parser -> Took <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
 
+-- | Keyed by the event names the layers give each outcome, so a renamed outcome changes the wire with it.
+outcomeParsers :: Map Text (Object -> Parser AnyOutcome)
+outcomeParsers = Map.fromList (map (first eventText) outcomeDecoders)
+
 childOf :: Object -> Parser RunId
 childOf obj = obj .: "child" >>= runIdOf
 
@@ -409,47 +397,6 @@ taskStateArgs moved =
             Merged pr -> [urlText pr]
             Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
 
--- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
-decodeBreakdown :: Text -> Either Text Tasks
-decodeBreakdown raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither breakdownOf)
-
-breakdownOf :: Value -> Parser Tasks
-breakdownOf value = do
-    tasks <- parseJSON value >>= traverse (withObject "task" taskFieldsOf)
-    case NonEmpty.nonEmpty tasks of
-        Nothing -> fail "a breakdown has a task at least"
-        Just some -> either (fail . Text.unpack . breakdownErrorText) pure (breakdown some)
-  where
-    breakdownErrorText = \case
-        TaskTwice (TaskId task) -> "task " <> task <> " is named twice"
-        DependsLater (TaskId task) (TaskId dep) -> "task " <> task <> " depends on " <> dep <> ", which is not an earlier task"
-
-taskEncoding :: Task -> Encoding
-taskEncoding task =
-    pairs $
-        "id" .= taskIdText task.id
-            <> "deps" .= map taskIdText task.deps
-            <> "base" .= branchText task.base
-            <> "branch" .= branchText task.branch
-            <> "quality" .= qualityName task.quality
-            <> "size" .= sizeName task.size
-            <> "qa" .= task.qa
-            <> "heavy" .= task.heavy
-            <> "security" .= map topicText (Set.toList task.security)
-
-taskFieldsOf :: Object -> Parser Task
-taskFieldsOf obj =
-    Task . TaskId
-        <$> obj .: "id"
-        <*> (map TaskId <$> obj .: "deps")
-        <*> (Branch <$> obj .: "base")
-        <*> (Branch <$> obj .: "branch")
-        <*> (obj .: "quality" >>= named "quality" parseQuality)
-        <*> (obj .: "size" >>= named "size" (parseByName sizeName))
-        <*> obj .: "qa"
-        <*> obj .: "heavy"
-        <*> (obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic")
-
 startOf :: Object -> Parser Start
 startOf obj =
     Start
@@ -524,120 +471,6 @@ basisOf = withObject "basis" $ \obj ->
         Just why -> Obvious <$> oneLineOf why
         Nothing -> AnsweredBy <$> (obj .: "event" >>= named "event id" parseEventId)
 
-outcomeData :: Outcome -> Series
-outcomeData = \case
-    ResearchDone n -> "n" .= n
-    ResearchSkipped -> mempty
-    InterviewEnough -> mempty
-    InterviewMore -> mempty
-    PlanDone path -> "path" .= path
-    SimplifyPlanDone -> mempty
-    SimplifyPlanSkipped -> mempty
-    AlternativeDone -> mempty
-    AlternativeSkipped -> mempty
-    ConfirmConfirmed -> mempty
-    ConfirmAdjusted -> mempty
-    DraftDone draft -> "url" .= urlText draft.url <> "base" .= branchText draft.base <> "branch" .= branchText draft.branch
-    ImplementDone commit -> commitData commit
-    RefactorDone sha -> headData sha
-    RefactorSkipped why -> "why" .= why
-    ReviewClean sha -> headData sha
-    ReviewRows sha -> headData sha
-    PickFinal picks -> picksData picks
-    PickLoop picks -> picksData picks
-    FixDone commit -> commitData commit
-    DescribeDone sha -> headData sha
-    SimplifyPrDone sha -> headData sha
-    SimplifyPrSkipped sha -> headData sha
-    AwaitCiGreen sha -> headData sha
-    AwaitCiRed sha failing -> headData sha <> "failing" .= map (\(Check check) -> check) (NonEmpty.toList failing)
-    FixPrDone sha -> headData sha
-    ReadyDone url -> "url" .= urlText url
-    ReadySkipped url -> "url" .= urlText url
-    BreakdownDone tasks -> pair "tasks" (list taskEncoding (taskList tasks))
-    FanDone _ -> mempty
-    MergeDone url -> "url" .= urlText url
-  where
-    headData sha = "head" .= shaText sha
-    commitData commit = headData commit.head <> "touches" .= map areaText (Set.toList commit.touches)
-    picksData picks =
-        "rows" .= map (\(Label label) -> label) (Set.toList picks.rows)
-            <> pair "verdicts" (list verdictEncoding (Map.toList picks.verdicts))
-    verdictEncoding (Requirement requirement, judgement) =
-        pairs ("requirement" .= requirement <> "outcome" .= judgementText judgement)
-
-{- | Keyed by the event names "State.Category.Step" gives each outcome, so a renamed
-outcome changes the wire with it.
--}
-outcomeParsers :: Map Text (Object -> Parser Outcome)
-outcomeParsers =
-    Map.fromList . map (first eventText) $
-        [ continueEvent Research ~> \obj -> ResearchDone <$> obj .: "n"
-        , skipEvent Research ~> none ResearchSkipped
-        , exitEvent Interview ~> none InterviewEnough
-        , continueEvent Interview ~> none InterviewMore
-        , continueEvent PlanS ~> \obj -> PlanDone <$> obj .: "path"
-        , continueEvent SimplifyP ~> none SimplifyPlanDone
-        , skipEvent SimplifyP ~> none SimplifyPlanSkipped
-        , continueEvent Alternative ~> none AlternativeDone
-        , skipEvent Alternative ~> none AlternativeSkipped
-        , exitEvent Confirm ~> none ConfirmConfirmed
-        , continueEvent Confirm ~> none ConfirmAdjusted
-        , continueEvent Draft ~> fmap DraftDone . draftOf
-        , continueEvent Implement ~> fmap ImplementDone . commitOf
-        , continueEvent Refactor ~> fmap RefactorDone . headOf
-        , skipEvent Refactor ~> \obj -> RefactorSkipped <$> obj .: "why"
-        , exitEvent Review ~> fmap ReviewClean . headOf
-        , continueEvent Review ~> fmap ReviewRows . headOf
-        , exitEvent Pick ~> fmap PickFinal . picksOf
-        , continueEvent Pick ~> fmap PickLoop . picksOf
-        , continueEvent Fix ~> fmap FixDone . commitOf
-        , continueEvent Describe ~> fmap DescribeDone . headOf
-        , continueEvent SimplifyPR ~> fmap SimplifyPrDone . headOf
-        , skipEvent SimplifyPR ~> fmap SimplifyPrSkipped . headOf
-        , exitEvent AwaitCi ~> fmap AwaitCiGreen . headOf
-        , continueEvent AwaitCi ~> \obj -> AwaitCiRed <$> headOf obj <*> (fmap Check <$> obj .: "failing")
-        , continueEvent FixPR ~> fmap FixPrDone . headOf
-        , continueEvent Ready ~> fmap ReadyDone . urlOf
-        , skipEvent Ready ~> fmap ReadySkipped . urlOf
-        , continueEvent Breakdown ~> \obj -> BreakdownDone <$> (obj .: "tasks" >>= breakdownOf)
-        , continueEvent Merge ~> fmap MergeDone . urlOf
-        ]
-            <> [fanEvent Leaves (fanName fan) ~> none (FanDone fan) | fan <- [minBound .. maxBound]]
-  where
-    none outcome _ = pure outcome
-    headOf obj = Sha <$> obj .: "head"
-    urlOf obj = Url <$> obj .: "url"
-    draftOf obj = DraftPr <$> urlOf obj <*> (Branch <$> obj .: "base") <*> (Branch <$> obj .: "branch")
-    commitOf obj = Commit <$> headOf obj <*> (Set.fromList <$> (obj .: "touches" >>= traverse (named "area" (parseByName areaText))))
-    picksOf obj =
-        Picks
-            <$> (obj .: "rows" >>= distinct "row" . map Label)
-            <*> (obj .: "verdicts" >>= traverse (withObject "verdict" verdictOf) >>= keyed "requirement")
-    verdictOf obj = (,) . Requirement <$> obj .: "requirement" <*> (obj .: "outcome" >>= named "outcome" (parseByName judgementText))
-
-{- | A list read as a set, refusing a repeat: a set would keep one copy
-silently, and a log naming one twice is a bug in its writer.
--}
-distinct :: (Ord a) => String -> [a] -> Parser (Set a)
-distinct what = fmap Map.keysSet . keyed what . map (,())
-
--- | Pairs read as a map, refusing a repeated key, where a map would keep the last.
-keyed :: (Ord k) => String -> [(k, v)] -> Parser (Map k v)
-keyed what entries
-    | Map.size byKey == length entries = pure byKey
-    | otherwise = fail ("repeated " <> what)
-  where
-    byKey = Map.fromList entries
-
-(~>) :: EventName -> (Object -> Parser Outcome) -> (EventName, Object -> Parser Outcome)
-(~>) = (,)
-
-infixr 0 ~>
-
-named :: String -> (Text -> Maybe a) -> Text -> Parser a
-named what parse raw = maybe (fail ("unknown " <> what <> " " <> show raw)) pure (parse raw)
-
 oneLineAt :: Key -> Object -> Parser OneLine
 oneLineAt key obj = obj .: key >>= oneLineOf
 
@@ -646,25 +479,6 @@ oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneL
 
 runIdOf :: Text -> Parser RunId
 runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break")) pure (parseRunId raw)
-
-shaText :: Sha -> Text
-shaText (Sha sha) = sha
-
-urlText :: Url -> Text
-urlText (Url url) = url
-
-taskIdText :: TaskId -> Text
-taskIdText (TaskId task) = task
-
-topicText :: Topic -> Text
-topicText = \case
-    CiTopic -> "ci"
-    AuthTopic -> "auth"
-    DatabaseTopic -> "database"
-    SecretsTopic -> "secrets"
-
-branchText :: Branch -> Text
-branchText (Branch branch) = branch
 
 flowText :: FlowName -> Text
 flowText = \case
@@ -686,16 +500,3 @@ reasonText = \case
     Replan -> "replan"
     Fuel -> "fuel"
     Outgrown -> "grew"
-
--- | As a review's verdict table spells them.
-judgementText :: Judgement -> Text
-judgementText = \case
-    Met -> "met"
-    NotMet -> "not-met"
-    Unverified -> "unverified"
-
-areaText :: Area -> Text
-areaText = \case
-    Interface -> "interface"
-    DataModel -> "data-model"
-    Auth -> "auth"

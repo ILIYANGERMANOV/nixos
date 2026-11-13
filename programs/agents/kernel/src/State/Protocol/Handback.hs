@@ -24,13 +24,23 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (fanNamed)
-import State.Category.Graph (Node (..), Place (..), nodeStep)
+import State.Category.Graph (Node (..), Place (..))
 import State.Category.Mode (Area, Quality (..), parseByName)
-import State.Category.Step (SomeStep (..), StateName (..), Step, stepName)
-import State.Category.Step qualified as Step
+import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), Outcome (..), RunId, Said (..), Sha (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, stepTook)
+import State.Step.Build (Outcome (..))
+import State.Step.Build qualified as Build
+import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), nodeStep)
+import State.Step.Fan qualified as Fan
+import State.Step.Gather qualified as Gather
+import State.Step.Plan (Outcome (..))
+import State.Step.Plan qualified as Plan
+import State.Step.Review (Outcome (..))
+import State.Step.Review qualified as Review
+import State.Step.Ship (Outcome (..))
+import State.Step.Ship qualified as Ship
 import State.Run.Event qualified as Event
 import State.Run.Fan (childTask)
 import State.Run.Fold (RunState (..), askedAt, nextQId)
@@ -286,42 +296,50 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
-        SomeStep s <- maybe (Left "the run is at no step a subagent runs") Right (nodeStep state.at)
+        step@(AnyStep _ (SomeStep s)) <- maybe (Left "the run is at no step a subagent runs") Right (nodeStep state.at)
         let name@(StateName label) = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
             Agent runner _ | runner == agent -> Right ()
             Agent (AgentRole runner) _ -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
             Inline -> Left (label <> " runs inline, not by " <> roleName)
-        if isReport && name /= stepName Step.Review
+        if isReport && name /= stepName Review.Review
             then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, GREW, BLOCKED, FAILED"
-            else doneOf s
-    doneOf :: Step i e o -> Either Text [Event]
-    doneOf = \case
-        Step.Research -> Right []
-        Step.SimplifyP -> took SimplifyPlanDone
-        Step.Alternative -> took AlternativeDone
-        -- An implementer that names no areas may have touched any (#360's state help).
-        Step.Implement -> took . ImplementDone =<< commit (Set.fromList [minBound .. maxBound])
-        Step.Refactor -> took . RefactorDone =<< atHead
-        Step.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
-        Step.Fix -> took . FixDone =<< commit Set.empty
-        Step.Describe -> took . DescribeDone =<< atHead
-        Step.SimplifyPR -> took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified
-        Step.FixPR -> took . FixPrDone =<< atHead
-        Step.Interview -> inline Step.Interview
-        Step.PlanS -> inline Step.PlanS
-        Step.Confirm -> inline Step.Confirm
-        Step.Draft -> inline Step.Draft
-        Step.Pick -> inline Step.Pick
-        Step.AwaitCi -> inline Step.AwaitCi
-        Step.Ready -> inline Step.Ready
-        Step.Breakdown -> inline Step.Breakdown
-        Step.Merge -> inline Step.Merge
-    inline :: Step i e o -> Either Text [Event]
+            else doneOf step
+    -- One arm per layer, each total over its steps.
+    doneOf :: AnyStep -> Either Text [Event]
+    doneOf (AnyStep l (SomeStep s)) = case l of
+        GatherLayer -> case s of
+            Gather.Research -> Right []
+            Gather.Interview -> inline s
+        PlanLayer -> case s of
+            Plan.SimplifyP -> took SimplifyPlanDone
+            Plan.Alternative -> took AlternativeDone
+            Plan.PlanS -> inline s
+            Plan.Confirm -> inline s
+        BuildLayer -> case s of
+            -- An implementer that names no areas may have touched any (#360's state help).
+            Build.Implement -> took . ImplementDone =<< commit (Set.fromList [minBound .. maxBound])
+            Build.Refactor -> took . RefactorDone =<< atHead
+            Build.Draft -> inline s
+        ReviewLayer -> case s of
+            Review.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
+            Review.Fix -> took . FixDone =<< commit Set.empty
+            Review.Pick -> inline s
+        ShipLayer -> case s of
+            Ship.Describe -> took . DescribeDone =<< atHead
+            Ship.SimplifyPR -> took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified
+            Ship.FixPR -> took . FixPrDone =<< atHead
+            Ship.AwaitCi -> inline s
+            Ship.Ready -> inline s
+        FanLayer -> case s of
+            Fan.Breakdown -> inline s
+            Fan.FanOut _ -> inline s
+            Fan.Merge -> inline s
+    inline :: (StepSet k) => Sing (s :: k) -> Either Text [Event]
     inline s = let StateName label = stepName s in Left (label <> " has no done a subagent hands back")
-    took :: Outcome -> Either Text [Event]
-    took outcome = Right [Event.Took outcome]
+    took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
+    took outcome = Right [stepTook outcome]
     atHead :: Either Text Sha
     atHead = required "HEAD (run it in the worktree)" worktreeHead
     commit :: Set Area -> Either Text Commit

@@ -21,11 +21,12 @@ import Data.Text qualified as Text
 import State.Category.Flow (FanId (..), OptId (..))
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg, qualityName, reReviews)
-import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), stateNameText, stepNamed)
+import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), stateNameText)
 import State.Run.Ask (Cond (..), Kind, Role (..), Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
 import State.Run.Event (AgentRole (..))
 import State.Show (tshow)
+import State.Step.Catalog (AnyStep (..), stepNamed)
 import State.Table (Row (runner), Runner (..), Steps, row)
 
 {- | The flow's states in the term's order: who runs each, and where each of
@@ -39,7 +40,7 @@ states g steps =
         [[stateNameText place.name, runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
   where
     runBy name = case stepNamed name of
-        Just (SomeStep s) -> case (row steps s).runner of
+        Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
             Agent (AgentRole role) _ -> role
             Inline -> "you"
         Nothing -> "fan-out"

@@ -63,6 +63,14 @@ library
     State.Run.Fold
     State.Run.Id
     State.Show
+    State.Step.Artifact
+    State.Step.Build
+    State.Step.Catalog
+    State.Step.Fan
+    State.Step.Gather
+    State.Step.Plan
+    State.Step.Review
+    State.Step.Ship
     State.Table
 
   build-depends:

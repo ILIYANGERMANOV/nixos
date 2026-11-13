@@ -1,6 +1,6 @@
 {- | One line of a run's log: what happened, and the envelope that names and
-places it. A step's outcome is an 'Outcome', named by the step it ends
-('outcomeEvent'), so a log is read off the flow's graph. A question is an
+places it. A step's outcome is an 'AnyOutcome' of its layer, named by the
+step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A question is an
 'Asking' and the events on its id that close it. The 10x's fan-out logs its
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed') and its tasks ('TaskMoved', 'Held', 'ActedOn') as stay events.
@@ -30,8 +30,8 @@ module State.Run.Event (
     Stop (..),
     StopReason (..),
     Note (..),
-    Outcome (..),
-    outcomeEvent,
+    AnyOutcome,
+    stepTook,
     DraftPr (..),
     Commit (..),
     Picks (..),
@@ -55,19 +55,17 @@ module State.Run.Event (
     TaskState (..),
 ) where
 
-import Control.Monad (foldM)
-import Data.Foldable (toList)
-import Data.List.NonEmpty (NonEmpty)
-import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), FanId (..), fanEvent, fanName)
-import State.Category.Mode (Area, Quality, Size)
-import State.Category.Step (EventName, StateName (..), Step (..), continueEvent, exitEvent, skipEvent)
+import State.Category.Flow (FanId (..))
+import State.Category.Mode (Quality, Size)
+import State.Category.Step (Outcome, StateName (..))
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
+import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
+import State.Step.Catalog (AnyOutcome, KnownLayer, outcome)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
 record carries one of its own.
@@ -106,7 +104,7 @@ data Event
     | -- | A Trivial task found bigger: the size is Normal from here.
       Grew Text
     | -- | A step's outcome, or a mode's skip: the one event that moves the run.
-      Took Outcome
+      Took AnyOutcome
     | -- | Terminal: it ends every question still pending too.
       Stopped Stop
     | {- | A question for this run to rule on or forward: its own, or one handed
@@ -146,6 +144,10 @@ data Event
       -}
       WorkerHandedBack AgentRole OneLine
     deriving stock (Eq, Show)
+
+-- | The event a step's outcome appends.
+stepTook :: (KnownLayer k) => Outcome (s :: k) l -> Event
+stepTook = Took . outcome
 
 {- | The run's environment is data here, read by whoever delivers advice, never
 by the flow: a flow does not branch on who runs it (law Principal-blind).
@@ -197,165 +199,6 @@ data StopReason = Blocked | Failed | Replan | Fuel | Outgrown
 -- | A refusal as the reader saw it: what was wrong, and the fix.
 data Note = Note {message :: Text, fix :: Text}
     deriving stock (Eq, Show)
-
-{- | One per edge of the engineer flow, carrying what that outcome reports.
-A skip is its own outcome: a skipped step stays in the path (#351).
--}
-data Outcome
-    = -- | The number of researchers.
-      ResearchDone Natural
-    | ResearchSkipped
-    | InterviewEnough
-    | InterviewMore
-    | -- | The plan file.
-      PlanDone FilePath
-    | SimplifyPlanDone
-    | SimplifyPlanSkipped
-    | AlternativeDone
-    | AlternativeSkipped
-    | ConfirmConfirmed
-    | ConfirmAdjusted
-    | DraftDone DraftPr
-    | ImplementDone Commit
-    | RefactorDone Sha
-    | -- | Why it was skipped.
-      RefactorSkipped Text
-    | ReviewClean Sha
-    | ReviewRows Sha
-    | PickFinal Picks
-    | PickLoop Picks
-    | FixDone Commit
-    | DescribeDone Sha
-    | SimplifyPrDone Sha
-    | SimplifyPrSkipped Sha
-    | AwaitCiGreen Sha
-    | -- | Red has a failing check by definition.
-      AwaitCiRed Sha (NonEmpty Check)
-    | FixPrDone Sha
-    | ReadyDone Url
-    | -- | POC keeps a draft: the PR it left.
-      ReadySkipped Url
-    | BreakdownDone Tasks
-    | -- | Every task of the fan-out is settled ("State.Run.Fan").
-      FanDone FanId
-    | -- | The one PR the merge left.
-      MergeDone Url
-    deriving stock (Eq, Show)
-
--- | The graph's name for the edge an outcome takes, from "State.Category.Step"'s names.
-outcomeEvent :: Outcome -> EventName
-outcomeEvent = \case
-    ResearchDone _ -> continueEvent Research
-    ResearchSkipped -> skipEvent Research
-    InterviewEnough -> exitEvent Interview
-    InterviewMore -> continueEvent Interview
-    PlanDone _ -> continueEvent PlanS
-    SimplifyPlanDone -> continueEvent SimplifyP
-    SimplifyPlanSkipped -> skipEvent SimplifyP
-    AlternativeDone -> continueEvent Alternative
-    AlternativeSkipped -> skipEvent Alternative
-    ConfirmConfirmed -> exitEvent Confirm
-    ConfirmAdjusted -> continueEvent Confirm
-    DraftDone _ -> continueEvent Draft
-    ImplementDone _ -> continueEvent Implement
-    RefactorDone _ -> continueEvent Refactor
-    RefactorSkipped _ -> skipEvent Refactor
-    ReviewClean _ -> exitEvent Review
-    ReviewRows _ -> continueEvent Review
-    PickFinal _ -> exitEvent Pick
-    PickLoop _ -> continueEvent Pick
-    FixDone _ -> continueEvent Fix
-    DescribeDone _ -> continueEvent Describe
-    SimplifyPrDone _ -> continueEvent SimplifyPR
-    SimplifyPrSkipped _ -> skipEvent SimplifyPR
-    AwaitCiGreen _ -> exitEvent AwaitCi
-    AwaitCiRed _ _ -> continueEvent AwaitCi
-    FixPrDone _ -> continueEvent FixPR
-    ReadyDone _ -> continueEvent Ready
-    ReadySkipped _ -> skipEvent Ready
-    BreakdownDone _ -> continueEvent Breakdown
-    FanDone fan -> fanEvent Leaves (fanName fan)
-    MergeDone _ -> continueEvent Merge
-
--- | The draft PR, synced from GitHub.
-data DraftPr = DraftPr {url :: Url, base :: Branch, branch :: Branch}
-    deriving stock (Eq, Show)
-
--- | A commit and the areas it touches, which decide a fix's full review.
-data Commit = Commit {head :: Sha, touches :: Set Area}
-    deriving stock (Eq, Show)
-
-{- | The rows to fix, labelled so one finding keeps its label across rounds,
-and the verdict on each requirement.
--}
-data Picks = Picks {rows :: Set Label, verdicts :: Map Requirement Judgement}
-    deriving stock (Eq, Show)
-
-data Judgement = Met | NotMet | Unverified
-    deriving stock (Eq, Show, Enum, Bounded)
-
-newtype Sha = Sha Text
-    deriving stock (Eq, Show)
-
-newtype Url = Url Text
-    deriving stock (Eq, Show)
-
-newtype Branch = Branch Text
-    deriving stock (Eq, Show)
-
-newtype Label = Label Text
-    deriving stock (Eq, Ord, Show)
-
-newtype Requirement = Requirement Text
-    deriving stock (Eq, Ord, Show)
-
--- | A CI check, by name.
-newtype Check = Check Text
-    deriving stock (Eq, Ord, Show)
-
--- | What the engineer run for a task is briefed with.
-data Task = Task
-    { id :: TaskId
-    , deps :: [TaskId]
-    -- ^ Tasks whose work this one builds on: earlier ones only.
-    , base :: Branch
-    , branch :: Branch
-    , quality :: Quality
-    , size :: Size
-    , qa :: Bool
-    , heavy :: Bool
-    -- ^ At most one heavy task runs at a time.
-    , security :: Set Topic
-    }
-    deriving stock (Eq, Show)
-
--- | The security-sensitive work a task's brief flags.
-data Topic = CiTopic | AuthTopic | DatabaseTopic | SecretsTopic
-    deriving stock (Eq, Ord, Show, Enum, Bounded)
-
-{- | The tasks in order, ids unique, each depending on earlier tasks only, so
-the dependencies are acyclic by construction. Built by 'breakdown' alone.
--}
-newtype Tasks = Tasks (NonEmpty Task)
-    deriving stock (Eq, Show)
-
-data BreakdownError
-    = TaskTwice TaskId
-    | -- | The task names a dependency that is not an earlier task.
-      DependsLater TaskId TaskId
-    deriving stock (Eq, Show)
-
-breakdown :: NonEmpty Task -> Either BreakdownError Tasks
-breakdown tasks = Tasks tasks <$ foldM check [] tasks
-  where
-    check seen task =
-        case (task.id `elem` seen, filter (`notElem` seen) task.deps) of
-            (True, _) -> Left (TaskTwice task.id)
-            (False, later : _) -> Left (DependsLater task.id later)
-            (False, []) -> Right (task.id : seen)
-
-taskList :: Tasks -> [Task]
-taskList (Tasks tasks) = toList tasks
 
 -- | A child run of the fan-out: its run id, its task, its log and worktree.
 data Child = Child {run :: RunId, task :: TaskId, log :: FilePath, worktree :: FilePath}

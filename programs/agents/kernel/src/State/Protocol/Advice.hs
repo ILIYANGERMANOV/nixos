@@ -38,19 +38,27 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
-import State.Category.Step (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
+import State.Category.Step (EventName, Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), continueEvent, exitEvent, skipEvent, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (readyState, stopLine)
 import State.Protocol.Record (recordCommand)
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText)
-import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), fanRole, runIdText)
+import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), fanRole, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, flowRole, mode, nextQId, stuck)
 import State.Show (firstLine, tshow)
+import State.Step.Build (Outcome (..), Sing (Draft, Refactor))
+import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
+import State.Step.Catalog qualified as Catalog
+import State.Step.Fan (Outcome (..))
+import State.Step.Gather (Outcome (..), Sing (Research))
+import State.Step.Plan (Outcome (..), Sing (Alternative, SimplifyP))
+import State.Step.Review qualified as Review
+import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
 -- | What GitHub and git say, read by the shell before it advises.
@@ -149,7 +157,7 @@ data Action
 mode already decide it: the draft PR or its readiness seen on GitHub, or a
 skip the mode makes. The shell records it and asks again, until 'Nothing'.
 -}
-due :: OpenGraph -> Facts -> RunState -> Maybe Outcome
+due :: OpenGraph -> Facts -> RunState -> Maybe AnyOutcome
 due g facts state = case (state.stopped, state.at) of
     (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
@@ -158,8 +166,8 @@ due g facts state = case (state.stopped, state.at) of
   where
     fromGitHub name = case facts.pr of
         Just pr
-            | name == stepName Draft, open pr.readiness -> [DraftDone pr.draft]
-            | name == stepName Ready, IsReady <- pr.readiness -> [ReadyDone pr.draft.url]
+            | name == stepName Draft, open pr.readiness -> [Catalog.outcome (DraftDone pr.draft)]
+            | name == stepName Ready, IsReady <- pr.readiness -> [Catalog.outcome (ReadyDone pr.draft.url)]
         _ -> []
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case
@@ -168,7 +176,7 @@ due g facts state = case (state.stopped, state.at) of
         IsMerged -> False
         IsClosed -> False
     -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
-    leaves place = [FanDone fan | Just fan <- [fanNamed place.name], Right () <- [Fan.leave state.fanOut]]
+    leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave state.fanOut]]
     skipped place =
         [ outcome
         | ((from, event), edge) <- Map.toList g.edges
@@ -187,14 +195,14 @@ due g facts state = case (state.stopped, state.at) of
 {- | The outcome a skip appends. @simplify_pr@ has none here: no mode skips
 it, and its skip names a head these facts lack.
 -}
-skipOutcome :: Facts -> RunState -> Text -> EventName -> Maybe Outcome
+skipOutcome :: Facts -> RunState -> Text -> EventName -> Maybe AnyOutcome
 skipOutcome facts state why event =
     join . lookup event $
-        [ (skipEvent Research, Just ResearchSkipped)
-        , (skipEvent SimplifyP, Just SimplifyPlanSkipped)
-        , (skipEvent Alternative, Just AlternativeSkipped)
-        , (skipEvent Refactor, Just (RefactorSkipped why))
-        , (skipEvent Ready, ReadySkipped <$> prUrl facts state)
+        [ (skipEvent Research, Just (Catalog.outcome ResearchSkipped))
+        , (skipEvent SimplifyP, Just (Catalog.outcome SimplifyPlanSkipped))
+        , (skipEvent Alternative, Just (Catalog.outcome AlternativeSkipped))
+        , (skipEvent Refactor, Just (Catalog.outcome (RefactorSkipped why)))
+        , (skipEvent Ready, Catalog.outcome . ReadySkipped <$> prUrl facts state)
         ]
 
 -- | The next action, from the run's state alone.
@@ -203,7 +211,7 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
   where
     plain next = (next, "")
     notify = case (state.at, Text.null prompt) of
-        (At place, False) | Just (SomeStep s) <- stepNamed place.name -> (row steps s).notifies
+        (At place, False) | Just (AnyStep _ (SomeStep s)) <- stepNamed place.name -> (row steps s).notifies
         _ -> False
     (action, prompt) = case (state.stopped, state.pending, state.quality, state.size) of
         (Just stop, _, _, _) -> plain (Stopped stop)
@@ -226,22 +234,19 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
         (Exit, _) -> plain (Done (prUrl facts state))
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) -> case stepNamed place.name of
-            Just (SomeStep s) -> (atStep s, promptOf (row steps s))
+            Just (AnyStep _ (SomeStep s)) -> (atStep s, promptOf (row steps s))
             Nothing -> case fanNamed place.name of
                 Just fan -> plain (atFan fan state)
                 Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
-    atStep :: Step i e o -> Action
-    atStep s = case lookup (stepName s) special of
-        Just next -> next
-        Nothing -> case (row steps s).runner of
+    atStep :: (StepSet k) => Sing (s :: k) -> Action
+    atStep s = case special s of
+        Ordinary -> case (row steps s).runner of
             Agent role _ -> Spawn role Nothing
             Inline -> Run (recordOutcomes s)
-    special =
-        [ (stepName Confirm, if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes Confirm) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?")
-        , (stepName Pick, Run (pickCommand state))
-        , (stepName Step.AwaitCi, AwaitCi (maybe "the PR" urlText (prUrl facts state)))
-        , (stepName Step.Merge, fromMaybe (maybe (Run (recordOutcomes Step.Merge)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut))) (recordFinished state.fanOut))
-        ]
+        AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?"
+        PicksRows -> Run (pickCommand state)
+        Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
+        AwaitsMerge -> fromMaybe (maybe (Run (recordOutcomes s)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut))) (recordFinished state.fanOut)
 
 {- | At a fan-out: what this run does at once first - triage a question, then
 a child's stop, record a finished task's PR, resume a child its answer waits
@@ -282,7 +287,7 @@ prUrl :: Facts -> RunState -> Maybe Url
 prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$> state.drafted
 
 -- | The record line for each of a step's outcomes, exit first.
-recordOutcomes :: Step i e o -> Text
+recordOutcomes :: (StepSet k) => Sing (s :: k) -> Text
 recordOutcomes s = Text.intercalate " | " (map recordCommand events)
   where
     events = case outcomes s of
@@ -307,8 +312,8 @@ pickCommand state
     fuel = (cfg (mode state)).fuel LReview
     -- Any requirement: 'budget' asks only whether one is Not met.
     anyRequirement = Requirement ""
-    loop = recordCommand (continueEvent Pick)
-    final = recordCommand (exitEvent Pick)
+    loop = recordCommand (continueEvent Review.Pick)
+    final = recordCommand (exitEvent Review.Pick)
 
 stuckText :: Stuck -> Text
 stuckText found =

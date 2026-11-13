@@ -15,7 +15,6 @@ module State.Category.Graph (
     graph,
     glue,
     places,
-    nodeStep,
 ) where
 
 import Data.Map.Strict (Map)
@@ -23,7 +22,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import State.Category.Flow (FanEvent (..), FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanEvent, fanName)
-import State.Category.Step (EventName (..), OutcomeEdge (..), Outcomes (..), SomeStep, StateName, Step, outcomes, skippedOutcome, stepName, stepNamed)
+import State.Category.Step (EventName (..), OutcomeEdge (..), Outcomes (..), Sig, Sing, StateName, StepSet, outcomes, skippedOutcome, stepName)
 import State.Category.Ty (KnownTy (..), Ty (..))
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
@@ -110,7 +109,7 @@ glue left right = do
         At _ -> edge
 
 -- | One state, one edge per outcome: an exit to 'Exit', the continuing one to 'Out'.
-stepGraph :: forall i e o. (KnownTy i, KnownTy o) => Step i e o -> OpenGraph
+stepGraph :: forall k (s :: k) i e o. (StepSet k, Sig s ~ '(i, e, o), KnownTy i, KnownTy o) => Sing s -> OpenGraph
 stepGraph s =
     OpenGraph
         { inPort = place
@@ -200,10 +199,3 @@ unionLoops left right = case Map.keys (Map.intersection left right) of
 
 insertNew :: (Place, EventName) -> Edge -> Map (Place, EventName) Edge -> Either Clash (Map (Place, EventName) Edge)
 insertNew key@(place, event) edge = Map.alterF (maybe (Right (Just edge)) (const (Left (SameEvent place event)))) key
-
--- | The step the run does at a node: none at a port, nor at a fan-out's state.
-nodeStep :: Node -> Maybe SomeStep
-nodeStep = \case
-    At place -> stepNamed place.name
-    Out -> Nothing
-    Exit -> Nothing

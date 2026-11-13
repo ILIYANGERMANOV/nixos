@@ -12,8 +12,12 @@ module State.Block (
 ) where
 
 import State.Category.Flow (Flow (..), LoopId (..), OnEmpty (..), OptId (..))
-import State.Category.Step (Step (..))
 import State.Category.Ty (Ty (..))
+import State.Step.Build (Sing (..))
+import State.Step.Gather (Sing (..))
+import State.Step.Plan (Sing (..))
+import State.Step.Review (Sing (..))
+import State.Step.Ship (Sing (..))
 
 {- | Gather and propose until a plan is confirmed: both flows open with it.
 Out of fuel is a stop, as an adjusted plan that never settles needs the user.

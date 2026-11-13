@@ -25,6 +25,7 @@ import Data.Text.Read (decimal)
 import Data.Word (Word64, Word8)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
+import State.Step.Artifact (TaskId (..))
 
 {- | Short and random, set by @init@; one log holds one run. Built only by
 'parseRunId'.
@@ -44,10 +45,6 @@ parseRunId raw
 
 runIdText :: RunId -> Text
 runIdText (RunId run) = run
-
--- | A task of the 10x's breakdown, by the id the breakdown gives it.
-newtype TaskId = TaskId Text
-    deriving stock (Eq, Ord, Show)
 
 -- | @<run>:<n>@, the form of a CLI record's id and of a question's.
 numberedText :: RunId -> Natural -> Text

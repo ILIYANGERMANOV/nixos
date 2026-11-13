@@ -40,7 +40,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -49,12 +49,17 @@ import State.Category.Flow (FanEvent (..), LoopId, OptId, fanEvent)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
 import State.Category.Path (step)
-import State.Category.Step (EventName)
+import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, Url, eventId, outcomeEvent)
+import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, Url, eventId)
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
+import State.Step.Build (BuildStep, Outcome (..))
+import State.Step.Catalog (AnyOutcome (..), Layer (..), outcomeEvent)
+import State.Step.Fan (FanStep, Outcome (..))
+import State.Step.Review (Outcome (..), ReviewStep)
+import State.Step.Ship (Outcome (..), ShipStep)
 
 data RunState = RunState
     { run :: RunId
@@ -270,7 +275,7 @@ triagedBy role untriaged = case break ((== role) . fst) untriaged of
     (before, []) -> before
 
 -- | Moves along the outcome's edge, after the outcome's problems join the rounds it ends.
-took :: OpenGraph -> RunState -> Outcome -> Either Refusal RunState
+took :: OpenGraph -> RunState -> AnyOutcome -> Either Refusal RunState
 took g state outcome = do
     let name = outcomeEvent outcome
     edge <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
@@ -282,46 +287,51 @@ took g state outcome = do
         Skip _ -> Right ()
         Along _ -> Right ()
         Stay -> Right ()
-    fanOut <- Bifunctor.first FanRefused (fanOutcome outcome state.fanOut)
-    let noted = fmap (noteProblems (problems outcome)) state.rounds
+    let effect = effects outcome
+    fanOut <- Bifunctor.first FanRefused (effect.fanned state.fanOut)
+    let noted = fmap (noteProblems effect.problems) state.rounds
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
         traverse_ (nextRound loopId ((cfg (mode state)).fuel loopId)) (Map.lookup loopId rounds)
-    Right state {at = edge.to, rounds, fanOut, askedHere = [], drafted = listToMaybe [pr | DraftDone pr <- [outcome]] <|> state.drafted, published = listToMaybe ([url | ReadyDone url <- [outcome]] <> [url | ReadySkipped url <- [outcome]]) <|> state.published}
+    Right state {at = edge.to, rounds, fanOut, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
+
+{- | What an outcome changes besides the run's place: its problems join the
+rounds it ends, and it may move the fan-out or name the run's PR.
+-}
+data Effect = Effect
+    { fanned :: Fan -> Either Fan.Refusal Fan
+    , problems :: Set Problem
+    , draft :: Maybe DraftPr
+    , pr :: Maybe Url
+    }
+
+{- | One arm per layer: a new layer breaks the build here, and a new outcome
+in the layer's own match below.
+-}
+effects :: AnyOutcome -> Effect
+effects (AnyOutcome l (SomeOutcome _ _ o)) = case l of
+    GatherLayer -> none
+    PlanLayer -> none
+    BuildLayer -> none {draft = built o}
+    ReviewLayer -> none {problems = reviewProblems o}
+    ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
+    FanLayer -> none {fanned = fanOutcome o}
+  where
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing}
+
+-- | The draft PR a draft names.
+built :: Outcome (s :: BuildStep) l -> Maybe DraftPr
+built = \case
+    DraftDone pr -> Just pr
+    ImplementDone _ -> Nothing
+    RefactorDone _ -> Nothing
+    RefactorSkipped _ -> Nothing
 
 -- | A breakdown sets the fan-out's tasks; the fan-out is left once they are settled.
-fanOutcome :: Outcome -> Fan -> Either Fan.Refusal Fan
+fanOutcome :: Outcome (s :: FanStep) l -> Fan -> Either Fan.Refusal Fan
 fanOutcome outcome fan = case outcome of
     BreakdownDone tasks -> Right (Fan.broken tasks fan)
     FanDone _ -> fan <$ Fan.leave fan
-    ResearchDone _ -> Right fan
-    ResearchSkipped -> Right fan
-    InterviewEnough -> Right fan
-    InterviewMore -> Right fan
-    PlanDone _ -> Right fan
-    SimplifyPlanDone -> Right fan
-    SimplifyPlanSkipped -> Right fan
-    AlternativeDone -> Right fan
-    AlternativeSkipped -> Right fan
-    ConfirmConfirmed -> Right fan
-    ConfirmAdjusted -> Right fan
-    DraftDone _ -> Right fan
-    ImplementDone _ -> Right fan
-    RefactorDone _ -> Right fan
-    RefactorSkipped _ -> Right fan
-    ReviewClean _ -> Right fan
-    ReviewRows _ -> Right fan
-    PickFinal _ -> Right fan
-    PickLoop _ -> Right fan
-    FixDone _ -> Right fan
-    DescribeDone _ -> Right fan
-    SimplifyPrDone _ -> Right fan
-    SimplifyPrSkipped _ -> Right fan
-    AwaitCiGreen _ -> Right fan
-    AwaitCiRed _ _ -> Right fan
-    FixPrDone _ -> Right fan
-    ReadyDone _ -> Right fan
-    ReadySkipped _ -> Right fan
     MergeDone _ -> fan <$ Fan.closed fan
 
 -- | A child's spawn or hand-back stays where the graph has that fan-out event: at the fan-out.
@@ -484,43 +494,30 @@ noteProblems :: Set Problem -> NonEmpty Round -> NonEmpty Round
 noteProblems new rounds = case NonEmpty.reverse rounds of
     Round latest :| before -> NonEmpty.reverse (Round (latest <> new) :| before)
 
-problems :: Outcome -> Set Problem
-problems = \case
+-- | The rows a pick leaves to fix and the requirements it judged not met.
+reviewProblems :: Outcome (s :: ReviewStep) l -> Set Problem
+reviewProblems = \case
     PickFinal picks -> picked picks
     PickLoop picks -> picked picks
-    AwaitCiRed _ failing -> Set.fromList (map Failing (NonEmpty.toList failing))
-    ResearchDone _ -> Set.empty
-    ResearchSkipped -> Set.empty
-    InterviewEnough -> Set.empty
-    InterviewMore -> Set.empty
-    PlanDone _ -> Set.empty
-    SimplifyPlanDone -> Set.empty
-    SimplifyPlanSkipped -> Set.empty
-    AlternativeDone -> Set.empty
-    AlternativeSkipped -> Set.empty
-    ConfirmConfirmed -> Set.empty
-    ConfirmAdjusted -> Set.empty
-    DraftDone _ -> Set.empty
-    ImplementDone _ -> Set.empty
-    RefactorDone _ -> Set.empty
-    RefactorSkipped _ -> Set.empty
     ReviewClean _ -> Set.empty
     ReviewRows _ -> Set.empty
     FixDone _ -> Set.empty
-    DescribeDone _ -> Set.empty
-    SimplifyPrDone _ -> Set.empty
-    SimplifyPrSkipped _ -> Set.empty
-    AwaitCiGreen _ -> Set.empty
-    FixPrDone _ -> Set.empty
-    ReadyDone _ -> Set.empty
-    ReadySkipped _ -> Set.empty
-    BreakdownDone _ -> Set.empty
-    FanDone _ -> Set.empty
-    MergeDone _ -> Set.empty
   where
     picked picks =
         Set.map Row picks.rows
             <> Set.map Unmet (Map.keysSet (Map.filter (== NotMet) picks.verdicts))
+
+-- | A red CI's failing checks, and the PR a ready, or a skipped one, leaves.
+shipped :: Outcome (s :: ShipStep) l -> (Set Problem, Maybe Url)
+shipped = \case
+    AwaitCiRed _ failing -> (Set.fromList (map Failing (NonEmpty.toList failing)), Nothing)
+    ReadyDone url -> (Set.empty, Just url)
+    ReadySkipped url -> (Set.empty, Just url)
+    DescribeDone _ -> (Set.empty, Nothing)
+    SimplifyPrDone _ -> (Set.empty, Nothing)
+    SimplifyPrSkipped _ -> (Set.empty, Nothing)
+    AwaitCiGreen _ -> (Set.empty, Nothing)
+    FixPrDone _ -> (Set.empty, Nothing)
 
 -- | Balanced and Normal until recorded, as a brief with no @Quality@ or @Size@ line reads.
 mode :: RunState -> Mode

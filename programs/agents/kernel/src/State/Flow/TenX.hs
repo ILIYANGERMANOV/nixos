@@ -5,9 +5,9 @@ module State.Flow.TenX (tenX) where
 
 import State.Block (agree)
 import State.Category.Flow (FanId (..), Flow (..))
-import State.Category.Step (Step (..))
 import State.Category.Ty (Ty (..))
 import State.Flow.Engineer (engineer)
+import State.Step.Fan (Sing (Breakdown, Merge))
 
 tenX :: Flow 'Ctx 'Nothing 'PR
 tenX = agree :> Do Breakdown :> Par FEngineers engineer :> Do Merge

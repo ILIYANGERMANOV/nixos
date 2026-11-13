@@ -47,13 +47,15 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Graph (Node (..), Place (..))
-import State.Category.Step (stepName)
-import State.Category.Step qualified as Step
+import State.Category.Step (SomeOutcome (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Run.Ask (Principal (..), Question (..), qidText)
-import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Took), Outcome (DraftDone), RunId, Source (..), Start (..), childRoles, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Took), RunId, Source (..), Start (..), childRoles, roleText, runIdText)
 import State.Run.Fold (Pending (..), RunState (..), Waits (..))
 import State.Run.Id (digestOf)
+import State.Step.Build (Outcome (DraftDone))
+import State.Step.Build qualified as Build
+import State.Step.Catalog (AnyOutcome (..), Layer (BuildLayer))
 import State.Table (Steps, agentRoles)
 
 data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook
@@ -236,7 +238,7 @@ silent headBranch readiness envelopes state = over || maybe False (\bound -> Jus
 
 -- | The branch of the run's latest draft PR, as GitHub reported it.
 boundBranch :: NonEmpty Envelope -> Maybe Branch
-boundBranch envelopes = case [draft.branch | Envelope {event = Took (DraftDone draft)} <- reverse (foldr (:) [] envelopes)] of
+boundBranch envelopes = case [draft.branch | Envelope {event = Took (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (foldr (:) [] envelopes)] of
     branch : _ -> Just branch
     [] -> Nothing
 
@@ -249,7 +251,7 @@ offAdvice :: Steps -> Node -> AgentRole -> AgentRole -> Maybe Text
 offAdvice steps at advised spawned
     | spawned `notElem` flowRoles steps = Nothing
     | spawned == advised || spawned `elem` beside = Nothing
-    | spawned == AgentRole "implementer" && atStep [stepName Step.Implement, stepName Step.Refactor] = Nothing
+    | spawned == AgentRole "implementer" && atStep [stepName Build.Implement, stepName Build.Refactor] = Nothing
     | otherwise = Just ("state: the advice is SPAWN " <> roleText advised <> ", not " <> roleText spawned)
   where
     atStep names = case at of

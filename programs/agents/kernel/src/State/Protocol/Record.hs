@@ -21,11 +21,17 @@ import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import State.Category.Flow (FanEvent (Leaves), FanId (FEngineers), fanEvent, fanName)
 import State.Category.Mode (parseByName, parseQuality, qualityName, sizeName)
-import State.Category.Step (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent)
+import State.Category.Step (EventName, continueEvent, eventText, exitEvent, skipEvent)
 import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Outcome (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId)
+import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, stepTook)
+import State.Step.Build (Outcome (..), Sing (..))
+import State.Step.Fan (Outcome (..), Sing (..))
+import State.Step.Gather (Outcome (..), Sing (..))
+import State.Step.Plan (Outcome (..), Sing (..))
+import State.Step.Review (Outcome (..), Sing (..))
+import State.Step.Ship (Outcome (..), Sing (..))
 
 {- | An event to record. Most carry the commit the worktree is at, which only
 the shell can read; a breakdown is read from a file, by the shell too.
@@ -52,13 +58,13 @@ recordables =
         _ -> Left "one size"
     , stay "grew" "<why>" (fmap Grew . because)
     , outcome (continueEvent Research) "<n>" [] $ \a -> case a.positional of
-        [raw] -> Plain . Took . ResearchDone <$> count raw
+        [raw] -> Plain . stepTook . ResearchDone <$> count raw
         _ -> Left "the number of researchers"
     , nothing (skipEvent Research) ResearchSkipped
     , nothing (exitEvent Interview) InterviewEnough
     , nothing (continueEvent Interview) InterviewMore
     , outcome (continueEvent PlanS) "<path>" [] $ \a -> case a.positional of
-        [path] -> Right (Plain (Took (PlanDone (Text.unpack path))))
+        [path] -> Right (Plain (stepTook (PlanDone (Text.unpack path))))
         _ -> Left "the plan's path"
     , nothing (continueEvent SimplifyP) SimplifyPlanDone
     , nothing (skipEvent SimplifyP) SimplifyPlanSkipped
@@ -67,12 +73,12 @@ recordables =
     , nothing (exitEvent Confirm) ConfirmConfirmed
     , nothing (continueEvent Confirm) ConfirmAdjusted
     , outcome (continueEvent Draft) "<url> <base> <branch>" [] $ \a -> case a.positional of
-        [link, base, branch] -> Right (Plain (Took (DraftDone (DraftPr (Url link) (Branch base) (Branch branch)))))
+        [link, base, branch] -> Right (Plain (stepTook (DraftDone (DraftPr (Url link) (Branch base) (Branch branch)))))
         _ -> Left "the PR's url, base and branch"
     , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
       commitAt (continueEvent Implement) ImplementDone (Set.fromList [minBound .. maxBound])
     , atHead (continueEvent Refactor) RefactorDone
-    , outcome (skipEvent Refactor) "<why>" [] (fmap (Plain . Took . RefactorSkipped) . because . (.positional))
+    , outcome (skipEvent Refactor) "<why>" [] (fmap (Plain . stepTook . RefactorSkipped) . because . (.positional))
     , atHead (exitEvent Review) ReviewClean
     , atHead (continueEvent Review) ReviewRows
     , picks (exitEvent Pick) PickFinal
@@ -84,13 +90,13 @@ recordables =
     , atHead (skipEvent SimplifyPR) SimplifyPrSkipped
     , atHead (exitEvent AwaitCi) AwaitCiGreen
     , outcome (continueEvent AwaitCi) "<check>..." [] $ \a -> case a.positional of
-        check : more -> Right (AtHead (\sha -> Took (AwaitCiRed sha (fmap Check (check :| more)))))
+        check : more -> Right (AtHead (\sha -> stepTook (AwaitCiRed sha (fmap Check (check :| more)))))
         [] -> Left "the failing checks"
     , atHead (continueEvent FixPR) FixPrDone
     , url (continueEvent Ready) ReadyDone
     , url (skipEvent Ready) ReadySkipped
     , outcome (continueEvent Breakdown) "--tasks <file.json>" ["tasks"] $ \a -> case (a.positional, option "tasks" a) of
-        ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (Took . BreakdownDone) . Codec.decodeBreakdown))
+        ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone) . Codec.decodeBreakdown))
         _ -> Left "the tasks file, as --tasks <file.json>"
     , nothing (fanEvent Leaves (fanName FEngineers)) (FanDone FEngineers)
     , Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why> [--pr <url>]" ["pr"] $ \a -> case a.positional of
@@ -115,19 +121,19 @@ recordables =
     stay name usageText build = Recordable name usageText [] (\a -> Plain <$> build a.positional)
     outcome event = Recordable (eventText event)
     nothing event done = outcome event "" [] $ \a -> case a.positional of
-        [] -> Right (Plain (Took done))
+        [] -> Right (Plain (stepTook done))
         _ -> Left "no arguments"
     atHead event done = outcome event "" [] $ \a -> case a.positional of
-        [] -> Right (AtHead (Took . done))
+        [] -> Right (AtHead (stepTook . done))
         _ -> Left "no arguments: the head is HEAD"
     commitAt event done unstated = outcome event "[--touches <area>,...|none]" ["touches"] $ \a -> case a.positional of
-        [] -> (\areas -> AtHead (\sha -> Took (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
+        [] -> (\areas -> AtHead (\sha -> stepTook (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
         _ -> Left "no arguments: the head is HEAD"
     picks event done = outcome event ("[--row <label>]... [--verdict <requirement>=<" <> choices judgementText <> ">]...") ["row", "verdict"] $ \a -> case a.positional of
-        [] -> Plain . Took . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
+        [] -> Plain . stepTook . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
         _ -> Left "rows and verdicts are options"
     url event done = outcome event "<url>" [] $ \a -> case a.positional of
-        [raw] -> Right (Plain (Took (done (Url raw))))
+        [raw] -> Right (Plain (stepTook (done (Url raw))))
         _ -> Left "the PR's url"
     because = \case
         [] -> Left "why"
