@@ -38,30 +38,32 @@ library
     Effects.Git
     Effects.Log
     Effects.Random
-    State.Advice
-    State.Ask
-    State.Cap
-    State.Cli
-    State.Codec
-    State.Event
-    State.Fan
-    State.Flow
-    State.Flows.Blocks
-    State.Flows.Engineer
-    State.Flows.TenX
-    State.Fold
-    State.Graph
-    State.Handback
-    State.Hook
-    State.Id
-    State.Mode
-    State.Path
-    State.Render
-    State.Render.Mermaid
-    State.Shell
+    State.Block
+    State.Category.Flow
+    State.Category.Graph
+    State.Category.Mode
+    State.Category.Path
+    State.Category.Step
+    State.Category.Ty
+    State.Cli.Command
+    State.Cli.Render
+    State.Cli.Render.Mermaid
+    State.Cli.Shell
+    State.Cli.View
+    State.Flow.Engineer
+    State.Flow.TenX
+    State.Protocol.Advice
+    State.Protocol.Handback
+    State.Protocol.Hook
+    State.Protocol.Record
+    State.Run.Ask
+    State.Run.Codec
+    State.Run.Event
+    State.Run.Fan
+    State.Run.Fold
+    State.Run.Id
     State.Show
-    State.Steps
-    State.View
+    State.Table
 
   build-depends:
     , aeson
@@ -108,34 +110,34 @@ test-suite state-test
     Effects.FileSystemSpec
     Effects.LogSpec
     Effects.RandomSpec
-    State.AdviceSpec
     State.ArchitectureSpec
-    State.AskSpec
-    State.CliSpec
-    State.CodecSpec
+    State.BlockSpec
+    State.Category.FlowGen
+    State.Category.FlowSpec
+    State.Category.GraphSpec
+    State.Category.ModeSpec
+    State.Category.PathSpec
+    State.Cli.CommandSpec
+    State.Cli.Render.MermaidSpec
+    State.Cli.RenderSpec
+    State.Cli.Shell.HookSpec
+    State.Cli.Shell.MainSpec
+    State.Cli.Shell.World
     State.E2ESpec
-    State.EventGen
-    State.EventSpec
-    State.FanSpec
-    State.FlowGen
-    State.Flows.BlocksSpec
-    State.Flows.EngineerSpec
-    State.Flows.TenXSpec
-    State.FlowSpec
-    State.FoldSpec
+    State.Flow.EngineerSpec
+    State.Flow.TenXSpec
     State.Golden
-    State.GraphSpec
-    State.HandbackSpec
-    State.HookSpec
-    State.ModeSpec
-    State.PathSpec
-    State.Render.MermaidSpec
-    State.RenderSpec
-    State.RunGen
-    State.Shell.HookSpec
-    State.Shell.MainSpec
-    State.Shell.World
-    State.StepsSpec
+    State.Protocol.AdviceSpec
+    State.Protocol.HandbackSpec
+    State.Protocol.HookSpec
+    State.Run.AskSpec
+    State.Run.CodecSpec
+    State.Run.EventGen
+    State.Run.EventSpec
+    State.Run.FanSpec
+    State.Run.FoldSpec
+    State.Run.RunGen
+    State.TableSpec
 
   build-depends:
     , aeson

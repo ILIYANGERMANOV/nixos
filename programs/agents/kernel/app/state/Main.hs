@@ -2,7 +2,7 @@
 module Main (main) where
 
 import Data.Text qualified as Text
-import State.Shell qualified as Shell
+import State.Cli.Shell qualified as Shell
 import System.Environment (getArgs)
 import System.Exit (exitWith)
 import System.IO (hSetEncoding, stderr, stdout, utf8)

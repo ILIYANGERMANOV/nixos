@@ -1,0 +1,367 @@
+{- | The @state@ command line (#360's CLI contract): argv parsed into a
+'Command' before any effect, the usage text generated from the same tables,
+and every failure in the shape the @/self-improve@ analyzer parses:
+@state <sub>: what - why@, then @fix: <command>@.
+-}
+module State.Cli.Command (
+    Command (..),
+    RunCommand (..),
+    InitArgs (..),
+    Raise (..),
+    Block (..),
+    Failure (..),
+    Exit (..),
+    parseCommand,
+    failureText,
+    noteOf,
+    explain,
+    notStarted,
+    help,
+) where
+
+import Data.Bifunctor (first)
+import Data.Foldable (toList)
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
+import Data.Text (Text)
+import Data.Text qualified as Text
+import State.Category.Flow (loopName)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Mode (Cfg (..), Mode, SkipWhen (Never), cfg, parseByName, qualityName, sizeName)
+import State.Category.Step (eventText, stateNameText)
+import State.Protocol.Record (Args (..), Recordable (..), Recording (..), choices, option, recordCommand, recordables)
+import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
+import State.Run.Ask qualified as Ask
+import State.Run.Codec (areaText, logName, reasonText)
+import State.Run.Codec qualified as Codec
+import State.Run.Event (AgentRole (..), Asker (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), childRoles, parseRunId, roleText, runIdText)
+import State.Run.Fan qualified as Fan
+import State.Run.Fold (Refusal (..), roundOnly)
+import State.Run.Id (parseEventId)
+import State.Show (tshow)
+import State.Table (Steps, agentRoles)
+import System.FilePath (isAbsolute, takeFileName)
+
+data Command
+    = Init InitArgs
+    | -- | The hand-back on stdin, from this role, of this child run when it names none.
+      HandbackOf AgentRole (Maybe RunId)
+    | Next
+    | Render Block FlowName
+    | Help
+    | OnRun RunCommand
+
+-- | A command on the worktree's run, read and written under the log's lock.
+data RunCommand
+    = Record Recording
+    | -- | The role's brief, and the task a child engineer runs.
+      Brief AgentRole (Maybe TaskId)
+    | ShowRun
+    | Override StateName Text
+    | -- | A question, the run's own or one a worker or child put to it.
+      AskQuestion Kind Asker OneLine
+    | RuleOn QId Raise Proposal
+    | Forward QId Raise
+    | -- | The answer that came down; by the run's principal unless named.
+      Answer QId Text (Maybe Above)
+    | StopRun Stop
+    | Pending
+
+data InitArgs = InitArgs {notes :: FilePath, flow :: FlowName, parent :: Maybe Parent}
+
+-- | A question kept at its kind, or raised to 'Ask.Security' first.
+data Raise = AsAsked | ToSecurity
+    deriving stock (Eq, Show)
+
+-- | What @state render@ prints: each a block the skills paste.
+data Block = States | QualityRows | Mermaid | TrivialSkips | Kinds | StopRule | PlanWrong
+    deriving stock (Eq, Show, Enum, Bounded)
+
+{- | Why a command did nothing, as @state <sub>: what - why@ and a @fix:@
+line naming the command to run instead.
+-}
+data Failure = Failure {exit :: Exit, what :: Text, why :: Text, fix :: Text}
+    deriving stock (Eq, Show)
+
+-- | Exit 2 for bad usage, a bad log line or a refused event; exit 1 for git or disk.
+data Exit = BadInput | Outage
+    deriving stock (Eq, Show)
+
+failureText :: Text -> Failure -> Text
+failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> failure.why <> "\nfix: " <> failure.fix <> "\n"
+
+-- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
+noteOf :: Failure -> Note
+noteOf failure = Note (failure.what <> " - " <> failure.why) failure.fix
+
+-- | The subcommand, for the failure line, and the command or why it is not one.
+parseCommand :: Steps -> [Text] -> (Text, Either Failure Command)
+parseCommand steps = \case
+    [] -> ("help", Right Help)
+    sub : rest -> (sub, parseSub steps sub rest)
+
+parseSub :: Steps -> Text -> [Text] -> Either Failure Command
+parseSub steps sub rest = case sub of
+    "init" -> withArgs ["notes", "flow", "parent", "parent-log", "task"] $ \a -> do
+        none a
+        notes <- required "notes" a
+        flow <- maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText)) (option "flow" a)
+        parent <- case (option "parent" a, option "parent-log" a, option "task" a) of
+            (Nothing, Nothing, Nothing) -> Right Nothing
+            (Just run, Just logPath, Just task) -> (\r l -> Just (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
+            _ -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
+        Right (Init InitArgs {notes = Text.unpack notes, flow, parent})
+    "record" -> case rest of
+        [] -> Left (usage "no event" "record names one event")
+        name : args -> case [r | r <- recordables, r.name == name] of
+            r : _ -> do
+                a <- argsOf r.flags args
+                OnRun . Record <$> first (\why -> Failure BadInput ("record " <> name) why ("state record " <> Text.strip (name <> " " <> r.args))) (r.parse a)
+            [] -> Left (usage ("no event " <> name) ("one of " <> Text.unwords (map (.name) recordables)))
+    "handback" -> withArgs ["child"] $ \a -> do
+        role <- oneWord "role" a
+        child <- traverse runId (option "child" a)
+        HandbackOf <$> knownRole (agentRoles steps <> childRoles) role <*> pure child
+    "next" -> bare Next
+    "brief" -> withArgs ["task"] $ \a -> do
+        role <- oneWord "role" a
+        OnRun <$> (Brief <$> knownRole (agentRoles steps <> childRoles) role <*> pure (TaskId <$> option "task" a))
+    "show" -> bare (OnRun ShowRun)
+    "override" -> withArgs [] $ \a -> case a.positional of
+        target : why@(_ : _) -> Right (OnRun (Override (StateName target) (Text.unwords why)))
+        _ -> Left (usage "override needs a state and why" "state override <state> <why>")
+    "render" -> withArgs ["flow"] $ \a -> do
+        block <- case a.positional of
+            [] -> Right States
+            [name] -> named "block" (parseByName blockName) name
+            _ -> Left (usage "render takes one block" (Text.unwords (map blockName [minBound .. maxBound])))
+        Render block <$> maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText)) (option "flow" a)
+    "ask" -> withArgs ["kind", "from"] $ \a -> do
+        kind <- named "kind" parseKind =<< required "kind" a
+        from <- maybe (Right Itself) (asker (agentRoles steps)) (option "from" a)
+        OnRun . AskQuestion kind from <$> (oneLine =<< sentence "question" a)
+    "rule" -> withArgs ["answer", "why", "cost", "basis", "raise"] $ \a -> do
+        qid <- question a
+        raise <- raising a
+        proposal <-
+            Proposal
+                <$> (oneLine =<< required "answer" a)
+                <*> (oneLine =<< required "why" a)
+                <*> (oneLine =<< required "cost" a)
+                <*> traverse basis (option "basis" a)
+        Right (OnRun (RuleOn qid raise proposal))
+    "forward" -> withArgs ["raise"] $ \a -> OnRun <$> (Forward <$> question a <*> raising a)
+    "answer" -> withArgs ["by"] $ \a -> case a.positional of
+        raw : answer@(_ : _) -> OnRun <$> (Answer <$> qidOf raw <*> pure (Text.unwords answer) <*> traverse above (option "by" a))
+        _ -> Left (usage "answer needs a question id and the answer" "state answer <qid> <answer>")
+    "stop" -> withArgs [] $ \a -> case a.positional of
+        reason : why@(_ : _) -> (\r -> OnRun (StopRun (Stop r (Text.unwords why)))) <$> named "stop reason" (parseByName reasonText) reason
+        _ -> Left (usage "stop needs a reason and why" ("state stop <" <> Text.intercalate "|" (map reasonText [minBound .. maxBound]) <> "> <why>"))
+    "pending" -> bare (OnRun Pending)
+    "help" -> bare Help
+    other -> Left (usage ("no command " <> other) "see the commands state help lists")
+  where
+    withArgs allowed k = argsOf allowed rest >>= k
+    bare command = withArgs [] $ \a -> none a >> Right command
+    question a = case a.positional of
+        [raw] -> qidOf raw
+        _ -> Left (usage "one question id expected" "state pending lists them")
+    raising a = case option "raise" a of
+        Nothing -> Right AsAsked
+        Just "security" -> Right ToSecurity
+        Just other -> Left (usage ("--raise " <> other) "a question is only raised to security")
+    basis raw = case Text.stripPrefix "obvious:" raw of
+        Just why -> Obvious <$> oneLine (Text.strip why)
+        Nothing -> maybe (Left (usage ("--basis " <> raw) "an event id such as r7f2:12, or obvious:<why>")) (Right . AnsweredBy) (parseEventId raw)
+    above = \case
+        "user" -> Right TheUser
+        raw -> ParentRun <$> runId raw
+
+-- | The usage failure, with @state help@ as the fix.
+usage :: Text -> Text -> Failure
+usage what why = Failure BadInput what why "state help"
+
+argsOf :: [Text] -> [Text] -> Either Failure Args
+argsOf allowed = \case
+    [] -> Right (Args [] [])
+    word : rest -> case Text.stripPrefix "--" word of
+        Just name
+            | name `notElem` allowed -> Left (usage ("--" <> name) ("not an option here; options: " <> optionList))
+            | value : more <- rest -> (\a -> a {options = (name, value) : a.options}) <$> argsOf allowed more
+            | otherwise -> Left (usage ("--" <> name) "needs a value")
+        Nothing -> (\a -> a {positional = word : a.positional}) <$> argsOf allowed rest
+  where
+    optionList = if null allowed then "none" else Text.unwords (map ("--" <>) allowed)
+
+required :: Text -> Args -> Either Failure Text
+required name = maybe (Left (usage ("no --" <> name) ("--" <> name <> " is required"))) Right . option name
+
+none :: Args -> Either Failure ()
+none a = case a.positional of
+    [] -> Right ()
+    extra -> Left (usage (Text.unwords extra) "takes no positional argument")
+
+oneWord :: Text -> Args -> Either Failure Text
+oneWord what a = case a.positional of
+    [word] -> Right word
+    _ -> Left (usage ("one " <> what <> " expected") ("got " <> tshow (length a.positional)))
+
+-- | Every positional word, joined: a shell user need not quote a sentence.
+sentence :: Text -> Args -> Either Failure Text
+sentence what a = case a.positional of
+    [] -> Left (usage ("no " <> what) ("the " <> what <> " follows the options"))
+    words' -> Right (Text.unwords words')
+
+oneLine :: Text -> Either Failure OneLine
+oneLine raw = maybe (Left (usage "a line break" "answers, reasons and questions are one line each")) Right (parseOneLine raw)
+
+named :: Text -> (Text -> Maybe a) -> Text -> Either Failure a
+named what parse raw = maybe (Left (usage ("no " <> what <> " " <> raw) ("see the " <> what <> "s state help lists"))) Right (parse raw)
+
+runId :: Text -> Either Failure RunId
+runId = named "run id" parseRunId
+
+qidOf :: Text -> Either Failure QId
+qidOf = named "question id" parseQId
+
+knownRole :: [AgentRole] -> Text -> Either Failure AgentRole
+knownRole roles raw
+    | AgentRole raw `elem` roles = Right (AgentRole raw)
+    | otherwise = Left (usage ("no role " <> raw) ("one of " <> Text.unwords (map roleText roles)))
+
+{- | A role a step runs as, else a child run by its id: a run id never names a
+role, which the step table spells in full.
+-}
+asker :: [AgentRole] -> Text -> Either Failure Asker
+asker roles raw
+    | AgentRole raw `elem` roles = Right (Subagent (AgentRole raw))
+    | otherwise = ChildRun <$> runId raw
+
+{- | A parent's log as its brief names it: an absolute path to an
+@events.jsonl@, checked before anything there is opened.
+-}
+parentLog :: Text -> Either Failure FilePath
+parentLog raw
+    | isAbsolute path, takeFileName path == logName = Right path
+    | otherwise = Left (usage ("--parent-log " <> raw) ("the parent's log is an absolute path to its " <> Text.pack logName))
+  where
+    path = Text.unpack raw
+
+blockName :: Block -> Text
+blockName = \case
+    States -> "states"
+    QualityRows -> "quality"
+    Mermaid -> "mermaid"
+    TrivialSkips -> "trivial"
+    Kinds -> "kinds"
+    StopRule -> "stop-rule"
+    PlanWrong -> "plan-wrong"
+
+{- | The full usage: every command, then every event @record@ takes, from
+the same table its parser reads.
+-}
+help :: Steps -> Text
+help steps =
+    Text.unlines $
+        ["usage: state <command> [args]", "", "commands:"]
+            <> map ("  " <>) commands
+            <> ["", "events (state record <event> [args]; a commit event records HEAD):"]
+            <> ["  " <> Text.strip (r.name <> " " <> r.args) | r <- recordables]
+            <> [ ""
+               , "kinds: " <> choices kindName
+               , "stop reasons: " <> choices reasonText
+               , "roles: " <> Text.unwords (map roleText (agentRoles steps))
+               , "areas (--touches): " <> choices areaText
+               , ""
+               , "Exit 0 ok; 2 bad usage, a bad log line or a refused event; 1 a git or disk failure."
+               , "A failure prints `state <command>: what - why`, then `fix: <command>`."
+               ]
+  where
+    commands =
+        [ "init --notes <dir> [--flow " <> choices Codec.flowText <> "] [--parent <run> --parent-log <path>] [--task <id>]"
+        , "record <event> [args]"
+        , "handback <role> [--child <run>]     the hand-back on stdin"
+        , "next                                the next action, its facts and the step's task"
+        , "brief <role> [--task <id>]"
+        , "show"
+        , "override <state> <why>"
+        , "render [" <> choices blockName <> "] [--flow " <> choices Codec.flowText <> "]"
+        , "ask --kind <kind> [--from <role|run>] <question>"
+        , "rule <qid> --answer <a> --why <w> --cost <c> [--basis <event-id>|obvious:<why>] [--raise security]"
+        , "forward <qid> [--raise security]"
+        , "answer <qid> <answer> [--by user|<run>]"
+        , "stop <reason> <why>"
+        , "pending"
+        , "help"
+        ]
+
+-- | A log whose first line starts no run: it has no flow to explain against.
+notStarted :: Failure
+notStarted = Failure BadInput "the log" "its first line is not started" "state init --notes <dir>"
+
+{- | A refusal of the fold, as the reader acts on it: what, why, and the
+command to run instead, from the edges out of where the run is that the
+run's mode would take.
+-}
+explain :: OpenGraph -> Mode -> Node -> Refusal -> Failure
+explain g mode at = \case
+    NotStarted -> notStarted
+    StartedTwice -> refused "started" "the run has started already" "state next"
+    OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
+    AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
+    NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText) (records taken)
+    NotSkippable _ -> refused "the skip" "this mode never skips the step" (records (not . skips))
+    OutOfFuel loop fuel ->
+        refused
+            ("another " <> loopName loop <> " round")
+            ("the loop ran its " <> tshow fuel <> " rounds")
+            (records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop fuel <why>")
+    QualitySetOnce quality -> refused "quality" ("it is " <> qualityName quality <> " already, set once") "state show"
+    SizeSetOnce size -> refused "size" ("it is " <> sizeName size <> " already; only grew changes it") "state record grew <why>"
+    NoSingleState (StateName name) ->
+        refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
+    AskedTwice qid -> refused (qidText qid) "it was asked already" "state pending"
+    NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
+    AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
+    NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))
+    NotAllowed refusal -> case refusal of
+        Ask.MayNotRule _ kind -> refused ("a ruling on " <> kindName kind) ("this run forwards a " <> kindName kind <> " question") "state forward <qid>"
+        Ask.MustAnswer _ kind -> refused ("a forward of " <> kindName kind) ("this run answers a " <> kindName kind <> " question itself") (triage "<qid>")
+        Ask.NeverAskedOf _ kind -> refused (kindName kind) "such a question never reaches this run" "state pending"
+        Ask.NoBasis qid -> refused ("a ruling on " <> qidText qid) "a Security ruling names its basis" (rule (qidText qid) <> " --basis <event-id>|obvious:<why>")
+    NotAbove _ -> refused "the answer" "only whoever started the run answers it" "state answer <qid> <answer>"
+    FanRefused refusal -> case refusal of
+        Fan.UnknownTask task -> refused ("task " <> Codec.taskIdText task) "the breakdown has no such task" "state show"
+        Fan.StillRunning task child -> refused ("a child for task " <> Codec.taskIdText task) ("child " <> runIdText child <> " still runs it") "state next"
+        Fan.SpawnedTwice child -> refused ("child " <> runIdText child) "it was spawned already" "state next"
+        Fan.UnknownChild child -> refused ("the hand-back of " <> runIdText child) "no such child was spawned" "state show"
+        Fan.ChildOver child -> refused ("the hand-back of " <> runIdText child) "the child finished or stopped already" "state next"
+        Fan.Unsettled tasks -> refused "the fan-out's end" ("tasks not settled: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
+        Fan.AtWork task -> refused ("an agent for task " <> Codec.taskIdText task) "one works on it already, until its child hands back" "state next"
+        Fan.StopUntriaged child -> refused ("a retry of child " <> runIdText child) "its stop is not triaged yet" ("state ask --kind <kind> --from " <> runIdText child <> " <question>")
+        Fan.AwaitsUser child -> refused ("a retry of child " <> runIdText child) "its question is open: the retry waits for the answer" "state next"
+        Fan.HeavyBusy task heavy -> refused ("an agent for task " <> Codec.taskIdText task) ("it is heavy and heavy task " <> Codec.taskIdText heavy <> " is at work: one heavy task at a time") "state next"
+        Fan.Unmerged tasks -> refused "the run's end" ("tasks neither merged nor parked: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
+  where
+    refused = Failure BadInput
+    atText = case at of
+        At place -> stateNameText place.name
+        Out -> "the end"
+        Exit -> "the end"
+    records keep = case at of
+        At place -> case [recordCommand event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
+            [] -> "state show"
+            commands -> Text.intercalate " | " commands
+        Out -> "state show"
+        Exit -> "state show"
+    skips edge = case edge.arrow of
+        Skip _ -> True
+        Along _ -> False
+        Stay -> False
+    taken edge = case edge.arrow of
+        Skip optId -> (cfg mode).skip optId /= Never
+        Along _ -> True
+        Stay -> True
+    stateNames = map (stateNameText . (.name)) (Set.toList (places g))
+    rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
+    triage qid = rule qid <> " | state forward " <> qid

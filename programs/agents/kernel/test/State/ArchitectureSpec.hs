@@ -17,6 +17,14 @@ spec = describe "kernel architecture" $ do
         [(name, Set.toList (Set.intersection modules environment)) | (name, modules) <- reached, not (Set.disjoint modules environment)]
             `shouldBe` []
 
+    -- The category and its steps never reach the run or the command line,
+    -- nor the run its protocol: a module imports its own layer or one below.
+    it "keeps every layer's imports at its own layer or below" $ do
+        names <- mapMaybe moduleOf <$> packageFiles "src"
+        reached <- traverse (\name -> (name,) . Set.toList <$> closure name) names
+        [(name, upward) | (name, modules) <- reached, let upward = [m | m <- modules, any (`isPrefixOf` m) (higher name)], not (null upward)]
+            `shouldBe` []
+
     -- Law Principal-blind: the kernel has no word for who started a run, in
     -- any file the package builds from, tests and golden files too. The word
     -- is spelled in two halves so this file does not hold it either.
@@ -25,7 +33,7 @@ spec = describe "kernel architecture" $ do
         sources <- traverse (\file -> (file,) <$> ByteString.readFile file) files
         [file | (file, source) <- sources, ("dele" <> "gated") `ByteString.isInfixOf` ByteString.map toLower source] `shouldBe` []
 
-    -- Read, decide in pure code, write: only the effects and "State.Shell" do
+    -- Read, decide in pure code, write: only the effects and "State.Cli.Shell" do
     -- IO or name an effect; the two mains, under @app@, only interpret.
     it "keeps IO and effects out of every module but the effects' and the shell's" $ do
         decisions <- filter (\name -> not (name == shell || isEffects name)) . mapMaybe moduleOf <$> packageFiles "src"
@@ -47,19 +55,33 @@ packageFiles dir = do
 -- | The modules a flow is built from; none may know who runs it.
 flowModules :: [String]
 flowModules =
-    [ "State.Cap"
-    , "State.Flow"
-    , "State.Flows.Blocks"
-    , "State.Flows.Engineer"
-    , "State.Flows.TenX"
-    , "State.Graph"
-    , "State.Mode"
-    , "State.Path"
+    [ "State.Block"
+    , "State.Category.Flow"
+    , "State.Category.Graph"
+    , "State.Category.Mode"
+    , "State.Category.Path"
+    , "State.Category.Step"
+    , "State.Category.Ty"
+    , "State.Flow.Engineer"
+    , "State.Flow.TenX"
     ]
 
--- | The modules that define or re-export 'State.Ask.Principal' and 'State.Ask.Op'.
+{- | The kernel's layers, lowest first, each a set of module prefixes: the
+category and its steps, the run's log and fold, the protocol a run speaks
+to its agents, and the command line.
+-}
+layers :: [[String]]
+layers = [["State.Category.", "State.Step."], ["State.Run."], ["State.Protocol."], ["State.Cli."]]
+
+-- | The prefixes of the layers above a module's own; none for a module in no layer.
+higher :: String -> [String]
+higher name = case dropWhile (not . any (`isPrefixOf` name)) layers of
+    _ : above -> concat above
+    [] -> []
+
+-- | The modules that define or re-export 'State.Run.Ask.Principal' and 'State.Run.Ask.Op'.
 environment :: Set String
-environment = Set.fromList ["State.Ask", "State.Event"]
+environment = Set.fromList ["State.Run.Ask", "State.Run.Event"]
 
 -- | A module and every kernel module it imports, directly or not.
 closure :: String -> IO (Set String)
@@ -94,7 +116,7 @@ isKernel name = "State." `isPrefixOf` name || isEffects name
 
 -- | The effect shell, one module.
 shell :: String
-shell = "State.Shell"
+shell = "State.Cli.Shell"
 
 -- | The effects, each with its IO interpreter.
 isEffects :: String -> Bool

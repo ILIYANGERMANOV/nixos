@@ -7,7 +7,7 @@ import Data.Text (Text)
 import Effectful (Eff)
 import Effectful.Dispatch.Dynamic (interpret)
 import Effects.Git (Git (..))
-import State.Event (Branch (..), Sha)
+import State.Run.Event (Branch (..), Sha)
 import System.FilePath (takeDirectory)
 
 data Worktree = Worktree

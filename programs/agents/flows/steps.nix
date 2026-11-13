@@ -1,5 +1,5 @@
 # The step table of #351's flows (#360 "Step table schema"): plain data, one
-# row per step of the kernel's `State.Cap`. `dom`, `cod` and `exit` are the
+# row per step of the kernel's `State.Category.Step`. `dom`, `cod` and `exit` are the
 # step's types (`in` is a Nix keyword), `outcomes` its exit outcome first, then
 # the continuing one; `skipped` is no outcome, a mode's skip appends it.
 # The runner is a sum, checked by flows/default.nix:
@@ -7,7 +7,7 @@
 #   { runner = "<role>"; lead; task; }  a subagent of that role runs it
 # `task` is what the runner executes: `state next` prints it, after `lead`,
 # the lead's part, for a subagent's step; `state brief` prints it alone. The
-# kernel's test holds the types and outcomes equal to `State.Cap`.
+# kernel's test holds the types and outcomes equal to `State.Category.Step`.
 #
 # The profile (#351 section 8) every role's record is derived from
 # (lib/derive.nix): `tools` the step uses, as role capabilities (`delegate`

@@ -1099,7 +1099,7 @@ def record_result(
 
 
 # What `state` prints on stderr when it refuses a step, failureText in
-# programs/agents/kernel/src/State/Cli.hs:
+# programs/agents/kernel/src/State/Cli/Command.hs:
 # `state <sub>: what - why`, then `fix: ...`. A `| tail -1` keeps only the fix line.
 STATE_REFUSAL = re.compile(r"^(?:(state [a-z-]+: .*)\n)?fix: (.*)$", re.MULTILINE)
 
@@ -2944,7 +2944,7 @@ def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
 # --- State event logs --------------------------------------------------------
 #
 # Each engineer or 10x run appends its steps to `<notes>/events.jsonl`, one JSON
-# object per line, version 3 (programs/agents/kernel/src/State/Codec.hs). A 10x
+# object per line, version 3 (programs/agents/kernel/src/State/Run/Codec.hs). A 10x
 # re-asks a child's question in its own log under the child's qid, so a question
 # counts once, in the log of the run whose qid it bears.
 

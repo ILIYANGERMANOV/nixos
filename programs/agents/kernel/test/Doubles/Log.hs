@@ -10,7 +10,7 @@ import Effectful (Eff, (:>))
 import Effectful.Dispatch.Dynamic (interpret)
 import Effectful.State.Static.Local (State, gets, modify)
 import Effects.Log (Log (..))
-import State.Codec (decodeLogBytes, encodeLines, firstLineOf)
+import State.Run.Codec (decodeLogBytes, encodeLines, firstLineOf)
 
 runLogInMemory :: (State Disk :> es) => Eff (Log : es) a -> Eff es a
 runLogInMemory = interpret $ \_ -> \case

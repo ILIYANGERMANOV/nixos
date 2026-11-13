@@ -44,10 +44,14 @@ to `state render` (`kernel/rendered.nix`).
 **`kernel/` is a pure core in `src/State/` behind a thin `effectful` shell:
 every IO action is an effect in `src/Effects/`, one per file with its IO
 interpreter, and tests run the shell on the doubles in `test/Doubles/`.**
-`ArchitectureSpec` refuses IO or effects in any other module. A run appends its
-events to `<notes>/events.jsonl`, version 3 (`State/Codec.hs`); the
+`ArchitectureSpec` refuses IO or effects in any other module, and an import
+from a higher layer: `State/Category/` (types, steps, flow terms, graph, mode)
+below `State/Run/` (log, fold) below `State/Protocol/` (advice, hand-backs,
+hooks, the `record` grammar) below `State/Cli/`. The named flows are
+`State/Block.hs` and `State/Flow/`. A run appends its
+events to `<notes>/events.jsonl`, version 3 (`State/Run/Codec.hs`); the
 `self-improve` analyzer reads it, so a format change updates `analyze.py` too.
-The step table is `flows/steps.nix`, handed to the kernel as JSON and to the
+The step table is `flows/steps.nix`, handed to the kernel as JSON (`State/Table.hs`) and to the
 roles, whose capabilities and skills derive from it (`lib/derive.nix`). Why:
 `docs/adr/0018-category-model-haskell-state.md`.
 

@@ -1,6 +1,6 @@
 {- | The branch's PR on GitHub, read with the @gh@ on PATH in the current
 directory, under a timeout. The effect hands back what @gh@ did, unread:
-'State.Advice.pullRequestOf' reads it.
+'State.Protocol.Advice.pullRequestOf' reads it.
 -}
 module Effects.Gh (
     Gh (..),
@@ -11,7 +11,7 @@ module Effects.Gh (
 import Data.Text qualified as Text
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, send)
-import State.Advice (PrView (..), prViewFields)
+import State.Protocol.Advice (PrView (..), prViewFields)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 import System.Timeout (timeout)

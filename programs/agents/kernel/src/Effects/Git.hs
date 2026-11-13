@@ -15,7 +15,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, send)
-import State.Event (Branch (..), Sha (..))
+import State.Run.Event (Branch (..), Sha (..))
 import State.Show (firstLine)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)

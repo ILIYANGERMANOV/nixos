@@ -15,7 +15,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
-import State.RunGen (breakdownJson, plainTask)
+import State.Run.RunGen (breakdownJson, plainTask)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
 import System.Exit (ExitCode (..))

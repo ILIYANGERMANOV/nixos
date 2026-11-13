@@ -10,8 +10,8 @@ import Data.Text.Encoding (decodeUtf8)
 import Effectful (Eff)
 import Effectful.Dispatch.Dynamic (interpret)
 import Effects.Gh (Gh (..))
-import State.Advice (PrView (..), PullRequest (..), Readiness (..))
-import State.Event (Branch (..), DraftPr (..), Url (..))
+import State.Protocol.Advice (PrView (..), PullRequest (..), Readiness (..))
+import State.Run.Event (Branch (..), DraftPr (..), Url (..))
 
 runGhScripted :: PrView -> Eff (Gh : es) a -> Eff es a
 runGhScripted reply = interpret $ \_ -> \case

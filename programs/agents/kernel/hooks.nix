@@ -1,5 +1,5 @@
 # The state hooks, a hook module (hooks/default.nix) the base profile lists:
-# each runs `state-hook <name>` (State.Hook), which keeps the run's record as the
+# each runs `state-hook <name>` (State.Protocol.Hook), which keeps the run's record as the
 # agents work. `state` is this package, handed in as a module argument.
 { state, ... }:
 let
