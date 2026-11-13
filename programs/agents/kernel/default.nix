@@ -6,7 +6,9 @@
 # a derivation, off on hosts and in CI (ADR 0009). So every dependency in
 # state.cabal is named here too: one missing fails the build at once. The test
 # suite runs in checkPhase, so building the package is `haskell-tests`.
-{ pkgs }:
+# `steps` is the flows' step table as JSON (programs/agents/flows), which the
+# suite holds equal to the kernel's steps.
+{ pkgs, steps }:
 let
   inherit (pkgs) lib;
   # Through callPackage, not haskellPackages.mkDerivation directly:
@@ -16,6 +18,7 @@ let
       mkDerivation,
       aeson,
       base,
+      bytestring,
       containers,
       hedgehog,
       hspec,
@@ -45,6 +48,7 @@ let
       libraryHaskellDepends = [
         aeson
         base
+        bytestring
         containers
         text
         time
@@ -52,6 +56,7 @@ let
       executableHaskellDepends = [ base ];
       testHaskellDepends = [
         base
+        bytestring
         containers
         hedgehog
         hspec
@@ -65,6 +70,7 @@ let
       # hspec-hedgehog seeds Hedgehog from hspec's seed: a fixed one makes a red
       # property replay the same on every machine.
       testFlags = [ "--seed=351" ];
+      preCheck = "export STATE_STEPS=${steps}";
       license = lib.licenses.mit;
       mainProgram = "state";
     };

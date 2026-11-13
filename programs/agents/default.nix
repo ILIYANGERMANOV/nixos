@@ -148,7 +148,10 @@ in
 
   # The Haskell `state` and `state-hook` that will replace the Python ones (#360).
   # Nothing installs them yet: only the haskell tech checks build them.
-  kernel = import ./kernel { inherit pkgs; };
+  kernel = import ./kernel {
+    inherit pkgs;
+    inherit (import ./flows { inherit pkgs; }) steps;
+  };
 
   # The guards as they deploy, for the tests to run (hooks/guards).
   guards = {

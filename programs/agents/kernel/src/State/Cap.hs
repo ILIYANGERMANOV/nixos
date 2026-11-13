@@ -8,6 +8,9 @@ module State.Cap (
     Ty (..),
     KnownTy (..),
     Step (..),
+    SomeStep (..),
+    allSteps,
+    stepNamed,
     StateName (..),
     stepName,
     OutcomeName (..),
@@ -67,6 +70,65 @@ data Step (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     Merge :: Step ('List 'PR) 'Nothing 'PR
 
 deriving stock instance Show (Step i e o)
+
+-- | A step of any type, so the steps can sit in one list.
+data SomeStep where
+    SomeStep :: (KnownTy i, KnownTy o) => Step i e o -> SomeStep
+
+{- | Every step, in the order the flows run them. A GADT cannot be enumerated,
+so the match below is the reminder: a new step breaks the build there, next
+to this list.
+-}
+allSteps :: [SomeStep]
+allSteps =
+    [ SomeStep Research
+    , SomeStep Interview
+    , SomeStep PlanS
+    , SomeStep SimplifyP
+    , SomeStep Alternative
+    , SomeStep Confirm
+    , SomeStep Draft
+    , SomeStep Implement
+    , SomeStep Refactor
+    , SomeStep Review
+    , SomeStep Pick
+    , SomeStep Fix
+    , SomeStep Describe
+    , SomeStep SimplifyPR
+    , SomeStep AwaitCi
+    , SomeStep FixPR
+    , SomeStep Ready
+    , SomeStep Breakdown
+    , SomeStep Merge
+    ]
+  where
+    _listsEvery :: Step i e o -> ()
+    _listsEvery = \case
+        Research -> ()
+        Interview -> ()
+        PlanS -> ()
+        SimplifyP -> ()
+        Alternative -> ()
+        Confirm -> ()
+        Draft -> ()
+        Implement -> ()
+        Refactor -> ()
+        Review -> ()
+        Pick -> ()
+        Fix -> ()
+        Describe -> ()
+        SimplifyPR -> ()
+        AwaitCi -> ()
+        FixPR -> ()
+        Ready -> ()
+        Breakdown -> ()
+        Merge -> ()
+
+-- | The step a state is named after; a fan-out's state names none.
+stepNamed :: StateName -> Maybe SomeStep
+stepNamed name = lookup name [(someName some, some) | some <- allSteps]
+  where
+    someName (SomeStep s) = stepName s
 
 -- | A state of a flow's graph, by name: what people read, and an override's target.
 newtype StateName = StateName Text

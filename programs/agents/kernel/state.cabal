@@ -44,9 +44,11 @@ library
     State.Mode
     State.Path
     State.Render.Mermaid
+    State.Steps
 
   build-depends:
     , aeson
+    , bytestring
     , containers
     , text
     , time
@@ -86,6 +88,7 @@ test-suite state-test
     State.Render.MermaidSpec
 
   build-depends:
+    , bytestring
     , containers
     , hedgehog
     , hspec
