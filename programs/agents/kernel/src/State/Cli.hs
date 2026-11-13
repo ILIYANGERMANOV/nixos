@@ -16,6 +16,7 @@ module State.Cli (
     failureText,
     noteOf,
     explain,
+    notStarted,
     help,
     recordCommand,
 ) where
@@ -411,13 +412,17 @@ recordables =
 choices :: (Bounded a, Enum a) => (a -> Text) -> Text
 choices name = Text.intercalate "|" (map name [minBound .. maxBound])
 
+-- | A log whose first line starts no run: it has no flow to explain against.
+notStarted :: Failure
+notStarted = Failure BadInput "the log" "its first line is not started" "state init --notes <dir>"
+
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
 run's mode would take.
 -}
 explain :: OpenGraph -> Mode -> Node -> Refusal -> Failure
 explain g mode at = \case
-    NotStarted -> refused "the log" "its first line is not started" "state init --notes <dir>"
+    NotStarted -> notStarted
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"

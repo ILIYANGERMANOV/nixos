@@ -16,6 +16,7 @@ module State.Fold (
     Refusal (..),
     Append (..),
     replay,
+    runStart,
     fold,
     append,
     mode,
@@ -152,8 +153,9 @@ append g state envelope
         Right (Appended next {seen = Set.insert (eventId envelope) state.seen})
 
 begin :: OpenGraph -> Envelope -> Either Refusal RunState
-begin g envelope = case envelope.event of
-    Started start ->
+begin g envelope = case runStart envelope.event of
+    Nothing -> Left NotStarted
+    Just start ->
         Right
             RunState
                 { run = envelope.run
@@ -171,18 +173,23 @@ begin g envelope = case envelope.event of
                 , rulings = []
                 , drafted = Nothing
                 }
-    QualitySet _ -> Left NotStarted
-    SizeSet _ -> Left NotStarted
-    Grew _ -> Left NotStarted
-    Took _ -> Left NotStarted
-    Stopped _ -> Left NotStarted
-    Overridden _ _ -> Left NotStarted
-    Refused _ -> Left NotStarted
-    Asked _ -> Left NotStarted
-    RetaggedSecurity _ -> Left NotStarted
-    RuledOn _ _ -> Left NotStarted
-    Forwarded _ _ -> Left NotStarted
-    Answered {} -> Left NotStarted
+
+-- | The run an event starts: a log's first line must start one.
+runStart :: Event -> Maybe Start
+runStart = \case
+    Started start -> Just start
+    QualitySet _ -> Nothing
+    SizeSet _ -> Nothing
+    Grew _ -> Nothing
+    Took _ -> Nothing
+    Stopped _ -> Nothing
+    Overridden _ _ -> Nothing
+    Refused _ -> Nothing
+    Asked _ -> Nothing
+    RetaggedSecurity _ -> Nothing
+    RuledOn _ _ -> Nothing
+    Forwarded _ _ -> Nothing
+    Answered {} -> Nothing
 
 -- | A refusal is logged whatever the run's state; anything else needs a run going.
 applyEvent :: OpenGraph -> RunState -> Event -> Either Refusal RunState

@@ -36,8 +36,6 @@ import State.Steps (Row (..), Runner (..), Steps, row)
 data Handback = Handback
     { token :: Maybe Token
     -- ^ 'Nothing' when line 1 is no token: a review-lead's report opens with its table.
-    , grew :: Maybe OneLine
-    -- ^ A @GREW@ line below a @NEEDS_DECISION@ one: the task outgrew Trivial too.
     , run :: Maybe RunId
     -- ^ A flow role's own run.
     , reviewedHead :: Maybe Sha
@@ -51,7 +49,8 @@ data Handback = Handback
 
 data Token
     = Ready OneLine
-    | NeedsDecision Need
+    | -- | With the @GREW@ line below it when the task outgrew Trivial too.
+      NeedsDecision Need (Maybe OneLine)
     | -- | What the sender cannot wait on itself, and its ref: the parent waits.
       Await Waiting OneLine
     | Grew OneLine
@@ -73,13 +72,12 @@ data Waiting = Ci
 
 parseHandback :: Text -> Either Text Handback
 parseHandback message = do
-    token <- parseToken first
-    grew <- traverse oneLine (trailer "GREW ")
+    token <- withGrew (trailer "GREW ") =<< parseToken first
     run <- traverse (\raw -> maybe (Left ("Run: " <> raw <> " is no run id")) Right (parseRunId raw)) (trailer "Run: ")
     reviewedHead <- traverse (sha "Reviewed head:") (trailer "Reviewed head:")
     simplified <- traverse (sha "Simplified:") (trailer "Simplified:")
     touches <- traverse parseTouches (trailer "Touches:")
-    Right Handback {token, grew, run, reviewedHead, simplified, touches}
+    Right Handback {token, run, reviewedHead, simplified, touches}
   where
     (first, rest) = case Text.lines message of
         [] -> ("", [])
@@ -92,10 +90,24 @@ parseHandback message = do
         "" -> Left (label <> " names no sha")
         named -> Right (Sha named)
 
+-- | A @GREW@ line below line 1 follows a @NEEDS_DECISION@ only.
+withGrew :: Maybe Text -> Maybe Token -> Either Text (Maybe Token)
+withGrew below token = case (below, token) of
+    (Nothing, _) -> Right token
+    (Just why, Just (NeedsDecision need _)) -> Just . NeedsDecision need . Just <$> oneLine why
+    (Just _, Just (Ready _)) -> misplaced
+    (Just _, Just (Await _ _)) -> misplaced
+    (Just _, Just (Grew _)) -> misplaced
+    (Just _, Just (Blocked _)) -> misplaced
+    (Just _, Just (Failed _)) -> misplaced
+    (Just _, Nothing) -> misplaced
+  where
+    misplaced = Left "a GREW line below line 1 follows NEEDS_DECISION only: put GREW <why> on line 1"
+
 parseToken :: Text -> Either Text (Maybe Token)
 parseToken line = case word of
     "READY" -> Just . Ready <$> oneLine payload
-    "NEEDS_DECISION" -> Just . NeedsDecision <$> parseNeed payload
+    "NEEDS_DECISION" -> Just . (`NeedsDecision` Nothing) <$> parseNeed payload
     "AWAIT" -> case Text.breakOn " " payload of
         ("ci", ref) -> Just . Await Ci <$> oneLine (Text.drop 1 ref)
         (other, _) -> Left ("AWAIT " <> other <> ": only ci is awaited")
@@ -148,18 +160,27 @@ renderHandback handback =
     Text.unlines $
         maybe "" tokenLine handback.token
             : catMaybes
-                [ ("GREW " <>) . oneLineText <$> handback.grew
+                [ ("GREW " <>) . oneLineText <$> (grewBelow =<< handback.token)
                 , ("Run: " <>) . runIdText <$> handback.run
                 , ("Reviewed head: " <>) . shaText <$> handback.reviewedHead
                 , ("Simplified: " <>) . shaText <$> handback.simplified
                 , ("Touches: " <>) . touchesText <$> handback.touches
                 ]
 
+grewBelow :: Token -> Maybe OneLine
+grewBelow = \case
+    NeedsDecision _ grew -> grew
+    Ready _ -> Nothing
+    Await _ _ -> Nothing
+    Grew _ -> Nothing
+    Blocked _ -> Nothing
+    Failed _ -> Nothing
+
 -- | Line 1 of a hand-back.
 tokenLine :: Token -> Text
 tokenLine = \case
     Ready ref -> spaced "READY" (oneLineText ref)
-    NeedsDecision need -> case need of
+    NeedsDecision need _ -> case need of
         Asks question -> needsDecision question
         StuckOn why -> needing ("stuck: " <> oneLineText why)
         PlanWrong finding -> needing (planWrong (oneLineText finding))
@@ -203,20 +224,21 @@ typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Eithe
 typeHandback steps state worktreeHead agent handback = case handback.token of
     Nothing -> recorded <$> done True
     Just (Ready _) -> recorded <$> done False
-    Just (NeedsDecision need) -> case need of
-        Asks question -> Right (recorded (asked question <> grown))
-        StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why) <> grown))
-        PlanWrong _ -> triage (NeedsDecision need)
-        Untyped _ -> triage (NeedsDecision need)
+    Just token@(NeedsDecision need grew) ->
+        let grown = [Event.Grew (oneLineText why) | Just why <- [grew]]
+         in case need of
+                Asks question -> Right (recorded (asked question <> grown))
+                StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why) <> grown))
+                PlanWrong _ -> triage grown token
+                Untyped _ -> triage grown token
     -- The parent waits: nothing changes in this run.
     Just (Await _ _) -> Right (recorded [])
     Just (Grew why) -> Right (recorded [Event.Grew (oneLineText why)])
-    Just token@(Blocked _) -> triage token
-    Just token@(Failed _) -> triage token
+    Just token@(Blocked _) -> triage [] token
+    Just token@(Failed _) -> triage [] token
   where
     recorded events = Typed events Nothing
-    triage token = Typed grown . Just <$> oneLine (tokenLine token)
-    grown = [Event.Grew (oneLineText why) | Just why <- [handback.grew]]
+    triage grown token = Typed grown . Just <$> oneLine (tokenLine token)
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do

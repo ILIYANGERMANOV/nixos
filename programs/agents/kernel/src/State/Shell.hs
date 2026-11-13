@@ -26,8 +26,9 @@ import State.Advice qualified as Advice
 import State.Ask (Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
 import State.Cap (stateNameText)
-import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, noteOf, parseCommand)
+import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
 import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText)
+import State.Codec qualified as Codec
 import State.Event (AgentRole (..), Asker (..), Asking (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
 import State.Flows.Engineer (engineer)
@@ -303,20 +304,20 @@ onRun act =
                         locked path $ \case
                             Left bad -> pure ([], Left (unreadLine path bad))
                             Right [] -> pure ([], Left noRun)
-                            Right (first : rest) ->
-                                let g = graphOf (flowOf first)
-                                 in pure $ case replay g (first :| rest) of
-                                        -- Balanced Normal, the mode until recorded: only what and why are read.
-                                        Left refusal -> ([], Left (unreplayed path (explain g (Mode Balanced Normal) Out refusal)))
-                                        Right state -> act stamp (Loaded g state (first :| rest))
+                            Right (first : rest) -> pure $ case replayed path (first :| rest) of
+                                Left failure -> ([], Left failure)
+                                Right (g, state) -> act stamp (Loaded g state (first :| rest))
   where
     noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
 
--- | The flow a log's first line starts; a log that starts no run is refused by its replay.
-flowOf :: Envelope -> FlowName
-flowOf first = case first.event of
-    Started start -> start.flow
-    _ -> EngineerFlow
+-- | A log replayed under the flow its first line starts.
+replayed :: FilePath -> NonEmpty Envelope -> Either Failure (OpenGraph, RunState)
+replayed path logged@(first :| _) = case Fold.runStart first.event of
+    Nothing -> Left (unreplayed path notStarted)
+    Just start ->
+        let g = graphOf start.flow
+         in -- Balanced Normal, the mode until recorded: only what and why are read.
+            either (Left . unreplayed path . explain g (Mode Balanced Normal) Out) (Right . (g,)) (replay g logged)
 
 {- | @state init@: idempotent, as a retried brief runs it again. A child names
 its parent's log, which is checked to hold that run before this one starts.
@@ -347,7 +348,7 @@ initRun gd args =
 run, so a run stopped there leaves the dir to no other.
 -}
 joined :: FilePath -> NonEmpty Envelope -> Either Failure RunId
-joined notes logged@(first :| _) = case (.stopped) <$> replay (graphOf (flowOf first)) logged of
+joined notes logged@(first :| _) = case (.stopped) . snd <$> replayed (logOf notes) logged of
     Right (Just stop) ->
         Left (Failure BadInput ("--notes " <> Text.pack notes) ("its run " <> runIdText first.run <> " stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>")
     Right Nothing -> Right first.run
@@ -392,7 +393,7 @@ unreadLine :: FilePath -> LogError -> Failure
 unreadLine path bad = Failure BadInput (Text.pack path <> " line " <> tshow bad.line <> " is not read") why ("repair or move " <> Text.pack path)
   where
     why = case bad.why of
-        Unsupported v -> "log version " <> tshow v <> ", this state reads 3"
+        Unsupported v -> "log version " <> tshow v <> ", this state reads " <> tshow Codec.version
         Malformed what -> what
 
 -- | A log whose lines read but whose events the flow refuses: edited by hand.

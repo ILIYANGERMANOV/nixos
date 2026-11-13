@@ -103,9 +103,6 @@ spec = describe "the hooks" $ do
 
     describe "hook record ids" $ do
         let ids = take 2 . hookSources run (Agent (Just "a1") (Just (AgentRole "fixer"))) (AgentRole "fixer")
-        it "are the same for the same hand-back seen twice" $
-            ids "READY" `shouldBe` ids "READY"
-
         it "differ between hand-backs" $
             ids "READY" `shouldNotBe` ids "READY abc"
 

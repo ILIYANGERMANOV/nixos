@@ -32,6 +32,16 @@ spec = describe "State.Handback" $ do
         parseHandback "READY\n\nReviewed head: 1111111\nReviewed head: 9f8e7d6\nTouches: auth, data-model"
             `shouldBe` Right (blank (Just (Ready (oneLine "")))) {reviewedHead = Just (Sha "9f8e7d6"), touches = Just (Set.fromList [Auth, DataModel])}
 
+    it "reads a GREW line below NEEDS_DECISION as the decision's" $
+        (.token) <$> parseHandback "NEEDS_DECISION stuck: two stores\nGREW three modules"
+            `shouldBe` Right (Just (NeedsDecision (StuckOn (oneLine "two stores")) (Just (oneLine "three modules"))))
+
+    it "refuses a GREW line below any other line 1" $
+        parseHandback "READY built\nGREW three modules" `shouldSatisfy` either (Text.isInfixOf "NEEDS_DECISION only") (const False)
+
+    it "hands a re-plan stop up as a plan found wrong, not as a question asked (law Re-plan)" $
+        stopLine (Event.Stop Event.Replan "no such table") `shouldBe` "NEEDS_DECISION plan wrong: no such table"
+
     it "refuses a Touches line naming no area" $
         parseHandback "READY\nTouches: auth, the parser" `shouldSatisfy` either (Text.isInfixOf "the parser") (const False)
 
@@ -79,6 +89,10 @@ typing = describe "typeHandback" $ do
         typed atImplement "implementer" "BLOCKED no access"
             `shouldBe` Right (Typed [] (Just (oneLine "BLOCKED no access")))
 
+    it "records a GREW below a stuck question as grew beside the question" $
+        typed atImplement "implementer" "NEEDS_DECISION stuck: two stores\nGREW three modules"
+            `shouldBe` Right (Typed [Asked (Asking (Question (QId run 1) Stuck (oneLine "two stores")) implement (Subagent (AgentRole "implementer"))), Event.Grew "three modules"] Nothing)
+
     it "records GREW as grew" $
         typed atImplement "implementer" "GREW three modules"
             `shouldBe` Right (Typed [Event.Grew "three modules"] Nothing)
@@ -92,10 +106,10 @@ typing = describe "typeHandback" $ do
 tokens :: [(Text, Maybe Token)]
 tokens =
     [ ("READY done in abc", Just (Ready (oneLine "done in abc")))
-    , ("NEEDS_DECISION Design r7f2:3: which store?", Just (NeedsDecision (Asks (Question (QId run 3) Design (oneLine "which store?")))))
-    , ("NEEDS_DECISION stuck: same rows twice", Just (NeedsDecision (StuckOn (oneLine "same rows twice"))))
-    , ("NEEDS_DECISION plan wrong: no such table", Just (NeedsDecision (PlanWrong (oneLine "no such table"))))
-    , ("NEEDS_DECISION should I?", Just (NeedsDecision (Untyped (oneLine "should I?"))))
+    , ("NEEDS_DECISION Design r7f2:3: which store?", Just (NeedsDecision (Asks (Question (QId run 3) Design (oneLine "which store?"))) Nothing))
+    , ("NEEDS_DECISION stuck: same rows twice", Just (NeedsDecision (StuckOn (oneLine "same rows twice")) Nothing))
+    , ("NEEDS_DECISION plan wrong: no such table", Just (NeedsDecision (PlanWrong (oneLine "no such table")) Nothing))
+    , ("NEEDS_DECISION should I?", Just (NeedsDecision (Untyped (oneLine "should I?")) Nothing))
     , ("AWAIT ci https://pr/1", Just (Await Ci (oneLine "https://pr/1")))
     , ("GREW three modules", Just (Grew (oneLine "three modules")))
     , ("BLOCKED no access", Just (Blocked (oneLine "no access")))
@@ -107,13 +121,12 @@ parsed :: Text -> Handback
 parsed = either (error . Text.unpack) id . parseHandback
 
 blank :: Maybe Token -> Handback
-blank token = Handback token Nothing Nothing Nothing Nothing Nothing
+blank token = Handback token Nothing Nothing Nothing Nothing
 
 genHandback :: Gen Handback
 genHandback =
     Handback
         <$> Gen.maybe genToken
-        <*> Gen.maybe genOneLine
         <*> Gen.maybe genRunId
         <*> Gen.maybe genSha
         <*> Gen.maybe genSha
@@ -123,7 +136,7 @@ genToken :: Gen Token
 genToken =
     Gen.choice
         [ Ready <$> genOneLine
-        , NeedsDecision <$> genNeed
+        , NeedsDecision <$> genNeed <*> Gen.maybe genOneLine
         , Await Ci <$> genOneLine
         , Grew <$> genOneLine
         , Blocked <$> genOneLine

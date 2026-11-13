@@ -215,6 +215,10 @@ questions = describe "questions" $ do
             <$> replay g (logOf (started :| [ask 3 Design, ask 1 Design, ask 2 Pick, ask 4 Design, RuledOn (q 2) proposal, Forwarded (q 1) TheUser, Forwarded (q 4) TheUser, Answered (q 4) "yes" TheUser]))
             `shouldBe` Right [(q 3, ForTriage), (q 1, ForAnswer)]
 
+    it "keeps the run at its step while a question waits, the step named in the log (law Resume)" $
+        ((.at) <$> replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) TheUser])), map (.asking.step) . (.pending) <$> replay g (logOf (started :| [ask 1 Design])))
+            `shouldBe` ((.at) <$> replay g (logOf (started :| [])), Right [StateName "implement"])
+
     it "ends every pending question at a stop" $
         (.pending) <$> replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) TheUser, ask 2 Pick, Stopped halt]))
             `shouldBe` Right []
