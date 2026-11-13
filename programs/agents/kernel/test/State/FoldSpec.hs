@@ -293,6 +293,13 @@ questions = describe "questions" $ do
     it "refuses asking a pending question again" $
         replay g (logOf (started :| [ask 1 Pick, ask 1 Pick])) `shouldBe` Left (AskedTwice (q 1))
 
+    it "refuses asking a ruled question again, so a retried relay is ruled once" $
+        replay g (logOf (started :| [ask 1 Pick, RuledOn (q 1) proposal, ask 1 Pick])) `shouldBe` Left (AskedTwice (q 1))
+
+    it "refuses asking an answered question again" $
+        replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser, ask 1 Design]))
+            `shouldBe` Left (AskedTwice (q 1))
+
     it "every_ruling_is_in_show_and_in_the_handback" . hedgehog $ do
         (state, events) <- forAll genAskLog
         let ruled = [(qid, ruling) | RuledOn qid ruling <- events]

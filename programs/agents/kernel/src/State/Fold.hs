@@ -58,6 +58,8 @@ data RunState = RunState
     -- ^ The refusal logged last, until the next event.
     , pending :: [Pending]
     -- ^ Oldest first.
+    , everAsked :: Set QId
+    -- ^ Every question asked, open or closed: a retried ask is refused, so it is never ruled twice.
     , rulings :: [Ruling]
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     }
@@ -99,7 +101,7 @@ data Refusal
       SizeSetOnce Size
     | -- | An override names a state the flow does not have, or more than one.
       NoSingleState StateName
-    | -- | The question is pending already.
+    | -- | The question was asked already, whether pending or closed.
       AskedTwice QId
     | NotPending QId
     | -- | Forwarded already: only its answer is left.
@@ -153,6 +155,7 @@ begin g envelope = case envelope.event of
                 , stopped = Nothing
                 , refused = Nothing
                 , pending = []
+                , everAsked = Set.empty
                 , rulings = []
                 }
     QualitySet _ -> Left NotStarted
@@ -211,9 +214,9 @@ took g state outcome = do
     Right state {at = edge.to, rounds}
 
 asked :: RunState -> Asking -> Either Refusal RunState
-asked state asking = case find ((== qid) . pendingId) state.pending of
-    Just _ -> Left (AskedTwice qid)
-    Nothing -> Right state {pending = state.pending <> [Pending asking ForTriage]}
+asked state asking
+    | Set.member qid state.everAsked = Left (AskedTwice qid)
+    | otherwise = Right state {pending = state.pending <> [Pending asking ForTriage], everAsked = Set.insert qid state.everAsked}
   where
     qid = asking.question.qid
 
