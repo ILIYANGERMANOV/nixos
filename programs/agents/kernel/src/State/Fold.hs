@@ -25,10 +25,9 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
-import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, Stop, Verdict (..), eventId, outcomeEvent)
+import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, StateName (..), Stop, Verdict (..), eventId, outcomeEvent)
 import State.Flow (LoopId, OptId)
 import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
@@ -74,7 +73,7 @@ data Refusal
     | -- | Only @grew@ changes the size.
       SizeSetOnce Size
     | -- | An override names a state the flow does not have, or more than one.
-      NoSingleState Text
+      NoSingleState StateName
     deriving stock (Eq, Show)
 
 -- | An id already in the log is not appended twice: the append is a no-op.
@@ -163,12 +162,12 @@ took g state outcome = do
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     Right state {at = edge.to, rounds}
 
-overridden :: OpenGraph -> RunState -> Text -> Either Refusal RunState
-overridden g state name = case Set.toList (Set.filter (\place -> place.name == name) (places g)) of
+overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
+overridden g state target@(StateName name) = case Set.toList (Set.filter (\place -> place.name == name) (places g)) of
     [place] -> do
         rounds <- enter g (cfg (mode state)).fuel Nothing state.at (At place) state.rounds
         Right state {at = At place, rounds}
-    _ -> Left (NoSingleState name)
+    _ -> Left (NoSingleState target)
 
 {- | The rounds after a move from one node to another. A loop's own back edge
 starts its next round, within its budget; one entered from outside, or

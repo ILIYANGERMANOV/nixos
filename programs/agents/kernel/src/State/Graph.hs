@@ -153,7 +153,9 @@ skippable optId body = do
 
 {- | One state: each child runs the body as a run of its own, so the body is
 not drawn here and gives only its types. Children are spawned and hand back
-while the state stays; @done@ leaves it.
+while the state stays; @done@ leaves it. No event of that name is logged:
+the fold of Par (PR 6) takes this edge when the last @handed_back@ for every
+task lands, so the edge stays as drawn.
 -}
 fanOut :: forall a b. (KnownTy a, KnownTy b) => FanId -> Flow a 'Nothing b -> OpenGraph
 fanOut fan _ =

@@ -143,10 +143,10 @@ spec = describe "State.Fold" $ do
         replay g (line 0 started :| [ofRun (runId "other") (line 1 (Took (ResearchDone 1)))]) `shouldBe` Left (OtherRun (runId "other"))
 
     it "overrides to a named state" $
-        placeName . (.at) <$> replay g (logOf (started :| [Overridden "review" "why"])) `shouldBe` Right (Just "review")
+        placeName . (.at) <$> replay g (logOf (started :| [Overridden (StateName "review") "why"])) `shouldBe` Right (Just "review")
 
     it "refuses an override to a state the flow does not have" $
-        replay g (logOf (started :| [Overridden "nowhere" "why"])) `shouldBe` Left (NoSingleState "nowhere")
+        replay g (logOf (started :| [Overridden (StateName "nowhere") "why"])) `shouldBe` Left (NoSingleState (StateName "nowhere"))
   where
     note = Note "no edge" "state next"
     stop = Stop Blocked "why"

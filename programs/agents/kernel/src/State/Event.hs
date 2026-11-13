@@ -34,6 +34,7 @@ module State.Event (
     Label (..),
     Requirement (..),
     Check (..),
+    StateName (..),
 ) where
 
 import Data.List.NonEmpty (NonEmpty)
@@ -111,8 +112,8 @@ data Event
       Took Outcome
     | -- | Terminal.
       Stopped Stop
-    | -- | The escape edge, outside the graph: to the state of this name.
-      Overridden Text Text
+    | -- | The escape edge, outside the graph: to the named state, and why.
+      Overridden StateName Text
     | -- | An event the run refused, logged so the next read can warn of it.
       Refused Note
     deriving stock (Eq, Show)
@@ -260,3 +261,7 @@ newtype Requirement = Requirement Text
 -- | A CI check, by name.
 newtype Check = Check Text
     deriving stock (Eq, Ord, Show)
+
+-- | A state of the flow's graph, by name: the target of an override.
+newtype StateName = StateName Text
+    deriving stock (Eq, Show)

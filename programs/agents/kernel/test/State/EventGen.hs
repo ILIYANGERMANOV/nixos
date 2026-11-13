@@ -48,7 +48,7 @@ genEvent =
         , Grew <$> genText
         , Took <$> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
-        , Overridden <$> genText <*> genText
+        , Overridden . StateName <$> genText <*> genText
         , Refused <$> (Note <$> genText <*> genText)
         ]
 

@@ -54,6 +54,7 @@ import State.Event (
     Sha (..),
     Source (..),
     Start (..),
+    StateName (..),
     Stop (..),
     StopReason (..),
     Url (..),
@@ -171,7 +172,7 @@ eventData = \case
     Grew why -> "why" .= why
     Took outcome -> outcomeData outcome
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
-    Overridden to why -> "to" .= to <> "why" .= why
+    Overridden (StateName to) why -> "to" .= to <> "why" .= why
     Refused note -> "message" .= note.message <> "fix" .= note.fix
 
 eventOf :: Text -> Object -> Parser Event
@@ -181,7 +182,7 @@ eventOf kind obj = case kind of
     "size" -> SizeSet <$> (obj .: "size" >>= named "size" (parseByName sizeName))
     "grew" -> Grew <$> obj .: "why"
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
-    "overridden" -> Overridden <$> obj .: "to" <*> obj .: "why"
+    "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
     _ -> case Map.lookup kind outcomeParsers of
         Just parser -> Took <$> parser obj
