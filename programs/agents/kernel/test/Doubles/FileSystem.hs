@@ -20,27 +20,25 @@ import Effectful (Eff, (:>))
 import Effectful.Dispatch.Dynamic (interpret, localSeqUnlift)
 import Effectful.Exception (finally, throwIO)
 import Effectful.State.Static.Local (State, gets, modify)
-import Effects.FileSystem (FileSystem (..))
+import Effects.FileSystem (RoFileSystem (..), WrFileSystem (..))
 import System.FilePath (normalise, takeDirectory, (</>))
 import System.IO.Error (IOErrorType, doesNotExistErrorType, mkIOError, userErrorType)
 
 -- | Paths in it are absolute and normalised.
 data Disk = Disk {files :: Map FilePath ByteString, dirs :: Set FilePath, cwd :: FilePath}
 
-runFileSystemInMemory :: (State Disk :> es) => Eff (FileSystem : es) a -> Eff es a
-runFileSystemInMemory = interpret $ \env -> \case
+runFileSystemInMemory :: (State Disk :> es) => Eff (WrFileSystem : RoFileSystem : es) a -> Eff es a
+runFileSystemInMemory = runRoFileSystemInMemory . runWrFileSystemInMemory
+
+runRoFileSystemInMemory :: (State Disk :> es) => Eff (RoFileSystem : es) a -> Eff es a
+runRoFileSystemInMemory = interpret $ \env -> \case
     ReadBytes path -> absolute path >>= readFile'
     ReadText path ->
         absolute path >>= \file ->
             gets @Disk (Map.member file . (.files)) >>= \case
                 False -> pure Nothing
                 True -> readFile' file >>= either (const (failure userErrorType "invalid byte sequence" file)) (pure . Just) . decodeUtf8'
-    WriteText path text -> do
-        file <- absolute path
-        existingDirectory file
-        modify @Disk (\d -> d {files = Map.insert file (encodeUtf8 text) d.files})
     MakeAbsolute path -> absolute path
-    CreateDirectory path -> absolute path >>= \dir -> modify @Disk (\d -> d {dirs = d.dirs <> Set.fromList (ancestors dir)})
     InDirectory path act -> do
         dir <- absolute path
         gets @Disk (Set.member dir . (.dirs)) >>= \case
@@ -51,6 +49,14 @@ runFileSystemInMemory = interpret $ \env -> \case
                 localSeqUnlift env (\unlift -> unlift act) `finally` modify @Disk (\d -> d {cwd = before})
   where
     readFile' file = gets @Disk (Map.lookup file . (.files)) >>= maybe (failure doesNotExistErrorType "openFile" file) pure
+
+runWrFileSystemInMemory :: (State Disk :> es) => Eff (WrFileSystem : es) a -> Eff es a
+runWrFileSystemInMemory = interpret $ \_ -> \case
+    WriteText path text -> do
+        file <- absolute path
+        existingDirectory file
+        modify @Disk (\d -> d {files = Map.insert file (encodeUtf8 text) d.files})
+    CreateDirectory path -> absolute path >>= \dir -> modify @Disk (\d -> d {dirs = d.dirs <> Set.fromList (ancestors dir)})
 
 -- | The path against the current directory.
 absolute :: (State Disk :> es) => FilePath -> Eff es FilePath

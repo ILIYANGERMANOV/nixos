@@ -29,7 +29,7 @@ import Effects.Clock qualified as Clock
 import Effects.Console (Console, runConsoleIO)
 import Effects.Console qualified as Console
 import Effects.Environment (Environment, lookupEnv, runEnvironmentIO)
-import Effects.FileSystem (FileSystem, runFileSystemIO)
+import Effects.FileSystem (RoFileSystem, WrFileSystem, runFileSystemIO)
 import Effects.FileSystem qualified as FileSystem
 import Effects.Gh (Gh, runGhIO)
 import Effects.Gh qualified as Gh
@@ -70,10 +70,10 @@ import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
 -- | Every effect the shell runs on.
-type Shell es = (Clock :> es, Console :> es, Environment :> es, FileSystem :> es, Gh :> es, Git :> es, Log :> es, Random :> es)
+type Shell es = (Clock :> es, Console :> es, Environment :> es, Gh :> es, Git :> es, Log :> es, Random :> es, RoFileSystem :> es, WrFileSystem :> es)
 
 -- | A shell program against the real world: the process, its files, git and GitHub.
-runShellIO :: Eff '[Random, Log, Git, Gh, FileSystem, Environment, Console, Clock, IOE] a -> IO a
+runShellIO :: Eff '[Random, Log, Git, Gh, WrFileSystem, RoFileSystem, Environment, Console, Clock, IOE] a -> IO a
 runShellIO = runEff . runClockIO . runConsoleIO . runEnvironmentIO . runFileSystemIO . runGhIO . runGitIO . runLogIO . runRandomIO
 
 -- | Run one command from argv; a failure goes to stderr with its exit code.
@@ -178,7 +178,7 @@ outageAware act =
         Left (e :: IOException) -> pure (Left (Failure Outage "a disk or git failure" (tshow e) "retry once the disk and git work"))
 
 -- | The flows' step table, which the installed @state@ names in @STATE_STEPS@.
-loadSteps :: (Environment :> es, FileSystem :> es) => Eff es (Either Failure Steps)
+loadSteps :: (Environment :> es, RoFileSystem :> es) => Eff es (Either Failure Steps)
 loadSteps =
     lookupEnv "STATE_STEPS" >>= \case
         Nothing -> pure (Left (Failure Outage "STATE_STEPS is not set" "it names the flows' step table" "run the installed state, which sets it"))
@@ -345,7 +345,7 @@ stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
 stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run, head = stamp.head, session = stamp.session, event}
 
 -- | The worktree's run, locked for one command.
-onRun :: (Clock :> es, Environment :> es, FileSystem :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
+onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
 onRun act = inWorktree (readPointer >=> maybe (pure (Left noRun)) (onLog act . logOf))
 
 -- | The run this log holds, locked for one command.
@@ -489,10 +489,10 @@ gitDir :: (Git :> es) => Eff es (Either Failure FilePath)
 gitDir = Bifunctor.first (\why -> Failure BadInput "not inside a git work tree" why "cd <worktree>; state keeps one run per worktree") <$> Git.gitDir
 
 -- | The notes dir the worktree's run keeps, if a run was started here.
-readPointer :: (FileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
+readPointer :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
 readPointer dir = fmap (Text.unpack . Text.strip) <$> FileSystem.readText (pointerOf dir)
 
-writePointer :: (FileSystem :> es) => FilePath -> FilePath -> Eff es ()
+writePointer :: (WrFileSystem :> es) => FilePath -> FilePath -> Eff es ()
 writePointer dir notes = FileSystem.writeText (pointerOf dir) (Text.pack notes <> "\n")
 
 -- | A pointer file in the git dir names the notes dir, which holds @events.jsonl@.

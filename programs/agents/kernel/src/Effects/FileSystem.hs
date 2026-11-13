@@ -1,14 +1,16 @@
 {- | Files and directories other than the log, which "Effects.Log" owns: the
 step table, the notes pointer, the notes dir, and the directory a hook runs in.
+Split read from write, so that code which only reads cannot change the disk.
 -}
 module Effects.FileSystem (
-    FileSystem (..),
+    RoFileSystem (..),
+    WrFileSystem (..),
     readBytes,
     readText,
-    writeText,
     makeAbsolute,
-    createDirectory,
     inDirectory,
+    writeText,
+    createDirectory,
     runFileSystemIO,
 ) where
 
@@ -21,49 +23,58 @@ import Effectful.Dispatch.Dynamic (interpret, localSeqUnliftIO, send)
 import System.Directory (createDirectoryIfMissing, doesFileExist, withCurrentDirectory)
 import System.Directory qualified as Directory
 
-data FileSystem :: Effect where
-    ReadBytes :: FilePath -> FileSystem m ByteString
-    ReadText :: FilePath -> FileSystem m (Maybe Text)
-    WriteText :: FilePath -> Text -> FileSystem m ()
-    MakeAbsolute :: FilePath -> FileSystem m FilePath
-    CreateDirectory :: FilePath -> FileSystem m ()
-    InDirectory :: FilePath -> m a -> FileSystem m a
+data RoFileSystem :: Effect where
+    ReadBytes :: FilePath -> RoFileSystem m ByteString
+    ReadText :: FilePath -> RoFileSystem m (Maybe Text)
+    MakeAbsolute :: FilePath -> RoFileSystem m FilePath
+    InDirectory :: FilePath -> m a -> RoFileSystem m a
 
-type instance DispatchOf FileSystem = Dynamic
+data WrFileSystem :: Effect where
+    WriteText :: FilePath -> Text -> WrFileSystem m ()
+    CreateDirectory :: FilePath -> WrFileSystem m ()
+
+type instance DispatchOf RoFileSystem = Dynamic
+type instance DispatchOf WrFileSystem = Dynamic
 
 -- | A file's bytes; a missing file throws.
-readBytes :: (FileSystem :> es) => FilePath -> Eff es ByteString
+readBytes :: (RoFileSystem :> es) => FilePath -> Eff es ByteString
 readBytes = send . ReadBytes
 
 -- | A file's text in the locale's encoding, 'Nothing' when it does not exist.
-readText :: (FileSystem :> es) => FilePath -> Eff es (Maybe Text)
+readText :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe Text)
 readText = send . ReadText
 
--- | Replace a file's text, in the locale's encoding.
-writeText :: (FileSystem :> es) => FilePath -> Text -> Eff es ()
-writeText path = send . WriteText path
-
 -- | The path against the current directory.
-makeAbsolute :: (FileSystem :> es) => FilePath -> Eff es FilePath
+makeAbsolute :: (RoFileSystem :> es) => FilePath -> Eff es FilePath
 makeAbsolute = send . MakeAbsolute
 
--- | The directory and its parents, those missing.
-createDirectory :: (FileSystem :> es) => FilePath -> Eff es ()
-createDirectory = send . CreateDirectory
-
 -- | Run the action with this as the current directory, which git and gh read.
-inDirectory :: (FileSystem :> es) => FilePath -> Eff es a -> Eff es a
+inDirectory :: (RoFileSystem :> es) => FilePath -> Eff es a -> Eff es a
 inDirectory dir = send . InDirectory dir
 
-runFileSystemIO :: (IOE :> es) => Eff (FileSystem : es) a -> Eff es a
-runFileSystemIO = interpret $ \env -> \case
+-- | Replace a file's text, in the locale's encoding.
+writeText :: (WrFileSystem :> es) => FilePath -> Text -> Eff es ()
+writeText path = send . WriteText path
+
+-- | The directory and its parents, those missing.
+createDirectory :: (WrFileSystem :> es) => FilePath -> Eff es ()
+createDirectory = send . CreateDirectory
+
+runFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : RoFileSystem : es) a -> Eff es a
+runFileSystemIO = runRoFileSystemIO . runWrFileSystemIO
+
+runRoFileSystemIO :: (IOE :> es) => Eff (RoFileSystem : es) a -> Eff es a
+runRoFileSystemIO = interpret $ \env -> \case
     ReadBytes path -> liftIO (BS.readFile path)
     ReadText path ->
         liftIO $
             doesFileExist path >>= \case
                 False -> pure Nothing
                 True -> Just <$> Text.readFile path
-    WriteText path text -> liftIO (Text.writeFile path text)
     MakeAbsolute path -> liftIO (Directory.makeAbsolute path)
-    CreateDirectory path -> liftIO (createDirectoryIfMissing True path)
     InDirectory dir act -> localSeqUnliftIO env $ \unlift -> withCurrentDirectory dir (unlift act)
+
+runWrFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : es) a -> Eff es a
+runWrFileSystemIO = interpret $ \_ -> \case
+    WriteText path text -> liftIO (Text.writeFile path text)
+    CreateDirectory path -> liftIO (createDirectoryIfMissing True path)
