@@ -253,6 +253,16 @@ spec = describe "state over the doubles" $ do
             forwarded `shouldContain` [ruling]
             stopped `shouldBe` ["stopped", "HANDBACK FAILED no access", "Run: " <> child, ruling]
 
+        it "shows a forwarded question with the answer that came down for it" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            let qid = Text.drop (Text.length "asked ") asked
+            _ <- succeeded =<< state world ["answer", qid, "postgres"]
+
+            shown <- succeeded =<< state world ["show"]
+
+            shown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - postgres"]
+
         describe "the 10x" $ do
             it "spawns the first task, the second waiting on it" $ \world -> do
                 _ <- tenXAtFanOut world

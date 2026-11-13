@@ -16,7 +16,7 @@ import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
 import State.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
 import State.Event (AgentRole (..), Task (..), TaskId, Asker (..), Asking (..), Note (..), Start (..), Stop (..), runIdText)
 import State.Fan (Fan (..))
-import State.Fold (Pending (..), RunState (..), Waits (..), askedAt)
+import State.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt)
 import State.Graph (Node (..), Place (..))
 import State.Mode (qualityName, sizeName)
 import State.Render qualified as Render
@@ -34,8 +34,10 @@ showRun state =
             <> ["refused: " <> note.message <> "; fix: " <> note.fix | Just note <- [state.refused]]
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
+            <> section "answered:" (map answerLine state.answers)
             <> section "held:" [taskIdText task <> " " <> urlText url | (task, url) <- state.fanOut.held]
   where
+    answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> answered.given
     section title = \case
         [] -> []
         items -> title : map ("  " <>) items

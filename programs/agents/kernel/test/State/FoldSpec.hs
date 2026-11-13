@@ -18,7 +18,7 @@ import State.EventGen (tasksOf, genOneLine, genProposal, genQuestion, genReading
 import State.Fan qualified as Fan
 import State.Flow (FanId (..), LoopId (..), OptId (..))
 import State.FlowGen (composes, genWalk)
-import State.Fold
+import State.Fold hiding (Answer (..))
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), cfg)
 import State.Path (ty)

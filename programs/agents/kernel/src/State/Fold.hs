@@ -12,6 +12,7 @@ module State.Fold (
     Round (..),
     Problem (..),
     Pending (..),
+    Answer (..),
     Waits (..),
     Refusal (..),
     Append (..),
@@ -41,6 +42,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Ask (Above, Kind (Security), Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
 import State.Ask qualified as Ask
@@ -74,11 +76,17 @@ data RunState = RunState
     -- ^ The kinds asked since the run last moved, oldest first: advice asks a step's question once.
     , rulings :: [Ruling]
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
+    , answers :: [Answer]
+    -- ^ Every forwarded question answered from above, oldest first: @show@ lists them.
     , drafted :: Maybe DraftPr
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     , fanOut :: Fan
     -- ^ The 10x's tasks and child runs: empty in a run with no fan-out.
     }
+    deriving stock (Eq, Show)
+
+-- | A forwarded question and the answer that came down for it.
+data Answer = Answer {about :: Question, given :: Text}
     deriving stock (Eq, Show)
 
 -- | A question asked and not yet ruled on, answered or ended by a stop.
@@ -176,6 +184,7 @@ begin g envelope = case runStart envelope.event of
                 , everAsked = Set.empty
                 , askedHere = []
                 , rulings = []
+                , answers = []
                 , drafted = Nothing
                 , fanOut = emptyFan
                 }
@@ -220,7 +229,7 @@ applyEvent g state = \case
     RetaggedSecurity qid -> going (retagged state qid)
     RuledOn qid proposal -> going (ruledOn state qid proposal)
     Forwarded qid to -> going (forwarded state qid to)
-    Answered qid _ by -> going (answered state qid by)
+    Answered qid answer by -> going (answered state qid answer by)
     Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned child))
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
     TaskMoved task moved -> going (inFan (Fan.moved task moved))
@@ -338,14 +347,14 @@ forwarded state qid to = do
     fromAbove state.start.principal to
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
-answered :: RunState -> QId -> Above -> Either Refusal RunState
-answered state qid by = do
+answered :: RunState -> QId -> Text -> Above -> Either Refusal RunState
+answered state qid answer by = do
     pending <- pendingOf qid state.pending
     case pending.waits of
         ForTriage -> Left (NotForwarded qid)
         ForAnswer -> Right ()
     fromAbove state.start.principal by
-    Right state {pending = close qid state.pending}
+    Right state {pending = close qid state.pending, answers = state.answers <> [Answer pending.asking.question answer]}
 
 -- | The question this run has yet to rule on or forward.
 forTriage :: QId -> [Pending] -> Either Refusal Question
