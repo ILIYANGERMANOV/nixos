@@ -33,7 +33,8 @@ Each folder has its own rule, loaded when you work in it:
 
 `default.nix` is the surface: `profiles`, `fold`, `renderLead`, `renderRole`,
 `skills`, `ctx`, `state`, `kernel` (the Haskell `state`, #360), `guards`, `hooks`, `roles`, `budget` and `check`. `checks.agents`
-proves every law and every rejection.
+proves every law and every rejection, and holds the blocks the engineer skill and
+`quality.md` paste equal to `state render` (`kernel/rendered.nix`).
 
 ### Hooks
 
@@ -45,7 +46,7 @@ event's hooks in order. `agent_hook.py` is the neutral contract and the
 dispatcher a backend's adapter calls once per event: deny wins, contexts join,
 rewritten input reaches the next hook. A hook fails open and tells. A backend
 fills `history` and `context` from what the agent did, so a hook keeps no state
-and reads no vendor file. The state hooks are `state/hooks.nix` (`state-hook`), and cover the main session only. Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
+and reads no vendor file. The state hooks are `kernel/hooks.nix`, run by the Haskell `state-hook`, and cover the main session only. Why: `docs/adr/0016-hooks-drive-the-state-record.md`.
 
 `hooks/guards/` holds the guards, Python programs on the contract that stop an
 agent's accidents: `secret-guard`, `read-guard` and `wait-guard` deny a shell

@@ -39,7 +39,7 @@ has it open, and Claude Code keeps its own `synced/` there.
 
 The factory's Remote Control units run the unwrapped binary, so
 `modules/home/factory/claude-factory.nix` installs the factory profile's
-`runtime` (`qa`, `ctx`, `state`) too.
+`runtime` (`qa`, `ctx`, `state`, the Haskell kernel in `programs/agents/kernel`) too.
 
 ### Subagent files
 
