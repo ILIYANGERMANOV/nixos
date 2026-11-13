@@ -5,6 +5,10 @@ module State.EventGen (
     outcomeNames,
     genPicks,
     genRunId,
+    genQId,
+    genQuestion,
+    genReading,
+    genProposal,
     runId,
     run,
     started,
@@ -26,6 +30,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Ask (Basis (..), Choice (..), Proposal (..), QId (..), Question (..), Reading (..))
 import State.Cap (EventName)
 import State.Event
 
@@ -169,6 +174,25 @@ genTime =
 -- | Any run id the kernel accepts.
 genRunId :: Gen RunId
 genRunId = Gen.mapMaybe parseRunId (Gen.text (Range.linear 1 8) Gen.unicode)
+
+genQId :: Gen QId
+genQId = QId <$> genRunId <*> Gen.integral (Range.linear 0 1000)
+
+genQuestion :: Gen Question
+genQuestion = Question <$> genQId <*> Gen.enumBounded <*> genText
+
+-- | Any reading: a kind, often the question's own, and a choice.
+genReading :: Gen Reading
+genReading = Reading <$> Gen.enumBounded <*> Gen.choice [RuleOn <$> genProposal, pure PassOn]
+
+genProposal :: Gen Proposal
+genProposal = Proposal <$> genText <*> genText <*> genText <*> Gen.maybe genBasis
+
+genBasis :: Gen Basis
+genBasis = Gen.choice [AnsweredBy <$> genEventId, Obvious <$> genText]
+
+genEventId :: Gen EventId
+genEventId = Gen.choice [Numbered <$> genRunId <*> Gen.integral (Range.linear 0 1000), Hashed <$> genDigest]
 
 -- | A run id the test spells, which must be one the kernel accepts.
 runId :: Text -> RunId

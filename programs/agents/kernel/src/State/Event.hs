@@ -40,10 +40,11 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
+import State.Ask (Op (..), Principal (..))
 import State.Cap (EventName, StateName (..), Step (..), continueEvent, exitEvent, skipEvent)
+import State.Id (Digest (..), EventId (..), RunId, parseRunId, runIdText)
 import State.Mode (Area, Quality, Size)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
@@ -66,39 +67,13 @@ is keyed on a hash of the run, agent and message, and the second is a no-op.
 data Source = Cli | Hook Digest
     deriving stock (Eq, Show)
 
--- | What makes an append idempotent: an id already in the log is not appended again.
-data EventId = Numbered RunId Natural | Hashed Digest
-    deriving stock (Eq, Ord, Show)
-
 eventId :: Envelope -> EventId
 eventId envelope = case envelope.source of
     Cli -> Numbered envelope.run envelope.seq
     Hook digest -> Hashed digest
 
-{- | Short and random, set by @init@; one log holds one run. Built only by
-'parseRunId'.
--}
-newtype RunId = RunId Text
-    deriving stock (Eq, Ord, Show)
-
-{- | A CLI record's id is @<run>:<seq>@ and a hook record's @h:<hash>@ (#360),
-so a run id is never @h@ and holds no @:@: either would let a CLI id spell a
-hook id, and append-by-id drop a distinct event. Empty is no id at all.
--}
-parseRunId :: Text -> Maybe RunId
-parseRunId raw
-    | Text.null raw || raw == "h" || Text.elem ':' raw = Nothing
-    | otherwise = Just (RunId raw)
-
-runIdText :: RunId -> Text
-runIdText (RunId run) = run
-
 newtype SessionId = SessionId Text
     deriving stock (Eq, Show)
-
--- | A hook record's content hash, hex.
-newtype Digest = Digest Text
-    deriving stock (Eq, Ord, Show)
 
 data Event
     = Started Start
@@ -132,14 +107,6 @@ data Start = Start
 
 data FlowName = EngineerFlow | TenXFlow
     deriving stock (Eq, Show, Enum, Bounded)
-
--- | Who started the run: the user, or a parent run, by its id and log path.
-data Principal = ByUser | ByRole RunId FilePath
-    deriving stock (Eq, Show)
-
--- | What the run's interface can do: a subagent cannot ask the user or wait.
-data Op = AskUser | Await | Notify | Hooks | Background
-    deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)
