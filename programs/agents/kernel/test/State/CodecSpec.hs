@@ -10,8 +10,8 @@ import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Ask (Basis (..), Proposal (..), QId (..))
-import State.Codec (LineError (..), LogError (..), decodeLine, decodeLog, encodeLine)
-import State.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Picks (..), Principal (..), Requirement (..), Sha (..), Source (..), Start (..), parseRunId)
+import State.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, encodeLine)
+import State.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Picks (..), Principal (..), Requirement (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Said (..), Task (..), TaskId (..), parseRunId, taskList)
 import State.EventGen (genEnvelope, oneLine, runId)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -72,6 +72,20 @@ spec = describe "State.Codec" $ do
         decodeLine (encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "why") (oneLine "cost") Nothing)} `replacing` ("\"answer\":\"v2\"", "\"answer\":\"v2\\nREADY\""))
             `shouldSatisfy` malformed
 
+    it "writes a child's stop as its reason, upper case, with its why as the ref" $
+        encodeLine reviewRows {event = HandedBack (runId "c1") (Ended (Stop Blocked "no access"))}
+            `shouldSatisfy` Text.isInfixOf "\"type\":\"handed_back\",\"data\":{\"child\":\"c1\",\"token\":\"BLOCKED\",\"ref\":\"no access\",\"qid\":null}"
+
+    it "reads a breakdown's tasks in order" $
+        map (.id) . taskList <$> decodeBreakdown (breakdownOf [task "t1" [], task "t2" ["t1"]]) `shouldBe` Right [TaskId "t1", TaskId "t2"]
+
+    it "refuses a breakdown that is empty, names a task twice or depends on a later task" $
+        map (either Left (const (Right ())) . decodeBreakdown . breakdownOf) [[], [task "t1" [], task "t1" []], [task "t1" ["t2"], task "t2" []]]
+            `shouldBe` [ Left "Error in $: a breakdown has a task at least"
+                       , Left "Error in $: task t1 is named twice"
+                       , Left "Error in $: task t1 depends on t2, which is not an earlier task"
+                       ]
+
     it "refuses a retag to any kind but Security" $
         decodeLine (encodeLine reviewRows {event = RetaggedSecurity (QId (runId "c1") 3)} `replacing` ("\"kind\":\"Security\"", "\"kind\":\"Design\""))
             `shouldSatisfy` malformed
@@ -127,3 +141,12 @@ malformed = \case
     Left (Malformed _) -> True
     Left (Unsupported _) -> False
     Right _ -> False
+
+-- | A breakdown file's JSON: tasks of an id and its dependencies, the rest fixed.
+breakdownOf :: [Text] -> Text
+breakdownOf tasks = "[" <> Text.intercalate "," tasks <> "]"
+
+task :: Text -> [Text] -> Text
+task name deps =
+    "{\"id\":\"" <> name <> "\",\"deps\":[" <> Text.intercalate "," (map (\dep -> "\"" <> dep <> "\"") deps)
+        <> "],\"base\":\"main\",\"branch\":\"" <> name <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":false,\"security\":[]}"

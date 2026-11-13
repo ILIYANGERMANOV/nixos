@@ -22,11 +22,13 @@ module State.Advice (
 
 import Control.Applicative ((<|>))
 import Control.Monad (join)
+import Data.Foldable (asum, toList)
 import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
 import Data.Aeson.Types (parseEither)
+import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -37,10 +39,12 @@ import State.Ask qualified as Ask
 import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
 import State.Cap qualified as Cap
 import State.Cli (recordCommand)
-import State.Codec (reasonText, urlText)
-import State.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), Start (..), Stop (..), Url (..))
+import State.Codec (reasonText, taskIdText, taskStateName, urlText)
+import State.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), fanRole, runIdText)
 import State.Event qualified as Event
-import State.Flow (LoopId (..), loopName)
+import State.Fan (ChildRun (..), Fan (..))
+import State.Fan qualified as Fan
+import State.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
 import State.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, budget, flowRole, mode, nextQId, stuck)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Handback (stopLine)
@@ -111,7 +115,8 @@ data Advice = Advice {action :: Action, facts :: [Text], entry :: Text}
     deriving stock (Eq, Show)
 
 data Action
-    = Spawn AgentRole
+    = -- | The role to spawn, and the 10x's task it takes.
+      Spawn AgentRole (Maybe TaskId)
     | -- | A question of the run's own, for @state ask --kind@.
       Ask Kind Text
     | -- | A pending question this run rules on or forwards.
@@ -120,6 +125,10 @@ data Action
       AwaitAnswer Question
     | -- | CI on this PR.
       AwaitCi Text
+    | -- | A child to resume, and what with: the answer to its question, or its CI.
+      Resume RunId Text
+    | -- | Children at work, none of them waiting on this run.
+      AwaitChildren (NonEmpty RunId)
     | Run Text
     | Stopped Stop
     | Done (Maybe Url)
@@ -131,7 +140,7 @@ skip the mode makes. The shell records it and asks again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe Outcome
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped place)
+    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -147,6 +156,8 @@ due g facts state = case (state.stopped, state.at) of
         IsReady -> True
         IsMerged -> False
         IsClosed -> False
+    -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
+    leaves place = [FanDone fan | Just fan <- [fanNamed place.name], Right () <- [Fan.leave state.fanOut]]
     skipped place =
         [ outcome
         | ((from, event), edge) <- Map.toList g.edges
@@ -194,19 +205,37 @@ advise steps facts state = Advice action (factLines facts state) entry
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) -> case stepNamed place.name of
             Just (SomeStep s) -> (atStep s, Text.unwords (filter (not . Text.null) [(row steps s).lead, (row steps s).entry]))
-            -- Fan-outs are the 10x's (PR 6): the engineer flow has none.
-            Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
+            Nothing -> case fanNamed place.name of
+                Just fan -> plain (atFan fan state)
+                Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
     atStep :: Step i e o -> Action
     atStep s = case lookup (stepName s) special of
         Just next -> next
         Nothing -> case (row steps s).runner of
-            Agent role -> Spawn role
+            Agent role -> Spawn role Nothing
             Inline -> Run (recordOutcomes s)
     special =
         [ (stepName Confirm, if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes Confirm) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?")
         , (stepName Pick, Run (pickCommand state))
         , (stepName Cap.AwaitCi, AwaitCi (maybe "the PR" urlText (prUrl facts state)))
         ]
+
+{- | At a fan-out, with no question pending: resume a child its answer or CI
+waits for, else spawn a task with a free slot, else wait on the children.
+With none running and none spawnable, a task is left to park.
+-}
+atFan :: FanId -> RunState -> Action
+atFan fan state = fromMaybe leave (asum [resume, spawn, awaitCi, awaitChildren])
+  where
+    running = Fan.running state.fanOut
+    open = map (.asking.question.qid) state.pending
+    resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- running, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
+    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable ((cfg (mode state)).fan fan) state.fanOut)
+    awaitCi = listToMaybe [AwaitCi (oneLineText ref) | c <- running, Just (AwaitsCi ref) <- [Fan.latest c]]
+    awaitChildren = AwaitChildren . fmap (.child.run) <$> NonEmpty.nonEmpty running
+    leave = Run $ case Fan.unsettled state.fanOut of
+        task : _ -> "state record task " <> taskIdText task <> " parked <why>"
+        [] -> recordCommand (fanEvent Leaves (fanName fan))
 
 -- | The PR's url as GitHub reports it, else the draft the run recorded: a POC run offline still skips ready.
 prUrl :: Facts -> RunState -> Maybe Url
@@ -262,12 +291,36 @@ factLines facts state =
            ]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
+        <> map (taskLine state.fanOut) state.fanOut.tasks
   where
     readinessText = \case
         IsDraft -> " (draft)"
         IsReady -> " (ready)"
         IsMerged -> " (merged)"
         IsClosed -> " (closed)"
+
+-- | A task of the 10x's breakdown: its latest child and what it said, its PR, its tries.
+taskLine :: Fan -> Task -> Text
+taskLine fan task =
+    "task "
+        <> taskIdText task.id
+        <> ": "
+        <> Text.intercalate ", " (childText <> foldMap (pure . movedText) (Map.lookup task.id fan.moves) <> ["tries " <> tshow (Fan.tries fan task.id)])
+  where
+    childText = case reverse (Fan.childrenOf fan task.id) of
+        [] -> ["not started"]
+        c : _ -> ["child " <> runIdText c.child.run <> " " <> maybe "running" saidText (Fan.latest c)]
+    saidText = \case
+        Finished summary -> "finished: " <> oneLineText summary
+        AsksUp qid -> "asks " <> qidText qid
+        AwaitsCi ref -> "awaits CI on " <> oneLineText ref
+        Ended stop -> "stopped " <> reasonText stop.reason <> ": " <> stop.why
+    movedText moved =
+        "PR " <> taskStateName moved <> case moved of
+            InCi url -> " " <> urlText url
+            InReview url -> " " <> urlText url
+            Merged url -> " " <> urlText url
+            Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
 
 modeText :: Mode -> Text
 modeText (Mode quality size) = qualityName quality <> " " <> sizeName size
@@ -277,7 +330,7 @@ place either is read.
 -}
 deliver :: Start -> Action -> Text
 deliver start = \case
-    Spawn (AgentRole role) -> "SPAWN " <> role <> " background: " <> if has Event.Background then "yes" else "no"
+    Spawn (AgentRole role) task -> "SPAWN " <> role <> foldMap ((" --task " <>) . taskIdText) task <> " background: " <> if has Event.Background then "yes" else "no"
     Ask kind what -> "ASK " <> kindName kind <> " " <> what
     Triage question ->
         "RUN state rule "
@@ -290,6 +343,8 @@ deliver start = \case
         TheUser -> "ASK " <> asked question
         ParentRun _ -> "HANDBACK " <> needsDecision question
     AwaitCi ref -> (if has Event.Await then "" else "HANDBACK ") <> "AWAIT ci " <> ref
+    Resume child with -> "RESUME " <> runIdText child <> " " <> with
+    AwaitChildren children -> "AWAIT children " <> Text.unwords (map runIdText (toList children))
     Run command -> "RUN " <> command
     Stopped stop -> case Ask.deliver start.principal of
         TheUser -> "STOP " <> reasonText stop.reason <> " " <> stop.why

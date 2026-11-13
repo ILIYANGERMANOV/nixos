@@ -2,6 +2,9 @@
 module State.RunGen (
     g,
     tenXGraph,
+    tenXAt,
+    plainTask,
+    childOf,
     sha,
     commit,
     happyPath,
@@ -18,6 +21,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
@@ -25,7 +29,8 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
 import State.Event
-import State.EventGen (genOutcomeNamed, line, logOf, start, started)
+import State.Mode (Quality (..), Size (..))
+import State.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
 import State.Fold (Append (..), RunState (..), append, replay)
@@ -38,6 +43,23 @@ g = either (error . show) id (graph engineer)
 
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
+
+{- | A 10x run, by the user, Balanced Normal, at its fan-out with these
+tasks, then these events.
+-}
+tenXAt :: NonEmpty Task -> [Event] -> RunState
+tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
+  where
+    tenXStart = start {flow = TenXFlow}
+    toFanOut = [QualitySet Balanced, SizeSet Normal, Overridden (StateName "breakdown") "the plan is agreed", Took (BreakdownDone (tasksOf tasks))]
+
+-- | A task on its own branch off main, Balanced Normal, light, after these tasks.
+plainTask :: Text -> [Text] -> Task
+plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced Normal False False Set.empty
+
+-- | The child run of this id, for this task.
+childOf :: Text -> Text -> Child
+childOf child task = Child (runId child) (TaskId task) (Text.unpack child <> "/events.jsonl") (Text.unpack child)
 
 sha :: Sha
 sha = Sha "abc123"

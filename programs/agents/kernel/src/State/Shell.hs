@@ -135,7 +135,7 @@ hookAnswer steps call want =
                 onHook facts.pr $ \stamp run ->
                     let (new, action, out) = adviceOf steps facts told stamp run
                         warning = case (action, spawned) of
-                            (Advice.Spawn advised, Just role) -> offAdvice steps run.state.at advised role
+                            (Advice.Spawn advised _, Just role) -> offAdvice steps run.state.at advised role
                             _ -> Nothing
                      in (new, out <> foldMap (<> "\n") warning)
             Hook.HandedBack _ message agent role ->

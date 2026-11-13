@@ -1,5 +1,6 @@
 module State.AdviceSpec (spec) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -13,7 +14,8 @@ import State.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
 import State.Event hiding (Stopped)
 import State.EventGen (genStart, genText, oneLine, run, runId, start)
 import State.Mode (Quality (..), Size (..))
-import State.RunGen (commit, g, genAccepted, happyPath, loadSteps, runAt, runUnder, sha)
+import State.Flow (FanId (..))
+import State.RunGen (childOf, commit, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, sha, tenXAt, tenXGraph)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -105,14 +107,47 @@ spec = describe "State.Advice" $ do
         it "records ready once GitHub says the PR is ready" $
             due g withPr {pr = Just (PullRequest draftPr IsReady)} (atReady Balanced) `shouldBe` Just (ReadyDone prUrl)
 
+    describe "the 10x's fan-out" $ do
+        let t1 = plainTask "t1" []
+            t2 = plainTask "t2" []
+            heavy name = (plainTask name []) {heavy = True}
+            asks = Question (QId (runId "c1") 1) Design (oneLine "which store?")
+            fromChild = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AsksUp asks.qid), Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1")))]
+        it "spawns the first task a slot is free for" $
+            next noFacts (tenXAt (t1 :| [t2]) [Spawned (childOf "c1" "t1")]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "t2"))
+        it "spawns no second heavy task while one runs" $
+            next noFacts (tenXAt (heavy "t1" :| [heavy "t2"]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (runId "c1" :| [])
+        it "waits on the children while a task's dependencies run" $
+            next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (runId "c1" :| [])
+        it "triages a child's question before anything else" $
+            next noFacts (tenXAt (t1 :| [t2]) fromChild) `shouldBe` Triage asks
+        it "resumes a child once its question is ruled on" $
+            next noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])) `shouldBe` Resume (runId "c1") "with the answer to c1:1"
+        it "waits on CI a child handed back" $
+            next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AwaitsCi (oneLine "https://pr/1"))]) `shouldBe` AwaitCi "https://pr/1"
+        it "leaves the fan-out itself once every task is settled, and not before" $ do
+            let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
+            due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
+            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (FanDone FEngineers)
+        it "states each task's child, PR and tries" $
+            filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
+                `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
+
     describe "deliver" $ do
         it "spawns in the background only where the interface can" $
-            map (\ops -> deliver start {interface = Set.fromList ops} (Spawn (AgentRole "implementer"))) [[], [Background]]
+            map (\ops -> deliver start {interface = Set.fromList ops} (Spawn (AgentRole "implementer") Nothing)) [[], [Background]]
                 `shouldBe` ["SPAWN implementer background: no", "SPAWN implementer background: yes"]
 
         it "asks the user a forwarded question, or hands it back to a parent run" $
             map (`deliver` AwaitAnswer which) [start, child]
                 `shouldBe` ["ASK Design r7f2:1: which store?", "HANDBACK NEEDS_DECISION Design r7f2:1: which store?"]
+
+        it "names the task an engineer is spawned for" $
+            deliver start {interface = Set.fromList [Background]} (Spawn (AgentRole "engineer") (Just (TaskId "t1"))) `shouldBe` "SPAWN engineer --task t1 background: yes"
+
+        it "resumes a child, or waits on the children" $
+            map (deliver start) [Resume (runId "c1") "with the answer to c1:1", AwaitChildren (runId "c1" :| [runId "c2"])]
+                `shouldBe` ["RESUME c1 with the answer to c1:1", "AWAIT children c1 c2"]
 
         it "waits on CI itself only where the interface can" $
             map (`deliver` AwaitCi "u") [start {interface = Set.singleton Await}, start]

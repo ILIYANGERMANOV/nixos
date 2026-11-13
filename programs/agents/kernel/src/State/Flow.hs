@@ -10,6 +10,7 @@ module State.Flow (
     OptId (..),
     FanId (..),
     fanName,
+    fanNamed,
     FanEvent (..),
     fanEvent,
     loopName,
@@ -73,6 +74,12 @@ data OptId = ORes | OSimp | OAlt | ORefactor | OBody | OReady
 
 data FanId = FResearchers | FEngineers
     deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+-- | The fan-out whose state this is, if any.
+fanNamed :: StateName -> Maybe FanId
+fanNamed name = case [fan | fan <- [minBound .. maxBound], fanName fan == name] of
+    fan : _ -> Just fan
+    [] -> Nothing
 
 -- | The state a 'Par' draws as.
 fanName :: FanId -> StateName

@@ -35,7 +35,7 @@ import State.Ask qualified as Ask
 import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent, stateNameText)
 import State.Codec (areaText, judgementText, logName, reasonText)
 import State.Codec qualified as Codec
-import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), TaskId (..), TaskState (..), Url (..), parseRunId, roleText, runIdText)
+import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), TaskId (..), TaskState (..), Url (..), fanRole, parseRunId, roleText, runIdText)
 import State.Fan qualified as Fan
 import State.Flow (FanEvent (Leaves), FanId (FEngineers), fanEvent, fanName, loopName)
 import State.Fold (Refusal (..), roundOnly)
@@ -141,7 +141,7 @@ parseSub steps sub rest = case sub of
     "next" -> bare Next
     "brief" -> withArgs ["task"] $ \a -> do
         role <- oneWord "role" a
-        OnRun <$> (Brief <$> knownRole (agentRoles steps <> [AgentRole "engineer"]) role <*> pure (option "task" a))
+        OnRun <$> (Brief <$> knownRole (agentRoles steps <> [fanRole FEngineers]) role <*> pure (option "task" a))
     "show" -> bare (OnRun ShowRun)
     "override" -> withArgs [] $ \a -> case a.positional of
         target : why@(_ : _) -> Right (OnRun (Override (StateName target) (Text.unwords why)))

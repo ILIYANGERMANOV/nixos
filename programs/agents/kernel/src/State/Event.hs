@@ -24,6 +24,7 @@ module State.Event (
     Asker (..),
     AgentRole (..),
     roleText,
+    fanRole,
     Stop (..),
     StopReason (..),
     Note (..),
@@ -61,7 +62,7 @@ import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
 import State.Ask (Above, OneLine, Op (..), Principal (..), Proposal, QId, Question)
 import State.Cap (EventName, StateName (..), Step (..), continueEvent, exitEvent, skipEvent)
-import State.Flow (FanEvent (Leaves), FanId, fanEvent, fanName)
+import State.Flow (FanEvent (Leaves), FanId (..), fanEvent, fanName)
 import State.Id (Digest (..), EventId (..), RunId, parseRunId, runIdText)
 import State.Mode (Area, Quality, Size)
 
@@ -162,6 +163,13 @@ newtype AgentRole = AgentRole Text
 
 roleText :: AgentRole -> Text
 roleText (AgentRole role) = role
+
+-- | The role a fan-out's children run as: an engineer runs a whole engineer flow.
+fanRole :: FanId -> AgentRole
+fanRole =
+    AgentRole . \case
+        FResearchers -> "researcher"
+        FEngineers -> "engineer"
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)

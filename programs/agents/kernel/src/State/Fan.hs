@@ -18,6 +18,8 @@ module State.Fan (
     held,
     leave,
     running,
+    latest,
+    childrenOf,
     settled,
     unsettled,
     spawnable,
@@ -29,6 +31,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Numeric.Natural (Natural)
 import State.Event ( Child (..), RunId, Tasks, Said (..), Task (..), TaskId, TaskState (..), Url, taskList)
 
@@ -104,13 +107,23 @@ running fan = filter live fan.children
 
 -- | A child is over once it finished or stopped; asking up or awaiting CI, it runs on.
 live :: ChildRun -> Bool
-live childRun = case reverse childRun.said of
-    [] -> True
-    latest : _ -> case latest of
+live childRun = case latest childRun of
+    Nothing -> True
+    Just said -> case said of
         Finished _ -> False
         AsksUp _ -> True
         AwaitsCi _ -> True
         Ended _ -> False
+
+-- | What the child said last, 'Nothing' while it has not handed back.
+latest :: ChildRun -> Maybe Said
+latest childRun = case reverse childRun.said of
+    said : _ -> Just said
+    [] -> Nothing
+
+-- | The task's children, oldest first.
+childrenOf :: Fan -> TaskId -> [ChildRun]
+childrenOf fan task = [childRun | childRun <- fan.children, childRun.child.task == task]
 
 {- | Its PR is in review, merged or parked, or its latest child finished. A
 stopped child leaves the task open: another child may take it, or the 10x
@@ -124,11 +137,12 @@ settled fan task = case Map.lookup task fan.moves of
     Just (InCi _) -> finished
     Nothing -> finished
   where
-    finished = case reverse [childRun.said | childRun <- fan.children, childRun.child.task == task] of
-        latest : _ -> case reverse latest of
-            Finished _ : _ -> True
-            _ -> False
-        [] -> False
+    finished = case latest =<< listToMaybe (reverse (childrenOf fan task)) of
+        Just (Finished _) -> True
+        Just (AsksUp _) -> False
+        Just (AwaitsCi _) -> False
+        Just (Ended _) -> False
+        Nothing -> False
 
 unsettled :: Fan -> [TaskId]
 unsettled fan = [task.id | task <- fan.tasks, not (settled fan task.id)]
@@ -158,4 +172,4 @@ spawnable width fan = pick (fromIntegral width - length busy) (any (.heavy) busy
 
 -- | The children spawned for the task so far.
 tries :: Fan -> TaskId -> Int
-tries fan task = length [() | childRun <- fan.children, childRun.child.task == task]
+tries fan task = length (childrenOf fan task)
