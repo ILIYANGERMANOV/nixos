@@ -122,7 +122,7 @@ spec = describe "the hooks" $ do
             logWith [hooked 0] sources `shouldBe` True
 
         it "is not one whose records the log lacks, or holds only past the first" $
-            map (\more -> logWith more sources) [[], [hooked 1]] `shouldBe` [False, False]
+            map (`logWith` sources) [[], [hooked 1]] `shouldBe` [False, False]
 
     describe "the reply" $ do
         it "prints nothing with nothing to say" $

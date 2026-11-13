@@ -29,8 +29,8 @@ spec = describe "kernel architecture" $ do
     it "keeps IO out of every module but the shell's" $ do
         decisions <- filter (not . isShell) . mapMaybe moduleOf <$> packageFiles "src"
         reached <- traverse (\name -> (name,) . Set.toList <$> closure name) decisions
-        effects <- traverse (\(name, modules) -> (name,) . filter isEffect . concat <$> traverse imports modules) reached
-        [found | found@(_, (_ : _)) <- effects] `shouldBe` []
+        effects <- traverse (\(name, modules) -> (name,) . concatMap (filter isEffect) <$> traverse imports modules) reached
+        [found | found@(_, _ : _) <- effects] `shouldBe` []
 
 -- | Every file under a directory of the package.
 packageFiles :: FilePath -> IO [FilePath]
