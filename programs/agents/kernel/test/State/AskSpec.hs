@@ -76,9 +76,13 @@ spec = describe "State.Ask" $ do
             triage Engineer (Reading Security PassOn) (asking Design)
                 `shouldBe` Right (Forward (asking Security))
 
-        it "refuses a forward where the row answers, so no Fact reaches the user" $
+        it "refuses a forward of a Fact at the 10x, so no Fact reaches the user" $
             triage TenX (Reading Fact PassOn) (asking Fact)
                 `shouldBe` Left (MustAnswer TenX Fact)
+
+        it "lets the engineer and the 10x forward a Pick, so the user's may cell is reachable" $
+            map (\role -> triage role (Reading Pick PassOn) (asking Pick)) [Engineer, TenX]
+                `shouldBe` [Right (Forward (asking Pick)), Right (Forward (asking Pick))]
 
         it "refuses any choice on a kind the row never sees" $
             triage User (Reading Fact (RuleOn proposal)) (asking Fact)

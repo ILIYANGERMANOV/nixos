@@ -100,9 +100,7 @@ data Cond
     deriving stock (Eq, Show, Enum, Bounded)
 
 data Rule
-    = {- | The role answers and may not forward: else a 'Fact' could climb to
-      the user, who is never asked one (law Total).
-      -}
+    = -- | The role answers; see 'pass' for when it may still forward.
       Answers
     | -- | The role answers when the LLM judges the condition holds, else forwards.
       AnswersIf Cond
@@ -228,7 +226,7 @@ data Verdict = Ruled Ruling | Forward Question
 data Refusal
     = -- | The row forwards this kind.
       MayNotRule Role Kind
-    | -- | The row answers this kind.
+    | -- | The row answers this 'Fact', so it may not forward it.
       MustAnswer Role Kind
     | -- | The row says this kind never reaches the role.
       NeverAskedOf Role Kind
@@ -257,10 +255,25 @@ pass :: Role -> Kind -> Question -> Either Refusal Question
 pass role reading question = case authority role raised.kind of
     NeverAsked -> Left (NeverAskedOf role raised.kind)
     Forwards -> Right raised
-    Answers -> Left (MustAnswer role raised.kind)
+    Answers -> forwardAnswered role raised
     AnswersIf _ -> Right raised
   where
     raised = raiseTo reading question
+
+{- | A forward from a row that answers. Only a 'Fact' is refused: the user's
+'Fact' cell is 'NeverAsked', so one forwarded could climb to no one (law
+Total). Every other kind reaches a user cell that answers it, so a question
+needing the user's attention may climb (#351's user "may" cell for 'Pick').
+-}
+forwardAnswered :: Role -> Question -> Either Refusal Question
+forwardAnswered role question = case question.kind of
+    Fact -> Left (MustAnswer role Fact)
+    Pick -> Right question
+    Design -> Right question
+    Scope -> Right question
+    Confirm -> Right question
+    Security -> Right question
+    Stuck -> Right question
 
 raiseTo :: Kind -> Question -> Question
 raiseTo reading question = Question question.qid (raise question.kind reading) question.text
