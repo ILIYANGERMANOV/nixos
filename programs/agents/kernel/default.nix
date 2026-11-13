@@ -31,6 +31,7 @@ let
       bytestring,
       containers,
       directory,
+      effectful,
       filepath,
       hedgehog,
       hspec,
@@ -65,6 +66,7 @@ let
         bytestring
         containers
         directory
+        effectful
         filepath
         process
         text
@@ -72,7 +74,6 @@ let
       ];
       executableHaskellDepends = [
         base
-        bytestring
         text
       ];
       testHaskellDepends = [

@@ -25,9 +25,10 @@ spec = describe "kernel architecture" $ do
         sources <- traverse (\file -> (file,) <$> ByteString.readFile file) files
         [file | (file, source) <- sources, ("dele" <> "gated") `ByteString.isInfixOf` ByteString.map toLower source] `shouldBe` []
 
-    -- Read, decide in pure code, write: only "State.Shell" and its modules do IO.
-    it "keeps IO out of every module but the shell's" $ do
-        decisions <- filter (not . isShell) . mapMaybe moduleOf <$> packageFiles "src"
+    -- Read, decide in pure code, write: only the effects and "State.Shell" and
+    -- its modules do IO or name an effect.
+    it "keeps IO and effects out of every module but the effects' and the shell's" $ do
+        decisions <- filter (\name -> not (isShell name || isEffects name)) . mapMaybe moduleOf <$> packageFiles "src"
         reached <- traverse (\name -> (name,) . Set.toList <$> closure name) decisions
         effects <- traverse (\(name, modules) -> (name,) . concatMap (filter isEffect) <$> traverse imports modules) reached
         [found | found@(_, _ : _) <- effects] `shouldBe` []
@@ -89,15 +90,19 @@ imports name = mapMaybe imported . lines <$> readFile ("src/" <> map slash name 
         _ -> Nothing
 
 isKernel :: String -> Bool
-isKernel = isPrefixOf "State."
+isKernel name = "State." `isPrefixOf` name || isEffects name
 
 -- | The effect shell: @State.Shell@ and the modules below it.
 isShell :: String -> Bool
 isShell name = name == "State.Shell" || "State.Shell." `isPrefixOf` name
 
--- | A library module that runs effects: files, processes, the environment, exceptions.
+-- | The effects, each with its IO interpreter.
+isEffects :: String -> Bool
+isEffects = isPrefixOf "Effects."
+
+-- | A library module that runs effects: files, processes, the environment, exceptions, effectful.
 isEffect :: String -> Bool
-isEffect name = any (`isPrefixOf` name) ["System.IO", "System.Process", "System.Directory", "System.Environment", "System.Exit", "Control.Exception", "GHC.IO", "Data.Text.IO"]
+isEffect name = any (`isPrefixOf` name) ["Effectful", "System.IO", "System.Timeout", "System.Process", "System.Directory", "System.Environment", "System.Exit", "Control.Exception", "GHC.IO", "Data.Text.IO"]
 
 -- | The module a source file under @src@ defines.
 moduleOf :: FilePath -> Maybe String

@@ -5,6 +5,7 @@ principal and interface need.
 -}
 module State.Advice (
     Facts (..),
+    changedLinesOf,
     PullRequest (..),
     Readiness (..),
     Advice (..),
@@ -24,6 +25,7 @@ import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Delivery (..), Kind, OneLine, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Ask qualified as Ask
@@ -44,6 +46,23 @@ import State.Steps (Row (entry, lead, runner), Runner (..), Steps, row)
 -- | What GitHub and git say, read by the shell before it advises.
 data Facts = Facts {changedLines :: Maybe Natural, pr :: Maybe PullRequest}
     deriving stock (Eq, Show)
+
+{- | @git diff --numstat@'s added plus deleted lines, as the Quality table
+counts them: generated lockfiles and binary files add none.
+-}
+changedLinesOf :: Text -> Natural
+changedLinesOf = sum . map counted . Text.lines
+  where
+    counted line = case Text.splitOn "\t" line of
+        [added, deleted, path] | not (lockfile path) -> number added + number deleted
+        _ -> 0
+    number raw = case decimal raw of
+        Right (n, "") -> n
+        -- A binary file's row reads @-@.
+        _ -> 0
+    lockfile path = case reverse (Text.splitOn "/" path) of
+        name : _ -> name `elem` ["flake.lock", "package-lock.json", "pnpm-lock.yaml"] || ".lock" `Text.isSuffixOf` name
+        [] -> False
 
 data PullRequest = PullRequest {draft :: DraftPr, readiness :: Readiness}
     deriving stock (Eq, Show)

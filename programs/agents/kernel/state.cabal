@@ -30,6 +30,14 @@ library
   import:          shared-properties
   hs-source-dirs:  src
   exposed-modules:
+    Effects.Clock
+    Effects.Console
+    Effects.Environment
+    Effects.FileSystem
+    Effects.Gh
+    Effects.Git
+    Effects.Log
+    Effects.Random
     State.Advice
     State.Ask
     State.Cap
@@ -50,7 +58,6 @@ library
     State.Render
     State.Render.Mermaid
     State.Shell
-    State.Shell.Log
     State.Shell.Repo
     State.Show
     State.Steps
@@ -61,6 +68,7 @@ library
     , bytestring
     , containers
     , directory
+    , effectful
     , filepath
     , process
     , text
@@ -79,7 +87,6 @@ executable state-hook
   hs-source-dirs: app/state-hook
   main-is:        Main.hs
   build-depends:
-    , bytestring
     , state
     , text
 

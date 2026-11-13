@@ -1,24 +1,41 @@
 {- | The effect shell of @state@: read the worktree, git and GitHub, decide
 in pure code, then append to the log and print. Every decision is the
-kernel's; this module moves data between them and the outside.
+kernel's; this module moves data between them and the effects, whose IO
+interpreters 'runShellIO' runs.
 -}
-module State.Shell (main, hook) where
+module State.Shell (Shell, main, hook, runShellIO) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (IOException, try)
+import Control.Exception (IOException)
 import Control.Monad ((>=>))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight)
 import Data.Foldable (traverse_)
+import Data.Functor (($>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (decodeUtf8Lenient)
-import Data.Text.IO qualified as Text
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Text.Encoding (decodeUtf8, decodeUtf8')
+import Data.Time (UTCTime)
+import Effectful (Eff, IOE, runEff, (:>))
+import Effectful.Exception (throwIO, try)
+import Effects.Clock (Clock, runClockIO)
+import Effects.Clock qualified as Clock
+import Effects.Console (Console, runConsoleIO)
+import Effects.Console qualified as Console
+import Effects.Environment (Environment, lookupEnv, runEnvironmentIO)
+import Effects.FileSystem (FileSystem, runFileSystemIO)
+import Effects.FileSystem qualified as FileSystem
+import Effects.Gh (Gh, runGhIO)
+import Effects.Gh qualified as Gh
+import Effects.Git (Git, runGitIO)
+import Effects.Git qualified as Git
+import Effects.Log (Log, runLogIO)
+import Effects.Log qualified as Log
+import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts, advise, deliver, due, ownAsk)
@@ -42,18 +59,21 @@ import State.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hook
 import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
-import State.Shell.Log (locked, readPointer, writePointer)
-import State.Shell.Repo (gitDir, headBranch, headSha, prView, readFacts)
+import State.Shell.Repo (gitDir, readFacts, readPointer, writePointer)
 import State.Show (tshow)
 import State.Steps (Steps, parseSteps)
 import State.View (brief, pendingLines, showRun)
-import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, withCurrentDirectory)
-import System.Environment (lookupEnv)
-import System.Exit (ExitCode (..), exitWith)
-import System.IO (IOMode (ReadMode), stderr, withBinaryFile)
+import System.Exit (ExitCode (..))
+
+-- | Every effect the shell runs on.
+type Shell es = (Clock :> es, Console :> es, Environment :> es, FileSystem :> es, Gh :> es, Git :> es, Log :> es, Random :> es)
+
+-- | A shell program against the real world: the process, its files, git and GitHub.
+runShellIO :: Eff '[Random, Log, Git, Gh, FileSystem, Environment, Console, Clock, IOE] a -> IO a
+runShellIO = runEff . runClockIO . runConsoleIO . runEnvironmentIO . runFileSystemIO . runGhIO . runGitIO . runLogIO . runRandomIO
 
 -- | Run one command from argv; a failure goes to stderr with its exit code.
-main :: [Text] -> IO ()
+main :: (Shell es) => [Text] -> Eff es ExitCode
 main argv = do
     (sub, result) <-
         loadSteps >>= \case
@@ -63,10 +83,9 @@ main argv = do
                 result <- either (pure . Left) (outageAware . execute steps) parsed
                 pure (sub, result)
     case result of
-        Right out -> Text.putStr out
-        Left failure -> do
-            Text.hPutStr stderr (failureText sub failure)
-            exitWith $ case failure.exit of
+        Right out -> Console.out out $> ExitSuccess
+        Left failure ->
+            Console.err (failureText sub failure) $> case failure.exit of
                 BadInput -> ExitFailure 2
                 Outage -> ExitFailure 1
 
@@ -74,28 +93,32 @@ main argv = do
 usage or stdin exits 2; past that it never fails the agent: a worktree with no
 run it reads is silence, a refusal or an error is context (fail open and tell).
 -}
-hook :: [Text] -> LBS.ByteString -> IO ()
-hook argv input = case parseHookName argv of
+hook :: (Shell es) => [Text] -> Eff es ExitCode
+hook argv = case parseHookName argv of
     Nothing -> usage ("usage: state-hook " <> Text.intercalate " | " (map hookName [minBound .. maxBound]))
-    Just name -> case parseHookEvent input of
-        Left why -> usage ("state-hook " <> hookName name <> ": " <> why)
-        Right event ->
-            loadSteps >>= \case
-                Left failure -> Text.hPutStr stderr (failureText ("hook " <> hookName name) failure) >> exitWith (ExitFailure 1)
-                Right steps -> case wants steps name event of
-                    Left why -> usage why
-                    Right Nothing -> pure ()
-                    Right (Just want) -> do
-                        let call = callOf event
-                        said <- try (withCurrentDirectory call.cwd (hookAnswer steps call want))
-                        traverse_ LBS.putStr . encodeReply $ case said of
-                            Right text -> replyOf want text
-                            Left (e :: IOException) -> toldOf want ("state hook " <> hookName name <> ": " <> tshow e)
+    Just name -> do
+        input <- Console.readStdin
+        case parseHookEvent (LBS.fromStrict input) of
+            Left why -> usage ("state-hook " <> hookName name <> ": " <> why)
+            Right event ->
+                loadSteps >>= \case
+                    Left failure -> Console.err (failureText ("hook " <> hookName name) failure) $> ExitFailure 1
+                    Right steps -> case wants steps name event of
+                        Left why -> usage why
+                        Right Nothing -> pure ExitSuccess
+                        Right (Just want) -> do
+                            let call = callOf event
+                            said <- try (FileSystem.inDirectory call.cwd (hookAnswer steps call want))
+                            -- aeson encodes UTF-8, so the reply decodes whole.
+                            traverse_ (Console.out . decodeUtf8 . LBS.toStrict) . encodeReply $ case said of
+                                Right text -> replyOf want text
+                                Left (e :: IOException) -> toldOf want ("state hook " <> hookName name <> ": " <> tshow e)
+                            pure ExitSuccess
   where
-    usage line = Text.hPutStrLn stderr line >> exitWith (ExitFailure 2)
+    usage line = Console.err (line <> "\n") $> ExitFailure 2
 
 -- | What the run says to a hook's want, recording what it must; empty when silent, a failure as its text.
-hookAnswer :: Steps -> Call -> Want -> IO Text
+hookAnswer :: (Shell es) => Steps -> Call -> Want -> Eff es Text
 hookAnswer steps call want =
     hasRun >>= \case
         False -> pure ""
@@ -123,19 +146,19 @@ hookAnswer steps call want =
     -- A run that is over, bound to another branch or whose PR is merged or closed is
     -- silent too; the hook's session stamps its lines.
     onHook pr act = do
-        branch <- headBranch
+        branch <- Git.headBranch
         result <- onRun $ \stamp run ->
             if silent branch ((.readiness) <$> pr) run.logged run.state
                 then ([], Right "")
                 else Right <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
         pure (either (failureText "hook") id result)
     -- GitHub unread is no PR: the hook speaks.
-    branchPr = fromRight Nothing <$> prView
+    branchPr = fromRight Nothing <$> Gh.prView
     -- A log of another version is the Python state's, which the hooks leave be (#360).
     hasRun =
         gitDir >>= \case
             Left _ -> pure False
-            Right gd -> readPointer gd >>= maybe (pure False) (fmap ours . firstLine . logOf)
+            Right gd -> readPointer gd >>= maybe (pure False) (fmap ours . Log.firstLine . logOf)
     ours = \case
         Nothing -> False
         Just line -> case decodeLine line of
@@ -144,24 +167,24 @@ hookAnswer steps call want =
             Right _ -> True
 
 -- | A disk or process error is the outage exit, never a crash.
-outageAware :: IO (Either Failure Text) -> IO (Either Failure Text)
+outageAware :: Eff es (Either Failure Text) -> Eff es (Either Failure Text)
 outageAware act =
     try act >>= \case
         Right result -> pure result
         Left (e :: IOException) -> pure (Left (Failure Outage "a disk or git failure" (tshow e) "retry once the disk and git work"))
 
 -- | The flows' step table, which the installed @state@ names in @STATE_STEPS@.
-loadSteps :: IO (Either Failure Steps)
+loadSteps :: (Environment :> es, FileSystem :> es) => Eff es (Either Failure Steps)
 loadSteps =
     lookupEnv "STATE_STEPS" >>= \case
         Nothing -> pure (Left (Failure Outage "STATE_STEPS is not set" "it names the flows' step table" "run the installed state, which sets it"))
         Just path -> do
-            table <- LBS.readFile path
-            pure $ case parseSteps table of
+            table <- FileSystem.readBytes path
+            pure $ case parseSteps (LBS.fromStrict table) of
                 Right steps -> Right steps
                 Left whys -> Left (Failure Outage ("the step table " <> Text.pack path) (Text.intercalate "; " whys) "rebuild the installed state")
 
-execute :: Steps -> Command -> IO (Either Failure Text)
+execute :: (Shell es) => Steps -> Command -> Eff es (Either Failure Text)
 execute steps = \case
     Help -> pure (Right (help steps))
     Render block flow -> pure (Right (rendered steps block flow))
@@ -171,8 +194,10 @@ execute steps = \case
         (facts, told) <- readFacts
         onRun (\stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out))
     HandbackOf role child -> do
-        message <- Text.getContents
-        onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
+        input <- Console.readStdin
+        case decodeUtf8' input of
+            Left _ -> pure (Left (Failure BadInput "the hand-back" "stdin is not UTF-8" "state help"))
+            Right message -> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
     OnRun command -> onRun (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head run.state command))
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
@@ -289,22 +314,21 @@ stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
 stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run, head = stamp.head, session = stamp.session, event}
 
 -- | The worktree's run, locked for one command.
-onRun :: (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> IO (Either Failure a)
+onRun :: (Clock :> es, Environment :> es, FileSystem :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
 onRun act =
     inWorktree $
         readPointer >=> \case
             Nothing -> pure (Left noRun)
             Just notes -> do
                 let path = logOf notes
-                exists <- doesFileExist path
-                if not exists
-                    then pure (Left noRun)
-                    else do
+                Log.exists path >>= \case
+                    False -> pure (Left noRun)
+                    True -> do
                         stamp <- now
-                        locked path $ \case
-                            Left bad -> pure ([], Left (unreadLine path bad))
-                            Right [] -> pure ([], Left noRun)
-                            Right (first : rest) -> pure $ case replayed path (first :| rest) of
+                        Log.locked path $ \case
+                            Left bad -> ([], Left (unreadLine path bad))
+                            Right [] -> ([], Left noRun)
+                            Right (first : rest) -> case replayed path (first :| rest) of
                                 Left failure -> ([], Left failure)
                                 Right (g, state) -> act stamp (Loaded g state (first :| rest))
   where
@@ -322,22 +346,22 @@ replayed path logged@(first :| _) = case Fold.runStart first.event of
 {- | @state init@: idempotent, as a retried brief runs it again. A child names
 its parent's log, which is checked to hold that run before this one starts.
 -}
-initRun :: FilePath -> InitArgs -> IO (Either Failure Text)
+initRun :: (Shell es) => FilePath -> InitArgs -> Eff es (Either Failure Text)
 initRun gd args =
     principalOf args.parent >>= \case
         Left failure -> pure (Left failure)
         Right principal -> do
-            notes <- makeAbsolute args.notes
-            createDirectoryIfMissing True notes
+            notes <- FileSystem.makeAbsolute args.notes
+            FileSystem.createDirectory notes
             stamp <- now
             fresh <- newRunId
             let path = logOf notes
                 start = Start {flow = args.flow, notes, principal, interface = interfaceOf principal, task = args.task}
-            result <- locked path $ \case
-                Left bad -> pure ([], Left (unreadLine path bad))
-                Right [] -> pure ([stamped stamp Cli fresh 1 (Started start)], Right fresh)
-                Right (first : rest) -> pure ([], joined notes (first :| rest))
-            traverse (\run -> writePointer gd notes >> pure ("started " <> runIdText run <> "\n")) result
+            result <- Log.locked path $ \case
+                Left bad -> ([], Left (unreadLine path bad))
+                Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right fresh)
+                Right (first : rest) -> ([], joined notes (first :| rest))
+            traverse (\run -> writePointer gd notes $> ("started " <> runIdText run <> "\n")) result
   where
     -- A subagent has no hooks, wakes, notifications or background of its own (#351 s4).
     interfaceOf = \case
@@ -358,36 +382,29 @@ joined notes logged@(first :| _) = case (.stopped) . snd <$> replayed (logOf not
 {- | Who starts the run. A parent's log path was checked by the parser; here
 its first line must be that run's start.
 -}
-principalOf :: Maybe (RunId, FilePath) -> IO (Either Failure Principal)
+principalOf :: (Log :> es) => Maybe (RunId, FilePath) -> Eff es (Either Failure Principal)
 principalOf = \case
     Nothing -> pure (Right ByUser)
     Just (parent, path) -> do
-        first <- firstLine path
+        first <- Log.firstLine path
         pure $ case decodeLine (fromMaybe "" first) of
             Right envelope | envelope.run == parent, Started _ <- envelope.event -> Right (ByRole parent path)
             _ -> Left (Failure BadInput ("--parent " <> runIdText parent) (Text.pack path <> " does not start that run") "state brief engineer, in the parent's worktree, prints the init line")
 
--- | A file's first line, if the file exists.
-firstLine :: FilePath -> IO (Maybe Text)
-firstLine path =
-    doesFileExist path >>= \case
-        False -> pure Nothing
-        True -> Just . Text.takeWhile (/= '\n') . decodeUtf8Lenient <$> withBinaryFile path ReadMode (`BS.hGet` 65536)
-
-inWorktree :: (FilePath -> IO (Either Failure a)) -> IO (Either Failure a)
+inWorktree :: (Git :> es) => (FilePath -> Eff es (Either Failure a)) -> Eff es (Either Failure a)
 inWorktree act = gitDir >>= either (pure . Left) act
 
-now :: IO Stamp
-now = Stamp <$> getCurrentTime <*> headSha <*> (fmap (SessionId . Text.pack) . nonEmpty <$> lookupEnv "STATE_SESSION")
+now :: (Clock :> es, Environment :> es, Git :> es) => Eff es Stamp
+now = Stamp <$> Clock.now <*> Git.headSha <*> (fmap (SessionId . Text.pack) . nonEmpty <$> lookupEnv "STATE_SESSION")
   where
     nonEmpty = (>>= \s -> if null s then Nothing else Just s)
 
 -- | Short and random: eight hex digits from the kernel's entropy.
-newRunId :: IO RunId
+newRunId :: (Random :> es) => Eff es RunId
 newRunId = do
-    bytes <- withBinaryFile "/dev/urandom" ReadMode (`BS.hGet` 4)
+    bytes <- randomBytes 4
     let hex = Text.pack (concatMap (\b -> (if b < 16 then ('0' :) else id) (showHex b "")) (BS.unpack bytes))
-    maybe (ioError (userError "a hex run id did not parse")) pure (parseRunId hex)
+    maybe (throwIO (userError "a hex run id did not parse")) pure (parseRunId hex)
 
 unreadLine :: FilePath -> LogError -> Failure
 unreadLine path bad = Failure BadInput (Text.pack path <> " line " <> tshow bad.line <> " is not read") why ("repair or move " <> Text.pack path)
