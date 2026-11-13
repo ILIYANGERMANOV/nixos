@@ -122,10 +122,9 @@ spec = describe "the state binary" $ do
 
         describe "audit" $ do
             it "puts every ruling of a child run in show and in its hand-back" $ \repo -> do
-                parent <- startedRun bin repo
+                parent <- tenXAtFanOut bin repo
                 git repo ["checkout", "-q", "-b", "child"]
-                [started] <- succeeded =<< state bin repo ["init", "--notes", repo.root </> "child", "--parent", Text.unpack parent, "--parent-log", eventsOf repo]
-                let child = Text.drop (Text.length "started ") started
+                child <- childRun bin repo parent "child" "t1"
                 [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Pick", "which", "lib?"]
                 let qid = Text.unpack (Text.drop (Text.length "asked ") asked)
                     ruling = "Ruling " <> Text.pack qid <> " Pick: zod - already used - none"
@@ -162,9 +161,9 @@ spec = describe "the state binary" $ do
                 brief `shouldSatisfy` (not . any (`elem` stopRule))
 
             it "ends an engineer's brief with the line that starts its run under this one" $ \repo -> do
-                run <- startedRun bin repo
+                run <- tenXAtFanOut bin repo
                 brief <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
-                brief `shouldBe` ["state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack (eventsOf repo) <> " --task t1"]
+                drop 1 (dropWhile (/= "") brief) `shouldBe` ["state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack (eventsOf repo) <> " --task t1"]
 
         describe "the hooks" $ do
             it "are silent in a worktree with no run" $ \repo -> do
@@ -279,6 +278,32 @@ succeeded ran
 startedRun :: FilePath -> Repo -> IO Text
 startedRun bin repo =
     (succeeded =<< state bin repo ["init", "--notes", repo.notes]) >>= \case
+        [line] | Just run <- Text.stripPrefix "started " line -> pure run
+        other -> fail ("not started: " <> show other)
+
+{- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
+@t1@; the run's id.
+-}
+tenXAtFanOut :: FilePath -> Repo -> IO Text
+tenXAtFanOut bin repo = do
+    run <-
+        (succeeded =<< state bin repo ["init", "--notes", repo.notes, "--flow", "10x"]) >>= \case
+            [line] | Just run <- Text.stripPrefix "started " line -> pure run
+            other -> fail ("not started: " <> show other)
+    let tasks = repo.root </> "tasks.json"
+    Text.writeFile tasks ("[" <> task "t1" "[]" <> "," <> task "t2" "[\"t1\"]" <> "]")
+    for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] $ \argv ->
+        succeeded =<< state bin repo argv
+    pure run
+  where
+    task name deps =
+        "{\"id\":\"" <> name <> "\",\"deps\":" <> deps <> ",\"base\":\"main\",\"branch\":\"" <> name
+            <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":false,\"security\":[]}"
+
+-- | The child run a parent's brief starts for this task, its notes in @dir@ under the repo's root; its id.
+childRun :: FilePath -> Repo -> Text -> FilePath -> Text -> IO Text
+childRun bin repo parent dir task =
+    (succeeded =<< state bin repo ["init", "--notes", repo.root </> dir, "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", Text.unpack task]) >>= \case
         [line] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
 

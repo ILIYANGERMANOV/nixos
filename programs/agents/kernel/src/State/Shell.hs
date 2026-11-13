@@ -46,7 +46,7 @@ import State.Ask (Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
 import State.Cap (stateNameText)
 import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
-import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText)
+import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Codec qualified as Codec
 import State.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), TaskId (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
@@ -251,7 +251,9 @@ planOf steps worktreeHead file state = \case
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> showRun state))
     Pending -> Right (Plan [] (\_ _ -> Text.unlines (pendingLines state)))
-    Brief role task -> Right (Plan [] (\_ _ -> brief steps state role task))
+    Brief role task -> case brief steps state role task of
+        Left unknown -> Left (Failure BadInput ("task " <> taskIdText unknown) "the breakdown has no such task" "state show")
+        Right text -> Right (Plan [] (\_ _ -> text))
   where
     asked question = "asked " <> qidText question.qid <> "\n"
     raised raise qid = case raise of

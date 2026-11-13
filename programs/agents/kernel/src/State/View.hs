@@ -5,17 +5,20 @@ module State.View (
     brief,
 ) where
 
-import Data.Maybe (fromMaybe)
+import Data.Bool (bool)
+import Data.Foldable (find)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Advice (Facts (..), factLines)
 import State.Ask (Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
-import State.Codec (flowText, logOf, reasonText, taskIdText, urlText)
-import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), runIdText)
+import State.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
+import State.Event (AgentRole (..), Task (..), TaskId, Asker (..), Asking (..), Note (..), Start (..), Stop (..), runIdText)
 import State.Fan (Fan (..))
 import State.Fold (Pending (..), RunState (..), Waits (..), askedAt)
 import State.Graph (Node (..), Place (..))
+import State.Mode (qualityName, sizeName)
 import State.Render qualified as Render
 import State.Steps (Row (..), Runner (..), Steps, row)
 
@@ -61,21 +64,42 @@ pendingLines state = map line state.pending
 
 {- | A role's brief skeleton: the entry text of the step the run is at, or,
 when the role runs no step there, of each step it runs; then the rule its
-hand-back follows. An engineer, a child flow, gets the line that starts its
-run under this one.
+hand-back follows. An engineer, a child flow, gets its task's fields and the
+line that starts its run under this one; a task the breakdown lacks is
+returned as the failure.
 -}
-brief :: Steps -> RunState -> AgentRole -> Maybe Text -> Text
+brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state (AgentRole role) task = case role of
-    "engineer" ->
+    "engineer" -> case task of
+        Nothing -> Right (initLine "<id>")
+        Just taskId -> case find ((== taskId) . (.id)) state.fanOut.tasks of
+            Nothing -> Left taskId
+            Just found -> Right (Text.unlines (taskLines found) <> "\n" <> initLine (taskIdText taskId))
+    _ -> Right (Text.concat [entry name r | (name, r) <- briefed] <> rule)
+  where
+    initLine taskText =
         "state init --notes <dir> --parent "
             <> runIdText state.run
             <> " --parent-log "
             <> Text.pack (logOf state.start.notes)
             <> " --task "
-            <> fromMaybe "<id>" task
+            <> taskText
             <> "\n"
-    _ -> Text.concat [entry name r | (name, r) <- briefed] <> rule
-  where
+    taskLines found =
+        [ "Task: " <> taskIdText found.id
+        , "Quality: " <> qualityName found.quality
+        , "Size: " <> sizeName found.size
+        , "Base: " <> branchText found.base
+        , "Branch: " <> branchText found.branch
+        , "Depends on: " <> listed (map taskIdText found.deps)
+        , "QA: " <> yesNo found.qa
+        , "Heavy: " <> yesNo found.heavy
+        , "Security-sensitive: " <> listed (map topicText (Set.toList found.security))
+        ]
+    listed = \case
+        [] -> "none"
+        items -> Text.intercalate ", " items
+    yesNo = bool "no" "yes"
     runs = [(stepName s, row steps s) | SomeStep s <- allSteps, (row steps s).runner == Agent (AgentRole role)]
     briefed = case [step | step@(name, _) <- runs, At place <- [state.at], place.name == name] of
         [] -> runs

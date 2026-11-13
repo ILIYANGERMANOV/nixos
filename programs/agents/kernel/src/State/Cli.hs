@@ -60,7 +60,7 @@ data Command
 data RunCommand
     = Record Recording
     | -- | The role's brief, and the task a child engineer runs.
-      Brief AgentRole (Maybe Text)
+      Brief AgentRole (Maybe TaskId)
     | ShowRun
     | Override StateName Text
     | -- | A question, the run's own or one a worker or child put to it.
@@ -141,7 +141,7 @@ parseSub steps sub rest = case sub of
     "next" -> bare Next
     "brief" -> withArgs ["task"] $ \a -> do
         role <- oneWord "role" a
-        OnRun <$> (Brief <$> knownRole (agentRoles steps <> childRoles) role <*> pure (option "task" a))
+        OnRun <$> (Brief <$> knownRole (agentRoles steps <> childRoles) role <*> pure (TaskId <$> option "task" a))
     "show" -> bare (OnRun ShowRun)
     "override" -> withArgs [] $ \a -> case a.positional of
         target : why@(_ : _) -> Right (OnRun (Override (StateName target) (Text.unwords why)))

@@ -29,6 +29,7 @@ module State.Codec (
     shaText,
     urlText,
     taskIdText,
+    branchText,
     taskStateName,
     topicText,
     decodeBreakdown,
