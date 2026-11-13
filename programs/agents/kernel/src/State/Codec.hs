@@ -45,10 +45,10 @@ import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.List (sortOn)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.List (sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -79,8 +79,8 @@ import State.Event (
     Note (..),
     Op (..),
     Outcome (..),
-    Picks (..),
     Parent (..),
+    Picks (..),
     Principal (..),
     Requirement (..),
     RunId,

@@ -271,10 +271,11 @@ recordFinished :: Fan -> Maybe Action
 recordFinished fan = listToMaybe [Run (recordTask task) | task <- fan.tasks, Fan.unrecorded fan task.id]
 
 recordTask :: Task -> Text
-recordTask task = "state record task " <> taskIdText task.id <> case task.quality of
-    Poc -> " parked POC --pr <url>"
-    Balanced -> " review <url>"
-    Max -> " review <url>"
+recordTask task =
+    "state record task " <> taskIdText task.id <> case task.quality of
+        Poc -> " parked POC --pr <url>"
+        Balanced -> " review <url>"
+        Max -> " review <url>"
 
 -- | The PR's url as GitHub reports it, else the draft the run recorded: a POC run offline still skips ready.
 prUrl :: Facts -> RunState -> Maybe Url

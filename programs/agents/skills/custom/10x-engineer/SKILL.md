@@ -238,9 +238,9 @@ a `CONFLICTING` PR gets no CI, so rebase it; else the user's answer on going
 without CI stands, or ask it. Green: `state record task <id> review <url>`,
 then the merge loop's gates.
 
-**READY.** The child is done. POC: the PR stays a labelled draft,
-`state record task <id> parked POC --pr <url>`, notify. Otherwise
-`state record task <id> review <url>`, notify. Never offer to run the app:
+**READY.** The child is done. `state handback engineer` records the PR its
+line 1 names: in review, or parked as a labelled draft for POC; with none
+named, `state next` prints the record. Notify. Never offer to run the app:
 run it only when the user asks, on a port in 3000-3099, and give the URL. A QA
 Fail the user reports is a comment from the user.
 

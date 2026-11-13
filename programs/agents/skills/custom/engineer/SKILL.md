@@ -212,8 +212,8 @@ review-lead per round, the rows you pick (`pick.final` or `pick.loop`, a
 The final fixer, row R0, writes the PR body. Then a fresh fixer on row S0
 shortens it as `pr-description`'s `## Simplify (row S0)` says; its
 `Simplified: <sha>` line is recorded and `ready` waits for it. A later R0
-edits in place. Then notify the way your instructions describe: the draft is
-complete and CI runs.
+edits in place. Then, in a run with no parent, notify: the draft is complete
+and CI runs.
 
 ### Ship: await_ci, fix_pr, ready
 
@@ -227,8 +227,8 @@ complete and CI runs.
   `gh secret list`, in `gh secret list --env <env>` for a job with an
   `environment:`, or in `gh secret list --org <owner>` for an org repository.
   A missing secret is a `Security` question.
-- On green and simplified, `gh pr ready <n>`, then notify the way your
-  instructions describe, pasting the body's `## What & Why` and optional next
+- On green and simplified, `gh pr ready <n>`, then, in a run with no parent,
+  notify, pasting the body's `## What & Why` and optional next
   steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or
   runtime change, `/final-review --requirements <path> <PR>`,
   `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when the PR has
