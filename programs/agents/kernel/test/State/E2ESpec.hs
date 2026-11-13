@@ -6,11 +6,15 @@ slice C's.
 module State.E2ESpec (spec) where
 
 import Control.Monad (void)
+import Data.Aeson (Value (..), encode, object, (.=))
+import Data.Aeson.Types (Pair)
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Foldable (for_)
 import Data.List (isSuffixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.IO qualified as Text
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
 import System.Exit (ExitCode (..))
@@ -22,6 +26,7 @@ import Test.Hspec (Spec, around, describe, expectationFailure, it, runIO, should
 spec :: Spec
 spec = describe "the state binary" $ do
     bin <- runIO (getEnv "STATE_BIN")
+    hookBin <- runIO (getEnv "STATE_HOOK_BIN")
     around withRepo $ do
         it "runs the engineer flow at Balanced Normal from init to ready" $ \repo -> do
             transcript <- drive bin repo (balancedPath repo)
@@ -137,6 +142,61 @@ spec = describe "the state binary" $ do
                 brief <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
                 brief `shouldBe` ["state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack (eventsOf repo) <> " --task t1"]
 
+        describe "the hooks" $ do
+            it "are silent in a worktree with no run" $ \repo -> do
+                said <- hook hookBin repo "resume" (sessionStart repo)
+                (said.code, said.out) `shouldBe` (0, [])
+
+            it "tell a resumed session where its run stands" $ \repo -> do
+                _ <- drive bin repo []
+                said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
+                said `shouldSatisfy` mentions "step: research"
+
+            it "record a hand-back seen twice once, appending what they recorded" $ \repo -> do
+                _ <- drive bin repo (init (toImplement repo))
+                before <- logLines repo
+                first <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
+                once <- logLines repo
+                again <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
+                twice <- logLines repo
+                first `shouldSatisfy` mentions "state: recorded"
+                once `shouldSatisfy` (> before)
+                (again, twice) `shouldBe` ([], once)
+
+            it "are silent off the branch the draft PR bound the run to" $ \repo -> do
+                _ <- drive bin repo (init (toImplement repo))
+                git repo ["checkout", "-q", "-b", "other"]
+                said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
+                said `shouldBe` []
+
+            it "are silent once the drafted PR is merged or closed" $ \repo -> do
+                _ <- drive bin repo (init (toImplement repo))
+                before <- logLines repo
+                for_ ["MERGED", "CLOSED"] $ \over -> do
+                    writeFile repo.prJson (pullRequest False over)
+                    resumed <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
+                    handed <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
+                    (resumed, handed) `shouldBe` ([], [])
+                after <- logLines repo
+                after `shouldBe` before
+
+            it "are silent on a log they do not read" $ \repo -> do
+                _ <- startedRun bin repo
+                writeFile (eventsOf repo) "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n"
+                said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
+                said `shouldBe` []
+
+            it "exit 2 on stdin that is no hook event" $ \repo -> do
+                said <- hook hookBin repo "resume" "not json"
+                said.code `shouldBe` 2
+
+            it "tell the lead how to record the answer to a question put to the user" $ \repo -> do
+                _ <- drive bin repo []
+                [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Design", "which", "store?"]
+                let qid = Text.drop (Text.length "asked ") asked
+                said <- succeeded =<< hook hookBin repo "asked" (askedUser repo)
+                said `shouldSatisfy` mentions ("state answer " <> qid <> " <answer>")
+
 -- | One call of the binary: its exit code and its output, line by line.
 data Ran = Ran {code :: Int, out :: [Text], err :: [Text]}
 
@@ -150,6 +210,34 @@ stateIn bin repo stdin argv = do
             ExitSuccess -> 0
             ExitFailure n -> n
     pure (Ran code (Text.lines (Text.pack out)) (Text.lines (Text.pack err)))
+
+-- | One @state-hook <name>@ call, fed the hook event on stdin.
+hook :: FilePath -> Repo -> String -> String -> IO Ran
+hook bin repo name stdin = stateIn bin repo stdin [name]
+
+sessionStart :: Repo -> String
+sessionStart repo = hookEvent repo Null ["event" .= String "sessionStart", "source" .= String "startup"]
+
+-- | A subagent of this role hands back @READY@.
+handedBack :: Repo -> Text -> String
+handedBack repo role =
+    hookEvent
+        repo
+        (object ["id" .= String "a1", "role" .= role])
+        ["event" .= String "beforeTool", "tool" .= String "handback", "input" .= object ["message" .= String "READY\nDone.\n"], "history" .= ([] :: [Text])]
+
+askedUser :: Repo -> String
+askedUser repo = hookEvent repo Null ["event" .= String "afterTool", "tool" .= String "ask", "input" .= object [], "output" .= String "ok", "context" .= Null]
+
+-- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
+hookEvent :: Repo -> Value -> [Pair] -> String
+hookEvent repo agent fields = LBS8.unpack (encode (object (["session" .= String "s1", "cwd" .= repo.work, "agent" .= agent] <> fields)))
+
+mentions :: Text -> [Text] -> Bool
+mentions needle = any (needle `Text.isInfixOf`)
+
+logLines :: Repo -> IO Int
+logLines repo = length . Text.lines <$> Text.readFile (eventsOf repo)
 
 -- | The output of a call that must succeed.
 succeeded :: Ran -> IO [Text]
@@ -195,7 +283,7 @@ drive bin repo acts = do
             sha <- Text.strip . Text.pack <$> gitOut repo ["rev-parse", "HEAD"]
             succeeded =<< stateIn bin repo (Text.unpack (report sha)) ["handback", role]
         Commit -> [] <$ commitLine repo
-        OpenPr -> [] <$ writeFile repo.prJson draftPr
+        OpenPr -> [] <$ writeFile repo.prJson (pullRequest True "OPEN")
         Override to -> succeeded =<< state bin repo ["override", to, "the", "test", "starts", "here"]
         Refused argv -> do
             ran <- state bin repo ("record" : argv)
@@ -311,8 +399,10 @@ prUrl = Text.pack prUrlString
 prUrlString :: String
 prUrlString = "https://github.com/o/r/pull/1"
 
-draftPr :: String
-draftPr = "{\"url\":\"" <> prUrlString <> "\",\"baseRefName\":\"main\",\"headRefName\":\"feat\",\"isDraft\":true,\"state\":\"OPEN\"}"
+-- | The branch's PR as @gh pr view --json@ prints it: draft or not, and its GitHub state.
+pullRequest :: Bool -> String -> String
+pullRequest isDraft prState =
+    "{\"url\":\"" <> prUrlString <> "\",\"baseRefName\":\"main\",\"headRefName\":\"feat\",\"isDraft\":" <> (if isDraft then "true" else "false") <> ",\"state\":\"" <> prState <> "\"}"
 
 -- | A temp worktree, its notes, the file the scripted @gh@ reads, and the environment of every call.
 data Repo = Repo {root :: FilePath, work :: FilePath, notes :: FilePath, prJson :: FilePath, env :: [(String, String)]}

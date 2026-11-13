@@ -10,6 +10,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import State.Advice (Readiness (..))
 import State.Cap (stepName)
 import State.Cap qualified as Cap
 import State.Event (AgentRole (..), Branch (..), DraftPr (..), Event (..), Outcome (..), Stop (..), StopReason (..), Url (..))
@@ -72,15 +73,23 @@ spec = describe "the hooks" $ do
     describe "silence" $ do
         let drafted = Took (DraftDone (DraftPr (Url "https://github.com/o/r/pull/1") (Branch "main") (Branch "feat")))
         it "speaks on a run at a step" $
-            silent (Just (Branch "feat")) (logOf (started :| [])) (runAt []) `shouldBe` False
+            silent (Just (Branch "feat")) Nothing (logOf (started :| [])) (runAt []) `shouldBe` False
 
         it "is silent on a stopped run" $
             let stop = Stopped (Stop Blocked "no access")
-             in silent (Just (Branch "feat")) (logOf (started :| [stop])) (runAt [stop]) `shouldBe` True
+             in silent (Just (Branch "feat")) Nothing (logOf (started :| [stop])) (runAt [stop]) `shouldBe` True
 
         it "is silent when HEAD is off the branch the draft PR bound the run to" $
-            [silent branch (logOf (started :| [drafted])) (runAt []) | branch <- [Just (Branch "feat"), Just (Branch "other"), Nothing]]
+            [silent branch Nothing (logOf (started :| [drafted])) (runAt []) | branch <- [Just (Branch "feat"), Just (Branch "other"), Nothing]]
                 `shouldBe` [False, True, True]
+
+        it "is silent once GitHub reports the drafted PR merged or closed" $
+            [silent (Just (Branch "feat")) (Just readiness) (logOf (started :| [drafted])) (runAt []) | readiness <- [IsDraft, IsReady, IsMerged, IsClosed]]
+                `shouldBe` [False, False, True, True]
+
+        it "speaks before the run drafts, whatever an old PR on the branch says" $
+            [silent (Just (Branch "feat")) (Just readiness) (logOf (started :| [])) (runAt []) | readiness <- [IsMerged, IsClosed]]
+                `shouldBe` [False, False]
 
     describe "a spawn off the advice" $ do
         let refactor = At (Place [] (stepName Cap.Refactor))

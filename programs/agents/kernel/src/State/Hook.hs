@@ -50,6 +50,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Data.Word (Word64, Word8)
 import Numeric (showHex)
+import State.Advice (Readiness (..))
 import State.Ask (Principal (..), Question (..), qidText)
 import State.Cap (stepName)
 import State.Cap qualified as Cap
@@ -207,12 +208,19 @@ next to the review-lead, a fact-gap researcher, a checker for the full check.
 beside :: [AgentRole]
 beside = map AgentRole ["reviewer", "researcher", "checker"]
 
-{- | The hooks stay silent on a run that is over, or bound by its draft PR to
-another branch than HEAD's (@Nothing@: a detached HEAD).
+{- | The hooks stay silent on a run that is over, bound by its draft PR to
+another branch than HEAD's (@Nothing@: a detached HEAD), or whose drafted PR
+GitHub reports merged or closed (@Nothing@: no PR read).
 -}
-silent :: Maybe Branch -> NonEmpty Envelope -> RunState -> Bool
-silent headBranch envelopes state = over || maybe False (\bound -> Just bound /= headBranch) (boundBranch envelopes)
+silent :: Maybe Branch -> Maybe Readiness -> NonEmpty Envelope -> RunState -> Bool
+silent headBranch readiness envelopes state = over || maybe False (\bound -> Just bound /= headBranch || prOver) (boundBranch envelopes)
   where
+    prOver = case readiness of
+        Just IsMerged -> True
+        Just IsClosed -> True
+        Just IsDraft -> False
+        Just IsReady -> False
+        Nothing -> False
     over = case (state.stopped, state.at) of
         (Just _, _) -> True
         (Nothing, At _) -> False

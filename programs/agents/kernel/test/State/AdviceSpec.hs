@@ -69,6 +69,12 @@ spec = describe "State.Advice" $ do
             due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced Normal <> map Took (take 6 happyPath)))
                 `shouldBe` Just (DraftDone draftPr)
 
+        it "takes a merged or closed PR on the branch for an old one, not the draft" $
+            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced Normal <> map Took (take 6 happyPath)))
+            | over <- [IsMerged, IsClosed]
+            ]
+                `shouldBe` [Nothing, Nothing]
+
         it "skips ready in POC, leaving the draft" $
             due g withPr (atReady Poc) `shouldBe` Just (ReadySkipped prUrl)
 
@@ -141,4 +147,4 @@ genPullRequest :: Gen PullRequest
 genPullRequest =
     PullRequest
         <$> (DraftPr . Url <$> genText <*> pure (Branch "main") <*> pure (Branch "b"))
-        <*> Gen.element [IsDraft, IsReady]
+        <*> Gen.element [IsDraft, IsReady, IsMerged, IsClosed]

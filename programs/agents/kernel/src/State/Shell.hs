@@ -41,7 +41,7 @@ import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
 import State.Shell.Log (locked, logOf, readPointer, writePointer)
-import State.Shell.Repo (gitDir, headBranch, headSha, readFacts)
+import State.Shell.Repo (gitDir, headBranch, headSha, prView, readFacts)
 import State.Steps (Steps, parseSteps)
 import State.View (brief, pendingLines, showRun)
 import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, withCurrentDirectory)
@@ -100,30 +100,34 @@ hookAnswer steps call want =
             ResumeRun -> do
                 -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
                 (facts, told) <- readFacts
-                onHook $ \stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, showRun run.state <> out)
+                onHook facts.pr $ \stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, showRun run.state <> out)
             SpawnRole spawned -> do
                 (facts, told) <- readFacts
-                onHook $ \stamp run ->
+                onHook facts.pr $ \stamp run ->
                     let (new, action, out) = adviceOf steps facts told stamp run
                         warning = case (action, spawned) of
                             (Advice.Spawn advised, Just role) -> offAdvice steps run.state.at advised role
                             _ -> Nothing
                      in (new, out <> foldMap (<> "\n") warning)
-            HandedBack _ message agent role -> onHook $ \stamp run ->
-                let sources = hookSources run.state.run agent role message
-                 in if any (\line -> Just line.source == listToMaybe sources) run.logged
-                        then ([], "")
-                        else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
-            AskedUser -> onHook $ \_ run -> ([], Text.unlines (awaitingUser run.state))
+            HandedBack _ message agent role ->
+                branchPr >>= \pr -> onHook pr $ \stamp run ->
+                    let sources = hookSources run.state.run agent role message
+                     in if any (\line -> Just line.source == listToMaybe sources) run.logged
+                            then ([], "")
+                            else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
+            AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
-    -- A run that is over or bound to another branch is silent too; the hook's session stamps its lines.
-    onHook act = do
+    -- A run that is over, bound to another branch or whose PR is merged or closed is
+    -- silent too; the hook's session stamps its lines.
+    onHook pr act = do
         branch <- headBranch
         result <- onRun $ \stamp run ->
-            if silent branch run.logged run.state
+            if silent branch ((.readiness) <$> pr) run.logged run.state
                 then ([], Right "")
                 else Right <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
         pure (fromRight "" result)
+    -- GitHub unread is no PR: the hook speaks.
+    branchPr = fromRight Nothing <$> prView
     hasRun =
         gitDir >>= \case
             Left _ -> pure False

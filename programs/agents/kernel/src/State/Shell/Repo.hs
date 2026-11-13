@@ -7,6 +7,7 @@ module State.Shell.Repo (
     headSha,
     headBranch,
     readFacts,
+    prView,
     changedLines,
     parsePr,
 ) where
@@ -73,21 +74,27 @@ changedLines = sum . map counted . Text.lines
 -- | The branch's PR, 'Nothing' when it has none, or why GitHub was not read.
 prView :: IO (Either Text (Maybe PullRequest))
 prView =
-    timeout (10 * 1000000) (readProcessWithExitCode "gh" ["pr", "view", "--json", "url,baseRefName,headRefName,isDraft"] "") >>= \case
+    timeout (10 * 1000000) (readProcessWithExitCode "gh" ["pr", "view", "--json", "url,baseRefName,headRefName,isDraft,state"] "") >>= \case
         Nothing -> pure (Left "gh pr view timed out after 10s")
         Just (ExitSuccess, out, _) -> pure (Just <$> parsePr (Text.pack out))
         Just (ExitFailure _, _, err)
             | "no pull requests found" `Text.isInfixOf` Text.pack err -> pure (Right Nothing)
             | otherwise -> pure (Left ("gh pr view: " <> firstLine err))
 
--- | @gh pr view --json url,baseRefName,headRefName,isDraft@'s object.
+-- | @gh pr view --json url,baseRefName,headRefName,isDraft,state@'s object.
 parsePr :: Text -> Either Text PullRequest
 parsePr out = either (Left . ("gh pr view printed no PR: " <>) . Text.pack) Right $ do
     value <- eitherDecodeStrictText out
     flip parseEither value $ withObject "PR" $ \o -> do
         draft <- DraftPr . Url <$> o .: "url" <*> (Branch <$> o .: "baseRefName") <*> (Branch <$> o .: "headRefName")
         isDraft <- o .: "isDraft"
-        pure (PullRequest draft (if isDraft then IsDraft else IsReady))
+        prState <- o .: "state"
+        PullRequest draft <$> case (prState :: Text, isDraft) of
+            ("OPEN", True) -> pure IsDraft
+            ("OPEN", False) -> pure IsReady
+            ("MERGED", _) -> pure IsMerged
+            ("CLOSED", _) -> pure IsClosed
+            _ -> fail ("unknown PR state " <> Text.unpack prState)
 
 -- | Stdout, or the first line of why git failed.
 git :: [Text] -> IO (Either Text Text)

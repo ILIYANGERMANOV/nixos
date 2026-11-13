@@ -45,7 +45,8 @@ data Facts = Facts {changedLines :: Maybe Natural, pr :: Maybe PullRequest}
 data PullRequest = PullRequest {draft :: DraftPr, readiness :: Readiness}
     deriving stock (Eq, Show)
 
-data Readiness = IsDraft | IsReady
+-- | Where the PR stands on GitHub: open as a draft or ready for review, or over.
+data Readiness = IsDraft | IsReady | IsMerged | IsClosed
     deriving stock (Eq, Show)
 
 -- | The action, the facts the reader weighs it by, and the step's entry text.
@@ -80,9 +81,15 @@ due g facts state = case (state.stopped, state.at) of
   where
     fromGitHub name = case facts.pr of
         Just pr
-            | name == stepName Draft -> [DraftDone pr.draft]
+            | name == stepName Draft, open pr.readiness -> [DraftDone pr.draft]
             | name == stepName Ready, IsReady <- pr.readiness -> [ReadyDone pr.draft.url]
         _ -> []
+    -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
+    open = \case
+        IsDraft -> True
+        IsReady -> True
+        IsMerged -> False
+        IsClosed -> False
     skipped place =
         [ outcome
         | ((from, event), edge) <- Map.toList g.edges
@@ -199,6 +206,8 @@ factLines facts state =
     readinessText = \case
         IsDraft -> " (draft)"
         IsReady -> " (ready)"
+        IsMerged -> " (merged)"
+        IsClosed -> " (closed)"
 
 loopText :: LoopId -> Text
 loopText = \case
