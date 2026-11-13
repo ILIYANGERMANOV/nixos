@@ -21,6 +21,10 @@ module State.Fold (
     mode,
     Stuck (..),
     stuck,
+    budget,
+    flowRole,
+    nextQId,
+    askedAt,
 ) where
 
 import Control.Monad (foldM, void)
@@ -34,10 +38,10 @@ import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Numeric.Natural (Natural)
-import State.Ask (Above, Kind (Security), Principal, Proposal, QId, Question (..), Role (..), Ruling, deliver)
+import State.Ask (Above, Kind (Security), Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
 import State.Ask qualified as Ask
 import State.Cap (EventName)
-import State.Event (Asking (..), Check, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName, Stop, eventId, outcomeEvent)
+import State.Event (Asking (..), Check, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, eventId, outcomeEvent)
 import State.Flow (LoopId, OptId)
 import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
@@ -60,6 +64,8 @@ data RunState = RunState
     -- ^ Oldest first.
     , everAsked :: Set QId
     -- ^ Every question asked, open or closed: a retried ask is refused, so it is never ruled twice.
+    , askedHere :: [Kind]
+    -- ^ The kinds asked since the run last moved, oldest first: advice asks a step's question once.
     , rulings :: [Ruling]
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     }
@@ -156,6 +162,7 @@ begin g envelope = case envelope.event of
                 , refused = Nothing
                 , pending = []
                 , everAsked = Set.empty
+                , askedHere = []
                 , rulings = []
                 }
     QualitySet _ -> Left NotStarted
@@ -211,12 +218,18 @@ took g state outcome = do
         Stay -> Right ()
     let noted = fmap (noteProblems (problems outcome)) state.rounds
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
-    Right state {at = edge.to, rounds}
+    Right state {at = edge.to, rounds, askedHere = []}
 
 asked :: RunState -> Asking -> Either Refusal RunState
 asked state asking
     | Set.member qid state.everAsked = Left (AskedTwice qid)
-    | otherwise = Right state {pending = state.pending <> [Pending asking ForTriage], everAsked = Set.insert qid state.everAsked}
+    | otherwise =
+        Right
+            state
+                { pending = state.pending <> [Pending asking ForTriage]
+                , everAsked = Set.insert qid state.everAsked
+                , askedHere = state.askedHere <> [asking.question.kind]
+                }
   where
     qid = asking.question.qid
 
@@ -229,13 +242,13 @@ retagged state qid = do
 ruledOn :: RunState -> QId -> Proposal -> Either Refusal RunState
 ruledOn state qid proposal = do
     question <- forTriage qid state.pending
-    ruling <- Bifunctor.first NotAllowed (Ask.rule (role state.start.flow) question.kind question proposal)
+    ruling <- Bifunctor.first NotAllowed (Ask.rule (flowRole state.start.flow) question.kind question proposal)
     Right state {pending = close qid state.pending, rulings = state.rulings <> [ruling]}
 
 forwarded :: RunState -> QId -> Above -> Either Refusal RunState
 forwarded state qid to = do
     question <- forTriage qid state.pending
-    void (Bifunctor.first NotAllowed (Ask.pass (role state.start.flow) question.kind question))
+    void (Bifunctor.first NotAllowed (Ask.pass (flowRole state.start.flow) question.kind question))
     fromAbove state.start.principal to
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
@@ -267,6 +280,17 @@ close qid = filter ((/= qid) . pendingId)
 pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
 
+-- | The id of the run's next own question: one past the highest it asked.
+nextQId :: RunState -> QId
+nextQId state = QId state.run (1 + maximum (0 : [n | QId asker n <- Set.toList state.everAsked, asker == state.run]))
+
+-- | The state a question asked now is asked at; past the end, the port's name.
+askedAt :: RunState -> StateName
+askedAt state = case state.at of
+    At place -> place.name
+    Out -> StateName "out"
+    Exit -> StateName "exit"
+
 -- | Questions go up to, and answers come down from, whoever started the run.
 fromAbove :: Principal -> Above -> Either Refusal ()
 fromAbove principal named
@@ -274,8 +298,8 @@ fromAbove principal named
     | otherwise = Left (NotAbove named)
 
 -- | The rung of the chain the run's flow stands on.
-role :: FlowName -> Role
-role = \case
+flowRole :: FlowName -> Role
+flowRole = \case
     EngineerFlow -> Engineer
     TenXFlow -> TenX
 
@@ -283,7 +307,7 @@ overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
     [place] -> do
         rounds <- enter g (cfg (mode state)).fuel Nothing state.at (At place) state.rounds
-        Right state {at = At place, rounds}
+        Right state {at = At place, rounds, askedHere = []}
     _ -> Left (NoSingleState target)
 
 {- | The rounds after a move from one node to another. A loop's own back edge

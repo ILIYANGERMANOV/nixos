@@ -15,13 +15,14 @@ module State.Graph (
     graph,
     glue,
     places,
+    nodeStep,
 ) where
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), StateName, Step, Ty (..), outcomes, skippedOutcome, stepName)
+import State.Cap (EventName (..), KnownTy (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), SomeStep, StateName, Step, Ty (..), outcomes, skippedOutcome, stepName, stepNamed)
 import State.Flow (FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanName)
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
@@ -200,3 +201,10 @@ unionLoops left right = case Map.keys (Map.intersection left right) of
 
 insertNew :: (Place, EventName) -> Edge -> Map (Place, EventName) Edge -> Either Clash (Map (Place, EventName) Edge)
 insertNew key@(place, event) edge = Map.alterF (maybe (Right (Just edge)) (const (Left (SameEvent place event)))) key
+
+-- | The step the run does at a node: none at a port, nor at a fan-out's state.
+nodeStep :: Node -> Maybe SomeStep
+nodeStep = \case
+    At place -> stepNamed place.name
+    Out -> Nothing
+    Exit -> Nothing
