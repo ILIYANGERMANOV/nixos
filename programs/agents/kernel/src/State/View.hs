@@ -10,7 +10,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Advice (Facts (..), factLines)
 import State.Ask (Question (..), kindName, oneLineText, qidText, rulingLine)
-import State.Cap (SomeStep (..), StateName (..), allSteps, stepName)
+import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
 import State.Codec (flowText, reasonText)
 import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), runIdText)
 import State.Fold (Pending (..), RunState (..), Waits (..), askedAt)
@@ -24,7 +24,7 @@ showRun state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
             <> ["task: " <> state.start.task | not (Text.null state.start.task)]
-            <> ["step: " <> nameText (askedAt state)]
+            <> ["step: " <> stateNameText (askedAt state)]
             <> factLines (Facts Nothing Nothing) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
             <> ["refused: " <> note.message <> "; fix: " <> note.fix | Just note <- [state.refused]]
@@ -74,11 +74,8 @@ brief steps state (AgentRole role) task = case role of
     _ -> Text.concat [entry name r | (name, r) <- rows, r.runner == Agent (AgentRole role)] <> rule
   where
     rows = [(stepName s, row steps s) | SomeStep s <- allSteps]
-    entry name r = "## " <> nameText name <> "\n\n" <> r.entry <> "\n\n"
+    entry name r = "## " <> stateNameText name <> "\n\n" <> r.entry <> "\n\n"
     rule
         | role `elem` ["implementer", "refactorer", "fixer"] = Render.stopRule
         | role == "review-lead" = Render.planWrong
         | otherwise = ""
-
-nameText :: StateName -> Text
-nameText (StateName name) = name

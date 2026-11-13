@@ -13,6 +13,7 @@ module State.Cap (
     stepNamed,
     StateName (..),
     stepName,
+    stateNameText,
     OutcomeName (..),
     Outcomes (..),
     outcomes,
@@ -133,6 +134,9 @@ stepNamed name = lookup name [(someName some, some) | some <- allSteps]
 -- | A state of a flow's graph, by name: what people read, and an override's target.
 newtype StateName = StateName Text
     deriving stock (Eq, Ord, Show)
+
+stateNameText :: StateName -> Text
+stateNameText (StateName name) = name
 
 -- | The wire name: the state a run is at, and the first half of its events.
 stepName :: Step i e o -> StateName

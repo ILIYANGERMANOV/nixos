@@ -26,12 +26,12 @@ import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Delivery (..), Kind, OneLine, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Ask qualified as Ask
-import State.Cap (EventName, Outcomes (..), SomeStep (..), StateName (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, eventText, exitEvent, outcomes, skipEvent, stepName, stepNamed)
+import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, eventText, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
 import State.Cap qualified as Cap
 import State.Codec (judgementText, reasonText, urlText)
 import State.Event (AgentRole (..), Asker (Itself), Asking (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), Start (..), Stop (..), Url)
 import State.Event qualified as Event
-import State.Flow (LoopId (..))
+import State.Flow (LoopId (..), loopName)
 import State.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, budget, flowRole, mode, nextQId, stuck)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Handback (stopLine)
@@ -138,7 +138,7 @@ advise steps facts state = Advice action (factLines facts state) entry
         (At place, _) -> case stepNamed place.name of
             Just (SomeStep s) -> (atStep s, (row steps s).entry)
             -- Fan-outs are the 10x's (PR 6): the engineer flow has none.
-            Nothing -> plain (Run ("state record the " <> nameText place.name <> " fan-out's outcome"))
+            Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
     atStep :: Step i e o -> Action
     atStep s = case lookup (stepName s) special of
         Just next -> next
@@ -184,7 +184,7 @@ pickCommand state
 stuckText :: Stuck -> Text
 stuckText found =
     "the "
-        <> loopText found.loop
+        <> loopName found.loop
         <> " loop repeats "
         <> Text.intercalate ", " (map problemText (Set.toList found.same))
         <> ": go on, change course, or stop?"
@@ -197,7 +197,7 @@ stuckText found =
 factLines :: Facts -> RunState -> [Text]
 factLines facts state =
     ["mode: " <> modeText (mode state)]
-        <> [ loopText loopId <> " round " <> tshow (length rounds) <> " of " <> tshow ((cfg (mode state)).fuel loopId)
+        <> [ loopName loopId <> " round " <> tshow (length rounds) <> " of " <> tshow ((cfg (mode state)).fuel loopId)
            | (loopId, rounds) <- Map.toList (Map.map NonEmpty.toList state.rounds)
            ]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
@@ -209,18 +209,8 @@ factLines facts state =
         IsMerged -> " (merged)"
         IsClosed -> " (closed)"
 
-loopText :: LoopId -> Text
-loopText = \case
-    LGather -> "gather"
-    LPlan -> "plan"
-    LReview -> "review"
-    LCi -> "ci"
-
 modeText :: Mode -> Text
 modeText (Mode quality size) = qualityName quality <> " " <> sizeName size
-
-nameText :: StateName -> Text
-nameText (StateName name) = name
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show

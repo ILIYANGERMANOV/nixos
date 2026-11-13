@@ -106,8 +106,10 @@ spec = describe "the hooks" $ do
         it "are the same for the same hand-back seen twice" $
             ids "READY" `shouldBe` ids "READY"
 
-        it "differ between hand-backs, and between one call's records" $ do
+        it "differ between hand-backs" $
             ids "READY" `shouldNotBe` ids "READY abc"
+
+        it "differ between one call's records" $
             nub (ids "READY") `shouldBe` ids "READY"
 
     describe "the reply" $ do
@@ -159,10 +161,8 @@ common agent = KeyMap.fromList [("session", "s"), ("cwd", "/w"), ("agent", agent
 
 withField :: Text -> Text -> LBS.ByteString -> LBS.ByteString
 withField key value raw = case eitherDecode raw of
-    Right (Object o) -> encodeObject (KeyMap.insert (keyOf key) (String value) o)
+    Right (Object o) -> encodeObject (KeyMap.insert (Key.fromText key) (String value) o)
     _ -> raw
-  where
-    keyOf = Key.fromText
 
 encodeObject :: Object -> LBS.ByteString
 encodeObject = encode . Object

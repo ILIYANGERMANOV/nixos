@@ -54,7 +54,7 @@ import State.Advice (Readiness (..))
 import State.Ask (Principal (..), Question (..), qidText)
 import State.Cap (stepName)
 import State.Cap qualified as Cap
-import State.Event (AgentRole (..), Asking (..), Branch, Digest (..), DraftPr (..), Envelope (..), Event (Took), Outcome (DraftDone), RunId, Source (..), Start (..), runIdText)
+import State.Event (AgentRole (..), Asking (..), Branch, Digest (..), DraftPr (..), Envelope (..), Event (Took), Outcome (DraftDone), RunId, Source (..), Start (..), roleText, runIdText)
 import State.Fold (Pending (..), RunState (..), Waits (..))
 import State.Graph (Node (..), Place (..))
 import State.Steps (Steps, agentRoles)
@@ -179,11 +179,9 @@ wants steps hook event = case (hook, event) of
         AfterTool _ _ -> "afterTool"
 
 textAt :: Text -> Object -> Maybe Text
-textAt key input = case KeyMap.lookup (keyOf key) input of
+textAt key input = case KeyMap.lookup (Key.fromText key) input of
     Just (String text) -> Just text
     _ -> Nothing
-  where
-    keyOf = Key.fromText
 
 {- | The lead is no subagent, or one whose role the flows do not know: the
 engineer a 10x spawns runs its own flow. A review-lead spawning reviewers is a
@@ -249,7 +247,6 @@ offAdvice steps at advised spawned
         At place -> place.name `elem` names
         Out -> False
         Exit -> False
-    roleText (AgentRole name) = name
 
 {- | The ids of a hook's records, one per event it appends, in order: a hash
 of the run, the agent and its message, so the same hand-back seen twice

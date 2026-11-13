@@ -19,7 +19,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Ask (Cond (..), Kind, Role (..), Rule (..), authority, kindName)
-import State.Cap (EventName (..), OutcomeName (..), SomeStep (..), StateName (..), stepNamed)
+import State.Cap (EventName (..), OutcomeName (..), SomeStep (..), stateNameText, stepNamed)
 import State.Codec (areaText)
 import State.Event (AgentRole (..))
 import State.Flow (FanId (..), OptId (..))
@@ -35,7 +35,7 @@ states :: OpenGraph -> Steps -> Text
 states g steps =
     table
         ["State", "Run by", "Arrows out"]
-        [[nameText place.name, runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
+        [[stateNameText place.name, runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
   where
     runBy name = case stepNamed name of
         Just (SomeStep s) -> case (row steps s).runner of
@@ -46,7 +46,7 @@ states g steps =
         Text.intercalate "; " [outcomeText event <> ": " <> target edge.to | ((from, event), edge) <- Map.toList g.edges, from == place]
     outcomeText (EventName _ (OutcomeName outcome)) = outcome
     target = \case
-        At place -> nameText place.name
+        At place -> stateNameText place.name
         Out -> "end"
         Exit -> "exit"
 
@@ -98,7 +98,7 @@ every Quality is written once.
 trivialSkips :: OpenGraph -> Text
 trivialSkips g =
     Text.unlines $
-        ["- `" <> nameText name <> "`: " <> byQuality (\q -> skipText ((cfg (Mode q Trivial)).skip optId)) | (optId, name) <- optSteps]
+        ["- `" <> stateNameText name <> "`: " <> byQuality (\q -> skipText ((cfg (Mode q Trivial)).skip optId)) | (optId, name) <- optSteps]
             <> [ "- re-reviews: " <> byQuality (\q -> tshow (reReviews q Trivial))
                , "- researchers: " <> byQuality (\q -> tshow ((cfg (Mode q Trivial)).fan FResearchers))
                ]
@@ -179,9 +179,6 @@ rows = Text.unlines . map line
 
 line :: [Text] -> Text
 line cells = "| " <> Text.intercalate " | " cells <> " |"
-
-nameText :: StateName -> Text
-nameText (StateName name) = name
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show

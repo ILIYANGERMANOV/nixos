@@ -29,11 +29,11 @@ import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import State.Ask (Above (..), Basis (..), Kind, OneLine, Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Ask qualified as Ask
-import State.Cap (Step (..), continueEvent, eventText, exitEvent, skipEvent)
+import State.Cap (Step (..), continueEvent, eventText, exitEvent, skipEvent, stateNameText)
 import State.Codec (areaText, judgementText, reasonText)
 import State.Codec qualified as Codec
-import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, runIdText)
-import State.Flow (LoopId (..))
+import State.Event (AgentRole (..), Asker (..), Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), FlowName (..), Label (..), Note (..), Outcome (..), Picks (..), Requirement (..), RunId, Sha, StateName (..), Stop (..), Url (..), parseRunId, roleText, runIdText)
+import State.Flow (loopName)
 import State.Fold (Refusal (..), roundOnly)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Handback (parseTouches)
@@ -251,7 +251,7 @@ qidOf = named "question id" parseQId
 knownRole :: [AgentRole] -> Text -> Either Failure AgentRole
 knownRole roles raw
     | AgentRole raw `elem` roles = Right (AgentRole raw)
-    | otherwise = Left (usage ("no role " <> raw) ("one of " <> Text.unwords [role | AgentRole role <- roles]))
+    | otherwise = Left (usage ("no role " <> raw) ("one of " <> Text.unwords (map roleText roles)))
 
 {- | A role a step runs as, else a child run by its id: a run id never names a
 role, which the step table spells in full.
@@ -294,7 +294,7 @@ help steps =
             <> [ ""
                , "kinds: " <> choices kindName
                , "stop reasons: " <> choices reasonText
-               , "roles: " <> Text.unwords [role | AgentRole role <- agentRoles steps]
+               , "roles: " <> Text.unwords (map roleText (agentRoles steps))
                , "areas (--touches): " <> choices areaText
                , ""
                , "Exit 0 ok; 2 bad usage, a bad log line or a refused event; 1 a git or disk failure."
@@ -438,7 +438,7 @@ explain g mode at = \case
   where
     refused = Failure BadInput
     atText = case at of
-        At place -> nameText place.name
+        At place -> stateNameText place.name
         Out -> "the end"
         Exit -> "the end"
     records keep = case at of
@@ -455,19 +455,9 @@ explain g mode at = \case
         Skip optId -> (cfg mode).skip optId /= Never
         Along _ -> True
         Stay -> True
-    stateNames = map (nameText . (.name)) (Set.toList (places g))
+    stateNames = map (stateNameText . (.name)) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid
-
-loopName :: LoopId -> Text
-loopName = \case
-    LGather -> "gather"
-    LPlan -> "plan"
-    LReview -> "review"
-    LCi -> "ci"
-
-nameText :: StateName -> Text
-nameText (StateName name) = name
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show

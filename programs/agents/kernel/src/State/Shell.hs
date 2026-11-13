@@ -25,9 +25,10 @@ import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts, advise, d
 import State.Advice qualified as Advice
 import State.Ask (Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
+import State.Cap (stateNameText)
 import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, noteOf, parseCommand)
 import State.Codec (LineError (..), LogError (..), decodeLine, eventType)
-import State.Event (AgentRole (..), Asker (..), Asking (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), StateName (..), parseRunId, runIdText)
+import State.Event (AgentRole (..), Asker (..), Asking (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
@@ -159,7 +160,7 @@ execute steps = \case
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
-        onRun (nextAdvice steps facts told)
+        onRun (\stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out))
     HandbackOf role child -> do
         message <- Text.getContents
         onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
@@ -207,15 +208,11 @@ handbackPlan steps worktreeHead state role child message = do
   where
     unread = either (\why -> Left (Failure BadInput "the hand-back" why "state help")) Right
     triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> roleText role <> " <question>\n"
-    roleText (AgentRole name) = name
 
-{- | @state next@: what GitHub and the mode already decide is recorded first,
-then the advice: its line, its facts indented, the step's entry text.
+{- | What @state next@ records and prints, and the advice's action: what GitHub
+and the mode already decide is recorded first, then the advice: its line, its
+facts indented, the step's entry text.
 -}
-nextAdvice :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Either Failure Text)
-nextAdvice steps facts told stamp run = let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out)
-
--- | What @state next@ records and prints, and the advice's action.
 adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Text)
 adviceOf steps facts told stamp run = (new, advice.action, out)
   where
@@ -242,10 +239,7 @@ delivered state line
 
 -- | A line per event written, each with where the run is now.
 recordedLines :: RunState -> [Envelope] -> Text
-recordedLines after = foldMap (\e -> "recorded " <> tshow e.seq <> " " <> eventType e.event <> " -> " <> nameText (askedAt after) <> "\n")
-
-nameText :: StateName -> Text
-nameText (StateName name) = name
+recordedLines after = foldMap (\e -> "recorded " <> tshow e.seq <> " " <> eventType e.event <> " -> " <> stateNameText (askedAt after) <> "\n")
 
 -- | The time, commit and session every line written now carries.
 data Stamp = Stamp {ts :: UTCTime, head :: Maybe Sha, session :: Maybe SessionId}

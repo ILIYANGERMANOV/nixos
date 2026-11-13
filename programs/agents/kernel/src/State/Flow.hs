@@ -10,9 +10,11 @@ module State.Flow (
     OptId (..),
     FanId (..),
     fanName,
+    loopName,
 ) where
 
 import Data.Kind (Type)
+import Data.Text (Text)
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Cap (KnownTy, StateName (..), Step, Ty (..))
 
@@ -76,3 +78,10 @@ fanName =
     StateName . \case
         FResearchers -> "researchers"
         FEngineers -> "engineers"
+
+loopName :: LoopId -> Text
+loopName = \case
+    LGather -> "gather"
+    LPlan -> "plan"
+    LReview -> "review"
+    LCi -> "ci"

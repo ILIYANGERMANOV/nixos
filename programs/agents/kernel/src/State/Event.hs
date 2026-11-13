@@ -22,6 +22,7 @@ module State.Event (
     Asking (..),
     Asker (..),
     AgentRole (..),
+    roleText,
     Stop (..),
     StopReason (..),
     Note (..),
@@ -137,6 +138,9 @@ data Asker = Itself | Subagent AgentRole | ChildRun RunId
 -- | A subagent's role, as @state handback <role>@ names it: @implementer@.
 newtype AgentRole = AgentRole Text
     deriving stock (Eq, Show)
+
+roleText :: AgentRole -> Text
+roleText (AgentRole role) = role
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)
