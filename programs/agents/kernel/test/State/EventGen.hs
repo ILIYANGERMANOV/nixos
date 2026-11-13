@@ -15,7 +15,9 @@ module State.EventGen (
     oneLine,
     runId,
     run,
+    start,
     started,
+    genStart,
     line,
     lineOf,
     hookLine,
@@ -238,8 +240,12 @@ runId raw = fromMaybe (error ("not a run id: " <> show raw)) (parseRunId raw)
 run :: RunId
 run = runId "r7f2"
 
+-- | A user's engineer run, in a session that can ask the user.
+start :: Start
+start = Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hooks]) "a task"
+
 started :: Event
-started = Started (Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hooks]) "a task")
+started = Started start
 
 -- | A CLI line of 'run', at its seq.
 line :: Natural -> Event -> Envelope

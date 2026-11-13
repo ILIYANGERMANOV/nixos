@@ -1,18 +1,38 @@
 -- | Checks on how the kernel's modules import each other.
 module State.ArchitectureSpec (spec) where
 
-import Data.List (stripPrefix)
+import Data.Char (toLower)
+import Data.List (isInfixOf, isSuffixOf, stripPrefix)
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import System.Directory (doesDirectoryExist, listDirectory)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
-spec = describe "kernel architecture" $
+spec = describe "kernel architecture" $ do
     it "keeps Principal and Op out of every flow module's imports (law Principal-blind)" $ do
         reached <- traverse (\name -> (name,) <$> closure name) flowModules
         [(name, Set.toList (Set.intersection modules environment)) | (name, modules) <- reached, not (Set.disjoint modules environment)]
             `shouldBe` []
+
+    -- Law Principal-blind: the kernel has no word for who started a run. The
+    -- test fixtures may still spell the Python log's key.
+    it "no_delegated_word" $ do
+        files <- concat <$> traverse sourceFiles ["src", "app"]
+        sources <- traverse (\file -> (file,) <$> readFile file) files
+        [file | (file, source) <- sources, "delegated" `isInfixOf` map toLower source] `shouldBe` []
+
+-- | Every Haskell file under a directory of the package.
+sourceFiles :: FilePath -> IO [FilePath]
+sourceFiles dir = do
+    entries <- map ((dir <> "/") <>) <$> listDirectory dir
+    concat <$> traverse below entries
+  where
+    below entry =
+        doesDirectoryExist entry >>= \case
+            True -> sourceFiles entry
+            False -> pure [entry | ".hs" `isSuffixOf` entry]
 
 -- | The modules a flow is built from; none may know who runs it.
 flowModules :: [String]

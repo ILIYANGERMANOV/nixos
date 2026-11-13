@@ -1,6 +1,7 @@
 module State.HandbackSpec (spec) where
 
 import Data.Foldable (for_)
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -8,7 +9,7 @@ import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Ask (Kind (..), QId (..), Question (..))
-import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, Took), Outcome (..), Sha (..), StateName (..))
+import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, Took), Outcome (..), Picks (..), Sha (..), StateName (..))
 import State.Event qualified as Event
 import State.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runId)
 import State.Handback
@@ -29,7 +30,7 @@ spec = describe "State.Handback" $ do
 
     it "reads the last of a repeated trailer, and the areas touched" $
         parseHandback "READY\n\nReviewed head: 1111111\nReviewed head: 9f8e7d6\nTouches: auth, data-model"
-            `shouldBe` Right (blank (Just (Ready (oneLine "")))) {reviewedHead = Just (Sha "9f8e7d6"), touches = Set.fromList [Auth, DataModel]}
+            `shouldBe` Right (blank (Just (Ready (oneLine "")))) {reviewedHead = Just (Sha "9f8e7d6"), touches = Just (Set.fromList [Auth, DataModel])}
 
     it "refuses a Touches line naming no area" $
         parseHandback "READY\nTouches: auth, the parser" `shouldSatisfy` either (Text.isInfixOf "the parser") (const False)
@@ -44,6 +45,14 @@ typing = describe "typeHandback" $ do
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
             `shouldBe` Right (Typed [Took (ImplementDone (Commit sha (Set.singleton Auth)))] Nothing)
+
+    it "reads an implementer's hand-back with no Touches line as touching every area" $
+        typed atImplement "implementer" "READY built"
+            `shouldBe` Right (Typed [Took (ImplementDone (Commit sha (Set.fromList [minBound .. maxBound])))] Nothing)
+
+    it "reads a fixer's hand-back with no Touches line as touching none" $
+        typed atFix "fixer" "READY fixed"
+            `shouldBe` Right (Typed [Took (FixDone (Commit sha Set.empty))] Nothing)
 
     it "refuses a READY from a role that does not run the step" $
         typed atImplement "fixer" "READY fixed" `shouldSatisfy` isLeft
@@ -76,6 +85,7 @@ typing = describe "typeHandback" $ do
   where
     atImplement = runAt (map Took (take 7 happyPath))
     atReview = runAt (map Took (take 9 happyPath))
+    atFix = runAt (map Took (take 9 happyPath <> [ReviewRows sha, PickLoop (Picks Set.empty Map.empty)]))
     implement = StateName "implement"
     isLeft = either (const True) (const False)
 
@@ -97,7 +107,7 @@ parsed :: Text -> Handback
 parsed = either (error . Text.unpack) id . parseHandback
 
 blank :: Maybe Token -> Handback
-blank token = Handback token Nothing Nothing Nothing Nothing Set.empty
+blank token = Handback token Nothing Nothing Nothing Nothing Nothing
 
 genHandback :: Gen Handback
 genHandback =
@@ -107,7 +117,7 @@ genHandback =
         <*> Gen.maybe genRunId
         <*> Gen.maybe genSha
         <*> Gen.maybe genSha
-        <*> (Set.fromList <$> Gen.subsequence [minBound .. maxBound])
+        <*> Gen.maybe (Set.fromList <$> Gen.subsequence [minBound .. maxBound])
 
 genToken :: Gen Token
 genToken =

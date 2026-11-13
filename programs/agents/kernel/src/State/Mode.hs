@@ -17,6 +17,7 @@ module State.Mode (
     Cfg (..),
     cfg,
     cfgLeq,
+    reReviews,
 ) where
 
 import Data.Set (Set)

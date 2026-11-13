@@ -5,6 +5,7 @@ module State.RunGen (
     commit,
     happyPath,
     runAt,
+    runUnder,
     loadSteps,
     genAccepted,
     genKnobs,
@@ -23,7 +24,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
 import State.Event
-import State.EventGen (genOutcomeNamed, line, logOf, started)
+import State.EventGen (genOutcomeNamed, line, logOf, start, started)
 import State.Flows.Engineer (engineer)
 import State.Fold (Append (..), RunState (..), append, replay)
 import State.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
@@ -81,7 +82,11 @@ outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
 
 -- | The run after these events, from 'started'; the events must be a log the fold accepts.
 runAt :: [Event] -> RunState
-runAt events = either (error . show) id (replay g (logOf (started :| events)))
+runAt = runUnder start
+
+-- | 'runAt' for a run started so.
+runUnder :: Start -> [Event] -> RunState
+runUnder from events = either (error . show) id (replay g (logOf (Started from :| events)))
 
 -- | The flows' step table the build exports as STATE_STEPS (kernel/default.nix).
 loadSteps :: IO Steps

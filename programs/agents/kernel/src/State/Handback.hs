@@ -41,8 +41,10 @@ data Handback = Handback
     -- ^ A flow role's own run.
     , reviewedHead :: Maybe Sha
     , simplified :: Maybe Sha
-    , touches :: Set Area
-    -- ^ A @Touches: none@ line, and no line, are both the empty set.
+    , touches :: Maybe (Set Area)
+    {- ^ 'Nothing' when no @Touches:@ line came: 'typeHandback' reads it as
+    every area from an implementer and none from a fixer, the safe default.
+    -}
     }
     deriving stock (Eq, Show)
 
@@ -75,7 +77,7 @@ parseHandback message = do
     run <- traverse (\raw -> maybe (Left ("Run: " <> raw <> " is no run id")) Right (parseRunId raw)) (trailer "Run: ")
     reviewedHead <- traverse (sha "Reviewed head:") (trailer "Reviewed head:")
     simplified <- traverse (sha "Simplified:") (trailer "Simplified:")
-    touches <- maybe (Right Set.empty) parseTouches (trailer "Touches:")
+    touches <- traverse parseTouches (trailer "Touches:")
     Right Handback {token, grew, run, reviewedHead, simplified, touches}
   where
     (first, rest) = case Text.lines message of
@@ -132,6 +134,11 @@ parseTouches raw = case Text.strip raw of
             Right
             (parseByName areaText name)
 
+touchesText :: Set Area -> Text
+touchesText areas = case Set.toList areas of
+    [] -> "none"
+    named -> Text.intercalate ", " (map areaText named)
+
 oneLine :: Text -> Either Text OneLine
 oneLine raw = maybe (Left (raw <> " holds a line break")) Right (parseOneLine raw)
 
@@ -144,9 +151,7 @@ renderHandback handback =
                 , ("Run: " <>) . runIdText <$> handback.run
                 , ("Reviewed head: " <>) . shaText <$> handback.reviewedHead
                 , ("Simplified: " <>) . shaText <$> handback.simplified
-                , if Set.null handback.touches
-                    then Nothing
-                    else Just ("Touches: " <> Text.intercalate ", " (map areaText (Set.toList handback.touches)))
+                , ("Touches: " <>) . touchesText <$> handback.touches
                 ]
 
 -- | Line 1 of a hand-back.
@@ -229,10 +234,11 @@ typeHandback steps state worktreeHead agent handback = case handback.token of
         Cap.Research -> Right []
         Cap.SimplifyP -> took SimplifyPlanDone
         Cap.Alternative -> took AlternativeDone
-        Cap.Implement -> took . ImplementDone =<< commit
+        -- An implementer that names no areas may have touched any (#360's state help).
+        Cap.Implement -> took . ImplementDone =<< commit (Set.fromList [minBound .. maxBound])
         Cap.Refactor -> took . RefactorDone =<< atHead
         Cap.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
-        Cap.Fix -> took . FixDone =<< commit
+        Cap.Fix -> took . FixDone =<< commit Set.empty
         Cap.Describe -> took . DescribeDone =<< atHead
         Cap.SimplifyPR -> took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified
         Cap.FixPR -> took . FixPrDone =<< atHead
@@ -251,7 +257,7 @@ typeHandback steps state worktreeHead agent handback = case handback.token of
     took outcome = Right [Event.Took outcome]
     atHead :: Either Text Sha
     atHead = required "HEAD (run it in the worktree)" worktreeHead
-    commit :: Either Text Commit
-    commit = (\sha -> Commit sha handback.touches) <$> atHead
+    commit :: Set Area -> Either Text Commit
+    commit unstated = (\sha -> Commit sha (fromMaybe unstated handback.touches)) <$> atHead
     required :: Text -> Maybe a -> Either Text a
     required what = maybe (Left ("no " <> what)) Right

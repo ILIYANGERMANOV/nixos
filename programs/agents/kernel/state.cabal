@@ -45,6 +45,7 @@ library
     State.Id
     State.Mode
     State.Path
+    State.Render
     State.Render.Mermaid
     State.Steps
 
@@ -72,6 +73,7 @@ test-suite state-test
   main-is:            Main.hs
   build-tool-depends: hspec-discover:hspec-discover
   other-modules:
+    State.AdviceSpec
     State.ArchitectureSpec
     State.AskSpec
     State.CodecSpec
@@ -89,6 +91,7 @@ test-suite state-test
     State.ModeSpec
     State.PathSpec
     State.Render.MermaidSpec
+    State.RenderSpec
     State.RunGen
     State.StepsSpec
 
@@ -96,6 +99,7 @@ test-suite state-test
     , aeson
     , bytestring
     , containers
+    , directory
     , hedgehog
     , hspec
     , hspec-golden

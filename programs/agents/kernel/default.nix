@@ -20,6 +20,7 @@ let
       base,
       bytestring,
       containers,
+      directory,
       hedgehog,
       hspec,
       hspec-discover,
@@ -59,6 +60,7 @@ let
         base
         bytestring
         containers
+        directory
         hedgehog
         hspec
         hspec-golden
