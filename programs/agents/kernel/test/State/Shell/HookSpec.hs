@@ -6,7 +6,6 @@ module State.Shell.HookSpec (spec) where
 
 import Data.Aeson (Value (..), decodeStrictText)
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.ByteString qualified as BS
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', readIORef)
 import Data.Map.Strict qualified as Map
@@ -15,13 +14,11 @@ import Data.Text qualified as Text
 import State.Advice (Readiness (..))
 import State.Event (Branch (..))
 import State.Shell.World
-import System.Environment (getEnv)
-import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldSatisfy)
+import Test.Hspec (Spec, before, describe, it, shouldBe, shouldSatisfy)
 
 spec :: Spec
 spec = describe "state-hook over the doubles" $ do
-    steps <- runIO (BS.readFile =<< getEnv "STATE_STEPS")
-    before (newWorld steps) $ do
+    before newWorld $ do
         describe "resume" $ do
             it "is silent in a worktree with no run" $ \world -> do
                 said <- hook world "resume" sessionStart

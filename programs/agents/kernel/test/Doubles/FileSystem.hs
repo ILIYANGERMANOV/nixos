@@ -13,7 +13,7 @@ import Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import Effectful (Eff)
 import Effectful.Dispatch.Dynamic (localSeqUnlift, reinterpret)
 import Effectful.Exception (finally, throwIO)
-import Effectful.State.Static.Local (State, get, gets, modify, runState)
+import Effectful.State.Static.Local (State, gets, modify, runState)
 import Effects.FileSystem (FileSystem (..))
 import System.FilePath (normalise, takeDirectory, (</>))
 import System.IO.Error (IOErrorType, doesNotExistErrorType, mkIOError, userErrorType)
@@ -41,9 +41,9 @@ runFileSystemInMemory disk = reinterpret (runState disk) $ \env -> \case
         gets @Disk (Set.member dir . (.dirs)) >>= \case
             False -> failure doesNotExistErrorType "withCurrentDirectory" dir
             True -> do
-                before <- get @Disk
+                before <- gets @Disk (.cwd)
                 modify @Disk (\d -> d {cwd = dir})
-                localSeqUnlift env (\unlift -> unlift act) `finally` modify @Disk (\d -> d {cwd = before.cwd})
+                localSeqUnlift env (\unlift -> unlift act) `finally` modify @Disk (\d -> d {cwd = before})
   where
     absolute path = gets @Disk (\d -> normalise (d.cwd </> path))
     readFile' file = gets @Disk (Map.lookup file . (.files)) >>= maybe (failure doesNotExistErrorType "openFile" file) pure

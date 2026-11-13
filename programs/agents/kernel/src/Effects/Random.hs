@@ -16,7 +16,6 @@ data Random :: Effect where
 
 type instance DispatchOf Random = Dynamic
 
--- | This many random bytes.
 randomBytes :: (Random :> es) => Int -> Eff es ByteString
 randomBytes = send . RandomBytes
 

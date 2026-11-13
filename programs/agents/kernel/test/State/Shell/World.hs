@@ -37,8 +37,9 @@ module State.Shell.World (
 import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -56,18 +57,11 @@ import Doubles.Git (Worktree (..), runGitScripted)
 import Doubles.Log (runLogInMemory)
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
-import Effects.Clock (Clock)
-import Effects.Console (Console)
-import Effects.Environment (Environment)
-import Effects.FileSystem (FileSystem)
-import Effects.Gh (Gh)
-import Effects.Git (Git)
-import Effects.Log (Log)
-import Effects.Random (Random)
 import State.Advice (PullRequest (..), Readiness (..))
 import State.Codec (LogError (..), decodeLog, eventType, logOf)
 import State.Event (Branch (..), DraftPr (..), Envelope (..), Sha (..), Url (..))
 import State.Shell qualified as Shell
+import System.Environment (getEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import Test.Hspec (expectationFailure, shouldBe)
@@ -87,9 +81,10 @@ data World = World
     , entropy :: [Word8]
     }
 
--- | The world, given the flows' step table, which the installed @state@ names in @STATE_STEPS@.
-newWorld :: ByteString -> IO (IORef World)
-newWorld steps =
+-- | The world, holding the flows' step table the build exports as @STATE_STEPS@ (kernel/default.nix).
+newWorld :: IO (IORef World)
+newWorld = do
+    steps <- BS.readFile =<< getEnv "STATE_STEPS"
     newIORef
         World
             { env = Map.fromList [("STATE_STEPS", stepsPath)]
@@ -108,19 +103,17 @@ newWorld steps =
 -- | One call: its exit code and its output, line by line.
 data Ran = Ran {code :: Int, out :: [Text], err :: [Text]}
 
-type Process = Eff '[Random, Log, Git, Gh, FileSystem, Environment, Console, Clock] ExitCode
-
 state :: IORef World -> [Text] -> IO Ran
 state world = stateIn world ""
 
 stateIn :: IORef World -> ByteString -> [Text] -> IO Ran
-stateIn world input = run world input . Shell.main
+stateIn world input argv = run world input (Shell.main argv)
 
 -- | One @state-hook <name>@ call, fed the hook event on stdin.
 hook :: IORef World -> Text -> LBS.ByteString -> IO Ran
 hook world name input = run world (LBS.toStrict input) (Shell.hook [name])
 
-run :: IORef World -> ByteString -> Process -> IO Ran
+run :: IORef World -> ByteString -> (forall es. (Shell.Shell es) => Eff es ExitCode) -> IO Ran
 run world input program = atomicModifyIORef' world $ \w ->
     let ((((code, entropy), logs), disk), streams) =
             runPureEff
@@ -246,8 +239,8 @@ drive world acts = do
         Handback role report -> do
             Sha sha <- headOf . (.commits) <$> readIORef world
             succeeded =<< stateIn world (encodeUtf8 (report sha)) ["handback", role]
-        Commit -> [] <$ atomicModifyIORef' world (\w -> (w {commits = w.commits + 1}, ()))
-        OpenPr -> [] <$ atomicModifyIORef' world (\w -> (w {pr = Right (Just (draftPr IsDraft))}, ()))
+        Commit -> [] <$ modifyIORef' world (\w -> w {commits = w.commits + 1})
+        OpenPr -> [] <$ modifyIORef' world (\w -> w {pr = Right (Just (draftPr IsDraft))})
         Override to -> succeeded =<< state world ["override", to, "the", "test", "starts", "here"]
         Refused argv -> do
             ran <- state world ("record" : argv)

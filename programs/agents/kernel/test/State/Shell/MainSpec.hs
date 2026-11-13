@@ -3,7 +3,6 @@ the log it writes. The e2e specs prove the same over a real repo and binary.
 -}
 module State.Shell.MainSpec (spec) where
 
-import Data.ByteString qualified as BS
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', readIORef)
 import Data.List (isSuffixOf)
@@ -16,15 +15,13 @@ import State.Event (Branch (..), DraftPr (..), Envelope (..), SessionId (..), Ur
 import State.Render qualified as Render
 import State.RunGen (loadSteps)
 import State.Shell.World
-import System.Environment (getEnv)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
 
 spec :: Spec
 spec = describe "state over the doubles" $ do
-    steps <- runIO (BS.readFile =<< getEnv "STATE_STEPS")
     table <- runIO loadSteps
-    before (newWorld steps) $ do
+    before newWorld $ do
         describe "init" $ do
             it "starts a run with an id from the entropy, and its log" $ \world -> do
                 ran <- state world ["init", "--notes", "/notes"]
