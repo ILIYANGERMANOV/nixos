@@ -274,18 +274,29 @@ class Home:
             }
             _ = base.with_suffix(".meta.json").write_text(json.dumps(meta))
 
+    def log(self, name: str, log: RunLog) -> None:
+        """A run's `state` event log, in its own notes directory `name`."""
+        path = self.root.parent / "notes" / name / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text("".join(json.dumps(line) + "\n" for line in log.lines))
+
+    def sources(self) -> list[str]:
+        """The transcripts and only this home's event logs, never the machine's."""
+        logs = sorted(self.root.parent.glob("notes/*/events.jsonl"))
+        return ["--root", str(self.root), "--logs", *map(str, logs)]
+
     def report(self, *args: str, fetch: analyze.Fetch | None = None) -> str:
         """The report the CLI prints for `args`, run in-process so mutation testing sees it.
         `fetch` answers for `gh` under `--gh`."""
         out = io.StringIO()
         with redirect_stdout(out):
-            analyze.main(["--root", str(self.root), *args], fetch)
+            analyze.main([*self.sources(), *args], fetch)
         return out.getvalue()
 
     def cli_report(self, *args: str) -> str:
         """The report the deployed script prints, run as its own bare-python process."""
         run = subprocess.run(
-            [PYTHON, "-I", str(ANALYZER), "--root", str(self.root), *args],
+            [PYTHON, "-I", str(ANALYZER), *self.sources(), *args],
             capture_output=True,
             text=True,
             check=True,
@@ -332,7 +343,7 @@ def headline(report: str, slug: str) -> str:
 
 @pytest.fixture
 def home(tmp_path: Path) -> Home:
-    return Home(tmp_path)
+    return Home(tmp_path / "projects")
 
 
 class TestCli:
@@ -2373,6 +2384,170 @@ class TestStateCtx:
             "Plan|2|again",
             "Implement|1|skip",
         ]
+
+
+@dataclass
+class RunLog:
+    """A version 3 `state` event log, as the kernel writes it: a `started` line first."""
+
+    run: str
+    flow: str = "engineer"
+    start: float = 0
+    notes: str = "/work/engineer-me-demo-x/"
+    lines: list[JsonObject] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        _ = self.add("started", flow=self.flow, notes=self.notes, principal="user")
+
+    def add(self, event: str, /, **data: Json) -> RunLog:
+        seq = len(self.lines) + 1
+        self.lines.append(
+            {
+                "v": 3,
+                "id": f"{self.run}:{seq}",
+                "seq": seq,
+                "ts": at(self.start + seq),
+                "run": self.run,
+                "head": None,
+                "session": None,
+                "type": event,
+                "data": data,
+            }
+        )
+        return self
+
+    def ask(self, qid: str, kind: str, step: str, asker: Json = "self") -> RunLog:
+        """`asker` is the wire's `from`: "self", `{"role": r}` or a child's `{"run": id}`."""
+        fields: JsonObject = {"qid": qid, "kind": kind, "question": "?", "step": step}
+        return self.add("asked", **fields, **{"from": asker})
+
+    def rule(self, qid: str) -> RunLog:
+        return self.add("ruled", qid=qid, answer="a", why="w", cost="c", basis=None)
+
+    def answer(self, qid: str, by: Json = "user") -> RunLog:
+        return self.add("answered", qid=qid, answer="a", by=by)
+
+    def stop(self, reason: str, why: str) -> RunLog:
+        return self.add("stop", reason=reason, why=why)
+
+
+class TestStateLog:
+    def test_questions_count_per_step_by_how_they_were_settled(
+        self, home: Home
+    ) -> None:
+        # Given
+        log = RunLog("r1").ask("r1:1", "Design", "interview").rule("r1:1")
+        _ = log.ask("r1:2", "Fact", "interview")
+        _ = log.ask("r1:3", "Confirm", "confirm").answer("r1:3")
+        home.log("a", log)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-log", "engineer interview")[1:] == [
+            "2",
+            "1",
+            "0",
+            "1",
+            "Design 1, Fact 1",
+        ]
+        assert row(report, "state-log", "engineer confirm")[1:] == [
+            "1",
+            "0",
+            "1",
+            "0",
+            "Confirm 1",
+        ]
+
+    def test_a_childs_question_counts_once_at_its_own_step_ruled_by_the_parent(
+        self, home: Home
+    ) -> None:
+        # Given
+        child = RunLog("c1").ask("c1:1", "Design", "plan").answer("c1:1", {"run": "p1"})
+        parent = RunLog("p1", flow="10x").ask(
+            "c1:1", "Design", "engineers", {"run": "c1"}
+        )
+        home.log("child", child)
+        home.log("parent", parent.rule("c1:1"))
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-log", "engineer plan")[1:3] == ["1", "1"]
+        assert "10x engineers|" not in section(report, "state-log")
+
+    def test_a_question_the_parent_raised_on_a_childs_hand_back_is_the_parents(
+        self, home: Home
+    ) -> None:
+        # Given
+        parent = RunLog("p1", flow="10x").ask(
+            "p1:1", "Design", "engineers", {"run": "c1"}
+        )
+        home.log("parent", parent)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-log", "10x engineers")[1:] == [
+            "1",
+            "0",
+            "0",
+            "1",
+            "Design 1",
+        ]
+
+    def test_stuck_rounds_and_re_plans_are_counted_in_the_headline(
+        self, home: Home
+    ) -> None:
+        # Given
+        log = (
+            RunLog("r1").ask("r1:1", "Stuck", "review").stop("replan", "plan wrong: x")
+        )
+        home.log("a", log)
+        home.log("b", RunLog("r2").stop("replan", "plan wrong: y"))
+        home.log("c", RunLog("r3").stop("blocked", "no access"))
+        # When
+        report = home.report()
+        # Then
+        assert headline(report, "state-log") == (
+            "3 runs, 1 questions, 0 rulings, 1 stuck rounds, 2 re-plans"
+        )
+        assert row(report, "state-log", "replan") == ["replan", "2", "plan wrong: y"]
+        assert row(report, "state-log", "blocked") == ["blocked", "1", "no access"]
+        assert row(report, "state-log", "r1")[1:] == ["engineer review", "?"]
+
+    def test_a_python_state_log_is_skipped_and_counted(self, home: Home) -> None:
+        # Given
+        home.log("v3", RunLog("r1").ask("r1:1", "Fact", "interview"))
+        old = RunLog("old")
+        old.lines = [{"seq": 1, "event": {"type": "started", "version": 2}}]
+        home.log("v2", old)
+        # When
+        report = home.report()
+        # Then
+        assert headline(report, "state-log").startswith("1 runs, 1 questions")
+        assert "logs older than version 3, skipped: 1" in section(report, "state-log")
+
+    def test_only_runs_started_in_the_window_and_project_count(
+        self, home: Home
+    ) -> None:
+        # Given
+        home.log("old", RunLog("r1", start=0).ask("r1:1", "Fact", "interview"))
+        home.log("new", RunLog("r2", start=1000).ask("r2:1", "Fact", "plan"))
+        other = RunLog("r3", start=1000, notes="/work/engineer-me-other-x/")
+        home.log("other", other.ask("r3:1", "Fact", "draft"))
+        # When
+        report = home.report("--since", at(500), "--project", "demo")
+        # Then
+        body = section(report, "state-log")
+        assert "engineer plan|" in body
+        assert "engineer interview|" not in body
+        assert "engineer draft|" not in body
+
+    def test_without_logs_the_section_says_none(self, home: Home) -> None:
+        # When
+        report = home.report()
+        # Then
+        assert headline(report, "state-log") == (
+            "0 runs, 0 questions, 0 rulings, 0 stuck rounds, 0 re-plans"
+        )
 
 
 class TestStartUp:

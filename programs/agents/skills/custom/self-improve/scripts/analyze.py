@@ -2,9 +2,10 @@
 """Measure where Claude Code sessions spend tokens and wall time, what the
 quality loop bought for them, and how agents talk to each other.
 
-Reads the transcripts under ~/.claude/projects and prints a compact markdown
-report for an agent to read. Read-only, and offline unless `--gh` asks
-`gh pr view` for each linked PR's changed lines. Standard library only.
+Reads the transcripts under ~/.claude/projects and the `state` event logs of
+engineer and 10x runs, and prints a compact markdown report for an agent to
+read. Read-only, and offline unless `--gh` asks `gh pr view` for each linked
+PR's changed lines. Standard library only.
 
 Usage: analyze.py [--since ISO] [--project SUBSTR] [--compare ISO] [--gh] [--root DIR]
 
@@ -68,10 +69,11 @@ def main(argv: Sequence[str] | None = None, fetch: Fetch | None = None) -> None:
     args = parse_args(argv)
     sessions = load_sessions(args.root)
     window = select_window(sessions, args.since, args.project)
+    logs = load_logs(default_logs() if args.logs is None else args.logs)
+    runs = select_logs(logs, window.since, args.project)
     sizes = (fetch or gh_pr_size) if args.gh else None
-    print(
-        render(window, describe_window(window.since, args.project), args.compare, sizes)
-    )
+    scope = describe_window(window.since, args.project)
+    print(render(window, runs, scope, args.compare, sizes))
 
 
 class Args(argparse.Namespace):
@@ -80,6 +82,7 @@ class Args(argparse.Namespace):
     compare: datetime | None = None
     gh: bool = False
     root: Path = Path.home() / ".claude" / "projects"
+    logs: list[Path] | None = None  # None: the logs under `default_logs`
 
 
 def parse_args(argv: Sequence[str] | None) -> Args:
@@ -92,7 +95,8 @@ def parse_args(argv: Sequence[str] | None) -> Args:
         help="ISO date or time; default: the previous /self-improve run",
     )
     _ = parser.add_argument(
-        "--project", help="only sessions whose working directory contains this"
+        "--project",
+        help="only sessions whose working directory, and runs whose notes path, contains this",
     )
     _ = parser.add_argument(
         "--compare", type=utc_time, help="ISO date or time to split the window at"
@@ -107,6 +111,7 @@ def parse_args(argv: Sequence[str] | None) -> Args:
         type=Path,
         help=argparse.SUPPRESS,
     )
+    _ = parser.add_argument("--logs", type=Path, nargs="*", help=argparse.SUPPRESS)
     return parser.parse_args(argv, namespace=Args())
 
 
@@ -2086,7 +2091,11 @@ class Section:
 
 
 def render(
-    window: Window, scope: str, split: datetime | None, fetch: Fetch | None
+    window: Window,
+    runs: StateLogs,
+    scope: str,
+    split: datetime | None,
+    fetch: Fetch | None,
 ) -> str:
     sessions = window.sessions
     agents = [(s, a) for s in sessions for a in s.agents]
@@ -2108,6 +2117,7 @@ def render(
         tool_times(calls),
         bash_commands(calls),
         state_ctx(calls),
+        state_log(runs),
         *checks_sections(sessions),
         polling(calls),
         failures(calls),
@@ -2928,6 +2938,188 @@ def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
         str(len(outcomes)),
         str(len(failed)),
         clip(top[0][0], 80) if top else "-",
+    ]
+
+
+# --- State event logs --------------------------------------------------------
+#
+# Each engineer or 10x run appends its steps to `<notes>/events.jsonl`, one JSON
+# object per line, version 3 (programs/agents/kernel/src/State/Codec.hs). A 10x
+# re-asks a child's question in its own log under the child's qid, so a question
+# counts once, in the log of the run whose qid it bears.
+
+LOG_VERSION = 3  # the version `read_log` matches on
+REPLAN = "replan"  # the stop reason that ends a run for a new plan
+STUCK = "Stuck"  # the question kind the stuck guard asks
+
+
+def default_logs() -> list[Path]:
+    """Where the engineer and 10x skills keep a run's notes."""
+    # The engineer skill's fixed path, not a temporary file: TMPDIR does not move it.
+    engineers = Path("/tmp").glob("engineer-*/events.jsonl")  # noqa: S108
+    tenx = (Path.home() / ".10x").glob("*/events.jsonl")
+    return sorted([*engineers, *tenx])
+
+
+@dataclass(frozen=True)
+class Question:
+    qid: str
+    kind: str
+    step: str  # the flow and the step it was asked at, e.g. "engineer interview"
+    text: str
+
+
+@dataclass(frozen=True)
+class RunStop:
+    reason: str
+    why: str
+
+
+@dataclass(frozen=True)
+class RunLog:
+    run: str
+    start: float
+    notes: str
+    questions: list[Question]  # the run's own, not those re-asked for a child
+    ruled: set[str]  # qids this run ruled on
+    answered: set[str]  # qids answered from above, by the user or a parent run
+    stops: list[RunStop]
+
+
+@dataclass(frozen=True)
+class StateLogs:
+    runs: list[RunLog]
+    older: int  # logs another version wrote, the Python state's, not read
+
+
+def load_logs(paths: Iterable[Path]) -> StateLogs:
+    loaded = [read_log(path) for path in paths]
+    runs = [log for log in loaded if log is not None]
+    return StateLogs(runs, len(loaded) - len(runs))
+
+
+def read_log(path: Path) -> RunLog | None:
+    """The run `path` logs, None when its first line is not version 3."""
+    match list(read_jsonl(path)):
+        case [
+            {"v": 3, "type": "started", "run": str(run), "ts": str(ts)} as first,
+            *rest,
+        ]:
+            started = as_object(first.get("data"))
+            events = [(line.get("type"), as_object(line.get("data"))) for line in rest]
+            flow = text_of(started.get("flow"))
+            return RunLog(
+                run,
+                datetime.fromisoformat(ts).timestamp(),
+                text_of(started.get("notes")),
+                [
+                    question(flow, data)
+                    for kind, data in events
+                    if kind == "asked" and qid_of(data).split(":")[0] == run
+                ],
+                {qid_of(data) for kind, data in events if kind == "ruled"},
+                {qid_of(data) for kind, data in events if kind == "answered"},
+                [
+                    RunStop(text_of(data.get("reason")), text_of(data.get("why")))
+                    for kind, data in events
+                    if kind == "stop"
+                ],
+            )
+        case _:
+            return None
+
+
+def question(flow: str, asked: dict[str, Json]) -> Question:
+    return Question(
+        qid_of(asked),
+        text_of(asked.get("kind")),
+        f"{flow} {text_of(asked.get('step'))}",
+        text_of(asked.get("question")),
+    )
+
+
+def qid_of(data: dict[str, Json]) -> str:
+    """A question's id, `<run>:<n>` for the run that asked it."""
+    return text_of(data.get("qid"))
+
+
+def select_logs(logs: StateLogs, since: float | None, project: str | None) -> StateLogs:
+    """Runs started in the window, whose notes path names the project when given."""
+    chosen = [
+        r
+        for r in logs.runs
+        if (since is None or r.start >= since)
+        and (project is None or project in r.notes)
+    ]
+    return StateLogs(sorted(chosen, key=lambda r: r.start), logs.older)
+
+
+class Settled(Enum):
+    RULED = "ruled"
+    ANSWERED = "answered"
+    OPEN = "open"
+
+
+def settled(qid: str, ruled: set[str], answered: set[str]) -> Settled:
+    """A ruling settles a question even when a child's log records it answered by its parent."""
+    if qid in ruled:
+        return Settled.RULED
+    if qid in answered:
+        return Settled.ANSWERED
+    return Settled.OPEN
+
+
+def state_log(logs: StateLogs) -> Section:
+    """Questions per step and how they were settled, stuck rounds and stops."""
+    runs = logs.runs
+    ruled = {q for r in runs for q in r.ruled}
+    answered = {q for r in runs for q in r.answered}
+    asked = [(r, q) for r in runs for q in r.questions]
+    by_step: dict[str, list[Question]] = defaultdict(list)
+    for _, q in asked:
+        by_step[q.step].append(q)
+    step_rows = [
+        state_log_step(step, qs, ruled, answered)
+        for step, qs in sorted(by_step.items(), key=lambda kv: -len(kv[1]))
+    ]
+    stuck = [(r, q) for r, q in asked if q.kind == STUCK]
+    stops: dict[str, list[str]] = defaultdict(list)  # reason: whys
+    for r in runs:
+        for stop in r.stops:
+            stops[stop.reason].append(stop.why)
+    stop_rows = [
+        [reason, str(len(whys)), clip(whys[-1], 80)]
+        for reason, whys in sorted(stops.items(), key=lambda kv: -len(kv[1]))
+    ]
+    stuck_rows = [[r.run, q.step, clip(q.text, 80)] for r, q in stuck[-TOP:]]
+    fact = (
+        f"{len(runs)} runs, {len(asked)} questions, {len(ruled)} rulings, "
+        f"{len(stuck)} stuck rounds, {len(stops.get(REPLAN, []))} re-plans"
+    )
+    return Section(
+        "state-log",
+        fact,
+        [
+            f"logs older than version {LOG_VERSION}, skipped: {logs.older}",
+            *table(["step", "asked", "ruled", "answered", "open", "kinds"], step_rows),
+            "stops:",
+            *table(["reason", "n", "latest why"], stop_rows),
+            "stuck rounds, latest:",
+            *table(["run", "step", "question"], stuck_rows),
+        ],
+    )
+
+
+def state_log_step(
+    step: str, questions: list[Question], ruled: set[str], answered: set[str]
+) -> list[str]:
+    outcomes = Counter(settled(q.qid, ruled, answered) for q in questions)
+    kinds = Counter(q.kind for q in questions)
+    return [
+        step,
+        str(len(questions)),
+        *(str(outcomes[s]) for s in Settled),
+        ", ".join(f"{kind} {n}" for kind, n in sorted(kinds.items())),
     ]
 
 
