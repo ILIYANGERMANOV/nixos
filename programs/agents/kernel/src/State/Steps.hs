@@ -14,6 +14,7 @@ module State.Steps (
 
 import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:))
 import Data.ByteString.Lazy (ByteString)
+import Data.Either (lefts, rights)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -64,8 +65,8 @@ parseSteps raw = do
         known = Set.fromList [stepName s | SomeStep s <- allSteps]
         unknown = [name <> ": no such step" | StateName name <- Map.keys rows, not (Set.member (StateName name) known)]
         checked = map (check rows) allSteps
-    case unknown <> concat [problems | Left problems <- checked] of
-        [] -> Right (Steps (Map.fromList [pair | Right pair <- checked]))
+    case unknown <> concat (lefts checked) of
+        [] -> Right (Steps (Map.fromList (rights checked)))
         problems -> Left problems
 
 check :: Map StateName Written -> SomeStep -> Either [Text] (StateName, Row)

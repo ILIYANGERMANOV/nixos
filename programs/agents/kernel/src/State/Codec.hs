@@ -14,6 +14,13 @@ module State.Codec (
     decodeLog,
     LineError (..),
     LogError (..),
+    areaText,
+    reasonText,
+    judgementText,
+    flowText,
+    opText,
+    shaText,
+    urlText,
 ) where
 
 import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
