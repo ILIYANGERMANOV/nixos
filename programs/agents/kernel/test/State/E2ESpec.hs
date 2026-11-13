@@ -168,6 +168,23 @@ spec = describe "the state binary" $ do
                 third <- succeeded =<< state bin repo ["next"]
                 take 1 third `shouldBe` ["AWAIT children t2"]
 
+            it "asks the user its own breakdown Confirm, and refuses to rule on it" $ \repo -> do
+                run <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "confirm", "the", "plan", "is", "written"]] (succeeded <=< state bin repo)
+                asked <- succeeded =<< state bin repo ["ask", "--kind", "Confirm", "start", "the", "breakdown?"]
+                asked `shouldSatisfy` mentions "ASK user"
+                ruled <- state bin repo ["rule", Text.unpack run <> ":1", "--answer", "yes", "--why", "fits", "--cost", "none"]
+                ruled.code `shouldBe` 2
+
+            it "rules a child's task-plan Confirm" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                relay bin repo =<< succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
+                _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
+                resume <- succeeded =<< state bin repo ["next"]
+                take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1"]
+
             it "spawns a task once: next waits on it from the recorded spawn, before the child starts" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
                 spawn <- succeeded =<< state bin repo ["next"]

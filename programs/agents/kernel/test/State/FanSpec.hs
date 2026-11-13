@@ -109,9 +109,14 @@ spec = describe "State.Fan" $ do
         applied [held (TaskId "t9") (Url "u")] `shouldBe` Left (UnknownTask (TaskId "t9"))
 
     it "spawns a task only once its dependency settled" $ do
-        let two = broken (tasksOf (plainTask "t1" [] :| [plainTask "t2" ["t1"]])) emptyFan
-        map (.id) (spawnable [] 3 two) `shouldBe` [t1]
-        map (.id) . spawnable [] 3 <$> (spawned [] (childFor "c1" t1) two >>= handedBack (runId "c1") (Finished (oneLine "PR"))) `shouldBe` Right [t2]
+        map (.id) (spawnable [] 3 twoTasks) `shouldBe` [t1]
+        map (.id) . spawnable [] 3 <$> (spawned [] (childFor "c1" t1) twoTasks >>= handedBack (runId "c1") (Finished (oneLine "PR"))) `shouldBe` Right [t2]
+
+    it "spawns no task whose dependency is parked: it never merges to stack on" $
+        map (.id) . spawnable [] 3 <$> moved t1 (Parked "POC" Nothing) twoTasks `shouldBe` Right []
+
+    it "frees the slot of a task parked with its agent at work" $
+        map (.id) . spawnable [] 1 <$> (spawning [] t1 independent >>= moved t1 (Parked "lost" Nothing)) `shouldBe` Right [t2]
 
     it "runs one heavy task at a time" $
         map (.id) (spawnable [] 3 (broken (tasksOf ((plainTask "t1" []) {heavy = True} :| [(plainTask "t2" []) {heavy = True}])) emptyFan)) `shouldBe` [t1]
@@ -126,6 +131,9 @@ spec = describe "State.Fan" $ do
     settledAfter changes = (`settled` t1) <$> applied changes
     applied = foldl' (>>=) (Right oneTask)
     oneTask = broken (tasksOf (plainTask "t1" [] :| [])) emptyFan
+    -- @t2@ depends on @t1@.
+    twoTasks = broken (tasksOf (plainTask "t1" [] :| [plainTask "t2" ["t1"]])) emptyFan
+    independent = broken (tasksOf (plainTask "t1" [] :| [plainTask "t2" []])) emptyFan
 
 t1, t2 :: TaskId
 t1 = TaskId "t1"

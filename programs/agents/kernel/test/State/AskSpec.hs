@@ -124,6 +124,9 @@ spec = describe "State.Ask" $ do
         it "forwards the Confirm of a task not Trivial, whose row answers it only when Trivial" $
             ask ByUser Normal Engineer Confirm `shouldBe` Up TheUser
 
+        it "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit" $
+            ask ByUser Normal TenX Confirm `shouldBe` Up TheUser
+
     it "spells the hand-back line as #360's wire format" $
         needsDecision (Question qid Design (oneLine "change the data model?"))
             `shouldBe` "NEEDS_DECISION Design r7f2:3: change the data model?"

@@ -241,7 +241,14 @@ then the merge loop's gates.
 
 **READY.** The child is done. `state handback engineer` records the PR its
 line 1 names: in review, or parked as a labelled draft for POC; with none
-named, `state next` prints the record. Notify. Never offer to run the app:
+named, `state next` prints the record. Notify as the engineer skill's Ship
+does in a run with no parent: the PR's `## What & Why` and its optional next
+steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or runtime
+change, `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`,
+and `/address-pr-feedback <PR>` when others commented. Only the user runs
+them. A POC task's parked draft gets none, and a task depending on it opens
+one decision: retry it at a higher Quality, or re-plan. `state next` spawns
+no dependent of a parked task. Never offer to run the app:
 run it only when the user asks, on a port in 3000-3099, and give the URL. A QA
 Fail the user reports is a comment from the user.
 

@@ -158,7 +158,7 @@ hookAnswer steps call want =
         pure (either (failureText "hook") id result)
     -- GitHub unread is no PR: the hook speaks.
     branchPr = fromRight Nothing . pullRequestOf <$> Gh.prView
-    -- A log of another version is the Python state's, which the hooks leave be (#360).
+    -- A log of another log version, as an older one: the hooks leave it be (#360).
     hasRun =
         gitDir >>= \case
             Left _ -> pure False

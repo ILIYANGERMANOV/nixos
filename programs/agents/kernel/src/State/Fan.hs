@@ -3,10 +3,11 @@ child run spawned for each, what each child said, and where each task's PR
 stands. A task is settled when its latest child finished, or its PR is in
 review, merged or parked; the fan-out leaves its state only once every task
 is settled. A task has an agent at work from the 10x's spawn or resume until
-its child hands back, so the 10x sends one agent per task, once. A child's
-stop is the 10x's to triage before another child takes the task. Which tasks
-to spawn next is derived here too: at most @width@ tasks at work at once, at
-most one of them heavy, and a task waits for its dependencies to settle.
+its child hands back or the task is parked, so the 10x sends one agent per
+task, once. A child's stop is the 10x's to triage before another child takes
+the task. Which tasks to spawn next is derived here too: at most @width@ tasks
+at work at once, at most one of them heavy, and a task waits for its
+dependencies to settle unparked.
 -}
 module State.Fan (
     Fan (..),
@@ -167,8 +168,17 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
         | childRun.child.run == run = childRun {said = childRun.said <> [Heard said]}
         | otherwise = childRun
 
+{- | A parked task has no agent at work: parking settles even a lost child,
+whose slot it frees.
+-}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
-moved task state fan = fan {moves = Map.insert task state fan.moves} <$ known task fan
+moved task state fan = fan {moves = Map.insert task state fan.moves, atWork = working} <$ known task fan
+  where
+    working = case state of
+        Parked _ _ -> Set.delete task fan.atWork
+        InCi _ -> fan.atWork
+        InReview _ -> fan.atWork
+        Merged _ -> fan.atWork
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan
@@ -279,8 +289,8 @@ unsettled fan = [task.id | task <- fan.tasks, not (settled fan task.id)]
 
 {- | The tasks to spawn now, in the breakdown's order: unsettled, no child
 running and no agent at work, its last stop triaged, no question of its
-children open (@asking@), dependencies settled, within the free slots of
-@width@, and at most one heavy task busy at once.
+children open (@asking@), dependencies settled and not parked, within the free
+slots of @width@, and at most one heavy task busy at once.
 -}
 spawnable :: [RunId] -> Natural -> Fan -> [Task]
 spawnable asking width fan = pick (fromIntegral width - length (busy fan)) (any (.heavy) (busy fan)) ready
@@ -292,7 +302,7 @@ spawnable asking width fan = pick (fromIntegral width - length (busy fan)) (any 
         , task.id `notElem` map (.id) (busy fan)
         , task.id `notElem` map ((.task) . fst) (untriaged fan)
         , all ((`notElem` asking) . (.child.run)) (childrenOf fan task.id)
-        , all (settled fan) task.deps
+        , all (built fan) task.deps
         ]
     pick :: Int -> Bool -> [Task] -> [Task]
     pick slots heavyTaken = \case
@@ -301,6 +311,20 @@ spawnable asking width fan = pick (fromIntegral width - length (busy fan)) (any 
             | task.heavy && heavyTaken -> pick slots heavyTaken rest
             | otherwise -> task : pick (slots - 1) (heavyTaken || task.heavy) rest
         [] -> []
+
+{- | Settled and not parked: a dependent stacks on its PR or what merged. A
+parked dependency never merges, so its dependents wait, and the fan-out then
+advises parking them.
+-}
+built :: Fan -> TaskId -> Bool
+built fan task = settled fan task && not parked
+  where
+    parked = case Map.lookup task fan.moves of
+        Just (Parked _ _) -> True
+        Just (InCi _) -> False
+        Just (InReview _) -> False
+        Just (Merged _) -> False
+        Nothing -> False
 
 -- | The tasks with an agent at work or a child running, in the breakdown's order.
 busy :: Fan -> [Task]

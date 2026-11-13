@@ -335,8 +335,10 @@ data Above
     deriving stock (Eq, Show)
 
 {- | Where a role's own question goes: its own row first, then its principal.
-The run knows its size, so 'TrivialSize' is decided here; the LLM judges every
-other condition, and may still forward.
+The run knows its size, so 'TrivialSize' is decided here, and 'FitsBreakdown'
+never holds for a run's own question: the 10x's own Confirm is of the breakdown
+itself, before any is confirmed. The LLM judges every other condition, and may
+still forward.
 -}
 ask :: Principal -> Size -> Role -> Kind -> Delivery
 ask principal size role kind = case authority role kind of
@@ -345,7 +347,7 @@ ask principal size role kind = case authority role kind of
         Trivial -> AnswerSelf
         Normal -> up
     AnswersIf RuleTest -> AnswerSelf
-    AnswersIf FitsBreakdown -> AnswerSelf
+    AnswersIf FitsBreakdown -> up
     AnswersIf ObviousOrAnswered -> AnswerSelf
     AnswersIf OneRetry -> AnswerSelf
     Forwards -> up

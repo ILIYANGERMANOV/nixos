@@ -254,5 +254,18 @@ in
         quality = ./instructions/topics/quality.md;
       };
     }
+    {
+      # #360's no_delegated_word, law Principal-blind: a flow never branches
+      # on who started its run, so neither the kernel nor the text that drives
+      # it names a delegated mode. rg exits 1 on no match, 2 on an error.
+      name = "no-delegated-word";
+      path = pkgs.runCommand "no-delegated-word" { nativeBuildInputs = [ pkgs.ripgrep ]; } ''
+        status=0
+        rg -i -n delegated ${./kernel/src} ${./kernel/app} ${./skills/custom/engineer} \
+          ${./skills/custom/10x-engineer} ${./roles/engineer} || status=$?
+        [[ $status == 1 ]] || { echo "the word delegated is back (#360 law Principal-blind)" >&2; exit 1; }
+        touch "$out"
+      '';
+    }
   ];
 }

@@ -9,7 +9,7 @@ module State.FlowGen (
     genWalk,
     genWalkTo,
     pathTo,
-    bypasses,
+    skipsKept,
     composes,
 ) where
 
@@ -22,7 +22,7 @@ import Hedgehog.Range qualified as Range
 import State.Cap (EventName, OutcomeEdge (..), StateName, Step (..), Ty (..))
 import State.Flow (FanId (..), Flow (..), OnEmpty (..))
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
-import State.Mode (Cfg (..), Mode, SkipWhen (..), cfg)
+import State.Mode (Cfg (..), Mode, SkipWhen (..), cfg, modes)
 
 -- | The steps of one type that a generated flow chains, with and without an exit.
 data Kit a = Kit {endo :: [Flow a 'Nothing a], exiting :: [Flow a ('Just a) a]}
@@ -100,6 +100,12 @@ pathTo g from target = go (Set.singleton from) [(from, [])]
         | otherwise =
             let next = [(edge.to, event : walked) | ((place, event), edge) <- Map.toList g.edges, At place == node, edge.to `Set.notMember` seen]
              in go (foldr (Set.insert . fst) seen next) (queue <> next)
+
+{- | Each mode and kept state where that mode bypasses the state: none, by
+#351's Keep law. A flow whose graph does not build skips them all.
+-}
+skipsKept :: Either e OpenGraph -> [StateName] -> [(Mode, StateName)]
+skipsKept built kept = [(mode, name) | mode <- modes, name <- kept, either (const True) (\g -> bypasses mode g name) built]
 
 {- | A run in this mode can reach the end without running a step of this
 name: it takes a skip, which leaves the skipped step's state, only where the

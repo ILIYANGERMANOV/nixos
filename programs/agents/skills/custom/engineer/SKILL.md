@@ -29,7 +29,7 @@ who owns each decision.
     Then `state next`.
 
   This covers user-facing wording and naming you are unsure of (slash
-  commands, labels, text the user reads); mechanical internal names are yours.
+  commands, labels); mechanical internal names are yours.
   Told to use your own judgment, you rule the rest and record each ruling,
   with its reason, in the PR body.
 - **Facts are yours.** Research facts with researchers. Only you spawn them;
@@ -52,6 +52,7 @@ who owns each decision.
   | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions describe, then record green or red |
   | `HANDBACK <line>` | the Ask rule's `HANDBACK` |
   | `STOP <reason>` | the run is over, as `blockers.md`'s Stops says |
+  | `recorded <n> <event> -> <state>` | logged for you: read on |
 
   A `fix:` line names the command that works now: run it. Off the advised
   arrow: `state override <state> <why>`.
@@ -231,8 +232,8 @@ and CI runs.
   notify, pasting the body's `## What & Why` and optional next
   steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or
   runtime change, `/final-review --requirements <path> <PR>`,
-  `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when the PR has
-  comments from anyone else. Only the user runs them.
+  `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
+  commented. Only the user runs them.
 
 POC skips `ready`: the PR stays a labelled draft, not merge-ready, with no
 next steps.

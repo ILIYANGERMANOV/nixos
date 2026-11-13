@@ -100,7 +100,7 @@ in
     exit = null;
     outcomes = [ "done" ];
     runner = "researcher";
-    lead = "Propose: one researcher in the background, naming the plan and the notes directory.";
+    lead = "Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal.";
     entry = "Run the researcher skill's `references/proposal.md`, mode simplify, on the plan your prompt names.";
     tools = [
       "read"
@@ -121,7 +121,7 @@ in
     exit = null;
     outcomes = [ "done" ];
     runner = "researcher";
-    lead = "Propose: one researcher in the background, naming the plan and the notes directory.";
+    lead = "Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record alternative.done` on the earlier proposal.";
     entry = "Run the researcher skill's `references/proposal.md`, mode alternative, on the plan your prompt names.";
     tools = [
       "read"
@@ -275,7 +275,7 @@ in
     outcomes = [ "done" ];
     runner = "fixer";
     lead = "Describe: the final fixer, briefed with `state brief fixer`.";
-    entry = "Fix row R0 and any picked rows your prompt names; nothing reviews your fix.";
+    entry = "Fix row R0, writing the PR body's full facts as `pr-description` says, and any picked rows your prompt names; nothing reviews your fix.";
     tools = [
       "read"
       "edit"
@@ -344,7 +344,7 @@ in
     exit = null;
     outcomes = [ "done" ];
     runner = "inline";
-    entry = "Ship: the gates below, then mark the PR ready.";
+    entry = "Ship: the skill's gates, then mark the PR ready.";
     tools = [ "shell" ];
     skills = [ "engineer" ];
     prose = leadProse;
