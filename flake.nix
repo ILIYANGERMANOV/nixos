@@ -208,7 +208,13 @@
         pkgs:
         let
           default = import ./shells/default.nix { inherit pkgs inputs; };
-          kernel = import ./programs/agents/kernel { inherit pkgs; };
+          inherit
+            (import ./adapters/agents.nix {
+              inherit inputs pkgs;
+              root = self;
+            })
+            kernel
+            ;
         in
         {
           inherit default;
