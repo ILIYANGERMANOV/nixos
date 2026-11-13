@@ -22,9 +22,9 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 ## Rules
 
 - **Decisions are the user's, facts are yours.** Follow the Asking rules in
-  your instructions. Each question goes through `state ask --kind <K> "<q>"`
-  first and its answer through `state answer <qid> <answer>`, so the log
-  holds every decision. One exception after the breakdown: Engineers says
+  your instructions. Each question goes through `state ask --kind <K> "<q>"`,
+  then the Ask rule in `~/.claude/skills/engineer/SKILL.md`, so the log holds
+  every decision. One exception after the breakdown: Engineers says
   what you may rule on.
 - **You never implement.** Research, spikes, engineers, fixers and audits are
   subagents. You plan, triage, ask and merge.
