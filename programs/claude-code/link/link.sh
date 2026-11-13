@@ -1,7 +1,12 @@
 # shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 # Rewrites what this flavor owns in ~/.claude and ~/.claude.json.
 
-mkdir -p "$HOME/.claude"
+# Claude Code reads both from CLAUDE_CONFIG_DIR when it is set, .claude.json
+# included, so a launcher can keep a separate config dir (claude-demo does).
+claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+claude_json="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+
+mkdir -p "$claude_dir"
 apply_skills
 
 # Rewrite ~/.claude/CLAUDE.md from the store on every launch.
@@ -14,15 +19,15 @@ apply_skills
 # `install -m 600`, not `cp`: store paths are mode 444 and Claude Code never
 # rewrites CLAUDE.md, so a plain `cp` would succeed once and then fail with
 # EACCES on every later launch - fatal under `set -o errexit`.
-install -m 600 "$instructions_file" "$HOME/.claude/CLAUDE.md"
-install -m 600 "$settings_file" "$HOME/.claude/settings.json"
+install -m 600 "$instructions_file" "$claude_dir/CLAUDE.md"
+install -m 600 "$settings_file" "$claude_dir/settings.json"
 
 # Atomically update ~/.claude.json with this flavor's MCP servers.
 # mcp_static_file is a Nix store path with the static JSON (env var references only).
 # Replaces mcpServers entirely so switching flavors is always clean.
-[ -f "$HOME/.claude.json" ] || echo '{}' >"$HOME/.claude.json"
-_claude_tmp=$(mktemp "$HOME/.claude.json.XXXXXX")
+[ -f "$claude_json" ] || echo '{}' >"$claude_json"
+_claude_tmp=$(mktemp "$claude_json.XXXXXX")
 trap 'rm -f "$_claude_tmp"' EXIT
 jq --slurpfile mcp "$mcp_static_file" ".mcpServers = \$mcp[0]" \
-  "$HOME/.claude.json" >"$_claude_tmp"
-mv "$_claude_tmp" "$HOME/.claude.json"
+  "$claude_json" >"$_claude_tmp"
+mv "$_claude_tmp" "$claude_json"

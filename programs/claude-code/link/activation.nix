@@ -15,8 +15,10 @@ let
   # Everything a rebuild places, read back from this one fold, so no script
   # installs a target with two sources.
   files = foldTargets ([ (home.lead settingsFile instructionsFile) ] ++ home.roles agentSources);
+  # Where Claude Code reads its config, as link.sh computes it.
+  dir = "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}";
   install = path: ''
-    install -m 600 ${files.${path}} "$HOME/${path}"
+    install -m 600 ${files.${path}} "${dir}/${lib.removePrefix ".claude/" path}"
   '';
 in
 rec {
@@ -28,7 +30,7 @@ rec {
   # previous copy of itself fails with EACCES. `install` sets the mode on the
   # destination it writes, which makes the operation repeatable.
   activationScript = ''
-    mkdir -p "$HOME/.claude"
+    mkdir -p "${dir}"
   ''
   + install home.settings
   + install home.instructions;
@@ -38,7 +40,7 @@ rec {
   shellActivationScript =
     activationScript
     + ''
-      mkdir -p "$HOME/.claude/agents"
+      mkdir -p "${dir}/agents"
     ''
     + lib.concatMapStrings (name: install (home.role name)) (lib.attrNames agentSources);
 

@@ -18,6 +18,8 @@ teardown() { stop_background; }
 
 # origin.git has one commit on main.
 fresh_world() {
+  # Inherited from a claude-demo session, it would send the links to its dir.
+  unset CLAUDE_CONFIG_DIR
   rm -rf "${work:?}"
   mkdir -p "$HOME" "$GH"
   : >"$CALLS"

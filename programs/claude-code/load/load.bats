@@ -7,6 +7,7 @@ load ../../shell-check/test_helper
 
 setup() {
   export WORK="$BATS_TEST_TMPDIR"
+  unset CLAUDE_CONFIG_DIR
   export claude_bin=claude runtime_path="$WORK/runtime"
   mcp_secrets=()
   declare -gA secret_files=()

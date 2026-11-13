@@ -96,4 +96,9 @@ darwin-rebuild switch --flake .#macos-main
 
 # Rebuild and switch (NixOS)
 nixos-rebuild switch --flake .#lenovo-old
+
+# Try the agent harness without installing it: Claude Code with this repo's
+# skills and subagents, its config in ~/.local/state/claude-demo (or
+# $CLAUDE_DEMO_DIR), never ~/.claude or $CLAUDE_CONFIG_DIR
+nix develop .#factory-demo -c claude-demo
 ```

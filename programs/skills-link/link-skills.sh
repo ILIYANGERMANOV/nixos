@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-live="$HOME/.claude/skills"
+claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+live="$claude_dir/skills"
 mkdir -p "$live"
-scratch=$(mktemp -d "$HOME/.claude/.skills.XXXXXX")
+scratch=$(mktemp -d "$claude_dir/.skills.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 ln -s "$1"/* "$scratch/"
 for link in "$scratch"/*; do

@@ -1,6 +1,7 @@
 # Build-time tests for the ~/.claude.json MCP shape, the secret file guard, the
-# hooks' settings and load/applies.nix, wired into `nix flake check` (and therefore `just check` in
-# CI) as `checks.claude-code`. Which servers a host gets is programs/agents' logic and
+# hooks' settings, load/applies.nix and where link/activation.nix installs,
+# wired into `nix flake check` (and therefore `just check` in CI) as
+# `checks.claude-code`. Which servers a host gets is programs/agents' logic and
 # is tested in `checks.agents`; here the servers are the records it hands over,
 # secrets already resolved to paths.
 {
@@ -206,6 +207,32 @@ let
     }
   ];
 
+  # Given: a rebuild's activation with one role, run as claude-demo runs it.
+  activation = import ./link/activation.nix {
+    inherit lib;
+    inherit
+      (import ../agents {
+        inherit pkgs;
+        qa = throw "the activation needs no /qa";
+      })
+      foldTargets
+      ;
+    settingsFile = builtins.toFile "settings.json" "{}";
+    instructionsFile = builtins.toFile "CLAUDE.md" "instructions";
+    agentSources.reviewer = builtins.toFile "reviewer.md" "reviewer";
+  };
+  # Then: with CLAUDE_CONFIG_DIR set, every file lands there and none in HOME.
+  activationInstallsIntoConfigDir = ''
+    (
+      export HOME="$PWD/home" CLAUDE_CONFIG_DIR="$PWD/demo"
+      ${activation.shellActivationScript}
+    )
+    for file in settings.json CLAUDE.md agents/reviewer.md; do
+      [ -f "demo/$file" ] || { echo "  ✗ the activation did not install $file into CLAUDE_CONFIG_DIR" >&2; status=1; }
+    done
+    [ ! -e home/.claude ] || { echo "  ✗ with CLAUDE_CONFIG_DIR set, the activation wrote into HOME" >&2; status=1; }
+  '';
+
   # Then: every case is reported, so one failure does not hide the rest.
   report =
     {
@@ -230,9 +257,10 @@ builtins.deepSeq (import ./load/applies.nix { inherit lib; }) pkgs.runCommand "c
     status=0
 
     ${lib.concatMapStringsSep "\n" report cases}
+    ${activationInstallsIntoConfigDir}
 
     if [ "$status" -ne 0 ]; then
-      echo "claude-code: the MCP shape, the secret file guard or the hooks' settings are wrong" >&2
+      echo "claude-code: the MCP shape, the secret file guard, the hooks' settings or the activation are wrong" >&2
       exit 1
     fi
 

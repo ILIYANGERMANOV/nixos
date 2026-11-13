@@ -192,6 +192,23 @@ rec {
     inherit (factoryProfile) runtime;
   };
 
+  # claude-demo: the `claude` flavor in its own config dir. See link/demo.sh.
+  demo =
+    let
+      claude = lib.findFirst (flavor: flavor.name == "claude") (throw "no claude flavor") packages;
+      shellCheck = import ../shell-check { inherit pkgs; };
+    in
+    shellCheck.writeShellApplication {
+      name = "claude-demo";
+      text = ''
+        ${lib.toShellVar "claude_bin" (lib.getExe claude)}
+        activate() {
+          ${shellActivationScript}
+        }
+        ${shellCheck.fragment ./link/demo.sh}
+      '';
+    };
+
   # The adapter running a profile's hooks and the tool table it reads, for
   # `python-tests` to run.
   hookAdapter = { inherit (claudeHookAdapter) bin toolsFile; };
