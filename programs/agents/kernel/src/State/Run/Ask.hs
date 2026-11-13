@@ -18,7 +18,6 @@ module State.Run.Ask (
     Kind (..),
     kindName,
     parseKind,
-    Role (..),
     Cond (..),
     Rule (..),
     authority,
@@ -60,6 +59,7 @@ import Data.Text qualified as Text
 import GHC.Records (HasField (..))
 import Numeric.Natural (Natural)
 import State.Category.Mode (Size (..), parseByName)
+import State.Role (Rung (..))
 import State.Run.Id (EventId, RunId, TaskId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
@@ -82,10 +82,6 @@ kindName = \case
 
 parseKind :: Text -> Maybe Kind
 parseKind = parseByName kindName
-
--- | A rung of the chain a question climbs; the user is the top.
-data Role = Worker | Engineer | TenX | User
-    deriving stock (Eq, Show, Enum, Bounded)
 
 -- | What the LLM judges before a role may answer under 'AnswersIf'.
 data Cond
@@ -111,12 +107,12 @@ data Rule
       NeverAsked
     deriving stock (Eq, Show)
 
--- | #351's table of who answers, row for row as #360 writes it.
-authority :: Role -> Kind -> Rule
+-- | #351's table of who answers, row for row as #360 writes it, keyed by rung.
+authority :: Rung -> Kind -> Rule
 authority = \case
     -- A worker never answers: it hands every question to its engineer.
     Worker -> const Forwards
-    Engineer -> \case
+    Lead -> \case
         Fact -> Answers
         Pick -> Answers
         Design -> Forwards
@@ -124,7 +120,7 @@ authority = \case
         Confirm -> AnswersIf TrivialSize
         Security -> Forwards
         Stuck -> Forwards
-    TenX -> \case
+    Orchestrator -> \case
         Fact -> Answers
         Pick -> Answers
         Design -> AnswersIf RuleTest
@@ -223,25 +219,25 @@ data Verdict = Ruled Ruling | Forward Question
 -- | A choice the role's row does not allow.
 data Refusal
     = -- | The row forwards this kind.
-      MayNotRule Role Kind
+      MayNotRule Rung Kind
     | {- | The row answers this kind and may not forward it: a 'Fact' below the
       user, or any kind at the user, who has no one to forward to.
       -}
-      MustAnswer Role Kind
+      MustAnswer Rung Kind
     | -- | The row says this kind never reaches the role.
-      NeverAskedOf Role Kind
+      NeverAskedOf Rung Kind
     | -- | A ruling on a 'Security' question names no basis.
       NoBasis QId
     deriving stock (Eq, Show)
 
 -- | A role's handling of a question, on the kind it is raised to.
-triage :: Role -> Reading -> Question -> Either Refusal Verdict
+triage :: Rung -> Reading -> Question -> Either Refusal Verdict
 triage role reading question = case reading.choice of
     RuleOn proposal -> Ruled <$> rule role reading.kind question proposal
     PassOn -> Forward <$> pass role reading.kind question
 
 -- | A role's ruling on a question, read as this kind.
-rule :: Role -> Kind -> Question -> Proposal -> Either Refusal Ruling
+rule :: Rung -> Kind -> Question -> Proposal -> Either Refusal Ruling
 rule role reading question proposal = case authority role raised.kind of
     NeverAsked -> Left (NeverAskedOf role raised.kind)
     Forwards -> Left (MayNotRule role raised.kind)
@@ -251,7 +247,7 @@ rule role reading question proposal = case authority role raised.kind of
     raised = raiseTo reading question
 
 -- | A role passing a question, read as this kind, on to its parent.
-pass :: Role -> Kind -> Question -> Either Refusal Question
+pass :: Rung -> Kind -> Question -> Either Refusal Question
 pass role reading question = case authority role raised.kind of
     NeverAsked -> Left (NeverAskedOf role raised.kind)
     Forwards -> Right raised
@@ -266,12 +262,12 @@ is 'NeverAsked', so one forwarded could climb to no one (law Total). Every
 other kind reaches a user cell that answers it, so a question needing the
 user's attention may climb (#351's user "may" cell for 'Pick').
 -}
-forwardAnswered :: Role -> Question -> Either Refusal Question
+forwardAnswered :: Rung -> Question -> Either Refusal Question
 forwardAnswered role question = case role of
     User -> Left (MustAnswer User question.kind)
     Worker -> belowUser
-    Engineer -> belowUser
-    TenX -> belowUser
+    Lead -> belowUser
+    Orchestrator -> belowUser
   where
     belowUser = case question.kind of
         Fact -> Left (MustAnswer role Fact)
@@ -340,7 +336,7 @@ never holds for a run's own question: the 10x's own Confirm is of the breakdown
 itself, before any is confirmed. The LLM judges every other condition, and may
 still forward.
 -}
-ask :: Principal -> Size -> Role -> Kind -> Delivery
+ask :: Principal -> Size -> Rung -> Kind -> Delivery
 ask principal size role kind = case authority role kind of
     Answers -> AnswerSelf
     AnswersIf TrivialSize -> case size of

@@ -22,9 +22,9 @@ import State.Category.Flow (FanId (..), OptId (..))
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg, qualityName, reReviews)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), stateNameText)
-import State.Run.Ask (Cond (..), Kind, Role (..), Rule (..), authority, kindName)
+import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
+import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
-import State.Run.Event (AgentRole (..))
 import State.Show (tshow)
 import State.Step.Catalog (AnyStep (..), stepNamed)
 import State.Table (Row (runner), Runner (..), Steps, row)
@@ -41,7 +41,7 @@ states g steps =
   where
     runBy name = case stepNamed name of
         Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
-            Agent (AgentRole role) _ -> role
+            Agent agent _ -> roleText agent
             Inline -> "you"
         Nothing -> "fan-out"
     arrowsOut place =
@@ -119,19 +119,20 @@ trivialSkips g =
 kinds :: Text
 kinds =
     table
-        ("Kind" : map roleText roles)
-        [kindName kind : map (ruleText . (`authority` kind)) roles | kind <- [minBound .. maxBound :: Kind]]
+        ("Kind" : map rungText rungs)
+        [kindName kind : map (ruleText . (`authority` kind)) rungs | kind <- [minBound .. maxBound :: Kind]]
   where
-    roles = [minBound .. maxBound]
+    rungs = [minBound .. maxBound]
     ruleText = \case
         Answers -> "answers"
         AnswersIf cond -> "answers if " <> condText cond
         Forwards -> "forwards"
         NeverAsked -> "never asked"
-    roleText = \case
+    -- A lead's and the orchestrator's column is headed by the role on that rung.
+    rungText = \case
         Worker -> "worker"
-        Engineer -> "engineer"
-        TenX -> "10x"
+        Lead -> roleText (role EngineerFlow).name
+        Orchestrator -> roleText (role TenXFlow).name
         User -> "user"
     condText = \case
         RuleTest -> "it passes the rule test"

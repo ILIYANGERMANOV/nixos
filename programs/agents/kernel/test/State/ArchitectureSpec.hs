@@ -17,8 +17,9 @@ spec = describe "kernel architecture" $ do
         [(name, Set.toList (Set.intersection modules environment)) | (name, modules) <- reached, not (Set.disjoint modules environment)]
             `shouldBe` []
 
-    -- The category and its steps never reach the run or the command line,
-    -- nor the run its protocol: a module imports its own layer or one below.
+    -- The category and its steps never reach the flows, the run or the
+    -- command line, nor the run its protocol: a module imports its own layer
+    -- or one below.
     it "keeps every layer's imports at its own layer or below" $ do
         names <- mapMaybe moduleOf <$> packageFiles "src"
         reached <- traverse (\name -> (name,) . Set.toList <$> closure name) names
@@ -67,11 +68,18 @@ flowModules =
     ]
 
 {- | The kernel's layers, lowest first, each a set of module prefixes: the
-category and its steps, the run's log and fold, the protocol a run speaks
-to its agents, and the command line.
+category and its steps; the flows built from them, the roles that lead them
+and the step table; the run's log and fold; the protocol a run speaks to its
+agents; and the command line.
 -}
 layers :: [[String]]
-layers = [["State.Category.", "State.Step."], ["State.Run."], ["State.Protocol."], ["State.Cli."]]
+layers =
+    [ ["State.Category.", "State.Step."]
+    , ["State.Block", "State.Flow.", "State.Role", "State.Table"]
+    , ["State.Run."]
+    , ["State.Protocol."]
+    , ["State.Cli."]
+    ]
 
 -- | The prefixes of the layers above a module's own; none for a module in no layer.
 higher :: String -> [String]

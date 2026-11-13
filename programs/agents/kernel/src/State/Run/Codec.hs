@@ -59,6 +59,8 @@ import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
 import State.Category.Mode (parseByName, parseQuality, qualityName, sizeName)
 import State.Category.Step (eventText)
+import State.Role (RoleDef (..), roleText)
+import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
     AgentRole (..),
@@ -481,9 +483,7 @@ runIdOf :: Text -> Parser RunId
 runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break")) pure (parseRunId raw)
 
 flowText :: FlowName -> Text
-flowText = \case
-    EngineerFlow -> "engineer"
-    TenXFlow -> "10x"
+flowText = roleText . (.name) . Role.role
 
 opText :: Op -> Text
 opText = \case

@@ -37,6 +37,14 @@ spec = describe "State.Table" $ do
         reparse (KeyMap.insert "fix" (dropField "lead" (rowNamed "fix")) rows)
             `shouldBe` ["fix: a step run by fixer needs a lead"]
 
+    it "refuses a row in a flow no role leads" $
+        reparse (KeyMap.insert "fix" (setValue "flows" (Array (pure (String "qa"))) (rowNamed "fix")) rows)
+            `shouldBe` ["fix: flows names qa, which no role leads"]
+
+    it "refuses a row run by a role that leads a flow" $
+        reparse (KeyMap.insert "fix" (setField "runner" "10x" (rowNamed "fix")) rows)
+            `shouldBe` ["fix: 10x leads a flow, so it runs no step as a subagent"]
+
     it "refuses a row for no step" $
         reparse (KeyMap.insert "deploy" (rowNamed "fix") rows)
             `shouldBe` ["deploy: no such step"]
@@ -62,8 +70,9 @@ spec = describe "State.Table" $ do
     asObject = \case
         Object obj -> Just obj
         _ -> Nothing
-    setField key value = \case
-        Object obj -> Object (KeyMap.insert key (String value) obj)
+    setField key = setValue key . String
+    setValue key value = \case
+        Object obj -> Object (KeyMap.insert key value obj)
         other -> other
     dropField key = \case
         Object obj -> Object (KeyMap.delete key obj)

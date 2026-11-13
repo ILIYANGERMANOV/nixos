@@ -27,7 +27,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomes, skippedOutcome, stateNameText, stepName)
 import State.Category.Ty (KnownTy (..), Ty (..))
-import State.Run.Event (AgentRole (..))
+import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)
 
 {- | A row for every step of the layers and no other, each with the step's
@@ -58,6 +58,7 @@ data Written = Written
     , runner :: Text
     , lead :: Maybe Text
     , task :: Text
+    , flows :: [Text]
     , ops :: [Text]
     }
 
@@ -71,6 +72,7 @@ instance FromJSON Written where
             <*> obj .: "runner"
             <*> obj .:? "lead"
             <*> obj .: "task"
+            <*> obj .: "flows"
             <*> (fromMaybe [] <$> obj .:? "ops")
 
 {- | The table, or every way it differs from the layers' steps. The layers
@@ -123,7 +125,7 @@ stepEvents s skips = map (EventName (stepName s)) (names <> [skippedOutcome | sk
 check :: Map StateName Written -> AnyStep -> Either [Text] (StateName, Row)
 check rows (AnyStep _ (SomeStep s)) = case Map.lookup name rows of
     Nothing -> Left [label <> ": no row"]
-    Just written -> case (runnerOf written.runner written.lead, mismatches s written) of
+    Just written -> case (runnerOf written.runner written.lead, mismatches s written <> roleProblems written) of
         (Right runner, []) -> Right (name, Row runner written.task ("notify" `elem` written.ops))
         (runner, found) -> Left (map ((label <> ": ") <>) (lefts [runner] <> found))
   where
@@ -144,6 +146,17 @@ mismatches s written =
     (exitTy, names) = case outcomes s of
         Continues continue -> (Nothing, [continue])
         exits@(ExitsOr exitName continue) -> (Just (exitOf exits), [exitName, continue])
+
+{- | Every way a row's roles miss the registry ("State.Role"): each flow it
+names is a role's, and its runner leads no flow, since a lead runs its own
+flow's steps inline.
+-}
+roleProblems :: Written -> [Text]
+roleProblems written =
+    ["flows names " <> flow <> ", which no role leads" | flow <- written.flows, flow `notElem` leads]
+        <> [written.runner <> " leads a flow, so it runs no step as a subagent" | written.runner `elem` leads]
+  where
+    leads = map (\def -> roleText def.name) roles
 
 exitOf :: forall x. Outcomes ('Just x) -> Ty
 exitOf (ExitsOr _ _) = tyVal @x

@@ -15,7 +15,7 @@
 # instruction fragments it reads, by name (programs/agents/default.nix);
 # `ops` what it may call: `ask`, `await`, `notify`, `spawn:<role>`. `flows`
 # names the flows the step is in, `engineer` or `10x`. A role leads the flow
-# named after it, so the `engineer` flow's inline rows are the engineer
+# named after it (the kernel's `State.Role`), so the `engineer` flow's inline rows are the engineer
 # role's. `offFlow` is a `role`'s work outside the two flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
 let

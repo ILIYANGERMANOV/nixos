@@ -47,8 +47,6 @@ import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), Ini
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
-import State.Flow.Engineer (engineer)
-import State.Flow.TenX (tenX)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, ownAsk, pullRequestOf)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
@@ -56,6 +54,8 @@ import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, parseHookName, replyOf, silent, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
+import State.Role (RoleDef (..))
+import State.Role qualified as Role
 import State.Run.Ask (Parent (..), Principal (..), Question (..), oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
@@ -480,10 +480,7 @@ rendered steps block flow = case block of
 
 -- | Each flow's graph glues, as its test holds: a clash here is a bug.
 graphOf :: FlowName -> OpenGraph
-graphOf =
-    either (error . ("the flow does not glue: " <>) . show) id . \case
-        EngineerFlow -> graph engineer
-        TenXFlow -> graph tenX
+graphOf = either (error . ("the flow does not glue: " <>) . show) id . graph . (.flow) . Role.role
 
 -- | The worktree's git dir, where the pointer to its run lives.
 gitDir :: (Git :> es) => Eff es (Either Failure FilePath)

@@ -45,15 +45,35 @@ to `state render` (`kernel/rendered.nix`).
 every IO action is an effect in `src/Effects/`, one per file with its IO
 interpreter, and tests run the shell on the doubles in `test/Doubles/`.**
 `ArchitectureSpec` refuses IO or effects in any other module, and an import
-from a higher layer: `State/Category/` (types, steps, flow terms, graph, mode)
-below `State/Run/` (log, fold) below `State/Protocol/` (advice, hand-backs,
-hooks, the `record` grammar) below `State/Cli/`. The named flows are
-`State/Block.hs` and `State/Flow/`. A run appends its
-events to `<notes>/events.jsonl`, version 3 (`State/Run/Codec.hs`); the
-`self-improve` analyzer reads it, so a format change updates `analyze.py` too.
-The step table is `flows/steps.nix`, handed to the kernel as JSON (`State/Table.hs`) and to the
-roles, whose capabilities and skills derive from it (`lib/derive.nix`). Why:
+from a higher layer, lowest first:
+
+| Layer | Holds |
+|---|---|
+| `State/Category/`, `State/Step/` | types, flow terms, graph, mode; the step layers and their `Catalog` |
+| `State/Block.hs`, `State/Flow/`, `State/Role.hs`, `State/Table.hs` | the named flows, the roles that lead them, the step table |
+| `State/Run/` | log, codec, fold, who answers (`Ask`) |
+| `State/Protocol/` | advice, hand-backs, hooks, the `record` grammar |
+| `State/Cli/` | commands, views, the effect shell |
+
+A run appends its events to `<notes>/events.jsonl`, version 3
+(`State/Run/Codec.hs`); the `self-improve` analyzer reads it, so a format
+change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
+to the kernel as JSON (`State/Table.hs`) and to the roles, whose capabilities
+and skills derive from it (`lib/derive.nix`). Why:
 `docs/adr/0018-category-model-haskell-state.md`.
+
+How to extend it; the compiler and `parseSteps` name what is missing:
+
+- **A step:** a constructor in its layer's module under `State/Step/` (its
+  `Sing`, `Sig` and `Outcome` cases), its row in `flows/steps.nix`, and its
+  arm in `State/Run/Fold.hs`'s match on `Layer` if its outcome carries data.
+- **A layer:** its module under `State/Step/`, then in `State/Step/Catalog.hs`
+  a `Layer` constructor, a `KnownLayer` instance and an entry in `layers`, then
+  the arms the compiler asks for.
+- **A role that leads a flow:** a `FlowName` constructor and its `role` arm in
+  `State/Role.hs` (name, flow, rung), the name in `flowNames` of
+  `flows/default.nix` and in a row's `flows` in `flows/steps.nix`. A worker
+  role is only a row's `runner`.
 
 ### Hooks
 

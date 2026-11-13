@@ -67,6 +67,32 @@ for its engineers, wraps a flow without changing it.
   effects' and the shell's. #360 planned a plain IO shell; the user asked for
   algebraic effects mid-stack, and one extra PR added them.
 
+## Amendment: step layers, typed outcomes, a role registry
+
+PR #376 reorganised the kernel; the model above holds.
+
+- **Steps come in layers.** Gather, Plan, Build, Review, Ship and Fan each
+  have a closed step kind, a singleton and a `Sig` per step. A step's
+  `Outcome s leg` is tied to that step and to the leg it leaves by (exit or
+  continue), so an outcome of the wrong step or leg is a compile error. The
+  global outcome sum and its hand-written event table are gone: `Catalog` is
+  a closed sum of the layers, and the fold matches it exhaustively, so a new
+  layer breaks the build until each match handles it.
+- **The table is cross-checked.** `parseSteps` refuses a step without a row,
+  a row for no step, wrong types or outcomes, a wire name used twice and an
+  outcome no layer reads.
+- **Roles are named flows with a rung.** `State/Role.hs` maps each
+  `FlowName` to its role: the wire name, the flow it leads and its rung,
+  `Worker`, `Lead`, `Orchestrator` or `User`. Who answers a question is keyed
+  by rung, so a new role on an existing rung inherits its row. The log's flow
+  name, the run's graph and the fan-out's child role are read from the
+  registry. A worker role (researcher, implementer, fixer) leads no flow and
+  is no entry; `parseSteps` refuses a `steps.nix` row whose `flows` names no
+  role, or whose `runner` leads a flow.
+- **Layered imports.** The category and its steps sit below the flows, roles
+  and table, below the run, the protocol and the command line;
+  `ArchitectureSpec` refuses an import from a higher layer.
+
 ## Considered options
 
 - **Keep Python.** Rejected: the laws stay runtime tests, and a flow wired

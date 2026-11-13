@@ -50,9 +50,11 @@ import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), Open
 import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal, Proposal, QId (..), Question (..), Role (..), Ruling, deliver)
+import State.Role (FlowName, RoleDef (..), Rung)
+import State.Role qualified as Role
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal, Proposal, QId (..), Question (..), Ruling, deliver)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, Url, eventId)
+import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, Url, eventId)
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
@@ -436,10 +438,8 @@ fromAbove principal named
     | otherwise = Left (NotAbove named)
 
 -- | The rung of the chain the run's flow stands on.
-flowRole :: FlowName -> Role
-flowRole = \case
-    EngineerFlow -> Engineer
-    TenXFlow -> TenX
+flowRole :: FlowName -> Rung
+flowRole = (.rung) . Role.role
 
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of

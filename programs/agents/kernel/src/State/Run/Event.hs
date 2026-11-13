@@ -62,6 +62,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanId (..))
 import State.Category.Mode (Quality, Size)
 import State.Category.Step (Outcome, StateName (..))
+import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
@@ -160,9 +161,6 @@ data Start = Start
     }
     deriving stock (Eq, Show)
 
-data FlowName = EngineerFlow | TenXFlow
-    deriving stock (Eq, Show, Enum, Bounded)
-
 -- | A question as it reached this run, and the step the run was at.
 data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
     deriving stock (Eq, Show)
@@ -171,19 +169,13 @@ data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
 data Asker = Itself | Subagent AgentRole | ChildRun RunId
     deriving stock (Eq, Show)
 
--- | A subagent's role, as @state handback <role>@ names it: @implementer@.
-newtype AgentRole = AgentRole Text
-    deriving stock (Eq, Show)
-
-roleText :: AgentRole -> Text
-roleText (AgentRole role) = role
-
--- | The role a fan-out's children run as: an engineer runs a whole engineer flow.
+{- | The role a fan-out's children run as: an engineer runs a whole engineer
+flow, so its name is the registry's; a researcher is a worker, no flow's lead.
+-}
 fanRole :: FanId -> AgentRole
-fanRole =
-    AgentRole . \case
-        FResearchers -> "researcher"
-        FEngineers -> "engineer"
+fanRole = \case
+    FResearchers -> AgentRole "researcher"
+    FEngineers -> (role EngineerFlow).name
 
 -- | The roles that run a whole flow of their own under a run's fan-out.
 childRoles :: [AgentRole]

@@ -6,6 +6,7 @@ import Hedgehog (Gen, PropertyT, assert, cover, forAll, tripping, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Mode (Size (..))
+import State.Role (Rung (..))
 import State.Run.Ask
 import State.Run.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
 import State.Run.Id (TaskId (..), breaksLine)
@@ -15,7 +16,7 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "State.Run.Ask" $ do
     it "authority_table_is_total" $
-        [(kind, map (`authority` kind) [Worker, Engineer, TenX, User]) | kind <- [minBound .. maxBound]]
+        [(kind, map (`authority` kind) [Worker, Lead, Orchestrator, User]) | kind <- [minBound .. maxBound]]
             `shouldBe` table
 
     it "forward_all_handler_changes_nothing" . hedgehog $ do
@@ -63,31 +64,31 @@ spec = describe "State.Run.Ask" $ do
 
     describe "triage" $ do
         it "refuses a ruling where the row forwards" $
-            triage Engineer (Reading Design (RuleOn proposal)) (asking Design)
-                `shouldBe` Left (MayNotRule Engineer Design)
+            triage Lead (Reading Design (RuleOn proposal)) (asking Design)
+                `shouldBe` Left (MayNotRule Lead Design)
 
         it "refuses a Security ruling with no basis" $
-            triage TenX (Reading Security (RuleOn proposal)) (asking Security)
+            triage Orchestrator (Reading Security (RuleOn proposal)) (asking Security)
                 `shouldBe` Left (NoBasis qid)
 
         it "accepts a Security ruling that names its basis" $
-            fmap ruledBasis (triage TenX (Reading Security (RuleOn based)) (asking Security))
+            fmap ruledBasis (triage Orchestrator (Reading Security (RuleOn based)) (asking Security))
                 `shouldBe` Right (Just (Obvious (oneLine "the user named the key")))
 
         it "never re-tags away from Security" $
-            triage TenX (Reading Pick PassOn) (asking Security)
+            triage Orchestrator (Reading Pick PassOn) (asking Security)
                 `shouldBe` Right (Forward (asking Security))
 
         it "raises a question to Security, so the raised row decides" $
-            triage Engineer (Reading Security PassOn) (asking Design)
+            triage Lead (Reading Security PassOn) (asking Design)
                 `shouldBe` Right (Forward (asking Security))
 
         it "refuses a forward of a Fact at the 10x, so no Fact reaches the user" $
-            triage TenX (Reading Fact PassOn) (asking Fact)
-                `shouldBe` Left (MustAnswer TenX Fact)
+            triage Orchestrator (Reading Fact PassOn) (asking Fact)
+                `shouldBe` Left (MustAnswer Orchestrator Fact)
 
         it "lets the engineer and the 10x forward a Pick, so the user's may cell is reachable" $
-            map (\role -> triage role (Reading Pick PassOn) (asking Pick)) [Engineer, TenX]
+            map (\role -> triage role (Reading Pick PassOn) (asking Pick)) [Lead, Orchestrator]
                 `shouldBe` [Right (Forward (asking Pick)), Right (Forward (asking Pick))]
 
         it "refuses a forward at the user, the top of the chain" $
@@ -99,45 +100,45 @@ spec = describe "State.Run.Ask" $ do
                 `shouldBe` Left (NeverAskedOf User Fact)
 
         it "lets the LLM rule or forward where the row answers under a condition" $
-            map (\choice -> isRuled (triage TenX (Reading Design choice) (asking Design))) [RuleOn proposal, PassOn]
+            map (\choice -> isRuled (triage Orchestrator (Reading Design choice) (asking Design))) [RuleOn proposal, PassOn]
                 `shouldBe` [True, False]
 
     describe "andThen" $ do
         it "lets the parent rule on what the child forwards" $
-            fmap ruledQid ((triage Engineer (Reading Design PassOn) `andThen` triage TenX (Reading Design (RuleOn proposal))) (asking Design))
+            fmap ruledQid ((triage Lead (Reading Design PassOn) `andThen` triage Orchestrator (Reading Design (RuleOn proposal))) (asking Design))
                 `shouldBe` Right (Just qid)
 
         it "stops at the first ruling, so the parent never sees it" $
-            fmap ruledQid ((triage Engineer (Reading Fact (RuleOn proposal)) `andThen` triage User (Reading Fact PassOn)) (asking Fact))
+            fmap ruledQid ((triage Lead (Reading Fact (RuleOn proposal)) `andThen` triage User (Reading Fact PassOn)) (asking Fact))
                 `shouldBe` Right (Just qid)
 
     describe "ask" $ do
         it "sends a role's own question its row forwards to the user who started the run" $
-            ask ByUser Normal Engineer Design `shouldBe` Up TheUser
+            ask ByUser Normal Lead Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
-            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1"))) Normal Engineer Design `shouldBe` Up (ParentRun (runId "p1"))
+            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1"))) Normal Lead Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
-            map (ask ByUser Trivial Engineer) [Fact, Confirm] `shouldBe` [AnswerSelf, AnswerSelf]
+            map (ask ByUser Trivial Lead) [Fact, Confirm] `shouldBe` [AnswerSelf, AnswerSelf]
 
         it "forwards the Confirm of a task not Trivial, whose row answers it only when Trivial" $
-            ask ByUser Normal Engineer Confirm `shouldBe` Up TheUser
+            ask ByUser Normal Lead Confirm `shouldBe` Up TheUser
 
         it "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit" $
-            ask ByUser Normal TenX Confirm `shouldBe` Up TheUser
+            ask ByUser Normal Orchestrator Confirm `shouldBe` Up TheUser
 
     it "spells the hand-back line as #360's wire format" $
         needsDecision (Question qid Design (oneLine "change the data model?"))
             `shouldBe` "NEEDS_DECISION Design r7f2:3: change the data model?"
 
     it "writes a hand-back's first line, its run, then a line per ruling" $
-        fmap (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling]) (rule TenX Security (asking Security) based)
+        fmap (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling]) (rule Orchestrator Security (asking Security) based)
             `shouldBe` Right "READY https://example.test/pr/1\nRun: r7f2\nRuling r7f2:3 Security: yes - reversible - an hour - basis: obvious: the user named the key\n"
 
     it "keeps every hand-back line one line" . hedgehog $ do
         question <- forAll genQuestion
-        ruling <- forAll (Gen.mapMaybe (either (const Nothing) Just) (rule TenX Pick <$> genQuestion <*> genProposal))
+        ruling <- forAll (Gen.mapMaybe (either (const Nothing) Just) (rule Orchestrator Pick <$> genQuestion <*> genProposal))
         assert (not (Text.any breaksLine (needsDecision question)))
         let handbackLines = Text.lines (handback "READY ref" (runId "r7f2") [ruling])
         length handbackLines === 3
@@ -166,7 +167,7 @@ spec = describe "State.Run.Ask" $ do
     proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
     based = proposal {basis = Just (Obvious (oneLine "the user named the key"))}
 
--- | #360's table, a row per kind: Worker, Engineer, 10x, User.
+-- | #360's table, a row per kind, a column per rung: Worker, Lead, Orchestrator, User.
 table :: [(Kind, [Rule])]
 table =
     [ (Fact, [Forwards, Answers, Answers, NeverAsked])
@@ -182,14 +183,14 @@ genSecurity :: Gen Question
 genSecurity = (\q -> Question q.qid Security q.text) <$> genQuestion
 
 -- | A role and how it reads every question it gets: a handler, shown.
-genRung :: Gen (Role, Reading)
+genRung :: Gen (Rung, Reading)
 genRung = (,) <$> Gen.enumBounded <*> genReading
 
-rung :: (Role, Reading) -> Handler
+rung :: (Rung, Reading) -> Handler
 rung (role, reading) = triage role reading
 
 -- | A question climbing these rungs, the asker's own first.
-chain :: [(Role, Reading)] -> Handler
+chain :: [(Rung, Reading)] -> Handler
 chain = foldr (andThen . rung) forwardAll
 
 holdsBasis :: Either Refusal Verdict -> PropertyT IO ()

@@ -56,6 +56,7 @@ library
     State.Protocol.Handback
     State.Protocol.Hook
     State.Protocol.Record
+    State.Role
     State.Run.Ask
     State.Run.Codec
     State.Run.Event
