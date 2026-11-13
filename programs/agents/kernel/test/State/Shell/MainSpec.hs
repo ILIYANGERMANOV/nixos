@@ -362,7 +362,7 @@ spec = describe "state over the doubles" $ do
                 ran.code `shouldBe` 2
 
         describe "brief" $ do
-            it "gives a refactorer its step's entry and the stop rule" $ \world -> do
+            it "gives a refactorer its step's task and the stop rule" $ \world -> do
                 _ <- drive world []
 
                 stopRule <- succeeded =<< state world ["render", "stop-rule"]

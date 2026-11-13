@@ -238,6 +238,10 @@ in
       path = builtins.deepSeq roles roleLib.check;
     }
     {
+      name = "flows";
+      path = flows.check;
+    }
+    {
       name = "derived-roles";
       path = deriveLib.check {
         inherit (flows) table;

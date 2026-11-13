@@ -1,7 +1,8 @@
 # Derived roles, stage A (#351 section 8, plan #360): a role's capabilities,
 # skills, operations and preloaded prose are the union of the profiles of the
 # steps it runs, read from the flows' step table. Nothing here is written by
-# hand per role; `roles/<name>/role.nix` keeps the identity.
+# hand per role; `roles/<name>/role.nix` keeps the identity. A row is a step,
+# or an `offFlow` entry, run by its `role`.
 #
 #   steps(r)  = rows whose runner is r, plus the inline rows of the flow r
 #               leads, the one named after it
@@ -17,7 +18,7 @@
 }:
 
 let
-  # The roles whose preload is split from their steps' entry (stage A). Stage
+  # The roles whose preload is split from their steps' task (stage A). Stage
   # C, every role, is #355.
   split = [
     "engineer"
@@ -32,12 +33,12 @@ let
       operations = operationsOf table role;
       tools = toolsOf rows operations;
       prose = if lib.elem role split then intersection "prose" rows else union "prose" rows;
-      # A split role's other prose would be entry prose, but `state next`
-      # prints only a row's `entry` text: no prose file would reach it.
+      # A split role's other prose would be task prose, but `state next`
+      # prints only a step's `lead` and `task` text: no prose file would reach it.
       unreached = lib.subtractLists prose (union "prose" rows);
     in
     if rows == [ ] then
-      throw "role ${role}: no row of flows/steps.nix runs it; add a `flows = [ \"other\" ]` row"
+      throw "role ${role}: no row of flows/steps.nix runs it; add a step or an `offFlow` entry"
     else if unreached != [ ] then
       throw "role ${role}: ${lib.concatStringsSep ", " unreached} is not prose every step needs, and state next prints no prose file"
     else
@@ -82,7 +83,7 @@ let
           rows = stepsOf table role;
           field = name: lib.concatMap (row: row.${name}) rows;
           spawns = map (row: "spawn:${row.runner}") (
-            lib.filter (row: row.runner != "inline" && lib.elem role row.flows) (lib.attrValues table)
+            lib.filter (row: row.runner != "inline" && lib.elem role row.flows) (rowsOf table)
           );
           operations = field "ops" ++ spawns;
           tools = field "tools" ++ lib.optional (lib.any (lib.hasPrefix "spawn:") operations) "delegate";
@@ -115,11 +116,22 @@ let
 
   stepsOf =
     table: role:
-    lib.attrValues (
-      lib.filterAttrs (
-        _: row: row.runner == role || (row.runner == "inline" && lib.elem role row.flows)
-      ) table
+    lib.filter (row: row.runner == role || (row.runner == "inline" && lib.elem role row.flows)) (
+      rowsOf table
     );
+
+  # Every row as a step: an `offFlow` entry is run by its `role`, in no flow.
+  rowsOf =
+    table:
+    lib.attrValues table.steps
+    ++ map (
+      entry:
+      removeAttrs entry [ "role" ]
+      // {
+        runner = entry.role;
+        flows = [ ];
+      }
+    ) (lib.attrValues table.offFlow);
 
   operationsOf =
     table: role:
@@ -129,7 +141,7 @@ let
   spawnsOf =
     table: flow:
     map (row: "spawn:${row.runner}") (
-      lib.filter (row: row.runner != "inline" && lib.elem flow row.flows) (lib.attrValues table)
+      lib.filter (row: row.runner != "inline" && lib.elem flow row.flows) (rowsOf table)
     );
 
   toolsOf =

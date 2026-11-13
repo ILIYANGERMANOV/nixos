@@ -40,7 +40,7 @@ states g steps =
   where
     runBy name = case stepNamed name of
         Just (SomeStep s) -> case (row steps s).runner of
-            Agent (AgentRole role) -> role
+            Agent (AgentRole role) _ -> role
             Inline -> "you"
         Nothing -> "fan-out"
     arrowsOut place =

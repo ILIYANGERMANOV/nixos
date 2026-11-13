@@ -16,7 +16,7 @@ module State.Advice (
     due,
     advise,
     deliver,
-    deliverEntry,
+    deliverPrompt,
     ownAsk,
     factLines,
 ) where
@@ -51,7 +51,7 @@ import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..)
 import State.Handback (readyState, stopLine)
 import State.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
 import State.Show (firstLine, tshow)
-import State.Steps (Row (entry, lead, notifies, runner), Runner (..), Steps, row)
+import State.Steps (Row (notifies, runner, task), Runner (..), Steps, row)
 
 -- | What GitHub and git say, read by the shell before it advises.
 data Facts = Facts {changedLines :: Maybe Natural, pr :: Maybe PullRequest}
@@ -113,10 +113,10 @@ pullRequestOf = \case
                 ("CLOSED", _) -> pure IsClosed
                 _ -> fail ("unknown PR state " <> Text.unpack prState)
 
-{- | The action, the facts the reader weighs it by, the step's entry text,
-and whether the step notifies the user ('deliverEntry' decides who does).
+{- | The action, the facts the reader weighs it by, the step's prompt text,
+and whether the step notifies the user ('deliverPrompt' decides who does).
 -}
-data Advice = Advice {action :: Action, facts :: [Text], entry :: Text, notify :: Bool}
+data Advice = Advice {action :: Action, facts :: [Text], prompt :: Text, notify :: Bool}
     deriving stock (Eq, Show)
 
 data Action
@@ -199,13 +199,13 @@ skipOutcome facts state why event =
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> Facts -> RunState -> Advice
-advise steps facts state = Advice action (factLines facts state) entry notify
+advise steps facts state = Advice action (factLines facts state) prompt notify
   where
     plain next = (next, "")
-    notify = case (state.at, Text.null entry) of
+    notify = case (state.at, Text.null prompt) of
         (At place, False) | Just (SomeStep s) <- stepNamed place.name -> (row steps s).notifies
         _ -> False
-    (action, entry) = case (state.stopped, state.pending, state.quality, state.size) of
+    (action, prompt) = case (state.stopped, state.pending, state.quality, state.size) of
         (Just stop, _, _, _) -> plain (Stopped stop)
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
         (Nothing, _ : _, Just _, Just _) | Just fan <- fanHere -> plain (atFan fan state)
@@ -226,7 +226,7 @@ advise steps facts state = Advice action (factLines facts state) entry notify
         (Exit, _) -> plain (Done (prUrl facts state))
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) -> case stepNamed place.name of
-            Just (SomeStep s) -> (atStep s, Text.unwords (filter (not . Text.null) [(row steps s).lead, (row steps s).entry]))
+            Just (SomeStep s) -> (atStep s, promptOf (row steps s))
             Nothing -> case fanNamed place.name of
                 Just fan -> plain (atFan fan state)
                 Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
@@ -234,7 +234,7 @@ advise steps facts state = Advice action (factLines facts state) entry notify
     atStep s = case lookup (stepName s) special of
         Just next -> next
         Nothing -> case (row steps s).runner of
-            Agent role -> Spawn role Nothing
+            Agent role _ -> Spawn role Nothing
             Inline -> Run (recordOutcomes s)
     special =
         [ (stepName Confirm, if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes Confirm) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?")
@@ -412,13 +412,19 @@ deliver start = \case
     triageFrom from line = "RUN state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
     asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
-{- | The step's entry text, with the notify only a run that can notify
+-- | What @state next@ prints for a step: an agent step's lead part, then the task.
+promptOf :: Row -> Text
+promptOf r = case r.runner of
+    Inline -> r.task
+    Agent _ lead -> lead <> " " <> r.task
+
+{- | The step's prompt text, with the notify only a run that can notify
 makes: a child run's parent notifies for it.
 -}
-deliverEntry :: Start -> Advice -> Text
-deliverEntry start advice
-    | advice.notify && Set.member Event.Notify start.interface = advice.entry <> " Then notify."
-    | otherwise = advice.entry
+deliverPrompt :: Start -> Advice -> Text
+deliverPrompt start advice
+    | advice.notify && Set.member Event.Notify start.interface = advice.prompt <> " Then notify."
+    | otherwise = advice.prompt
 
 {- | The run's own question: the events to record, oldest first, and the line
 saying where it goes. A question the run's row forwards is forwarded at once,

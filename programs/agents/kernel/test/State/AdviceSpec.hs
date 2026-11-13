@@ -207,8 +207,8 @@ spec = describe "State.Advice" $ do
 
         it "notifies at ready only where the interface can, so a child run leaves it to its parent" $ do
             let ready = advise steps noFacts (atReady Balanced)
-            map (`deliverEntry` ready) [start {interface = Set.singleton Notify}, child]
-                `shouldBe` [ready.entry <> " Then notify.", ready.entry]
+            map (`deliverPrompt` ready) [start {interface = Set.singleton Notify}, child]
+                `shouldBe` [ready.prompt <> " Then notify.", ready.prompt]
         it "ends as DONE for the user, READY for a parent run" $
             map (`deliver` Done (Just prUrl)) [start, child]
                 `shouldBe` ["DONE https://pr/1", "HANDBACK READY https://pr/1"]

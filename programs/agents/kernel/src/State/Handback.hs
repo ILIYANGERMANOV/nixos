@@ -290,8 +290,8 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
         let name@(StateName label) = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
-            Agent runner | runner == agent -> Right ()
-            Agent (AgentRole runner) -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
+            Agent runner _ | runner == agent -> Right ()
+            Agent (AgentRole runner) _ -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
             Inline -> Left (label <> " runs inline, not by " <> roleName)
         if isReport && name /= stepName Cap.Review
             then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, GREW, BLOCKED, FAILED"

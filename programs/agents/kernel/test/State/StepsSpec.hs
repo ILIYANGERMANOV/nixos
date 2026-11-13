@@ -27,6 +27,14 @@ spec = describe "State.Steps" $ do
     it "refuses a table missing a step's row" $
         reparse (KeyMap.delete "fix" rows) `shouldBe` ["fix: no row"]
 
+    it "refuses an inline row with a lead" $
+        reparse (KeyMap.insert "plan" (setField "lead" "Spawn one." (rowNamed "plan")) rows)
+            `shouldBe` ["plan: an inline step has no lead"]
+
+    it "refuses a role's row without a lead" $
+        reparse (KeyMap.insert "fix" (dropField "lead" (rowNamed "fix")) rows)
+            `shouldBe` ["fix: a step run by fixer needs a lead"]
+
     it "refuses a row for no step" $
         reparse (KeyMap.insert "deploy" (rowNamed "fix") rows)
             `shouldBe` ["deploy: no such step"]
@@ -38,4 +46,7 @@ spec = describe "State.Steps" $ do
         _ -> Nothing
     setField key value = \case
         Object obj -> Object (KeyMap.insert key (String value) obj)
+        other -> other
+    dropField key = \case
+        Object obj -> Object (KeyMap.delete key obj)
         other -> other

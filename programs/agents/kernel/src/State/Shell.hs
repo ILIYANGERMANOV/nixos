@@ -40,7 +40,7 @@ import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
-import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverEntry, due, ownAsk, pullRequestOf)
+import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, ownAsk, pullRequestOf)
 import State.Advice qualified as Advice
 import State.Ask (Parent (..), Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
@@ -277,7 +277,7 @@ handbackPlan steps worktreeHead state role child message = do
 {- | What @state next@ records and prints, and the advice's action: what GitHub
 and the mode already decide is recorded first, then the advice: its line, the
 last refusal until the next event, its facts indented, the step's lead and
-entry text. The advice leads, so a refusal never reads as the next action.
+task text. The advice leads, so a refusal never reads as the next action.
 -}
 adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Text)
 adviceOf steps facts told stamp run = (new, advice.action, out)
@@ -289,7 +289,7 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
             <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts]
-            <> (if Text.null advice.entry then "" else "\n" <> deliverEntry settled.state.start advice <> "\n")
+            <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
         Just outcome -> case commit stamp current [(Cli, Took outcome)] of

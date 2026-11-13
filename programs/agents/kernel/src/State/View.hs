@@ -62,7 +62,7 @@ pendingLines state = map line state.pending
         Subagent (AgentRole role) -> role
         ChildRun run -> runIdText run
 
-{- | A role's brief skeleton: the entry text of the step the run is at, or,
+{- | A role's brief skeleton: the task text of the step the run is at, or,
 when the role runs no step there, of each step it runs; then the rule its
 hand-back follows. An engineer, a child flow, gets its task's fields and the
 line that starts its run under this one; a task the breakdown lacks is
@@ -75,7 +75,7 @@ brief steps state agent@(AgentRole role) task
         Just taskId -> case lookupTask state.fanOut taskId of
             Nothing -> Left taskId
             Just found -> Right (Text.unlines (taskLines found) <> "\n" <> initLine (taskIdText taskId))
-    | otherwise = Right (Text.concat [entry name r | (name, r) <- briefed] <> rule)
+    | otherwise = Right (Text.concat [section name r | (name, r) <- briefed] <> rule)
   where
     initLine taskText =
         "state init --notes <dir> --parent "
@@ -100,11 +100,11 @@ brief steps state agent@(AgentRole role) task
         [] -> "none"
         items -> Text.intercalate ", " items
     yesNo = bool "no" "yes"
-    runs = [(stepName s, row steps s) | SomeStep s <- allSteps, (row steps s).runner == Agent (AgentRole role)]
+    runs = [(stepName s, row steps s) | SomeStep s <- allSteps, Agent runner _ <- [(row steps s).runner], runner == agent]
     briefed = case [step | step@(name, _) <- runs, At place <- [state.at], place.name == name] of
         [] -> runs
         here -> here
-    entry name r = "## " <> stateNameText name <> "\n\n" <> r.entry <> "\n\n"
+    section name r = "## " <> stateNameText name <> "\n\n" <> r.task <> "\n\n"
     rule
         | role `elem` ["implementer", "refactorer", "fixer"] = Render.stopRule
         | role == "review-lead" = Render.planWrong

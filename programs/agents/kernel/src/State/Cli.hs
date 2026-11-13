@@ -302,7 +302,7 @@ help steps =
         [ "init --notes <dir> [--flow " <> choices Codec.flowText <> "] [--parent <run> --parent-log <path>] [--task <id>]"
         , "record <event> [args]"
         , "handback <role> [--child <run>]     the hand-back on stdin"
-        , "next                                the next action, its facts and the step's entry"
+        , "next                                the next action, its facts and the step's task"
         , "brief <role> [--task <id>]"
         , "show"
         , "override <state> <why>"

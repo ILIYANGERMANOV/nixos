@@ -1,5 +1,5 @@
 {- | The step table, @programs/agents/flows/steps.nix@ written as JSON: who
-runs each step and the entry text @state next@ prints for it. The table names
+runs each step and the task text @state next@ prints for it. The table names
 each step's types and outcomes too, so the Nix side can derive roles from
 plain data; 'parseSteps' holds them equal to "State.Cap", so the two cannot
 drift.
@@ -32,14 +32,17 @@ types and outcomes. Only 'parseSteps' builds one.
 newtype Steps = Steps (Map StateName Row)
 
 {- | What the kernel reads of a row; the types and outcomes are checked, not
-kept. @state next@ prints the lead's part and the entry, @state brief@ the
-entry alone: a worker's brief holds none of the lead's commands.
+kept. The task is what the runner executes: @state next@ prints an agent
+step's lead part and then the task, @state brief@ the task alone, so a
+worker's brief holds none of the lead's commands.
 -}
-data Row = Row {runner :: Runner, lead :: Text, entry :: Text, notifies :: Bool}
+data Row = Row {runner :: Runner, task :: Text, notifies :: Bool}
     deriving stock (Eq, Show)
 
--- | Who runs a step: the lead itself, or a subagent of this role.
-data Runner = Inline | Agent AgentRole
+{- | Who runs a step: the lead itself, or a subagent of this role, with the
+lead's part, how it spawns and records that subagent.
+-}
+data Runner = Inline | Agent AgentRole Text
     deriving stock (Eq, Show)
 
 -- | A row as written, before it is checked against its step.
@@ -50,7 +53,7 @@ data Written = Written
     , outcomes :: [Text]
     , runner :: Text
     , lead :: Maybe Text
-    , entry :: Text
+    , task :: Text
     , ops :: [Text]
     }
 
@@ -63,7 +66,7 @@ instance FromJSON Written where
             <*> obj .: "outcomes"
             <*> obj .: "runner"
             <*> obj .:? "lead"
-            <*> obj .: "entry"
+            <*> obj .: "task"
             <*> (fromMaybe [] <$> obj .:? "ops")
 
 -- | The table, or every way it differs from the steps of "State.Cap".
@@ -81,9 +84,9 @@ parseSteps raw = do
 check :: Map StateName Written -> SomeStep -> Either [Text] (StateName, Row)
 check rows (SomeStep s) = case Map.lookup name rows of
     Nothing -> Left [label <> ": no row"]
-    Just written -> case mismatches s written of
-        [] -> Right (name, Row (runnerOf written.runner) (fromMaybe "" written.lead) written.entry ("notify" `elem` written.ops))
-        found -> Left (map ((label <> ": ") <>) found)
+    Just written -> case (runnerOf written.runner written.lead, mismatches s written) of
+        (Right runner, []) -> Right (name, Row runner written.task ("notify" `elem` written.ops))
+        (runner, found) -> Left (map ((label <> ": ") <>) (lefts [runner] <> found))
   where
     name@(StateName label) = stepName s
 
@@ -115,10 +118,13 @@ tyText = \case
     PR -> "PR"
     List t -> "[" <> tyText t <> "]"
 
-runnerOf :: Text -> Runner
-runnerOf = \case
-    "inline" -> Inline
-    role -> Agent (AgentRole role)
+-- | The runner sum: an inline step has no lead, a role's step has one.
+runnerOf :: Text -> Maybe Text -> Either Text Runner
+runnerOf runner lead = case (runner, lead) of
+    ("inline", Nothing) -> Right Inline
+    ("inline", Just _) -> Left "an inline step has no lead"
+    (role, Just part) -> Right (Agent (AgentRole role) part)
+    (role, Nothing) -> Left ("a step run by " <> role <> " needs a lead")
 
 {- | The step's row. Total: 'parseSteps' built the map with a row for every
 step of "State.Cap", so the lookup cannot miss.
@@ -128,4 +134,4 @@ row (Steps rows) s = fromMaybe (error "parseSteps keeps a row for every step") (
 
 -- | The roles a subagent runs a step as, each once, in the order of the steps.
 agentRoles :: Steps -> [AgentRole]
-agentRoles steps = nub [role | SomeStep s <- allSteps, Agent role <- [(row steps s).runner]]
+agentRoles steps = nub [role | SomeStep s <- allSteps, Agent role _ <- [(row steps s).runner]]

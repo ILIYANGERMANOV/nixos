@@ -243,7 +243,7 @@ spec = describe "the state binary" $ do
                 take 1 done `shouldBe` ["RUN state record merge.done <url>"]
 
         describe "brief" $ do
-            it "gives a refactorer its step's entry and the stop rule" $ \repo -> do
+            it "gives a refactorer its step's task and the stop rule" $ \repo -> do
                 _ <- drive bin repo []
                 stopRule <- succeeded =<< state bin repo ["render", "stop-rule"]
                 brief <- succeeded =<< state bin repo ["brief", "refactorer"]

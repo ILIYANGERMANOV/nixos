@@ -30,5 +30,5 @@ paths:
 ### Adding a role
 
 Add `roles/<name>/{role.nix,role.md}`, a row of `flows/steps.nix` it runs
-(`flows = [ "other" ]` outside the two flows) and its record in
+(under `offFlow`, by `role`, outside the two flows) and its record in
 `roles/golden.nix`; the backends render it.
