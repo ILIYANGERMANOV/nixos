@@ -9,10 +9,13 @@ module State.EventGen (
     genQuestion,
     genReading,
     genProposal,
+    genBasis,
+    genText,
     runId,
     run,
     started,
     line,
+    lineOf,
     hookLine,
     logOf,
 ) where
@@ -30,7 +33,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Ask (Basis (..), Choice (..), Proposal (..), QId (..), Question (..), Reading (..))
+import State.Ask (Above (..), Basis (..), Choice (..), Proposal (..), QId (..), Question (..), Reading (..))
 import State.Cap (EventName)
 import State.Event
 
@@ -56,7 +59,18 @@ genEvent =
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
         , Refused <$> (Note <$> genText <*> genText)
+        , Asked <$> (Asking <$> genQuestion <*> (StateName <$> genText) <*> genAsker)
+        , RetaggedSecurity <$> genQId
+        , RuledOn <$> genQId <*> genProposal
+        , Forwarded <$> genQId <*> genAbove
+        , Answered <$> genQId <*> genText <*> genAbove
         ]
+
+genAsker :: Gen Asker
+genAsker = Gen.choice [pure Itself, Subagent . AgentRole <$> genText, ChildRun <$> genRunId]
+
+genAbove :: Gen Above
+genAbove = Gen.choice [pure TheUser, ParentRun <$> genRunId]
 
 genStart :: Gen Start
 genStart =
@@ -206,7 +220,11 @@ started = Started (Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hoo
 
 -- | A CLI line of 'run', at its seq.
 line :: Natural -> Event -> Envelope
-line n = Envelope Cli n (addUTCTime (fromIntegral n) epoch) run Nothing Nothing
+line = lineOf run
+
+-- | A CLI line of this run, at its seq.
+lineOf :: RunId -> Natural -> Event -> Envelope
+lineOf ofRun n = Envelope Cli n (addUTCTime (fromIntegral n) epoch) ofRun Nothing Nothing
   where
     epoch = UTCTime (ModifiedJulianDay 61000) 0
 

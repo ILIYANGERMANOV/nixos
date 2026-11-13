@@ -35,23 +35,26 @@ module State.Ask (
     Verdict (..),
     Refusal (..),
     triage,
+    rule,
+    pass,
     Handler,
     forwardAll,
     andThen,
     Principal (..),
     Op (..),
     Delivery (..),
+    Above (..),
     ask,
     deliver,
     needsDecision,
+    handback,
 ) where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Read (decimal)
 import GHC.Records (HasField (..))
 import Numeric.Natural (Natural)
-import State.Id (EventId, RunId, parseRunId, runIdText)
+import State.Id (EventId, RunId, eventIdText, numberedText, parseNumbered, runIdText)
 import State.Mode (parseByName)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
@@ -153,17 +156,10 @@ data QId = QId RunId Natural
     deriving stock (Eq, Ord, Show)
 
 qidText :: QId -> Text
-qidText (QId run n) = runIdText run <> ":" <> Text.pack (show n)
+qidText (QId run n) = numberedText run n
 
--- | A run id holds no @:@, so the first one splits the run from the number.
 parseQId :: Text -> Maybe QId
-parseQId raw = case Text.breakOn ":" raw of
-    (run, rest) -> QId <$> parseRunId run <*> (Text.stripPrefix ":" rest >>= number)
-  where
-    number digits = case decimal digits of
-        Right (n, "") -> Just n
-        Right _ -> Nothing
-        Left _ -> Nothing
+parseQId = fmap (uncurry QId) . parseNumbered
 
 data Question = Question {qid :: QId, kind :: Kind, text :: Text}
     deriving stock (Eq, Show)
@@ -221,19 +217,32 @@ data Refusal
 
 -- | A role's handling of a question, on the kind it is raised to.
 triage :: Role -> Reading -> Question -> Either Refusal Verdict
-triage role reading question = case authority role kind of
-    NeverAsked -> Left (NeverAskedOf role kind)
-    Forwards -> case reading.choice of
-        RuleOn _ -> Left (MayNotRule role kind)
-        PassOn -> Right (Forward raised)
-    Answers -> answerOr (Left (MustAnswer role kind))
-    AnswersIf _ -> answerOr (Right (Forward raised))
+triage role reading question = case reading.choice of
+    RuleOn proposal -> Ruled <$> rule role reading.kind question proposal
+    PassOn -> Forward <$> pass role reading.kind question
+
+-- | A role's ruling on a question, read as this kind.
+rule :: Role -> Kind -> Question -> Proposal -> Either Refusal Ruling
+rule role reading question proposal = case authority role raised.kind of
+    NeverAsked -> Left (NeverAskedOf role raised.kind)
+    Forwards -> Left (MayNotRule role raised.kind)
+    Answers -> accept raised proposal
+    AnswersIf _ -> accept raised proposal
   where
-    kind = raise question.kind reading.kind
-    raised = Question question.qid kind question.text
-    answerOr passed = case reading.choice of
-        RuleOn proposal -> Ruled <$> accept raised proposal
-        PassOn -> passed
+    raised = raiseTo reading question
+
+-- | A role passing a question, read as this kind, on to its parent.
+pass :: Role -> Kind -> Question -> Either Refusal Question
+pass role reading question = case authority role raised.kind of
+    NeverAsked -> Left (NeverAskedOf role raised.kind)
+    Forwards -> Right raised
+    Answers -> Left (MustAnswer role raised.kind)
+    AnswersIf _ -> Right raised
+  where
+    raised = raiseTo reading question
+
+raiseTo :: Kind -> Question -> Question
+raiseTo reading question = Question question.qid (raise question.kind reading) question.text
 
 accept :: Question -> Proposal -> Either Refusal Ruling
 accept question proposal
@@ -268,10 +277,16 @@ data Op = AskUser | Await | Notify | Hooks | Background
 data Delivery
     = -- | The asking role's own row may answer it: rule, or forward it.
       AnswerSelf
-    | -- | Ask the user, who started this run.
-      ToUser
-    | -- | Hand back with 'needsDecision', to the parent run.
-      ToParent
+    | -- | Up to whoever started the run.
+      Up Above
+    deriving stock (Eq, Show)
+
+-- | Whoever started a run: where its questions go and its answers come from.
+data Above
+    = -- | Ask the user.
+      TheUser
+    | -- | Hand back with 'needsDecision' to the parent run.
+      ParentRun RunId
     deriving stock (Eq, Show)
 
 -- | Where a role's own question goes: its own row first, then its principal.
@@ -279,17 +294,41 @@ ask :: Principal -> Role -> Kind -> Delivery
 ask principal role kind = case authority role kind of
     Answers -> AnswerSelf
     AnswersIf _ -> AnswerSelf
-    Forwards -> deliver principal
+    Forwards -> Up (deliver principal)
     -- Only the user's Fact cell, and the user runs no flow that asks.
     NeverAsked -> AnswerSelf
 
 -- | Where a forwarded question goes: up to whoever started the run.
-deliver :: Principal -> Delivery
+deliver :: Principal -> Above
 deliver = \case
-    ByUser -> ToUser
-    ByRole _ _ -> ToParent
+    ByUser -> TheUser
+    ByRole run _ -> ParentRun run
 
 -- | The hand-back's first line for a forwarded question (#360's wire format).
 needsDecision :: Question -> Text
 needsDecision question =
     "NEEDS_DECISION " <> kindName question.kind <> " " <> qidText question.qid <> ": " <> question.text
+
+{- | A flow role's hand-back: its first line (#360's wire format), its run,
+then a line per ruling it made, so the reader sees each one (law Audit).
+-}
+handback :: Text -> RunId -> [Ruling] -> Text
+handback first run rulings = Text.unlines (first : ("Run: " <> runIdText run) : map rulingLine rulings)
+
+-- | As the 10x ledger writes one: what, why, and what it costs if wrong.
+rulingLine :: Ruling -> Text
+rulingLine ruling =
+    "Ruling "
+        <> qidText ruling.qid
+        <> " "
+        <> kindName ruling.kind
+        <> ": "
+        <> Text.intercalate " - " [proposal.answer, proposal.why, proposal.cost]
+        <> foldMap ((" - basis: " <>) . basisText) proposal.basis
+  where
+    proposal = ruling.proposal
+
+basisText :: Basis -> Text
+basisText = \case
+    AnsweredBy event -> eventIdText event
+    Obvious why -> "obvious: " <> why

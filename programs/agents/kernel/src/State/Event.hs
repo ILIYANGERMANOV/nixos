@@ -1,7 +1,8 @@
 {- | One line of a run's log: what happened, and the envelope that names and
 places it. A step's outcome is an 'Outcome', named by the step it ends
-('outcomeEvent'), so a log is read off the flow's graph. Ask events (PR 3) and
-the 10x's fan-out events (PR 6) join as more constructors.
+('outcomeEvent'), so a log is read off the flow's graph. A question is an
+'Asking' and the events on its id that close it; the 10x's fan-out events
+(PR 6) join as more constructors.
 -}
 module State.Event (
     Envelope (..),
@@ -18,6 +19,9 @@ module State.Event (
     FlowName (..),
     Principal (..),
     Op (..),
+    Asking (..),
+    Asker (..),
+    AgentRole (..),
     Stop (..),
     StopReason (..),
     Note (..),
@@ -42,7 +46,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Ask (Op (..), Principal (..))
+import State.Ask (Above, Op (..), Principal (..), Proposal, QId, Question)
 import State.Cap (EventName, StateName (..), Step (..), continueEvent, exitEvent, skipEvent)
 import State.Id (Digest (..), EventId (..), RunId, parseRunId, runIdText)
 import State.Mode (Area, Quality, Size)
@@ -85,8 +89,22 @@ data Event
       Grew Text
     | -- | A step's outcome, or a mode's skip: the one event that moves the run.
       Took Outcome
-    | -- | Terminal.
+    | -- | Terminal: it ends every question still pending too.
       Stopped Stop
+    | {- | A question for this run to rule on or forward: its own, or one handed
+      up to it, under the id it was first asked by.
+      -}
+      Asked Asking
+    | {- | The question is 'State.Ask.Security' from here on. The event names no
+      kind, so none re-tags a question away from it (law Ceiling).
+      -}
+      RetaggedSecurity QId
+    | -- | This run ruled on the question (law Audit).
+      RuledOn QId Proposal
+    | -- | This run passed the question up, to whoever started it.
+      Forwarded QId Above
+    | -- | The answer that came down, and who gave it.
+      Answered QId Text Above
     | -- | The escape edge, outside the graph: to the named state, and why.
       Overridden StateName Text
     | -- | An event the run refused, logged so the next read can warn of it.
@@ -107,6 +125,18 @@ data Start = Start
 
 data FlowName = EngineerFlow | TenXFlow
     deriving stock (Eq, Show, Enum, Bounded)
+
+-- | A question as it reached this run, and the step the run was at.
+data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
+    deriving stock (Eq, Show)
+
+-- | Who put the question to this run.
+data Asker = Itself | Subagent AgentRole | ChildRun RunId
+    deriving stock (Eq, Show)
+
+-- | A subagent's role, as @state handback <role>@ names it: @implementer@.
+newtype AgentRole = AgentRole Text
+    deriving stock (Eq, Show)
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)

@@ -17,7 +17,7 @@ module State.Codec (
 ) where
 
 import Data.Aeson (Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
-import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list, pair, pairs, text)
+import Data.Aeson.Encoding (Encoding, encodingToLazyByteString, list, null_, pair, pairs, text)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -31,12 +31,15 @@ import Data.Text qualified as Text
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
+import State.Ask (Above (..), Basis (..), Kind (Security), Proposal (..), QId, Question (..), kindName, parseKind, parseQId, qidText)
 import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent)
 import State.Event (
+    AgentRole (..),
+    Asker (..),
+    Asking (..),
     Branch (..),
     Check (..),
     Commit (..),
-    Digest (..),
     DraftPr (..),
     Envelope (..),
     Event (..),
@@ -64,6 +67,7 @@ import State.Event (
     parseRunId,
     runIdText,
  )
+import State.Id (eventIdText, parseEventId)
 import State.Mode (Area (..), parseByName, parseQuality, qualityName, sizeName)
 
 -- | The log version this kernel writes and reads.
@@ -114,7 +118,7 @@ encodeLine :: Envelope -> Text
 encodeLine e =
     Lazy.toStrict . Lazy.decodeUtf8 . encodingToLazyByteString . pairs $
         "v" .= version
-            <> "id" .= idText (eventId e)
+            <> "id" .= eventIdText (eventId e)
             <> "seq" .= e.seq
             <> "ts" .= e.ts
             <> "run" .= runIdText e.run
@@ -135,18 +139,12 @@ envelope obj = do
     event <- obj .: "data" >>= withObject "data" (eventOf kind)
     pure Envelope {source, seq = n, ts, run, head = sha, session, event}
 
--- | A CLI record's id is @<run>:<seq>@, a hook record's @h:<hash>@.
-idText :: EventId -> Text
-idText = \case
-    Numbered run n -> runIdText run <> ":" <> Text.pack (show n)
-    Hashed (Digest digest) -> "h:" <> digest
-
 -- | The line's own run and seq are the truth, so a CLI id naming others is refused.
 sourceOf :: RunId -> Natural -> Text -> Parser Source
 sourceOf run n raw
-    | raw == idText (Numbered run n) = pure Cli
-    | Just digest <- Text.stripPrefix "h:" raw, not (Text.null digest) = pure (Hook (Digest digest))
-    | otherwise = fail ("id " <> show raw <> " is neither " <> show (idText (Numbered run n)) <> " nor h:<hash>")
+    | raw == eventIdText (Numbered run n) = pure Cli
+    | Just (Hashed digest) <- parseEventId raw = pure (Hook digest)
+    | otherwise = fail ("id " <> show raw <> " is neither " <> show (eventIdText (Numbered run n)) <> " nor h:<hash>")
 
 eventType :: Event -> Text
 eventType = \case
@@ -158,6 +156,11 @@ eventType = \case
     Stopped _ -> "stop"
     Overridden _ _ -> "overridden"
     Refused _ -> "refused"
+    Asked _ -> "asked"
+    RetaggedSecurity _ -> "retagged"
+    RuledOn _ _ -> "ruled"
+    Forwarded _ _ -> "forwarded"
+    Answered {} -> "answered"
 
 eventData :: Event -> Series
 eventData = \case
@@ -174,6 +177,24 @@ eventData = \case
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
     Overridden (StateName to) why -> "to" .= to <> "why" .= why
     Refused note -> "message" .= note.message <> "fix" .= note.fix
+    Asked asking ->
+        qidData asking.question.qid
+            <> "kind" .= kindName asking.question.kind
+            <> "question" .= asking.question.text
+            <> "step" .= (\(StateName step) -> step) asking.step
+            <> pair "from" (askerEncoding asking.from)
+    -- #360 writes the kind, though it is only ever Security.
+    RetaggedSecurity qid -> qidData qid <> "kind" .= kindName Security
+    RuledOn qid proposal ->
+        qidData qid
+            <> "answer" .= proposal.answer
+            <> "why" .= proposal.why
+            <> "cost" .= proposal.cost
+            <> pair "basis" (maybe null_ basisEncoding proposal.basis)
+    Forwarded qid to -> qidData qid <> pair "to" (aboveEncoding to)
+    Answered qid answer by -> qidData qid <> "answer" .= answer <> pair "by" (aboveEncoding by)
+  where
+    qidData qid = "qid" .= qidText qid
 
 eventOf :: Text -> Object -> Parser Event
 eventOf kind obj = case kind of
@@ -184,6 +205,11 @@ eventOf kind obj = case kind of
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
+    "asked" -> Asked <$> askingOf obj
+    "retagged" -> RetaggedSecurity <$> qidOf obj <* (obj .: "kind" >>= security)
+    "ruled" -> RuledOn <$> qidOf obj <*> (Proposal <$> obj .: "answer" <*> obj .: "why" <*> obj .: "cost" <*> (obj .: "basis" >>= traverse basisOf))
+    "forwarded" -> Forwarded <$> qidOf obj <*> (obj .: "to" >>= aboveOf)
+    "answered" -> Answered <$> qidOf obj <*> obj .: "answer" <*> (obj .: "by" >>= aboveOf)
     _ -> case Map.lookup kind outcomeParsers of
         Just parser -> Took <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
@@ -208,6 +234,60 @@ principalOf = \case
     String "user" -> pure ByUser
     Object obj -> ByRole <$> (obj .: "run" >>= runIdOf) <*> obj .: "log"
     other -> fail ("a principal is \"user\" or {run, log}, not " <> show other)
+
+askingOf :: Object -> Parser Asking
+askingOf obj = do
+    qid <- qidOf obj
+    kind <- obj .: "kind" >>= named "kind" parseKind
+    question <- obj .: "question"
+    step <- StateName <$> obj .: "step"
+    from <- obj .: "from" >>= askerOf
+    pure Asking {question = Question qid kind question, step, from}
+
+qidOf :: Object -> Parser QId
+qidOf obj = obj .: "qid" >>= named "question id" parseQId
+
+-- | A retag to any other kind is refused: no event lowers a 'Security' question.
+security :: Text -> Parser ()
+security raw
+    | raw == kindName Security = pure ()
+    | otherwise = fail ("a question is only ever re-tagged as Security, not " <> show raw)
+
+-- | The run itself is a bare word; a subagent is its role, a child run its id.
+askerEncoding :: Asker -> Encoding
+askerEncoding = \case
+    Itself -> text "self"
+    Subagent (AgentRole role) -> pairs ("role" .= role)
+    ChildRun run -> pairs ("run" .= runIdText run)
+
+askerOf :: Value -> Parser Asker
+askerOf = \case
+    String "self" -> pure Itself
+    Object obj -> obj .:? "role" >>= maybe (ChildRun <$> (obj .: "run" >>= runIdOf)) (pure . Subagent . AgentRole)
+    other -> fail ("a question is from \"self\", {role} or {run}, not " <> show other)
+
+-- | As a principal: the user is a bare word, a parent run is its id.
+aboveEncoding :: Above -> Encoding
+aboveEncoding = \case
+    TheUser -> text "user"
+    ParentRun run -> pairs ("run" .= runIdText run)
+
+aboveOf :: Value -> Parser Above
+aboveOf = \case
+    String "user" -> pure TheUser
+    Object obj -> ParentRun <$> (obj .: "run" >>= runIdOf)
+    other -> fail ("\"user\" or {run}, not " <> show other)
+
+basisEncoding :: Basis -> Encoding
+basisEncoding = \case
+    AnsweredBy event -> pairs ("event" .= eventIdText event)
+    Obvious why -> pairs ("obvious" .= why)
+
+basisOf :: Value -> Parser Basis
+basisOf = withObject "basis" $ \obj ->
+    obj .:? "obvious" >>= \case
+        Just why -> pure (Obvious why)
+        Nothing -> AnsweredBy <$> (obj .: "event" >>= named "event id" parseEventId)
 
 outcomeData :: Outcome -> Series
 outcomeData = \case

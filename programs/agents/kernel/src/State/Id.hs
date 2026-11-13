@@ -5,12 +5,17 @@ module State.Id (
     RunId,
     parseRunId,
     runIdText,
+    numberedText,
+    parseNumbered,
     EventId (..),
+    eventIdText,
+    parseEventId,
     Digest (..),
 ) where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 
 {- | Short and random, set by @init@; one log holds one run. Built only by
@@ -31,6 +36,20 @@ parseRunId raw
 runIdText :: RunId -> Text
 runIdText (RunId run) = run
 
+-- | @<run>:<n>@, the form of a CLI record's id and of a question's.
+numberedText :: RunId -> Natural -> Text
+numberedText (RunId run) n = run <> ":" <> Text.pack (show n)
+
+-- | A run id holds no @:@, so the first one splits the run from the number.
+parseNumbered :: Text -> Maybe (RunId, Natural)
+parseNumbered raw = case Text.breakOn ":" raw of
+    (run, rest) -> (,) <$> parseRunId run <*> (Text.stripPrefix ":" rest >>= number)
+  where
+    number digits = case decimal digits of
+        Right (n, "") -> Just n
+        Right _ -> Nothing
+        Left _ -> Nothing
+
 -- | What makes an append idempotent: an id already in the log is not appended again.
 data EventId = Numbered RunId Natural | Hashed Digest
     deriving stock (Eq, Ord, Show)
@@ -38,3 +57,16 @@ data EventId = Numbered RunId Natural | Hashed Digest
 -- | A hook record's content hash, hex.
 newtype Digest = Digest Text
     deriving stock (Eq, Ord, Show)
+
+-- | A CLI record's id is @<run>:<seq>@, a hook record's @h:<hash>@.
+eventIdText :: EventId -> Text
+eventIdText = \case
+    Numbered run n -> numberedText run n
+    Hashed (Digest digest) -> "h:" <> digest
+
+-- | A run id is never @h@, so a hook id never reads as a CLI one.
+parseEventId :: Text -> Maybe EventId
+parseEventId raw = case Text.stripPrefix "h:" raw of
+    Just digest | not (Text.null digest) -> Just (Hashed (Digest digest))
+    Just _ -> Nothing
+    Nothing -> uncurry Numbered <$> parseNumbered raw

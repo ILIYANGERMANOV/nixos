@@ -1,18 +1,22 @@
 module State.FoldSpec (spec) where
 
+import Data.Either (isRight)
+import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import Hedgehog (Gen, assert, cover, evalEither, evalMaybe, forAll, (===))
+import Data.Text qualified as Text
+import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe, failure, forAll, (/==), (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), Role (Engineer), deliver, handback, qidText)
 import State.Cap (EventName)
 import State.Event
-import State.EventGen (genOutcomeNamed, hookLine, line, logOf, outcomeNames, runId, started)
+import State.EventGen (genOutcomeNamed, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, outcomeNames, run, runId, started)
 import State.Flow (LoopId (..), OptId (..))
 import State.FlowGen (composes, genWalk)
 import State.Flows.Engineer (engineer)
@@ -147,6 +151,8 @@ spec = describe "State.Fold" $ do
 
     it "refuses an override to a state the flow does not have" $
         replay g (logOf (started :| [Overridden (StateName "nowhere") "why"])) `shouldBe` Left (NoSingleState (StateName "nowhere"))
+
+    questions
   where
     note = Note "no edge" "state next"
     stop = Stop Blocked "why"
@@ -249,3 +255,177 @@ genKnobs = (\quality size -> [QualitySet quality, SizeSet size]) <$> Gen.enumBou
 
 outcomeOf :: EventName -> Gen Outcome
 outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
+
+-- | The ask events, on the engineer flow's graph: they never move the run.
+questions :: Spec
+questions = describe "questions" $ do
+    it "keeps a question pending, oldest first, until it is ruled on or its answer comes down" $
+        map (\pending -> (pending.asking.question.qid, pending.waits)) . (.pending)
+            <$> replay g (logOf (started :| [ask 3 Design, ask 1 Design, ask 2 Pick, ask 4 Design, RuledOn (q 2) proposal, Forwarded (q 1) TheUser, Forwarded (q 4) TheUser, Answered (q 4) "yes" TheUser]))
+            `shouldBe` Right [(q 3, ForTriage), (q 1, ForAnswer)]
+
+    it "ends every pending question at a stop" $
+        (.pending) <$> replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) TheUser, ask 2 Pick, Stopped halt]))
+            `shouldBe` Right []
+
+    it "refuses a ruling where the run's row forwards" $
+        replay g (logOf (started :| [ask 1 Design, RuledOn (q 1) proposal])) `shouldBe` Left (NotAllowed (MayNotRule Engineer Design))
+
+    it "refuses a forward of a question the run's row must answer, so no Fact climbs" $
+        replay g (logOf (started :| [ask 1 Fact, Forwarded (q 1) TheUser])) `shouldBe` Left (NotAllowed (MustAnswer Engineer Fact))
+
+    it "refuses a ruling on a question retagged Security that names no basis" $
+        replay g (logOf (Started (Start TenXFlow "notes" ByUser Set.empty "a task") :| [ask 1 Design, RetaggedSecurity (q 1), RuledOn (q 1) proposal]))
+            `shouldBe` Left (NotAllowed (NoBasis (q 1)))
+
+    it "refuses a forward to another than whoever started the run" $
+        replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) parent])) `shouldBe` Left (NotAbove parent)
+
+    it "refuses an answer to a question the run never forwarded" $
+        replay g (logOf (started :| [ask 1 Design, Answered (q 1) "yes" TheUser])) `shouldBe` Left (NotForwarded (q 1))
+
+    it "refuses a retag once the question is forwarded" $
+        replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) TheUser, RetaggedSecurity (q 1)])) `shouldBe` Left (AlreadyForwarded (q 1))
+
+    it "refuses an event on a question not pending" $
+        replay g (logOf (started :| [ask 1 Pick, RuledOn (q 1) proposal, RuledOn (q 1) proposal])) `shouldBe` Left (NotPending (q 1))
+
+    it "refuses asking a pending question again" $
+        replay g (logOf (started :| [ask 1 Pick, ask 1 Pick])) `shouldBe` Left (AskedTwice (q 1))
+
+    it "every_ruling_is_in_show_and_in_the_handback" . hedgehog $ do
+        (state, events) <- forAll genAskLog
+        let ruled = [(qid, ruling) | RuledOn qid ruling <- events]
+            sent = Text.lines (handback "READY ref" state.run state.rulings)
+        cover 30 "a ruling" (not (null ruled))
+        map (\ruling -> (ruling.qid, ruling.proposal)) state.rulings === ruled
+        for_ ruled $ \(qid, ruling) ->
+            assert (any (\sentLine -> all (`Text.isInfixOf` sentLine) [qidText qid <> " ", ruling.answer, ruling.why, ruling.cost]) sent)
+
+    it "no_event_retags_security" . hedgehog $ do
+        (state, events) <- forAll genAskLog
+        let security = Set.fromList ([asking.question.qid | Asked asking <- events, asking.question.kind == Security] <> [qid | RetaggedSecurity qid <- events])
+            kinds =
+                [pending.asking.question.kind | pending <- state.pending, Set.member pending.asking.question.qid security]
+                    <> [ruling.kind | ruling <- state.rulings, Set.member ruling.qid security]
+        cover 5 "a Security question ruled" (any (\ruling -> Set.member ruling.qid security) state.rulings)
+        kinds === map (const Security) kinds
+
+    it "every_ask_ends_answered_or_stopped" . hedgehog $ do
+        (asker, rungs) <- forAll genChain
+        question <- forAll genQuestion
+        rung0 <- evalMaybe (NonEmpty.nonEmpty rungs)
+        (logs, end) <- climb asker (Question (QId (NonEmpty.head rung0).run 1) question.kind question.text) rungs
+        cover 10 "stopped" (end == Halt)
+        cover 10 "reached the user" (any (elem TheUser . forwardedTo) logs)
+        cover 10 "ruled below the user" (any (\events -> not (null [qid | RuledOn qid _ <- events])) logs)
+        for_ (zip rungs logs) $ \(rung, events) -> do
+            state <- evalEither (replay g (runLog rung events))
+            state.pending === []
+  where
+    q = QId run
+    ask n kind = Asked (Asking (Question (q n) kind "a question") (StateName "implement") Itself)
+    proposal = Proposal "yes" "reversible" "an hour" Nothing
+    parent = ParentRun (runId "p1")
+    forwardedTo events = [to | Forwarded _ to <- events]
+
+halt :: Stop
+halt = Stop Blocked "no way on"
+
+{- | Up to 60 tries at an ask event on a run of either flow, under the user
+or a parent, keeping those the fold accepts: the run state and the events.
+-}
+genAskLog :: Gen (RunState, [Event])
+genAskLog = do
+    flow <- Gen.enumBounded
+    principal <- Gen.element [ByUser, ByRole (runId "p1") "p1/events.jsonl"]
+    first <- either (fail . show) pure (replay g (logOf (Started (Start flow "notes" principal Set.empty "a task") :| [])))
+    tries <- Gen.int (Range.linear 0 60)
+    go tries first 1 0
+  where
+    go :: Int -> RunState -> Natural -> Natural -> Gen (RunState, [Event])
+    go 0 state _ _ = pure (state, [])
+    go k state n fresh = do
+        -- Each ask takes a fresh id; the rest name any id so far, or the next.
+        let known = QId run <$> Gen.integral (Range.constant 0 fresh)
+            above = Gen.element [TheUser, ParentRun (runId "p1")]
+            same = fmap (,fresh)
+        (event, next) <-
+            Gen.frequency
+                [ (30, (\kind text -> (Asked (Asking (Question (QId run fresh) kind text) (StateName "implement") Itself), fresh + 1)) <$> Gen.enumBounded <*> genText)
+                , (10, same (RetaggedSecurity <$> known))
+                , (30, same (RuledOn <$> known <*> genProposal))
+                , (30, same (Forwarded <$> known <*> above))
+                , (20, same (Answered <$> known <*> genText <*> above))
+                , (1, same (pure (Stopped halt)))
+                ]
+        case append g state (line n event) of
+            Right (Appended later) -> fmap (event :) <$> go (k - 1) later (n + 1) next
+            Right AlreadyLogged -> go (k - 1) state n fresh
+            Left _ -> go (k - 1) state n fresh
+
+-- | A run on the chain a question climbs: its id and how it started.
+data Rung = Rung {run :: RunId, start :: Start}
+    deriving stock (Show)
+
+-- | How a climb ended for the runs it passed.
+data End = Answer Text | Halt
+    deriving stock (Eq, Show)
+
+data Try = Rule Proposal | Pass
+
+{- | Who asks, then the runs above it, bottom first: an engineer, a 10x, or an
+engineer under a 10x. The user is above the top run.
+-}
+genChain :: Gen (Asker, [Rung])
+genChain =
+    (,)
+        <$> Gen.element [Itself, Subagent (AgentRole "implementer")]
+        <*> Gen.element
+            [ [rung "e1" EngineerFlow ByUser]
+            , [rung "x1" TenXFlow ByUser]
+            , [rung "e1" EngineerFlow (ByRole (runId "x1") "x1/events.jsonl"), rung "x1" TenXFlow ByUser]
+            ]
+  where
+    rung name flow principal = Rung (runId name) (Start flow "notes" principal Set.empty "a task")
+
+{- | A question climbing the chain, each run reading it as an LLM might and
+taking the other choice where the fold refuses its first, or stopping; the
+answer comes down to every run below. Each run's log, bottom first.
+-}
+climb :: Asker -> Question -> [Rung] -> PropertyT IO ([[Event]], End)
+climb from question = \case
+    [] -> do
+        annotate "the user is never asked a Fact"
+        question.kind /== Fact
+        pure ([], Answer "the user's answer")
+    rung : above -> do
+        reading <- forAll genReading
+        stops <- forAll (Gen.frequency [(9, pure False), (1, pure True)])
+        fallback <- forAll genProposal
+        let asked = [Asked (Asking question (StateName "implement") from)]
+            retag = [RetaggedSecurity question.qid | reading.kind == Security, question.kind /= Security]
+            raised = Question question.qid (if null retag then question.kind else Security) question.text
+            up = deliver rung.start.principal
+            event = \case
+                Rule ruling -> RuledOn question.qid ruling
+                Pass -> Forwarded question.qid up
+            tries = case reading.choice of
+                RuleOn ruling -> [Rule ruling, Pass]
+                PassOn -> [Pass, Rule fallback {basis = Just (Obvious "the user said so")}]
+            taken = asked <> retag
+        case (stops, filter (\choice -> isRight (replay g (runLog rung (taken <> [event choice])))) tries) of
+            (True, _) -> pure ([asked <> [Stopped halt]], Halt)
+            (False, []) -> do
+                annotate "the run may neither rule nor forward"
+                failure
+            (False, Rule ruling : _) -> pure ([taken <> [event (Rule ruling)]], Answer ruling.answer)
+            (False, Pass : _) -> do
+                (logs, end) <- climb (ChildRun rung.run) raised above
+                let closing = case end of
+                        Answer answer -> Answered question.qid answer up
+                        Halt -> Stopped halt
+                pure ((taken <> [event Pass, closing]) : logs, end)
+
+runLog :: Rung -> [Event] -> NonEmpty Envelope
+runLog rung events = NonEmpty.zipWith (lineOf rung.run) (0 :| [1 ..]) (Started rung.start :| events)

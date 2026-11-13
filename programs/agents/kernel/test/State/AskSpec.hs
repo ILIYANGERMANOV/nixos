@@ -87,10 +87,10 @@ spec = describe "State.Ask" $ do
 
     describe "ask" $ do
         it "sends a role's own question its row forwards to the user who started the run" $
-            ask ByUser Engineer Design `shouldBe` ToUser
+            ask ByUser Engineer Design `shouldBe` Up TheUser
 
-        it "hands a forwarded question back to a parent run" $
-            ask (ByRole (runId "p1") "parent/events.jsonl") Engineer Design `shouldBe` ToParent
+        it "hands a forwarded question back to the parent run" $
+            ask (ByRole (runId "p1") "parent/events.jsonl") Engineer Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
             map (ask ByUser Engineer) [Fact, Confirm] `shouldBe` [AnswerSelf, AnswerSelf]
@@ -98,6 +98,10 @@ spec = describe "State.Ask" $ do
     it "spells the hand-back line as #360's wire format" $
         needsDecision (Question qid Design "change the data model?")
             `shouldBe` "NEEDS_DECISION Design r7f2:3: change the data model?"
+
+    it "writes a hand-back's first line, its run, then a line per ruling" $
+        fmap (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling]) (rule TenX Security (asking Security) based)
+            `shouldBe` Right "READY https://example.test/pr/1\nRun: r7f2\nRuling r7f2:3 Security: yes - reversible - an hour - basis: obvious: the user named the key\n"
 
     it "parses a question id back" . hedgehog $ do
         questionId <- forAll genQId

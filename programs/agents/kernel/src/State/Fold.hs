@@ -2,11 +2,17 @@
 moves the run along one edge of the flow's graph, found by "State.Path", so a
 log the fold accepts is a path of @Run(F)@ (law Trace soundness). Every loop
 has fuel and the stuck guard short-circuits it (law Bounded).
+
+A question stays pending until this run rules on it, the answer comes down
+after a forward, or the run stops. Each is checked against the run's own row
+of 'State.Ask.authority', the row of the role its flow runs.
 -}
 module State.Fold (
     RunState (..),
     Round (..),
     Problem (..),
+    Pending (..),
+    Waits (..),
     Refusal (..),
     Append (..),
     replay,
@@ -17,7 +23,9 @@ module State.Fold (
     stuck,
 ) where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, void)
+import Data.Bifunctor qualified as Bifunctor
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
@@ -26,8 +34,10 @@ import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Numeric.Natural (Natural)
+import State.Ask (Above, Kind (Security), Proposal, QId, Question (..), Role (..), Ruling, deliver)
+import State.Ask qualified as Ask
 import State.Cap (EventName)
-import State.Event (Check, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start, StateName, Stop, eventId, outcomeEvent)
+import State.Event (Asking (..), Check, Envelope (..), Event (..), EventId, FlowName (..), Judgement (..), Label, Note, Outcome (..), Picks (..), Requirement, RunId, Start (..), StateName, Stop, eventId, outcomeEvent)
 import State.Flow (LoopId, OptId)
 import State.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
@@ -46,8 +56,23 @@ data RunState = RunState
     , stopped :: Maybe Stop
     , refused :: Maybe Note
     -- ^ The refusal logged last, until the next event.
+    , pending :: [Pending]
+    -- ^ Oldest first.
+    , rulings :: [Ruling]
+    -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     }
     deriving stock (Eq, Show)
+
+-- | A question asked and not yet ruled on, answered or ended by a stop.
+data Pending = Pending {asking :: Asking, waits :: Waits}
+    deriving stock (Eq, Show)
+
+data Waits
+    = -- | For this run to rule on it or forward it.
+      ForTriage
+    | -- | Forwarded, for the answer to come down.
+      ForAnswer
+    deriving stock (Eq, Show, Enum, Bounded)
 
 -- | What went wrong in one round of a loop: the stuck guard compares two.
 newtype Round = Round (Set Problem)
@@ -74,6 +99,17 @@ data Refusal
       SizeSetOnce Size
     | -- | An override names a state the flow does not have, or more than one.
       NoSingleState StateName
+    | -- | The question is pending already.
+      AskedTwice QId
+    | NotPending QId
+    | -- | Forwarded already: only its answer is left.
+      AlreadyForwarded QId
+    | -- | An answer to a question the run never forwarded.
+      NotForwarded QId
+    | -- | The run's row of 'State.Ask.authority' does not allow it.
+      NotAllowed Ask.Refusal
+    | -- | A forward or answer naming another than whoever started the run.
+      NotAbove Above
     deriving stock (Eq, Show)
 
 -- | An id already in the log is not appended twice: the append is a no-op.
@@ -116,6 +152,8 @@ begin g envelope = case envelope.event of
                 , seen = Set.singleton (eventId envelope)
                 , stopped = Nothing
                 , refused = Nothing
+                , pending = []
+                , rulings = []
                 }
     QualitySet _ -> Left NotStarted
     SizeSet _ -> Left NotStarted
@@ -124,6 +162,11 @@ begin g envelope = case envelope.event of
     Stopped _ -> Left NotStarted
     Overridden _ _ -> Left NotStarted
     Refused _ -> Left NotStarted
+    Asked _ -> Left NotStarted
+    RetaggedSecurity _ -> Left NotStarted
+    RuledOn _ _ -> Left NotStarted
+    Forwarded _ _ -> Left NotStarted
+    Answered {} -> Left NotStarted
 
 -- | A refusal is logged whatever the run's state; anything else needs a run going.
 applyEvent :: OpenGraph -> RunState -> Event -> Either Refusal RunState
@@ -138,8 +181,13 @@ applyEvent g state = \case
         _ -> Right state {size = Just size}
     Grew _ -> going (Right state {size = Just Normal})
     Took outcome -> going (took g state outcome)
-    Stopped stop -> going (Right state {stopped = Just stop})
+    Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
+    Asked asking -> going (asked state asking)
+    RetaggedSecurity qid -> going (retagged state qid)
+    RuledOn qid proposal -> going (ruledOn state qid proposal)
+    Forwarded qid to -> going (forwarded state qid to)
+    Answered qid _ by -> going (answered state qid by)
   where
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
@@ -161,6 +209,72 @@ took g state outcome = do
     let noted = fmap (noteProblems (problems outcome)) state.rounds
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     Right state {at = edge.to, rounds}
+
+asked :: RunState -> Asking -> Either Refusal RunState
+asked state asking = case find ((== qid) . pendingId) state.pending of
+    Just _ -> Left (AskedTwice qid)
+    Nothing -> Right state {pending = state.pending <> [Pending asking ForTriage]}
+  where
+    qid = asking.question.qid
+
+retagged :: RunState -> QId -> Either Refusal RunState
+retagged state qid = do
+    question <- forTriage qid state.pending
+    let raised pending = pending {asking = pending.asking {question = Question qid Security question.text}}
+    Right state {pending = adjust qid raised state.pending}
+
+ruledOn :: RunState -> QId -> Proposal -> Either Refusal RunState
+ruledOn state qid proposal = do
+    question <- forTriage qid state.pending
+    ruling <- Bifunctor.first NotAllowed (Ask.rule (role state) question.kind question proposal)
+    Right state {pending = close qid state.pending, rulings = state.rulings <> [ruling]}
+
+forwarded :: RunState -> QId -> Above -> Either Refusal RunState
+forwarded state qid to = do
+    question <- forTriage qid state.pending
+    void (Bifunctor.first NotAllowed (Ask.pass (role state) question.kind question))
+    fromAbove state to
+    Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
+
+answered :: RunState -> QId -> Above -> Either Refusal RunState
+answered state qid by = do
+    pending <- pendingOf qid state.pending
+    case pending.waits of
+        ForTriage -> Left (NotForwarded qid)
+        ForAnswer -> Right ()
+    fromAbove state by
+    Right state {pending = close qid state.pending}
+
+-- | The question this run has yet to rule on or forward.
+forTriage :: QId -> [Pending] -> Either Refusal Question
+forTriage qid pending =
+    pendingOf qid pending >>= \open -> case open.waits of
+        ForTriage -> Right open.asking.question
+        ForAnswer -> Left (AlreadyForwarded qid)
+
+pendingOf :: QId -> [Pending] -> Either Refusal Pending
+pendingOf qid = maybe (Left (NotPending qid)) Right . find ((== qid) . pendingId)
+
+adjust :: QId -> (Pending -> Pending) -> [Pending] -> [Pending]
+adjust qid change = map (\pending -> if pendingId pending == qid then change pending else pending)
+
+close :: QId -> [Pending] -> [Pending]
+close qid = filter ((/= qid) . pendingId)
+
+pendingId :: Pending -> QId
+pendingId pending = pending.asking.question.qid
+
+-- | Questions go up to, and answers come down from, whoever started the run.
+fromAbove :: RunState -> Above -> Either Refusal ()
+fromAbove state named
+    | named == deliver state.start.principal = Right ()
+    | otherwise = Left (NotAbove named)
+
+-- | The rung of the chain the run's flow stands on.
+role :: RunState -> Role
+role state = case state.start.flow of
+    EngineerFlow -> Engineer
+    TenXFlow -> TenX
 
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
