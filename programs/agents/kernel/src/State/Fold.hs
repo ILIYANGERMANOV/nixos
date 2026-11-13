@@ -72,7 +72,7 @@ data Waits
       ForTriage
     | -- | Forwarded, for the answer to come down.
       ForAnswer
-    deriving stock (Eq, Show, Enum, Bounded)
+    deriving stock (Eq, Show)
 
 -- | What went wrong in one round of a loop: the stuck guard compares two.
 newtype Round = Round (Set Problem)
