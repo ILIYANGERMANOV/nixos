@@ -55,6 +55,7 @@ let
       ];
       executableHaskellDepends = [ base ];
       testHaskellDepends = [
+        aeson
         base
         bytestring
         containers

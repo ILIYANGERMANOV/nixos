@@ -86,8 +86,10 @@ test-suite state-test
     State.ModeSpec
     State.PathSpec
     State.Render.MermaidSpec
+    State.StepsSpec
 
   build-depends:
+    , aeson
     , bytestring
     , containers
     , hedgehog
