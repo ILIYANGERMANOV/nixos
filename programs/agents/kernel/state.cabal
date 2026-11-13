@@ -33,6 +33,7 @@ library
     State.Advice
     State.Ask
     State.Cap
+    State.Cli
     State.Codec
     State.Event
     State.Flow
@@ -47,12 +48,19 @@ library
     State.Path
     State.Render
     State.Render.Mermaid
+    State.Shell
+    State.Shell.Log
+    State.Shell.Repo
     State.Steps
+    State.View
 
   build-depends:
     , aeson
     , bytestring
     , containers
+    , directory
+    , filepath
+    , process
     , text
     , time
 
@@ -60,6 +68,9 @@ executable state
   import:         shared-properties
   hs-source-dirs: app/state
   main-is:        Main.hs
+  build-depends:
+    , state
+    , text
 
 executable state-hook
   import:         shared-properties

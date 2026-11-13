@@ -14,6 +14,7 @@ module State.Codec (
     decodeLog,
     LineError (..),
     LogError (..),
+    eventType,
     areaText,
     reasonText,
     judgementText,

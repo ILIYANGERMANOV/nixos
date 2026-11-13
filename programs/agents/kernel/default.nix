@@ -21,11 +21,13 @@ let
       bytestring,
       containers,
       directory,
+      filepath,
       hedgehog,
       hspec,
       hspec-discover,
       hspec-golden,
       hspec-hedgehog,
+      process,
       text,
       time,
     }:
@@ -51,10 +53,16 @@ let
         base
         bytestring
         containers
+        directory
+        filepath
+        process
         text
         time
       ];
-      executableHaskellDepends = [ base ];
+      executableHaskellDepends = [
+        base
+        text
+      ];
       testHaskellDepends = [
         aeson
         base

@@ -1,9 +1,13 @@
-{- | The `state` command. A stub until the kernel replaces the Python `state`
-(#360, PR 4): until then the Python one is what agents run.
--}
+-- | The @state@ command: the kernel's shell over argv.
 module Main (main) where
 
-import System.Exit (die)
+import Data.Text qualified as Text
+import State.Shell qualified as Shell
+import System.Environment (getArgs)
+import System.IO (hSetEncoding, stderr, stdin, stdout, utf8)
 
 main :: IO ()
-main = die "state: not built yet - the installed state is the Python one"
+main = do
+    -- The log and hand-backs are UTF-8 whatever the locale, as in a Nix build.
+    mapM_ (`hSetEncoding` utf8) [stdin, stdout, stderr]
+    Shell.main . map Text.pack =<< getArgs
