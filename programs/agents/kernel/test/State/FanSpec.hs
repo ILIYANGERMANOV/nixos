@@ -1,9 +1,9 @@
 module State.FanSpec (spec) where
 
 import Data.Either (fromRight)
-import Data.Set qualified as Set
 import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (Gen, assert, cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen

@@ -190,10 +190,10 @@ untriaged :: Fan -> [(Child, Stop)]
 untriaged fan =
     [ (childRun.child, stop)
     | task <- fan.tasks
+    , not (settled fan task.id)
     , childRun : _ <- [reverse (childrenOf fan task.id)]
     , Untriaged <- [childRun.triage]
     , Just (Ended stop) <- [latest childRun]
-    , not (settled fan task.id)
     ]
 
 -- | A child is over once it finished or stopped; asking up or awaiting CI, it runs on.
