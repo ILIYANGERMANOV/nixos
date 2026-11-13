@@ -61,26 +61,18 @@ let
       );
     };
 
+  applySkillsBin = shellCheck.writeShellApplication {
+    name = "claude-apply-skills";
+    runtimeInputs = [ pkgs.coreutils ];
+    text = shellCheck.fragment ./apply-skills.sh;
+  };
+
   # Shell snippet: rebuild ~/.claude/skills from this flavor's farm. It runs
-  # inside apply_skills, after link.sh has set $claude_dir.
-  #
-  # The directory is replaced wholesale rather than reconciled, so switching
-  # flavors can never leave a stale skill behind. The cost is that anything
-  # hand-placed in ~/.claude/skills is discarded on the next launch - prototype
-  # new skills in a project's .claude/skills instead, then commit them to
-  # programs/agents/skills/custom.
-  #
-  # Entries are per-skill symlinks into the store rather than one symlink for the
-  # whole directory: per-entry symlinks are what Claude Code documents support for.
+  # inside apply_skills, after link.sh has set $claude_dir. See apply-skills.sh.
   mkApplySkills =
     skillFarm:
-    ''
-      rm -rf "$claude_dir/skills"
-    ''
-    + lib.optionalString (skillFarm != null) ''
-      mkdir -p "$claude_dir/skills"
-      ln -s ${skillFarm}/* "$claude_dir/skills/"
-    '';
+    "${lib.getExe applySkillsBin} \"$claude_dir\""
+    + lib.optionalString (skillFarm != null) " ${skillFarm}";
 in
 {
   inherit mkWrapper mkApplySkills;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# shellcheck disable=SC2016,SC2312 # a stub's body expands when the stub runs, and a masked failure fails the assertion around it
+# shellcheck disable=SC2016,SC2030,SC2031,SC2312 # a stub's body expands when the stub runs, each test exports its own CLAUDE_CONFIG_DIR, and a masked failure fails the assertion around it
 # lib.nix splices in these values and apply_skills. If a name here stops matching
 # it, the assembled script fails its own shellcheck phase.
 
@@ -22,8 +22,13 @@ setup() {
 }
 
 link() {
+  link_with 'apply_skills() { touch "$WORK/skills-applied"; }'
+}
+
+# The flavor with $1 as its apply_skills.
+link_with() {
   {
-    echo 'apply_skills() { touch "$WORK/skills-applied"; }'
+    echo "$1"
     echo "source '$BATS_TEST_DIRNAME/link.sh'"
   } >"$WORK/flavor"
   bash -euo pipefail "$WORK/flavor"
@@ -63,6 +68,17 @@ link() {
   [ "$(jq -c . "$CLAUDE_CONFIG_DIR/.claude.json")" = '{"mcpServers":{"coda":{"url":"https://example.com"}}}' ]
   [ ! -e "$HOME/.claude" ]
   [ ! -e "$HOME/.claude.json" ]
+}
+
+@test "with CLAUDE_CONFIG_DIR set, the real apply_skills links the skills there" {
+  export CLAUDE_CONFIG_DIR="$WORK/demo"
+  mkdir -p "$WORK/farm/alpha" "$HOME/.claude/skills/mine"
+
+  # As lib.nix's mkApplySkills renders it.
+  link_with "apply_skills() { bash '$BATS_TEST_DIRNAME/apply-skills.sh' \"\$claude_dir\" '$WORK/farm'; }"
+
+  [ "$(readlink "$CLAUDE_CONFIG_DIR/skills/alpha")" = "$WORK/farm/alpha" ]
+  [ -d "$HOME/.claude/skills/mine" ]
 }
 
 @test "a second link rewrites files that came from the read-only store" {

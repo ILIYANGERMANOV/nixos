@@ -21,6 +21,6 @@ pkgs.mkShell {
   ];
   shellHook = ''
     echo "Run claude-demo: Claude Code with this repo's skills, subagents and hooks."
-    echo "It keeps its config, login included, in ''${XDG_STATE_HOME:-~/.local/state}/claude-demo."
+    echo "It keeps its config, login included, in ''${XDG_STATE_HOME:-~/.local/state}/claude-demo; set CLAUDE_DEMO_DIR to move it."
   '';
 }

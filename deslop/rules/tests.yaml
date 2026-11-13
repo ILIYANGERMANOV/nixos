@@ -71,7 +71,6 @@ rules:
       - "programs/software-factory/ctl/main.sh"
       - "programs/software-factory/ctl/paths.sh"
       - "programs/software-factory/ops/state.sh"
-      - "programs/skills-link/link-skills.sh"
       - "programs/claude-code/budget/budget-compare.sh"
       - "programs/playwright/qa-frames.sh"
       - "programs/playwright/qa-mp4.sh"
@@ -156,13 +155,6 @@ rules:
       - module: "programs/software-factory/ops/deploy.bats"
       - module: "programs/software-factory/ops/maintenance.bats"
     fix: Restore the suite, or add ops/state.bats.
-
-  - id: link-skills-has-its-suite
-    description: factory-link-skills is exercised by the factory's skills.bats, which holds the runner.
-    target: "programs/skills-link/link-skills.sh"
-    exists:
-      - module: "programs/software-factory/skills.bats"
-    fix: Restore skills.bats.
 
   - id: budget-compare-has-its-check
     description: budget-compare is tested against bad and good sizes inside checks.claude-config.

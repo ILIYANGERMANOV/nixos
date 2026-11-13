@@ -195,6 +195,8 @@ rec {
   # claude-demo: the `claude` flavor in its own config dir, so a visitor's
   # ~/.claude and ~/.claude.json stay untouched. The dir holds their login too.
   # The roles go in first: no Home Manager installs them there.
+  # CLAUDE_DEMO_DIR, never an inherited CLAUDE_CONFIG_DIR, moves the dir: the
+  # activation relinks skills there, which would wipe a real config's skills.
   demo =
     let
       claude = lib.findFirst (flavor: flavor.name == "claude") (throw "no claude flavor") packages;
@@ -202,7 +204,7 @@ rec {
     (import ../shell-check { inherit pkgs; }).writeShellApplication {
       name = "claude-demo";
       text = ''
-        export CLAUDE_CONFIG_DIR="''${CLAUDE_CONFIG_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/claude-demo}"
+        export CLAUDE_CONFIG_DIR="''${CLAUDE_DEMO_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/claude-demo}"
         ${shellActivationScript}
         exec ${lib.getExe claude} "$@"
       '';
