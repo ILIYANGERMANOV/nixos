@@ -40,6 +40,13 @@ import State.Run.Codec (branchText, taskIdText, topicText)
 import State.Run.Event
 import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Run.Fold (Append (..), RunState (..), append, replay)
+import State.Step.Build (Outcome (..))
+import State.Step.Catalog (outcome)
+import State.Step.Fan (Outcome (..))
+import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
+import State.Step.Review (Outcome (..))
+import State.Step.Ship (Outcome (..))
 import State.Table (Steps, parseSteps)
 import System.Environment (getEnv)
 
@@ -56,7 +63,7 @@ tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
     tenXStart = start {flow = TenXFlow}
-    toFanOut = [QualitySet Balanced, SizeSet Normal, Overridden (StateName "breakdown") "the plan is agreed", Took (BreakdownDone (tasksOf tasks))]
+    toFanOut = [QualitySet Balanced, SizeSet Normal, Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced Normal, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
@@ -89,11 +96,11 @@ sha = Sha "abc123"
 commit :: Commit
 commit = Commit sha Set.empty
 
-happyPath :: [Outcome]
+happyPath :: [AnyOutcome]
 happyPath =
-    [ResearchDone 3, InterviewEnough, PlanDone "plan.md", SimplifyPlanDone, AlternativeDone, ConfirmConfirmed]
-        <> [DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b")), ImplementDone commit, RefactorDone sha, ReviewClean sha]
-        <> [DescribeDone sha, SimplifyPrDone sha, AwaitCiGreen sha, ReadyDone (Url "u")]
+    [outcome (ResearchDone 3), outcome InterviewEnough, outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome AlternativeDone, outcome ConfirmConfirmed]
+        <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), outcome (RefactorDone sha), outcome (ReviewClean sha)]
+        <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
 
 {- | Any mode, then up to 300 tries at an event on an edge out of where the
 run is, keeping those the fold accepts. Edges that stay inside every loop are
@@ -111,9 +118,9 @@ genAccepted = do
     go k state n = case state.at of
         At place -> do
             name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList g.edges, from == place]
-            outcome <- outcomeOf name
-            case append g state (line n (Took outcome)) of
-                Right (Appended next) -> (Took outcome :) <$> go (k - 1) next (n + 1)
+            took <- outcomeOf name
+            case append g state (line n (Took took)) of
+                Right (Appended next) -> (Took took :) <$> go (k - 1) next (n + 1)
                 Right AlreadyLogged -> go (k - 1) state n
                 Left _ -> go (k - 1) state n
         Out -> pure []
@@ -126,7 +133,7 @@ genAccepted = do
 genKnobs :: Gen [Event]
 genKnobs = (\quality size -> [QualitySet quality, SizeSet size]) <$> Gen.enumBounded <*> Gen.enumBounded
 
-outcomeOf :: EventName -> Gen Outcome
+outcomeOf :: EventName -> Gen AnyOutcome
 outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
 
 -- | The run after these events, from 'started'; the events must be a log the fold accepts.

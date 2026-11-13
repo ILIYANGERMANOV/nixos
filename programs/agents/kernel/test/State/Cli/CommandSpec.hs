@@ -10,9 +10,12 @@ import State.Category.Step (eventText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), explain, failureText, help, parseCommand)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Kind (..), Parent (..), oneLineText)
-import State.Run.Event (Asker (..), Commit (..), Event (..), Outcome (..), Stop (..), StopReason (..), outcomeEvent)
+import State.Run.Event (Asker (..), Commit (..), Event (..), Stop (..), StopReason (..), stepTook)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, loadSteps, runAt, sha)
+import State.Step.Build (Outcome (..))
+import State.Step.Catalog (outcome, outcomeEvent)
+import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldSatisfy)
 
 spec :: Spec
@@ -31,10 +34,10 @@ spec = describe "State.Cli.Command" $ do
             recorded ["quality", "Balanced"] `shouldBe` Right (QualitySet Balanced)
 
         it "records a commit event at HEAD with its touched areas" $
-            recorded ["implement.done", "--touches", "none"] `shouldBe` Right (Took (ImplementDone (Commit sha Set.empty)))
+            recorded ["implement.done", "--touches", "none"] `shouldBe` Right (stepTook (ImplementDone (Commit sha Set.empty)))
 
         it "reads an implementer's unstated touches as every area" $
-            recorded ["implement.done"] `shouldBe` Right (Took (ImplementDone (Commit sha (Set.fromList [minBound .. maxBound]))))
+            recorded ["implement.done"] `shouldBe` Right (stepTook (ImplementDone (Commit sha (Set.fromList [minBound .. maxBound]))))
 
         it "refuses an event the table lacks, naming it" $
             recorded ["deploy.done"] `shouldBe` Left "no event deploy.done"
@@ -77,7 +80,7 @@ spec = describe "State.Cli.Command" $ do
             (explain g (Mode Balanced Normal) (runAt []).at (SizeSetOnce Normal)).fix `shouldBe` "state record grew <why>"
 
         it "fixes an event with no arrow by the events out of the step the mode takes" $
-            [ (explain g mode (runAt []).at (NoEdge (runAt []).at (outcomeEvent (ReviewClean sha)))).fix
+            [ (explain g mode (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix
             | mode <- [Mode Balanced Normal, Mode Poc Trivial]
             ]
                 `shouldBe` ["state record research.done <n>", "state record research.done <n> | state record research.skipped"]

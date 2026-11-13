@@ -18,7 +18,7 @@ instance StepSet ReviewStep where
     type Sig Review = '( 'Diff, 'Just 'Diff, 'Diff)
     type Sig Pick = '( 'Diff, 'Just 'Diff, 'Diff)
     type Sig Fix = '( 'Diff, 'Nothing, 'Diff)
-    type Drawn s = ()
+    type Drawn s = 'True
 
     data Sing s where
         Review :: Sing Review

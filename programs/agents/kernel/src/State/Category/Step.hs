@@ -41,10 +41,10 @@ module State.Category.Step (
 
 import Data.Aeson (Object)
 import Data.Aeson.Types (Parser, Series)
-import Data.Kind (Constraint, Type)
+import Data.Kind (Type)
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
-import GHC.TypeError (ErrorMessage (..), TypeError)
+import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import State.Category.Ty (KnownTy, Ty (..))
 
 {- | A step's signature: @(in, exit, continue)@. Only an endo step (@in ~
@@ -75,10 +75,12 @@ missing arm is an incomplete match.
 class (forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
 
-    {- | What 'State.Category.Flow.Do' needs to draw the step: nothing, but
-    for a fan-out's own state, which 'State.Category.Flow.Par' draws.
+    {- | Whether 'State.Category.Flow.Do' draws the step: every one, but a
+    fan-out's own state, which 'State.Category.Flow.Par' draws, whose 'Drawn' is a
+    type error. 'State.Category.Flow.Do' asks for @Drawn s ~ 'True@, an equality, so
+    the refusal is also raised by a term built with its type errors deferred.
     -}
-    type Drawn (s :: k) :: Constraint
+    type Drawn (s :: k) :: Bool
 
     -- | The value of a step: 'State.Category.Flow.Do' takes it.
     data Sing (s :: k) :: Type
@@ -131,8 +133,8 @@ class Fits (sig :: Sig3) (l :: Leg) where
 instance Fits '(i, 'Just x, o) 'Exited where
     legOf = ByExit
 
-instance (TypeError ('Text "Outcome leg Exited does not fit step signature " ':<>: 'ShowType '(i, 'Nothing, o))) => Fits '(i, 'Nothing, o) 'Exited where
-    legOf = error "unreachable: the context is a type error"
+instance (Unsatisfiable ('Text "Outcome leg Exited does not fit step signature " ':<>: 'ShowType '(i, 'Nothing, o))) => Fits '(i, 'Nothing, o) 'Exited where
+    legOf = unsatisfiable
 
 instance Fits '(i, e, o) 'Continued where
     legOf = ByContinuing
@@ -141,8 +143,8 @@ instance Fits '(i, e, o) 'Continued where
 instance (i ~ o) => Fits '(i, 'Nothing, o) 'Skipped where
     legOf = BySkip
 
-instance (TypeError ('Text "Outcome leg Skipped does not fit step signature " ':<>: 'ShowType '(i, 'Just x, o))) => Fits '(i, 'Just x, o) 'Skipped where
-    legOf = error "unreachable: the context is a type error"
+instance (Unsatisfiable ('Text "Outcome leg Skipped does not fit step signature " ':<>: 'ShowType '(i, 'Just x, o))) => Fits '(i, 'Just x, o) 'Skipped where
+    legOf = unsatisfiable
 
 -- | An outcome of some step of the layer, with the proof its leg fits.
 data SomeOutcome k where

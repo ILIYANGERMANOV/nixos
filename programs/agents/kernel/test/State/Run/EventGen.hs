@@ -45,10 +45,17 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanId (..))
 import State.Category.Mode (Quality (..), Size (..))
-import State.Category.Step (EventName)
+import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
+import State.Step.Build (Outcome (..))
+import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
+import State.Step.Fan (Outcome (..))
+import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
+import State.Step.Review (Outcome (..))
+import State.Step.Ship (Outcome (..))
 
 genEnvelope :: Gen Envelope
 genEnvelope =
@@ -153,7 +160,7 @@ genStart =
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
-genOutcomeNamed :: EventName -> Maybe (Gen Outcome)
+genOutcomeNamed :: EventName -> Maybe (Gen AnyOutcome)
 genOutcomeNamed name = case filter ((== name) . outcomeEvent) templates of
     [] -> Nothing
     named -> Just (Gen.element named >>= like)
@@ -163,75 +170,84 @@ outcomeNames :: Set EventName
 outcomeNames = Set.fromList (map outcomeEvent templates)
 
 -- | One of each outcome; 'like' fills in its data.
-templates :: [Outcome]
+templates :: [AnyOutcome]
 templates =
-    [ ResearchDone 0
-    , ResearchSkipped
-    , InterviewEnough
-    , InterviewMore
-    , PlanDone ""
-    , SimplifyPlanDone
-    , SimplifyPlanSkipped
-    , AlternativeDone
-    , AlternativeSkipped
-    , ConfirmConfirmed
-    , ConfirmAdjusted
-    , DraftDone (DraftPr (Url "") (Branch "") (Branch ""))
-    , ImplementDone (Commit (Sha "") Set.empty)
-    , RefactorDone (Sha "")
-    , RefactorSkipped ""
-    , ReviewClean (Sha "")
-    , ReviewRows (Sha "")
-    , PickFinal (Picks Set.empty Map.empty)
-    , PickLoop (Picks Set.empty Map.empty)
-    , FixDone (Commit (Sha "") Set.empty)
-    , DescribeDone (Sha "")
-    , SimplifyPrDone (Sha "")
-    , SimplifyPrSkipped (Sha "")
-    , AwaitCiGreen (Sha "")
-    , AwaitCiRed (Sha "") (Check "" :| [])
-    , FixPrDone (Sha "")
-    , ReadyDone (Url "")
-    , ReadySkipped (Url "")
-    , BreakdownDone (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced Normal False False Set.empty :| []))
-    , FanDone FEngineers
-    , MergeDone (Url "")
+    [ outcome (ResearchDone 0)
+    , outcome ResearchSkipped
+    , outcome InterviewEnough
+    , outcome InterviewMore
+    , outcome (PlanDone "")
+    , outcome SimplifyPlanDone
+    , outcome SimplifyPlanSkipped
+    , outcome AlternativeDone
+    , outcome AlternativeSkipped
+    , outcome ConfirmConfirmed
+    , outcome ConfirmAdjusted
+    , outcome (DraftDone (DraftPr (Url "") (Branch "") (Branch "")))
+    , outcome (ImplementDone (Commit (Sha "") Set.empty))
+    , outcome (RefactorDone (Sha ""))
+    , outcome (RefactorSkipped "")
+    , outcome (ReviewClean (Sha ""))
+    , outcome (ReviewRows (Sha ""))
+    , outcome (PickFinal (Picks Set.empty Map.empty))
+    , outcome (PickLoop (Picks Set.empty Map.empty))
+    , outcome (FixDone (Commit (Sha "") Set.empty))
+    , outcome (DescribeDone (Sha ""))
+    , outcome (SimplifyPrDone (Sha ""))
+    , outcome (SimplifyPrSkipped (Sha ""))
+    , outcome (AwaitCiGreen (Sha ""))
+    , outcome (AwaitCiRed (Sha "") (Check "" :| []))
+    , outcome (FixPrDone (Sha ""))
+    , outcome (ReadyDone (Url ""))
+    , outcome (ReadySkipped (Url ""))
+    , outcome (BreakdownDone (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced Normal False False Set.empty :| [])))
+    , outcome (FanDone FEngineers)
+    , outcome (MergeDone (Url ""))
     ]
 
--- | The same outcome, with generated data.
-like :: Outcome -> Gen Outcome
-like = \case
-    ResearchDone _ -> ResearchDone <$> Gen.integral (Range.linear 0 6)
-    ResearchSkipped -> pure ResearchSkipped
-    InterviewEnough -> pure InterviewEnough
-    InterviewMore -> pure InterviewMore
-    PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
-    SimplifyPlanDone -> pure SimplifyPlanDone
-    SimplifyPlanSkipped -> pure SimplifyPlanSkipped
-    AlternativeDone -> pure AlternativeDone
-    AlternativeSkipped -> pure AlternativeSkipped
-    ConfirmConfirmed -> pure ConfirmConfirmed
-    ConfirmAdjusted -> pure ConfirmAdjusted
-    DraftDone _ -> DraftDone <$> (DraftPr . Url <$> genText <*> (Branch <$> genText) <*> (Branch <$> genText))
-    ImplementDone _ -> ImplementDone <$> genCommit
-    RefactorDone _ -> RefactorDone <$> genSha
-    RefactorSkipped _ -> RefactorSkipped <$> genText
-    ReviewClean _ -> ReviewClean <$> genSha
-    ReviewRows _ -> ReviewRows <$> genSha
-    PickFinal _ -> PickFinal <$> genPicks
-    PickLoop _ -> PickLoop <$> genPicks
-    FixDone _ -> FixDone <$> genCommit
-    DescribeDone _ -> DescribeDone <$> genSha
-    SimplifyPrDone _ -> SimplifyPrDone <$> genSha
-    SimplifyPrSkipped _ -> SimplifyPrSkipped <$> genSha
-    AwaitCiGreen _ -> AwaitCiGreen <$> genSha
-    AwaitCiRed _ _ -> AwaitCiRed <$> genSha <*> Gen.nonEmpty (Range.linear 1 3) (Check <$> Gen.element ["lint", "test", "build"])
-    FixPrDone _ -> FixPrDone <$> genSha
-    ReadyDone _ -> ReadyDone . Url <$> genText
-    ReadySkipped _ -> ReadySkipped . Url <$> genText
-    BreakdownDone _ -> BreakdownDone <$> genTasks
-    FanDone fan -> pure (FanDone fan)
-    MergeDone _ -> MergeDone . Url <$> genText
+-- | The same outcome, with generated data: of the same step, by the same leg.
+like :: AnyOutcome -> Gen AnyOutcome
+like (AnyOutcome layer (SomeOutcome s leg o)) = AnyOutcome layer . SomeOutcome s leg <$> likeIn layer o
+
+likeIn :: Layer k -> Outcome (s :: k) l -> Gen (Outcome s l)
+likeIn = \case
+    GatherLayer -> \case
+        ResearchDone _ -> ResearchDone <$> Gen.integral (Range.linear 0 6)
+        ResearchSkipped -> pure ResearchSkipped
+        InterviewEnough -> pure InterviewEnough
+        InterviewMore -> pure InterviewMore
+    PlanLayer -> \case
+        PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
+        SimplifyPlanDone -> pure SimplifyPlanDone
+        SimplifyPlanSkipped -> pure SimplifyPlanSkipped
+        AlternativeDone -> pure AlternativeDone
+        AlternativeSkipped -> pure AlternativeSkipped
+        ConfirmConfirmed -> pure ConfirmConfirmed
+        ConfirmAdjusted -> pure ConfirmAdjusted
+    BuildLayer -> \case
+        DraftDone _ -> DraftDone <$> (DraftPr . Url <$> genText <*> (Branch <$> genText) <*> (Branch <$> genText))
+        ImplementDone _ -> ImplementDone <$> genCommit
+        RefactorDone _ -> RefactorDone <$> genSha
+        RefactorSkipped _ -> RefactorSkipped <$> genText
+    ReviewLayer -> \case
+        ReviewClean _ -> ReviewClean <$> genSha
+        ReviewRows _ -> ReviewRows <$> genSha
+        PickFinal _ -> PickFinal <$> genPicks
+        PickLoop _ -> PickLoop <$> genPicks
+        FixDone _ -> FixDone <$> genCommit
+    ShipLayer -> \case
+        DescribeDone _ -> DescribeDone <$> genSha
+        SimplifyPrDone _ -> SimplifyPrDone <$> genSha
+        SimplifyPrSkipped _ -> SimplifyPrSkipped <$> genSha
+        AwaitCiGreen _ -> AwaitCiGreen <$> genSha
+        AwaitCiRed _ _ -> AwaitCiRed <$> genSha <*> Gen.nonEmpty (Range.linear 1 3) (Check <$> Gen.element ["lint", "test", "build"])
+        FixPrDone _ -> FixPrDone <$> genSha
+        ReadyDone _ -> ReadyDone . Url <$> genText
+        ReadySkipped _ -> ReadySkipped . Url <$> genText
+    FanLayer -> \case
+        BreakdownDone _ -> BreakdownDone <$> genTasks
+        FanDone fan -> pure (FanDone fan)
+        MergeDone _ -> MergeDone . Url <$> genText
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

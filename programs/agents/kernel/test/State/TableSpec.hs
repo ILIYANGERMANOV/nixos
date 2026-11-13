@@ -5,7 +5,9 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromLeft)
 import Data.Maybe (fromMaybe)
-import State.Table (parseSteps)
+import Data.Set qualified as Set
+import State.Category.Step (EventName (..), OutcomeName (..), StateName (..))
+import State.Table (namingProblems, parseSteps)
 import System.Environment (getEnv)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe)
 
@@ -38,6 +40,22 @@ spec = describe "State.Table" $ do
     it "refuses a row for no step" $
         reparse (KeyMap.insert "deploy" (rowNamed "fix") rows)
             `shouldBe` ["deploy: no such step"]
+
+    describe "namingProblems" $ do
+        let review = StateName "review"
+            clean = EventName review (OutcomeName "clean")
+            withRows = EventName review (OutcomeName "rows")
+        it "refuses two steps of one name" $
+            namingProblems [review, StateName "fix", review] [] Set.empty `shouldBe` ["review: two steps have this name"]
+
+        it "refuses two readers of one event" $
+            namingProblems [review] [clean, clean] (Set.singleton clean) `shouldBe` ["review.clean: two readers read this event"]
+
+        it "refuses a reader of an event no step declares" $
+            namingProblems [review] [clean, withRows] (Set.singleton clean) `shouldBe` ["review.rows: no step has this outcome"]
+
+        it "refuses a declared event no reader reads" $
+            namingProblems [review] [clean] (Set.fromList [clean, withRows]) `shouldBe` ["review.rows: no layer reads this outcome"]
   where
     -- 'Steps' has no Eq: what is checked is the list of problems.
     problems = fromLeft [] . parseSteps

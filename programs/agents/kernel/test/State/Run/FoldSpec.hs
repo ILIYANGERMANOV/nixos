@@ -23,6 +23,12 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, sha, tenXGraph)
+import State.Step.Catalog (outcome, outcomeEvent)
+import State.Step.Fan (Outcome (..))
+import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
+import State.Step.Review (Outcome (..))
+import State.Step.Ship (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -33,7 +39,7 @@ spec = describe "State.Run.Fold" $ do
 
     describe "the 10x's fan-out" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
-            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", Took (BreakdownDone (tasksOf (plainTask "t1" [] :| [])))]
+            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
             atName state = case state.at of
                 At place -> Just place.name
@@ -47,10 +53,10 @@ spec = describe "State.Run.Fold" $ do
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))])
                 `shouldBe` Right (Just (StateName "engineers"))
         it "refuses to leave the fan-out while a task is unsettled" $
-            tenXRun (toEngineers <> [Spawned child, Took (FanDone FEngineers)])
+            tenXRun (toEngineers <> [Spawned child, stepTook (FanDone FEngineers)])
                 `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
         it "leaves the fan-out for the merge once every task is settled" $
-            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), Took (FanDone FEngineers)])
+            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), stepTook (FanDone FEngineers)])
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
             tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
@@ -65,7 +71,7 @@ spec = describe "State.Run.Fold" $ do
             Right state -> do
                 cover 20 "accepted" True
                 cover 5 "reached the end" (state.at == Out)
-                path <- evalMaybe (ty g [outcomeEvent outcome | Took outcome <- events])
+                path <- evalMaybe (ty g [outcomeEvent took | Took took <- events])
                 assert (composes path)
 
     it "rounds_never_exceed_fuel_plus_one" . hedgehog $ do
@@ -87,9 +93,9 @@ spec = describe "State.Run.Fold" $ do
 
     it "gives one more round after a Not met at the fuel, never two" $ do
         let unmet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
-            once = toReview <> roundWith unmet <> [Took (FixDone commit), Took (ReviewRows sha)]
+            once = toReview <> roundWith unmet <> [stepTook (FixDone commit), stepTook (ReviewRows sha)]
         (.at) <$> replay g (logOf (started :| SizeSet Trivial : once)) `shouldSatisfy` either (const False) (/= Out)
-        replay g (logOf (started :| SizeSet Trivial : once <> [Took (PickLoop unmet)])) `shouldBe` Left (OutOfFuel LReview 1)
+        replay g (logOf (started :| SizeSet Trivial : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfFuel LReview 1)
 
     it "stuck_after_two_same_rounds" . hedgehog $ do
         -- Max's 6 rounds: the last round's loop pick is refused, as no round is left.
@@ -106,17 +112,17 @@ spec = describe "State.Run.Fold" $ do
             `shouldBe` Right []
 
     it "is stuck on one failing check in two CI rounds in a row" $ do
-        let red = Took (AwaitCiRed sha (Check "lint" :| []))
-        stuck <$> replay g (logOf (started :| toCi <> [red, Took (FixPrDone sha), red]))
+        let red = stepTook (AwaitCiRed sha (Check "lint" :| []))
+        stuck <$> replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red]))
             `shouldBe` Right [Stuck LCi (Set.singleton (Failing (Check "lint")))]
 
     it "forgets a loop's rounds once the run leaves it" $
-        stuck <$> replay g (logOf (started :| QualitySet Max : toReview <> reviewRounds [["A"], ["A"]] <> [Took (FixDone commit), Took (ReviewClean sha)]))
+        stuck <$> replay g (logOf (started :| QualitySet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReviewClean sha)]))
             `shouldBe` Right []
 
     it "restarts gathering in each round of the plan loop" $ do
-        let gather = [ResearchDone 1, InterviewMore]
-            gathered = concat (replicate 5 gather) <> [ResearchDone 1, InterviewEnough, PlanDone "p", SimplifyPlanDone, AlternativeDone, ConfirmAdjusted] <> gather
+        let gather = [outcome (ResearchDone 1), outcome InterviewMore]
+            gathered = concat (replicate 5 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome AlternativeDone, outcome ConfirmAdjusted] <> gather
         Map.map length . (.rounds) <$> replay g (logOf (started :| map Took gathered))
             `shouldBe` Right (Map.fromList [(LGather, 2), (LPlan, 2)])
 
@@ -128,7 +134,7 @@ spec = describe "State.Run.Fold" $ do
         append g state again === Right AlreadyLogged
 
     it "logs a hook record fired twice once" $ do
-        let hook n = hookLine "ab12" n (Took (ResearchDone 1))
+        let hook n = hookLine "ab12" n (stepTook (ResearchDone 1))
         (.at) <$> replay g (line 0 started :| [hook 1, hook 2]) `shouldBe` (.at) <$> replay g (line 0 started :| [hook 1])
 
     it "state_is_a_fold" . hedgehog $ do
@@ -139,16 +145,16 @@ spec = describe "State.Run.Fold" $ do
         (replay g firstPart >>= \state -> fold g state after) === replay g (logOf (started :| events))
 
     it "refuses a log whose first line is not started" $
-        replay g (logOf (Took (ResearchDone 1) :| [])) `shouldBe` Left NotStarted
+        replay g (logOf (stepTook (ResearchDone 1) :| [])) `shouldBe` Left NotStarted
 
     it "refuses an event with no edge where the run is" $
-        replay g (logOf (started :| [Took (ReviewClean sha)])) `shouldBe` Left (NoEdge (At research) (outcomeEvent (ReviewClean sha)))
+        replay g (logOf (started :| [stepTook (ReviewClean sha)])) `shouldBe` Left (NoEdge (At research) (outcomeEvent (outcome (ReviewClean sha))))
 
     it "refuses a skip the mode never takes" $
-        replay g (logOf (started :| [Took ResearchSkipped])) `shouldBe` Left (NotSkippable ORes)
+        replay g (logOf (started :| [stepTook ResearchSkipped])) `shouldBe` Left (NotSkippable ORes)
 
     it "takes a skip where the mode does" $
-        (.at) <$> replay g (logOf (started :| [SizeSet Trivial, Took ResearchSkipped])) `shouldSatisfy` either (const False) (/= At research)
+        (.at) <$> replay g (logOf (started :| [SizeSet Trivial, stepTook ResearchSkipped])) `shouldSatisfy` either (const False) (/= At research)
 
     it "refuses a second Quality" $
         replay g (logOf (started :| [QualitySet Max, QualitySet Poc])) `shouldBe` Left (QualitySetOnce Max)
@@ -160,16 +166,16 @@ spec = describe "State.Run.Fold" $ do
         mode <$> replay g (logOf (started :| [QualitySet Max, QualitySet Max, SizeSet Trivial, Grew "bigger"])) `shouldBe` Right (Mode Max Normal)
 
     it "takes no event after a stop" $
-        replay g (logOf (started :| [Stopped stop, Took (ResearchDone 1)])) `shouldBe` Left (AfterStop stop)
+        replay g (logOf (started :| [Stopped stop, stepTook (ResearchDone 1)])) `shouldBe` Left (AfterStop stop)
 
     it "logs a refusal after a stop" $
         (.refused) <$> replay g (logOf (started :| [Stopped stop, Refused note])) `shouldBe` Right (Just note)
 
     it "warns of a refusal until the next event" $
-        (.refused) <$> replay g (logOf (started :| [Refused note, Took (ResearchDone 1)])) `shouldBe` Right Nothing
+        (.refused) <$> replay g (logOf (started :| [Refused note, stepTook (ResearchDone 1)])) `shouldBe` Right Nothing
 
     it "refuses a line of another run" $
-        replay g (line 0 started :| [ofRun (runId "other") (line 1 (Took (ResearchDone 1)))]) `shouldBe` Left (OtherRun (runId "other"))
+        replay g (line 0 started :| [ofRun (runId "other") (line 1 (stepTook (ResearchDone 1)))]) `shouldBe` Left (OtherRun (runId "other"))
 
     it "overrides to a named state" $
         placeName . (.at) <$> replay g (logOf (started :| [Overridden (StateName "review") "why"])) `shouldBe` Right (Just (StateName "review"))
@@ -200,20 +206,20 @@ toReview = map Took (take 9 happyPath)
 
 -- | From the start to the first CI result.
 toCi :: [Event]
-toCi = map Took (take 9 happyPath <> [ReviewClean sha, DescribeDone sha, SimplifyPrDone sha])
+toCi = map Took (take 9 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
 
 reviewRound :: [Label] -> [Event]
 reviewRound rows = roundWith (Picks (Set.fromList rows) Map.empty)
 
 roundWith :: Picks -> [Event]
-roundWith picks = [Took (ReviewRows sha), Took (PickLoop picks)]
+roundWith picks = [stepTook (ReviewRows sha), stepTook (PickLoop picks)]
 
 -- | Review rounds with these rows, fixed between rounds; the last ends at its picks.
 reviewRounds :: [[Text]] -> [Event]
 reviewRounds = \case
     [] -> []
     [rows] -> reviewRound (map Label rows)
-    rows : rest -> reviewRound (map Label rows) <> [Took (FixDone commit)] <> reviewRounds rest
+    rows : rest -> reviewRound (map Label rows) <> [stepTook (FixDone commit)] <> reviewRounds rest
 
 fuel :: RunState -> LoopId -> Int
 fuel state loopId = fromIntegral ((cfg (mode state)).fuel loopId)

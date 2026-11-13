@@ -16,6 +16,12 @@ import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (
 import State.Run.Event hiding (Stopped)
 import State.Run.EventGen (genStart, genText, oneLine, run, runId, start)
 import State.Run.RunGen (childOf, commit, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, sha, tenXAt, tenXGraph)
+import State.Step.Build (Outcome (..))
+import State.Step.Catalog (outcome)
+import State.Step.Fan (Outcome (..))
+import State.Step.Gather (Outcome (..))
+import State.Step.Review (Outcome (..))
+import State.Step.Ship (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -63,7 +69,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldSatisfy` runs (\command -> "state record pick.final" `Text.isPrefixOf` command && "only with a not-met verdict" `Text.isInfixOf` command)
 
         it "offers only pick.final once no review round is left" $
-            next noFacts (atPick Trivial [Took (PickLoop notMet), Took (FixDone commit), Took (ReviewRows sha)])
+            next noFacts (atPick Trivial [stepTook (PickLoop notMet), stepTook (FixDone commit), stepTook (ReviewRows sha)])
                 `shouldSatisfy` runs (\command -> "state record pick.final" `Text.isPrefixOf` command && not ("pick.loop" `Text.isInfixOf` command))
 
     describe "confirm" $ do
@@ -79,18 +85,18 @@ spec = describe "State.Protocol.Advice" $ do
 
     describe "due" $ do
         it "skips research in Trivial" $
-            due g noFacts (runAt (knobs Balanced Trivial)) `shouldBe` Just ResearchSkipped
+            due g noFacts (runAt (knobs Balanced Trivial)) `shouldBe` Just (outcome ResearchSkipped)
 
         it "skips the refactor at or below its changed lines" $
             due g noFacts {changedLines = Just 100} atRefactor
-                `shouldBe` Just (RefactorSkipped "100 changed lines, at or below 100")
+                `shouldBe` Just (outcome (RefactorSkipped "100 changed lines, at or below 100"))
 
         it "runs the refactor above its changed lines, or when they are unknown" $
             map (\changed -> due g noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Nothing, Nothing]
 
         it "records the draft PR GitHub already has" $
             due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced Normal <> map Took (take 6 happyPath)))
-                `shouldBe` Just (DraftDone draftPr)
+                `shouldBe` Just (outcome (DraftDone draftPr))
 
         it "takes a merged or closed PR on the branch for an old one, not the draft" $
             [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced Normal <> map Took (take 6 happyPath)))
@@ -99,13 +105,13 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` [Nothing, Nothing]
 
         it "skips ready in POC, leaving the draft" $
-            due g withPr (atReady Poc) `shouldBe` Just (ReadySkipped prUrl)
+            due g withPr (atReady Poc) `shouldBe` Just (outcome (ReadySkipped prUrl))
 
         it "skips ready in POC offline, by the draft the run recorded" $
-            due g noFacts (atReady Poc) `shouldBe` Just (ReadySkipped (Url "u"))
+            due g noFacts (atReady Poc) `shouldBe` Just (outcome (ReadySkipped (Url "u")))
 
         it "records ready once GitHub says the PR is ready" $
-            due g withPr {pr = Just (PullRequest draftPr IsReady)} (atReady Balanced) `shouldBe` Just (ReadyDone prUrl)
+            due g withPr {pr = Just (PullRequest draftPr IsReady)} (atReady Balanced) `shouldBe` Just (outcome (ReadyDone prUrl))
 
     describe "the 10x's fan-out" $ do
         let t1 = plainTask "t1" []
@@ -141,7 +147,7 @@ spec = describe "State.Protocol.Advice" $ do
             map (next noFacts . tenXAt (t1 :| [])) [forwarded, forwarded <> [Answered stuckOn.qid "retry" TheUser]]
                 `shouldBe` [AwaitAnswer stuckOn, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
         it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
-            let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), Took (FanDone FEngineers)]
+            let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), stepTook (FanDone FEngineers)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge (TaskId "t1" :| []), Run "state record merge.done <url>"]
         it "resumes a ruled child while the user holds another child's question" $ do
@@ -167,7 +173,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "leaves the fan-out itself once every task is settled, and not before" $ do
             let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
-            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (FanDone FEngineers)
+            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (outcome (FanDone FEngineers))
         it "states each task's child, PR and tries" $
             filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
                 `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
@@ -254,7 +260,7 @@ spec = describe "State.Protocol.Advice" $ do
     atConfirm = runAt (knobs Balanced Normal <> map Took (take 5 happyPath))
     atRefactor = runAt (knobs Balanced Normal <> map Took (take 8 happyPath))
     atReady quality = runAt (knobs quality Normal <> map Took (take 13 happyPath))
-    atPick size rest = runAt (knobs Balanced size <> map Took (take 9 happyPath) <> [Took (ReviewRows sha)] <> rest)
+    atPick size rest = runAt (knobs Balanced size <> map Took (take 9 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
     -- A Design question the run's own row forwards: asked, then forwarded at once.
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)
 

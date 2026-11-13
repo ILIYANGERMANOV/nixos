@@ -18,14 +18,14 @@ type data GatherStep = Research | Interview
 instance StepSet GatherStep where
     type Sig Research = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Interview = '( 'Ctx, 'Just 'Ctx, 'Ctx)
-    type Drawn s = ()
+    type Drawn s = 'True
 
     data Sing s where
         Research :: Sing Research
         Interview :: Sing Interview
 
     data Outcome s l where
-        -- | The number of researchers.
+        -- \| The number of researchers.
         ResearchDone :: Natural -> Outcome Research 'Continued
         ResearchSkipped :: Outcome Research 'Skipped
         InterviewEnough :: Outcome Interview 'Exited

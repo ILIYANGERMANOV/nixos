@@ -16,8 +16,9 @@ import State.Run.RunGen (g, tenXGraph)
 import Test.Hspec (Spec, describe, it, runIO)
 
 spec :: Spec
-spec = describe "a version 3 log" $
-    mapM_ folds [("engineer-1", g), ("engineer-2", g), ("engineer-3", g), ("tenx", tenXGraph)]
+spec =
+    describe "a version 3 log" $
+        mapM_ folds [("engineer-1", g), ("engineer-2", g), ("engineer-3", g), ("tenx", tenXGraph)]
 
 folds :: (FilePath, OpenGraph) -> Spec
 folds (name, flowGraph) = do

@@ -4,11 +4,12 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (Flow (..))
 import State.Category.Graph (graph)
-import State.Category.Step (Step (..))
 import State.Cli.Render.Mermaid (mermaid)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.Golden (golden)
+import State.Step.Build (Sing (..))
+import State.Step.Review (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec

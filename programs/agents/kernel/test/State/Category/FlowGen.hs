@@ -22,8 +22,14 @@ import Hedgehog.Range qualified as Range
 import State.Category.Flow (FanId (..), Flow (..), OnEmpty (..))
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Mode (Cfg (..), Mode, SkipWhen (..), cfg, modes)
-import State.Category.Step (EventName, OutcomeEdge (..), StateName, Step (..))
+import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (Ty (..))
+import State.Step.Build (Sing (..))
+import State.Step.Fan (Sing (..))
+import State.Step.Gather (Sing (..))
+import State.Step.Plan (Sing (..))
+import State.Step.Review (Sing (..))
+import State.Step.Ship (Sing (..))
 
 -- | The steps of one type that a generated flow chains, with and without an exit.
 data Kit a = Kit {endo :: [Flow a 'Nothing a], exiting :: [Flow a ('Just a) a]}

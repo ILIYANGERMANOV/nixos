@@ -62,6 +62,7 @@ import State.Category.Step (eventText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
     AgentRole (..),
+    AnyOutcome,
     Asker (..),
     Asking (..),
     Child (..),
@@ -71,7 +72,6 @@ import State.Run.Event (
     FlowName (..),
     Note (..),
     Op (..),
-    AnyOutcome,
     Parent (..),
     Principal (..),
     RunId,

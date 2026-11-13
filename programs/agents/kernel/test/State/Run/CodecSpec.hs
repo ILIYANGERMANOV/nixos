@@ -11,9 +11,10 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, taskList)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
 import State.Run.RunGen (breakdownJson, plainTask)
+import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -104,7 +105,7 @@ reviewRows =
         , run = runId "r7f2"
         , head = Just (Sha "abc123")
         , session = Nothing
-        , event = Took (ReviewRows (Sha "abc123"))
+        , event = stepTook (ReviewRows (Sha "abc123"))
         }
 
 {- | A hook line of an accepted run id, drawn with its seq and digest from so
@@ -120,7 +121,7 @@ genCollidingHookLine = do
 
 -- | Picks of row A, with R1 met.
 picked :: Envelope
-picked = reviewRows {event = Took (PickLoop (Picks (Set.singleton (Label "A")) (Map.singleton (Requirement "R1") Met)))}
+picked = reviewRows {event = stepTook (PickLoop (Picks (Set.singleton (Label "A")) (Map.singleton (Requirement "R1") Met)))}
 
 metR1 :: Text
 metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"

@@ -9,6 +9,7 @@ module State.Table (
     Row (..),
     Runner (..),
     parseSteps,
+    namingProblems,
     row,
     agentRoles,
 ) where
@@ -20,13 +21,14 @@ import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomes, skippedOutcome, stateNameText, stepName)
 import State.Category.Ty (KnownTy (..), Ty (..))
 import State.Run.Event (AgentRole (..))
-import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders)
+import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)
 
 {- | A row for every step of the layers and no other, each with the step's
 types and outcomes. Only 'parseSteps' builds one.
@@ -92,14 +94,22 @@ stepNames = [stepName s | AnyStep _ (SomeStep s) <- allSteps]
 
 -- | Every way the layers' own names clash or miss an outcome.
 catalogProblems :: [Text]
-catalogProblems =
-    [stateNameText name <> ": two steps have this name" | name <- twice stepNames]
-        <> [eventText event <> ": two outcomes readers this event" | event <- twice readers]
+catalogProblems = namingProblems stepNames readers declared
+  where
+    readers = map fst outcomeDecoders
+    declared = Set.fromList (concat [stepEvents s (EventName (stepName s) skippedOutcome `elem` readers) | AnyStep _ (SomeStep s) <- outcomeSteps])
+
+{- | Every way these names clash or miss an outcome: the steps' names, the
+event each outcome reader reads, and the events the steps declare.
+-}
+namingProblems :: [StateName] -> [EventName] -> Set EventName -> [Text]
+namingProblems steps readers declared =
+    [stateNameText name <> ": two steps have this name" | name <- twice steps]
+        <> [eventText event <> ": two readers read this event" | event <- twice readers]
         <> [eventText event <> ": no step has this outcome" | event <- readers, not (Set.member event declared)]
         <> [eventText event <> ": no layer reads this outcome" | event <- Set.toList declared, event `notElem` readers]
   where
-    readers = map fst outcomeDecoders
-    declared = Set.fromList (concat [stepEvents s (EventName (stepName s) skippedOutcome `elem` readers) | AnyStep _ (SomeStep s) <- allSteps])
+    twice :: (Ord a) => [a] -> [a]
     twice names = Map.keys (Map.filter (> (1 :: Int)) (Map.fromListWith (+) [(name, 1) | name <- names]))
 
 -- | A step's events: its exit and continuing ones, and its skip if it has one.

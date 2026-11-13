@@ -13,6 +13,7 @@ module State.Step.Catalog (
     outcomeDecoders,
     AnyStep (..),
     allSteps,
+    outcomeSteps,
     stepNamed,
     nodeStep,
 ) where
@@ -24,7 +25,7 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Decoder, EventName, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
 import State.Step.Build (BuildStep)
-import State.Step.Fan (FanStep)
+import State.Step.Fan (FanStep, Sing (FanOut))
 import State.Step.Gather (GatherStep)
 import State.Step.Plan (PlanStep)
 import State.Step.Review (ReviewStep)
@@ -119,6 +120,12 @@ allSteps :: [AnyStep]
 allSteps = concatMap stepsOf layers
   where
     stepsOf (SomeLayer l) = map (AnyStep l) layerSteps
+
+{- | Every step with outcomes: those 'allSteps' lists, and each fan-out's own
+state, which 'State.Category.Flow.Par' draws.
+-}
+outcomeSteps :: [AnyStep]
+outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- [minBound .. maxBound]]
 
 -- | The step a state is named after; a fan-out's state names none.
 stepNamed :: StateName -> Maybe AnyStep

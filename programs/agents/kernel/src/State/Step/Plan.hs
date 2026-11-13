@@ -19,7 +19,7 @@ instance StepSet PlanStep where
     type Sig SimplifyP = '( 'Plan, 'Nothing, 'Plan)
     type Sig Alternative = '( 'Plan, 'Nothing, 'Plan)
     type Sig Confirm = '( 'Plan, 'Just 'Plan, 'Ctx)
-    type Drawn s = ()
+    type Drawn s = 'True
 
     data Sing s where
         PlanS :: Sing PlanS
@@ -28,7 +28,7 @@ instance StepSet PlanStep where
         Confirm :: Sing Confirm
 
     data Outcome s l where
-        -- | The plan file.
+        -- \| The plan file.
         PlanDone :: FilePath -> Outcome PlanS 'Continued
         SimplifyPlanDone :: Outcome SimplifyP 'Continued
         SimplifyPlanSkipped :: Outcome SimplifyP 'Skipped

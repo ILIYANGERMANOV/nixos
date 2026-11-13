@@ -55,7 +55,7 @@ are not numbers in the term: 'State.Category.Mode.cfg' gives each id its value.
 -}
 data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     -- | One step, of any layer: its signature is the term's type.
-    Do :: (StepSet k, Drawn s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o) => Sing (s :: k) -> Flow i e o
+    Do :: (StepSet k, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o) => Sing (s :: k) -> Flow i e o
     -- | Series: an exit of either side exits the whole.
     (:>) :: Flow a e1 b -> Flow b e2 c -> Flow a (Join e1 e2) c
     -- | Repeat the body while it continues; its exit is the loop's out.

@@ -23,7 +23,7 @@ instance StepSet ShipStep where
     type Sig AwaitCi = '( 'PR, 'Just 'PR, 'PR)
     type Sig FixPR = '( 'PR, 'Nothing, 'PR)
     type Sig Ready = '( 'PR, 'Nothing, 'PR)
-    type Drawn s = ()
+    type Drawn s = 'True
 
     data Sing s where
         Describe :: Sing Describe
@@ -37,11 +37,11 @@ instance StepSet ShipStep where
         SimplifyPrDone :: Sha -> Outcome SimplifyPR 'Continued
         SimplifyPrSkipped :: Sha -> Outcome SimplifyPR 'Skipped
         AwaitCiGreen :: Sha -> Outcome AwaitCi 'Exited
-        -- | Red has a failing check by definition.
+        -- \| Red has a failing check by definition.
         AwaitCiRed :: Sha -> NonEmpty Check -> Outcome AwaitCi 'Continued
         FixPrDone :: Sha -> Outcome FixPR 'Continued
         ReadyDone :: Url -> Outcome Ready 'Continued
-        -- | POC keeps a draft: the PR it left.
+        -- \| POC keeps a draft: the PR it left.
         ReadySkipped :: Url -> Outcome Ready 'Skipped
 
     layerSteps = [SomeStep Describe, SomeStep SimplifyPR, SomeStep AwaitCi, SomeStep FixPR, SomeStep Ready]

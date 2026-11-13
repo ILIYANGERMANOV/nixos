@@ -20,7 +20,7 @@ instance StepSet BuildStep where
     type Sig Draft = '( 'Plan, 'Nothing, 'Plan)
     type Sig Implement = '( 'Plan, 'Nothing, 'Diff)
     type Sig Refactor = '( 'Diff, 'Nothing, 'Diff)
-    type Drawn s = ()
+    type Drawn s = 'True
 
     data Sing s where
         Draft :: Sing Draft
@@ -31,7 +31,7 @@ instance StepSet BuildStep where
         DraftDone :: DraftPr -> Outcome Draft 'Continued
         ImplementDone :: Commit -> Outcome Implement 'Continued
         RefactorDone :: Sha -> Outcome Refactor 'Continued
-        -- | Why it was skipped.
+        -- \| Why it was skipped.
         RefactorSkipped :: Text -> Outcome Refactor 'Skipped
 
     layerSteps = [SomeStep Draft, SomeStep Implement, SomeStep Refactor]

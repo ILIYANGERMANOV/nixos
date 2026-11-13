@@ -12,12 +12,13 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (stepName)
-import State.Category.Step qualified as Step
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Hook
-import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Stopped, Took), Outcome (..), Stop (..), StopReason (..), Url (..))
+import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Stopped), Stop (..), StopReason (..), Url (..), stepTook)
 import State.Run.EventGen (line, logOf, run, started)
 import State.Run.RunGen (commit, loadSteps, runAt)
+import State.Step.Build (Outcome (..), Sing (Refactor))
+import State.Step.Review (Outcome (..))
 import System.Environment (getEnv)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldNotBe, shouldSatisfy)
 
@@ -71,7 +72,7 @@ spec = describe "the hooks" $ do
             wants steps SpawnHook (SessionStart (Call "s" "/w" Nothing) Startup) `shouldBe` Left "state-hook spawn does not run at sessionStart"
 
     describe "silence" $ do
-        let drafted = Took (DraftDone (DraftPr (Url "https://github.com/o/r/pull/1") (Branch "main") (Branch "feat")))
+        let drafted = stepTook (DraftDone (DraftPr (Url "https://github.com/o/r/pull/1") (Branch "main") (Branch "feat")))
         it "speaks on a run at a step" $
             silent (Just (Branch "feat")) Nothing (logOf (started :| [])) (runAt []) `shouldBe` False
 
@@ -92,7 +93,7 @@ spec = describe "the hooks" $ do
                 `shouldBe` [False, False]
 
     describe "a spawn off the advice" $ do
-        let refactor = At (Place [] (stepName Step.Refactor))
+        let refactor = At (Place [] (stepName Refactor))
             role = AgentRole
         it "warns on a flow role that is not the one advised" $
             offAdvice steps refactor (role "refactorer") (role "fixer") `shouldBe` Just "state: the advice is SPAWN refactorer, not fixer"
@@ -112,7 +113,7 @@ spec = describe "the hooks" $ do
     describe "a hand-back logged already" $ do
         let sources = hookSources run (Agent (Just "a1") (Just (AgentRole "fixer"))) (AgentRole "fixer") "READY"
             -- The fixer's done, as the hook records it under its record's id.
-            hooked n = case line 1 (Took (FixDone commit)) of
+            hooked n = case line 1 (stepTook (FixDone commit)) of
                 Envelope _ seq' ts ofRun at session done -> Envelope (sources !! n) seq' ts ofRun at session done
             logWith = loggedAlready . (line 0 started :|)
         it "is the one whose first record the log holds" $

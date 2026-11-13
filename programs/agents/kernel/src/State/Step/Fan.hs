@@ -11,7 +11,6 @@ module State.Step.Fan (
 ) where
 
 import Data.Aeson ((.:), (.=))
-import Data.Kind (Constraint)
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Flow (FanEvent (Leaves), FanId, fanEvent, fanName)
@@ -24,10 +23,10 @@ fan-out: a step of this layer for its outcome, never one 'State.Category.Flow.Do
 -}
 type data FanStep = Breakdown | FanOut | Merge
 
-type DrawnFan :: FanStep -> Constraint
+type DrawnFan :: FanStep -> Bool
 type family DrawnFan s where
     DrawnFan FanOut = TypeError ('Text "A fan-out's state is drawn by Par, not Do")
-    DrawnFan s = ()
+    DrawnFan s = 'True
 
 instance StepSet FanStep where
     type Sig Breakdown = '( 'Plan, 'Nothing, 'List 'Ctx)
@@ -42,9 +41,9 @@ instance StepSet FanStep where
 
     data Outcome s l where
         BreakdownDone :: Tasks -> Outcome Breakdown 'Continued
-        -- | Every task of the fan-out is settled ("State.Run.Fan").
+        -- \| Every task of the fan-out is settled ("State.Run.Fan").
         FanDone :: FanId -> Outcome FanOut 'Continued
-        -- | The one PR the merge left.
+        -- \| The one PR the merge left.
         MergeDone :: Url -> Outcome Merge 'Continued
 
     layerSteps = [SomeStep Breakdown, SomeStep Merge]

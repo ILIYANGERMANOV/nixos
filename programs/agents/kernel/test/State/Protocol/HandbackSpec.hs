@@ -12,10 +12,13 @@ import Hedgehog.Range qualified as Range
 import State.Category.Mode (Area (..), Quality (..))
 import State.Protocol.Handback
 import State.Run.Ask (Kind (..), QId (..), Question (..))
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Outcome (..), Picks (..), Said (..), Sha (..), StateName (..), Task (..), TaskId (..), TaskState (..), Url (..))
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), Task (..), TaskId (..), TaskState (..), Url (..), stepTook)
 import State.Run.Event qualified as Event
 import State.Run.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runId)
 import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
+import State.Step.Build (Outcome (..))
+import State.Step.Catalog (outcome)
+import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -59,22 +62,22 @@ typing = describe "typeHandback" $ do
 
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
-            `shouldBe` Right (Typed [Took (ImplementDone (Commit sha (Set.singleton Auth)))] Nothing)
+            `shouldBe` Right (Typed [stepTook (ImplementDone (Commit sha (Set.singleton Auth)))] Nothing)
 
     it "reads an implementer's hand-back with no Touches line as touching every area" $
         typed atImplement "implementer" "READY built"
-            `shouldBe` Right (Typed [Took (ImplementDone (Commit sha (Set.fromList [minBound .. maxBound])))] Nothing)
+            `shouldBe` Right (Typed [stepTook (ImplementDone (Commit sha (Set.fromList [minBound .. maxBound])))] Nothing)
 
     it "reads a fixer's hand-back with no Touches line as touching none" $
         typed atFix "fixer" "READY fixed"
-            `shouldBe` Right (Typed [Took (FixDone (Commit sha Set.empty))] Nothing)
+            `shouldBe` Right (Typed [stepTook (FixDone (Commit sha Set.empty))] Nothing)
 
     it "refuses a READY from a role that does not run the step" $
         typed atImplement "fixer" "READY fixed" `shouldSatisfy` isLeft
 
     it "types a review-lead's report as review.rows at its reviewed head" $
         typed atReview "review-lead" "| # | Severity | What |\n\nReviewed head: 9f8e7d6"
-            `shouldBe` Right (Typed [Took (ReviewRows (Sha "9f8e7d6"))] Nothing)
+            `shouldBe` Right (Typed [stepTook (ReviewRows (Sha "9f8e7d6"))] Nothing)
 
     it "refuses a review-lead's report with no reviewed head" $
         typed atReview "review-lead" "| # | Severity | What |" `shouldSatisfy` isLeft
@@ -132,7 +135,7 @@ typing = describe "typeHandback" $ do
   where
     atImplement = runAt (map Took (take 7 happyPath))
     atReview = runAt (map Took (take 9 happyPath))
-    atFix = runAt (map Took (take 9 happyPath <> [ReviewRows sha, PickLoop (Picks Set.empty Map.empty)]))
+    atFix = runAt (map Took (take 9 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"
