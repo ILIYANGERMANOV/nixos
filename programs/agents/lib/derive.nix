@@ -74,19 +74,26 @@ let
           ++ missing (fragments row.prose) record.instructions
         ) (stepsOf table role);
 
+      # Recomputed from the rows, not through derive's helpers, so a bug in
+      # them cannot hide here.
       extras =
         role: record:
         let
           rows = stepsOf table role;
-          operations = operationsOf table role;
+          field = name: lib.concatMap (row: row.${name}) rows;
+          spawns = map (row: "spawn:${row.runner}") (
+            lib.filter (row: row.runner != "inline" && lib.elem role row.flows) (lib.attrValues table)
+          );
+          operations = field "ops" ++ spawns;
+          tools = field "tools" ++ lib.optional (lib.any (lib.hasPrefix "spawn:") operations) "delegate";
           own = lib.filter (
             fragment: lib.hasSuffix "/roles/${role}/role.md" (toString fragment.file)
           ) record.instructions;
         in
-        missing record.capabilities (toolsOf rows operations)
-        ++ missing record.skills (union "skills" rows)
+        missing record.capabilities tools
+        ++ missing record.skills (field "skills")
         ++ missing record.operations operations
-        ++ missing record.instructions (own ++ fragments (union "prose" rows));
+        ++ missing record.instructions (own ++ fragments (field "prose"));
 
       failing = law: lib.attrNames (lib.filterAttrs (role: record: law role record != [ ]) roles);
       sufficient = failing needs;
