@@ -40,7 +40,6 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
-import System.FilePath ((</>))
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent)
@@ -80,6 +79,7 @@ import State.Event (
  )
 import State.Id (eventIdText, parseEventId)
 import State.Mode (Area (..), parseByName, parseQuality, qualityName, sizeName)
+import System.FilePath ((</>))
 
 -- | The log's file in a run's notes dir.
 logName :: FilePath

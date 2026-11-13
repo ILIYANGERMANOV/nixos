@@ -27,9 +27,9 @@ import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Delivery (..), Kind, OneLine, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Ask qualified as Ask
-import State.Cli (recordCommand)
 import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
 import State.Cap qualified as Cap
+import State.Cli (recordCommand)
 import State.Codec (reasonText, urlText)
 import State.Event (AgentRole (..), Asker (Itself), Asking (..), DraftPr (..), Event (Asked, Forwarded), Outcome (..), Requirement (..), Start (..), Stop (..), Url)
 import State.Event qualified as Event
