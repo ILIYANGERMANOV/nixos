@@ -5,7 +5,7 @@ slice C's.
 -}
 module State.E2ESpec (spec) where
 
-import Control.Monad (void)
+import Control.Monad (void, (<=<))
 import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -150,7 +150,7 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin repo ["rule", q1, "--answer", "postgres", "--why", "already used", "--cost", "none"]
                 unfounded <- state bin repo ["rule", q2, "--answer", "yes", "--why", "fine", "--cost", "none"]
                 unfounded.code `shouldBe` 2
-                for_ [["forward", q2], ["answer", q2, "use", "a", "vault"]] $ \argv -> succeeded =<< state bin repo argv
+                for_ [["forward", q2], ["answer", q2, "use", "a", "vault"]] (succeeded <=< state bin repo)
                 first <- succeeded =<< state bin repo ["next"]
                 take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1]
                 _ <- succeeded =<< state bin w1 ["answer", q1, "postgres"]
@@ -174,8 +174,7 @@ spec = describe "the state binary" $ do
                 writeFile repo.prJson (pullRequest True "OPEN")
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
-                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"]] $ \argv ->
-                    succeeded =<< state bin w1 argv
+                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"]] (succeeded <=< state bin w1)
                 relay bin repo =<< succeeded =<< state bin w1 ["next"]
                 _ <- succeeded =<< state bin repo ["record", "task", "t2", "parked", "out", "of", "scope"]
                 awaiting <- succeeded =<< state bin repo ["next"]
@@ -341,12 +340,16 @@ tenXAtFanOut bin repo = do
             other -> fail ("not started: " <> show other)
     let tasks = repo.root </> "tasks.json"
     Text.writeFile tasks ("[" <> task "t1" "[]" <> "," <> task "t2" "[\"t1\"]" <> "]")
-    for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] $ \argv ->
-        succeeded =<< state bin repo argv
+    for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo)
     pure run
   where
     task name deps =
-        "{\"id\":\"" <> name <> "\",\"deps\":" <> deps <> ",\"base\":\"main\",\"branch\":\"" <> name
+        "{\"id\":\""
+            <> name
+            <> "\",\"deps\":"
+            <> deps
+            <> ",\"base\":\"main\",\"branch\":\""
+            <> name
             <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":false,\"security\":[]}"
 
 -- | The child run a parent's brief starts for this task, its notes in @dir@ under the repo's root; its id.

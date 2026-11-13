@@ -50,7 +50,6 @@ import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf,
 import State.Codec qualified as Codec
 import State.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), TaskId (..), parseRunId, roleText, runIdText)
 import State.Event qualified as Event
-import State.Id (digestOf)
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
 import State.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
@@ -58,8 +57,9 @@ import State.Fold qualified as Fold
 import State.Graph (Node (..), OpenGraph, graph)
 import State.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Handback qualified as Handback
-import State.Hook qualified as Hook
 import State.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, parseHookName, replyOf, silent, toldOf, wants)
+import State.Hook qualified as Hook
+import State.Id (digestOf)
 import State.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Render qualified as Render
 import State.Render.Mermaid (mermaid)
@@ -413,7 +413,7 @@ spawnedIn parent parentLog childAt =
         Right top ->
             let child = childAt top
                 source = Hook (digestOf [runIdText parent, runIdText child.run])
-             in fmap (const ()) <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> "")))) parentLog
+             in Monad.void <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> "")))) parentLog
 
 {- | The run a retried init joins: the one its log holds. One log holds one
 run, so a run stopped there leaves the dir to no other.

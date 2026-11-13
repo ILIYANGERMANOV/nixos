@@ -28,8 +28,8 @@ import State.Cap qualified as Cap
 import State.Codec (areaText, shaText)
 import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack), Outcome (..), RunId, Said (..), Sha (..), Stop (..), StopReason (Fuel, Outgrown, Replan), fanRole, parseRunId, runIdText)
 import State.Event qualified as Event
-import State.Fold (RunState (..), askedAt, nextQId)
 import State.Flow (fanNamed)
+import State.Fold (RunState (..), askedAt, nextQId)
 import State.Graph (Node (..), Place (..), nodeStep)
 import State.Mode (Area, parseByName)
 import State.Steps (Row (..), Runner (..), Steps, row)

@@ -29,12 +29,12 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Cap (EventName)
 import State.Event
-import State.Mode (Quality (..), Size (..))
 import State.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Flows.Engineer (engineer)
 import State.Flows.TenX (tenX)
 import State.Fold (Append (..), RunState (..), append, replay)
 import State.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
+import State.Mode (Quality (..), Size (..))
 import State.Steps (Steps, parseSteps)
 import System.Environment (getEnv)
 

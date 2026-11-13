@@ -14,7 +14,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), Role (Engineer), deliver, handback, oneLineText, qidText)
 import State.Event
-import State.EventGen (tasksOf, genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started)
+import State.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Fan qualified as Fan
 import State.Flow (FanId (..), LoopId (..), OptId (..))
 import State.FlowGen (composes, genWalk)
@@ -22,7 +22,7 @@ import State.Fold hiding (Answer (..))
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Mode (Cfg (..), Mode (..), Quality (..), Size (..), cfg)
 import State.Path (ty)
-import State.RunGen (tenXGraph, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, sha)
+import State.RunGen (commit, g, genAccepted, genKnobs, happyPath, outcomeOf, sha, tenXGraph)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 

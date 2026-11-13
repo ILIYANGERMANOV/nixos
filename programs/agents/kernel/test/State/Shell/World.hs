@@ -41,11 +41,11 @@ module State.Shell.World (
 ) where
 
 import Data.Aeson (Value (..), encode, object, (.=))
-import Data.Foldable (for_)
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Foldable (for_)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -191,8 +191,15 @@ tenXAtFanOut world = do
     pure tenX
   where
     task name deps heavy =
-        "{\"id\":\"" <> name <> "\",\"deps\":" <> deps <> ",\"base\":\"main\",\"branch\":\"" <> name
-            <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":" <> heavy <> ",\"security\":[]}"
+        "{\"id\":\""
+            <> name
+            <> "\",\"deps\":"
+            <> deps
+            <> ",\"base\":\"main\",\"branch\":\""
+            <> name
+            <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":"
+            <> heavy
+            <> ",\"security\":[]}"
 
 -- | The child run a parent's brief starts for this task, in the notes dir given; its id.
 childRun :: IORef World -> Text -> FilePath -> Text -> IO Text

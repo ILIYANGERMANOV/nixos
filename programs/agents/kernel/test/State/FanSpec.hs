@@ -48,7 +48,7 @@ spec = describe "State.Fan" $ do
     it "leaves a task open after its child stops, to spawn again, and counts both tries" $ do
         let fan = applied [spawned (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access"))]
         map (.id) . spawnable 3 <$> fan `shouldBe` Right [t1]
-        (\f -> tries f t1) <$> (fan >>= spawned (childFor "c2" t1)) `shouldBe` Right 2
+        (`tries` t1) <$> (fan >>= spawned (childFor "c2" t1)) `shouldBe` Right 2
 
     it "keeps a child running while it asks up or awaits CI" $
         length . running <$> applied [spawned (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1"))] `shouldBe` Right 1
@@ -79,7 +79,7 @@ spec = describe "State.Fan" $ do
     it "spawns a task only once its dependency settled" $ do
         let two = broken (tasksOf (taskOf t1 [] :| [taskOf t2 [t1]])) emptyFan
         map (.id) (spawnable 3 two) `shouldBe` [t1]
-        map (.id) <$> (spawnable 3 <$> (spawned (childFor "c1" t1) two >>= handedBack (runId "c1") (Finished (oneLine "PR")))) `shouldBe` Right [t2]
+        map (.id) . spawnable 3 <$> (spawned (childFor "c1" t1) two >>= handedBack (runId "c1") (Finished (oneLine "PR"))) `shouldBe` Right [t2]
 
     it "runs one heavy task at a time" $
         map (.id) (spawnable 3 (broken (tasksOf ((taskOf t1 []) {heavy = True} :| [(taskOf t2 []) {heavy = True}])) emptyFan)) `shouldBe` [t1]
@@ -118,9 +118,10 @@ genFan = do
     genChange =
         Gen.choice
             [ (\taskId n -> spawned (childFor ("c" <> tshow n) taskId)) <$> genTaskId
-            , (\i said _ fan -> case fan.children of
-                [] -> Right fan
-                children -> handedBack (children !! (i `mod` length children)).child.run said fan)
+            , ( \i said _ fan -> case fan.children of
+                    [] -> Right fan
+                    children -> handedBack (children !! (i `mod` length children)).child.run said fan
+              )
                 <$> Gen.int (Range.linear 0 10)
                 <*> genSaid
             , (\taskId state _ -> moved taskId state) <$> genTaskId <*> genTaskState

@@ -11,7 +11,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Ask (Basis (..), Proposal (..), QId (..))
 import State.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, encodeLine)
-import State.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Picks (..), Principal (..), Requirement (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Said (..), Task (..), TaskId (..), parseRunId, taskList)
+import State.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Outcome (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, taskList)
 import State.EventGen (genEnvelope, oneLine, runId)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -148,5 +148,10 @@ breakdownOf tasks = "[" <> Text.intercalate "," tasks <> "]"
 
 task :: Text -> [Text] -> Text
 task name deps =
-    "{\"id\":\"" <> name <> "\",\"deps\":[" <> Text.intercalate "," (map (\dep -> "\"" <> dep <> "\"") deps)
-        <> "],\"base\":\"main\",\"branch\":\"" <> name <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":false,\"security\":[]}"
+    "{\"id\":\""
+        <> name
+        <> "\",\"deps\":["
+        <> Text.intercalate "," (map (\dep -> "\"" <> dep <> "\"") deps)
+        <> "],\"base\":\"main\",\"branch\":\""
+        <> name
+        <> "\",\"quality\":\"Balanced\",\"size\":\"Normal\",\"qa\":false,\"heavy\":false,\"security\":[]}"

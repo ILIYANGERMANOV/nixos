@@ -22,9 +22,9 @@ module State.Advice (
 
 import Control.Applicative ((<|>))
 import Control.Monad (join)
-import Data.Foldable (asum, toList)
 import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
 import Data.Aeson.Types (parseEither)
+import Data.Foldable (asum, toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map

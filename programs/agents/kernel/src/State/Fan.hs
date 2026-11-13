@@ -33,7 +33,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Numeric.Natural (Natural)
-import State.Event ( Child (..), RunId, Tasks, Said (..), Task (..), TaskId, TaskState (..), Url, taskList)
+import State.Event (Child (..), RunId, Said (..), Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
 
 data Fan = Fan
     { tasks :: [Task]
@@ -89,10 +89,10 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
         | otherwise = childRun
 
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
-moved task state fan = (\_ -> fan {moves = Map.insert task state fan.moves}) <$> known task fan
+moved task state fan = fan {moves = Map.insert task state fan.moves} <$ known task fan
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
-held task url fan = (\_ -> fan {held = fan.held <> [(task, url)]}) <$> known task fan
+held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan
 
 -- | The fan-out may leave its state: every task is settled.
 leave :: Fan -> Either Refusal ()
