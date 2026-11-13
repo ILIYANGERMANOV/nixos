@@ -24,16 +24,19 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 - **Decisions are the user's, facts are yours.** Follow the Asking rules in
   your instructions. Each question goes through `state ask --kind <K> "<q>"`,
   then the Ask rule in `~/.claude/skills/engineer/SKILL.md`, so the log holds
-  every decision. One exception after the breakdown: Engineers says
-  what you may rule on.
+  every decision. Your own questions take the same `10x` column as the
+  children's (Engineers): `ANSWER yourself` means rule only where it allows,
+  else forward. Confirm the breakdown itself always goes to the user: no
+  confirmed breakdown exists yet.
 - **You never implement.** Research, spikes, engineers, fixers and audits are
   subagents. You plan, triage, ask and merge.
 - **Only you own wakes.** A subagent cannot receive one. `add_repo`,
   `subscribe_pr_activity`, CI waits, `AskUserQuestion`, `PushNotification` and
   `gh pr merge` stay here.
 - **One agent per task.** At most one agent per task, so any wake for a task
-  with a live agent is held: `state record held <task> <url>`, and act on it,
-  read live, once the agent hands back.
+  with a live agent is held: `state record held <task> <url>`. Held wakes
+  stay on the task's line in `state next`; once its agent hands back, re-read
+  each live and act on what is still open.
 - **Nothing waits silently.** A task with no rule for what happens next opens a
   question to the user.
 - **Protect your context.** On each wake run `state next` and read `gh` for
@@ -56,9 +59,10 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   |---|---|
   | `SPAWN engineer --task <id> background: yes` | Engineers: Spawn |
   | `RESUME <child> with the answer to <qid>` | Engineers: Resume |
-  | `AWAIT ci <PR>` | Engineers: CI |
-  | `AWAIT children <run>...` | end the turn: a hand-back wakes you |
-  | `triage: <status>` | Failures |
+  | `AWAIT ci <PR>...` | Engineers: CI |
+  | `AWAIT children <task>...` | end the turn: a hand-back wakes you |
+  | `AWAIT merge <task>...` | Merge: the merge loop on each approval wake |
+  | `triage: <status>`, `RUN state ask ... - triage:` | Failures |
 
   A hand-back with no `state:` line was not recorded: pipe it into
   `state handback engineer`.
@@ -170,7 +174,8 @@ Write `tasks.json` in the run directory, a JSON array in the plan's order of
 ### Engineers
 
 **Spawn.** `state next` prints `SPAWN engineer --task <id>` while a slot is
-free: at most 3 children, one heavy, dependencies settled. A fixer you run
+free; run `state record spawning <id>`, then spawn, then `state next` for
+the next line: at most 3 children, one heavy, dependencies settled. A fixer you run
 counts against both caps, a heavy task's as heavy: while one runs, hold a
 spawn the caps would refuse. Worktree, brief and spawn prompt:
 `${CLAUDE_SKILL_DIR}/references/brief.md`. The child's first command, the
@@ -194,7 +199,8 @@ or pipe it in. Every open question is in `state pending`: `state rule` or
 is mostly obvious from the user's intent and decisions and is reversible. Ask
 when it changes an agreed interface, data model, scope or UX, or is hard to
 undo. This is the only test for answering yourself:
-`state rule <qid> --answer <a> --why <w> --cost <c>`. Forward the rest, and
+`state rule <qid> --answer <a> --why <w> --cost <c>`, plus
+`--basis <event id>|obvious:<why>` on a Security question. Forward the rest, and
 always repeated same-theme findings that keep patching a doubtful
 abstraction. A forward prints `ASK`: ask, then `state answer <qid> <answer>`.
 What the user already decided on this exact point is applied, never re-asked.
@@ -207,7 +213,7 @@ which task and repo, why it exists, what came up. Your recommendation comes
 first. Each option gives its consequence and the full PR URL when one exists.
 Never relay worker text verbatim.
 
-**Resume.** On `RESUME`: `SendMessage` the child, or past about 5 idle
+**Resume.** On `RESUME`: `state record resumed <child>`, then `SendMessage` the child, or past about 5 idle
 minutes a fresh `engineer` with its spawn prompt, saying "Answer to `<qid>`:
 `<a>`. Run `state answer <qid> <a> --by <your run>`, then `state next`." A
 ruling also goes into its PR body's Key decisions.
@@ -219,7 +225,7 @@ dropped or reshaped across tasks, is the user's: ask it, then
 **CI.** A child's `AWAIT ci <PR>`: `subscribe_pr_activity`, then
 `gh pr checks <n> --repo <owner>/<repo>` once, since events before the
 subscription never arrive. Pending: end the turn. On the CI wake, resume the
-child: "CI finished on `<PR>`." It records green or red, fixes red itself
+child as Resume does: "CI finished on `<PR>`." It records green or red, fixes red itself
 and, green, runs `gh pr ready`. A refused subscription, or one saying another
 agent already watches the PR, delivers no events: follow your instructions'
 fallback, and tell the user now and in the queue that this PR gives no
@@ -289,8 +295,9 @@ every ruling, follow-ups.
 
 ## Failures
 
-A child's `BLOCKED`, `FAILED` or `GREW` prints `triage:` and a `fix:` line:
-give it a kind, run that line, then triage it as any question.
+A child's `BLOCKED`, `FAILED` or `GREW` prints `triage:` and a `fix:` line,
+and `state next` the same `state ask ... --from <run>` line: give it a kind,
+run it, then triage it as any question. No retry spawns before.
 
 1. Answer from the brief if the brief answers it.
 2. A fresh engineer retries, from its PR or its worktree, with the failure in
@@ -330,8 +337,9 @@ candidates: ask. Subagents and subscriptions die with the session, so:
    handling a failed subscribe as CI does. Then read each PR's
    `gh pr checks` and reviews once. A change request or comment on a task
    with a running child: `state record held`.
-3. Each child `state next` lists as running is gone: a fresh engineer with its
-   spawn prompt; its `state init` line resumes its run. A fixer whose `<head>`
+3. Each task `AWAIT children` lists has lost its agent: a fresh engineer
+   with its spawn prompt, recording nothing; its `state init` line resumes
+   its run. A fixer whose `<head>`
    is no longer the live head pushed: a rebase takes Rebase in
    `${CLAUDE_SKILL_DIR}/references/merge.md`, any other CI; any other fixer: a
    fresh one. A crash is not a failed try.

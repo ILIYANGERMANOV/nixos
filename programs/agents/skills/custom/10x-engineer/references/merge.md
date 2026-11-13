@@ -28,7 +28,7 @@ only: they do not require CI, and they keep an approval across later pushes.
 | Open | `state` is `OPEN`, `isDraft` false | Merged or closed: Wakes. Draft: ask the user |
 | Approved | the user's latest non-`COMMENTED` review is `APPROVED`, on this SHA or on one the task's merge-safe heads chain to it | Ask for approval |
 | Green | `gh pr checks` exits 0 with at least one check, or the PR has no check and the user's recorded answer accepts that | SKILL.md's CI |
-| Base | `failed` is 0, or this PR is the base fix | Section 7's base path, as for a red PR, then take the next PR |
+| Base | `failed` is 0, or this PR is the base fix | SKILL.md's **Base** under Failures, as for a red PR, then take the next PR |
 | Current | `behind_by` is 0 and `mergeable` is not `CONFLICTING` | Rebase |
 
 Only the user's review counts, read from `reviews`, never a comment. A CI fix or

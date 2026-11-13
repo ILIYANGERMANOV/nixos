@@ -78,7 +78,7 @@ preloaded and runs its whole flow:
 
 ```text
 <the data line from SKILL.md's Rules>
-Quality: <the task's>. Your brief is <path>. Read it first; its `state init`
+Quality: <the task's>. Size: <the task's>. Your brief is <path>. Read it first; its `state init`
 line is your first command.
 ```
 
