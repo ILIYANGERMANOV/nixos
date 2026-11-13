@@ -321,7 +321,7 @@ halt = Stop Blocked "no way on"
 
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
-startOf flow principal = Start flow "notes" principal Set.empty Nothing
+startOf flow principal = Start flow "notes" principal Set.empty
 
 {- | Up to 60 tries at an ask event on a run of either flow, under the user
 or a parent, keeping those the fold accepts: the run state and the events.
@@ -329,7 +329,7 @@ or a parent, keeping those the fold accepts: the run state and the events.
 genAskLog :: Gen (RunState, [Event])
 genAskLog = do
     flow <- Gen.enumBounded
-    principal <- Gen.element [ByUser, ByRole (runId "p1") "p1/events.jsonl"]
+    principal <- Gen.element [ByUser, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1"))]
     first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
     go tries first 1 0
@@ -375,7 +375,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow ByUser]
             , [rung "x1" TenXFlow ByUser]
-            , [rung "e1" EngineerFlow (ByRole (runId "x1") "x1/events.jsonl"), rung "x1" TenXFlow ByUser]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1"))), rung "x1" TenXFlow ByUser]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

@@ -344,7 +344,7 @@ in
     exit = null;
     outcomes = [ "done" ];
     runner = "inline";
-    entry = "Ship: the gates below, then mark the PR ready and notify.";
+    entry = "Ship: the gates below, then mark the PR ready.";
     tools = [ "shell" ];
     skills = [ "engineer" ];
     prose = leadProse;

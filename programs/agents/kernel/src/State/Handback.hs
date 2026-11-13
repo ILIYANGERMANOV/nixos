@@ -25,13 +25,14 @@ import Data.Text qualified as Text
 import State.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Cap (SomeStep (..), StateName (..), Step, stepName)
 import State.Cap qualified as Cap
-import State.Codec (areaText, shaText)
-import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack), Outcome (..), RunId, Said (..), Sha (..), Stop (..), StopReason (Fuel, Outgrown, Replan), fanRole, parseRunId, runIdText)
+import State.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
+import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), Outcome (..), RunId, Said (..), Sha (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText)
 import State.Event qualified as Event
+import State.Fan (childTask)
 import State.Flow (fanNamed)
 import State.Fold (RunState (..), askedAt, nextQId)
 import State.Graph (Node (..), Place (..), nodeStep)
-import State.Mode (Area, parseByName)
+import State.Mode (Area, Quality (..), parseByName)
 import State.Steps (Row (..), Runner (..), Steps, row)
 
 data Handback = Handback
@@ -195,15 +196,17 @@ tokenLine = \case
 
 -- | The hand-back line a run stopped under a parent sends it.
 stopLine :: Stop -> Text
-stopLine stop = case stop.reason of
-    Event.Blocked -> spaced "BLOCKED" stop.why
-    Event.Failed -> spaced "FAILED" stop.why
-    Replan -> spaced "NEEDS_DECISION" (planWrong stop.why)
-    Fuel -> spaced "BLOCKED" ("out of fuel: " <> stop.why)
-    Outgrown -> spaced "GREW" stop.why
+stopLine = uncurry spaced . stopWire
+
+-- | Where a finished task's PR stands: POC keeps a draft, set aside.
+readyState :: Quality -> Url -> TaskState
+readyState quality pr = case quality of
+    Poc -> Parked "POC" (Just pr)
+    Balanced -> InReview pr
+    Max -> InReview pr
 
 planWrong :: Text -> Text
-planWrong finding = "plan wrong: " <> finding
+planWrong finding = snd (stopToken Replan) <> finding
 
 -- | The token, and its payload when it has one.
 spaced :: Text -> Text -> Text
@@ -235,20 +238,27 @@ fromChild state handback = case handback.run of
     Nothing -> Left "a child's hand-back names its run: add Run: <run id> as line 2"
     Just child -> case handback.token of
         Nothing -> Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, GREW, BLOCKED, FAILED"
-        Just (Ready summary) -> Right (Typed [said (Finished summary)] Nothing)
+        Just (Ready summary) -> Right (Typed (said (Finished summary) : prMoved summary) Nothing)
         -- A GREW below it is the child's own size, not this run's.
         Just token@(NeedsDecision need _) -> case need of
             Asks question -> Right (Typed [said (AsksUp question.qid), Asked (Asking question (askedAt state) (ChildRun child))] Nothing)
-            PlanWrong finding -> ended token Replan finding
+            PlanWrong _ -> ended token
             StuckOn _ -> unasked
             Untyped _ -> unasked
         Just (Await Ci ref) -> Right (Typed [said (AwaitsCi ref)] Nothing)
-        Just token@(Grew why) -> ended token Outgrown why
-        Just token@(Blocked why) -> ended token Event.Blocked why
-        Just token@(Failed why) -> ended token Event.Failed why
+        Just token@(Grew _) -> ended token
+        Just token@(Blocked _) -> ended token
+        Just token@(Failed _) -> ended token
       where
         said = HandedBack child
-        ended token reason why = Typed [said (Ended (Stop reason (oneLineText why)))] . Just <$> oneLine (tokenLine token)
+        -- A READY naming its PR first puts the task in review, a POC task's parked as a draft.
+        prMoved summary = case (Text.words (oneLineText summary), childTask state.fanOut child) of
+            (pr : _, Just task) | "https://" `Text.isPrefixOf` pr -> [TaskMoved task.id (readyState task.quality (Url pr))]
+            _ -> []
+        -- Read back as the log reads it, so a fuel stop stays one.
+        ended token = case parseStopLine (tokenLine token) of
+            Just stop -> Typed [said (Ended stop)] . Just <$> oneLine (tokenLine token)
+            Nothing -> Left ("line 1 is no stop: " <> tokenLine token)
         unasked = Left "a child asks by state ask in its own run: hand back NEEDS_DECISION <Kind> <qid>: <question>"
 
 fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed

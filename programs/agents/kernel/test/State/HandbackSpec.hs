@@ -10,11 +10,11 @@ import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Ask (Kind (..), QId (..), Question (..))
-import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, Took), Outcome (..), Picks (..), Said (..), Sha (..), StateName (..))
+import State.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Outcome (..), Picks (..), Said (..), Sha (..), StateName (..), Task (..), TaskId (..), TaskState (..), Url (..))
 import State.Event qualified as Event
 import State.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runId)
 import State.Handback
-import State.Mode (Area (..))
+import State.Mode (Area (..), Quality (..))
 import State.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -103,8 +103,13 @@ typing = describe "typeHandback" $ do
             c1 = runId "c1"
         it "refuses one that does not name its run" $
             fromChild "READY https://pr/1" `shouldSatisfy` either (Text.isInfixOf "add Run: <run id> as line 2") (const False)
-        it "records READY as the child finished" $
-            fromChild "READY https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "https://pr/1"))] Nothing)
+        it "records READY as the child finished, the PR it names in review" $
+            fromChild "READY https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "https://pr/1")), TaskMoved (TaskId "t1") (InReview (Url "https://pr/1"))] Nothing)
+        it "records a POC task's READY as parked, its PR a draft" $
+            typed (tenXAt ((plainTask "t1" []) {quality = Poc} :| []) [Spawned (childOf "c1" "t1")]) "engineer" "READY https://pr/1\nRun: c1"
+                `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "https://pr/1")), TaskMoved (TaskId "t1") (Parked "POC" (Just (Url "https://pr/1")))] Nothing)
+        it "records only the finish of a READY that names no PR" $
+            fromChild "READY done\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "done"))] Nothing)
         it "records a question as asked up by the child, which joins this run's pending, its GREW aside" $
             fromChild "NEEDS_DECISION Design c1:2: which store?\nGREW two modules\nRun: c1"
                 `shouldBe` Right (Typed [HandedBack c1 (AsksUp (QId c1 2)), Asked (Asking (Question (QId c1 2) Design (oneLine "which store?")) engineers (ChildRun c1))] Nothing)
@@ -115,6 +120,9 @@ typing = describe "typeHandback" $ do
                 `shouldBe` [ Right (Typed [HandedBack c1 (Ended (Event.Stop Event.Blocked "no access"))] (Just (oneLine "BLOCKED no access")))
                            , Right (Typed [HandedBack c1 (Ended (Event.Stop Event.Replan "no such table"))] (Just (oneLine "NEEDS_DECISION plan wrong: no such table")))
                            ]
+        it "reads a child's fuel stop as the log spells it" $
+            fromChild "BLOCKED out of fuel: three rounds\nRun: c1"
+                `shouldBe` Right (Typed [HandedBack c1 (Ended (Event.Stop Event.Fuel "three rounds"))] (Just (oneLine "BLOCKED out of fuel: three rounds")))
         it "refuses a question the child did not ask in its own run" $
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where

@@ -35,7 +35,7 @@ newtype Steps = Steps (Map StateName Row)
 kept. @state next@ prints the lead's part and the entry, @state brief@ the
 entry alone: a worker's brief holds none of the lead's commands.
 -}
-data Row = Row {runner :: Runner, lead :: Text, entry :: Text}
+data Row = Row {runner :: Runner, lead :: Text, entry :: Text, notifies :: Bool}
     deriving stock (Eq, Show)
 
 -- | Who runs a step: the lead itself, or a subagent of this role.
@@ -51,6 +51,7 @@ data Written = Written
     , runner :: Text
     , lead :: Maybe Text
     , entry :: Text
+    , ops :: [Text]
     }
 
 instance FromJSON Written where
@@ -63,6 +64,7 @@ instance FromJSON Written where
             <*> obj .: "runner"
             <*> obj .:? "lead"
             <*> obj .: "entry"
+            <*> (fromMaybe [] <$> obj .:? "ops")
 
 -- | The table, or every way it differs from the steps of "State.Cap".
 parseSteps :: ByteString -> Either [Text] Steps
@@ -80,7 +82,7 @@ check :: Map StateName Written -> SomeStep -> Either [Text] (StateName, Row)
 check rows (SomeStep s) = case Map.lookup name rows of
     Nothing -> Left [label <> ": no row"]
     Just written -> case mismatches s written of
-        [] -> Right (name, Row (runnerOf written.runner) (fromMaybe "" written.lead) written.entry)
+        [] -> Right (name, Row (runnerOf written.runner) (fromMaybe "" written.lead) written.entry ("notify" `elem` written.ops))
         found -> Left (map ((label <> ": ") <>) found)
   where
     name@(StateName label) = stepName s

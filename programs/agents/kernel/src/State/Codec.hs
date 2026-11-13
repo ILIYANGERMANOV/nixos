@@ -23,6 +23,9 @@ module State.Codec (
     eventType,
     areaText,
     reasonText,
+    stopToken,
+    stopWire,
+    parseStopLine,
     judgementText,
     flowText,
     opText,
@@ -45,7 +48,8 @@ import Data.ByteString qualified as BS
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.List (sortOn)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -76,6 +80,7 @@ import State.Event (
     Op (..),
     Outcome (..),
     Picks (..),
+    Parent (..),
     Principal (..),
     Requirement (..),
     RunId,
@@ -233,7 +238,6 @@ eventData = \case
             <> "notes" .= start.notes
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
-            <> "task" .= fmap taskIdText start.task
     QualitySet quality -> "mode" .= qualityName quality
     SizeSet size -> "size" .= sizeName size
     Grew why -> "why" .= why
@@ -300,8 +304,8 @@ childOf obj = obj .: "child" >>= runIdOf
 taskOf :: Object -> Parser TaskId
 taskOf obj = TaskId <$> obj .: "task"
 
-{- | #360's @token@, @ref@ and @qid@: a child's stop is its reason as the
-hand-back token, @BLOCKED@, and its why as the ref.
+{- | #360's @token@, @ref@ and @qid@: the hand-back's line 1 as the child
+sent it, a stop's as 'stopWire' spells it.
 -}
 saidData :: Said -> Series
 saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid
@@ -310,15 +314,53 @@ saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid
         Finished summary -> ("READY", Just (oneLineText summary), Nothing)
         AsksUp asked -> ("NEEDS_DECISION", Nothing, Just asked)
         AwaitsCi on -> ("AWAIT", Just (oneLineText on), Nothing)
-        Ended stop -> (Text.toUpper (reasonText stop.reason), Just stop.why, Nothing)
+        Ended stop -> let (word, payload) = stopWire stop in (word, Just payload, Nothing)
 
 saidOf :: Object -> Parser Said
 saidOf obj =
     obj .: "token" >>= \case
         "READY" -> Finished <$> oneLineAt "ref" obj
-        "NEEDS_DECISION" -> AsksUp <$> qidOf obj
         "AWAIT" -> AwaitsCi <$> oneLineAt "ref" obj
-        token -> Ended <$> (Stop <$> named "hand-back token" (parseByName (Text.toUpper . reasonText)) token <*> obj .: "ref")
+        token ->
+            obj .:? "ref" >>= \case
+                Nothing | token == "NEEDS_DECISION" -> AsksUp <$> qidOf obj
+                ref -> maybe (fail ("no hand-back token: " <> show token)) (pure . Ended) (parseStop token (fromMaybe "" ref))
+
+{- | A stop on the wire (#360): its hand-back token, and the prefix its why
+takes there. The one spelling of a stop, read by the log and the hand-back.
+-}
+stopToken :: StopReason -> (Text, Text)
+stopToken = \case
+    Blocked -> ("BLOCKED", "")
+    Failed -> ("FAILED", "")
+    Replan -> ("NEEDS_DECISION", "plan wrong: ")
+    Fuel -> ("BLOCKED", "out of fuel: ")
+    Outgrown -> ("GREW", "")
+
+-- | A stop's hand-back token and its payload.
+stopWire :: Stop -> (Text, Text)
+stopWire stop = (word, prefix <> stop.why)
+  where
+    (word, prefix) = stopToken stop.reason
+
+-- | The stop a hand-back's line 1 says, if it says one.
+parseStopLine :: Text -> Maybe Stop
+parseStopLine line = parseStop word (Text.drop 1 payload)
+  where
+    (word, payload) = Text.breakOn " " line
+
+{- | The prefixed reasons are tried first, so @BLOCKED out of fuel: x@ reads as
+'Fuel', as the wire cannot tell it from a 'Blocked' whose why says so.
+-}
+parseStop :: Text -> Text -> Maybe Stop
+parseStop token payload =
+    listToMaybe
+        [ Stop reason why
+        | reason <- sortOn (Text.null . snd . stopToken) [minBound .. maxBound]
+        , let (word, prefix) = stopToken reason
+        , word == token
+        , Just why <- [Text.stripPrefix prefix payload]
+        ]
 
 taskStateData :: TaskState -> Series
 taskStateData moved = "state" .= taskStateName moved <> "why" .= why <> "pr" .= fmap urlText pr
@@ -398,25 +440,17 @@ startOf obj =
         <*> obj .: "notes"
         <*> (obj .: "principal" >>= principalOf)
         <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
-        <*> (parentTask <$> obj .: "task")
 
--- | A log written before the task was typed holds "" for none.
-parentTask :: Maybe Text -> Maybe TaskId
-parentTask = \case
-    Nothing -> Nothing
-    Just "" -> Nothing
-    Just task -> Just (TaskId task)
-
--- | The user is a bare word; a parent run is its id and its log.
+-- | The user is a bare word; a parent run is its id, its log and the task it gave.
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser -> text "user"
-    ByRole run logPath -> pairs ("run" .= runIdText run <> "log" .= logPath)
+    ByRole parent -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
     String "user" -> pure ByUser
-    Object obj -> ByRole <$> (obj .: "run" >>= runIdOf) <*> obj .: "log"
+    Object obj -> fmap ByRole $ Parent <$> (obj .: "run" >>= runIdOf) <*> obj .: "log" <*> taskOf obj
     other -> fail ("a principal is \"user\" or {run, log}, not " <> show other)
 
 askingOf :: Object -> Parser Asking

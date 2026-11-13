@@ -7,7 +7,6 @@ module State.Cli (
     Command (..),
     RunCommand (..),
     InitArgs (..),
-    Parent (..),
     Recording (..),
     Raise (..),
     Block (..),
@@ -30,7 +29,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
-import State.Ask (Above (..), Basis (..), Kind, OneLine, Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
+import State.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Ask qualified as Ask
 import State.Cap (EventName, Step (..), continueEvent, eventText, exitEvent, skipEvent, stateNameText)
 import State.Codec (areaText, judgementText, logName, reasonText)
@@ -73,9 +72,6 @@ data RunCommand
     | Pending
 
 data InitArgs = InitArgs {notes :: FilePath, flow :: FlowName, parent :: Maybe Parent}
-
--- | The parent run, its log and the task it gave this run, as the parent's brief names them.
-data Parent = Parent {run :: RunId, log :: FilePath, task :: TaskId}
 
 {- | An event to record. Most carry the commit the worktree is at, which only
 the shell can read; a breakdown is read from a file, by the shell too.
@@ -473,6 +469,7 @@ explain g mode at = \case
         Fan.Unsettled tasks -> refused "the fan-out's end" ("tasks not settled: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
         Fan.AtWork task -> refused ("an agent for task " <> Codec.taskIdText task) "one works on it already, until its child hands back" "state next"
         Fan.StopUntriaged child -> refused ("a retry of child " <> runIdText child) "its stop is not triaged yet" ("state ask --kind <kind> --from " <> runIdText child <> " <question>")
+        Fan.HeavyBusy task heavy -> refused ("an agent for task " <> Codec.taskIdText task) ("it is heavy and heavy task " <> Codec.taskIdText heavy <> " is at work: one heavy task at a time") "state next"
         Fan.Unmerged tasks -> refused "the run's end" ("tasks neither merged nor parked: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
   where
     refused = Failure BadInput

@@ -298,7 +298,7 @@ spec = describe "state over the doubles" $ do
                 named <- stateIn world (encodeUtf8 ("READY https://pr/1\nRun: " <> child <> "\n")) ["handback", "engineer"]
 
                 unnamed.code `shouldBe` 2
-                (named.code, recorded named.out) `shouldBe` (0, ["handed_back -> engineers"])
+                (named.code, recorded named.out) `shouldBe` (0, ["handed_back -> engineers", "task -> engineers"])
 
             it "shows each task, its PR and what is held" $ \world -> do
                 _ <- tenXAtFanOut world

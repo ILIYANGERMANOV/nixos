@@ -44,6 +44,7 @@ module State.Ask (
     forwardAll,
     andThen,
     Principal (..),
+    Parent (..),
     Op (..),
     Delivery (..),
     Above (..),
@@ -58,7 +59,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Records (HasField (..))
 import Numeric.Natural (Natural)
-import State.Id (EventId, RunId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
+import State.Id (EventId, RunId, TaskId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
 import State.Mode (parseByName)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
@@ -305,8 +306,12 @@ andThen first next question =
         Ruled ruling -> Right (Ruled ruling)
         Forward forwarded -> next forwarded
 
--- | Who started the run: the user, or a parent run, by its id and log path.
-data Principal = ByUser | ByRole RunId FilePath
+-- | Who started the run: the user, or a parent run, which gave it a task.
+data Principal = ByUser | ByRole Parent
+    deriving stock (Eq, Show)
+
+-- | The parent run, its log and the task of its breakdown it gave this run.
+data Parent = Parent {run :: RunId, log :: FilePath, task :: TaskId}
     deriving stock (Eq, Show)
 
 -- | What the run's interface can do: a subagent cannot ask the user or wait.
@@ -342,7 +347,7 @@ ask principal role kind = case authority role kind of
 deliver :: Principal -> Above
 deliver = \case
     ByUser -> TheUser
-    ByRole run _ -> ParentRun run
+    ByRole parent -> ParentRun parent.run
 
 -- | The hand-back's first line for a forwarded question (#360's wire format).
 needsDecision :: Question -> Text

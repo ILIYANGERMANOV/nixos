@@ -139,6 +139,17 @@ spec = describe "State.Advice" $ do
             let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), Took (FanDone FEngineers)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge (TaskId "t1" :| []), Run "state record merge.done <url>"]
+        it "resumes a ruled child while the user holds another child's question" $ do
+            let asks2 = Question (QId (runId "c2") 1) Security (oneLine "token in env?")
+                forwarded = fromChild <> [RuledOn asks.qid ruling, Spawned (childOf "c2" "t2"), HandedBack (runId "c2") (AsksUp asks2.qid), Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2"))), Forwarded asks2.qid TheUser]
+            map (next noFacts . tenXAt (t1 :| [t2])) [forwarded, forwarded <> [Resumed (runId "c1")]]
+                `shouldBe` [Resume (runId "c1") "with the answer to c1:1", AwaitAnswer asks2]
+        it "records a finished task's PR when the child's READY named none" $
+            map (next noFacts . tenXAt (t1 :| [t2]) . ([Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "done"))] <>)) [[], [TaskMoved (TaskId "t1") (InReview prUrl)]]
+                `shouldBe` [Run "state record task t1 review <url>", Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
+        it "states a child's question no more once it is answered" $
+            filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])))
+                `shouldBe` ["task t1: child c1 waits to resume, tries 1"]
         it "triages a child's question before anything else" $
             next noFacts (tenXAt (t1 :| [t2]) fromChild) `shouldBe` Triage asks
         it "resumes a child once its question is ruled on" $
@@ -154,7 +165,7 @@ spec = describe "State.Advice" $ do
                 `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
         it "states a task's agent at work and its held wakes" $
             filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling, Resumed (runId "c1"), Held (TaskId "t1") (Url "https://pr/1#c")])))
-                `shouldBe` ["task t1: child c1 asks c1:1, agent at work, tries 1, held https://pr/1#c"]
+                `shouldBe` ["task t1: child c1 running, agent at work, tries 1, held https://pr/1#c"]
 
     describe "deliver" $ do
         it "spawns in the background only where the interface can" $
@@ -180,6 +191,10 @@ spec = describe "State.Advice" $ do
             map (`deliver` AwaitCi "u") [start {interface = Set.singleton Await}, start]
                 `shouldBe` ["AWAIT ci u", "HANDBACK AWAIT ci u"]
 
+        it "notifies at ready only where the interface can, so a child run leaves it to its parent" $ do
+            let ready = advise steps noFacts (atReady Balanced)
+            map (`deliverEntry` ready) [start {interface = Set.singleton Notify}, child]
+                `shouldBe` [ready.entry <> " Then notify.", ready.entry]
         it "ends as DONE for the user, READY for a parent run" $
             map (`deliver` Done (Just prUrl)) [start, child]
                 `shouldBe` ["DONE https://pr/1", "HANDBACK READY https://pr/1"]
@@ -205,7 +220,7 @@ spec = describe "State.Advice" $ do
     prUrl = Url "https://pr/1"
     draftPr = DraftPr prUrl (Branch "main") (Branch "b")
     parent = runId "p1"
-    child = start {principal = ByRole parent "/p/events.jsonl", interface = Set.empty}
+    child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")), interface = Set.empty}
     which = Question (QId run 1) Design (oneLine "which store?")
     notMet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing

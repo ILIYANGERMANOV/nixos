@@ -19,6 +19,7 @@ module State.Event (
     Start (..),
     FlowName (..),
     Principal (..),
+    Parent (..),
     Op (..),
     Asking (..),
     Asker (..),
@@ -62,10 +63,10 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Ask (Above, OneLine, Op (..), Principal (..), Proposal, QId, Question)
+import State.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Cap (EventName, StateName (..), Step (..), continueEvent, exitEvent, skipEvent)
 import State.Flow (FanEvent (Leaves), FanId (..), fanEvent, fanName)
-import State.Id (Digest (..), EventId (..), RunId, parseRunId, runIdText)
+import State.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Mode (Area, Quality, Size)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
@@ -148,8 +149,6 @@ data Start = Start
     , notes :: FilePath
     , principal :: Principal
     , interface :: Set Op
-    , task :: Maybe TaskId
-    -- ^ The parent's task, in a child run.
     }
     deriving stock (Eq, Show)
 
@@ -306,10 +305,6 @@ newtype Requirement = Requirement Text
 
 -- | A CI check, by name.
 newtype Check = Check Text
-    deriving stock (Eq, Ord, Show)
-
--- | A task of the 10x's breakdown, by the id the breakdown gives it.
-newtype TaskId = TaskId Text
     deriving stock (Eq, Ord, Show)
 
 -- | What the engineer run for a task is briefed with.

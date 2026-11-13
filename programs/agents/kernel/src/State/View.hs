@@ -10,7 +10,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Advice (Facts (..), factLines)
-import State.Ask (Question (..), kindName, oneLineText, qidText, rulingLine)
+import State.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Cap (SomeStep (..), allSteps, stateNameText, stepName)
 import State.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText)
 import State.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, childRoles, runIdText)
@@ -26,7 +26,7 @@ showRun :: RunState -> Text
 showRun state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
-            <> ["task: " <> taskIdText task | Just task <- [state.start.task]]
+            <> ["task: " <> taskIdText parent.task | ByRole parent <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines (Facts Nothing Nothing) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]

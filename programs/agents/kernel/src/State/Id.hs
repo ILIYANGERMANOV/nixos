@@ -3,6 +3,7 @@ the events carry, such as "State.Ask", can name a run or an event too.
 -}
 module State.Id (
     RunId,
+    TaskId (..),
     parseRunId,
     runIdText,
     numberedText,
@@ -43,6 +44,10 @@ parseRunId raw
 
 runIdText :: RunId -> Text
 runIdText (RunId run) = run
+
+-- | A task of the 10x's breakdown, by the id the breakdown gives it.
+newtype TaskId = TaskId Text
+    deriving stock (Eq, Ord, Show)
 
 -- | @<run>:<n>@, the form of a CLI record's id and of a question's.
 numberedText :: RunId -> Natural -> Text

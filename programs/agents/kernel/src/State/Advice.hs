@@ -16,6 +16,7 @@ module State.Advice (
     due,
     advise,
     deliver,
+    deliverEntry,
     ownAsk,
     factLines,
 ) where
@@ -34,7 +35,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Ask (Above (..), Delivery (..), Kind, OneLine, Question (..), kindName, needsDecision, oneLineText, qidText)
+import State.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Ask qualified as Ask
 import State.Cap (EventName, Outcomes (..), SomeStep (..), Step (Alternative, Confirm, Draft, Pick, Ready, Refactor, Research, SimplifyP), continueEvent, exitEvent, outcomes, skipEvent, stateNameText, stepName, stepNamed)
 import State.Cap qualified as Cap
@@ -48,9 +49,9 @@ import State.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fan
 import State.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, budget, flowRole, mode, nextQId, stuck)
 import State.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Handback (stopLine)
-import State.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
+import State.Mode (Cfg (..), Mode (..), Quality (..), SkipWhen (..), cfg, qualityName, sizeName)
 import State.Show (firstLine, tshow)
-import State.Steps (Row (entry, lead, runner), Runner (..), Steps, row)
+import State.Steps (Row (entry, lead, notifies, runner), Runner (..), Steps, row)
 
 -- | What GitHub and git say, read by the shell before it advises.
 data Facts = Facts {changedLines :: Maybe Natural, pr :: Maybe PullRequest}
@@ -112,8 +113,10 @@ pullRequestOf = \case
                 ("CLOSED", _) -> pure IsClosed
                 _ -> fail ("unknown PR state " <> Text.unpack prState)
 
--- | The action, the facts the reader weighs it by, and the step's entry text.
-data Advice = Advice {action :: Action, facts :: [Text], entry :: Text}
+{- | The action, the facts the reader weighs it by, the step's entry text,
+and whether the step notifies the user ('deliverEntry' decides who does).
+-}
+data Advice = Advice {action :: Action, facts :: [Text], entry :: Text, notify :: Bool}
     deriving stock (Eq, Show)
 
 data Action
@@ -194,17 +197,26 @@ skipOutcome facts state why event =
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> Facts -> RunState -> Advice
-advise steps facts state = Advice action (factLines facts state) entry
+advise steps facts state = Advice action (factLines facts state) entry notify
   where
     plain next = (next, "")
+    notify = case (state.at, Text.null entry) of
+        (At place, False) | Just (SomeStep s) <- stepNamed place.name -> (row steps s).notifies
+        _ -> False
     (action, entry) = case (state.stopped, state.pending, state.quality, state.size) of
         (Just stop, _, _, _) -> plain (Stopped stop)
+        -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
+        (Nothing, _ : _, Just _, Just _) | Just fan <- fanHere -> plain (atFan fan state)
         (Nothing, oldest : _, _, _) -> plain $ case oldest.waits of
             ForTriage -> Triage oldest.asking.question
             ForAnswer -> AwaitAnswer oldest.asking.question
         (Nothing, [], Nothing, _) -> plain (Run (recordOne "quality" (map qualityName [minBound .. maxBound])))
         (Nothing, [], Just _, Nothing) -> plain (Run (recordOne "size" (map sizeName [minBound .. maxBound])))
         (Nothing, [], Just _, Just _) -> going
+    fanHere = case state.at of
+        At place -> fanNamed place.name
+        Out -> Nothing
+        Exit -> Nothing
     going = case (state.at, stuck state) of
         (Out, _) -> plain (Done (prUrl facts state))
         (Exit, _) -> plain (Done (prUrl facts state))
@@ -224,21 +236,26 @@ advise steps facts state = Advice action (factLines facts state) entry
         [ (stepName Confirm, if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes Confirm) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?")
         , (stepName Pick, Run (pickCommand state))
         , (stepName Cap.AwaitCi, AwaitCi (maybe "the PR" urlText (prUrl facts state)))
-        , (stepName Cap.Merge, maybe (Run (recordOutcomes Cap.Merge)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut)))
+        , (stepName Cap.Merge, fromMaybe (maybe (Run (recordOutcomes Cap.Merge)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut))) (recordFinished state.fanOut))
         ]
 
-{- | At a fan-out, with no question pending: triage a child's stop, else
-resume a child its answer waits for, else spawn a task with a free slot,
-else wait on CI or the children at work. A child the 10x resumed, or a task
-it spawned, has an agent at work and is advised no more. With none at work
-and none spawnable, a task is left to park.
+{- | At a fan-out: what this run does at once first - triage a question, then
+a child's stop, record a finished task's PR, resume a child its answer waits
+for, spawn a task with a free slot - then ask the user what waits on them,
+then wait on CI or the children at work. A question the user holds blocks
+no other child (the 10x skill's "Other tasks keep moving"). A child the 10x
+resumed, or a task it spawned, has an agent at work and is advised no more.
+With none at work and none spawnable, a task is left to park.
 -}
 atFan :: FanId -> RunState -> Action
-atFan fan state = fromMaybe leave (asum [triage, resume, spawn, awaitCi, awaitChildren])
+atFan fan state = fromMaybe leave (asum [question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren])
   where
     waiting = Fan.waiting state.fanOut
     open = map (.asking.question.qid) state.pending
+    question = listToMaybe [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]
+    awaitAnswer = listToMaybe [AwaitAnswer p.asking.question | p <- state.pending, p.waits == ForAnswer]
     triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged state.fanOut]
+    record = recordFinished state.fanOut
     resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
     spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable ((cfg (mode state)).fan fan) state.fanOut)
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
@@ -246,6 +263,18 @@ atFan fan state = fromMaybe leave (asum [triage, resume, spawn, awaitCi, awaitCh
     leave = Run $ case Fan.unsettled state.fanOut of
         task : _ -> "state record task " <> taskIdText task <> " parked <why>"
         [] -> recordCommand (fanEvent Leaves (fanName fan))
+
+{- | The record of a finished task's PR, for a READY whose line 1 named none
+('State.Handback' records the rest): a POC task's stays a draft, parked.
+-}
+recordFinished :: Fan -> Maybe Action
+recordFinished fan = listToMaybe [Run (recordTask task) | task <- fan.tasks, Fan.unrecorded fan task.id]
+
+recordTask :: Task -> Text
+recordTask task = "state record task " <> taskIdText task.id <> case task.quality of
+    Poc -> " parked POC --pr <url>"
+    Balanced -> " review <url>"
+    Max -> " review <url>"
 
 -- | The PR's url as GitHub reports it, else the draft the run recorded: a POC run offline still skips ready.
 prUrl :: Facts -> RunState -> Maybe Url
@@ -301,7 +330,7 @@ factLines facts state =
            ]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
-        <> map (taskLine state.fanOut) state.fanOut.tasks
+        <> map (taskLine state.fanOut (map (.asking.question.qid) state.pending)) state.fanOut.tasks
   where
     readinessText = \case
         IsDraft -> " (draft)"
@@ -309,9 +338,11 @@ factLines facts state =
         IsMerged -> " (merged)"
         IsClosed -> " (closed)"
 
--- | A task of the 10x's breakdown: its latest child and what it said, its PR, its tries.
-taskLine :: Fan -> Task -> Text
-taskLine fan task =
+{- | A task of the 10x's breakdown: its latest child and what it said, its PR,
+its tries. A child's question shows while it is open, these its ids.
+-}
+taskLine :: Fan -> [QId] -> Task -> Text
+taskLine fan open task =
     "task "
         <> taskIdText task.id
         <> ": "
@@ -326,7 +357,10 @@ taskLine fan task =
     held = ["held " <> urlText url | (heldTask, url) <- fan.held, heldTask == task.id]
     saidText = \case
         Finished summary -> "finished: " <> oneLineText summary
-        AsksUp qid -> "asks " <> qidText qid
+        AsksUp qid
+            | qid `elem` open -> "asks " <> qidText qid
+            | Set.member task.id fan.atWork -> "running"
+            | otherwise -> "waits to resume"
         AwaitsCi ref -> "awaits CI on " <> oneLineText ref
         Ended stop -> "stopped " <> reasonText stop.reason <> ": " <> stop.why
     movedText moved =
@@ -371,6 +405,14 @@ deliver start = \case
   where
     has op = Set.member op start.interface
     asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
+
+{- | The step's entry text, with the notify only a run that can notify
+makes: a child run's parent notifies for it.
+-}
+deliverEntry :: Start -> Advice -> Text
+deliverEntry start advice
+    | advice.notify && Set.member Event.Notify start.interface = advice.entry <> " Then notify."
+    | otherwise = advice.entry
 
 {- | The run's own question: the events to record, oldest first, and the line
 saying where it goes. A question the run's row forwards is forwarded at once,

@@ -32,6 +32,12 @@ spec = describe "State.Fan" $ do
             assert (all (settled fan) task.deps)
             assert (task.id `notElem` map ((.task) . fst) (untriaged fan))
 
+    it "never_has_two_heavy_tasks_busy" . hedgehog $ do
+        fan <- forAll genFan
+        let busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
+        cover 5 "a heavy task busy" (any (.heavy) busy)
+        assert (length (filter (.heavy) busy) <= 1)
+
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
         fan <- forAll genFan
         width <- forAll (Gen.integral (Range.linear 1 4))
@@ -49,6 +55,15 @@ spec = describe "State.Fan" $ do
         (fan >>= spawning t1) `shouldBe` Left (StopUntriaged (runId "c1"))
         map (.id) . spawnable 3 . triaged (runId "c1") <$> fan `shouldBe` Right [t1]
         (`tries` t1) <$> (fan >>= spawning t1 . triaged (runId "c1") >>= spawned (childFor "c2" t1)) `shouldBe` Right 2
+
+    it "refuses a child's init on a task whose last stop is not triaged" $
+        applied [spawned (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access")), spawned (childFor "c2" t1)]
+            `shouldBe` Left (StopUntriaged (runId "c1"))
+
+    it "refuses an agent for a heavy task while another heavy task is at work" $ do
+        let twoHeavy = broken (tasksOf ((plainTask "t1" []) {heavy = True} :| [(plainTask "t2" []) {heavy = True}])) emptyFan
+        (spawning t1 twoHeavy >>= spawning t2) `shouldBe` Left (HeavyBusy t2 t1)
+        (spawned (childFor "c1" t1) twoHeavy >>= spawned (childFor "c2" t2)) `shouldBe` Left (HeavyBusy t2 t1)
 
     it "refuses a second spawn of a task an agent works on" $
         applied [spawning t1, spawning t1] `shouldBe` Left (AtWork t1)

@@ -11,6 +11,7 @@ most one of them heavy, and a task waits for its dependencies to settle.
 module State.Fan (
     Fan (..),
     ChildRun (..),
+    Heard (..),
     Refusal (..),
     emptyFan,
     broken,
@@ -25,6 +26,7 @@ module State.Fan (
     closed,
     unmerged,
     lookupTask,
+    childTask,
     running,
     waiting,
     untriaged,
@@ -32,6 +34,7 @@ module State.Fan (
     childrenOf,
     settled,
     unsettled,
+    unrecorded,
     spawnable,
     tries,
 ) where
@@ -61,14 +64,14 @@ data Fan = Fan
     }
     deriving stock (Eq, Show)
 
-{- | A child run, its hand-backs, oldest first, and whether its stop was put
-to the 10x as a question (@state ask --from@).
--}
-data ChildRun = ChildRun {child :: Child, said :: [Said], triage :: Triage}
+-- | A child run and its hand-backs, oldest first.
+data ChildRun = ChildRun {child :: Child, said :: [Heard]}
     deriving stock (Eq, Show)
 
--- | A stopped child's stop, until the 10x asks it as a question of its own.
-data Triage = Untriaged | Triaged
+{- | A hand-back as the fan-out keeps it: a stop, once the 10x put it as a
+question of its own (@state ask --from@), is triaged.
+-}
+data Heard = Heard Said | TriagedStop Stop
     deriving stock (Eq, Show)
 
 data Refusal
@@ -85,6 +88,8 @@ data Refusal
       AtWork TaskId
     | -- | The child stopped and its stop is not triaged yet: no retry before it.
       StopUntriaged RunId
+    | -- | The task is heavy and this heavy task is at work already: one at a time.
+      HeavyBusy TaskId TaskId
     | -- | The run is not over while these tasks are neither merged nor parked.
       Unmerged (NonEmpty TaskId)
     deriving stock (Eq, Show)
@@ -95,26 +100,35 @@ emptyFan = Fan {tasks = [], children = [], moves = Map.empty, held = [], atWork 
 broken :: Tasks -> Fan -> Fan
 broken tasks fan = fan {tasks = taskList tasks}
 
-{- | The 10x sends an engineer to the task: refused while one works on it,
-while a child of it runs on, or before its last child's stop is triaged.
--}
+-- | The 10x sends an engineer to the task: refused while one works on it, or as 'free' refuses.
 spawning :: TaskId -> Fan -> Either Refusal Fan
 spawning task fan = do
-    _ <- known task fan
-    case (Set.member task fan.atWork, find ((== task) . (.child.task)) (running fan), find ((== task) . (.task) . fst) (untriaged fan)) of
-        (True, _, _) -> Left (AtWork task)
-        (False, Just other, _) -> Left (StillRunning task other.child.run)
-        (False, Nothing, Just (stopped, _)) -> Left (StopUntriaged stopped.run)
-        (False, Nothing, Nothing) -> Right fan {atWork = Set.insert task fan.atWork}
+    found <- known task fan
+    case Set.member task fan.atWork of
+        True -> Left (AtWork task)
+        False -> free found fan
+    Right fan {atWork = Set.insert task fan.atWork}
 
 -- | The child's @init@: its task has an agent at work, spawned by the 10x or not.
 spawned :: Child -> Fan -> Either Refusal Fan
 spawned child fan = do
-    _ <- known child.task fan
-    case (find ((== child.run) . (.child.run)) fan.children, find ((== child.task) . (.child.task)) (running fan)) of
-        (Just _, _) -> Left (SpawnedTwice child.run)
-        (Nothing, Just other) -> Left (StillRunning child.task other.child.run)
-        (Nothing, Nothing) -> Right fan {children = fan.children <> [ChildRun child [] Untriaged], atWork = Set.insert child.task fan.atWork}
+    found <- known child.task fan
+    case find ((== child.run) . (.child.run)) fan.children of
+        Just _ -> Left (SpawnedTwice child.run)
+        Nothing -> free found fan
+    Right fan {children = fan.children <> [ChildRun child []], atWork = Set.insert child.task fan.atWork}
+
+{- | A new child may take the task: no child of it runs on, its last child's
+stop is triaged, and no other heavy task is busy when it is heavy.
+-}
+free :: Task -> Fan -> Either Refusal ()
+free task fan = case (find ((== task.id) . (.child.task)) (running fan), find ((== task.id) . (.task) . fst) (untriaged fan), heavyBusy) of
+    (Just other, _, _) -> Left (StillRunning task.id other.child.run)
+    (Nothing, Just (stopped, _), _) -> Left (StopUntriaged stopped.run)
+    (Nothing, Nothing, Just heavy) -> Left (HeavyBusy task.id heavy.id)
+    (Nothing, Nothing, Nothing) -> Right ()
+  where
+    heavyBusy = find (\other -> task.heavy && other.heavy && other.id /= task.id) (busy fan)
 
 -- | The 10x resumes a child that waits on it: refused while an agent works on its task.
 resumed :: RunId -> Fan -> Either Refusal Fan
@@ -129,8 +143,8 @@ resumed run fan = case find ((== run) . (.child.run)) fan.children of
 triaged :: RunId -> Fan -> Fan
 triaged run fan = fan {children = map mark fan.children}
   where
-    mark childRun = case latest childRun of
-        Just (Ended _) | childRun.child.run == run -> childRun {triage = Triaged}
+    mark childRun = case reverse childRun.said of
+        Heard (Ended stop) : before | childRun.child.run == run -> childRun {said = reverse (TriagedStop stop : before)}
         _ -> childRun
 
 -- | A child's hand-back: its task has no agent at work until the 10x sends one.
@@ -142,7 +156,7 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
         | otherwise -> Left (ChildOver run)
   where
     add childRun
-        | childRun.child.run == run = childRun {said = childRun.said <> [said]}
+        | childRun.child.run == run = childRun {said = childRun.said <> [Heard said]}
         | otherwise = childRun
 
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
@@ -177,6 +191,10 @@ known task fan = maybe (Left (UnknownTask task)) Right (lookupTask fan task)
 lookupTask :: Fan -> TaskId -> Maybe Task
 lookupTask fan task = find ((== task) . (.id)) fan.tasks
 
+-- | The breakdown's task the child of this run id took.
+childTask :: Fan -> RunId -> Maybe Task
+childTask fan run = lookupTask fan . (.child.task) =<< find ((== run) . (.child.run)) fan.children
+
 -- | The children not yet finished or stopped, oldest first.
 running :: Fan -> [ChildRun]
 running fan = filter live fan.children
@@ -192,8 +210,7 @@ untriaged fan =
     | task <- fan.tasks
     , not (settled fan task.id)
     , childRun : _ <- [reverse (childrenOf fan task.id)]
-    , Untriaged <- [childRun.triage]
-    , Just (Ended stop) <- [latest childRun]
+    , Heard (Ended stop) : _ <- [reverse childRun.said]
     ]
 
 -- | A child is over once it finished or stopped; asking up or awaiting CI, it runs on.
@@ -206,10 +223,11 @@ live childRun = case latest childRun of
         AwaitsCi _ -> True
         Ended _ -> False
 
--- | What the child said last, 'Nothing' while it has not handed back.
+-- | What the child said last, triaged or not; 'Nothing' while it has not handed back.
 latest :: ChildRun -> Maybe Said
 latest childRun = case reverse childRun.said of
-    said : _ -> Just said
+    Heard said : _ -> Just said
+    TriagedStop stop : _ -> Just (Ended stop)
     [] -> Nothing
 
 -- | The task's children, oldest first.
@@ -226,17 +244,23 @@ settled fan task = case Map.lookup task fan.moves of
     Just (Parked _ _) -> True
     Just (InReview _) -> idle
     Just (Merged _) -> idle
-    Just (InCi _) -> finished
-    Nothing -> finished
+    Just (InCi _) -> finished fan task
+    Nothing -> finished fan task
   where
-    children = childrenOf fan task
-    idle = not (any live children)
-    finished = case latest =<< listToMaybe (reverse children) of
-        Just (Finished _) -> True
-        Just (AsksUp _) -> False
-        Just (AwaitsCi _) -> False
-        Just (Ended _) -> False
-        Nothing -> False
+    idle = not (any live (childrenOf fan task))
+
+-- | The task's latest child finished.
+finished :: Fan -> TaskId -> Bool
+finished fan task = case latest =<< listToMaybe (reverse (childrenOf fan task)) of
+    Just (Finished _) -> True
+    Just (AsksUp _) -> False
+    Just (AwaitsCi _) -> False
+    Just (Ended _) -> False
+    Nothing -> False
+
+-- | The task's latest child finished and no state of its PR is recorded: the 10x records it.
+unrecorded :: Fan -> TaskId -> Bool
+unrecorded fan task = finished fan task && Map.notMember task fan.moves
 
 unsettled :: Fan -> [TaskId]
 unsettled fan = [task.id | task <- fan.tasks, not (settled fan task.id)]
@@ -246,14 +270,13 @@ running and no agent at work, its last stop triaged, dependencies settled,
 within the free slots of @width@, and at most one heavy task busy at once.
 -}
 spawnable :: Natural -> Fan -> [Task]
-spawnable width fan = pick (fromIntegral width - length busy) (any (.heavy) busy) ready
+spawnable width fan = pick (fromIntegral width - length (busy fan)) (any (.heavy) (busy fan)) ready
   where
-    busy = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
     ready =
         [ task
         | task <- fan.tasks
         , not (settled fan task.id)
-        , task.id `notElem` map (.id) busy
+        , task.id `notElem` map (.id) (busy fan)
         , task.id `notElem` map ((.task) . fst) (untriaged fan)
         , all (settled fan) task.deps
         ]
@@ -264,6 +287,10 @@ spawnable width fan = pick (fromIntegral width - length busy) (any (.heavy) busy
             | task.heavy && heavyTaken -> pick slots heavyTaken rest
             | otherwise -> task : pick (slots - 1) (heavyTaken || task.heavy) rest
         [] -> []
+
+-- | The tasks with an agent at work or a child running, in the breakdown's order.
+busy :: Fan -> [Task]
+busy fan = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
 
 -- | The children spawned for the task so far.
 tries :: Fan -> TaskId -> Int

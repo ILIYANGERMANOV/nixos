@@ -151,10 +151,13 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin repo ["rule", q1, "--answer", "postgres", "--why", "already used", "--cost", "none"]
                 unfounded <- state bin repo ["rule", q2, "--answer", "yes", "--why", "fine", "--cost", "none"]
                 unfounded.code `shouldBe` 2
-                for_ [["forward", q2], ["answer", q2, "use", "a", "vault"]] (succeeded <=< state bin repo)
+                _ <- succeeded =<< state bin repo ["forward", q2]
                 first <- succeeded =<< state bin repo ["next"]
                 take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c1]
+                userHolds <- succeeded =<< state bin repo ["next"]
+                take 1 userHolds `shouldBe` ["ASK Security " <> Text.pack q2 <> ": token in env?"]
+                _ <- succeeded =<< state bin repo ["answer", q2, "use", "a", "vault"]
                 second <- succeeded =<< state bin repo ["next"]
                 take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c2]

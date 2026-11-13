@@ -40,12 +40,12 @@ import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
-import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, due, ownAsk, pullRequestOf)
+import State.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverEntry, due, ownAsk, pullRequestOf)
 import State.Advice qualified as Advice
-import State.Ask (Principal (..), Question (..), oneLineText, qidText)
+import State.Ask (Parent (..), Principal (..), Question (..), oneLineText, qidText)
 import State.Ask qualified as Ask
 import State.Cap (stateNameText)
-import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Parent (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
+import State.Cli (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), Recording (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
 import State.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Codec qualified as Codec
 import State.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
@@ -289,7 +289,7 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
             <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts]
-            <> (if Text.null advice.entry then "" else "\n" <> advice.entry <> "\n")
+            <> (if Text.null advice.entry then "" else "\n" <> deliverEntry settled.state.start advice <> "\n")
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
         Just outcome -> case commit stamp current [(Cli, Took outcome)] of
@@ -387,7 +387,7 @@ initRun gd args =
             stamp <- now
             fresh <- newRunId
             let path = logOf notes
-                start = Start {flow = args.flow, notes, principal, interface = interfaceOf principal, task = (.task) <$> args.parent}
+                start = Start {flow = args.flow, notes, principal, interface = interfaceOf principal}
             result <- Log.locked path $ \case
                 Left bad -> ([], Left (unreadLine path bad))
                 Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right ("started", fresh))
@@ -402,7 +402,7 @@ initRun gd args =
     -- A subagent has no hooks, wakes, notifications or background of its own (#351 s4).
     interfaceOf = \case
         ByUser -> Set.fromList [minBound .. maxBound]
-        ByRole _ _ -> Set.empty
+        ByRole _ -> Set.empty
 
 {- | The child's @spawned@, appended to its parent's log under the parent's
 lock, by an id hashed from both runs: a retried init appends it once.
@@ -433,11 +433,11 @@ its first line must be that run's start.
 principalOf :: (Log :> es) => Maybe Parent -> Eff es (Either Failure Principal)
 principalOf = \case
     Nothing -> pure (Right ByUser)
-    Just Parent {run = parent, log = path} -> do
-        first <- Log.firstLine path
+    Just parent -> do
+        first <- Log.firstLine parent.log
         pure $ case decodeLine (fromMaybe "" first) of
-            Right envelope | envelope.run == parent, Started _ <- envelope.event -> Right (ByRole parent path)
-            _ -> Left (Failure BadInput ("--parent " <> runIdText parent) (Text.pack path <> " does not start that run") "state brief engineer, in the parent's worktree, prints the init line")
+            Right envelope | envelope.run == parent.run, Started _ <- envelope.event -> Right (ByRole parent)
+            _ -> Left (Failure BadInput ("--parent " <> runIdText parent.run) (Text.pack parent.log <> " does not start that run") "state brief engineer, in the parent's worktree, prints the init line")
 
 inWorktree :: (Git :> es) => (FilePath -> Eff es (Either Failure a)) -> Eff es (Either Failure a)
 inWorktree act = gitDir >>= either (pure . Left) act
