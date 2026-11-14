@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generates factory $1's age key into the clipboard, for Bitwarden, and puts its
 # public half in place of the host's marker line in .sops.yaml. An existing
-# secrets file is re-encrypted to the new key. macOS only: pbcopy, sed -i ''.
+# secrets file is re-encrypted to the new key. macOS only: pbcopy.
 set -euo pipefail
 host=$1
 bash "$(dirname "$0")/factory-host.sh" "$host" >/dev/null
@@ -36,7 +36,10 @@ echo
 pbcopy </dev/null
 echo "Clipboard cleared."
 
-sed -i '' "s|$marker|- $public # $host|" .sops.yaml
+# Not sed -i: its argument differs between BSD and GNU sed, and either may be
+# first on PATH.
+updated=$(sed "s|$marker|- $public # $host|" .sops.yaml)
+printf '%s\n' "$updated" >.sops.yaml
 echo "Added $public to .sops.yaml."
 
 # A file encrypted before the key existed (to macos-main alone) gets the new

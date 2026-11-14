@@ -13,7 +13,7 @@ creation_rules:
     key_groups:
       - age:
           - age1fz8wfwqx8s6ucnsn7l0a32yp6avnaqy6vz8j4xy8ye9udgyy6urq09lfxt
-          # software-factory-lenovo-age-key: not generated yet
+          - age1h5x3cup9vrledl8kuqnrexzn7zavkzagy2xqgsprrhcz9442d42s9lrrtr # software-factory-lenovo
   - path_regex: secrets/.*\.yaml$
     key_groups:
       - age:
