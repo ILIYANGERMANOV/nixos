@@ -37,7 +37,7 @@ who owns each decision.
 - **Workers stop on a blocker.** `state brief <role>` prints the stop rule into
   every implementer, refactorer and fixer brief, and the plan-wrong line into a
   review-lead's.
-- **`state` holds the record and the mechanics** (`state help`). When your
+- **`state` holds the record and the mechanics** (`state help`, `state <command> --help`). When your
   brief holds a `state init` line, it is your first command, as written. Else run `state init --notes <dir>`, the notes directory being
   `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug the branch name. Then loop:
   `state next`, do what its first line says, record the outcome, and

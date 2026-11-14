@@ -83,6 +83,7 @@ library
     , directory
     , effectful
     , filepath
+    , optparse-applicative
     , process
     , text
     , time

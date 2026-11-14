@@ -5,7 +5,10 @@ it, from this one table.
 module State.Protocol.Record (
     Recording (..),
     Recordable (..),
+    Flag (..),
+    Arity (..),
     recordables,
+    usageOf,
     recordCommand,
     Args (..),
     option,
@@ -41,12 +44,29 @@ data Recording = Plain Event | AtHead (Sha -> Event) | FromFile FilePath (Text -
 
 -- | The @state record@ line for an event, its arguments' usage after it.
 recordCommand :: EventName -> Text
-recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap (.args) [r | r <- recordables, r.name == name])
+recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usageOf [r | r <- recordables, r.name == name])
   where
     name = eventText event
 
--- | An event @state record@ takes: its name, its arguments' usage, and their parser.
-data Recordable = Recordable {name :: Text, args :: Text, flags :: [Text], parse :: Args -> Either Text Recording}
+{- | An event @state record@ takes: its name, its positionals' usage, the
+@--name value@ flags it takes, and the parser of both.
+-}
+data Recordable = Recordable {name :: Text, positional :: Text, flags :: [Flag], parse :: Args -> Either Text Recording}
+
+-- | A flag an event takes, its value's usage, and how often it is given.
+data Flag = Flag {name :: Text, value :: Text, arity :: Arity}
+
+data Arity = Required | Optional | Repeated
+
+-- | An event's arguments as its usage line shows them, positionals first.
+usageOf :: Recordable -> Text
+usageOf r = Text.unwords (filter (not . Text.null) (r.positional : map flagUsage r.flags))
+  where
+    flagUsage flag = case flag.arity of
+        Required -> given flag
+        Optional -> "[" <> given flag <> "]"
+        Repeated -> "[" <> given flag <> "]..."
+    given flag = "--" <> flag.name <> " " <> flag.value
 
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
@@ -94,11 +114,11 @@ recordables =
     , atHead FixPR FixPrDone
     , url Ready ReadyDone
     , url Ready ReadySkipped
-    , outcome (builtEvent Breakdown BreakdownDone) "--tasks <file.json>" ["tasks"] $ \a -> case (a.positional, option "tasks" a) of
+    , outcome (builtEvent Breakdown BreakdownDone) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone) . Codec.decodeBreakdown))
         _ -> Left "the tasks file, as --tasks <file.json>"
     , nothing (FanDone FEngineers)
-    , Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why> [--pr <url>]" ["pr"] $ \a -> case a.positional of
+    , Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
         [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
         task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
         _ -> Left "the task, then ci, review or merged and its PR, or parked and why"
@@ -125,10 +145,10 @@ recordables =
     atHead s done = outcome (builtEvent s done) "" [] $ \a -> case a.positional of
         [] -> Right (AtHead (stepTook . done))
         _ -> Left "no arguments: the head is HEAD"
-    commitAt s done unstated = outcome (builtEvent s done) "[--touches <area>,...|none]" ["touches"] $ \a -> case a.positional of
+    commitAt s done unstated = outcome (builtEvent s done) "" [Flag "touches" "<area>,...|none" Optional] $ \a -> case a.positional of
         [] -> (\areas -> AtHead (\sha -> stepTook (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
         _ -> Left "no arguments: the head is HEAD"
-    picks s done = outcome (builtEvent s done) ("[--row <label>]... [--verdict <requirement>=<" <> choices judgementText <> ">]...") ["row", "verdict"] $ \a -> case a.positional of
+    picks s done = outcome (builtEvent s done) "" [Flag "row" "<label>" Repeated, Flag "verdict" ("<requirement>=<" <> choices judgementText <> ">") Repeated] $ \a -> case a.positional of
         [] -> Plain . stepTook . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
         _ -> Left "rows and verdicts are options"
     url s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of

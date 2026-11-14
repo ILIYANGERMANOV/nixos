@@ -2325,6 +2325,52 @@ class TestStateCtx:
         ]
         assert row(report, "state-ctx", "state next")[1:3] == ["1", "0"]
 
+    def test_a_usage_error_in_a_piped_call_fails_the_step_it_names(
+        self, home: Home
+    ) -> None:
+        # Given: optparse rejected the event, its exit code lost to the pipe
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state next; state record nope 2>&1 | cat",
+            2,
+            outcome=Outcome(
+                "Invalid argument `nope'\n\nUsage: state record EVENT\n\n"
+                "Run 'state record --help' for more information.\nSPAWN fixer"
+            ),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state record")[1:] == [
+            "1",
+            "1",
+            "state record: Invalid argument `nope'",
+        ]
+        assert row(report, "state-ctx", "state next")[1:3] == ["1", "0"]
+
+    def test_a_usage_hint_left_by_tail_fails_the_step_it_names(
+        self, home: Home
+    ) -> None:
+        # Given: `tail -1` kept only the hint line of an event's usage error
+        main = Transcript().human(0, "go")
+        _ = main.bash(
+            1,
+            "state next; state record task t1 2>&1 | tail -1",
+            2,
+            outcome=Outcome("Run 'state record task --help' for more information."),
+        )
+        home.session("s1", main)
+        # When
+        report = home.report()
+        # Then
+        assert row(report, "state-ctx", "state record")[1:] == [
+            "1",
+            "1",
+            "state record: usage error",
+        ]
+
     def test_a_bare_fix_line_left_by_tail_fails_the_first_state_step(
         self, home: Home
     ) -> None:

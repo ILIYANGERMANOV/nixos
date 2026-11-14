@@ -11,7 +11,9 @@ module State.Cli.Command (
     Block (..),
     Failure (..),
     Exit (..),
+    Usage (..),
     parseCommand,
+    parseHook,
     failureText,
     noteOf,
     explain,
@@ -19,17 +21,25 @@ module State.Cli.Command (
     help,
 ) where
 
+import Control.Applicative (many, optional, some, (<**>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Options.Applicative (ParserInfo)
+import Options.Applicative qualified as Opt
+import Options.Applicative.Common (runParserInfo)
+import Options.Applicative.Help.Pretty (pretty, vsep)
+import Options.Applicative.Internal (contextNames, runP)
+import Options.Applicative.Types (Context)
 import State.Category.Flow (loopName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Mode (Cfg (..), Mode, SkipWhen (Never), cfg, parseByName, qualityName, sizeName)
 import State.Category.Step (eventText, stateNameText)
-import State.Protocol.Record (Args (..), Recordable (..), Recording (..), choices, option, recordCommand, recordables)
+import State.Protocol.Hook (HookName, hookName, hookPurpose)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), choices, recordCommand, recordables, usageOf)
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
@@ -94,123 +104,192 @@ failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> fa
 noteOf :: Failure -> Note
 noteOf failure = Note (failure.what <> " - " <> failure.why) failure.fix
 
--- | The subcommand, for the failure line, and the command or why it is not one.
-parseCommand :: Steps -> [Text] -> (Text, Either Failure Command)
-parseCommand steps = \case
-    [] -> ("help", Right Help)
-    sub : rest -> (sub, parseSub steps sub rest)
+-- | Help asked for, or argv the grammar rejects: optparse's text, for stdout or stderr.
+data Usage = HelpText Text | UsageError Text
+    deriving stock (Eq, Show)
 
-parseSub :: Steps -> Text -> [Text] -> Either Failure Command
-parseSub steps sub rest = case sub of
-    "init" -> withArgs ["notes", "flow", "parent", "parent-log", "task"] $ \a -> do
-        none a
-        notes <- required "notes" a
-        flow <- maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText)) (option "flow" a)
-        parent <- case (option "parent" a, option "parent-log" a, option "task" a) of
-            (Nothing, Nothing, Nothing) -> Right Nothing
-            (Just run, Just logPath, Just task) -> (\r l -> Just (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
-            _ -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
-        Right (Init InitArgs {notes = Text.unpack notes, flow, parent})
-    "record" -> case rest of
-        [] -> Left (usage "no event" "record names one event")
-        name : args -> case [r | r <- recordables, r.name == name] of
-            r : _ -> do
-                a <- argsOf r.flags args
-                OnRun . Record <$> first (\why -> Failure BadInput ("record " <> name) why ("state record " <> Text.strip (name <> " " <> r.args))) (r.parse a)
-            [] -> Left (usage ("no event " <> name) ("one of " <> Text.unwords (map (.name) recordables)))
-    "handback" -> withArgs ["child"] $ \a -> do
-        role <- oneWord "role" a
-        child <- traverse runId (option "child" a)
-        HandbackOf <$> knownRole (agentRoles steps <> childRoles) role <*> pure child
-    "next" -> bare Next
-    "brief" -> withArgs ["task"] $ \a -> do
-        role <- oneWord "role" a
-        OnRun <$> (Brief <$> knownRole (agentRoles steps <> childRoles) role <*> pure (TaskId <$> option "task" a))
-    "show" -> bare (OnRun ShowRun)
-    "override" -> withArgs [] $ \a -> case a.positional of
-        target : why@(_ : _) -> Right (OnRun (Override (StateName target) (Text.unwords why)))
-        _ -> Left (usage "override needs a state and why" "state override <state> <why>")
-    "render" -> withArgs ["flow"] $ \a -> do
-        block <- case a.positional of
-            [] -> Right States
-            [name] -> named "block" (parseByName blockName) name
-            _ -> Left (usage "render takes one block" (Text.unwords (map blockName [minBound .. maxBound])))
-        Render block <$> maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText)) (option "flow" a)
-    "ask" -> withArgs ["kind", "from"] $ \a -> do
-        kind <- named "kind" parseKind =<< required "kind" a
-        from <- maybe (Right Itself) (asker (agentRoles steps)) (option "from" a)
-        OnRun . AskQuestion kind from <$> (oneLine =<< sentence "question" a)
-    "rule" -> withArgs ["answer", "why", "cost", "basis", "raise"] $ \a -> do
-        qid <- question a
-        raise <- raising a
-        proposal <-
-            Proposal
-                <$> (oneLine =<< required "answer" a)
-                <*> (oneLine =<< required "why" a)
-                <*> (oneLine =<< required "cost" a)
-                <*> traverse basis (option "basis" a)
-        Right (OnRun (RuleOn qid raise proposal))
-    "forward" -> withArgs ["raise"] $ \a -> OnRun <$> (Forward <$> question a <*> raising a)
-    "answer" -> withArgs ["by"] $ \a -> case a.positional of
-        raw : answer@(_ : _) -> OnRun <$> (Answer <$> qidOf raw <*> pure (Text.unwords answer) <*> traverse above (option "by" a))
-        _ -> Left (usage "answer needs a question id and the answer" "state answer <qid> <answer>")
-    "stop" -> withArgs [] $ \a -> case a.positional of
-        reason : why@(_ : _) -> (\r -> OnRun (StopRun (Stop r (Text.unwords why)))) <$> named "stop reason" (parseByName reasonText) reason
-        _ -> Left (usage "stop needs a reason and why" ("state stop <" <> Text.intercalate "|" (map reasonText [minBound .. maxBound]) <> "> <why>"))
-    "pending" -> bare (OnRun Pending)
-    "help" -> bare Help
-    other -> Left (usage ("no command " <> other) "see the commands state help lists")
+{- | The subcommand, for the failure line, and the command or why it is not
+one; else optparse's help or usage error. No command at all is help.
+-}
+parseCommand :: Steps -> [Text] -> Either Usage (Text, Either Failure Command)
+parseCommand steps = \case
+    [] -> Right ("help", Right Help)
+    -- The grammar has no option before the subcommand but --help: a parsed argv starts with it.
+    argv@(sub : _) -> (sub,) <$> runCli "state" (commandInfo steps) argv
+
+-- | @state-hook <name>@'s argv.
+parseHook :: [Text] -> Either Usage HookName
+parseHook = runCli "state-hook" hookInfo
+
+-- | The full usage: every command, then the run's kinds, stop reasons, roles and areas.
+help :: Steps -> Text
+help steps = rendered "state" (commandInfo steps) (Opt.ShowHelpText Nothing) []
+
+{- | optparse's 'Opt.execParserPure' minus its shell-completion flags, which
+this CLI does not offer. Keeping the context, the command words parsed, lets
+a misuse's last line name the @--help@ to run.
+-}
+runCli :: String -> ParserInfo a -> [Text] -> Either Usage a
+runCli program pinfo argv = case runP (runParserInfo pinfo (map Text.unpack argv)) Opt.defaultPrefs of
+    (Right parsed, _) -> Right parsed
+    (Left err, context) -> Left $ case err of
+        Opt.ShowHelpText _ -> HelpText text
+        Opt.InfoMsg _ -> HelpText text
+        Opt.ErrorMsg _ -> misused
+        Opt.UnknownError -> misused
+        Opt.MissingError _ _ -> misused
+        Opt.ExpectsArgError _ -> misused
+        Opt.UnexpectedError _ _ -> misused
+      where
+        text = rendered program pinfo err context
+        misused = UsageError (text <> "\nRun '" <> Text.pack (unwords (program : contextNames context)) <> " --help' for more information.\n")
+
+-- | optparse's text, less the trailing spaces it leaves where it wraps a usage line.
+rendered :: String -> ParserInfo a -> Opt.ParseError -> [Context] -> Text
+rendered program pinfo err context = Text.unlines (map Text.stripEnd (Text.lines (Text.pack (fst (Opt.renderFailure (Opt.parserFailure Opt.defaultPrefs pinfo err context) program)))))
+
+hookInfo :: ParserInfo HookName
+hookInfo = Opt.info (Opt.hsubparser (foldMap hookCommand [minBound .. maxBound]) <**> Opt.helper) (Opt.progDesc "One hook event on stdin, its reply on stdout.")
   where
-    withArgs allowed k = argsOf allowed rest >>= k
-    bare command = withArgs [] $ \a -> none a >> Right command
-    question a = case a.positional of
-        [raw] -> qidOf raw
-        _ -> Left (usage "one question id expected" "state pending lists them")
-    raising a = case option "raise" a of
+    hookCommand name = Opt.command (Text.unpack (hookName name)) (Opt.info (pure name) (Opt.progDesc (Text.unpack (hookPurpose name))))
+
+commandInfo :: Steps -> ParserInfo (Either Failure Command)
+commandInfo steps =
+    Opt.info
+        (Opt.hsubparser commands <**> Opt.helper)
+        (Opt.header "state - the run of an agent flow, kept in the worktree's log" <> Opt.footerDoc (Just (vsep (map pretty footer))))
+  where
+    commands =
+        mconcat
+            [ sub "init" "Start a run, a child run when it names its parent" initArgs
+            , Opt.command "record" (Opt.info recordEvent (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
+            , sub "handback" "Record a role's hand-back, read from stdin" $
+                (\role child -> HandbackOf <$> knownRole anyRole role <*> traverse runId child)
+                    <$> textArgument "<role>"
+                    <*> optional (textOption "child" "<run>" "the child run handing back, when the hand-back names none")
+            , sub "next" "Print the next action, its facts and the step's task" (pure (Right Next))
+            , sub "brief" "Print a role's brief, a child engineer's task too" $
+                (\role task -> OnRun <$> (Brief <$> knownRole anyRole role <*> pure (TaskId <$> task)))
+                    <$> textArgument "<role>"
+                    <*> optional (textOption "task" "<id>" "the task of the breakdown")
+            , sub "show" "Print where the run is and what it holds" (pure (Right (OnRun ShowRun)))
+            , freeText "override" "Move the run to a state by hand, saying why" $
+                (\target why -> Right (OnRun (Override (StateName target) why)))
+                    <$> textArgument "<state>"
+                    <*> sentence "<why>"
+            , sub "render" "Print a block of the flow, as the skills paste it" $
+                (\block flow -> Render <$> maybe (Right States) (named "block" (parseByName blockName)) block <*> flowOf flow)
+                    <$> optional (textArgument (choices blockName))
+                    <*> optional flowOption
+            , freeText "ask" "Ask a question: the run's, a worker's or a child's" $
+                (\kind from question -> OnRun <$> (AskQuestion <$> named "kind" parseKind kind <*> maybe (Right Itself) (asker (agentRoles steps)) from <*> oneLine question))
+                    <$> textOption "kind" (choices kindName) "the question's kind"
+                    <*> optional (textOption "from" "<role|run>" "the worker or child run that asked it")
+                    <*> sentence "<question>"
+            , sub "rule" "Rule on a question: the answer, why and its cost" $
+                (\qid answer why cost basis raise -> OnRun <$> (RuleOn <$> qidOf qid <*> raising raise <*> (Proposal <$> oneLine answer <*> oneLine why <*> oneLine cost <*> traverse basisOf basis)))
+                    <$> textArgument "<qid>"
+                    <*> textOption "answer" "<a>" "the answer"
+                    <*> textOption "why" "<w>" "why it is the answer"
+                    <*> textOption "cost" "<c>" "what the answer costs"
+                    <*> optional (textOption "basis" "<event-id>|obvious:<why>" "the event that answered it, or why it is obvious")
+                    <*> optional raiseOption
+            , sub "forward" "Forward a question up, to the parent run or the user" $
+                (\qid raise -> OnRun <$> (Forward <$> qidOf qid <*> raising raise)) <$> textArgument "<qid>" <*> optional raiseOption
+            , freeText "answer" "Record the answer to a forwarded question" $
+                (\qid answer by -> OnRun <$> (Answer <$> qidOf qid <*> pure answer <*> traverse above by))
+                    <$> textArgument "<qid>"
+                    <*> sentence "<answer>"
+                    <*> optional (textOption "by" "user|<run>" "who answered, when not whoever started the run")
+            , freeText "stop" "Stop the run, with a reason and why" $
+                (\reason why -> (\r -> OnRun (StopRun (Stop r why))) <$> named "stop reason" (parseByName reasonText) reason)
+                    <$> textArgument (choices reasonText)
+                    <*> sentence "<why>"
+            , sub "pending" "List the questions awaiting an answer" (pure (Right (OnRun Pending)))
+            , sub "help" "Print this help" (pure (Right Help))
+            ]
+    footer =
+        [ "kinds: " <> choices kindName
+        , "stop reasons: " <> choices reasonText
+        , "roles: " <> Text.unwords (map roleText (agentRoles steps))
+        , "areas (--touches): " <> choices areaText
+        , ""
+        , "Exit 0 ok; 2 bad usage, a bad log line or a refused event; 1 a git or disk failure."
+        , "A refusal prints `state <command>: what - why`, then `fix: <command>`."
+        , "Run 'state <command> --help' for a command's arguments."
+        ]
+    anyRole = agentRoles steps <> childRoles
+    sub name about parser = Opt.command name (Opt.info parser (Opt.progDesc about))
+    -- Its last words are free text, which may start with a dash: an option it does not take is a word.
+    freeText name about parser = Opt.command name (Opt.info parser (Opt.progDesc about <> Opt.forwardOptions))
+    raiseOption = textOption "raise" "security" "raise the question to a Security one first"
+    raising = \case
         Nothing -> Right AsAsked
         Just "security" -> Right ToSecurity
         Just other -> Left (usage ("--raise " <> other) "a question is only raised to security")
-    basis raw = case Text.stripPrefix "obvious:" raw of
+    basisOf raw = case Text.stripPrefix "obvious:" raw of
         Just why -> Obvious <$> oneLine (Text.strip why)
         Nothing -> maybe (Left (usage ("--basis " <> raw) "an event id such as r7f2:12, or obvious:<why>")) (Right . AnsweredBy) (parseEventId raw)
     above = \case
         "user" -> Right TheUser
         raw -> ParentRun <$> runId raw
 
+initArgs :: Opt.Parser (Either Failure Command)
+initArgs =
+    init'
+        <$> textOption "notes" "<dir>" "the directory of the run's notes"
+        <*> optional flowOption
+        <*> optional (textOption "parent" "<run>" "a child run's parent run")
+        <*> optional (textOption "parent-log" "<path>" "the parent's events.jsonl, an absolute path")
+        <*> optional (textOption "task" "<id>" "the parent's task this child run takes")
+  where
+    init' notes flowRaw parentRaw logRaw taskRaw = do
+        flow <- flowOf flowRaw
+        parent <- case (parentRaw, logRaw, taskRaw) of
+            (Nothing, Nothing, Nothing) -> Right Nothing
+            (Just run, Just logPath, Just task) -> (\r l -> Just (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
+            _ -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
+        Right (Init InitArgs {notes = Text.unpack notes, flow, parent})
+
+-- | One subcommand per event the table holds, its flags its options.
+recordEvent :: Opt.Parser (Either Failure Command)
+recordEvent = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recordables)
+  where
+    event r = Opt.command (Text.unpack r.name) (Opt.info (recording r <$> positionals r <*> flags r) (Opt.progDesc (Text.unpack (describe r)) <> freeWords r))
+    recording r positional options = OnRun . Record <$> first (refused r) (r.parse (Args positional options))
+    refused r why = Failure BadInput ("record " <> r.name) why (Text.strip ("state record " <> r.name <> " " <> usageOf r))
+    positionals r
+        | Text.null r.positional = pure []
+        | otherwise = many (textArgument r.positional)
+    flags r = concat <$> traverse flag r.flags
+    flag f = map (f.name,) <$> arity f.arity (Opt.strOption (Opt.long (Text.unpack f.name) <> Opt.metavar (Text.unpack f.value)))
+    arity = \case
+        Required -> fmap pure
+        Optional -> fmap toList . optional
+        Repeated -> many
+    -- An event's positionals may be free text, which may start with a dash.
+    freeWords r = if Text.null r.positional then mempty else Opt.forwardOptions
+    describe r = if Text.null (usageOf r) then "no arguments" else usageOf r
+
+flowOption :: Opt.Parser Text
+flowOption = textOption "flow" (choices Codec.flowText) "the flow (default engineer)"
+
+flowOf :: Maybe Text -> Either Failure FlowName
+flowOf = maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText))
+
+textOption :: String -> Text -> String -> Opt.Parser Text
+textOption name value about = Opt.strOption (Opt.long name <> Opt.metavar (Text.unpack value) <> Opt.help about)
+
+textArgument :: Text -> Opt.Parser Text
+textArgument value = Opt.strArgument (Opt.metavar (Text.unpack value))
+
+-- | One or more words, joined: a shell user need not quote a sentence.
+sentence :: Text -> Opt.Parser Text
+sentence value = Text.unwords <$> some (textArgument value)
+
 -- | The usage failure, with @state help@ as the fix.
 usage :: Text -> Text -> Failure
 usage what why = Failure BadInput what why "state help"
-
-argsOf :: [Text] -> [Text] -> Either Failure Args
-argsOf allowed = \case
-    [] -> Right (Args [] [])
-    word : rest -> case Text.stripPrefix "--" word of
-        Just name
-            | name `notElem` allowed -> Left (usage ("--" <> name) ("not an option here; options: " <> optionList))
-            | value : more <- rest -> (\a -> a {options = (name, value) : a.options}) <$> argsOf allowed more
-            | otherwise -> Left (usage ("--" <> name) "needs a value")
-        Nothing -> (\a -> a {positional = word : a.positional}) <$> argsOf allowed rest
-  where
-    optionList = if null allowed then "none" else Text.unwords (map ("--" <>) allowed)
-
-required :: Text -> Args -> Either Failure Text
-required name = maybe (Left (usage ("no --" <> name) ("--" <> name <> " is required"))) Right . option name
-
-none :: Args -> Either Failure ()
-none a = case a.positional of
-    [] -> Right ()
-    extra -> Left (usage (Text.unwords extra) "takes no positional argument")
-
-oneWord :: Text -> Args -> Either Failure Text
-oneWord what a = case a.positional of
-    [word] -> Right word
-    _ -> Left (usage ("one " <> what <> " expected") ("got " <> tshow (length a.positional)))
-
--- | Every positional word, joined: a shell user need not quote a sentence.
-sentence :: Text -> Args -> Either Failure Text
-sentence what a = case a.positional of
-    [] -> Left (usage ("no " <> what) ("the " <> what <> " follows the options"))
-    words' -> Right (Text.unwords words')
 
 oneLine :: Text -> Either Failure OneLine
 oneLine raw = maybe (Left (usage "a line break" "answers, reasons and questions are one line each")) Right (parseOneLine raw)
@@ -256,44 +335,6 @@ blockName = \case
     Kinds -> "kinds"
     StopRule -> "stop-rule"
     PlanWrong -> "plan-wrong"
-
-{- | The full usage: every command, then every event @record@ takes, from
-the same table its parser reads.
--}
-help :: Steps -> Text
-help steps =
-    Text.unlines $
-        ["usage: state <command> [args]", "", "commands:"]
-            <> map ("  " <>) commands
-            <> ["", "events (state record <event> [args]; a commit event records HEAD):"]
-            <> ["  " <> Text.strip (r.name <> " " <> r.args) | r <- recordables]
-            <> [ ""
-               , "kinds: " <> choices kindName
-               , "stop reasons: " <> choices reasonText
-               , "roles: " <> Text.unwords (map roleText (agentRoles steps))
-               , "areas (--touches): " <> choices areaText
-               , ""
-               , "Exit 0 ok; 2 bad usage, a bad log line or a refused event; 1 a git or disk failure."
-               , "A failure prints `state <command>: what - why`, then `fix: <command>`."
-               ]
-  where
-    commands =
-        [ "init --notes <dir> [--flow " <> choices Codec.flowText <> "] [--parent <run> --parent-log <path>] [--task <id>]"
-        , "record <event> [args]"
-        , "handback <role> [--child <run>]     the hand-back on stdin"
-        , "next                                the next action, its facts and the step's task"
-        , "brief <role> [--task <id>]"
-        , "show"
-        , "override <state> <why>"
-        , "render [" <> choices blockName <> "] [--flow " <> choices Codec.flowText <> "]"
-        , "ask --kind <kind> [--from <role|run>] <question>"
-        , "rule <qid> --answer <a> --why <w> --cost <c> [--basis <event-id>|obvious:<why>] [--raise security]"
-        , "forward <qid> [--raise security]"
-        , "answer <qid> <answer> [--by user|<run>]"
-        , "stop <reason> <why>"
-        , "pending"
-        , "help"
-        ]
 
 -- | A log whose first line starts no run: it has no flow to explain against.
 notStarted :: Failure

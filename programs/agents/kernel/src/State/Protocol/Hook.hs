@@ -16,7 +16,7 @@ which only a subagent makes.
 module State.Protocol.Hook (
     HookName (..),
     hookName,
-    parseHookName,
+    hookPurpose,
     HookEvent (..),
     Call (..),
     callOf,
@@ -69,10 +69,13 @@ hookName = \case
     HandbackHook -> "handback"
     AskedHook -> "asked"
 
-parseHookName :: [Text] -> Maybe HookName
-parseHookName = \case
-    [name] -> lookup name [(hookName hook, hook) | hook <- [minBound .. maxBound]]
-    _ -> Nothing
+-- | What the hook does, as @state-hook --help@ lists it.
+hookPurpose :: HookName -> Text
+hookPurpose = \case
+    ResumeHook -> "At session start: prints the run and its next action"
+    SpawnHook -> "Before a delegate: next, and a warning off the advice"
+    HandbackHook -> "Before a hand-back: records it, printing the record"
+    AskedHook -> "After an ask: answer lines of questions to the user"
 
 -- | One event of the neutral contract. @history@, @output@ and @context@ are required, never read.
 data HookEvent

@@ -166,7 +166,7 @@ spec = describe "state over the doubles" $ do
 
                 ran <- state world ["record"]
 
-                (ran.code, ran.err) `shouldBe` (2, ["state record: no event - record names one event", "fix: state help"])
+                (ran.code, take 1 ran.err, drop (length ran.err - 1) ran.err) `shouldBe` (2, ["Missing: EVENT"], ["Run 'state record --help' for more information."])
                 loggedEvents world `shouldReturn` ["started"]
 
         describe "handback" $ do
@@ -239,7 +239,7 @@ spec = describe "state over the doubles" $ do
             it "needs a state and why" $ \world -> do
                 ran <- state world ["override", "review"]
 
-                (ran.code, ran.err) `shouldBe` (2, ["state override: override needs a state and why - state override <state> <why>", "fix: state help"])
+                (ran.code, take 1 ran.err) `shouldBe` (2, ["Missing: <why>"])
 
         describe "the review loop" $ do
             it "asks Stuck when rounds 1 and 2 pick the same row" $ \world -> do
@@ -409,16 +409,20 @@ spec = describe "state over the doubles" $ do
                 take 1 ran.err `shouldSatisfy` all ("state render: " `Text.isPrefixOf`)
 
         describe "usage" $ do
-            it "prints help with no command" $ \world -> do
-                ran <- state world []
+            it "prints help with no command, as help and --help do" $ \world -> do
+                ran <- traverse (state world) [[], ["help"], ["--help"]]
 
-                (ran.code, ran.out, ran.err) `shouldBe` (0, Text.lines (help table), [])
+                [(r.code, r.out, r.err) | r <- ran] `shouldBe` replicate 3 (0, Text.lines (help table), [])
+
+            it "prints a command's help on stdout, exit 0" $ \world -> do
+                ran <- state world ["record", "--help"]
+
+                (ran.code, take 1 ran.out, ran.err) `shouldBe` (0, ["Usage: state record EVENT"], [])
 
             it "refuses a command it does not know, with exit 2" $ \world -> do
                 ran <- state world ["nowhere"]
 
-                ran.code `shouldBe` 2
-                take 1 ran.err `shouldSatisfy` all ("state nowhere: " `Text.isPrefixOf`)
+                (ran.code, take 1 ran.err, ran.out) `shouldBe` (2, ["Invalid argument `nowhere'"], [])
 
             it "is an outage, exit 1, without the step table STATE_STEPS names" $ \world -> do
                 modifyIORef' world (\w -> w {env = Map.delete "STATE_STEPS" w.env})

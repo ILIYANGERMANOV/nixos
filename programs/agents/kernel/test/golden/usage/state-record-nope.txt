@@ -1,0 +1,7 @@
+Invalid argument `nope'
+
+Usage: state record EVENT
+
+  Record an event: 'state record --help' lists them
+
+Run 'state record --help' for more information.

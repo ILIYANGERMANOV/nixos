@@ -7,10 +7,11 @@ import Data.Text qualified as Text
 import State.Category.Graph (OpenGraph (..))
 import State.Category.Mode (Mode (..), Quality (..), Size (..))
 import State.Category.Step (eventText)
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), explain, failureText, help, parseCommand)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, parseCommand, parseHook)
+import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
-import State.Run.Ask (Kind (..), Parent (..), oneLineText)
-import State.Run.Event (Asker (..), Commit (..), Event (..), Stop (..), StopReason (..), stepTook)
+import State.Run.Ask (Above (..), Kind (..), Parent (..), oneLineText)
+import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, loadSteps, runAt, sha)
 import State.Step.Build (Outcome (..))
@@ -21,13 +22,21 @@ import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shou
 spec :: Spec
 spec = describe "State.Cli.Command" $ do
     steps <- runIO loadSteps
-    let parse = snd . parseCommand steps
+    let
+        -- The command, else a refusal's what or a usage error's first line.
+        parse argv = case parseCommand steps argv of
+            Right (_, parsed) -> either (Left . (.what)) Right parsed
+            Left (UsageError text) -> Left (Text.takeWhile (/= '\n') text)
+            Left (HelpText _) -> Left "help"
         -- The event @record@ appends, at HEAD 'sha' when it records one.
         recorded argv = case parse ("record" : argv) of
             Right (OnRun (Record (Plain event))) -> Right event
             Right (OnRun (Record (AtHead event))) -> Right (event sha)
             Right _ -> Left "not a record"
-            Left failure -> Left failure.what
+            Left why -> Left why
+        helpOf argv = case parseCommand steps argv of
+            Left (HelpText text) -> text
+            _ -> "not help"
 
     describe "record" $ do
         it "parses a stay event's argument" $
@@ -40,10 +49,21 @@ spec = describe "State.Cli.Command" $ do
             recorded ["implement.done"] `shouldBe` Right (stepTook (ImplementDone (Commit sha (Set.fromList [minBound .. maxBound]))))
 
         it "refuses an event the table lacks, naming it" $
-            recorded ["deploy.done"] `shouldBe` Left "no event deploy.done"
+            recorded ["deploy.done"] `shouldBe` Left "Invalid argument `deploy.done'"
 
         it "refuses an option the event does not take" $
-            recorded ["size", "Normal", "--touches", "none"] `shouldBe` Left "--touches"
+            recorded ["implement.done", "--row", "R1"] `shouldBe` Left "Invalid option `--row'"
+
+        it "takes a repeated flag once per time it is given" $
+            recorded ["pick.final", "--row", "R1", "--row", "R2"] `shouldBe` Right (stepTook (PickFinal (Picks (Set.fromList [Label "R1", Label "R2"]) Map.empty)))
+
+        it "keeps an event's free words that start with a dash" $
+            recorded ["grew", "-x", "--flag", "added"] `shouldBe` Right (Grew "-x --flag added")
+
+        it "refuses an event's usage with its own fix" $
+            case parseCommand steps ["record", "plan.done"] of
+                Right (_, Left failure) -> (failure.what, failure.fix) `shouldBe` ("record plan.done", "state record plan.done <path>")
+                _ -> expectationFailure "not a refusal"
 
     describe "other commands" $ do
         it "takes a question's words as one line, asked by the run itself" $
@@ -55,6 +75,15 @@ spec = describe "State.Cli.Command" $ do
             case parse ["stop", "blocked", "no", "access"] of
                 Right (OnRun (StopRun stop)) -> stop `shouldBe` Stop Blocked "no access"
                 _ -> expectationFailure "not a stop"
+
+        it "keeps free words that start with a dash, an option it takes aside" $
+            case (parse ["stop", "blocked", "-x", "--force", "failed"], parse ["ask", "--kind", "Scope", "-v", "or", "--verbose?"], parse ["answer", "r1:1", "use", "-f", "--by", "user"]) of
+                (Right (OnRun (StopRun stop)), Right (OnRun (AskQuestion _ _ question)), Right (OnRun (Answer _ answer by))) ->
+                    (stop.why, oneLineText question, answer, by) `shouldBe` ("-x --force failed", "-v or --verbose?", "use -f", Just TheUser)
+                _ -> expectationFailure "not a stop, a question and an answer"
+
+        it "needs the free words" $
+            failureWhat (parse ["override", "review"]) `shouldBe` Just "Missing: <why>"
 
         it "refuses a parent log that is not an absolute events.jsonl" $
             (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/other.jsonl", "--task", "t1"]
@@ -85,11 +114,25 @@ spec = describe "State.Cli.Command" $ do
             ]
                 `shouldBe` ["state record research.done <n>", "state record research.done <n> | state record research.skipped"]
 
-        it "help lists every event the flow's arrows take" $
-            [event | (_, event) <- Map.keys g.edges, not (eventText event `Text.isInfixOf` help steps)] `shouldBe` []
+    describe "help" $ do
+        it "record's help lists every event the flow's arrows take" $
+            [event | (_, event) <- Map.keys g.edges, not (eventText event `Text.isInfixOf` helpOf ["record", "--help"])] `shouldBe` []
 
-        it "help starts with the usage line" $
-            help steps `shouldSatisfy` Text.isPrefixOf "usage: state"
+        it "is what --help prints" $
+            helpOf ["--help"] `shouldBe` help steps
+
+        it "names the run's kinds" $
+            help steps `shouldSatisfy` Text.isInfixOf "kinds: Fact|"
+
+        -- The text a reader sees, pinned whole.
+        it "of state" $ golden "usage/state.txt" (help steps)
+        it "of state record" $ golden "usage/state-record-help.txt" (helpOf ["record", "--help"])
+        it "of an unknown event" $ golden "usage/state-record-nope.txt" (usageError (parseCommand steps ["record", "nope"]))
+        it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError (parseHook ["bad"]))
   where
-    failureWhat :: Either Failure a -> Maybe Text
-    failureWhat = either (Just . (.what)) (const Nothing)
+    usageError :: Either Usage a -> Text
+    usageError = \case
+        Left (UsageError text) -> text
+        _ -> "no usage error"
+    failureWhat :: Either Text a -> Maybe Text
+    failureWhat = either Just (const Nothing)

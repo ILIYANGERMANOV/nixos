@@ -43,7 +43,7 @@ import Numeric.Natural (Natural)
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), explain, failureText, help, notStarted, noteOf, parseCommand)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), explain, failureText, help, notStarted, noteOf, parseCommand, parseHook)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
@@ -51,7 +51,7 @@ import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, parseHookName, replyOf, silent, toldOf, wants)
+import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, silent, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -79,29 +79,35 @@ runShellIO = runEff . runClockIO . runConsoleIO . runEnvironmentIO . runFileSyst
 
 -- | Run one command from argv; a failure goes to stderr with its exit code.
 main :: (Shell es) => [Text] -> Eff es ExitCode
-main argv = do
-    (sub, result) <-
-        loadSteps >>= \case
-            Left failure -> pure ("steps", Left failure)
-            Right steps -> do
-                let (sub, parsed) = parseCommand steps argv
-                result <- either (pure . Left) (outageAware . execute steps) parsed
-                pure (sub, result)
-    case result of
-        Right out -> Console.out out $> ExitSuccess
-        Left failure ->
-            Console.err (failureText sub failure) $> case failure.exit of
-                BadInput -> ExitFailure 2
-                Outage -> ExitFailure 1
+main argv =
+    loadSteps >>= \case
+        Left failure -> failed "steps" failure
+        Right steps -> case parseCommand steps argv of
+            Left said -> usageOut said
+            Right (sub, parsed) ->
+                either (pure . Left) (outageAware . execute steps) parsed >>= \case
+                    Right out -> Console.out out $> ExitSuccess
+                    Left failure -> failed sub failure
+  where
+    failed sub failure =
+        Console.err (failureText sub failure) $> case failure.exit of
+            BadInput -> ExitFailure 2
+            Outage -> ExitFailure 1
+
+-- | Help asked for goes to stdout, exit 0; a usage error to stderr, exit 2.
+usageOut :: (Console :> es) => Usage -> Eff es ExitCode
+usageOut = \case
+    HelpText text -> Console.out text $> ExitSuccess
+    UsageError text -> Console.err text $> ExitFailure 2
 
 {- | @state-hook <name>@: one hook event on stdin, its reply on stdout. Bad
 usage or stdin exits 2; past that it never fails the agent: a worktree with no
 run it reads is silence, a refusal or an error is context (fail open and tell).
 -}
 hook :: (Shell es) => [Text] -> Eff es ExitCode
-hook argv = case parseHookName argv of
-    Nothing -> usage ("usage: state-hook " <> Text.intercalate " | " (map hookName [minBound .. maxBound]))
-    Just name -> do
+hook argv = case parseHook argv of
+    Left said -> usageOut said
+    Right name -> do
         input <- Console.readStdin
         case parseHookEvent (LBS.fromStrict input) of
             Left why -> usage ("state-hook " <> hookName name <> ": " <> why)

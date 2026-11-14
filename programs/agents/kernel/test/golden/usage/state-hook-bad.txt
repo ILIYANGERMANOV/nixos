@@ -1,0 +1,7 @@
+Invalid argument `bad'
+
+Usage: state-hook COMMAND
+
+  One hook event on stdin, its reply on stdout.
+
+Run 'state-hook --help' for more information.

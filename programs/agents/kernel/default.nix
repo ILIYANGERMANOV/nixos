@@ -56,6 +56,7 @@ let
       hspec-discover,
       hspec-golden,
       hspec-hedgehog,
+      optparse-applicative,
       process,
       temporary,
       text,
@@ -86,6 +87,7 @@ let
         directory
         effectful
         filepath
+        optparse-applicative
         process
         text
         time

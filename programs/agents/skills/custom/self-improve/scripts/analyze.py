@@ -1095,6 +1095,9 @@ def record_result(
     call.refusals = tuple(
         found.group(1) or f"fix: {found.group(2)}"
         for found in STATE_REFUSAL.finditer(text)
+    ) + tuple(
+        f"{found.group(2)}: {found.group(1) or 'usage error'}"
+        for found in STATE_USAGE.finditer(text)
     )
 
 
@@ -1102,6 +1105,16 @@ def record_result(
 # programs/agents/kernel/src/State/Cli/Command.hs:
 # `state <sub>: what - why`, then `fix: ...`. A `| tail -1` keeps only the fix line.
 STATE_REFUSAL = re.compile(r"^(?:(state [a-z-]+: .*)\n)?fix: (.*)$", re.MULTILINE)
+
+# What `state` prints on stderr when optparse rejects argv (runCli there): its
+# error line (`Invalid ...`, `Missing: ...`, `The option ...`), usage lines,
+# then `Run 'state <sub> [<event>] --help' for more information.`, the line a
+# `| tail -1` keeps. The step is `state <sub>`.
+STATE_USAGE = re.compile(
+    r"^(?:((?:Invalid |Missing: |The option `).*)\n(?:.*\n)*?)?"
+    r"Run '(state(?: [a-z][a-z-]*)?)[^']*' for more information\.$",
+    re.MULTILINE,
+)
 
 
 def result_text(content: Json) -> tuple[str, int]:
