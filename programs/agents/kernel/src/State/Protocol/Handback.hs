@@ -314,7 +314,6 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Gather.Interview -> inline s
         PlanLayer -> case s of
             Plan.SimplifyP -> took SimplifyPlanDone
-            Plan.Alternative -> took AlternativeDone
             Plan.PlanS -> inline s
             Plan.Confirm -> inline s
         BuildLayer -> case s of

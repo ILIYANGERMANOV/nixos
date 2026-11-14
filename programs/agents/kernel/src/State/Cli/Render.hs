@@ -59,20 +59,12 @@ depth prose after it.
 quality :: Text
 quality =
     rows
-        [ "Proposals" : map proposals qualities
-        , "Refactor" : map (\q -> refactor (normal q) <> refactorDepth q) qualities
+        [ "Refactor" : map (\q -> refactor (normal q) <> refactorDepth q) qualities
         , "Re-reviews" : map (\q -> "up to " <> tshow (reReviews q Normal) <> reReviewDepth q) qualities
         , "Full review of a fix to" : map (areasText . (.areas) . normal) qualities
         ]
   where
     normal q = cfg (Mode q Normal)
-    proposals q = case [name | (optId, name) <- [(OSimp, "simplify"), (OAlt, "alternative")], runs ((normal q).skip optId)] of
-        [] -> "none"
-        named -> Text.intercalate ", " named
-    runs = \case
-        Never -> True
-        AtOrBelow _ -> True
-        Always -> False
     refactor c = case c.skip ORefactor of
         Never -> "always"
         AtOrBelow most -> "above about " <> tshow most <> " changed lines"

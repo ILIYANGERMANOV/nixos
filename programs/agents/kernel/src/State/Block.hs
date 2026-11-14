@@ -34,7 +34,6 @@ propose :: Flow 'Ctx ('Just 'Plan) 'Ctx
 propose =
     Do PlanS
         :> Opt OSimp (Do SimplifyP)
-        :> Opt OAlt (Do Alternative)
         :> Do Confirm
 
 -- | @draft@ opens the draft PR before the first commit.

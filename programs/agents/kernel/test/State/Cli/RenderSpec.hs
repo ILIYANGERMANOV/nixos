@@ -26,8 +26,7 @@ spec = describe "State.Cli.Render" $ do
     it "renders the Quality rows from the mode table" $
         quality
             `shouldBe` Text.unlines
-                [ "| Proposals | simplify | simplify, alternative | simplify, alternative |"
-                , "| Refactor | above about 100 changed lines, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |"
+                [ "| Refactor | above about 100 changed lines, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |"
                 , "| Re-reviews | up to 2, blockers and Not met fixed only | up to 3 | up to 5 |"
                 , "| Full review of a fix to | data model, auth | data model, auth | interface, data model, auth |"
                 ]
@@ -37,7 +36,6 @@ spec = describe "State.Cli.Render" $ do
             `shouldBe` Text.unlines
                 [ "- `research`: skipped"
                 , "- `simplify_plan`: skipped"
-                , "- `alternative`: skipped"
                 , "- `refactor`: skipped"
                 , "- `simplify_pr`: never skipped"
                 , "- `ready`: POC skipped, Balanced never skipped, Max never skipped"

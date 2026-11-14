@@ -80,7 +80,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "asks Confirm once, then advises its outcome" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
-                answered = runAt (knobs Balanced Normal <> map Took (take 5 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
+                answered = runAt (knobs Balanced Normal <> map Took (take 4 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
             next noFacts answered `shouldBe` Run "state record confirm.confirmed | state record confirm.adjusted"
 
     describe "due" $ do
@@ -95,11 +95,11 @@ spec = describe "State.Protocol.Advice" $ do
             map (\changed -> due g noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Nothing, Nothing]
 
         it "records the draft PR GitHub already has" $
-            due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced Normal <> map Took (take 6 happyPath)))
+            due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced Normal <> map Took (take 5 happyPath)))
                 `shouldBe` Just (outcome (DraftDone draftPr))
 
         it "takes a merged or closed PR on the branch for an old one, not the draft" $
-            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced Normal <> map Took (take 6 happyPath)))
+            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced Normal <> map Took (take 5 happyPath)))
             | over <- [IsMerged, IsClosed]
             ]
                 `shouldBe` [Nothing, Nothing]
@@ -228,18 +228,18 @@ spec = describe "State.Protocol.Advice" $ do
             ownAsk atImplement Design (oneLine "which store?") `shouldBe` askedUp "ASK user" TheUser
 
         it "hands a Design question back to a parent run" $
-            ownAsk (runUnder child (knobs Balanced Normal <> map Took (take 7 happyPath))) Design (oneLine "which store?")
+            ownAsk (runUnder child (knobs Balanced Normal <> map Took (take 6 happyPath))) Design (oneLine "which store?")
                 `shouldBe` askedUp "HANDBACK NEEDS_DECISION Design r7f2:1: which store?" (ParentRun parent)
 
         it "forwards a Normal task's Confirm to whoever started the run" $
             [ line
             | from <- [start, child]
-            , let (_, _, line) = ownAsk (runUnder from (knobs Balanced Normal <> map Took (take 5 happyPath))) Confirm (oneLine "the plan holds?")
+            , let (_, _, line) = ownAsk (runUnder from (knobs Balanced Normal <> map Took (take 4 happyPath))) Confirm (oneLine "the plan holds?")
             ]
                 `shouldBe` ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"]
 
         it "leaves a Trivial task's Confirm to the run itself" $
-            let (_, _, line) = ownAsk (runAt (knobs Balanced Trivial <> map Took (take 5 happyPath))) Confirm (oneLine "the plan holds?")
+            let (_, _, line) = ownAsk (runAt (knobs Balanced Trivial <> map Took (take 4 happyPath))) Confirm (oneLine "the plan holds?")
              in line `shouldBe` "ANSWER yourself"
 
         it "leaves a Pick question to the run itself" $
@@ -256,11 +256,11 @@ spec = describe "State.Protocol.Advice" $ do
     notMet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
-    atImplement = runAt (knobs Balanced Normal <> map Took (take 7 happyPath))
-    atConfirm = runAt (knobs Balanced Normal <> map Took (take 5 happyPath))
-    atRefactor = runAt (knobs Balanced Normal <> map Took (take 8 happyPath))
-    atReady quality = runAt (knobs quality Normal <> map Took (take 13 happyPath))
-    atPick size rest = runAt (knobs Balanced size <> map Took (take 9 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
+    atImplement = runAt (knobs Balanced Normal <> map Took (take 6 happyPath))
+    atConfirm = runAt (knobs Balanced Normal <> map Took (take 4 happyPath))
+    atRefactor = runAt (knobs Balanced Normal <> map Took (take 7 happyPath))
+    atReady quality = runAt (knobs quality Normal <> map Took (take 12 happyPath))
+    atPick size rest = runAt (knobs Balanced size <> map Took (take 8 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
     -- A Design question the run's own row forwards: asked, then forwarded at once.
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)
 

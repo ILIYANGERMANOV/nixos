@@ -98,7 +98,7 @@ commit = Commit sha Set.empty
 
 happyPath :: [AnyOutcome]
 happyPath =
-    [outcome (ResearchDone 3), outcome InterviewEnough, outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome AlternativeDone, outcome ConfirmConfirmed]
+    [outcome (ResearchDone 3), outcome InterviewEnough, outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome ConfirmConfirmed]
         <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), outcome (RefactorDone sha), outcome (ReviewClean sha)]
         <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
 

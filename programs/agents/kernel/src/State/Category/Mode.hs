@@ -120,10 +120,6 @@ skipWhen :: Quality -> Size -> OptId -> SkipWhen
 skipWhen quality size = \case
     ORes -> unlessTrivial Never
     OSimp -> unlessTrivial Never
-    OAlt -> unlessTrivial $ case quality of
-        Poc -> Always
-        Balanced -> Never
-        Max -> Never
     ORefactor -> unlessTrivial $ case quality of
         Poc -> AtOrBelow refactorLines
         Balanced -> AtOrBelow refactorLines

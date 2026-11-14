@@ -74,8 +74,7 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 | research | researcher | done: interview; skipped: interview |
 | interview | you | enough: plan; more: research |
 | plan | you | done: simplify_plan |
-| simplify_plan | researcher | done: alternative; skipped: alternative |
-| alternative | researcher | done: confirm; skipped: confirm |
+| simplify_plan | researcher | done: confirm; skipped: confirm |
 | confirm | you | adjusted: research; confirmed: breakdown |
 | breakdown | you | done: engineers |
 | engineers | fan-out | done: merge; handed_back: engineers; spawned: engineers |
@@ -128,7 +127,7 @@ has settled its Decisions: interview only its Open questions and new gaps,
 and carry its Decisions and Acceptance criteria into the task's brief as they
 stand.
 
-### Propose: plan, simplify_plan, alternative, confirm
+### Propose: plan, simplify_plan, confirm
 
 The plan is the breakdown, `plan.md` in the run directory:
 
@@ -154,10 +153,9 @@ targets the epic.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-The simplify and alternative passes run as your Quality row's Proposals say,
-each a `researcher` whose prompt names
-`~/.claude/skills/researcher/references/proposal.md`, its mode, the plan and
-the notes paths. You pick among their `Considered options` where the Rule
+The simplify pass runs unless Trivial skips it: a `researcher` whose prompt
+names `~/.claude/skills/researcher/references/proposal.md`, the plan and the
+notes paths. You pick among their `Considered options` where the Rule
 test holds, as a ruling; a real trade-off is the user's.
 
 Confirm once, phone-sized: the breakdown with a file tree of what each task

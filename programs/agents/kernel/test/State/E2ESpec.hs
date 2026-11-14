@@ -87,7 +87,7 @@ spec = describe "the state binary" $ do
                 `shouldBe` ( 2
                            ,
                                [ "state override: override to nowhere - the flow has no single state of that name"
-                               , "fix: state override <research|interview|plan|simplify_plan|alternative|confirm|draft|implement|refactor|review|pick|fix|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                               , "fix: state override <research|interview|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                ]
                            )
 
@@ -474,7 +474,6 @@ toImplement repo =
     , Record ["interview.enough"]
     , Record ["plan.done", repo.notes </> "plan.md"]
     , Handback "researcher" ready
-    , Handback "researcher" ready
     , Record ["confirm.confirmed"]
     , OpenPr
     , Commit
@@ -498,8 +497,7 @@ balancedTranscript =
     , "research.done -> interview"
     , "interview.enough -> plan"
     , "plan.done -> simplify_plan"
-    , "simplify_plan.done -> alternative"
-    , "alternative.done -> confirm"
+    , "simplify_plan.done -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
     , "implement.done -> refactor"
@@ -539,7 +537,6 @@ trivialTranscript =
     , "interview.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.skipped -> confirm"
-    , "alternative.skipped -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
     , "implement.done -> refactor"

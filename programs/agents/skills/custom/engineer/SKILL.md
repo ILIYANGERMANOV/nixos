@@ -102,8 +102,7 @@ take skip arrows, never add any.
 | research | researcher | done: interview; skipped: interview |
 | interview | you | enough: plan; more: research |
 | plan | you | done: simplify_plan |
-| simplify_plan | researcher | done: alternative; skipped: alternative |
-| alternative | researcher | done: confirm; skipped: confirm |
+| simplify_plan | researcher | done: confirm; skipped: confirm |
 | confirm | you | adjusted: research; confirmed: draft |
 | draft | you | done: implement |
 | implement | implementer | done: refactor |
@@ -156,25 +155,24 @@ is the only one.
 A brief or design issue with `## Decisions` has settled them: never re-ask
 them. Interview only its open questions and the gaps research opens.
 
-### Propose: plan, simplify_plan, alternative, confirm
+### Propose: plan, simplify_plan, confirm
 
 Write the plan: goals, the approach and the standards it follows, decisions,
 out of scope, Quality, and a file tree of the files it adds or changes. A
 brief or design issue's Goal, Decisions, Out of scope and Acceptance criteria
 carry over as they stand.
 
-The simplify and alternative passes run as your Quality row's Proposals say:
-`proposal-simplify.md` is your first plan, `proposal-alternative.md` the
-second, or the identity when none exists. Neither changes a settled decision.
+The simplify pass runs unless Trivial skips it: `proposal-simplify.md` is
+the plan you confirm, or the identity when nothing is simpler. It never
+changes a settled decision.
 
-Confirm once, as one `Confirm` question: the first plan in a few lines, the
-second with its trade-off, your recommendation. A POC touching a
-`Security-sensitive` topic says it gets no DEEP review. Options: "First plan",
-"Second plan", "Adjust", the recommended one first and marked
-`(Recommended)`; identity or POC: "Yes, build it (Recommended)" / "No,
-adjust". On adjust, gather again for the correction only, keeping all you
-learned and the Quality; rerun the proposals only if the approach changed.
-Both `Considered options` tables, merged, go into the PR body's decisions.
+Confirm once, as one `Confirm` question: the plan in a few lines, what the
+simplify pass changed and its trade-off. A POC touching a
+`Security-sensitive` topic says it gets no DEEP review. Options: "Yes, build
+it (Recommended)" / "No, adjust". On adjust, gather again for the correction
+only, keeping all you learned and the Quality; rerun the simplify pass only if
+the approach changed. Its `Considered options` table goes into the PR body's
+decisions.
 
 ### Build: draft, implement, refactor
 

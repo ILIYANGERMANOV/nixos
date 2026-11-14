@@ -84,6 +84,12 @@ spec = describe "state over the doubles" $ do
                 transcript `shouldBe` trivialTranscript
                 take 1 done `shouldBe` ["DONE " <> prUrl]
 
+            for_ ["Balanced", "Max"] $ \quality ->
+                it ("goes from the simplified plan straight to confirm at " <> Text.unpack quality) $ \world -> do
+                    transcript <- drive world [Record ["quality", quality], Record ["size", "Normal"], Record ["research.done", "2"], Record ["interview.enough"], Record ["plan.done", "/notes/plan.md"], Handback "researcher" ready]
+
+                    drop 4 transcript `shouldBe` ["plan.done -> simplify_plan", "simplify_plan.done -> confirm"]
+
             it "prints each record it advises with its arguments" $ \world -> do
                 _ <- drive world [Record ["quality", "Balanced"], Record ["size", "Normal"], Record ["research.done", "2"], Record ["interview.enough"]]
 
@@ -170,7 +176,7 @@ spec = describe "state over the doubles" $ do
                 ran <- stateIn world "READY\nDone.\n" ["handback", "researcher"]
 
                 (ran.code, ran.err) `shouldBe` (0, [])
-                recorded ran.out `shouldBe` ["simplify_plan.done -> alternative"]
+                recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
 
             it "advises a worker's BLOCKED for triage until the run asks it as its own" $ \world -> do
                 _ <- drive world ([Record ["quality", "Balanced"], Record ["size", "Normal"]] <> init toImplement)
@@ -226,7 +232,7 @@ spec = describe "state over the doubles" $ do
                     `shouldBe` ( 2
                                ,
                                    [ "state override: override to nowhere - the flow has no single state of that name"
-                                   , "fix: state override <research|interview|plan|simplify_plan|alternative|confirm|draft|implement|refactor|review|pick|fix|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                                   , "fix: state override <research|interview|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                    ]
                                )
 
@@ -438,8 +444,7 @@ balancedTranscript =
     , "research.done -> interview"
     , "interview.enough -> plan"
     , "plan.done -> simplify_plan"
-    , "simplify_plan.done -> alternative"
-    , "alternative.done -> confirm"
+    , "simplify_plan.done -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
     , "implement.done -> refactor"
@@ -479,7 +484,6 @@ trivialTranscript =
     , "interview.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.skipped -> confirm"
-    , "alternative.skipped -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
     , "implement.done -> refactor"

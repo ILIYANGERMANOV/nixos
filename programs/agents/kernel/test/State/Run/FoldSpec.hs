@@ -123,7 +123,7 @@ spec = describe "State.Run.Fold" $ do
 
     it "restarts gathering in each round of the plan loop" $ do
         let gather = [outcome (ResearchDone 1), outcome InterviewMore]
-            gathered = concat (replicate 5 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome AlternativeDone, outcome ConfirmAdjusted] <> gather
+            gathered = concat (replicate 5 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
         Map.map length . (.rounds) <$> replay g (logOf (started :| map Took gathered))
             `shouldBe` Right (Map.fromList [(LGather, 2), (LPlan, 2)])
 
@@ -203,11 +203,11 @@ placeName = \case
 
 -- | From the start to the first review.
 toReview :: [Event]
-toReview = map Took (take 9 happyPath)
+toReview = map Took (take 8 happyPath)
 
 -- | From the start to the first CI result.
 toCi :: [Event]
-toCi = map Took (take 9 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
+toCi = map Took (take 8 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
 
 reviewRound :: [Label] -> [Event]
 reviewRound rows = roundWith (Picks (Set.fromList rows) Map.empty)

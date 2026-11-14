@@ -40,7 +40,7 @@ spec = describe "State.Category.Flow" $ do
         it "an optional step with an exit" $
             rejected
                 "Couldn't match type: Just State.Category.Ty.Plan with: Nothing"
-                (Opt OAlt (Do Confirm))
+                (Opt OSimp (Do Confirm))
 
         it "a loop whose body never exits" $
             rejected

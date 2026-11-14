@@ -69,8 +69,6 @@ recordables =
         _ -> Left "the plan's path"
     , nothing SimplifyPlanDone
     , nothing SimplifyPlanSkipped
-    , nothing AlternativeDone
-    , nothing AlternativeSkipped
     , nothing ConfirmConfirmed
     , nothing ConfirmAdjusted
     , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of

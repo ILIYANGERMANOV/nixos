@@ -202,7 +202,6 @@ skipOutcome facts state why event =
             stated
             [ Catalog.outcome ResearchSkipped
             , Catalog.outcome SimplifyPlanSkipped
-            , Catalog.outcome AlternativeSkipped
             , Catalog.outcome (RefactorSkipped why)
             ]
             <> [(builtEvent Ready ReadySkipped, Catalog.outcome . ReadySkipped <$> prUrl facts state)]
@@ -247,7 +246,7 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
         Ordinary -> case (row steps s).runner of
             Agent role _ -> Spawn role Nothing
             Inline -> Run (recordOutcomes s)
-        AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the plan and its proposals: confirmed, or adjusted?"
+        AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
         PicksRows -> Run (pickCommand state)
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> fromMaybe (maybe (Run (recordOutcomes s)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut))) (recordFinished state.fanOut)

@@ -311,7 +311,6 @@ toImplement =
     , Record ["interview.enough"]
     , Record ["plan.done", Text.pack (notes </> "plan.md")]
     , Handback "researcher" ready
-    , Handback "researcher" ready
     , Record ["confirm.confirmed"]
     , OpenPr
     , Commit

@@ -10,7 +10,6 @@ skips. No skip relaxes a gate.
 
 - `research`: skipped
 - `simplify_plan`: skipped
-- `alternative`: skipped
 - `refactor`: skipped
 - `simplify_pr`: never skipped
 - `ready`: POC skipped, Balanced never skipped, Max never skipped
@@ -38,7 +37,7 @@ qualifying, a decision appears, or the user asks. A hand-back with both
    it.
 2. Go on by what is open, on the same branch:
    - **A decision**, a plan-wrong line or scope taken into this PR included:
-     the re-plan in `blockers.md`, so Propose runs with its proposals.
+     the re-plan in `blockers.md`, so Propose runs with its simplify pass.
    - **Nothing open, the diff only grew:** say why in one line, in your
      notification or hand-back (`Size: Normal, grew: <why>`). A `GREW` during
      `implement` resumes its unfinished part, sliced as Build says; otherwise

@@ -6,10 +6,8 @@ stateDiagram-v2
   interview --> plan: enough
   interview --> research: more
   plan --> simplify_plan: done
-  simplify_plan --> alternative: done
-  simplify_plan --> alternative: skipped
-  alternative --> confirm: done
-  alternative --> confirm: skipped
+  simplify_plan --> confirm: done
+  simplify_plan --> confirm: skipped
   confirm --> research: adjusted
   confirm --> breakdown: confirmed
   breakdown --> engineers: done

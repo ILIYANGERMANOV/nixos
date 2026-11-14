@@ -7,7 +7,6 @@
 {"v":3,"id":"r7f2:6","seq":6,"ts":"2025-11-21T00:00:06Z","run":"r7f2","head":null,"session":null,"type":"interview.enough","data":{}}
 {"v":3,"id":"r7f2:7","seq":7,"ts":"2025-11-21T00:00:07Z","run":"r7f2","head":null,"session":null,"type":"plan.done","data":{"path":"񎕝񹻞󢢆􆩿󍮈󨈙񃡟"}}
 {"v":3,"id":"r7f2:8","seq":8,"ts":"2025-11-21T00:00:08Z","run":"r7f2","head":null,"session":null,"type":"simplify_plan.skipped","data":{}}
-{"v":3,"id":"r7f2:9","seq":9,"ts":"2025-11-21T00:00:09Z","run":"r7f2","head":null,"session":null,"type":"alternative.skipped","data":{}}
 {"v":3,"id":"r7f2:10","seq":10,"ts":"2025-11-21T00:00:10Z","run":"r7f2","head":null,"session":null,"type":"confirm.adjusted","data":{}}
 {"v":3,"id":"r7f2:11","seq":11,"ts":"2025-11-21T00:00:11Z","run":"r7f2","head":null,"session":null,"type":"research.skipped","data":{}}
 {"v":3,"id":"r7f2:12","seq":12,"ts":"2025-11-21T00:00:12Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
@@ -15,7 +14,6 @@
 {"v":3,"id":"r7f2:14","seq":14,"ts":"2025-11-21T00:00:14Z","run":"r7f2","head":null,"session":null,"type":"interview.enough","data":{}}
 {"v":3,"id":"r7f2:15","seq":15,"ts":"2025-11-21T00:00:15Z","run":"r7f2","head":null,"session":null,"type":"plan.done","data":{"path":"ꀋ󍒙򗫚񝞹򗲿􄈈󐵪򗶊"}}
 {"v":3,"id":"r7f2:16","seq":16,"ts":"2025-11-21T00:00:16Z","run":"r7f2","head":null,"session":null,"type":"simplify_plan.done","data":{}}
-{"v":3,"id":"r7f2:17","seq":17,"ts":"2025-11-21T00:00:17Z","run":"r7f2","head":null,"session":null,"type":"alternative.done","data":{}}
 {"v":3,"id":"r7f2:18","seq":18,"ts":"2025-11-21T00:00:18Z","run":"r7f2","head":null,"session":null,"type":"confirm.confirmed","data":{}}
 {"v":3,"id":"r7f2:19","seq":19,"ts":"2025-11-21T00:00:19Z","run":"r7f2","head":null,"session":null,"type":"draft.done","data":{"url":"","base":"񷢘񾦔","branch":"򭘠񛕤񡑺𒧲󊿄"}}
 {"v":3,"id":"r7f2:20","seq":20,"ts":"2025-11-21T00:00:20Z","run":"r7f2","head":null,"session":null,"type":"implement.done","data":{"head":"4ccEbADC2eec","touches":["data-model"]}}

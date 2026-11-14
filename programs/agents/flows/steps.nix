@@ -103,28 +103,7 @@ in
       outcomes = [ "done" ];
       runner = "researcher";
       lead = "Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal.";
-      task = "Run the researcher skill's `references/proposal.md`, mode simplify, on the plan your prompt names.";
-      tools = [
-        "read"
-        "shell"
-        "web"
-      ];
-      skills = [ "researcher" ];
-      prose = [ "topics/quality.md" ];
-      ops = [ ];
-      flows = [
-        "engineer"
-        "10x"
-      ];
-    };
-    alternative = {
-      dom = "Plan";
-      cod = "Plan";
-      exit = null;
-      outcomes = [ "done" ];
-      runner = "researcher";
-      lead = "Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record alternative.done` on the earlier proposal.";
-      task = "Run the researcher skill's `references/proposal.md`, mode alternative, on the plan your prompt names.";
+      task = "Run the researcher skill's `references/proposal.md` on the plan your prompt names.";
       tools = [
         "read"
         "shell"
@@ -147,7 +126,7 @@ in
         "adjusted"
       ];
       runner = "inline";
-      task = "Propose: the plan and its proposals as one Confirm question. `confirmed` builds it; `adjusted` gathers again.";
+      task = "Propose: the simplified plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.";
       tools = [ ];
       skills = [ "engineer" ];
       prose = leadProse;

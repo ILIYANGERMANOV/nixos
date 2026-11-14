@@ -103,7 +103,7 @@ deriving stock instance Show (Flow i e o)
 data LoopId = LGather | LPlan | LReview | LCi
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-data OptId = ORes | OSimp | OAlt | ORefactor | OBody | OReady
+data OptId = ORes | OSimp | ORefactor | OBody | OReady
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data FanId = FResearchers | FEngineers

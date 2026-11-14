@@ -76,7 +76,7 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 first.code `shouldBe` 0
-                messageOf first `shouldBe` Just "READY\nDone.\n\n\nstate: recorded 9 implement.done -> refactor\n"
+                messageOf first `shouldBe` Just "READY\nDone.\n\n\nstate: recorded 8 implement.done -> refactor\n"
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
 

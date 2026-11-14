@@ -179,8 +179,6 @@ templates =
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
     , outcome SimplifyPlanSkipped
-    , outcome AlternativeDone
-    , outcome AlternativeSkipped
     , outcome ConfirmConfirmed
     , outcome ConfirmAdjusted
     , outcome (DraftDone (DraftPr (Url "") (Branch "") (Branch "")))
@@ -220,8 +218,6 @@ likeIn = \case
         PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
         SimplifyPlanDone -> pure SimplifyPlanDone
         SimplifyPlanSkipped -> pure SimplifyPlanSkipped
-        AlternativeDone -> pure AlternativeDone
-        AlternativeSkipped -> pure AlternativeSkipped
         ConfirmConfirmed -> pure ConfirmConfirmed
         ConfirmAdjusted -> pure ConfirmAdjusted
     BuildLayer -> \case

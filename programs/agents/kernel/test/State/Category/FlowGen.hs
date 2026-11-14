@@ -40,7 +40,7 @@ ctxKit :: Kit 'Ctx
 ctxKit = Kit [Do Research] [Do Interview]
 
 planKit :: Kit 'Plan
-planKit = Kit [Do SimplifyP, Do Alternative, Do Draft] []
+planKit = Kit [Do SimplifyP, Do Draft] []
 
 diffKit :: Kit 'Diff
 diffKit = Kit [Do Refactor, Do Fix] [Do Review, Do Pick]
