@@ -1,7 +1,8 @@
 # shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
 # Applies the flavor, trusts the directory and replaces this process
 # with a Remote Control server for it. Every factory shares one Claude account,
-# so the box's label in the name tells the phone which factory a server is on.
+# so the box's label in the server name, and in place of the hostname at the
+# start of each session's name, tells the phone which factory it is on.
 serve() {
   local dir="$1" name="$2"
   shift 2
@@ -15,7 +16,8 @@ serve() {
   GH_TOKEN=$(cat "$gh_token_file")
   export GH_TOKEN
   cd "$dir" || exit
-  exec "$claude_unwrapped" remote-control --name "$name · $server_label" "$@"
+  exec "$claude_unwrapped" remote-control --name "$name · $server_label" \
+    --remote-control-session-name-prefix "$server_label" "$@"
 }
 
 # Remote Control refuses an untrusted directory when nobody is at a
