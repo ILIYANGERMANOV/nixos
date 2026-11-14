@@ -15,7 +15,7 @@ trusted() { [ "$(jq --arg dir "$1" '.projects[$dir].hasTrustDialogAccepted' "$HO
   factory-rc origin
 
   called "claude-factory --version"
-  called "claude remote-control --name origin $repoArgs GH_TOKEN=ghp_check PWD=$HOME/repos/origin"
+  called "claude remote-control --name origin · factory-test $repoArgs GH_TOKEN=ghp_check PWD=$HOME/repos/origin"
   trusted "$HOME/repos/origin" || fail "repo was not trusted"
   trusted /elsewhere || fail "trusting one repo lost another's trust"
   [ "$(jq '.remoteDialogSeen' "$HOME/.claude.json")" = true ] ||
@@ -40,7 +40,7 @@ trusted() { [ "$(jq --arg dir "$1" '.projects[$dir].hasTrustDialogAccepted' "$HO
 
   factory-rc-admin
 
-  called "claude remote-control --name admin $adminArgs GH_TOKEN=ghp_check PWD=$HOME/admin"
+  called "claude remote-control --name admin · factory-test $adminArgs GH_TOKEN=ghp_check PWD=$HOME/admin"
   trusted "$HOME/admin" || fail "the admin directory was not trusted"
   jq -e '.permissions.allow | index("Bash(factory-ctl *)")' "$adminSettings" >/dev/null ||
     fail "the admin agent is not allowed to run factory-ctl"

@@ -31,6 +31,15 @@
   # No timezone surprises in logs and commit dates.
   config.time.timeZone = "UTC";
 
+  options.myConfig.factory.label = lib.mkOption {
+    type = lib.types.strMatching "[a-z0-9-]+";
+    example = "factory-hetzner";
+    description = ''
+      Short name of this factory, appended to its Remote Control server names
+      (`nixos · factory-hetzner`), so the phone tells the factories apart.
+    '';
+  };
+
   options.myConfig.factory.repos = lib.mkOption {
     type = lib.types.attrsOf lib.types.str;
     default = { };

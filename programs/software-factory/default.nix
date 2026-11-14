@@ -84,9 +84,11 @@ let
       claude,
       claudeUnwrapped,
       ghToken,
+      label,
     }:
     let
       settings = lib.toShellVars {
+        server_label = label;
         claude_bin = lib.getExe claude;
         claude_unwrapped = lib.getExe claudeUnwrapped;
         gh_token_file = ghToken;

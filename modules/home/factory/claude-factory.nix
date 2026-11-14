@@ -34,6 +34,7 @@ let
     ghToken =
       secretsConfig.gh-token
         or (throw "software-factory: the host must declare myConfig.secrets.gh-token for gh");
+    inherit (osConfig.myConfig.factory) label;
   };
 
   relinkSkills = factory.mkRelinkSkills { };

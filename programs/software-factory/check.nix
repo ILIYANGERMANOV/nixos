@@ -60,6 +60,7 @@ let
     claude = fakeClaude;
     claudeUnwrapped = fakeClaudeUnwrapped;
     ghToken = "${work}/gh-token";
+    label = "factory-test";
   };
 
   relinkSkills = factory.mkRelinkSkills { lockSeconds = 1; };
