@@ -59,6 +59,49 @@ for its engineers, wraps a flow without changing it.
   second nixpkgs or GHC, which the cache guard refuses, and no
   `callCabal2nix`, an import from derivation (ADR 0009). The cabal, test and
   lint setup is copied from Ivy-Apps/haskell-template, without relude.
+- **An `effectful` shell, at the user's request.** Every IO action of `state`
+  and `state-hook` is a dynamic effect in `programs/agents/kernel/src/Effects/`,
+  one per file with its IO interpreter; the mains only run the interpreters.
+  Tests run the same shell on in-memory doubles in `test/Doubles/`, and
+  `ArchitectureSpec` keeps IO and effects out of every module but the
+  effects' and the shell's. #360 planned a plain IO shell; the user asked for
+  algebraic effects mid-stack, and one extra PR added them.
+
+## Amendment: step layers, typed outcomes, sums, a role registry
+
+PR #376 reorganised the kernel; the model above holds.
+
+- **Steps come in layers.** Gather, Plan, Build, Review, Ship and Fan each
+  have a closed step kind, a singleton and a `Sig` per step. A step's
+  `Outcome s leg` is tied to that step and to the leg it leaves by (exit or
+  continue), so an outcome of the wrong step or leg is a compile error. The
+  global outcome sum and its hand-written event table are gone: `Catalog` is
+  a closed sum of the layers, and the fold matches it exhaustively, so a new
+  layer breaks the build until each match handles it.
+- **The table is cross-checked.** `parseSteps` refuses a step without a row,
+  a row for no step, wrong types or outcomes, a wire name used twice and an
+  outcome no layer reads.
+- **Roles are named flows with a rung.** `State/Role.hs` maps each
+  `FlowName` to its role: the wire name, the flow it leads and its rung,
+  `Worker`, `Lead`, `Orchestrator` or `User`. Who answers a question is keyed
+  by rung, so a new role on an existing rung inherits its row. The log's flow
+  name, the run's graph and the fan-out's child role are read from the
+  registry. A worker role (researcher, implementer, fixer) leads no flow and
+  is no entry; `parseSteps` refuses a `steps.nix` row whose `flows` names no
+  role, or whose `runner` leads a flow.
+- **Sums for branching.** `Ty` has `a :+ b`. A step whose out is a sum has
+  two continue outcomes, legs `Inl` and `Inr`, and no exit; each summand is
+  one type, not a sum. `inl` and `inr` inject, and `f ||| g` is the case that
+  runs `f` on the left summand and `g` on the right. Inside `graph` a part has
+  one in port per summand, so each branch is glued to its own edge; a whole
+  flow still has one in port and one end, and draws only the states a run can
+  reach. `Opt` and `Loop` refuse a sum (`NotSum`): a skip or a loop's way back
+  is one edge, and a sum would need one per summand. Loop ids are unique
+  across branches too, as `graph`'s loops are keyed by id. No shipped flow
+  branches yet, so the wire format is unchanged.
+- **Layered imports.** The category and its steps sit below the flows, roles
+  and table, below the run, the protocol and the command line;
+  `ArchitectureSpec` refuses an import from a higher layer.
 
 ## Considered options
 
@@ -73,6 +116,5 @@ for its engineers, wraps a flow without changing it.
 
 - `haskell-tests` (the package's own test suite) and `haskell-lint` (hlint and
   fourmolu) join the tech checks and the CI `tech` matrix.
-- The Python `state` stays installed until the kernel replaces it in #360's
-  PR 4; until then the kernel's `state` and `state-hook` are stubs nothing
-  installs.
+- The kernel's `state` and `state-hook` replaced the Python `state` in
+  #360's PR 4, and `programs/agents/state/` is gone.

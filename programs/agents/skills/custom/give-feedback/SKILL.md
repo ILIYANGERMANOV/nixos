@@ -122,9 +122,10 @@ No `refactor` per round: `/final-review` covers the whole PR.
   needed, so `/final-review` goes deep there.
 - If the rest of the description no longer matches, rewrite it with the
   `pr-description` skill, which keeps its shape and budget.
-- When a 10x run tracks this PR (`rg -l <PR URL> ~/.10x/*/ledger.md`), append
-  to that ledger's `## Held`: `<task>: /give-feedback round <n> pushed <sha>,
-  approval void`. Its next wake reads it.
+- When a 10x run tracks this PR (`rg -l <PR URL> ~/.10x/*/events.jsonl`), run
+  `state record held <task> <PR URL>` in that run's directory, `<task>` the
+  one its `state show` lists with this PR: the push voided the approval. Its
+  next wake reads it.
 - Review the round: write its bullets, agreed changes and done-whens to a
   requirements file under `/tmp/<unique-dir>/`, then a fresh
   `subagent_type: review-lead` agent invokes `pragmatic-review` with

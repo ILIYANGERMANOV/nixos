@@ -1,0 +1,34 @@
+Invalid argument `nope'
+
+state - the run of an agent flow, kept in the worktree's log
+
+Usage: state COMMAND
+
+Available options:
+  -h,--help                Show this help text
+
+Available commands:
+  init                     Start a run, a child run when it names its parent
+  record                   Record an event: 'state record --help' lists them
+  handback                 Record a role's hand-back, read from stdin
+  next                     Print the next action, its facts and the step's task
+  brief                    Print a role's brief, a child engineer's task too
+  show                     Print where the run is and what it holds
+  override                 Move the run to a state by hand, saying why
+  render                   Print a block of the flow, as the skills paste it
+  ask                      Ask a question: the run's, a worker's or a child's
+  rule                     Rule on a question: the answer, why and its cost
+  forward                  Forward a question up, to the parent run or the user
+  answer                   Record the answer to a forwarded question
+  stop                     Stop the run, with a reason and why
+  pending                  List the questions awaiting an answer
+  help                     Print this help
+
+kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck
+stop reasons: blocked|failed|replan|fuel|grew
+roles: researcher implementer refactorer review-lead fixer
+areas (--touches): interface|data-model|auth
+
+Exit 0 ok; 2 bad usage, a bad log line or a refused event; 1 a git or disk failure.
+A refusal prints `state <command>: what - why`, then `fix: <command>`.
+Run 'state <command> --help' for a command's arguments.

@@ -1,0 +1,5 @@
+run: r7f2 (10x)
+step: out
+mode: Balanced Normal
+task t1: child c1 finished: https://example.test/pr/1 done, PR merged https://example.test/pr/1, tries 1
+task t2: child c2 finished: https://example.test/pr/2 done, PR merged https://example.test/pr/2, tries 1

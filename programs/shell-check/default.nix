@@ -17,6 +17,20 @@ in
   writeShellApplication =
     args: pkgs.writeShellApplication (args // { extraShellCheckFlags = extraFlags; });
 
+  # The same script with only bash's syntax check, for one an agent waits on
+  # `nix run` to evaluate: shellcheck is Haskell, so its phase costs about 2s
+  # of evaluation on every run. `passthru.checked` is the script shellchecked,
+  # which a check must build.
+  writeQuickApplication =
+    args:
+    pkgs.writeShellApplication (
+      args
+      // {
+        checkPhase = ''${pkgs.stdenv.shellDryRun} "$target"'';
+        passthru.checked = pkgs.writeShellApplication (args // { extraShellCheckFlags = extraFlags; });
+      }
+    );
+
   # A fragment opens with a directive for the shell-lint check, which sees it
   # alone. Spliced mid-script that directive would silence only the function
   # below it, and for no reason: the assembled script defines everything.

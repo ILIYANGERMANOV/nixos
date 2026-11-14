@@ -25,6 +25,7 @@ pkgs.treefmt.withConfig {
     tools.biome
     tools.ruff
     tools.fourmolu
+    tools.cabal-fmt
   ];
   settings = {
     # treefmt warns by default, too loud for a repo where most files have no formatter.
@@ -80,6 +81,11 @@ pkgs.treefmt.withConfig {
           "inplace"
         ];
         includes = [ "*.hs" ];
+      };
+      cabal-fmt = {
+        command = "cabal-fmt";
+        options = [ "--inplace" ];
+        includes = [ "*.cabal" ];
       };
     };
   };

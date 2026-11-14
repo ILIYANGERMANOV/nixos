@@ -30,16 +30,11 @@ ignore = [
 "just/cache-check/cache_check.py" = ["S603", "S607"]
 "programs/mutation/mutation_diff.py" = ["S603", "S607"]
 "programs/agents/ctx/ctx.py" = ["S603", "S607"]
-"programs/agents/state/effects.py" = ["S603", "S607"]
 # The hook contract probe runs the pinned `claude` its package puts on PATH.
 "programs/claude-code/hooks/contract/probe.py" = ["S603", "S607"]
-# The state hooks run the session's `ctx`.
-"programs/agents/state/hook.py" = ["S603", "S607"]
 # The dispatcher runs each hook's argv as declared in Nix.
 "programs/agents/hooks/agent_hook.py" = ["S603"]
 "programs/agents/skills/custom/self-improve/scripts/analyze.py" = ["S603", "S607"]
-# The state tests' shared helper asserts and runs git, as a test does.
-"programs/agents/state/state_fixtures.py" = ["S101", "S603", "S607"]
 "**/test_*.py" = ["S101", "S603", "S607", "PLR2004"]
 
 [tool.ruff.lint.flake8-tidy-imports]
@@ -68,9 +63,6 @@ pythonpath = [
   "programs/claude-code/hooks/adapter",
   # The hook contract probe: probe.py imports the mock beside it.
   "programs/claude-code/hooks/contract",
-  # `state` is a package, imported as `state.core`: its modules' bare names
-  # (core, cli, main) would clash with any other module on this shared path.
-  "programs/agents",
 ]
 testpaths = ["programs", "just"]
 
@@ -119,8 +111,3 @@ root = "programs/agents/ctx"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "programs/agents/hooks"
-
-[[tool.basedpyright.executionEnvironments]]
-root = "programs/agents/state"
-# hook.py imports the hook contract from site-packages at runtime (default.nix).
-extraPaths = ["programs/agents", "programs/agents/hooks"]

@@ -6,7 +6,9 @@ violations. This ADR amends that. Advisory hooks now write every event a
 program can derive, and inject `state` and `ctx` context where it is used. The
 lead records only what it decides. Design and implementation: #335, PR #339.
 ADR 0017 amends it: PR state is read from GitHub, not from shell commands,
-and the `pr` hook is gone.
+and the `pr` hook is gone. ADR 0018 amends it: the Haskell `state-hook`
+replaces the Python hooks, and keys each event on a content hash, so a hook
+that fires twice appends once.
 
 ## Evidence
 

@@ -1,0 +1,14 @@
+Invalid argument `bad'
+
+Usage: state-hook COMMAND
+
+  One hook event on stdin, its reply on stdout.
+
+Available options:
+  -h,--help                Show this help text
+
+Available commands:
+  resume                   At session start: prints the run and its next action
+  spawn                    Before a delegate: next, and a warning off the advice
+  handback                 Before a hand-back: records it, printing the record
+  asked                    After an ask: answer lines of questions to the user

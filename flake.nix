@@ -178,11 +178,22 @@
               inherit inputs pkgs;
               root = self;
             })
-            state
             guards
             kernel
+            kernelDev
             ;
         }
+      );
+
+      # The kernel's runners, fastest first: `nix run .#kernel-quick-typecheck`,
+      # `kernel-quick-test`, `kernel-build`, `kernel-test`, `kernel-lint` and
+      # `kernel-format`. See .claude/rules/haskell.md.
+      apps = lib.forAllSystems (
+        pkgs:
+        (import ./adapters/agents.nix {
+          inherit inputs pkgs;
+          root = self;
+        }).kernelDev.apps
       );
 
       # `just mutation-diff` and `just mutation` run it. Not a check: see
@@ -209,16 +220,26 @@
         pkgs:
         let
           default = import ./shells/default.nix { inherit pkgs inputs; };
-          kernel = import ./programs/agents/kernel { inherit pkgs; };
+          inherit
+            (import ./adapters/agents.nix {
+              inherit inputs pkgs;
+              root = self;
+            })
+            kernelDev
+            ;
         in
         {
           inherit default;
-          # What direnv loads (.envrc): `default` plus the kernel's GHC and deps,
-          # so an editor's HLS finds a matching `ghc`. CI keeps the lean `default`.
+          # The kernel's GHC with its deps, cabal and ghcid: its quick runners'
+          # session runs in it.
+          kernel = kernelDev.shell;
+          # What direnv loads (.envrc): `default` plus the kernel's shell, so an
+          # editor's HLS finds a matching `ghc` and cabal. CI keeps the lean
+          # `default`.
           dev = pkgs.mkShell {
             inputsFrom = [
               default
-              kernel.env
+              kernelDev.shell
             ];
           };
           nixos-install = import ./shells/nixos-install.nix { inherit pkgs inputs self; };

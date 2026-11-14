@@ -1,9 +1,15 @@
-{- | The `state-hook` command. A stub until the kernel replaces the Python
-`state-hook` (#360, PR 4): until then the Python one is what agents run.
--}
+-- | The @state-hook@ command: the kernel's hooks over argv and one event on stdin.
 module Main (main) where
 
-import System.Exit (die)
+import Data.Text qualified as Text
+import State.Cli.Shell qualified as Shell
+import System.Environment (getArgs)
+import System.Exit (exitWith)
+import System.IO (hSetEncoding, stderr, stdout, utf8)
 
 main :: IO ()
-main = die "state-hook: not built yet - the installed state-hook is the Python one"
+main = do
+    -- The reply and its errors are UTF-8 whatever the locale; stdin is read as bytes.
+    mapM_ (`hSetEncoding` utf8) [stdout, stderr]
+    argv <- map Text.pack <$> getArgs
+    exitWith =<< Shell.runShellIO (Shell.hook argv)

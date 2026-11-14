@@ -4,6 +4,9 @@
   externalSrcs ? { },
   # The /qa skill's runtime package, put on PATH by the base profile.
   qa,
+  # programs/haskell, whose mkPackage gives the kernel its dev tooling. An
+  # argument: its scripts' shell-check is not the agent frontend's to reach.
+  haskell,
   # name -> decrypted-file path, for the secrets THIS host provides. Paths only,
   # never values. A server or secret file whose secret is absent is dropped.
   secrets ? { },
@@ -83,16 +86,33 @@ let
     inherit pkgs lib;
     skillNames = skills.names;
   };
+  flows = import ./flows { inherit pkgs lib; };
+  deriveLib = import ./lib/derive.nix {
+    inherit pkgs lib;
+    inherit (roleLib) capabilities;
+  };
+  # The instruction fragments a step's `prose` names (flows/steps.nix).
+  prose = {
+    "shared/building.md" = mkFragment {
+      layer = "role";
+      file = ./roles/shared/building.md;
+    };
+    "topics/quality.md" = topics.quality;
+    "topics/trivial.md" = topics.trivial;
+  };
   roles = import ./roles {
-    inherit lib mkFragment topics;
+    inherit lib mkFragment prose;
     inherit (roleLib) mkRole discover;
+    derived = deriveLib.derive flows.table;
   };
   # `ctx`: the review diff in a cached folder, on PATH in every session.
   ctx = import ./ctx { inherit pkgs; };
-  # `state`: the engineer flow's event log and advice, on PATH beside `ctx`.
-  state = import ./state {
-    inherit pkgs;
-    agentHook = hooks.module;
+  # `state` and `state-hook`: the flows' event log, advice and hooks (the
+  # kernel), on PATH beside `ctx`.
+  state = import ./kernel {
+    inherit pkgs haskell;
+    inherit (flows) steps;
+    vocabulary = ./hooks/vocabulary.json;
   };
   profiles = import ./profiles {
     inherit (profileLib) mkProfile;
@@ -146,9 +166,11 @@ in
   # The `ctx` and `state` commands, the ones the base profile's runtime puts on PATH.
   inherit ctx state;
 
-  # The Haskell `state` and `state-hook` that will replace the Python ones (#360).
-  # Nothing installs them yet: only the haskell tech checks build them.
-  kernel = import ./kernel { inherit pkgs; };
+  # The kernel's Haskell package, whose build runs its test suite: the haskell
+  # tech checks build and lint it.
+  kernel = state.package;
+  # Its dev shell, runners and lint check: programs/haskell's mkPackage.
+  kernelDev = state.tooling;
 
   # The guards as they deploy, for the tests to run (hooks/guards).
   guards = {
@@ -219,6 +241,40 @@ in
     {
       name = "roles";
       path = builtins.deepSeq roles roleLib.check;
+    }
+    {
+      name = "flows";
+      path = flows.check;
+    }
+    {
+      name = "derived-roles";
+      path = deriveLib.check {
+        inherit (flows) table;
+        inherit roles prose;
+        golden = import ./roles/golden.nix;
+      };
+    }
+    {
+      name = "rendered";
+      path = import ./kernel/rendered.nix {
+        inherit pkgs state;
+        engineer = ./skills/custom/engineer;
+        tenX = ./skills/custom/10x-engineer;
+        quality = ./instructions/topics/quality.md;
+      };
+    }
+    {
+      # #360's no_delegated_word, law Principal-blind: a flow never branches
+      # on who started its run, so neither the kernel nor the text that drives
+      # it names a delegated mode. rg exits 1 on no match, 2 on an error.
+      name = "no-delegated-word";
+      path = pkgs.runCommand "no-delegated-word" { nativeBuildInputs = [ pkgs.ripgrep ]; } ''
+        status=0
+        rg -i -n delegated ${./kernel/src} ${./kernel/app} ${./skills/custom/engineer} \
+          ${./skills/custom/10x-engineer} ${./roles/engineer} || status=$?
+        [[ $status == 1 ]] || { echo "the word delegated is back (#360 law Principal-blind)" >&2; exit 1; }
+        touch "$out"
+      '';
     }
   ];
 }

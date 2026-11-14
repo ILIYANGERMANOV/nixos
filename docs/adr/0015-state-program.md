@@ -8,8 +8,9 @@ state, and advises the next arrow with its mechanical payload. It never
 refuses. Design: #329; implementation: #331.
 
 Amended by ADR 0016: advisory hooks now write the events a program can
-derive. Superseded in part by ADR 0018: `state` is rewritten in Haskell; the
-JSONL log stays.
+derive. Superseded by ADR 0018: the Python `state` is deleted, and the Haskell
+kernel records, folds and advises, and refuses an arrow its flow lacks. A JSONL
+log stays, in a new version that does not read this one's.
 
 ## Evidence
 

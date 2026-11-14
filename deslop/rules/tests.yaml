@@ -13,9 +13,6 @@ rules:
   - id: python-scripts-have-tests
     description: A Python script has its test beside it, keeping its name literally.
     target: "**/{{script-name}}.py"
-    exclude:
-      # pytest's fixture file: only tests use it.
-      - "programs/agents/state/conftest.py"
     exists:
       - module: "{{TARGET_DIR}}/test_{{script-name}}.py"
     fix: Add {{TARGET_DIR}}/test_{{script-name}}.py.
@@ -29,7 +26,6 @@ rules:
       # Test helpers: only tests import them.
       - "programs/agents/hooks/guards/shared/guard_harness.py"
       - "programs/agents/hooks/guards/shared/bash_corpus.py"
-      - "programs/agents/state/state_fixtures.py"
       - "programs/claude-code/hooks/adapter/transcript_fixtures.py"
     exists:
       - module: "{{TARGET_DIR}}/test_{{first-part}}_{{last-part}}.py"

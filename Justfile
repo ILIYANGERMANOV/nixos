@@ -67,6 +67,13 @@ quick-check: lint architecture (format "--ci") (_build-checks ".*")
 # Run one technology's checks, every `<NAME>-*` flake check, with no host evaluation
 tech NAME: (_build-checks (NAME + "-.*"))
 
+# CMD is quick-typecheck, quick-test, build, test, lint or format; see
+# .claude/rules/haskell.md.
+#
+# Run a Haskell kernel runner, such as `just kernel quick-test State.Table`
+kernel CMD *ARGS:
+    nix run .#kernel-{{ CMD }} -- {{ ARGS }}
+
 # Builds this system's checks whose name matches `pattern`. Matching nothing
 # fails: a typo in a group name must not pass with nothing built. A pass prints
 # no build log. A failure prints nix's errors with each tail swapped for the

@@ -1,12 +1,13 @@
-# Blockers
+# Questions and blockers
 
 A worker is an implementer, refactorer, fixer or review-lead you spawn. A
-worker never asks the user and never researches past the repo: it stops and
-hands the question back. You sort it. Only you spawn researchers.
+worker never asks and never researches past the repo: it stops and hands the
+question back. Only you spawn researchers.
 
 ## The stop rule
 
-Paste this paragraph into every implementer, refactorer and fixer brief:
+`state brief` puts this paragraph into every implementer, refactorer and fixer
+brief:
 
 > A question that blocks your work and that the repo, this brief and the plan
 > do not settle, or choosing differently from a decision the plan states:
@@ -30,68 +31,79 @@ passes nothing of it to its reviewers:
 > the usual report. Every other finding, security included, goes in the table
 > as usual.
 
-A question that does not block stays in the hand-back's prose, as the role
-says, and you still triage it below. A refactorer's proposals are not
-blockers: step 6 asks about them.
+A question that does not block stays in the hand-back's prose; it gets a kind
+all the same. A refactorer's proposals are not blockers: Build asks about them.
+
+## Who answers
+
+Every question has a kind; the kind and the role decide who answers. Your row
+is `engineer`. `Security` is above every other kind: raise a question to it
+(`state rule` or `state forward` with `--raise security`), never lower one.
+
+| Kind | worker | engineer | 10x | user |
+|---|---|---|---|---|
+| Fact | forwards | answers | answers | never asked |
+| Pick | forwards | answers | answers | answers |
+| Design | forwards | forwards | answers if it passes the rule test | answers |
+| Scope | forwards | forwards | answers if it passes the rule test | answers |
+| Confirm | forwards | answers if the task is `Size: Trivial` | answers if the task plan fits the confirmed breakdown | answers |
+| Security | forwards | forwards | answers if the user already answered it, or it is obvious | answers |
+| Stuck | forwards | forwards | answers if no retry was spent on it yet | answers |
 
 ## Triage
 
-Read the question and its evidence, then pick exactly one row. The hook
-records a `NEEDS_DECISION` hand-back untriaged, a `plan wrong:` or `stuck:`
-one as a decision; `state next` advises the rest. Record the row with
-`state record blocked <kind> <role> <question>`, a prose question's too, and
-its answer with `state record resolved`. A decision's answer that changes the
-plan is a re-plan: `state record planned` while the decision is still open,
-then `resolved`. One that does not records `resolved` alone, which resumes the
-step it came from. Before `READY` or
-`gh pr ready`, every open decision, a hand-back's prose question included, has
-its row and is done; none is handed on as prose in the PR body or a hand-back.
+A worker's `NEEDS_DECISION` with no kind is recorded as `triage:`, with
+`fix: state ask --kind <kind> --from <role> <question>`. Read the question and
+its evidence, give it one kind, run that line, then the Ask rule:
 
-The user's answer to the stuck guard is a decision, recorded as `state next`
-says: the decision path, a dropped row too. The same row or check in a later
-round is stuck again.
-
-| You find | Kind | Arrow |
+| You find | Kind | Then |
 |---|---|---|
-| The plan, the notes or a user answer already settle it | answered | resume with the answer |
-| A fact nobody has looked up | fact | the fact path |
-| A choice the user owns, or the plan is wrong | decision | the decision path |
-| Work the plan does not hold | scope | the scope question |
+| The plan, the notes or an answer already settle it | its own | `state rule`, the source as `--why`, then resume |
+| A fact nobody has looked up | `Fact` | the fact path |
+| Work the plan does not hold | `Scope` | in this PR is a re-plan; a follow-up goes in `## Follow-ups`; either of the last two resumes without it |
+| A choice the plan does not settle | `Design`, `Confirm` or `Security` | the answer that changes the plan is a re-plan; else resume |
+| The same row or check 2 rounds in a row | `Stuck` | as for `Design`; a dropped row too |
 
-**Resume.** A worker that handed back is gone. Spawn a fresh worker of the same
-role with its brief, the answer, the delta plan when there is one, and
+Before `ready`, or a `READY` hand-back, `state pending` is empty: no question
+goes on as prose in the PR body or a hand-back.
+
+**Resume.** A worker that handed back is gone. Spawn a fresh worker of the
+same role with its brief, the answer, the delta plan when there is one, and
 "continue from commit `<sha>`: its body says what remains; when it says it
 does not build, make it build first". Commits are never reverted unless the
 user asks. The same question back in 2 rounds in a row, whatever the commit,
-trips the skill's stuck guard.
+trips the stuck guard.
 
-**Fact path.** No user question.
+**Fact path.** One researcher per fact gap, prompted per `## Callers` in the
+researcher skill with the question in it; it does not count against
+Gather's. Write a delta plan: what the facts change. Run your Quality row's
+simplify pass on it, `Size: Trivial` aside. Record the fact and the delta in
+the PR body, `state rule` the question, then resume. A fact that changes a
+goal, a decision or an interface, or opens a choice someone else owns, is a
+new question of that kind.
 
-1. One researcher per fact gap, prompt per `## Callers` in the researcher
-   skill with the question in it. It does not count against step 1's Agents.
-2. Write a delta plan: what the facts change in the plan.
-3. Run your Quality row's simplify pass on it; `Size: Trivial` skips it.
-4. Record the fact and the delta in the PR body, then resume.
+**Re-plan.** An answer that changes a goal, a decision or an interface, or a
+review-lead's `plan wrong:` line you agree with: `state stop replan <why>`,
+then do what it prints. On `STOP replan`, or resumed after its
+`HANDBACK NEEDS_DECISION plan wrong`, start a new run in a fresh notes
+directory, `state init --notes <dir>-replan-<n>` plus the `--parent`,
+`--parent-log` and `--task` of your first `state init` when it had them, on
+the same branch and PR, at the same Quality: Gather for the open question
+only, never re-asking what was just answered, then Propose and confirm. A
+`Size: Trivial` task moves to Normal first (`trivial.md`). The new plan and
+its `Considered options` go into the PR body. Existing commits stay and the
+new plan adds commits on top; its review starts again at round 1, so the
+re-review cap and the stuck guard reset.
 
-Research or a simplify pass that turns up a choice the user owns, or changes
-the approach, moves the item to the decision path. It changes the approach
-when it changes a goal, a decision or an interface.
+## Stops
 
-**Decision path.**
+`state stop <reason> <why>` ends the run; `state next` then prints `STOP
+<reason>`, or under a parent the `HANDBACK` line to send instead.
 
-1. Back to Ctx: steps 1 and 2 for this question only. Research what it needs,
-   then ask the user what is still open, never what they just answered. No
-   plan change: `state record resolved` resumes where you were, with no steps 2-4.
-2. Step 3 at the current Quality, with no Quality question: a new plan, its
-   proposals, and the ask. A decision on `Size: Trivial` moves it to Normal
-   first (`trivial.md`).
-3. Write the chosen plan and its `Considered options` into the PR body.
-4. Resume at step 5 on the same branch. Existing commits stay; the new plan
-   adds commits on top. Its review starts again at round 1, so the re-review
-   cap resets; the stuck guard does not.
-
-**Scope question.** One `AskUserQuestion`: in this PR, a follow-up, or drop.
-In this PR: the decision path. A follow-up: add it to `## Follow-ups`. Either
-of the last two: resume without it.
-
-Delegated: `## Delegated` says which rows you settle inside.
+- `fuel`: a loop ran out of rounds - gather 6, plan 4, CI 6 in every mode,
+  review as your Quality row's Re-reviews say. Tell the user what is left.
+- `blocked` or `failed`: tell the user why, with the head SHA and what remains.
+- `replan`: the Re-plan above.
+- `grew`: only a run under a parent, briefed `Size: Trivial`, whose task grew
+  past it; it hands back `GREW <why>`. Your own run grows with
+  `state record grew <why>` (`trivial.md`).
