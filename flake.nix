@@ -66,6 +66,14 @@
         inherit inputs;
         root = self;
       };
+
+      # Every software factory, by hostname, with the platform it runs on
+      # (lib.mkNixosServer). The deploy workflow's host choice is the only
+      # other list of them, held to this one by checks.factory-deploy-hosts.
+      factories = {
+        software-factory = "hetzner";
+        software-factory-lenovo = "thinkpad-t15p";
+      };
     in
     {
       # `nix fmt` - treefmt, the one door to every formatter.
@@ -133,6 +141,20 @@
           # `.typos.toml`, never the private global allowlist.
           typos = (import ./programs/typos { inherit pkgs; }).mkCheck self;
 
+          # That the deploy workflow's host options (`all`, then every factory)
+          # and its FACTORIES list are `factories` above.
+          factory-deploy-hosts =
+            pkgs.runCommand "factory-deploy-hosts" { nativeBuildInputs = [ pkgs.yq-go ]; }
+              ''
+                workflow=${./.github/workflows/deploy-factory.yml}
+                options=$(yq -o=json -I=0 '.on.workflow_dispatch.inputs.host.options' "$workflow")
+                all=$(yq '.jobs.request.env.FACTORIES' "$workflow")
+                [ "$options" = '${
+                  builtins.toJSON ([ "all" ] ++ builtins.attrNames factories)
+                }' ] && [ "$all" = '${toString (builtins.attrNames factories)}' ] || { echo "ERROR: deploy-factory.yml's host options or FACTORIES differ from factories in flake.nix" >&2; exit 1; }
+                touch "$out"
+              '';
+
           # Static analysis of .github/: pinned actions, token permissions,
           # credential persistence. Offline, against `.github/zizmor.yml`.
           zizmor = import ./programs/zizmor/check.nix {
@@ -151,16 +173,23 @@
         # to mp4 with its static lead-in trimmed, the contact sheet, and one
         # session browser shared by probe processes with redacted capture.
         # Linux only, as the Darwin sandbox cannot launch Chromium.
-        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          # That the factory's home activation runs the relink: a farm factory-gc
-          # may collect is otherwise never moved off. The one check that
-          # evaluates a host, so `just quick-check` pays for it.
-          software-factory-activation =
-            assert pkgs.lib.hasInfix "factory-relink-skills"
-              self.nixosConfigurations.software-factory.config.home-manager.users.factory.home.activation.relinkClaudeSkills.data;
-            pkgs.emptyFile;
-          qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
-        }
+        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux (
+          {
+            qa = import ./programs/playwright/qa-check.nix { inherit pkgs; };
+          }
+          # `<factory>-activation`: that the factory's home activation runs the
+          # relink: a farm factory-gc may collect is otherwise never moved off.
+          # The only checks that evaluate a host, so `just quick-check` pays for
+          # them.
+          // pkgs.lib.mapAttrs' (
+            host: _:
+            pkgs.lib.nameValuePair "${host}-activation" (
+              assert pkgs.lib.hasInfix "factory-relink-skills"
+                self.nixosConfigurations.${host}.config.home-manager.users.factory.home.activation.relinkClaudeSkills.data;
+              pkgs.emptyFile
+            )
+          ) factories
+        )
         // import ./programs/tech-checks {
           inherit pkgs;
           claude = import ./adapters/claude-code.nix {
@@ -184,6 +213,9 @@
             ;
         }
       );
+
+      # `factories` for the just recipes, which validate a host against it.
+      lib = { inherit factories; };
 
       # `just mutation-diff` and `just mutation` run it. Not a check: see
       # programs/mutation/default.nix.
@@ -227,10 +259,12 @@
       );
 
       nixosConfigurations = {
-        lenovo-old = lib.mkNixosSystem "lenovo-old" "x86_64-linux" { };
-        software-factory = lib.mkNixosServer "software-factory" "x86_64-linux";
+        lenovo-old = lib.mkNixosSystem "lenovo-old" "x86_64-linux" { hardware = "thinkpad-t15p"; };
         # next-host = lib.mkNixosSystem "next-host" "x86_64-linux" { };
-      };
+      }
+      // builtins.mapAttrs (
+        host: platform: lib.mkNixosServer host "x86_64-linux" { inherit platform; }
+      ) factories;
 
       darwinConfigurations = {
         macos-main = lib.mkDarwinSystem "macos-main" "aarch64-darwin" { };

@@ -3,13 +3,13 @@
 # that polkit lets it start and nothing else (modules/nixos/server/ops.nix).
 # Results land in $ops_state_dir/last.json, which `status` shows.
 
-# deploy: ask GitHub for a deploy of main's tip and wait for that request. The
-# workflow refuses unless CI passed on the commit; once it has created the
-# deployment, the server picks it up within a minute.
+# deploy: ask GitHub for a deploy of main's tip to this factory alone, and wait
+# for that request. The workflow refuses unless CI passed on the commit; once it
+# has created the deployment, the server picks it up within a minute.
 cmd_deploy() {
   local before run
   before=$(latest_deploy_run)
-  gh workflow run "$deploy_workflow" --repo "$deploy_repo" --ref main
+  gh workflow run "$deploy_workflow" --repo "$deploy_repo" --ref main -f host="$deploy_host"
   # The dispatch returns before the run exists.
   for _ in $(seq 30); do
     run=$(latest_deploy_run)
