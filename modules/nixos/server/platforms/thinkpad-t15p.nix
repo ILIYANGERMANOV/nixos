@@ -50,6 +50,18 @@
         STOP_CHARGE_THRESH_BAT0 = 80;
       };
     };
+
+    # A power cut longer than the battery lasts ends in a clean shutdown at
+    # 10 %, not a hard power-off mid-write; the BIOS boots it again when power
+    # returns. UPower's default action is HybridSleep, which is refused below.
+    # It wants low > critical > action, so all three are set.
+    upower = {
+      enable = true;
+      criticalPowerAction = "PowerOff";
+      percentageLow = 20;
+      percentageCritical = 15;
+      percentageAction = 10;
+    };
   };
 
   systemd = {
