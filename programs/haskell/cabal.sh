@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2154 # Nix sets the package values first
 # The cabal runners of a Haskell package (programs/haskell), run in its
 # directory with its toolchain on PATH. Nix sets before it: cabal_file,
 # source_dirs, components, test_flags and bins, the suite's variables naming a

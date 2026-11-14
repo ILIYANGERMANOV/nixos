@@ -14,7 +14,8 @@ let
     cabal-fmt = pkgs.haskell.lib.compose.justStaticExecutables hpkgs.cabal-fmt;
   };
 
-  # A suite's environment as `export` lines: `env` verbatim, and each of `bins`
+  # A suite's environment as `export` lines: `env` verbatim, a path copied to
+  # the store so a sandboxed check can read it, and each of `bins`
   # the path `binPath` gives the executable it names.
   exports =
     binPath:
@@ -23,7 +24,7 @@ let
       bins ? { },
     }:
     lib.concatLines (
-      lib.mapAttrsToList (var: value: "export ${var}=${lib.escapeShellArg value}") env
+      lib.mapAttrsToList (var: value: "export ${var}=${lib.escapeShellArg "${value}"}") env
       ++ lib.mapAttrsToList (var: exe: "export ${var}=${binPath exe}") bins
     );
 in
@@ -99,7 +100,8 @@ in
       version = builtins.hashString "sha256" (
         ghcidConfig + cabal + ghcid + builtins.toJSON (testEnv.env or { })
       );
-      cabalScript = cabalConfig + cabal;
+      # The repl inherits these from the dev shell; the runners set them.
+      cabalScript = cabalConfig + exports (_: "") { env = testEnv.env or { }; } + cabal;
       ghcidScript = ghcidConfig + config { inherit version; } + ghcid;
 
       # `<name>-<call>`, running the script's `run_<call>` in the
@@ -203,17 +205,15 @@ in
         ]
       );
       # The lint runner's checks over the package's source.
-      lint =
-        pkgs.runCommand "${name}-lint" { }
-          ''
-            cd ${package.src}
-            ${lib.getExe (script {
-              call = "lint";
-              text = cabalScript;
-              runtimeInputs = lib.attrValues tools;
-              enter = false;
-            })}
-            touch "$out"
-          '';
+      lint = pkgs.runCommand "${name}-lint" { } ''
+        cd ${package.src}
+        ${lib.getExe (script {
+          call = "lint";
+          text = cabalScript;
+          runtimeInputs = lib.attrValues tools;
+          enter = false;
+        })}
+        touch "$out"
+      '';
     };
 }

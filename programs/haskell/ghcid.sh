@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2154 # Nix sets the package values first
 # The per-worktree ghcid session behind `<name>-quick-typecheck` and
 # `<name>-quick-test`: a GHCi kept warm, so asking whether the code typechecks
 # costs a reload, not a build. Ported from Ivy-Apps/haskell-template's
@@ -69,10 +69,10 @@ run_ghcid_watchdog() {
 enter_session() {
   local key
   root=$(git rev-parse --show-toplevel)
-  key=$(printf '%s' "$PWD" | sha256sum | cut -c1-16)
+  key=$(sha256sum <<<"$PWD")
   # Cabal allows one .cabal file in a package directory.
   cabal_files=(*.cabal cabal.project)
-  session_paths "${XDG_CACHE_HOME:-$HOME/.cache}/haskell-ghcid/$key"
+  session_paths "${XDG_CACHE_HOME:-$HOME/.cache}/haskell-ghcid/${key:0:16}"
 }
 
 session_paths() {
@@ -102,7 +102,9 @@ typecheck() {
     2)
       printf '%s: the ghcid daemon exited. The end of %s:\n' "$name" "$logf" >&2
       # ghcid pads every screen it renders with blank lines.
-      grep -v '^[[:space:]]*$' "$logf" | tail -n "$death_log_lines" >&2
+      local log
+      log=$(grep -v '^[[:space:]]*$' "$logf" || true)
+      tail -n "$death_log_lines" <<<"$log" >&2
       exit 2
       ;;
     3)
@@ -267,7 +269,8 @@ report() {
 # Prints a file, cut at a length an agent's context can afford.
 print_capped() {
   local total
-  total=$(wc -l <"$1" | tr -d ' ')
+  total=$(wc -l <"$1")
+  total=$((total))
   head -n "$max_report_lines" "$1"
   if [ "$total" -gt "$max_report_lines" ]; then
     printf '[... %s more lines, see %s]\n' "$((total - max_report_lines))" "$1"

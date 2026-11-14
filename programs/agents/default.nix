@@ -4,6 +4,9 @@
   externalSrcs ? { },
   # The /qa skill's runtime package, put on PATH by the base profile.
   qa,
+  # programs/haskell, whose mkPackage gives the kernel its dev tooling. An
+  # argument: its scripts' shell-check is not the agent frontend's to reach.
+  haskell,
   # name -> decrypted-file path, for the secrets THIS host provides. Paths only,
   # never values. A server or secret file whose secret is absent is dropped.
   secrets ? { },
@@ -107,7 +110,7 @@ let
   # `state` and `state-hook`: the flows' event log, advice and hooks (the
   # kernel), on PATH beside `ctx`.
   state = import ./kernel {
-    inherit pkgs;
+    inherit pkgs haskell;
     inherit (flows) steps;
     vocabulary = ./hooks/vocabulary.json;
   };

@@ -17,12 +17,13 @@
 # enums to.
 {
   pkgs,
+  # programs/haskell: the dev shell, runners and lint check.
+  haskell,
   steps,
   vocabulary,
 }:
 let
   inherit (pkgs) lib;
-  haskell = import ../../haskell { inherit pkgs; };
   # What the suite reads from the environment, under the nix build, the cabal
   # runners and the ghcid session alike: the e2e spec runs both executables.
   testEnv = {
