@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2312 # a masked failure fails the assertion around it
 # The session client's verdicts, against hand-written session files: the
 # daemon itself needs GHC, so `nix run .#kernel-quick-typecheck` covers it.
 
@@ -10,7 +11,7 @@ setup() {
   name=kernel
   source_dirs=(src)
   cabal_files=(state.cabal)
-  cd "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR" || exit
   mkdir -p src state
   touch state.cabal src/A.hs
   session_paths "$BATS_TEST_TMPDIR/state"

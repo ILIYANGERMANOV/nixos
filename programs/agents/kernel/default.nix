@@ -5,7 +5,7 @@
 # The result is the installed command: both binaries wrapped with the step
 # table, on PATH beside `ctx`. `passthru.hooks` is the hook module the base
 # profile lists (hooks.nix); `passthru.package` the Haskell package itself;
-# `passthru.dev` its dev shell, runners and lint check (programs/haskell).
+# `passthru.tooling` its dev shell, runners and lint check (programs/haskell).
 #
 # Hand-written in cabal2nix's shape rather than callCabal2nix, which imports from
 # a derivation, off on hosts and in CI (ADR 0009). So every dependency in
@@ -138,8 +138,9 @@ pkgs.runCommand "state"
     passthru = {
       hooks = ./hooks.nix;
       package = built;
-      # The dev shell, runners and lint check (programs/haskell).
-      dev = haskell.mkPackage {
+      # The dev shell, runners and lint check (programs/haskell). Not `dev`:
+      # stdenv takes a dependency's `dev` attribute as its dev output.
+      tooling = haskell.mkPackage {
         name = "kernel";
         package = unwrapped;
         dir = "programs/agents/kernel";

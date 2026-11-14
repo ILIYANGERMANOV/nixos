@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2016 # a stub's body expands when the stub runs
 # The cabal runners, with cabal and the linters stubbed to log their arguments.
 
 load ../shell-check/test_helper.bash
