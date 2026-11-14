@@ -164,6 +164,7 @@ test-suite state-test
     , hspec
     , hspec-golden
     , hspec-hedgehog
+    , optparse-applicative
     , process
     , state
     , temporary

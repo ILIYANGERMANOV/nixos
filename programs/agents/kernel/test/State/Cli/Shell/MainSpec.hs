@@ -161,12 +161,13 @@ spec = describe "state over the doubles" $ do
                 (ran.code, ran.out, ran.err) `shouldBe` (0, ["recorded 2 quality -> research"], [])
                 loggedEvents world `shouldReturn` ["started", "quality"]
 
-            it "names a usage error with exit 2 and writes nothing" $ \world -> do
+            it "names a usage error with exit 2, lists the events and writes nothing" $ \world -> do
                 _ <- startedRun world
 
                 ran <- state world ["record"]
 
-                (ran.code, take 1 ran.err, drop (length ran.err - 1) ran.err) `shouldBe` (2, ["Missing: EVENT"], ["Run 'state record --help' for more information."])
+                (ran.code, take 1 ran.err) `shouldBe` (2, ["Missing: EVENT"])
+                ran.err `shouldSatisfy` any (Text.isPrefixOf "  quality ")
                 loggedEvents world `shouldReturn` ["started"]
 
         describe "handback" $ do

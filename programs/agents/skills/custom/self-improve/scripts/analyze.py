@@ -1095,10 +1095,7 @@ def record_result(
     call.refusals = tuple(
         found.group(1) or f"fix: {found.group(2)}"
         for found in STATE_REFUSAL.finditer(text)
-    ) + tuple(
-        f"{found.group(2)}: {found.group(1) or 'usage error'}"
-        for found in STATE_USAGE.finditer(text)
-    )
+    ) + tuple(usage_refusal(found) for found in STATE_USAGE.finditer(text))
 
 
 # What `state` prints on stderr when it refuses a step, failureText in
@@ -1106,15 +1103,29 @@ def record_result(
 # `state <sub>: what - why`, then `fix: ...`. A `| tail -1` keeps only the fix line.
 STATE_REFUSAL = re.compile(r"^(?:(state [a-z-]+: .*)\n)?fix: (.*)$", re.MULTILINE)
 
-# What `state` prints on stderr when optparse rejects argv (runCli there): its
-# error line (`Invalid ...`, `Missing: ...`, `The option ...`), usage lines,
-# then `Run 'state <sub> [<event>] --help' for more information.`, the line a
-# `| tail -1` keeps. The step is `state <sub>`.
+# What `state` prints on stderr when optparse rejects argv (runCli in
+# programs/agents/kernel/src/State/Cli/Command.hs): its error line, a blank
+# line, then the help of the command it reached, which opens with `Usage:` or,
+# at the top level, with the CLI's header first. `state-hook` is not matched.
 STATE_USAGE = re.compile(
-    r"^(?:((?:Invalid |Missing: |The option `).*)\n(?:.*\n)*?)?"
-    r"Run '(state(?: [a-z][a-z-]*)?)[^']*' for more information\.$",
-    re.MULTILINE,
+    r"""
+    ^((?:Invalid\ |Missing:\ |The\ option\ `).*)\n\n
+    (?:state\ -\ .*\n\n)?
+    Usage:\ state(?:\ ([a-z][a-z-]*))?(?=\s)
+    """,
+    re.MULTILINE | re.VERBOSE,
 )
+
+# The error line of `state <word>` for a word that is no command.
+UNKNOWN_COMMAND = re.compile(r"Invalid argument `([a-z][a-z-]*)'")
+
+
+def usage_refusal(found: re.Match[str]) -> str:
+    """The rejected step, named as `steps` names it, and optparse's error line."""
+    error, sub = found.group(1), found.group(2)
+    unknown = UNKNOWN_COMMAND.fullmatch(error)
+    word = sub or (unknown.group(1) if unknown else None)
+    return f"state {word}: {error}" if word else f"state: {error}"
 
 
 def result_text(content: Json) -> tuple[str, int]:

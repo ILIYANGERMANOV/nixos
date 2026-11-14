@@ -119,10 +119,11 @@ spec = describe "state-hook over the doubles" $ do
                 said.code `shouldBe` 2
                 take 1 said.err `shouldSatisfy` all ("state-hook resume: " `Text.isPrefixOf`)
 
-            it "exits 2 on a hook name it does not know, pointing to its help" $ \world -> do
+            it "exits 2 on a hook name it does not know, printing its help" $ \world -> do
                 said <- hook world "nowhere" sessionStart
 
-                (said.code, take 1 said.err, drop (length said.err - 1) said.err) `shouldBe` (2, ["Invalid argument `nowhere'"], ["Run 'state-hook --help' for more information."])
+                (said.code, take 1 said.err) `shouldBe` (2, ["Invalid argument `nowhere'"])
+                said.err `shouldSatisfy` elem "Usage: state-hook COMMAND"
 
             it "exits 2 at an event its hook does not run at" $ \world -> do
                 said <- hook world "resume" askedUser

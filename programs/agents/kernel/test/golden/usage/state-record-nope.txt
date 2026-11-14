@@ -4,4 +4,49 @@ Usage: state record EVENT
 
   Record an event: 'state record --help' lists them
 
-Run 'state record --help' for more information.
+Available options:
+  -h,--help                Show this help text
+
+Available commands:
+  quality                  <POC|Balanced|Max>
+  size                     <Trivial|Normal>
+  grew                     <why>
+  research.done            <n>
+  research.skipped         no arguments
+  interview.enough         no arguments
+  interview.more           no arguments
+  plan.done                <path>
+  simplify_plan.done       no arguments
+  simplify_plan.skipped    no arguments
+  confirm.confirmed        no arguments
+  confirm.adjusted         no arguments
+  draft.done               <url> <base> <branch>
+  implement.done           [--touches <area>,...|none]
+  refactor.done            no arguments
+  refactor.skipped         <why>
+  review.clean             no arguments
+  review.rows              no arguments
+  pick.final               [--row <label>]... [--verdict
+                           <requirement>=<met|not-met|unverified>]...
+  pick.loop                [--row <label>]... [--verdict
+                           <requirement>=<met|not-met|unverified>]...
+  fix.done                 [--touches <area>,...|none]
+  describe.done            no arguments
+  simplify_pr.done         no arguments
+  simplify_pr.skipped      no arguments
+  await_ci.green           no arguments
+  await_ci.red             <check>...
+  fix_pr.done              no arguments
+  ready.done               <url>
+  ready.skipped            <url>
+  breakdown.done           --tasks <file.json>
+  engineers.done           no arguments
+  task                     <id> <ci|review|merged> <pr> | <id> parked <why>
+                           [--pr <url>]
+  held                     <task> <url>
+  acted                    <task> <url>
+  spawning                 <task>
+  resumed                  <child run>
+  merge.done               <url>
+
+A commit event records HEAD.

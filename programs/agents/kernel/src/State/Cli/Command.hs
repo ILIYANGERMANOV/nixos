@@ -14,6 +14,7 @@ module State.Cli.Command (
     Usage (..),
     parseCommand,
     parseHook,
+    optparseText,
     failureText,
     noteOf,
     explain,
@@ -30,10 +31,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
-import Options.Applicative.Common (runParserInfo)
 import Options.Applicative.Help.Pretty (pretty, vsep)
-import Options.Applicative.Internal (contextNames, runP)
-import Options.Applicative.Types (Context)
 import State.Category.Flow (loopName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Mode (Cfg (..), Mode, SkipWhen (Never), cfg, parseByName, qualityName, sizeName)
@@ -104,9 +102,10 @@ failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> fa
 noteOf :: Failure -> Note
 noteOf failure = Note (failure.what <> " - " <> failure.why) failure.fix
 
--- | Help asked for, or argv the grammar rejects: optparse's text, for stdout or stderr.
-data Usage = HelpText Text | UsageError Text
-    deriving stock (Eq, Show)
+{- | Help asked for, or argv the grammar rejects: optparse's verdict. Its
+exit code tells the two apart, so the shell, which owns exit codes, renders it.
+-}
+newtype Usage = Usage (Opt.ParserFailure Opt.ParserHelp)
 
 {- | The subcommand, for the failure line, and the command or why it is not
 one; else optparse's help or usage error. No command at all is help.
@@ -115,38 +114,32 @@ parseCommand :: Steps -> [Text] -> Either Usage (Text, Either Failure Command)
 parseCommand steps = \case
     [] -> Right ("help", Right Help)
     -- The grammar has no option before the subcommand but --help: a parsed argv starts with it.
-    argv@(sub : _) -> (sub,) <$> runCli "state" (commandInfo steps) argv
+    argv@(sub : _) -> (sub,) <$> runCli (commandInfo steps) argv
 
 -- | @state-hook <name>@'s argv.
 parseHook :: [Text] -> Either Usage HookName
-parseHook = runCli "state-hook" hookInfo
+parseHook = runCli hookInfo
 
 -- | The full usage: every command, then the run's kinds, stop reasons, roles and areas.
 help :: Steps -> Text
-help steps = rendered "state" (commandInfo steps) (Opt.ShowHelpText Nothing) []
+help steps = optparseText (fst (Opt.renderFailure (Opt.parserFailure cliPrefs (commandInfo steps) (Opt.ShowHelpText Nothing) []) "state"))
 
-{- | optparse's 'Opt.execParserPure' minus its shell-completion flags, which
-this CLI does not offer. Keeping the context, the command words parsed, lets
-a misuse's last line name the @--help@ to run.
+{- | optparse's own parse: a misuse prints its error, then the help of the
+command it reached, so @state record nope@ lists every event. The completion
+it answers is refused: this CLI offers none, and only a shell asks for it.
 -}
-runCli :: String -> ParserInfo a -> [Text] -> Either Usage a
-runCli program pinfo argv = case runP (runParserInfo pinfo (map Text.unpack argv)) Opt.defaultPrefs of
-    (Right parsed, _) -> Right parsed
-    (Left err, context) -> Left $ case err of
-        Opt.ShowHelpText _ -> HelpText text
-        Opt.InfoMsg _ -> HelpText text
-        Opt.ErrorMsg _ -> misused
-        Opt.UnknownError -> misused
-        Opt.MissingError _ _ -> misused
-        Opt.ExpectsArgError _ -> misused
-        Opt.UnexpectedError _ _ -> misused
-      where
-        text = rendered program pinfo err context
-        misused = UsageError (text <> "\nRun '" <> Text.pack (unwords (program : contextNames context)) <> " --help' for more information.\n")
+runCli :: ParserInfo a -> [Text] -> Either Usage a
+runCli pinfo argv = case Opt.execParserPure cliPrefs pinfo (map Text.unpack argv) of
+    Opt.Success parsed -> Right parsed
+    Opt.Failure failure -> Left (Usage failure)
+    Opt.CompletionInvoked _ -> Left (Usage (Opt.parserFailure cliPrefs pinfo (Opt.ErrorMsg "shell completion is not offered") []))
+
+cliPrefs :: Opt.ParserPrefs
+cliPrefs = Opt.prefs Opt.showHelpOnError
 
 -- | optparse's text, less the trailing spaces it leaves where it wraps a usage line.
-rendered :: String -> ParserInfo a -> Opt.ParseError -> [Context] -> Text
-rendered program pinfo err context = Text.unlines (map Text.stripEnd (Text.lines (Text.pack (fst (Opt.renderFailure (Opt.parserFailure Opt.defaultPrefs pinfo err context) program)))))
+optparseText :: String -> Text
+optparseText = Text.unlines . map Text.stripEnd . Text.lines . Text.pack
 
 hookInfo :: ParserInfo HookName
 hookInfo = Opt.info (Opt.hsubparser (foldMap hookCommand [minBound .. maxBound]) <**> Opt.helper) (Opt.progDesc "One hook event on stdin, its reply on stdout.")

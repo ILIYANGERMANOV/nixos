@@ -2254,6 +2254,24 @@ class TestRealGh:
         )
 
 
+# The head of what `state` prints when optparse rejects argv: the error, then
+# the help of the command it reached (test/golden/usage in the kernel).
+RECORD_NOPE = """Invalid argument `nope'
+
+Usage: state record EVENT
+
+  Record an event: 'state record --help' lists them
+
+"""
+STATE_NOPE = """Invalid argument `nope'
+
+state - the run of an agent flow, kept in the worktree's log
+
+Usage: state COMMAND
+
+"""
+
+
 class TestStateCtx:
     def test_calls_count_per_subcommand_inside_chains(self, home: Home) -> None:
         # Given
@@ -2335,8 +2353,7 @@ class TestStateCtx:
             "state next; state record nope 2>&1 | cat",
             2,
             outcome=Outcome(
-                "Invalid argument `nope'\n\nUsage: state record EVENT\n\n"
-                "Run 'state record --help' for more information.\nSPAWN fixer"
+RECORD_NOPE + "SPAWN fixer"
             ),
         )
         home.session("s1", main)
@@ -2350,26 +2367,25 @@ class TestStateCtx:
         ]
         assert row(report, "state-ctx", "state next")[1:3] == ["1", "0"]
 
-    def test_a_usage_hint_left_by_tail_fails_the_step_it_names(
-        self, home: Home
-    ) -> None:
-        # Given: `tail -1` kept only the hint line of an event's usage error
+    def test_an_unknown_command_fails_the_step_it_names(self, home: Home) -> None:
+        # Given: optparse rejected the command word itself
         main = Transcript().human(0, "go")
         _ = main.bash(
             1,
-            "state next; state record task t1 2>&1 | tail -1",
+            "state next; state nope 2>&1 | cat",
             2,
-            outcome=Outcome("Run 'state record task --help' for more information."),
+            outcome=Outcome(STATE_NOPE + "SPAWN fixer"),
         )
         home.session("s1", main)
         # When
         report = home.report()
         # Then
-        assert row(report, "state-ctx", "state record")[1:] == [
+        assert row(report, "state-ctx", "state nope")[1:] == [
             "1",
             "1",
-            "state record: usage error",
+            "state nope: Invalid argument `nope'",
         ]
+        assert row(report, "state-ctx", "state next")[1:3] == ["1", "0"]
 
     def test_a_bare_fix_line_left_by_tail_fails_the_first_state_step(
         self, home: Home

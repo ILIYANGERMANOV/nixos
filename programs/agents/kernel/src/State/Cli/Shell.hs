@@ -40,10 +40,11 @@ import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
+import Options.Applicative qualified as Opt
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), explain, failureText, help, notStarted, noteOf, parseCommand, parseHook)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), explain, failureText, help, notStarted, noteOf, optparseText, parseCommand, parseHook)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
@@ -83,7 +84,7 @@ main argv =
     loadSteps >>= \case
         Left failure -> failed "steps" failure
         Right steps -> case parseCommand steps argv of
-            Left said -> usageOut said
+            Left said -> usageOut "state" said
             Right (sub, parsed) ->
                 either (pure . Left) (outageAware . execute steps) parsed >>= \case
                     Right out -> Console.out out $> ExitSuccess
@@ -95,10 +96,10 @@ main argv =
             Outage -> ExitFailure 1
 
 -- | Help asked for goes to stdout, exit 0; a usage error to stderr, exit 2.
-usageOut :: (Console :> es) => Usage -> Eff es ExitCode
-usageOut = \case
-    HelpText text -> Console.out text $> ExitSuccess
-    UsageError text -> Console.err text $> ExitFailure 2
+usageOut :: (Console :> es) => String -> Usage -> Eff es ExitCode
+usageOut program (Usage failure) = case Opt.renderFailure failure program of
+    (text, ExitSuccess) -> Console.out (optparseText text) $> ExitSuccess
+    (text, ExitFailure _) -> Console.err (optparseText text) $> ExitFailure 2
 
 {- | @state-hook <name>@: one hook event on stdin, its reply on stdout. Bad
 usage or stdin exits 2; past that it never fails the agent: a worktree with no
@@ -106,7 +107,7 @@ run it reads is silence, a refusal or an error is context (fail open and tell).
 -}
 hook :: (Shell es) => [Text] -> Eff es ExitCode
 hook argv = case parseHook argv of
-    Left said -> usageOut said
+    Left said -> usageOut "state-hook" said
     Right name -> do
         input <- Console.readStdin
         case parseHookEvent (LBS.fromStrict input) of

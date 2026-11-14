@@ -108,6 +108,7 @@ let
         hspec-golden
         hspec-hedgehog
         filepath
+        optparse-applicative
         process
         temporary
         text

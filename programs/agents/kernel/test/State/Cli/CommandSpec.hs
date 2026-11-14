@@ -1,13 +1,15 @@
 module State.Cli.CommandSpec (spec) where
 
+import Data.Either (fromLeft, fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Options.Applicative qualified as Opt
 import State.Category.Graph (OpenGraph (..))
 import State.Category.Mode (Mode (..), Quality (..), Size (..))
 import State.Category.Step (eventText)
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, parseCommand, parseHook)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, optparseText, parseCommand, parseHook)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), oneLineText)
@@ -17,6 +19,7 @@ import State.Run.RunGen (g, loadSteps, runAt, sha)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Review (Outcome (..))
+import System.Exit (ExitCode (..))
 import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldSatisfy)
 
 spec :: Spec
@@ -26,8 +29,9 @@ spec = describe "State.Cli.Command" $ do
         -- The command, else a refusal's what or a usage error's first line.
         parse argv = case parseCommand steps argv of
             Right (_, parsed) -> either (Left . (.what)) Right parsed
-            Left (UsageError text) -> Left (Text.takeWhile (/= '\n') text)
-            Left (HelpText _) -> Left "help"
+            Left said -> case usage "state" said of
+                Right _ -> Left "help"
+                Left text -> Left (Text.takeWhile (/= '\n') text)
         -- The event @record@ appends, at HEAD 'sha' when it records one.
         recorded argv = case parse ("record" : argv) of
             Right (OnRun (Record (Plain event))) -> Right event
@@ -35,8 +39,8 @@ spec = describe "State.Cli.Command" $ do
             Right _ -> Left "not a record"
             Left why -> Left why
         helpOf argv = case parseCommand steps argv of
-            Left (HelpText text) -> text
-            _ -> "not help"
+            Left said -> fromRight "not help" (usage "state" said)
+            Right _ -> "not help"
 
     describe "record" $ do
         it "parses a stay event's argument" $
@@ -127,12 +131,18 @@ spec = describe "State.Cli.Command" $ do
         -- The text a reader sees, pinned whole.
         it "of state" $ golden "usage/state.txt" (help steps)
         it "of state record" $ golden "usage/state-record-help.txt" (helpOf ["record", "--help"])
-        it "of an unknown event" $ golden "usage/state-record-nope.txt" (usageError (parseCommand steps ["record", "nope"]))
-        it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError (parseHook ["bad"]))
+        it "of an unknown command" $ golden "usage/state-nope.txt" (usageError "state" (parseCommand steps ["nope"]))
+        it "of an unknown event" $ golden "usage/state-record-nope.txt" (usageError "state" (parseCommand steps ["record", "nope"]))
+        it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
-    usageError :: Either Usage a -> Text
-    usageError = \case
-        Left (UsageError text) -> text
-        _ -> "no usage error"
+    -- optparse's text: help asked for on the right, a usage error on the left.
+    usage :: String -> Usage -> Either Text Text
+    usage program (Usage failure) = case Opt.renderFailure failure program of
+        (text, ExitSuccess) -> Right (optparseText text)
+        (text, ExitFailure _) -> Left (optparseText text)
+    usageError :: String -> Either Usage a -> Text
+    usageError program = \case
+        Left said -> fromLeft "no usage error" (usage program said)
+        Right _ -> "no usage error"
     failureWhat :: Either Text a -> Maybe Text
     failureWhat = either Just (const Nothing)
