@@ -25,7 +25,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, outcomeNames, SomeStep (..), StateName (..), StepSet, eventText, outcomes, skippedOutcome, stateNameText, stepName)
+import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, skippedOutcome, stateNameText, stepName)
 import State.Category.Ty (KnownTy (..), Ty (..))
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)

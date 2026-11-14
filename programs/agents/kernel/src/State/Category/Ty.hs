@@ -50,5 +50,5 @@ instance NotSum 'PR
 instance NotSum ('List t)
 
 instance
-    (Unsatisfiable ('Text "A sum " ':<>: 'ShowType (a ':+ b) ':<>: 'Text " where one type is needed: branch on it with |||"))
-    => NotSum (a ':+ b)
+    (Unsatisfiable ('Text "A sum " ':<>: 'ShowType (a ':+ b) ':<>: 'Text " where one type is needed: branch on it with |||")) =>
+    NotSum (a ':+ b)

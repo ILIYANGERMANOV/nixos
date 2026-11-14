@@ -13,6 +13,7 @@ import Data.Set qualified as Set
 import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
 import State.Category.Graph (graph)
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
+import State.Category.Ty qualified
 import State.Flow.Triage (Sing (..))
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
@@ -51,10 +52,14 @@ spec = describe "State.Category.Flow" $ do
                 "Couldn't match type ‘State.Category.Ty.Plan’ with ‘State.Category.Ty.Ctx’"
                 (Loop LPlan ExitOut (Do PlanS :> Do Confirm))
 
+        {- The loop's out is pinned: left free, the 'NotSum' 'Loop' asks of it
+        is ambiguous, and GHC reports that before the clash of the exits. 'Ty'
+        is imported qualified, so GHC still prints every type in full.
+        -}
         it "a series whose two sides exit with different types" $
             rejected
                 "Both sides of :> exit, with different types: State.Category.Ty.Ctx and State.Category.Ty.Plan"
-                (Loop LPlan StopOut (Do Interview :> Do PlanS :> Do Confirm))
+                (Loop LPlan (StopOut :: OnEmpty 'State.Category.Ty.Ctx 'State.Category.Ty.Ctx) (Do Interview :> Do PlanS :> Do Confirm))
 
         it "a fan-out's state drawn as a step" $
             rejected

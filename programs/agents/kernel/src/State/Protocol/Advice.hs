@@ -38,7 +38,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
-import State.Category.Step (EventName (..), Sing, outcomeNames, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), continueEvent, exitEvent, skipEvent, stateNameText)
+import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), continueEvent, exitEvent, outcomeNames, skipEvent, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (readyState, stopLine)
 import State.Protocol.Record (recordCommand)

@@ -1,6 +1,7 @@
 module State.Category.GraphSpec (spec) where
 
 import Control.Monad (foldM)
+import Data.Either (isRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
@@ -57,16 +58,17 @@ spec = describe "State.Category.Graph" $ do
         (flow, g) <- forAll (Gen.mapMaybe (\flow -> either (const Nothing) (Just . (flow,)) (graph flow)) genFlow)
         Map.size g.edges === arrows flow
 
-    {- #351's laws of the sum, read off the graph a run walks: a case after an
-    injection is the branch it injects into, and the case is associative.
+    {- The laws of the sum in #351, read off the graph a run walks: a case
+    after an injection is the branch it injects into, and the case is
+    associative.
     -}
     describe "sums" $ do
         it "inl_then_case_draws_as_the_left_branch" . hedgehog $ do
-            (f, g) <- forAll ((,) <$> genBranching <*> genBranching)
+            (f, g) <- forAll genCase
             fmap redrawn (graph (inl :> (f ||| g))) === fmap redrawn (graph f)
 
         it "inr_then_case_draws_as_the_right_branch" . hedgehog $ do
-            (f, g) <- forAll ((,) <$> genBranching <*> genBranching)
+            (f, g) <- forAll genCase
             fmap redrawn (graph (inr :> (f ||| g))) === fmap redrawn (graph g)
 
         {- @x@ ends in @(Diff + Plan) + Plan@; the associator moves it to
@@ -97,6 +99,15 @@ seqGraphs genF genG = forAll (Gen.mapMaybe builds ((,) <$> genF <*> genG))
     builds (f, g) = case (graph f, graph g, graph (f :> g)) of
         (Right left, Right right, Right whole) -> Just (left, right, whole)
         _ -> Nothing
+
+{- | Two branches whose case builds. A clash inside either branch, or a loop
+id both use, refuses the whole term, even the branch an injection never
+runs: 'Clash' has its own cases.
+-}
+genCase :: Gen (Flow 'Diff 'Nothing 'PR, Flow 'Diff 'Nothing 'PR)
+genCase = Gen.filter builds ((,) <$> genBranching <*> genBranching)
+  where
+    builds (f, g) = isRight (graph (inl :> (f ||| g)))
 
 -- | A branch for a planned summand: implement the plan, then on as a diff.
 genPlanned :: Gen (Flow 'Plan 'Nothing 'PR)

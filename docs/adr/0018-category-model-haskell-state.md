@@ -67,7 +67,7 @@ for its engineers, wraps a flow without changing it.
   effects' and the shell's. #360 planned a plain IO shell; the user asked for
   algebraic effects mid-stack, and one extra PR added them.
 
-## Amendment: step layers, typed outcomes, a role registry
+## Amendment: step layers, typed outcomes, sums, a role registry
 
 PR #376 reorganised the kernel; the model above holds.
 
@@ -89,6 +89,16 @@ PR #376 reorganised the kernel; the model above holds.
   registry. A worker role (researcher, implementer, fixer) leads no flow and
   is no entry; `parseSteps` refuses a `steps.nix` row whose `flows` names no
   role, or whose `runner` leads a flow.
+- **Sums for branching.** `Ty` has `a :+ b`. A step whose out is a sum has
+  two continue outcomes, legs `Inl` and `Inr`, and no exit; each summand is
+  one type, not a sum. `inl` and `inr` inject, and `f ||| g` is the case that
+  runs `f` on the left summand and `g` on the right. Inside `graph` a part has
+  one in port per summand, so each branch is glued to its own edge; a whole
+  flow still has one in port and one end, and draws only the states a run can
+  reach. `Opt` and `Loop` refuse a sum (`NotSum`): a skip or a loop's way back
+  is one edge, and a sum would need one per summand. Loop ids are unique
+  across branches too, as `graph`'s loops are keyed by id. No shipped flow
+  branches yet, so the wire format is unchanged.
 - **Layered imports.** The category and its steps sit below the flows, roles
   and table, below the run, the protocol and the command line;
   `ArchitectureSpec` refuses an import from a higher layer.

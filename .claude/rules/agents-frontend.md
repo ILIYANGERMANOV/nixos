@@ -70,6 +70,12 @@ How to extend it; the compiler and `parseSteps` name what is missing:
 - **A layer:** its module under `State/Step/`, then in `State/Step/Catalog.hs`
   a `Layer` constructor, a `KnownLayer` instance and an entry in `layers`, then
   the arms the compiler asks for.
+- **A branch:** a step whose `Sig` out is a sum, `'( 'Diff, 'Nothing, 'Diff
+  ':+ 'Plan)`, with `Branches small big` as its outcomes and `'Inl`/`'Inr`
+  legs, then a case after it: `Do Triage :> (Do Describe ||| Do Implement :>
+  Do Describe)`. `inl`/`inr` inject into a sum without a step. A branching
+  step has no exit and plain summands; `Opt` and `Loop` refuse a sum, so close
+  the branches with `|||` first.
 - **A role that leads a flow:** a `FlowName` constructor and its `role` arm in
   `State/Role.hs` (name, flow, rung), the name in `flowNames` of
   `flows/default.nix` and in a row's `flows` in `flows/steps.nix`. A worker
