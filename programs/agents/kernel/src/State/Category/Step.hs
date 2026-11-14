@@ -20,6 +20,7 @@ module State.Category.Step (
     SomeOutcome (..),
     packed,
     outcomeEvent,
+    builtEvent,
     payload,
     Decoder (..),
     decoderEvent,
@@ -206,6 +207,13 @@ data Decoder k where
 
 decoderEvent :: (StepSet k) => Decoder k -> EventName
 decoderEvent (Decoder s (_ :: Object -> Parser (Outcome s l))) = legEvent s (legOf @(Sig s) @l)
+
+{- | The event of the outcome a constructor builds from its argument, before
+any argument is at hand. Like a 'Decoder' key it is derived from the
+constructor's type, so it cannot name another outcome's event.
+-}
+builtEvent :: forall k (s :: k) l a. (StepSet k, Fits (Sig s) l) => Sing s -> (a -> Outcome s l) -> EventName
+builtEvent s _ = legEvent s (legOf @(Sig s) @l)
 
 decodeWith :: Decoder k -> Object -> Parser (SomeOutcome k)
 decodeWith (Decoder s parse) = fmap (packed s) . parse

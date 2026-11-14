@@ -38,7 +38,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
-import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), continueEvent, exitEvent, outcomeNames, skipEvent, stateNameText)
+import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (readyState, stopLine)
 import State.Protocol.Record (recordCommand)
@@ -51,12 +51,12 @@ import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, flowRole, mode, nextQId, stuck)
 import State.Show (firstLine, tshow)
-import State.Step.Build (Outcome (..), Sing (Draft, Refactor))
+import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..))
-import State.Step.Gather (Outcome (..), Sing (Research))
-import State.Step.Plan (Outcome (..), Sing (Alternative, SimplifyP))
+import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
 import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
@@ -198,12 +198,16 @@ it, and its skip names a head these facts lack.
 skipOutcome :: Facts -> RunState -> Text -> EventName -> Maybe AnyOutcome
 skipOutcome facts state why event =
     join . lookup event $
-        [ (skipEvent Research, Just (Catalog.outcome ResearchSkipped))
-        , (skipEvent SimplifyP, Just (Catalog.outcome SimplifyPlanSkipped))
-        , (skipEvent Alternative, Just (Catalog.outcome AlternativeSkipped))
-        , (skipEvent Refactor, Just (Catalog.outcome (RefactorSkipped why)))
-        , (skipEvent Ready, Catalog.outcome . ReadySkipped <$> prUrl facts state)
-        ]
+        map
+            stated
+            [ Catalog.outcome ResearchSkipped
+            , Catalog.outcome SimplifyPlanSkipped
+            , Catalog.outcome AlternativeSkipped
+            , Catalog.outcome (RefactorSkipped why)
+            ]
+            <> [(builtEvent Ready ReadySkipped, Catalog.outcome . ReadySkipped <$> prUrl facts state)]
+  where
+    stated skip = (Catalog.outcomeEvent skip, Just skip)
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> Facts -> RunState -> Advice

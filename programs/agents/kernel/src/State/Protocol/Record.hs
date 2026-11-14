@@ -19,14 +19,15 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
-import State.Category.Flow (FanEvent (Leaves), FanId (FEngineers), fanEvent, fanName)
+import State.Category.Flow (FanId (FEngineers))
 import State.Category.Mode (parseByName, parseQuality, qualityName, sizeName)
-import State.Category.Step (EventName, continueEvent, eventText, exitEvent, skipEvent)
+import State.Category.Step (EventName, builtEvent, eventText)
 import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, stepTook)
 import State.Step.Build (Outcome (..), Sing (..))
+import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), Sing (..))
 import State.Step.Gather (Outcome (..), Sing (..))
 import State.Step.Plan (Outcome (..), Sing (..))
@@ -57,48 +58,48 @@ recordables =
         [raw] -> SizeSet <$> known "size" (parseByName sizeName) raw
         _ -> Left "one size"
     , stay "grew" "<why>" (fmap Grew . because)
-    , outcome (continueEvent Research) "<n>" [] $ \a -> case a.positional of
+    , outcome (builtEvent Research ResearchDone) "<n>" [] $ \a -> case a.positional of
         [raw] -> Plain . stepTook . ResearchDone <$> count raw
         _ -> Left "the number of researchers"
-    , nothing (skipEvent Research) ResearchSkipped
-    , nothing (exitEvent Interview) InterviewEnough
-    , nothing (continueEvent Interview) InterviewMore
-    , outcome (continueEvent PlanS) "<path>" [] $ \a -> case a.positional of
+    , nothing ResearchSkipped
+    , nothing InterviewEnough
+    , nothing InterviewMore
+    , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
         [path] -> Right (Plain (stepTook (PlanDone (Text.unpack path))))
         _ -> Left "the plan's path"
-    , nothing (continueEvent SimplifyP) SimplifyPlanDone
-    , nothing (skipEvent SimplifyP) SimplifyPlanSkipped
-    , nothing (continueEvent Alternative) AlternativeDone
-    , nothing (skipEvent Alternative) AlternativeSkipped
-    , nothing (exitEvent Confirm) ConfirmConfirmed
-    , nothing (continueEvent Confirm) ConfirmAdjusted
-    , outcome (continueEvent Draft) "<url> <base> <branch>" [] $ \a -> case a.positional of
+    , nothing SimplifyPlanDone
+    , nothing SimplifyPlanSkipped
+    , nothing AlternativeDone
+    , nothing AlternativeSkipped
+    , nothing ConfirmConfirmed
+    , nothing ConfirmAdjusted
+    , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
         [link, base, branch] -> Right (Plain (stepTook (DraftDone (DraftPr (Url link) (Branch base) (Branch branch)))))
         _ -> Left "the PR's url, base and branch"
     , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
-      commitAt (continueEvent Implement) ImplementDone (Set.fromList [minBound .. maxBound])
-    , atHead (continueEvent Refactor) RefactorDone
-    , outcome (skipEvent Refactor) "<why>" [] (fmap (Plain . stepTook . RefactorSkipped) . because . (.positional))
-    , atHead (exitEvent Review) ReviewClean
-    , atHead (continueEvent Review) ReviewRows
-    , picks (exitEvent Pick) PickFinal
-    , picks (continueEvent Pick) PickLoop
+      commitAt Implement ImplementDone (Set.fromList [minBound .. maxBound])
+    , atHead Refactor RefactorDone
+    , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (fmap (Plain . stepTook . RefactorSkipped) . because . (.positional))
+    , atHead Review ReviewClean
+    , atHead Review ReviewRows
+    , picks Pick PickFinal
+    , picks Pick PickLoop
     , -- A fixer's hand-back with no Touches line touches no area.
-      commitAt (continueEvent Fix) FixDone Set.empty
-    , atHead (continueEvent Describe) DescribeDone
-    , atHead (continueEvent SimplifyPR) SimplifyPrDone
-    , atHead (skipEvent SimplifyPR) SimplifyPrSkipped
-    , atHead (exitEvent AwaitCi) AwaitCiGreen
-    , outcome (continueEvent AwaitCi) "<check>..." [] $ \a -> case a.positional of
+      commitAt Fix FixDone Set.empty
+    , atHead Describe DescribeDone
+    , atHead SimplifyPR SimplifyPrDone
+    , atHead SimplifyPR SimplifyPrSkipped
+    , atHead AwaitCi AwaitCiGreen
+    , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of
         check : more -> Right (AtHead (\sha -> stepTook (AwaitCiRed sha (fmap Check (check :| more)))))
         [] -> Left "the failing checks"
-    , atHead (continueEvent FixPR) FixPrDone
-    , url (continueEvent Ready) ReadyDone
-    , url (skipEvent Ready) ReadySkipped
-    , outcome (continueEvent Breakdown) "--tasks <file.json>" ["tasks"] $ \a -> case (a.positional, option "tasks" a) of
+    , atHead FixPR FixPrDone
+    , url Ready ReadyDone
+    , url Ready ReadySkipped
+    , outcome (builtEvent Breakdown BreakdownDone) "--tasks <file.json>" ["tasks"] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone) . Codec.decodeBreakdown))
         _ -> Left "the tasks file, as --tasks <file.json>"
-    , nothing (fanEvent Leaves (fanName FEngineers)) (FanDone FEngineers)
+    , nothing (FanDone FEngineers)
     , Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why> [--pr <url>]" ["pr"] $ \a -> case a.positional of
         [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
         task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
@@ -115,24 +116,24 @@ recordables =
     , stay "resumed" "<child run>" $ \case
         [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
         _ -> Left "the child run you resume"
-    , url (continueEvent Merge) MergeDone
+    , url Merge MergeDone
     ]
   where
     stay name usageText build = Recordable name usageText [] (\a -> Plain <$> build a.positional)
     outcome event = Recordable (eventText event)
-    nothing event done = outcome event "" [] $ \a -> case a.positional of
+    nothing done = outcome (Catalog.outcomeEvent (Catalog.outcome done)) "" [] $ \a -> case a.positional of
         [] -> Right (Plain (stepTook done))
         _ -> Left "no arguments"
-    atHead event done = outcome event "" [] $ \a -> case a.positional of
+    atHead s done = outcome (builtEvent s done) "" [] $ \a -> case a.positional of
         [] -> Right (AtHead (stepTook . done))
         _ -> Left "no arguments: the head is HEAD"
-    commitAt event done unstated = outcome event "[--touches <area>,...|none]" ["touches"] $ \a -> case a.positional of
+    commitAt s done unstated = outcome (builtEvent s done) "[--touches <area>,...|none]" ["touches"] $ \a -> case a.positional of
         [] -> (\areas -> AtHead (\sha -> stepTook (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
         _ -> Left "no arguments: the head is HEAD"
-    picks event done = outcome event ("[--row <label>]... [--verdict <requirement>=<" <> choices judgementText <> ">]...") ["row", "verdict"] $ \a -> case a.positional of
+    picks s done = outcome (builtEvent s done) ("[--row <label>]... [--verdict <requirement>=<" <> choices judgementText <> ">]...") ["row", "verdict"] $ \a -> case a.positional of
         [] -> Plain . stepTook . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
         _ -> Left "rows and verdicts are options"
-    url event done = outcome event "<url>" [] $ \a -> case a.positional of
+    url s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
         [raw] -> Right (Plain (stepTook (done (Url raw))))
         _ -> Left "the PR's url"
     because = \case
