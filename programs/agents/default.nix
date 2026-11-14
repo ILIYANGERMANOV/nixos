@@ -166,6 +166,8 @@ in
   # The kernel's Haskell package, whose build runs its test suite: the haskell
   # tech checks build and lint it.
   kernel = state.package;
+  # Its dev shell, runners and lint check: programs/haskell's mkPackage.
+  kernelDev = state.dev;
 
   # The guards as they deploy, for the tests to run (hooks/guards).
   guards = {

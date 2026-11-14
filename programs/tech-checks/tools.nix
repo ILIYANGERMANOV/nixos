@@ -19,7 +19,8 @@
     selene
     stylua
     biome
-    hlint
-    fourmolu
     ;
 }
+# hlint, fourmolu and cabal-fmt: the Haskell runners' own, so a check and a
+# runner never meet different versions.
+// (import ../haskell { inherit pkgs; }).tools

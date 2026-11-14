@@ -7,8 +7,10 @@
   claude,
   # The guards, which python-tests runs end to end.
   guards,
-  # The Haskell kernel package, whose build runs its own tests.
+  # The Haskell kernel package, whose build runs its own tests, and its dev
+  # tooling (programs/haskell).
   kernel,
+  kernelDev,
 }:
 import ./shell.nix { inherit pkgs claude; }
 // import ./ts.nix { inherit pkgs; }
@@ -20,4 +22,4 @@ import ./shell.nix { inherit pkgs claude; }
     ;
 }
 // import ./lua.nix { inherit pkgs; }
-// import ./haskell.nix { inherit pkgs kernel; }
+// import ./haskell.nix { inherit pkgs kernel kernelDev; }

@@ -1,0 +1,14 @@
+# HLS: which cabal component each source directory belongs to.
+cradle:
+  cabal:
+    - path: "./src"
+      component: "lib:state"
+
+    - path: "./app/state"
+      component: "state:exe:state"
+
+    - path: "./app/state-hook"
+      component: "state:exe:state-hook"
+
+    - path: "./test"
+      component: "state:test:state-test"

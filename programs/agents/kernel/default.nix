@@ -4,7 +4,8 @@
 #
 # The result is the installed command: both binaries wrapped with the step
 # table, on PATH beside `ctx`. `passthru.hooks` is the hook module the base
-# profile lists (hooks.nix); `passthru.package` the Haskell package itself.
+# profile lists (hooks.nix); `passthru.package` the Haskell package itself;
+# `passthru.dev` its dev shell, runners and lint check (programs/haskell).
 #
 # Hand-written in cabal2nix's shape rather than callCabal2nix, which imports from
 # a derivation, off on hosts and in CI (ADR 0009). So every dependency in
@@ -21,6 +22,22 @@
 }:
 let
   inherit (pkgs) lib;
+  haskell = import ../../haskell { inherit pkgs; };
+  # What the suite reads from the environment, under the nix build, the cabal
+  # runners and the ghcid session alike: the e2e spec runs both executables.
+  testEnv = {
+    env = {
+      STATE_STEPS = steps;
+      HOOK_VOCABULARY = vocabulary;
+    };
+    bins = {
+      STATE_BIN = "state";
+      STATE_HOOK_BIN = "state-hook";
+    };
+  };
+  # hspec-hedgehog seeds Hedgehog from hspec's seed: a fixed one makes a red
+  # property replay the same on every machine.
+  testFlags = [ "--seed=351" ];
   # Through callPackage, not haskellPackages.mkDerivation directly:
   # justStaticExecutables overrides the `mkDerivation` argument.
   package =
@@ -99,22 +116,13 @@ let
         pkgs.git
       ];
       doCheck = true;
-      # hspec-hedgehog seeds Hedgehog from hspec's seed: a fixed one makes a red
-      # property replay the same on every machine.
-      testFlags = [ "--seed=351" ];
-      # The e2e spec runs the `state` binary this build just linked.
-      preCheck = ''
-        export STATE_STEPS=${steps}
-        export STATE_BIN=$PWD/dist/build/state/state
-        export STATE_HOOK_BIN=$PWD/dist/build/state-hook/state-hook
-        export HOOK_VOCABULARY=${vocabulary}
-      '';
+      inherit testFlags;
+      preCheck = haskell.checkEnv testEnv;
       license = lib.licenses.mit;
       mainProgram = "state";
     };
-  built = pkgs.haskell.lib.compose.justStaticExecutables (
-    pkgs.haskellPackages.callPackage package { }
-  );
+  unwrapped = pkgs.haskellPackages.callPackage package { };
+  built = pkgs.haskell.lib.compose.justStaticExecutables unwrapped;
   # They run the session's own git and gh, the ones the agent already works
   # with: the gh on PATH is the one logged in, so these only fill in for none.
   fallbackPath = lib.makeBinPath [
@@ -129,6 +137,18 @@ pkgs.runCommand "state"
     passthru = {
       hooks = ./hooks.nix;
       package = built;
+      # The dev shell, runners and lint check (programs/haskell).
+      dev = haskell.mkPackage {
+        name = "kernel";
+        package = unwrapped;
+        dir = "programs/agents/kernel";
+        testSuite = "state-test";
+        executables = [
+          "state"
+          "state-hook"
+        ];
+        inherit testEnv testFlags;
+      };
     };
   }
   ''

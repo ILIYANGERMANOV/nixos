@@ -1,7 +1,9 @@
 cabal-version: 3.0
 name:          state
 version:       0.1.0.0
-synopsis:      The kernel of the agent flows: typed steps, the run log and its advice
+synopsis:
+  The kernel of the agent flows: typed steps, the run log and its advice
+
 build-type:    Simple
 
 -- Copied from Ivy-Apps/haskell-template's `shared-properties`, minus relude and
