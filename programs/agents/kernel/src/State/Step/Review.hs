@@ -58,9 +58,11 @@ instance StepSet ReviewStep where
 
     sameStep a b = case (a, b) of
         (Review, Review) -> Just Refl
+        (Review, _) -> Nothing
         (Pick, Pick) -> Just Refl
+        (Pick, _) -> Nothing
         (Fix, Fix) -> Just Refl
-        _ -> Nothing
+        (Fix, _) -> Nothing
 
     pack = \case
         o@(ReviewClean _) -> packed Review o

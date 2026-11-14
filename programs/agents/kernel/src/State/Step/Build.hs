@@ -60,9 +60,11 @@ instance StepSet BuildStep where
 
     sameStep a b = case (a, b) of
         (Draft, Draft) -> Just Refl
+        (Draft, _) -> Nothing
         (Implement, Implement) -> Just Refl
+        (Implement, _) -> Nothing
         (Refactor, Refactor) -> Just Refl
-        _ -> Nothing
+        (Refactor, _) -> Nothing
 
     pack = \case
         o@(DraftDone _) -> packed Draft o

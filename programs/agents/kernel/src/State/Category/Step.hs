@@ -169,13 +169,19 @@ instance (StepSet k) => Show (SomeOutcome k) where
 
 -- | Equal when of one step and one leg, with equal reports.
 instance (StepSet k) => Eq (SomeOutcome k) where
-    SomeOutcome s leg o == SomeOutcome s' leg' o' = case (sameStep s s', leg, leg') of
-        (Just Refl, ByExit, ByExit) -> o == o'
-        (Just Refl, ByContinuing, ByContinuing) -> o == o'
-        (Just Refl, BySkip, BySkip) -> o == o'
-        (Just Refl, ByInl, ByInl) -> o == o'
-        (Just Refl, ByInr, ByInr) -> o == o'
-        _ -> False
+    SomeOutcome s leg o == SomeOutcome s' leg' o' = case sameStep s s' of
+        Nothing -> False
+        Just Refl -> case (leg, leg') of
+            (ByExit, ByExit) -> o == o'
+            (ByExit, _) -> False
+            (ByContinuing, ByContinuing) -> o == o'
+            (ByContinuing, _) -> False
+            (BySkip, BySkip) -> o == o'
+            (BySkip, _) -> False
+            (ByInl, ByInl) -> o == o'
+            (ByInl, _) -> False
+            (ByInr, ByInr) -> o == o'
+            (ByInr, _) -> False
 
 -- | The packing 'pack' does per outcome, where the leg must fit the step.
 packed :: forall k (s :: k) l. (Fits (Sig s) l) => Sing s -> Outcome s l -> SomeOutcome k

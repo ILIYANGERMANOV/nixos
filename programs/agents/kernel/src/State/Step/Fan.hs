@@ -72,9 +72,11 @@ instance StepSet FanStep where
 
     sameStep a b = case (a, b) of
         (Breakdown, Breakdown) -> Just Refl
+        (Breakdown, _) -> Nothing
         (FanOut _, FanOut _) -> Just Refl
+        (FanOut _, _) -> Nothing
         (Merge, Merge) -> Just Refl
-        _ -> Nothing
+        (Merge, _) -> Nothing
 
     pack = \case
         o@(BreakdownDone _) -> packed Breakdown o

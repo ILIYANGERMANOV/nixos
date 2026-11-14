@@ -78,11 +78,15 @@ instance StepSet ShipStep where
 
     sameStep a b = case (a, b) of
         (Describe, Describe) -> Just Refl
+        (Describe, _) -> Nothing
         (SimplifyPR, SimplifyPR) -> Just Refl
+        (SimplifyPR, _) -> Nothing
         (AwaitCi, AwaitCi) -> Just Refl
+        (AwaitCi, _) -> Nothing
         (FixPR, FixPR) -> Just Refl
+        (FixPR, _) -> Nothing
         (Ready, Ready) -> Just Refl
-        _ -> Nothing
+        (Ready, _) -> Nothing
 
     pack = \case
         o@(DescribeDone _) -> packed Describe o

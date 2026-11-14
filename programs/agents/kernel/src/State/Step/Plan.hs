@@ -67,10 +67,13 @@ instance StepSet PlanStep where
 
     sameStep a b = case (a, b) of
         (PlanS, PlanS) -> Just Refl
+        (PlanS, _) -> Nothing
         (SimplifyP, SimplifyP) -> Just Refl
+        (SimplifyP, _) -> Nothing
         (Alternative, Alternative) -> Just Refl
+        (Alternative, _) -> Nothing
         (Confirm, Confirm) -> Just Refl
-        _ -> Nothing
+        (Confirm, _) -> Nothing
 
     pack = \case
         o@(PlanDone _) -> packed PlanS o

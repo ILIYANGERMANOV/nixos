@@ -67,6 +67,9 @@ How to extend it; the compiler and `parseSteps` name what is missing:
 - **A step:** a constructor in its layer's module under `State/Step/` (its
   `Sing`, `Sig` and `Outcome` cases), its row in `flows/steps.nix`, and its
   arm in `State/Run/Fold.hs`'s match on `Layer` if its outcome carries data.
+  A step a lead records by hand also needs an entry in `recordables` in
+  `State/Protocol/Record.hs` (the CLI parser), and one a mode skips an entry
+  in `skipOutcome` in `State/Protocol/Advice.hs`.
 - **A layer:** its module under `State/Step/`, then in `State/Step/Catalog.hs`
   a `Layer` constructor, a `KnownLayer` instance and an entry in `layers`, then
   the arms the compiler asks for.

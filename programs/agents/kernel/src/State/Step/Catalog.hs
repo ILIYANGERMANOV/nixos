@@ -72,12 +72,17 @@ data SomeLayer where
 sameLayer :: Layer a -> Layer b -> Maybe (a :~: b)
 sameLayer a b = case (a, b) of
     (GatherLayer, GatherLayer) -> Just Refl
+    (GatherLayer, _) -> Nothing
     (PlanLayer, PlanLayer) -> Just Refl
+    (PlanLayer, _) -> Nothing
     (BuildLayer, BuildLayer) -> Just Refl
+    (BuildLayer, _) -> Nothing
     (ReviewLayer, ReviewLayer) -> Just Refl
+    (ReviewLayer, _) -> Nothing
     (ShipLayer, ShipLayer) -> Just Refl
+    (ShipLayer, _) -> Nothing
     (FanLayer, FanLayer) -> Just Refl
-    _ -> Nothing
+    (FanLayer, _) -> Nothing
 
 -- | A step's outcome, or a mode's skip, with the layer it is of.
 data AnyOutcome where

@@ -53,8 +53,9 @@ instance StepSet GatherStep where
 
     sameStep a b = case (a, b) of
         (Research, Research) -> Just Refl
+        (Research, _) -> Nothing
         (Interview, Interview) -> Just Refl
-        _ -> Nothing
+        (Interview, _) -> Nothing
 
     pack = \case
         o@(ResearchDone _) -> packed Research o
