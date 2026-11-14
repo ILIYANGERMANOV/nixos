@@ -2352,9 +2352,7 @@ class TestStateCtx:
             1,
             "state next; state record nope 2>&1 | cat",
             2,
-            outcome=Outcome(
-RECORD_NOPE + "SPAWN fixer"
-            ),
+            outcome=Outcome(RECORD_NOPE + "SPAWN fixer"),
         )
         home.session("s1", main)
         # When
