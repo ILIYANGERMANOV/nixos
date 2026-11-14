@@ -17,9 +17,10 @@ set -euo pipefail
 # macOS's local network privacy keeps a Nix-built ssh off the LAN ("No route
 # to host"), and a ThinkPad is installed over the LAN: nixos-anywhere runs the
 # first ssh and ssh-copy-id on PATH, so they must be the system's.
-if [ "$(uname)" = Darwin ]; then
-  PATH="/usr/bin:$PATH"
-fi
+case "$OSTYPE" in
+  darwin*) PATH="/usr/bin:$PATH" ;;
+  *) ;;
+esac
 host=$1
 ip=$2
 platform=$(bash "$(dirname "$0")/factory-host.sh" "$host")
