@@ -93,8 +93,8 @@ program needs a flake input.
    `python-tests` and `shell-embedded` for `programs/claude-code`, `shell-tests` for `programs/skills-link`, every
    `nvim-*` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `shell-tests`,
-   `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`, `just tech haskell` for
-   `programs/agents/kernel`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
+   `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
+   `.claude/rules/haskell.md` for Haskell, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old`, `software-factory`) or
