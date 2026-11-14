@@ -12,7 +12,7 @@ import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
-import State.Step.Artifact (Commit, DraftPr (..), Sha, branchText, commitData, commitOf, draftOf, headData, headOf, urlText)
+import State.Step.Artifact (Commit, DraftPr, Sha, commitData, commitOf, draftData, draftOf, headData, headOf)
 
 type data BuildStep = Draft | Implement | Refactor
 
@@ -71,7 +71,7 @@ instance StepSet BuildStep where
         o@(RefactorSkipped _) -> packed Refactor o
 
     encodeOutcome = \case
-        DraftDone draft -> "url" .= urlText draft.url <> "base" .= branchText draft.base <> "branch" .= branchText draft.branch
+        DraftDone draft -> draftData draft
         ImplementDone commit -> commitData commit
         RefactorDone sha -> headData sha
         RefactorSkipped why -> "why" .= why

@@ -92,8 +92,7 @@ whole p =
         , loops = Map.mapMaybe (\at -> if Set.member at.entry reached then Just at {body = Set.intersection at.body reached} else Nothing) p.loops
         }
   where
-    inPort = case p.inPorts Here of
-        Enters place -> place
+    inPort = entryOf p
     edges = fmap (fmap node) p.edges
     reached = reachable inPort edges
     node = \case
@@ -233,7 +232,7 @@ summandTys (Branches _ _) = (tyVal @a, tyVal @b)
 -- | The body's continue goes back to its in port; its exit is the loop's out.
 closeLoop :: (NotSum a, NotSum b) => LoopId -> Empty -> Part a a -> Either Clash (Part a b)
 closeLoop loopId onEmpty body = do
-    loops <- unionLoops body.loops (Map.singleton loopId (LoopAt entry onEmpty (partPlaces body)))
+    loops <- unionLoops body.loops (Map.singleton loopId (LoopAt entry onEmpty (sources body.edges)))
     pure Part {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops}
   where
     entry = entryOf body
@@ -285,10 +284,11 @@ fanOut fan _ =
 
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.
 places :: OpenGraph -> Set Place
-places g = Set.fromList (map fst (Map.keys g.edges))
+places g = sources g.edges
 
-partPlaces :: Part i o -> Set Place
-partPlaces p = Set.fromList (map fst (Map.keys p.edges))
+-- | The states these edges leave.
+sources :: Map (Place, EventName) a -> Set Place
+sources edges = Set.fromList (map fst (Map.keys edges))
 
 -- | Prefixes every path, so the part can sit beside another.
 within :: Int -> Part i o -> Part i o

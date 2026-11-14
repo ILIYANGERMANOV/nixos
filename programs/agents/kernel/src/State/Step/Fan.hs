@@ -10,13 +10,13 @@ module State.Step.Fan (
     Outcome (..),
 ) where
 
-import Data.Aeson ((.:), (.=))
+import Data.Aeson ((.:))
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Flow (FanEvent (Leaves), FanId, fanEvent, fanName)
 import State.Category.Step
 import State.Category.Ty (Ty (..))
-import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlOf, urlText)
+import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
 
 {- | 'FanOut' is the state a 'State.Category.Flow.Par' draws, named by its
 fan-out: a step of this layer for its outcome, never one 'State.Category.Flow.Do' draws.
@@ -84,7 +84,7 @@ instance StepSet FanStep where
     encodeOutcome = \case
         BreakdownDone tasks -> tasksData tasks
         FanDone _ -> mempty
-        MergeDone url -> "url" .= urlText url
+        MergeDone url -> urlData url
 
     decoders =
         [Decoder Breakdown (\obj -> BreakdownDone <$> (obj .: "tasks" >>= breakdownOf))]

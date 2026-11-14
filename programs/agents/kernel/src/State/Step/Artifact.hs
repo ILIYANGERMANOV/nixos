@@ -28,6 +28,8 @@ module State.Step.Artifact (
     judgementText,
     areaText,
     headData,
+    urlData,
+    draftData,
     commitData,
     picksData,
     tasksData,
@@ -177,6 +179,12 @@ areaText = \case
 
 headData :: Sha -> Series
 headData sha = "head" .= shaText sha
+
+urlData :: Url -> Series
+urlData url = "url" .= urlText url
+
+draftData :: DraftPr -> Series
+draftData draft = urlData draft.url <> "base" .= branchText draft.base <> "branch" .= branchText draft.branch
 
 commitData :: Commit -> Series
 commitData commit = headData commit.head <> "touches" .= map areaText (Set.toList commit.touches)

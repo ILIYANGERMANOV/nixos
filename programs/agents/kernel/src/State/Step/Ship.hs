@@ -13,7 +13,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
-import State.Step.Artifact (Check (..), Sha, Url, headData, headOf, urlOf, urlText)
+import State.Step.Artifact (Check (..), Sha, Url, headData, headOf, urlData, urlOf)
 
 type data ShipStep = Describe | SimplifyPR | AwaitCi | FixPR | Ready
 
@@ -101,8 +101,8 @@ instance StepSet ShipStep where
         AwaitCiGreen sha -> headData sha
         AwaitCiRed sha failing -> headData sha <> "failing" .= map (\(Check check) -> check) (NonEmpty.toList failing)
         FixPrDone sha -> headData sha
-        ReadyDone url -> "url" .= urlText url
-        ReadySkipped url -> "url" .= urlText url
+        ReadyDone url -> urlData url
+        ReadySkipped url -> urlData url
 
     decoders =
         [ Decoder Describe (fmap DescribeDone . headOf)

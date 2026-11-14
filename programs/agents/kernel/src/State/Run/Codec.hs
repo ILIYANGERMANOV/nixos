@@ -93,7 +93,7 @@ import State.Run.Event (
     runIdText,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (areaText, branchText, decodeBreakdown, judgementText, named, shaText, taskIdText, topicText, urlText)
+import State.Step.Artifact (areaText, branchText, decodeBreakdown, judgementText, named, shaText, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Catalog (outcomeData, outcomeDecoders, outcomeEvent)
 import System.FilePath ((</>))
 
@@ -259,8 +259,8 @@ eventData = \case
     Resumed child -> "child" .= runIdText child
     HandedBack child said -> "child" .= runIdText child <> saidData said
     TaskMoved task moved -> "task" .= taskIdText task <> taskStateData moved
-    Held task url -> "task" .= taskIdText task <> "url" .= urlText url
-    ActedOn task url -> "task" .= taskIdText task <> "url" .= urlText url
+    Held task url -> "task" .= taskIdText task <> urlData url
+    ActedOn task url -> "task" .= taskIdText task <> urlData url
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
   where
     qidData qid = "qid" .= qidText qid
@@ -284,8 +284,8 @@ eventOf kind obj = case kind of
     "resumed" -> Resumed <$> childOf obj
     "handed_back" -> HandedBack <$> childOf obj <*> saidOf obj
     "task" -> TaskMoved <$> taskOf obj <*> taskStateOf obj
-    "held" -> Held <$> taskOf obj <*> (Url <$> obj .: "url")
-    "acted" -> ActedOn <$> taskOf obj <*> (Url <$> obj .: "url")
+    "held" -> Held <$> taskOf obj <*> urlOf obj
+    "acted" -> ActedOn <$> taskOf obj <*> urlOf obj
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     _ -> case Map.lookup kind outcomeParsers of
         Just parser -> Took <$> parser obj
