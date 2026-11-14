@@ -38,7 +38,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
-import State.Category.Step (EventName, Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), continueEvent, exitEvent, skipEvent, stateNameText)
+import State.Category.Step (EventName (..), Sing, outcomeNames, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), continueEvent, exitEvent, skipEvent, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (readyState, stopLine)
 import State.Protocol.Record (recordCommand)
@@ -288,11 +288,7 @@ prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$>
 
 -- | The record line for each of a step's outcomes, exit first.
 recordOutcomes :: (StepSet k) => Sing (s :: k) -> Text
-recordOutcomes s = Text.intercalate " | " (map recordCommand events)
-  where
-    events = case outcomes s of
-        Continues _ -> [continueEvent s]
-        ExitsOr _ _ -> [exitEvent s, continueEvent s]
+recordOutcomes s = Text.intercalate " | " [recordCommand (EventName (stepName s) outcome) | outcome <- outcomeNames (outcomes s)]
 
 recordOne :: Text -> [Text] -> Text
 recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"

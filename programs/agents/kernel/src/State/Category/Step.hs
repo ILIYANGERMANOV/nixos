@@ -30,6 +30,7 @@ module State.Category.Step (
     stateNameText,
     OutcomeName (..),
     Outcomes (..),
+    outcomeNames,
     EventName (..),
     eventText,
     continueEvent,
@@ -45,7 +46,7 @@ import Data.Kind (Type)
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
-import State.Category.Ty (KnownTy, Ty (..))
+import State.Category.Ty (KnownTy, NotSum, Ty (..))
 
 {- | A step's signature: @(in, exit, continue)@. Only an endo step (@in ~
 continue@, no exit) can sit under 'State.Category.Flow.Opt', so the steps a
@@ -97,7 +98,7 @@ class (forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), fo
     {- | The names of the step's exit and continuing outcomes. None is
     @skipped@: that word is the event a skip appends.
     -}
-    outcomes :: Sing (s :: k) -> Outcomes (ExitOf (Sig s))
+    outcomes :: Sing (s :: k) -> Outcomes (ExitOf (Sig s)) (CodOf (Sig s))
 
     special :: Sing (s :: k) -> Special
 
@@ -111,21 +112,27 @@ class (forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), fo
     -- | A reader per outcome of the layer, each keyed by the event it reads.
     decoders :: [Decoder k]
 
--- | How a step ends: by its exit, by continuing, or skipped by a mode.
-data Leg = Exited | Continued | Skipped
+{- | How a step ends: by its exit, by continuing, skipped by a mode, or, when
+its out is a sum, by continuing into its left or right summand.
+-}
+data Leg = Exited | Continued | Skipped | Inl | Inr
     deriving stock (Eq, Show)
 
 -- | The proof a leg fits a signature: matching it recovers the signature's shape.
 data LegOf (sig :: Sig3) (l :: Leg) where
     ByExit :: LegOf '(i, 'Just x, o) 'Exited
-    ByContinuing :: LegOf '(i, e, o) 'Continued
+    ByContinuing :: (NotSum o) => LegOf '(i, e, o) 'Continued
     BySkip :: LegOf '(i, 'Nothing, i) 'Skipped
+    ByInl :: LegOf '(i, e, a ':+ b) 'Inl
+    ByInr :: LegOf '(i, e, a ':+ b) 'Inr
 
 deriving stock instance Show (LegOf sig l)
 
 {- | The legs a signature has: an exit only with an exit type, a skip only on
-an endo step with none. A refusal names the signature, where GHC would
-print a missing instance.
+an endo step with none, a plain continue only into one type and 'Inl' or
+'Inr' only into a sum. A refusal names the signature or the sum, where GHC
+would print a missing instance; 'Inl' or 'Inr' into one type is the missing
+instance itself, which names the signature too.
 -}
 class Fits (sig :: Sig3) (l :: Leg) where
     legOf :: LegOf sig l
@@ -136,8 +143,14 @@ instance Fits '(i, 'Just x, o) 'Exited where
 instance (Unsatisfiable ('Text "Outcome leg Exited does not fit step signature " ':<>: 'ShowType '(i, 'Nothing, o))) => Fits '(i, 'Nothing, o) 'Exited where
     legOf = unsatisfiable
 
-instance Fits '(i, e, o) 'Continued where
+instance (NotSum o) => Fits '(i, e, o) 'Continued where
     legOf = ByContinuing
+
+instance Fits '(i, e, a ':+ b) 'Inl where
+    legOf = ByInl
+
+instance Fits '(i, e, a ':+ b) 'Inr where
+    legOf = ByInr
 
 -- | A skip on a step that changes the type fails on @i ~ o@: GHC names both types.
 instance (i ~ o) => Fits '(i, 'Nothing, o) 'Skipped where
@@ -159,6 +172,8 @@ instance (StepSet k) => Eq (SomeOutcome k) where
         (Just Refl, ByExit, ByExit) -> o == o'
         (Just Refl, ByContinuing, ByContinuing) -> o == o'
         (Just Refl, BySkip, BySkip) -> o == o'
+        (Just Refl, ByInl, ByInl) -> o == o'
+        (Just Refl, ByInr, ByInr) -> o == o'
         _ -> False
 
 -- | The packing 'pack' does per outcome, where the leg must fit the step.
@@ -178,6 +193,10 @@ legEvent s = \case
     ByExit -> exitEvent s
     ByContinuing -> continueEvent s
     BySkip -> skipEvent s
+    ByInl -> case outcomes s of
+        Branches left _ -> EventName (stepName s) left
+    ByInr -> case outcomes s of
+        Branches _ right -> EventName (stepName s) right
 
 {- | The reader of one outcome. Its key is derived from the type it reads, so
 a reader cannot sit under another outcome's name.
@@ -220,11 +239,23 @@ stateNameText (StateName name) = name
 newtype OutcomeName = OutcomeName Text
     deriving stock (Eq, Ord, Show)
 
--- | A step's outcome names, indexed by its exit.
-data Outcomes (e :: Maybe Ty) where
-    Continues :: OutcomeName -> Outcomes 'Nothing
+{- | A step's outcome names, indexed by its exit and its out. A step that
+branches continues into either summand, each one type, and has no exit:
+no step needs both yet.
+-}
+data Outcomes (e :: Maybe Ty) (o :: Ty) where
+    Continues :: (NotSum o) => OutcomeName -> Outcomes 'Nothing o
     -- | The exit outcome, then the continuing one.
-    ExitsOr :: (KnownTy x) => OutcomeName -> OutcomeName -> Outcomes ('Just x)
+    ExitsOr :: (KnownTy x, NotSum o) => OutcomeName -> OutcomeName -> Outcomes ('Just x) o
+    -- | The outcome into the left summand, then the one into the right.
+    Branches :: (KnownTy a, KnownTy b, NotSum a, NotSum b) => OutcomeName -> OutcomeName -> Outcomes 'Nothing (a ':+ b)
+
+-- | Every outcome name, exit first.
+outcomeNames :: Outcomes e o -> [OutcomeName]
+outcomeNames = \case
+    Continues continue -> [continue]
+    ExitsOr exit continue -> [exit, continue]
+    Branches left right -> [left, right]
 
 -- | An event of a run, @<step>.<outcome>@ on the wire, such as @review.rows@.
 data EventName = EventName {step :: StateName, outcome :: OutcomeName}
@@ -233,8 +264,8 @@ data EventName = EventName {step :: StateName, outcome :: OutcomeName}
 eventText :: EventName -> Text
 eventText (EventName (StateName step) (OutcomeName outcome)) = step <> "." <> outcome
 
--- | The event a step's continuing outcome appends.
-continueEvent :: (StepSet k) => Sing (s :: k) -> EventName
+-- | The event a step's continuing outcome appends: a step that branches has two, by 'Inl' and 'Inr'.
+continueEvent :: (StepSet k, NotSum (CodOf (Sig s))) => Sing (s :: k) -> EventName
 continueEvent s = EventName (stepName s) $ case outcomes s of
     Continues continue -> continue
     ExitsOr _ continue -> continue

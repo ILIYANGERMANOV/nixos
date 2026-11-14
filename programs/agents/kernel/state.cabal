@@ -135,6 +135,7 @@ test-suite state-test
     State.E2ESpec
     State.Flow.EngineerSpec
     State.Flow.TenXSpec
+    State.Flow.Triage
     State.Golden
     State.Protocol.AdviceSpec
     State.Protocol.HandbackSpec

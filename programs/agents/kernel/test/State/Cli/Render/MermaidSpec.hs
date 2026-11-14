@@ -4,9 +4,11 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (Flow (..))
 import State.Category.Graph (graph)
+import State.Category.Ty (NotSum)
 import State.Cli.Render.Mermaid (mermaid)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
+import State.Flow.Triage (triaged)
 import State.Golden (golden)
 import State.Step.Build (Sing (..))
 import State.Step.Review (Sing (..))
@@ -20,6 +22,9 @@ spec = describe "State.Cli.Render.Mermaid" $ do
     it "draws the 10x flow" $
         golden "10x.mmd" (render tenX)
 
+    it "draws a flow that branches, one edge per summand" $
+        golden "triage.mmd" (render triaged)
+
     it "tells apart two states of one step by their place in the flow" $
         render (Do Refactor :> Do Fix :> Do Refactor)
             `shouldBe` Text.unlines
@@ -31,5 +36,5 @@ spec = describe "State.Cli.Render.Mermaid" $ do
                 , "  refactor_1_1 --> [*]: done"
                 ]
 
-render :: Flow i e o -> Text
+render :: (NotSum i, NotSum o) => Flow i e o -> Text
 render = either (Text.pack . show) mermaid . graph

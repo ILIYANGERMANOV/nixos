@@ -25,7 +25,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomes, skippedOutcome, stateNameText, stepName)
+import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, outcomeNames, SomeStep (..), StateName (..), StepSet, eventText, outcomes, skippedOutcome, stateNameText, stepName)
 import State.Category.Ty (KnownTy (..), Ty (..))
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)
@@ -116,11 +116,7 @@ namingProblems steps readers declared =
 
 -- | A step's events: its exit and continuing ones, and its skip if it has one.
 stepEvents :: (StepSet k) => Sing (s :: k) -> Bool -> [EventName]
-stepEvents s skips = map (EventName (stepName s)) (names <> [skippedOutcome | skips])
-  where
-    names = case outcomes s of
-        Continues continue -> [continue]
-        ExitsOr exit continue -> [exit, continue]
+stepEvents s skips = map (EventName (stepName s)) (outcomeNames (outcomes s) <> [skippedOutcome | skips])
 
 check :: Map StateName Written -> AnyStep -> Either [Text] (StateName, Row)
 check rows (AnyStep _ (SomeStep s)) = case Map.lookup name rows of
@@ -137,15 +133,11 @@ mismatches s written =
     | (field, actual, expected) <-
         [ ("dom", written.dom, tyText (tyVal @(DomOf (Sig s))))
         , ("cod", written.cod, tyText (tyVal @(CodOf (Sig s))))
-        , ("exit", fromMaybe "null" written.exit, maybe "null" tyText exitTy)
-        , ("outcomes", Text.unwords written.outcomes, Text.unwords [outcome | OutcomeName outcome <- names])
+        , ("exit", fromMaybe "null" written.exit, maybe "null" tyText (exitOf (outcomes s)))
+        , ("outcomes", Text.unwords written.outcomes, Text.unwords [outcome | OutcomeName outcome <- outcomeNames (outcomes s)])
         ]
     , actual /= expected
     ]
-  where
-    (exitTy, names) = case outcomes s of
-        Continues continue -> (Nothing, [continue])
-        exits@(ExitsOr exitName continue) -> (Just (exitOf exits), [exitName, continue])
 
 {- | Every way a row's roles miss the registry ("State.Role"): each flow it
 names is a role's, and its runner leads no flow, since a lead runs its own
@@ -158,8 +150,11 @@ roleProblems written =
   where
     leads = map (\def -> roleText def.name) roles
 
-exitOf :: forall x. Outcomes ('Just x) -> Ty
-exitOf (ExitsOr _ _) = tyVal @x
+exitOf :: forall e o. Outcomes e o -> Maybe Ty
+exitOf = \case
+    Continues _ -> Nothing
+    ExitsOr @x _ _ -> Just (tyVal @x)
+    Branches _ _ -> Nothing
 
 -- | As the table spells a type: @[Ctx]@ for a list.
 tyText :: Ty -> Text
@@ -169,6 +164,7 @@ tyText = \case
     Diff -> "Diff"
     PR -> "PR"
     List t -> "[" <> tyText t <> "]"
+    a :+ b -> "(" <> tyText a <> " + " <> tyText b <> ")"
 
 -- | The runner sum: an inline step has no lead, a role's step has one.
 runnerOf :: Text -> Maybe Text -> Either Text Runner

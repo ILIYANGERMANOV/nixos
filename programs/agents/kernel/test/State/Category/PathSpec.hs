@@ -37,7 +37,7 @@ spec = describe "State.Category.Path" $ do
         from (EventName (StateName "research") (OutcomeName "skipped")) `shouldNotBe` Nothing
 
 -- | A built flow and one of its skip edges.
-genSkip :: Gen (OpenGraph, (Place, EventName, Edge))
+genSkip :: Gen (OpenGraph, (Place, EventName, Edge Node))
 genSkip = do
     (g, skips) <- Gen.mapMaybe withSkips genFlow
     skip <- Gen.element skips

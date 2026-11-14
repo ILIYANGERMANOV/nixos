@@ -11,7 +11,7 @@ import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), P
 import State.Category.Step (EventName, OutcomeEdge)
 
 -- | The one edge an event takes from a state, if the flow has it there.
-step :: OpenGraph -> Place -> EventName -> Maybe Edge
+step :: OpenGraph -> Place -> EventName -> Maybe (Edge Node)
 step g place event = Map.lookup (place, event) g.edges
 
 {- | The functor @ty@ on the path the events walk from the in port: each

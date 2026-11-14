@@ -10,15 +10,17 @@ module State.Category.FlowSpec (spec) where
 import Control.Exception (TypeError (..), evaluate, try)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..))
+import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
 import State.Category.Graph (graph)
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
+import State.Flow.Triage (Sing (..))
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..))
 import State.Step.Gather (Sing (..))
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
+import State.Step.Ship (Sing (..))
 import Test.Hspec (Expectation, Spec, describe, expectationFailure, it)
 
 spec :: Spec
@@ -59,6 +61,19 @@ spec = describe "State.Category.Flow" $ do
                 "A fan-out's state is drawn by Par, not Do"
                 (Do (FanOut FEngineers))
 
+        it "a case after a step whose out is not a sum" $
+            rejected
+                "Couldn't match type ‘State.Category.Ty.Diff’ with ‘State.Category.Ty.Diff State.Category.Ty.:+ State.Category.Ty.Plan’"
+                (Do Fix :> (Do Describe ||| Do Implement :> Do Describe))
+
+        {- A class constraint, unlike an equality, is evidence the term only
+        carries: 'graph' forces it where it draws the skip.
+        -}
+        it "an optional block over a sum: its skip would be one edge for two summands" $
+            rejectedShown
+                "A sum State.Category.Ty.Diff State.Category.Ty.:+ State.Category.Ty.Plan where one type is needed"
+                (graph (Do Triage :> Opt ORefactor (inl ||| inr) :> (Do Describe ||| Do Implement :> Do Describe)))
+
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $
             rejectedShown
@@ -80,14 +95,14 @@ spec = describe "State.Category.Flow" $ do
                 "Couldn't match type ‘State.Step.Review.Fix’ with ‘State.Step.Review.Review’"
                 (outcomeEvent (packed Review (FixDone (Commit (Sha "") Set.empty))))
 
-{- | The deferred error fires when the term is built, which 'graph' forces.
+{- | The deferred error fires when the term is built, which 'show' forces.
 The trivial constraint keeps GHC from binding the error outside the term,
 where it would fire as the spec is built (the trick of should-not-typecheck).
 The fragment is part of GHC's headline, so an unrelated error does not pass;
 the lines after it quote the call, fragment included, so they are left out.
 -}
 rejected :: String -> ((() ~ ()) => Flow i e o) -> Expectation
-rejected fragment term = rejectedShown fragment (graph term)
+rejected = rejectedShown
 
 -- | An outcome of this step by this leg, which no constructor need declare: the test never forces it.
 by :: forall l k (s :: k). Sing s -> Outcome s l

@@ -6,6 +6,7 @@ module State.Category.FlowGen (
     genEndo,
     genExiting,
     genFlow,
+    genBranching,
     genWalk,
     genWalkTo,
     pathTo,
@@ -19,11 +20,12 @@ import Data.Set qualified as Set
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (FanId (..), Flow (..), OnEmpty (..))
+import State.Category.Flow (FanId (..), Flow (..), OnEmpty (..), inl, inr, (|||))
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Mode (Cfg (..), Mode, SkipWhen (..), cfg, modes)
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (NotSum, Ty (..))
+import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..))
 import State.Step.Gather (Sing (..))
@@ -58,7 +60,21 @@ genFlow = do
             ]
     pure (ctx :> Do PlanS :> plan :> rest)
 
-genEndo :: Kit a -> Gen (Flow a 'Nothing a)
+{- | A term from @Diff@ to @PR@ that branches: a triage whose two branches go
+on, or an injection into a case, whose other branch no run takes.
+-}
+genBranching :: Gen (Flow 'Diff 'Nothing 'PR)
+genBranching =
+    Gen.recursive
+        Gen.choice
+        [pure (Do Describe)]
+        [ (:>) <$> genEndo diffKit <*> genBranching
+        , (\small big -> Do Triage :> (small ||| Do Implement :> big)) <$> genBranching <*> genBranching
+        , (\f g -> inl :> (f ||| g)) <$> genBranching <*> genBranching
+        , (\f g -> inr :> (f ||| g)) <$> genBranching <*> genBranching
+        ]
+
+genEndo :: (NotSum a) => Kit a -> Gen (Flow a 'Nothing a)
 genEndo kit =
     Gen.recursive
         Gen.choice
@@ -70,7 +86,7 @@ genEndo kit =
         )
 
 -- | A term with an exit, an exiting step glued on either side of an endo term.
-genExiting :: Kit a -> Gen (Flow a ('Just a) a)
+genExiting :: (NotSum a) => Kit a -> Gen (Flow a ('Just a) a)
 genExiting kit =
     Gen.choice
         [ (:>) <$> Gen.element kit.exiting <*> genEndo kit
