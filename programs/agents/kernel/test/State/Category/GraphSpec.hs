@@ -6,13 +6,14 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), OnEmpty (..))
+import State.Category.Flow (Flow (..))
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo)
 import State.Category.Fuel (SkipWhen (..), always)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
-import State.Category.Ty (NotSum)
+import State.Category.Ty (NotSum, Ty (..))
 import State.Step.Gather (Sing (..))
 import State.Step.Ship (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -61,8 +62,16 @@ spec = describe "State.Category.Graph" $ do
         [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
 
     it "refuses a loop id used twice: their rounds would mix" $
-        graph (Loop "ci" (always 2) ExitOut (Do AwaitCi :> Loop "ci" (always 2) ExitOut (Do AwaitCi :> Do FixPR)))
+        graph (Loop "ci" (Do AwaitCi :> Loop "ci" (Do AwaitCi :> fixCapped) :> fixCapped))
             `shouldBe` Left (SameLoop "ci")
+
+    it "refuses a loop whose body caps no step: nothing bounds it" $
+        graph (Loop "ci" (Do AwaitCi :> Do FixPR))
+            `shouldBe` Left (Unbounded "ci")
+
+    it "refuses a loop whose only cap is a nested loop's: it starts afresh each time" $
+        graph (Loop "outer" (Do AwaitCi :> Loop "ci" (Do AwaitCi :> fixCapped)))
+            `shouldBe` Left (Unbounded "outer")
 
     it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
         graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))
@@ -93,9 +102,10 @@ endOf g = foldM next (At g.inPort)
 arrows :: Flow i e o -> Int
 arrows = \case
     Do s -> length (outcomeNames (outcomes s))
+    Capped _ _ s -> length (outcomeNames (outcomes s))
     f :> g -> arrows f + arrows g
     Id -> 0
-    Loop _ _ _ body -> arrows body
+    Loop _ body -> arrows body
     Opt _ _ body -> 1 + arrows body
     Par _ _ -> 3
     InL -> 0
@@ -103,3 +113,7 @@ arrows = \case
     f :||| g -> arrows f + arrows g
     Catch body -> arrows body
     Scope _ body -> arrows body
+
+-- | A fix of a red CI, capped as the ship flow caps it.
+fixCapped :: Flow 'PR 'Nothing 'PR
+fixCapped = Capped (always (UpTo 5)) Stop FixPR

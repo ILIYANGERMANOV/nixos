@@ -9,6 +9,7 @@ module State.Step.Plan (
 
 import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
+import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 
@@ -90,3 +91,11 @@ instance StepSet PlanStep where
 deriving stock instance Show (Sing (s :: PlanStep))
 deriving stock instance Show (Outcome (s :: PlanStep) l)
 deriving stock instance Eq (Outcome (s :: PlanStep) l)
+
+-- | Each adjusted plan: another round of gathering and proposing.
+instance Meter Confirm where
+    meterName Confirm = "Plan rounds"
+    spends Confirm = \case
+        Ends _ ConfirmAdjusted -> 1
+        Ends _ ConfirmConfirmed -> 0
+        Asks -> 0

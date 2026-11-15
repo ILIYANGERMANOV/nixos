@@ -55,13 +55,8 @@ spec = describe "State.Category.Fuel" $ do
     it "puts a cfg at or below itself" $
         cfgLeq base base `shouldBe` True
 
-    it "puts no cfg below one that has fewer questions or areas" $
-        map
-            (cfgLeq base)
-            [ base {asks = 0}
-            , base {areas = Set.empty}
-            ]
-            `shouldBe` [False, False]
+    it "puts no cfg below one that has fewer areas" $
+        cfgLeq base base {areas = Set.empty} `shouldBe` False
   where
     base = cfg Balanced
     levels = [minBound .. maxBound]

@@ -18,14 +18,16 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
-import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName, StepSet (stepName), stateNameText)
-import State.Flow.Library (fixLoop, gatherLoop)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
 import State.Show (tshow)
 import State.Step.Build (Sing (Refactor))
+import State.Step.Gather (Sing (Research))
+import State.Step.Review (Sing (Pick))
 import State.Step.Catalog (AnyStep (..), stepNamed)
 import State.Table (Row (runner), Runner (..), Steps, row)
 
@@ -52,25 +54,24 @@ states g steps =
         Out -> "end"
         Exit -> "exit"
 
-{- | The engineer's rows of the Fuel table: the steps a level lets the agent
-skip or repeats, read off the flow's graph, which carries its term's
-budgets, and 'cfg', with each level's depth prose after it. A step the flow
-draws as optional ('Skip' arrow) is skippable by its state's name. A loop
-round after the first is a re-run: a re-review, a research round.
+{- | The engineer's rows of the Fuel table: the meters a level caps
+differently, the steps it lets the agent skip, read off the flow's graph,
+which carries its term's budgets, and 'cfg', with each level's depth prose
+after it. A meter is a row by its name, in the flow's order; one capped
+alike at every level is no row. A step the flow draws as optional ('Skip'
+arrow) is skippable by its state's name.
 -}
 fuel :: OpenGraph -> Text
 fuel g =
-    rows
-        [ "Research rounds after the first" : map (\level -> "up to " <> tshow (reRuns level gatherLoop)) levels
-        , "Interview questions" : map (\level -> "up to " <> tshow (cfg level).asks) levels
-        , "Skippable when trivial" : map skippable levels
-        , "Refactor" : map (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level) levels
-        , "Re-reviews" : map (\level -> "up to " <> tshow (reRuns level fixLoop) <> reReviewDepth level) levels
-        , "Full review of a fix to" : map (areasText . (.areas) . cfg) levels
-        ]
+    rows $
+        [someMeterName cap.meter : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels | cap <- Map.elems g.caps, varies cap.limit]
+            <> [ "Skippable when trivial" : map skippable levels
+               , "Refactor" : map (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level) levels
+               , "Full review of a fix to" : map (areasText . (.areas) . cfg) levels
+               ]
   where
     levels = [minBound .. maxBound]
-    reRuns level loop = maybe 0 (pred . atFuel level . (.rounds)) (Map.lookup loop g.loops)
+    varies limit = nub (map (`atFuel` limit) levels) /= [atFuel Low limit]
     -- An 'Opt' draws as a skip arrow out of its first state.
     optSteps :: [(StateName, PerFuel SkipWhen)]
     optSteps = nub [(from.name, skips) | ((from, _), Edge {arrow = Skip _ skips}) <- Map.toList g.edges]
@@ -83,6 +84,29 @@ fuel g =
         AtOrBelow most -> "above about " <> tshow most <> " changed lines"
         Skippable -> "unless trivial"
     areasText areas = Text.intercalate ", " [Text.replace "-" " " (areaText area) | area <- [minBound .. maxBound], Set.member area areas]
+
+{- | A meter's cell: what the level allows, and for researchers and
+re-reviews how deep each goes.
+-}
+meterCell :: SomeMeter -> Fuel -> Limit -> Text
+meterCell meter level limit
+    | meter == SomeMeter Research = researchers limit <> researchDepth level
+    | meter == SomeMeter Pick = upTo limit <> reReviewDepth level
+    | otherwise = upTo limit
+  where
+    researchers = \case
+        UpTo 1 -> "1 for all"
+        other -> upTo other
+    upTo = \case
+        UpTo most -> "up to " <> tshow most
+        PerGroup -> "one per group"
+
+-- | How far each researcher goes, beyond how many run.
+researchDepth :: Fuel -> Text
+researchDepth = \case
+    Low -> ", 8 calls, notes past the hand-back limit"
+    Balanced -> ", 15 calls, notes"
+    Max -> ", 30 calls, notes, top 5 facts re-checked"
 
 -- | How deep a refactor goes, beyond whether it runs.
 refactorDepth :: Fuel -> Text

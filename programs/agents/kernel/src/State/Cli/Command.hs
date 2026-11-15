@@ -33,23 +33,21 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
-import State.Category.Flow (nameText)
 import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
-import State.Category.Step (eventText, exitEvent, stateNameText)
-import State.Flow.Library (gatherLoop)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Meter (someMeterName)
+import State.Category.Step (eventText, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
-import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), choices, extendCommand, recordCommand, recordables, usageOf)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), capRecords, choices, recordCommand, recordables, usageOf)
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), childRole, parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Refusal (..), roundOnly)
+import State.Run.Fold (Refusal (..))
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
-import State.Step.Gather (Sing (Interview))
 import State.Table (Steps, agentRoles)
 import System.FilePath (isAbsolute, takeFileName)
 
@@ -357,13 +355,12 @@ explain g fuel at = \case
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
     NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText) (records taken)
     NotSkippable _ -> refused "the skip" "this Fuel never skips the step" (records (not . skips))
-    OutOfRounds loop allowed ->
+    OutOfBudget cap allowed ->
         refused
-            ("another " <> nameText loop <> " round")
-            ("the loop ran its " <> tshow allowed <> " rounds")
-            (outOfRoundsFix loop)
-    OutOfAsks allowed -> refused "another question" ("the interview asked its " <> tshow allowed <> " questions") endOrExtend
-    NotGathering -> refused "extend" ("the run is at " <> atText <> ", in no gather loop") "state next"
+            ("the spend at " <> atText)
+            (someMeterName cap.meter <> " allows " <> tshow allowed <> " at this Fuel, all spent")
+            (atPlace (\place -> capRecords g place cap.atCap))
+    NothingToExtend -> refused "extend" ("the run is at " <> atText <> ", where no budget asks the user to go on") "state next"
     FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
@@ -399,10 +396,11 @@ explain g fuel at = \case
         At place -> stateNameText place.name
         Out -> "the end"
         Exit -> "the end"
-    records keep = case at of
-        At place -> case [recordCommand event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
-            [] -> "state show"
-            commands -> Text.intercalate " | " commands
+    records keep = atPlace $ \place -> case [recordCommand event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
+        [] -> "state show"
+        commands -> Text.intercalate " | " commands
+    atPlace fix = case at of
+        At place -> fix place
         Out -> "state show"
         Exit -> "state show"
     skips edge = case edge.arrow of
@@ -413,12 +411,6 @@ explain g fuel at = \case
         Skip _ when -> atFuel fuel when /= Never
         Along _ -> True
         Stay -> True
-    -- At either gather budget's end the user may go on; another loop ends or stops.
-    outOfRoundsFix loop
-        | loop == gatherLoop = endOrExtend
-        | otherwise = leaveOrStop loop
-    leaveOrStop loop = records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>"
-    endOrExtend = recordCommand (exitEvent Interview) <> " | " <> extendCommand
     stateNames = map (stateNameText . (.name)) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid

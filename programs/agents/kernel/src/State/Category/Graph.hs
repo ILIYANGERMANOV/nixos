@@ -17,15 +17,20 @@ module State.Category.Graph (
     Clash (..),
     graph,
     places,
+    innermost,
+    leaving,
 ) where
 
+import Data.Foldable (minimumBy)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
+import Data.Ord (comparing)
 import Data.Set qualified as Set
 import State.Category.Flow (FanEvent (..), Flow (..), Name (..), fanEvent, fanName, nameText, scoped)
 import State.Category.Fuel (PerFuel, SkipWhen)
-import State.Category.Meter (AtCap, Limit, SomeMeter (..))
+import State.Category.Meter (AtCap, Limit, Meter, SomeMeter (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName, Outcomes (..), Sig, Sing, StateName (..), StepSet, outcomes, skippedOutcome, stepName)
 import State.Category.Ty (IsSum, KnownTy (..), NotSum, Ty (..))
 
@@ -154,7 +159,7 @@ data Part i o = Part
 part :: Flow i e o -> Either Clash (Part i o)
 part = \case
     Do s -> Right (stepPart s)
-    Capped limit atCap s -> Right (stepPart s) {caps = Map.singleton (Place [] (stepName s)) (Cap (SomeMeter s) limit atCap)}
+    Capped limit atCap s -> Right (cappedPart limit atCap s)
     Id -> Right (passing id)
     f :> g -> do
         left <- part f
@@ -288,6 +293,10 @@ stepPart s =
         let event = EventName place.name outcome
          in ((place, event), Edge to (Along (OutcomeEdge event (tyVal @i) cod)) Nothing)
 
+-- | 'stepPart' with the step's meter capped at its state.
+cappedPart :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Part i o
+cappedPart limit atCap s = let p = stepPart s in Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Place [] (stepName s)) (Cap (SomeMeter s) limit atCap)}
+
 exitTy :: forall x o. Outcomes ('Just x) o -> Ty
 exitTy (ExitsOr _ _) = tyVal @x
 
@@ -354,6 +363,23 @@ fanOut fan _ =
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.
 places :: OpenGraph -> Set Place
 places g = sources g.edges
+
+{- | The innermost loop whose body holds the state: the smallest, as a
+nested loop's body is inside its enclosing loop's.
+-}
+innermost :: OpenGraph -> Place -> Maybe LoopAt
+innermost g place = case [loop | loop <- Map.elems g.loops, Set.member place loop.body] of
+    [] -> Nothing
+    loop : others -> Just (minimumBy (comparing (Set.size . (.body))) (loop :| others))
+
+-- | The edges out of the state that leave the innermost loop around it: every one, for a state in no loop.
+leaving :: OpenGraph -> Place -> [(EventName, Edge Node)]
+leaving g place = [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place, not (stays edge.to)]
+  where
+    stays = \case
+        At to -> maybe False (Set.member to . (.body)) (innermost g place)
+        Out -> False
+        Exit -> False
 
 -- | The states these edges leave.
 sources :: Map (Place, EventName) a -> Set Place

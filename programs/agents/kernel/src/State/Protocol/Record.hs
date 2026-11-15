@@ -11,6 +11,7 @@ module State.Protocol.Record (
     usageOf,
     recordCommand,
     extendCommand,
+    capRecords,
     Args (..),
     option,
     options,
@@ -24,6 +25,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
+import State.Category.Graph (OpenGraph (..), Place, leaving)
+import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText)
 import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
@@ -51,6 +54,21 @@ recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usag
 -- | The @state record@ line that extends the gather loop, on the user's yes.
 extendCommand :: Text
 extendCommand = Text.unwords ["state record", extend.name, usageOf extend, "when the user goes on"]
+
+{- | What the run may record at a used-up budget of the step at this state:
+the ways out of its loop, then as its 'AtCap' says - nothing more, a stop,
+or an @extend@ (with the step's own outcomes when no way leaves, as
+research's @research.done 0@).
+-}
+capRecords :: OpenGraph -> Place -> AtCap -> Text
+capRecords g place atCap =
+    Text.intercalate " | " $ case atCap of
+        Refuse -> exits
+        Stop -> exits <> ["state stop rounds <why>"]
+        Extend -> extendCommand : if null exits then outs else exits
+  where
+    exits = [recordCommand event | (event, _) <- leaving g place]
+    outs = [recordCommand event | ((from, event), _) <- Map.toList g.edges, from == place]
 
 -- | The user's yes to one more interview round, and why.
 extend :: Recordable

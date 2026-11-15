@@ -10,9 +10,10 @@ module State.Category.FlowSpec (spec) where
 import Control.Exception (TypeError (..), evaluate, try)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (Flow (..), OnEmpty (..), inl, inr, (|||))
+import State.Category.Flow (Flow (..), inl, inr, (|||))
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
 import State.Flow.Triage (Sing (..))
@@ -46,21 +47,26 @@ spec = describe "State.Category.Flow" $ do
         it "a loop whose body never exits" $
             rejected
                 "Couldn't match type: Nothing with: Just State.Category.Ty.Diff"
-                (Loop "review" (always 2) ExitOut (Do Refactor))
+                (Loop "review" (Do Refactor) :: Flow 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff)
 
-        it "a loop that exits when empty to another type than its in" $
+        it "a loop whose body ends at another type than its in" $
             rejected
-                "Couldn't match type ‘State.Category.Ty.Plan’ with ‘State.Category.Ty.Ctx’"
-                (Loop "plan" (always 4) ExitOut (Do PlanS :> Do Confirm))
+                "Couldn't match type ‘State.Category.Ty.Findings’ with ‘State.Category.Ty.Plan’"
+                (Loop "review" (Do Implement :> Do Review) :: Flow 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
 
-        {- The loop's out is pinned: left free, the 'NotSum' 'Loop' asks of it
+        it "capping a step with no meter" $
+            rejectedShown
+                "No instance for ‘State.Category.Meter.Meter State.Step.Build.Implement’"
+                (graph (Capped (always (UpTo 1)) Stop Implement))
+
+        {- The loop's out is pinned: left free, the 'NotSum' 'Loop' asks of its exit
         is ambiguous, and GHC reports that before the clash of the exits. 'Ty'
         is imported qualified, so GHC still prints every type in full.
         -}
         it "a series whose two sides exit with different types" $
             rejected
                 "Both sides of :> exit, with different types: State.Category.Ty.Ctx and State.Category.Ty.Plan"
-                (Loop "plan" (always 4) (StopOut :: OnEmpty 'State.Category.Ty.Ctx 'State.Category.Ty.Ctx) (Do Interview :> Do PlanS :> Do Confirm))
+                (Loop "plan" (Do Interview :> Do PlanS :> Do Confirm) :: Flow 'State.Category.Ty.Ctx 'Nothing 'State.Category.Ty.Ctx)
 
         it "a fan-out's state drawn as a step" $
             rejected

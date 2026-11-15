@@ -11,6 +11,7 @@ import Data.Aeson ((.:), (.=))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Type.Equality ((:~:) (..))
+import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 import State.Step.Artifact (Check (..), Sha, Url, headData, headOf, urlData, urlOf)
@@ -122,3 +123,10 @@ instance StepSet ShipStep where
 deriving stock instance Show (Sing (s :: ShipStep))
 deriving stock instance Show (Outcome (s :: ShipStep) l)
 deriving stock instance Eq (Outcome (s :: ShipStep) l)
+
+-- | Each fix of a red CI: another round of waiting on it.
+instance Meter FixPR where
+    meterName FixPR = "CI fixes"
+    spends FixPR = \case
+        Ends _ (FixPrDone _) -> 1
+        Asks -> 0

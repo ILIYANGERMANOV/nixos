@@ -9,6 +9,7 @@ module State.Step.Gather (
 
 import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
+import State.Category.Meter (Meter (..), Spend (..))
 import Numeric.Natural (Natural)
 import State.Category.Step
 import State.Category.Ty (Ty (..))
@@ -79,3 +80,19 @@ instance StepSet GatherStep where
 deriving stock instance Show (Sing (s :: GatherStep))
 deriving stock instance Show (Outcome (s :: GatherStep) l)
 deriving stock instance Eq (Outcome (s :: GatherStep) l)
+
+-- | Each researcher @research.done n@ reports.
+instance Meter Research where
+    meterName Research = "Researchers"
+    spends Research = \case
+        Ends _ (ResearchDone n) -> n
+        Ends _ ResearchSkipped -> 0
+        Asks -> 0
+
+-- | Each question asked at the interview.
+instance Meter Interview where
+    meterName Interview = "Interview questions"
+    spends Interview = \case
+        Ends _ InterviewEnough -> 0
+        Ends _ InterviewMore -> 0
+        Asks -> 1

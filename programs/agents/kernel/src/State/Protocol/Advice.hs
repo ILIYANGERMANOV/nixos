@@ -23,7 +23,7 @@ module State.Protocol.Advice (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (join)
+import Control.Monad (join, mfilter)
 import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Foldable (asum, toList)
@@ -37,13 +37,14 @@ import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, fanName, nameText)
-import State.Category.Fuel (Cfg (..), SkipWhen (..), atFuel, cfg, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Meter (AtCap (Extend, Refuse), someMeterName)
+import State.Category.Meter qualified as Meter
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
-import State.Flow.Library (fixLoop, gatherLoop)
 import State.Protocol.Handback (stopLine)
-import State.Protocol.Record (extendCommand, recordCommand)
+import State.Protocol.Record (capRecords, recordCommand)
 import State.Role (FlowName (..))
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
@@ -52,7 +53,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, roundsAllowed, roundsSpent, stuck)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, stuck, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
@@ -60,7 +61,6 @@ import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), fanNamed)
 import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..))
-import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
@@ -268,46 +268,46 @@ advise steps g facts state = Advice action (factLines g facts state) prompt noti
         (Out, _) -> plain (Done (prUrl facts state))
         (Exit, _) -> plain (Done (prUrl facts state))
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
+        (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
-            Just (AnyStep _ (SomeStep s)) -> (atStep s, promptOf (row steps s))
+            Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s))
             Nothing -> case fanNamed place.name of
                 Just fan -> plain (atFan fan facts.ended state)
                 Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
-    atStep :: (StepSet k) => Sing (s :: k) -> Action
-    atStep s = case special s of
-        Ordinary -> case (row steps s).runner of
-            Agent role _ -> Spawn role Nothing
-            Inline -> Run (recordOutcomes s)
-        AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
-        Interviews -> interviewing g state
-        PicksRows -> Run (pickCommand g state)
+    usedUpAt place = mfilter usedUp (Map.lookup place (budgets g state))
+    -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
+    extendOrGo place budget
+        | Ask.Stuck `notElem` state.askedHere = Ask Ask.Stuck (spentText budget <> ": go on?")
+        | otherwise = Run (atCapRecords g place budget)
+    {- At a used-up budget the step's question still comes first; it records
+    only what the budget leaves, and an agent is not spawned to spend past it.
+    -}
+    atStep :: (StepSet k) => Place -> Sing (s :: k) -> Action
+    atStep place s = case special s of
+        Ordinary -> case ((row steps s).runner, usedUpAt place) of
+            (Agent role _, Nothing) -> Spawn role Nothing
+            (Agent _ _, Just _) -> Run records
+            (Inline, _) -> Run records
+        AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
+        Interviews -> Run ("state ask each question; " <> recordCommand (exitEvent Interview) <> " when nothing is open | " <> recordCommand (continueEvent Interview) <> " to research a new fact")
+        PicksRows -> Run records
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
-        AwaitsMerge -> atMerge (recordOutcomes s) (currentFan state)
+        AwaitsMerge -> atMerge records (currentFan state)
+      where
+        records = maybe (recordOutcomes s) (atCapRecords g place) (usedUpAt place)
 
-{- | Ask on, research a new fact, or end the interview; asking needs no
-record. At the end of either gather budget, ask the user once whether to go
-on: yes extends both, no ends the interview.
+{- | What the run may record at a used-up budget ('capRecords'), after what
+the budget spent when it refuses any more.
 -}
-interviewing :: OpenGraph -> RunState -> Action
-interviewing g state = case spentAtGather g state of
-    [] -> Run ("state ask each question; " <> enough <> " when nothing is open | " <> recordCommand (continueEvent Interview) <> " to research a new fact")
-    spent
-        | Ask.Stuck `notElem` state.askedHere -> Ask Ask.Stuck ("gather used its " <> Text.intercalate " and " spent <> ": go on?")
-        | otherwise -> Run (extendCommand <> " | " <> enough)
-  where
-    enough = recordCommand (exitEvent Interview)
+atCapRecords :: OpenGraph -> Place -> Budget -> Text
+atCapRecords g place budget = case budget.cap.atCap of
+    Refuse -> capRecords g place Refuse <> " - " <> spentText budget <> ", none is left"
+    Meter.Stop -> capRecords g place Meter.Stop
+    Extend -> capRecords g place Extend
 
--- | The gather budgets the run has used up since it entered the gather loop or extended it.
-spentAtGather :: OpenGraph -> RunState -> [Text]
-spentAtGather g state = case Map.lookup gatherLoop state.rounds of
-    Nothing -> []
-    Just rounds ->
-        -- The first round is no research round of its own: each after it is.
-        [tshow (pred allowedRounds) <> " research rounds" | roundsSpent allowedRounds rounds]
-            <> [tshow asks <> " questions" | state.interviewAsks >= asks]
-  where
-    allowedRounds = roundsAllowed g (fuelOf state) gatherLoop
-    asks = (cfg (fuelOf state)).asks
+-- | @Re-reviews: 3 of 3@: what a budget spent of what the run's Fuel allows.
+spentText :: Budget -> Text
+spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.spent <> maybe "" ((" of " <>) . tshow) budget.allows
 
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
@@ -372,24 +372,6 @@ recordOutcomes s = Text.intercalate " | " [recordCommand (EventName (stepName s)
 recordOne :: Text -> [Text] -> Text
 recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"
 
-{- | Pick takes @pick.loop@ only while the fix loop has a round left by
-'budget'. At the loop's rounds, a Not met in this round's picks buys one more; past
-it, only @pick.final@.
--}
-pickCommand :: OpenGraph -> RunState -> Text
-pickCommand g state
-    | done < budget allowed (Round Set.empty) = Text.intercalate " | " [loop, final]
-    | done < budget allowed (Round (Set.singleton (Unmet anyRequirement))) =
-        final <> " | " <> loop <> " only with a not-met verdict: the last round"
-    | otherwise = final <> " - no review round is left"
-  where
-    done = maybe 1 (fromIntegral . length) (Map.lookup fixLoop state.rounds)
-    allowed = roundsAllowed g (fuelOf state) fixLoop
-    -- Any requirement: 'budget' asks only whether one is Not met.
-    anyRequirement = Requirement ""
-    loop = recordCommand (continueEvent Review.Pick)
-    final = recordCommand (exitEvent Review.Pick)
-
 stuckText :: Stuck -> Text
 stuckText found =
     "the "
@@ -406,10 +388,7 @@ stuckText found =
 factLines :: OpenGraph -> Facts -> RunState -> [Text]
 factLines g facts state =
     ["fuel: " <> fuelName (fuelOf state)]
-        <> [ nameText loop <> " round " <> tshow (length rounds) <> " of " <> tshow (roundsAllowed g (fuelOf state) loop)
-           | (loop, rounds) <- Map.toList (Map.map NonEmpty.toList state.rounds)
-           ]
-        <> ["questions: " <> tshow state.interviewAsks <> " of " <> tshow (cfg (fuelOf state)).asks | Map.member gatherLoop state.rounds]
+        <> map spentText (Map.elems (budgets g state))
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]

@@ -1,7 +1,8 @@
 {- | What a run knows is a fold over its log (#351 section 7). A step event
 moves the run along one edge of the flow's graph, found by "State.Category.Path", so a
 log the fold accepts is a path of @Run(F)@ (law Trace soundness). Every loop
-has a budget of rounds and the stuck guard short-circuits it (law Bounded).
+holds a capped step whose meter bounds it, and the stuck guard short-circuits
+it (law Bounded).
 
 A question stays pending until this run rules on it, the answer comes down
 after a forward, or the run stops. Each is checked against the run's own row
@@ -24,10 +25,9 @@ module State.Run.Fold (
     onRound,
     Stuck (..),
     stuck,
-    budget,
-    roundsSpent,
-    roundOnly,
-    roundsAllowed,
+    Budget (..),
+    budgets,
+    usedUp,
     flowRole,
     nextQId,
     askingChildren,
@@ -41,7 +41,6 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Foldable (for_, traverse_)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -53,11 +52,11 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), Name, fanEvent, fanName)
-import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
-import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), innermost, places)
+import State.Category.Meter (AtCap (..), Recorded (..), allowed, spentBy)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
-import State.Flow.Library (gatherLoop)
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal, QId (..), Question (..), Ruling, deliver)
@@ -68,7 +67,6 @@ import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcomeEvent)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
-import State.Step.Gather (Sing (Interview))
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
 
@@ -88,13 +86,13 @@ data RunState = RunState
     -- ^ Oldest first.
     , everAsked :: Set QId
     -- ^ Every question asked, open or closed: a retried ask is refused, so it is never ruled twice.
-    , interviewAsks :: Natural
-    {- ^ The questions asked at interview since the run entered the gather loop,
-    or extended it: none outside it.
+    , meters :: Map Place Natural
+    {- ^ What the run spent of each capped step's budget since it entered the
+    innermost loop around the step, or extended it: none spent is absent.
     -}
     , askedHere :: [Kind]
     {- ^ The kinds asked since the run last moved, oldest first: advice asks a step's
-    question once. Also emptied when the interview's questions run out, so the
+    question once. Also emptied when a question uses up its step's budget, so the
     question whether to go on is asked after that, whatever was asked before.
     -}
     , rulings :: [Ruling]
@@ -147,12 +145,10 @@ data Refusal
       NoEdge Node EventName
     | -- | The run's Fuel never skips this step.
       NotSkippable Name
-    | -- | Another round would pass the loop's rounds.
-      OutOfRounds Name Natural
-    | -- | Another question at interview would pass the gather's questions.
-      OutOfAsks Natural
-    | -- | An @extend@ where the run is in no gather loop to extend.
-      NotGathering
+    | -- | The event would spend past its step's cap, which allows this many at the run's Fuel.
+      OutOfBudget Cap Natural
+    | -- | An @extend@ where no budget the user may extend holds the run.
+      NothingToExtend
     | FuelSetOnce Fuel
     | -- | An override names a state the flow does not have, or more than one.
       NoSingleState StateName
@@ -214,7 +210,7 @@ begin g envelope = case runStart envelope.event of
                 , refused = Nothing
                 , pending = []
                 , everAsked = Set.empty
-                , interviewAsks = 0
+                , meters = Map.empty
                 , askedHere = []
                 , rulings = []
                 , answers = []
@@ -258,11 +254,11 @@ applyEvent g state = \case
     FuelSet fuel -> going $ case state.fuel of
         Just set | set /= fuel -> Left (FuelSetOnce set)
         _ -> Right state {fuel = Just fuel}
-    Extended _ -> going (extended state)
+    Extended _ -> going (extended g state)
     Took outcome -> going (took g state outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
-    Asked asking -> going (fromChild asking.from <$> asked state asking)
+    Asked asking -> going (fromChild asking.from <$> asked g state asking)
     RetaggedSecurity qid -> going (retagged state qid)
     RuledOn qid proposal -> going (ruledOn state qid proposal)
     Forwarded qid to -> going (forwarded state qid to)
@@ -298,9 +294,11 @@ triagedBy role untriaged = case break ((== role) . fst) untriaged of
     (before, _ : after) -> before <> after
     (before, []) -> before
 
--- | Moves along the outcome's edge, after the outcome's problems join the rounds it ends.
+{- | Moves along the outcome's edge, after the outcome spends its step's
+meter and its problems join the rounds it ends.
+-}
 took :: OpenGraph -> RunState -> AnyOutcome -> Either Refusal RunState
-took g state outcome = do
+took g state outcome@(AnyOutcome _ some) = do
     let name = outcomeEvent outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
         At place -> (place,) <$> step g place name
@@ -311,13 +309,12 @@ took g state outcome = do
         Skip _ _ -> Right ()
         Along _ -> Right ()
         Stay -> Right ()
+    meters <- spend g state (RecordedOutcome some)
     let effect = effects outcome
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
-    rounds <- enter g (fuelOf state) edge.back state.at edge.to noted
-    for_ (roundOnly g edge.to) $ \loop ->
-        traverse_ (nextRound loop (roundsAllowed g (fuelOf state) loop)) (Map.lookup loop rounds)
-    Right state {at = edge.to, rounds, fans, interviewAsks = asksInside rounds state.interviewAsks, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
+        rounds = enter g edge.back state.at edge.to noted
+    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
 
 {- | What an outcome changes besides the run's place: its problems join the
 rounds it ends, and it may move a fan-out or name the run's PR.
@@ -405,57 +402,95 @@ atFan g state event = case state.at of
   where
     name = fanEvent event (askedAt state)
 
-{- | The loop whose next round every way out of this node starts, as @fix@ in
-the review loop. A move there with no round left is refused before the work
-it starts: the run is still where the loop's exit is open (#360's fold).
+{- | A question the run asks: its own question at a capped step, as the
+interview's, spends the step's meter. Asking whether to go on spends none.
 -}
-roundOnly :: OpenGraph -> Node -> Maybe Name
-roundOnly g = \case
-    At place -> case [edge.back | ((from, _), edge) <- Map.toList g.edges, from == place] of
-        Just loop : backs | all (== Just loop) backs -> Just loop
-        _ -> Nothing
-    Out -> Nothing
-    Exit -> Nothing
-
-asked :: RunState -> Asking -> Either Refusal RunState
-asked state asking
+asked :: OpenGraph -> RunState -> Asking -> Either Refusal RunState
+asked g state asking
     | Set.member qid state.everAsked = Left (AskedTwice qid)
-    | interviews && state.interviewAsks >= allowed = Left (OutOfAsks allowed)
-    | otherwise =
+    | otherwise = do
+        meters <- if spends then spend g state RecordedAsk else Right state.meters
         Right
             state
                 { pending = state.pending <> [Pending asking ForTriage]
                 , everAsked = Set.insert qid state.everAsked
-                , interviewAsks = asks
-                , askedHere = if interviews && asks >= allowed then [] else state.askedHere <> [asking.question.kind]
+                , meters
+                , askedHere = if spends && any usedUp (budgetHere g state {meters}) then [] else state.askedHere <> [asking.question.kind]
                 }
   where
     qid = asking.question.qid
-    allowed = (cfg (fuelOf state)).asks
-    asks = if interviews then state.interviewAsks + 1 else state.interviewAsks
-    -- The run's own question to the user at interview; asking whether to go on spends none.
-    interviews = case (asking.from, asking.question.kind) of
+    spends = case (asking.from, asking.question.kind) of
         (Itself, Ask.Stuck) -> False
-        (Itself, _) -> askedAt state == stepName Interview
+        (Itself, _) -> True
         (Subagent _, _) -> False
         (ChildRun _, _) -> False
 
-{- | The interview's questions after a move into these rounds: none outside the
-gather loop, so each entry starts afresh. Only the plan loop restarts gathering,
-and its back edge leaves from outside the gather loop.
+{- | An @extend@ grants again every budget the user may extend that holds
+the run: their meters start afresh, and the run may ask whether to go on
+once more.
 -}
-asksInside :: Map Name (NonEmpty Round) -> Natural -> Natural
-asksInside rounds asks
-    | Map.member gatherLoop rounds = asks
-    | otherwise = 0
+extended :: OpenGraph -> RunState -> Either Refusal RunState
+extended g state = case Map.keys (Map.filter (\budget -> extends budget.cap.atCap) (budgets g state)) of
+    [] -> Left NothingToExtend
+    regranted -> Right state {meters = foldr Map.delete state.meters regranted, askedHere = []}
+  where
+    extends = \case
+        Extend -> True
+        Refuse -> False
+        Stop -> False
 
-{- | The gather loop starts afresh where it is, so it has its research rounds
-and questions again; the run may ask whether to go on once more.
+{- | What the event spends of the cap at the run's place, if any. Past the
+cap at the run's Fuel it is refused; a 'State.Category.Meter.PerGroup' cap
+the kernel only counts.
 -}
-extended :: RunState -> Either Refusal RunState
-extended state
-    | Map.member gatherLoop state.rounds = Right state {rounds = Map.insert gatherLoop firstRound state.rounds, interviewAsks = 0, askedHere = []}
-    | otherwise = Left NotGathering
+spend :: OpenGraph -> RunState -> Recorded -> Either Refusal (Map Place Natural)
+spend g state recorded = case state.at of
+    At place -> maybe (Right state.meters) (charge place) (Map.lookup place g.caps)
+    Out -> Right state.meters
+    Exit -> Right state.meters
+  where
+    charge place cap = case (spentBy cap.meter recorded, allowed (atFuel (fuelOf state) cap.limit)) of
+        (0, _) -> Right state.meters
+        (cost, Just most) | spent place + cost > most -> Left (OutOfBudget cap most)
+        (cost, _) -> Right (Map.insert place (spent place + cost) state.meters)
+    spent place = Map.findWithDefault 0 place state.meters
+
+-- | A cap's budget as the run stands: what it spent and what the run's Fuel allows.
+data Budget = Budget {cap :: Cap, spent :: Natural, allows :: Maybe Natural}
+    deriving stock (Eq, Show)
+
+-- | Nothing is left of it: the next spend is refused.
+usedUp :: Budget -> Bool
+usedUp budget = maybe False (budget.spent >=) budget.allows
+
+{- | The budgets that hold the run: of each cap whose innermost loop holds
+its place, so the run spends them in this round.
+-}
+budgets :: OpenGraph -> RunState -> Map Place Budget
+budgets g state = Map.mapWithKey budgetOf (Map.filterWithKey (\place _ -> heldIn g place state.at) g.caps)
+  where
+    budgetOf place cap = Budget {cap, spent = Map.findWithDefault 0 place state.meters, allows = allowed (atFuel (fuelOf state) cap.limit)}
+
+-- | The budget of the step the run is at, if it is capped.
+budgetHere :: OpenGraph -> RunState -> Maybe Budget
+budgetHere g state = case state.at of
+    At place -> Map.lookup place (budgets g state)
+    Out -> Nothing
+    Exit -> Nothing
+
+-- | The ledger after a move: a meter's spend lasts while the run stays in the innermost loop around its step.
+kept :: OpenGraph -> Node -> Map Place Natural -> Map Place Natural
+kept g to = Map.filterWithKey (\place _ -> heldIn g place to)
+
+{- | The node is in the innermost loop around the capped step's place, or the
+step is in no loop: the run is still in the rounds the step's meter counts.
+-}
+heldIn :: OpenGraph -> Place -> Node -> Bool
+heldIn g place node = case (innermost g place, node) of
+    (Nothing, _) -> True
+    (Just loop, At at) -> Set.member at loop.body
+    (Just _, Out) -> False
+    (Just _, Exit) -> False
 
 retagged :: RunState -> QId -> Either Refusal RunState
 retagged state qid = do
@@ -540,17 +575,16 @@ flowRole = (.rung) . Role.role
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
     [place] -> do
-        rounds <- enter g (fuelOf state) Nothing state.at (At place) state.rounds
-        Right state {at = At place, rounds, interviewAsks = asksInside rounds state.interviewAsks, askedHere = []}
+        Right state {at = At place, rounds = enter g Nothing state.at (At place) state.rounds, meters = kept g (At place) state.meters, askedHere = []}
     _ -> Left (NoSingleState target)
 
-{- | The rounds after a move from one node to another. A loop's own back edge
-starts its next round, within its budget; one entered from outside, or
-restarted by an enclosing loop's next round, starts at round one; one left
-is closed.
+{- | The rounds after a move from one node to another. A loop's own back
+edge starts its next round; one entered from outside, or restarted by an
+enclosing loop's next round, starts at round one; one left is closed. The
+rounds bound nothing: they are the history the stuck guard reads.
 -}
-enter :: OpenGraph -> Fuel -> Maybe Name -> Node -> Node -> Map Name (NonEmpty Round) -> Either Refusal (Map Name (NonEmpty Round))
-enter g fuel back from to current = Map.traverseMaybeWithKey around g.loops
+enter :: OpenGraph -> Maybe Name -> Node -> Node -> Map Name (NonEmpty Round) -> Map Name (NonEmpty Round)
+enter g back from to current = Map.mapMaybeWithKey around g.loops
   where
     inside loop = \case
         At place -> Set.member place loop.body
@@ -560,38 +594,10 @@ enter g fuel back from to current = Map.traverseMaybeWithKey around g.loops
         Just outer -> maybe False (\outerAt -> loop.body `Set.isProperSubsetOf` outerAt.body) (Map.lookup outer g.loops)
         Nothing -> False
     around name loop = case (inside loop to, Map.lookup name current) of
-        (False, _) -> Right Nothing
-        (True, Just done) | back == Just name -> Just <$> nextRound name (atFuel fuel loop.rounds) done
-        (True, Just done) | inside loop from && not (restarts loop) -> Right (Just done)
-        (True, _) -> Right (Just firstRound)
-
-nextRound :: Name -> Natural -> NonEmpty Round -> Either Refusal (NonEmpty Round)
-nextRound name allowed done
-    | roundsSpent allowed done = Left (OutOfRounds name allowed)
-    | otherwise = Right (done <> firstRound)
-
-{- | A loop's rounds at this Fuel, as its term carries them. A name the graph
-has no loop of allows none.
--}
-roundsAllowed :: OpenGraph -> Fuel -> Name -> Natural
-roundsAllowed g fuel name = maybe 0 (atFuel fuel . (.rounds)) (Map.lookup name g.loops)
-
--- | Whether a loop has run every round its 'budget' allows.
-roundsSpent :: Natural -> NonEmpty Round -> Bool
-roundsSpent allowed done = fromIntegral (length done) >= budget allowed (NonEmpty.last done)
-
-{- | The rounds a loop may run: its term's rounds, and one more when the last round
-holds a Not met (#351), never more, so a Not met that never clears still ends.
--}
-budget :: Natural -> Round -> Natural
-budget allowed latest
-    | any unmet latest.found = allowed + 1
-    | otherwise = allowed
-  where
-    unmet = \case
-        Unmet _ -> True
-        Row _ -> False
-        Failing _ -> False
+        (False, _) -> Nothing
+        (True, Just done) | back == Just name -> Just (done <> firstRound)
+        (True, Just done) | inside loop from && not (restarts loop) -> Just done
+        (True, _) -> Just firstRound
 
 firstRound :: NonEmpty Round
 firstRound = Round Set.empty :| []
@@ -640,7 +646,7 @@ data Stuck = Stuck {loop :: Name, same :: Set Problem}
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses
 rows alternating A, B, A, B on purpose: no two rounds in a row share a row, and
-the loop's rounds end it.
+the loop's capped step ends it.
 -}
 stuck :: RunState -> [Stuck]
 stuck state =

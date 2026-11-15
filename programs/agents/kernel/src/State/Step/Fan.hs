@@ -23,6 +23,7 @@ import Data.Aeson ((.:))
 import Data.List (find)
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
+import State.Category.Meter (Meter (..), Spend (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, fanName, nameText)
 import State.Category.Step
@@ -152,3 +153,11 @@ fanOf name = find (\fan -> name `elem` [breakdownName fan, fanName fan, mergeNam
 -- | The fan-out whose own state, the one its 'State.Category.Flow.Par' draws, this is.
 fanNamed :: StateName -> Maybe Name
 fanNamed name = find ((== name) . fanName) fanOuts
+
+-- | Each round that leaves its PRs open: another round of the fan-out.
+instance Meter Merge where
+    meterName (Merge _) = "Rounds"
+    spends (Merge _) = \case
+        Ends _ (MergeNextRound _) -> 1
+        Ends _ (MergeDone _ _) -> 0
+        Asks -> 0

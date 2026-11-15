@@ -10,6 +10,7 @@ module State.Step.Review (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
+import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 import State.Step.Artifact (Commit, Picks, Sha, commitData, commitOf, headData, headOf, picksData, picksOf)
@@ -107,3 +108,11 @@ instance StepSet ReviewStep where
 deriving stock instance Show (Sing (s :: ReviewStep))
 deriving stock instance Show (Outcome (s :: ReviewStep) l)
 deriving stock instance Eq (Outcome (s :: ReviewStep) l)
+
+-- | A re-review round: each @pick.loop@ buys one.
+instance Meter Pick where
+    meterName Pick = "Re-reviews"
+    spends Pick = \case
+        Ends _ (PickLoop _) -> 1
+        Ends _ (PickFinal _) -> 0
+        Asks -> 0

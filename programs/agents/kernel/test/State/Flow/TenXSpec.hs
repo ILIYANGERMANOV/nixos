@@ -34,9 +34,10 @@ body.
 parBodies :: Flow i e o -> [(Name, String)]
 parBodies = \case
     Do _ -> []
+    Capped {} -> []
     f :> g -> parBodies f <> parBodies g
     Id -> []
-    Loop _ _ _ body -> parBodies body
+    Loop _ body -> parBodies body
     Opt _ _ body -> parBodies body
     Par fan body -> (fan, show body) : parBodies body
     InL -> []

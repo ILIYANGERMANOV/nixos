@@ -12,12 +12,11 @@ module State.Flow.Library (
     reviewed,
     describe,
     ship,
-    gatherLoop,
-    fixLoop,
 ) where
 
-import State.Category.Flow (Flow (..), Name, OnEmpty (..))
+import State.Category.Flow (Flow (..))
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (Ty (..))
 import State.Step.Build (Sing (..))
 import State.Step.Gather (Sing (..))
@@ -26,28 +25,30 @@ import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
 
 {- | Gather and propose until a plan is confirmed: both flows open with it.
-Out of rounds is a stop, as an adjusted plan that never settles needs the user.
+Three adjusted plans are the cap, then a stop: a plan that never settles
+needs the user.
 -}
 agree :: Flow 'Ctx 'Nothing 'Plan
-agree = Loop "plan" (always 4) StopOut (gather :> propose)
+agree = Loop "plan" (gather :> propose)
 
-{- | Research, then interview, until the interview has enough. Its rounds are
-the research rounds after the first, as #377 set them, plus the first.
-Low may skip research on a trivial task.
+{- | Research, then interview, until the interview has enough. Its meters
+are the researchers and the questions; at either cap the user is asked
+whether to go on. Low may skip research on a trivial task.
 -}
 gather :: Flow 'Ctx 'Nothing 'Ctx
-gather = Loop gatherLoop ((+ 1) <$> PerFuel 3 8 12) StopOut (Opt "research" skippableAtLow (Do Research) :> Do Interview)
-
--- | The gather loop's name: its questions and its @extend@ belong to it.
-gatherLoop :: Name
-gatherLoop = "gather"
+gather =
+    Loop
+        "gather"
+        ( Opt "research" skippableAtLow (Capped (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research)
+            :> Capped (UpTo <$> PerFuel 15 30 50) Extend Interview
+        )
 
 -- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm is asked at every level.
 propose :: Flow 'Ctx ('Just 'Plan) 'Ctx
 propose =
     Do PlanS
         :> Opt "simplify_plan" skippableAtLow (Do SimplifyP)
-        :> Do Confirm
+        :> Capped (always (UpTo 3)) Stop Confirm
 
 {- | @draft@ opens the draft PR before the first commit. Balanced skips the
 refactor at or below 100 changed lines, Low on a trivial task.
@@ -68,18 +69,11 @@ review :: Flow 'Diff ('Just 'Diff) 'Findings
 review = Do Review
 
 {- | Pick, fix and re-review the fix until a pick is final or a re-review
-clean. Its rounds are the re-reviews #351 set, @n(m)@, plus the last
-round's pick: pick offers only @pick.final@ once no round is left, which is
-how out of rounds takes the exit, as #351 decided. 'ExitOut' cannot type
-here, as the exit is no longer the loop's in type, and the fold reads no
-'OnEmpty', so the loop says 'StopOut'.
+clean. Each @pick.loop@ spends a re-review, #351's @n(m)@: once none is
+left, pick offers only @pick.final@.
 -}
 fixReReview :: Flow 'Findings 'Nothing 'Diff
-fixReReview = Catch (Do Pick :> Loop fixLoop (PerFuel 1 3 5) StopOut (Do Fix :> Do ReReview :> Scope fixLoop (Do Pick)))
-
--- | The fix loop's name: pick reads its rounds.
-fixLoop :: Name
-fixLoop = "fix"
+fixReReview = Loop "fix" (Capped (UpTo <$> PerFuel 1 3 5) Refuse Pick :> Do Fix :> Do ReReview)
 
 -- | @describe@ is the final fixer, so @simplify_pr@ is never skipped: the Keep law.
 describe :: Flow 'Diff 'Nothing 'PR
@@ -87,7 +81,7 @@ describe = Do Describe :> Opt "simplify_pr" (always Never) (Do SimplifyPR)
 
 -- | No level skips @ready@: a round on an existing PR skips it by its task's shape.
 ship :: Flow 'PR 'Nothing 'PR
-ship = Loop "ci" (always 6) StopOut (Do AwaitCi :> Do FixPR) :> Opt "ready" (always Never) (Do Ready)
+ship = Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR) :> Opt "ready" (always Never) (Do Ready)
 
 -- | Low may skip the step of a trivial task; Balanced and Max run it.
 skippableAtLow :: PerFuel SkipWhen

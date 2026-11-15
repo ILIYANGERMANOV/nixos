@@ -21,9 +21,9 @@ import Data.Set qualified as Set
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), Name, OnEmpty (..), inl, inr, (|||))
+import State.Category.Flow (Flow (..), Name, inl, inr, (|||))
 import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (NotSum, Ty (..))
@@ -35,21 +35,23 @@ import State.Step.Plan (Sing (..))
 import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
 
--- | The steps of one type that a generated flow chains, with and without an exit.
+{- | The steps of one type that a generated flow chains, with and without an
+exit. Each exiting one caps a step, so a loop over it is bounded.
+-}
 data Kit a = Kit {endo :: [Flow a 'Nothing a], exiting :: [Flow a ('Just a) a]}
 
 ctxKit :: Kit 'Ctx
-ctxKit = Kit [Do Research] [Do Interview]
+ctxKit = Kit [Do Research] [Capped (UpTo <$> PerFuel 15 30 50) Extend Interview]
 
 planKit :: Kit 'Plan
 planKit = Kit [Do SimplifyP, Do Draft] []
 
 -- | A review with rows always fixes them before the diff goes on.
 diffKit :: Kit 'Diff
-diffKit = Kit [Do Refactor] [Do Review :> Do Fix, Do Review :> Do Pick :> Do Fix, Do ReReview :> Do Fix]
+diffKit = Kit [Do Refactor] [Do Review :> Capped (always (UpTo 3)) Refuse Pick :> Do Fix, Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse Pick :> Do Fix]
 
 prKit :: Kit 'PR
-prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi]
+prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR]
 
 -- | A term from @Ctx@ to @PR@ through every type, any combinator on each.
 genFlow :: Gen (Flow 'Ctx 'Nothing 'PR)
@@ -58,7 +60,7 @@ genFlow = do
     plan <- genEndo planKit
     Gen.choice
         [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-        , pure (Loop "round" (always 10) StopOut (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers (Do PlanS :> Do Implement :> Do Describe) :> Do (Merge engineers)))
+        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers (Do PlanS :> Do Implement :> Do Describe) :> Capped (always (UpTo 9)) Stop (Merge engineers)))
         ]
 
 {- | A term from @Diff@ to @PR@ that branches: a triage whose two branches go
@@ -83,17 +85,12 @@ genEndo kit =
         ( [ Opt <$> genName <*> genSkips <*> genEndo kit
           , (:>) <$> genEndo kit <*> genEndo kit
           ]
-            <> [Loop <$> genName <*> genRounds <*> Gen.element [StopOut, ExitOut] <*> genExiting kit | not (null kit.exiting)]
+            <> [Loop <$> genName <*> genExiting kit | not (null kit.exiting)]
         )
 
 -- | A loop or skip name from a small pool, so nested terms sometimes reuse one.
 genName :: Gen Name
 genName = Gen.element ["gather", "plan", "review", "ci", "round"]
-
-genRounds :: Gen (PerFuel Natural)
-genRounds = PerFuel <$> round' <*> round' <*> round'
-  where
-    round' = Gen.integral (Range.linear 1 12)
 
 genSkips :: Gen (PerFuel SkipWhen)
 genSkips = PerFuel <$> skip <*> skip <*> skip
@@ -171,6 +168,7 @@ redrawn g =
         { inPort = ranked g.inPort
         , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
+        , caps = Map.mapKeys ranked g.caps
         }
   where
     ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])

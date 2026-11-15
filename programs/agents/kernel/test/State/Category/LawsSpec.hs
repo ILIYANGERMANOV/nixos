@@ -14,10 +14,10 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), Name (..), OnEmpty (..), inl, inr, nameText, scoped, (|||))
+import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, scoped, (|||))
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, redrawn)
-import State.Category.Fuel (PerFuel, SkipWhen, always, monotone, skipsAtMost)
+import State.Category.Fuel (PerFuel, SkipWhen, monotone, skipsAtMost)
+import State.Category.Meter (Limit, limitAtMost, meterName)
 import State.Category.Graph (Arrow (..), Clash, Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..))
 import State.Category.Ty (NotSum, Ty (..))
@@ -77,12 +77,11 @@ spec = describe "laws" $ do
 
     describe "Loop, Elgot's fixpoint" $ do
         {- The unrolled round is a second copy of the body's states, whose
-        edges start no round: bisimilar, not isomorphic, and rounds aside.
+        edges start no round: bisimilar, caps and all, not isomorphic.
         -}
         it "a_loop_walks_as_its_body_unrolled_once" . hedgehog $ do
-            onEmpty <- forAll (Gen.element [StopOut, ExitOut])
-            body <- forAll (Gen.filter (isRight . graph . Loop "review" (always 3) onEmpty) genBody)
-            let loop = Loop "review" (always 3) onEmpty body
+            body <- forAll (Gen.filter (isRight . graph . Loop "review") genBody)
+            let loop = Loop "review" body
             (bisimilar <$> graph loop <*> graph (Catch (Scope copy body :> loop))) === Right []
 
     describe "Scope" $ do
@@ -103,7 +102,7 @@ spec = describe "laws" $ do
             (stateNames <$> graph (f :> Scope "inner" g)) === liftA2 (<>) (stateNames <$> graph f) (stateNames <$> graph (Scope "inner" g))
 
     describe "PerFuel" $
-        it "allows each level at least the rounds and runs of the level below, in every named flow" $
+        it "allows each level at least the spends and runs of the level below, in every named flow" $
             [(flow, name) | (flow, budgets) <- [("engineer" :: String, budgetsOf engineer), ("tenX", budgetsOf tenX)], (name, False) <- budgets]
                 `shouldBe` []
 
@@ -158,7 +157,7 @@ genBody =
 the in ports but that differ: in name, in the events that leave them, or in
 an edge's arrow or kind of target. Empty when the graphs are bisimilar.
 Which round an edge starts ('back') and the loops' extents are not compared;
-a name under 'copy' compares as its bare name.
+the caps at the two states are. A name under 'copy' compares as its bare name.
 -}
 bisimilar :: OpenGraph -> OpenGraph -> [(Place, Place)]
 bisimilar left right = go Set.empty [(left.inPort, right.inPort)]
@@ -170,7 +169,7 @@ bisimilar left right = go Set.empty [(left.inPort, right.inPort)]
             Nothing -> pair : go (Set.insert pair seen) rest
             Just next -> go (Set.insert pair seen) (next <> rest)
     matched p q
-        | uncopied p.name /= uncopied q.name || Map.keys (uncopiedKeys outP) /= Map.keys (uncopiedKeys outQ) = Nothing
+        | uncopied p.name /= uncopied q.name || Map.keys (uncopiedKeys outP) /= Map.keys (uncopiedKeys outQ) || Map.lookup p left.caps /= Map.lookup q right.caps = Nothing
         | otherwise = concat <$> sequence (Map.elems (Map.intersectionWith step (uncopiedKeys outP) (uncopiedKeys outQ)))
       where
         outP = leaving left p
@@ -196,6 +195,7 @@ unscoped scope g =
         { inPort = place g.inPort
         , edges = Map.fromList [((place from, renameEvent bare event), renameEdge edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = Map.fromList [(renameName bare loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
+        , caps = Map.mapKeys place g.caps
         }
   where
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
@@ -228,15 +228,16 @@ renameName f (Name text) = Name (f text)
 stateNames :: OpenGraph -> Set.Set StateName
 stateNames = Set.map (.name) . places
 
-{- | Each loop's and skip's name, and whether its 'PerFuel' is monotone:
-more Fuel never buys fewer rounds, nor skips where less Fuel runs.
+{- | Each meter's and skip's name, and whether its 'PerFuel' is monotone:
+more Fuel never allows less, nor skips where less Fuel runs.
 -}
 budgetsOf :: Flow i e o -> [(Name, Bool)]
 budgetsOf = \case
     Do _ -> []
+    Capped limit _ s -> [(Name (meterName s), capped limit)]
     Id -> []
     f :> g -> budgetsOf f <> budgetsOf g
-    Loop name rounds _ body -> (name, rounded rounds) : budgetsOf body
+    Loop _ body -> budgetsOf body
     Opt name skips body -> (name, skipped skips) : budgetsOf body
     Par _ body -> budgetsOf body
     InL -> []
@@ -245,7 +246,7 @@ budgetsOf = \case
     Catch body -> budgetsOf body
     Scope _ body -> budgetsOf body
   where
-    rounded :: PerFuel Natural -> Bool
-    rounded = monotone (<=)
+    capped :: PerFuel Limit -> Bool
+    capped = monotone limitAtMost
     skipped :: PerFuel SkipWhen -> Bool
     skipped = monotone (flip skipsAtMost)

@@ -98,22 +98,11 @@ data Area = Interface | DataModel | Auth
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | What a level sets beyond the budgets its flow's term carries.
-data Cfg = Cfg
-    { areas :: Set Area
-    , asks :: Natural
-    -- ^ The questions an interview asks the user in one gather, research rounds aside.
-    }
+newtype Cfg = Cfg {areas :: Set Area}
 
--- | Full-review areas as #351 set them, questions as #377 did.
+-- | Full-review areas as #351 set them.
 cfg :: Fuel -> Cfg
-cfg fuel =
-    Cfg
-        { areas = fullReview fuel
-        , asks = case fuel of
-            Low -> 15
-            Balanced -> 30
-            Max -> 50
-        }
+cfg fuel = Cfg {areas = fullReview fuel}
 
 -- | #351 decided interface fixes get a full review at the top level only.
 fullReview :: Fuel -> Set Area
@@ -122,8 +111,6 @@ fullReview = \case
     Balanced -> Set.fromList [DataModel, Auth]
     Max -> Set.fromList [Interface, DataModel, Auth]
 
--- | The order 'cfg' must keep: the higher 'Cfg' has at least the areas and the questions.
+-- | The order 'cfg' must keep: the higher 'Cfg' has at least the areas.
 cfgLeq :: Cfg -> Cfg -> Bool
-cfgLeq lower higher =
-    lower.areas `Set.isSubsetOf` higher.areas
-        && lower.asks <= higher.asks
+cfgLeq lower higher = lower.areas `Set.isSubsetOf` higher.areas
