@@ -344,8 +344,6 @@ questions = describe "questions" $ do
 halt :: Stop
 halt = Stop Blocked "no way on"
 
--- | A run of this flow under this principal, with no ops.
-
 {- | A flow with two fan-outs, the researchers' and then the engineers'. No
 step goes from a PR back to a plan, so the second has no breakdown of its own.
 -}
@@ -359,6 +357,7 @@ atName state = case state.at of
     Out -> Nothing
     Exit -> Nothing
 
+-- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start
 startOf flow principal = Start flow "notes" principal Set.empty
 
