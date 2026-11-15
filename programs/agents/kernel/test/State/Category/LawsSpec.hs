@@ -17,7 +17,7 @@ import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, qualify, qualifyText, scoped, unqualify, (|||))
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, redrawn)
 import State.Category.Fuel (PerFuel, SkipWhen, monotone, skipsAtMost)
-import State.Category.Graph (Arrow (..), Clash, Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Graph (Arrow (..), Cap, Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (Limit, limitAtMost, meterName)
 import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..), stateNameText)
 import State.Category.Ty (NotSum, Ty (..))
@@ -181,7 +181,7 @@ bisimilar left right = go Set.empty [(left.inPort, right.inPort)]
             Nothing -> pair : go (Set.insert pair seen) rest
             Just next -> go (Set.insert pair seen) (next <> rest)
     matched p q
-        | uncopied p.name /= uncopied q.name || Map.keys (uncopiedKeys outP) /= Map.keys (uncopiedKeys outQ) || Map.lookup p left.caps /= Map.lookup q right.caps = Nothing
+        | uncopied p.name /= uncopied q.name || Map.keys (uncopiedKeys outP) /= Map.keys (uncopiedKeys outQ) || capsAt p left /= capsAt q right = Nothing
         | otherwise = concat <$> sequence (Map.elems (Map.intersectionWith step (uncopiedKeys outP) (uncopiedKeys outQ)))
       where
         outP = leaving left p
@@ -207,7 +207,7 @@ unscoped scope g =
         { inPort = place g.inPort
         , edges = Map.fromList [((place from, renameEvent bare event), renameEdge edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = Map.fromList [(renameName bare loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
-        , caps = Map.mapKeys place g.caps
+        , caps = Map.mapKeys (\metered -> metered {place = place metered.place}) g.caps
         }
   where
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
@@ -257,8 +257,13 @@ budgetsOf = \case
     f :||| g -> budgetsOf f <> budgetsOf g
     Catch body -> budgetsOf body
     Scope _ body -> budgetsOf body
+    Choice _ branches -> concatMap budgetsOf branches
   where
     capped :: PerFuel Limit -> Bool
     capped = monotone limitAtMost
     skipped :: PerFuel SkipWhen -> Bool
     skipped = monotone (flip skipsAtMost)
+
+-- | The caps spent at a state, by the step each meters.
+capsAt :: Place -> OpenGraph -> [(StateName, Cap)]
+capsAt place g = [(metered.step, cap) | (metered, cap) <- Map.toList g.caps, metered.place == place]

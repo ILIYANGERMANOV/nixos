@@ -50,6 +50,7 @@ import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, 
 import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
+import State.Step.Choice (Outcome (..), gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
@@ -131,7 +132,7 @@ commit = Commit sha Set.empty
 
 happyPath :: [AnyOutcome]
 happyPath =
-    [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome ConfirmConfirmed]
+    [outcome ResearchSpawned, outcome ResearchHandedBack, outcome (Enough gathering), outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome ConfirmConfirmed]
         <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), outcome (RefactorDone sha), outcome (ReviewClean sha)]
         <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
 

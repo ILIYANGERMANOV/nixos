@@ -45,3 +45,4 @@ parBodies = \case
     f :||| g -> parBodies f <> parBodies g
     Catch body -> parBodies body
     Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]
+    Choice _ branches -> concatMap parBodies branches

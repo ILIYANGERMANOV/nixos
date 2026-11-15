@@ -117,6 +117,7 @@ arrows = \case
     f :||| g -> arrows f + arrows g
     Catch body -> arrows body
     Scope _ body -> arrows body
+    Choice _ branches -> 1 + sum (map arrows branches)
 
 -- | A fix of a red CI, capped as the ship flow caps it.
 fixCapped :: Flow 'PR 'Nothing 'PR

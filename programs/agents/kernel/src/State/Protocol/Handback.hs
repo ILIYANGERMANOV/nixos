@@ -243,11 +243,12 @@ fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either 
 fromWorker steps state worktreeHead agent handback = case handback.token of
     Nothing -> recorded <$> done True
     Just (Ready _) -> recorded <$> done False
-    Just token@(NeedsDecision need) -> closing <$> case need of
-        Asks question -> Right (recorded (asked question))
-        StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why)))
-        PlanWrong _ -> triage token
-        Untyped _ -> triage token
+    Just token@(NeedsDecision need) ->
+        closing <$> case need of
+            Asks question -> Right (recorded (asked question))
+            StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why)))
+            PlanWrong _ -> triage token
+            Untyped _ -> triage token
     -- The parent waits: nothing changes in this run.
     Just (Await _ _) -> Right (recorded [])
     Just token@(Blocked _) -> closing <$> triage token

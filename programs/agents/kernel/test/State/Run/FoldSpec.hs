@@ -30,6 +30,7 @@ import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, securityGraph, securityScope, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
+import State.Step.Choice (Outcome (..), gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers, researchers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
@@ -191,10 +192,10 @@ spec = describe "State.Run.Fold" $ do
             `shouldBe` Right []
 
     it "restarts gathering in each round of the plan loop" $ do
-        let gather = [outcome (ResearchDone 1), outcome InterviewMore]
-            gathered = concat (replicate 4 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
+        let gather = [outcome ResearchSpawned, outcome ResearchHandedBack]
+            gathered = concat (replicate 4 gather) <> [outcome (Enough gathering), outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
         Map.map length . (.rounds) <$> replay g (logOf (started :| map (Took mempty) gathered))
-            `shouldBe` Right (Map.fromList [("gather", 2), ("plan", 2)])
+            `shouldBe` Right (Map.fromList [("gather", 1), ("plan", 2)])
 
     gatherBudgets
     tenXRounds
@@ -207,7 +208,7 @@ spec = describe "State.Run.Fold" $ do
         append g state again === Right AlreadyLogged
 
     it "logs a hook record fired twice once" $ do
-        let hook n = hookLine "ab12" n (stepTook (ResearchDone 1))
+        let hook n = hookLine "ab12" n (stepTook ResearchSpawned)
         (.at) <$> replay g (line 0 started :| [hook 1, hook 2]) `shouldBe` (.at) <$> replay g (line 0 started :| [hook 1])
 
     it "state_is_a_fold" . hedgehog $ do
@@ -218,16 +219,10 @@ spec = describe "State.Run.Fold" $ do
         (replay g firstPart >>= \state -> fold g state after) === replay g (logOf (started :| events))
 
     it "refuses a log whose first line is not started" $
-        replay g (logOf (stepTook (ResearchDone 1) :| [])) `shouldBe` Left NotStarted
+        replay g (logOf (stepTook ResearchSpawned :| [])) `shouldBe` Left NotStarted
 
     it "refuses an event with no edge where the run is" $
         replay g (logOf (started :| [stepTook (ReviewClean sha)])) `shouldBe` Left (NoEdge (At research) (outcomeEvent (outcome (ReviewClean sha))))
-
-    it "refuses a skip the Fuel never takes" $
-        replay g (logOf (started :| [stepTook ResearchSkipped])) `shouldBe` Left (NotSkippable "research")
-
-    it "takes a skip the agent records where Low leaves it the call" $
-        (.at) <$> replay g (logOf (started :| [FuelSet Low, stepTook ResearchSkipped])) `shouldSatisfy` either (const False) (/= At research)
 
     it "refuses a second Fuel" $
         replay g (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
@@ -236,16 +231,16 @@ spec = describe "State.Run.Fold" $ do
         fuelOf <$> replay g (logOf (started :| [FuelSet Max, FuelSet Max])) `shouldBe` Right Max
 
     it "takes no event after a stop" $
-        replay g (logOf (started :| [Stopped stop, stepTook (ResearchDone 1)])) `shouldBe` Left (AfterStop stop)
+        replay g (logOf (started :| [Stopped stop, stepTook ResearchSpawned])) `shouldBe` Left (AfterStop stop)
 
     it "logs a refusal after a stop" $
         (.refused) <$> replay g (logOf (started :| [Stopped stop, Refused note])) `shouldBe` Right (Just note)
 
     it "warns of a refusal until the next event" $
-        (.refused) <$> replay g (logOf (started :| [Refused note, stepTook (ResearchDone 1)])) `shouldBe` Right Nothing
+        (.refused) <$> replay g (logOf (started :| [Refused note, stepTook ResearchSpawned])) `shouldBe` Right Nothing
 
     it "refuses a line of another run" $
-        replay g (line 0 started :| [ofRun (runId "other") (line 1 (stepTook (ResearchDone 1)))]) `shouldBe` Left (OtherRun (runId "other"))
+        replay g (line 0 started :| [ofRun (runId "other") (line 1 (stepTook ResearchSpawned))]) `shouldBe` Left (OtherRun (runId "other"))
 
     it "overrides to a named state" $
         atName <$> replay g (logOf (started :| [Overridden (StateName "review") "why"])) `shouldBe` Right (Just (StateName "review"))
@@ -266,11 +261,11 @@ ofRun other (Envelope source n ts _ sha' session event) = Envelope source n ts o
 
 -- | From the start to the first review.
 toReview :: [Event]
-toReview = map (Took mempty) (take 8 happyPath)
+toReview = map (Took mempty) (take 9 happyPath)
 
 -- | From the start to the first CI result.
 toCi :: [Event]
-toCi = map (Took mempty) (take 8 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
+toCi = map (Took mempty) (take 9 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
 
 -- | Fix rounds that pick these rows, as 'pickRounds'.
 reviewRounds :: [[Text]] -> [Event]
@@ -299,58 +294,64 @@ genCandidate = do
     outcomes <- traverse outcomeOf names
     pure (knobs <> map (Took mempty) outcomes)
 
-{- | The gather loop's two budgets, researchers and questions at interview:
-neither spends the other, @extend@ grants both again, and each entry into
-the loop starts both afresh.
+{- | The gather's choice: researchers spawned in the background and
+questions asked, as the agent picks; neither budget spends the other,
+@extend@ grants both again, each entry into the choice starts both afresh,
+and @enough@ waits for every researcher to hand back.
 -}
 gatherBudgets :: Spec
-gatherBudgets = describe "the gather's budgets" $ do
+gatherBudgets = describe "the gather's choice" $ do
     it "asks 20 questions at Balanced, spending no researcher" $
-        replay g (logOf (started :| researched <> asks 1 20 <> researchedAgain 4)) `shouldSatisfy` isRight
+        replay g (logOf (started :| spawns 5 <> asks 1 20)) `shouldSatisfy` isRight
 
     it "refuses the question past Balanced's 30" $
-        replay g (logOf (started :| researched <> asks 1 31)) `shouldSatisfy` outOf "Interview questions" 30
+        replay g (logOf (started :| asks 1 31)) `shouldSatisfy` outOf "Interview questions" 30
 
     it "takes a Stuck question past the questions, as asking whether to go on" $
-        replay g (logOf (started :| researched <> asks 1 30 <> [askAt 31 Ask.Stuck])) `shouldSatisfy` isRight
+        replay g (logOf (started :| asks 1 30 <> [askAt 31 Ask.Stuck])) `shouldSatisfy` isRight
 
-    it "counts no question asked off interview" $
-        replay g (logOf (started :| asks 1 31)) `shouldSatisfy` isRight
+    it "counts no question asked off the gather" $
+        replay g (logOf (started :| enough : asks 1 31)) `shouldSatisfy` isRight
 
     for_ [(Low, 1), (Balanced, 5)] $ \(fuel, allowed) ->
         it ("spawns " <> show allowed <> " researchers at " <> show fuel <> " and refuses the next") $ do
-            let rounds n = FuelSet fuel : researched <> researchedAgain (n - 1)
-            replay g (logOf (started :| rounds allowed)) `shouldSatisfy` isRight
-            replay g (logOf (started :| rounds (allowed + 1))) `shouldSatisfy` outOf "Researchers" (fromIntegral allowed)
-
-    it "spends a researcher per one spawned, refusing a round past the cap at once" $
-        replay g (logOf (started :| [stepTook (ResearchDone 6)])) `shouldSatisfy` outOf "Researchers" 5
+            replay g (logOf (started :| FuelSet fuel : spawns allowed)) `shouldSatisfy` isRight
+            replay g (logOf (started :| FuelSet fuel : spawns (allowed + 1))) `shouldSatisfy` outOf "Researchers" (fromIntegral allowed)
 
     it "spawns a researcher per group of the plan at Max, as many as the agent counts" $
-        replay g (logOf (started :| FuelSet Max : researched <> researchedAgain 12)) `shouldSatisfy` isRight
+        replay g (logOf (started :| FuelSet Max : spawns 12)) `shouldSatisfy` isRight
 
-    it "asks Balanced's 30 questions after its 5 researchers: neither spends the other" $
-        replay g (logOf (started :| spent)) `shouldSatisfy` isRight
+    it "takes hand-backs in any order between questions, then leaves by enough" $
+        atName <$> replay g (logOf (started :| spawns 2 <> asks 1 2 <> [handedBack] <> spawns 1 <> asks 3 1 <> [handedBack, handedBack, enough]))
+            `shouldBe` Right (Just (StateName "plan"))
 
-    it "grants another 5 researchers and 30 questions after extend" $ do
-        let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> researchedAgain 5
-        replay g (logOf (started :| extended)) `shouldSatisfy` isRight
+    it "refuses enough while a researcher is open" $
+        replay g (logOf (started :| spawns 2 <> [handedBack, enough])) `shouldBe` Left (StillOpen 1)
+
+    it "refuses a hand-back with no researcher open" $
+        replay g (logOf (started :| spawns 1 <> [handedBack, handedBack])) `shouldBe` Left (NoneOpen (StateName "research"))
+
+    it "grants another 5 researchers and 30 questions after extend, keeping the open ones" $ do
+        let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> spawns 5
         replay g (logOf (started :| extended <> [askAt 61 Fact])) `shouldSatisfy` outOf "Interview questions" 30
-        replay g (logOf (started :| extended <> researchedAgain 1)) `shouldSatisfy` outOf "Researchers" 5
+        replay g (logOf (started :| extended <> spawns 1)) `shouldSatisfy` outOf "Researchers" 5
+        replay g (logOf (started :| extended <> replicate 9 handedBack <> [enough])) `shouldBe` Left (StillOpen 1)
+        replay g (logOf (started :| extended <> replicate 10 handedBack <> [enough])) `shouldSatisfy` isRight
 
     it "starts both budgets afresh when the run gathers again after an adjusted plan" $ do
-        let adjusted = spent <> [stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted] <> researched
-        replay g (logOf (started :| adjusted <> asks 31 30 <> researchedAgain 4)) `shouldSatisfy` isRight
+        let adjusted = spent <> replicate 5 handedBack <> [enough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted]
+        replay g (logOf (started :| adjusted <> asks 31 30 <> spawns 5)) `shouldSatisfy` isRight
 
-    it "refuses extend outside the gather loop" $
-        replay g (logOf (started :| map (Took mempty) (take 6 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
+    it "refuses extend outside the gather" $
+        replay g (logOf (started :| map (Took mempty) (take 7 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where
-    researched = [stepTook (ResearchDone 1)]
+    spawns n = replicate n (stepTook ResearchSpawned)
+    handedBack = stepTook ResearchHandedBack
+    enough = stepTook (Enough gathering)
     -- Balanced's researchers and questions, all used.
-    spent = researched <> researchedAgain 4 <> asks 1 30
-    researchedAgain n = concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
+    spent = spawns 5 <> asks 1 30
     asks from n = [askAt i Fact | i <- [from .. from + n - 1]]
-    askAt n kind = Asked (Asking (Question (QId run n) kind (oneLine "a question")) (StateName "interview") Itself)
+    askAt n kind = Asked (Asking (Question (QId run n) kind (oneLine "a question")) (StateName "gather") Itself)
 
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.
@@ -373,7 +374,7 @@ tenXRounds = describe "the 10x's rounds" $ do
 
     it "goes back to gather at a fresh round by next_round" $
         fmap (\state -> (atName state, Map.map length state.rounds)) (tenXRun round1)
-            `shouldBe` Right (Just (StateName "research"), Map.fromList [("gather", 1), ("plan", 1), ("round", 2)])
+            `shouldBe` Right (Just (StateName "gather"), Map.fromList [("gather", 1), ("plan", 1), ("round", 2)])
 
     it "starts both gather budgets afresh in the next round" $ do
         let spentAgain = round1 <> spent 31
@@ -399,14 +400,15 @@ tenXRounds = describe "the 10x's rounds" $ do
     parent = Parent (runId "p1") "p1/events.jsonl" t1
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map (Took mempty) (init happyPath) <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
-    agreed = [stepTook (ResearchDone 1), stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
+    agreed = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough gathering), stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
     onPr = roundTask "t1" "https://pr/1"
     toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (task :| [])))]
     settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved, stepTook (FanDone engineers)]
     -- The first round spends Balanced's 5 researchers and 30 questions, then loops.
     round1 = spent 1 <> drop 1 agreed <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 (Kept pr), stepTook (FanDone engineers), stepTook (MergeNextRound engineers)]
-    spent from = [stepTook (ResearchDone 1)] <> concat (replicate 4 [stepTook InterviewMore, stepTook (ResearchDone 1)]) <> map askAt [from .. from + 29]
-    askAt n = Asked (Asking (Question (QId run n) Fact (oneLine "a question")) (StateName "interview") Itself)
+    -- Balanced's 5 researchers, one handed back before the round ends, and 30 questions.
+    spent from = replicate 5 (stepTook ResearchSpawned) <> replicate 4 (stepTook ResearchHandedBack) <> map askAt [from .. from + 29]
+    askAt n = Asked (Asking (Question (QId run n) Fact (oneLine "a question")) (StateName "gather") Itself)
 
 -- | The ask events, on the engineer flow's graph: they never move the run.
 questions :: Spec

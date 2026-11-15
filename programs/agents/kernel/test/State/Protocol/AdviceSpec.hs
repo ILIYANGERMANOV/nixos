@@ -61,29 +61,35 @@ spec = describe "State.Protocol.Advice" $ do
     describe "fuel" $ do
         it "asks the engineer's Fuel first, the 10x's never: it runs at Balanced" $
             map (next noFacts) [runAt [], tenXStarted]
-                `shouldBe` [Run "state record fuel <low|balanced|max>", Spawn (AgentRole "researcher") Nothing]
+                `shouldBe` [Run "state record fuel <low|balanced|max>", choosing 0 0]
 
-    describe "interview" $ do
-        it "asks with no record, ending or researching by one" $
-            next noFacts atInterview `shouldBe` interviewing
+    describe "gather" $ do
+        it "offers each action with its budget, and enough" $
+            next noFacts (runAt (knobs Balanced)) `shouldBe` choosing 0 0
 
-        it "advises the 10x's interview as the engineer's, with no Fuel or Size ask" $
-            next noFacts (tenXRun [stepTook (ResearchDone 1)]) `shouldBe` interviewing
+        it "advises the 10x's gather as the engineer's, with no Fuel ask" $
+            next noFacts tenXStarted `shouldBe` choosing 0 0
+
+        it "waits for an open researcher before enough" $
+            next noFacts (runAt (knobs Balanced <> researched)) `shouldBe` Run "Researchers: 1 of 5: spawn a researcher in the background | Interview questions: 0 of 30: state ask each question | await the 1 open to hand back, then state record gather.enough"
+
+        it "offers enough again once every researcher handed back" $
+            next noFacts (runAt (knobs Balanced <> researched <> [stepTook ResearchHandedBack])) `shouldBe` choosing 1 0
 
         it "asks the user whether to go on once the questions are used up" $
-            next noFacts (runAt (knobs Balanced <> researched <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
+            next noFacts (runAt (knobs Balanced <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
 
         it "asks the user whether to go on at the questions' end, after a Stuck question before it" $ do
-            let stuckFirst = [Asked (Asking goOn interview Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt (knobs Balanced <> researched <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
+            let stuckFirst = [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
+            next noFacts (runAt (knobs Balanced <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
 
-        it "asks the user whether to go on at research once the researchers are used up" $
-            next noFacts (runAt (knobs Low <> researched <> [stepTook InterviewMore])) `shouldBe` Ask Stuck "Researchers: 1 of 1: go on?"
+        it "asks the user whether to go on once the researchers are used up" $
+            next noFacts (runAt (knobs Low <> researched)) `shouldBe` Ask Stuck "Researchers: 1 of 1: go on?"
 
-        it "extends on the user's yes, or ends the interview" $ do
-            let onStuck = knobs Balanced <> researched <> questions 30 <> [Asked (Asking goOn interview Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt onStuck) `shouldBe` Run "state record extend <why> when the user goes on | state record interview.enough"
-            next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` interviewing
+        it "extends on the user's yes, or ends the gather" $ do
+            let onStuck = knobs Balanced <> questions 30 <> [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
+            next noFacts (runAt onStuck) `shouldBe` Run "Researchers: 0 of 5: spawn a researcher in the background | state record extend <why> when the user goes on | state record gather.enough"
+            next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing 0 0
 
     describe "pick" $ do
         it "offers pick.loop while a re-review is left" $
@@ -102,7 +108,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "asks Confirm once, then advises its outcome" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
-                answered = runAt (knobs Balanced <> map (Took mempty) (take 4 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
+                answered = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
             next noFacts answered `shouldBe` Run "state record confirm.confirmed | state record confirm.adjusted"
 
     it "advises a scoped step's outcomes under their qualified names" $ do
@@ -113,7 +119,7 @@ spec = describe "State.Protocol.Advice" $ do
             `shouldBe` Run "state record security/pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state record security/pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
 
     describe "due" $ do
-        it "leaves Low's research skip to the agent, never recording it" $
+        it "records nothing at the gather's choice" $
             due g noFacts (runAt (knobs Low)) `shouldBe` Nothing
 
         it "skips the refactor at or below its changed lines" $
@@ -124,11 +130,11 @@ spec = describe "State.Protocol.Advice" $ do
             map (\changed -> due g noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Nothing, Nothing]
 
         it "records the draft PR GitHub already has" $
-            due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath)))
+            due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
                 `shouldBe` Just (stepTook (DraftDone draftPr))
 
         it "takes a merged or closed PR on the branch for an old one, not the draft" $
-            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath)))
+            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
             | over <- [IsMerged, IsClosed]
             ]
                 `shouldBe` [Nothing, Nothing]
@@ -269,14 +275,14 @@ spec = describe "State.Protocol.Advice" $ do
             ownAsk atImplement Design (oneLine "which store?") `shouldBe` askedUp "ASK user" TheUser
 
         it "hands a Design question back to a parent run" $
-            ownAsk (runUnder child (knobs Balanced <> map (Took mempty) (take 6 happyPath))) Design (oneLine "which store?")
+            ownAsk (runUnder child (knobs Balanced <> map (Took mempty) (take 7 happyPath))) Design (oneLine "which store?")
                 `shouldBe` askedUp "HANDBACK NEEDS_DECISION Design r7f2:1: which store?" (ParentRun parent)
 
         it "forwards the Confirm to whoever started the run, at every Fuel" $
             [ line
             | fuel <- [minBound .. maxBound]
             , from <- [start, child]
-            , let (_, _, line) = ownAsk (runUnder from (knobs fuel <> map (Took mempty) (take 4 happyPath))) Confirm (oneLine "the plan holds?")
+            , let (_, _, line) = ownAsk (runUnder from (knobs fuel <> map (Took mempty) (take 5 happyPath))) Confirm (oneLine "the plan holds?")
             ]
                 `shouldBe` concat (replicate 3 ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
 
@@ -293,22 +299,22 @@ spec = describe "State.Protocol.Advice" $ do
     which = Question (QId run 1) Design (oneLine "which store?")
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
-    atImplement = runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath))
-    atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 4 happyPath))
-    atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
+    atImplement = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
+    atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath))
+    atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 8 happyPath))
     tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {flow = TenXFlow} :| events)))
     tenXStarted = tenXRun []
-    interview = StateName "interview"
-    researched = [stepTook (ResearchDone 1)]
-    atInterview = runAt (knobs Balanced <> researched)
+    gathering = StateName "gather"
+    researched = [stepTook ResearchSpawned]
     -- Each put to the user and answered.
-    questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) interview Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
+    questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) gathering Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
     goOn = Question (QId run 100) Stuck (oneLine "go on?")
-    interviewing = Run "state ask each question; state record interview.enough when nothing is open | state record interview.more to research a new fact"
-    atReady = runAt (knobs Balanced <> map (Took mempty) (take 12 happyPath))
+    choosing :: Int -> Int -> Action
+    choosing researchers asks = Run ("Researchers: " <> Text.show researchers <> " of 5: spawn a researcher in the background | Interview questions: " <> Text.show asks <> " of 30: state ask each question | state record gather.enough")
+    atReady = runAt (knobs Balanced <> map (Took mempty) (take 13 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
-    atPick fuel rest = runAt (knobs fuel <> map (Took mempty) (take 8 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
+    atPick fuel rest = runAt (knobs fuel <> map (Took mempty) (take 9 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
     -- A Design question the run's own row forwards: asked, then forwarded at once.
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)
 

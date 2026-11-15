@@ -174,8 +174,8 @@ spec = describe "State.Cli.Command" $ do
   where
     -- At interview, at confirm and at the fix loop's pick, past the happy path's first steps.
     researched = map (Took mempty) (take 1 happyPath)
-    planned = map (Took mempty) (take 4 happyPath)
-    picking = map (Took mempty) (take 8 happyPath) <> [stepTook (ReviewRows sha)]
+    planned = map (Took mempty) (take 5 happyPath)
+    picking = map (Took mempty) (take 9 happyPath) <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.
     capOf :: Text -> Cap
     capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of

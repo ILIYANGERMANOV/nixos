@@ -34,9 +34,9 @@ import State.Run.Codec qualified as Codec
 import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
-import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
 import State.Step.Choice (Outcome (..))
 import State.Step.Choice qualified as Choice
+import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))

@@ -78,9 +78,12 @@ in
       dom = "Ctx";
       cod = "Ctx";
       exit = null;
-      outcomes = [ "done" ];
+      outcomes = [
+        "spawned"
+        "handed_back"
+      ];
       runner = "researcher";
-      lead = "Gather: researchers in parallel, each prompted per the researcher skill's `## Callers`, one per open fact group. When all are back: `state record research.done <n>`.";
+      lead = "Gather: spawn a researcher in the background per open fact group, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back.";
       task = "Research the open fact group your prompt names, as the researcher skill says.";
       tools = [
         "read"
@@ -98,13 +101,10 @@ in
     interview = {
       dom = "Ctx";
       cod = "Ctx";
-      exit = "Ctx";
-      outcomes = [
-        "enough"
-        "more"
-      ];
+      exit = null;
+      outcomes = [ ];
       runner = "inline";
-      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between. `enough` when nothing is open; `more` only when an answer opens a fact to research. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.";
+      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.";
       # `skill` invokes grilling, which the engineer does not preload; `web`
       # reads a link or doc an answer points to.
       tools = [

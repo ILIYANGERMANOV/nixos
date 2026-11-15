@@ -52,6 +52,7 @@ import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
+import State.Step.Choice (Outcome (..), gathering)
 import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
@@ -180,10 +181,9 @@ outcomeNames = Set.fromList (map outcomeEvent templates)
 -- | One of each outcome; 'like' fills in its data.
 templates :: [AnyOutcome]
 templates =
-    [ outcome (ResearchDone 0)
-    , outcome ResearchSkipped
-    , outcome InterviewEnough
-    , outcome InterviewMore
+    [ outcome ResearchSpawned
+    , outcome ResearchHandedBack
+    , outcome (Enough gathering)
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
     , outcome SimplifyPlanSkipped
@@ -225,10 +225,8 @@ like (AnyOutcome layer (SomeOutcome s leg o)) = AnyOutcome layer . SomeOutcome s
 likeIn :: Layer k -> Outcome (s :: k) l -> Gen (Outcome s l)
 likeIn = \case
     GatherLayer -> \case
-        ResearchDone _ -> ResearchDone <$> Gen.integral (Range.linear 0 6)
-        ResearchSkipped -> pure ResearchSkipped
-        InterviewEnough -> pure InterviewEnough
-        InterviewMore -> pure InterviewMore
+        ResearchSpawned -> pure ResearchSpawned
+        ResearchHandedBack -> pure ResearchHandedBack
     PlanLayer -> \case
         PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
         SimplifyPlanDone -> pure SimplifyPlanDone
@@ -262,6 +260,8 @@ likeIn = \case
         FanDone fan -> pure (FanDone fan)
         MergeDone fan _ -> MergeDone fan . Url <$> genText
         MergeNextRound fan -> pure (MergeNextRound fan)
+    ChoiceLayer -> \case
+        Enough choice -> pure (Enough choice)
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks
