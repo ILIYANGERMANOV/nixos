@@ -235,5 +235,5 @@ and CI runs.
   runtime change, `/final-review --requirements <path> <PR>`,
   `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
   commented. Only the user runs them.
-- A brief whose `Existing PR:` says it is a round: `state` records
+- A brief with a `Round on PR:` line is a round: `state` records
   `ready.skipped <url>` itself and the PR stays as it is; never `gh pr ready`.

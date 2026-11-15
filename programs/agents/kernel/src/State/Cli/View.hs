@@ -95,10 +95,10 @@ brief steps state agent@(AgentRole role) task
         , "QA: " <> yesNo found.qa
         , "Heavy: " <> yesNo found.heavy
         , "Security-sensitive: " <> listed (map topicText (Set.toList found.security))
-        , "Existing PR: " <> case found.shape of
-            OwnPr -> "none"
-            RoundOn url -> urlText url <> " (a round: it stays open, ready is skipped)"
         ]
+            <> case found.shape of
+                OwnPr -> []
+                RoundOn url -> ["Round on PR: " <> urlText url]
     listed = \case
         [] -> "none"
         items -> Text.intercalate ", " items

@@ -101,6 +101,8 @@ data Refusal
       Unmerged (NonEmpty TaskId)
     | -- | Only a round on an existing PR is kept: any other PR is merged or parked.
       NotARound TaskId
+    | -- | A round keeps its own PR only: this is that PR's URL.
+      NotItsRound TaskId Url
     | -- | A task added under an id the fan-out has already.
       TaskExists TaskId
     deriving stock (Eq, Show)
@@ -189,14 +191,16 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
         | otherwise = childRun
 
 {- | A parked task has no agent at work: parking settles even a lost child.
-Only a round's PR is kept.
+Only a round's PR is kept, and only under that PR's own URL.
 -}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
 moved task state fan = do
     found <- known task fan
     case (state, found.shape) of
         (Kept _, OwnPr) -> Left (NotARound task)
-        (Kept _, RoundOn _) -> Right ()
+        (Kept kept, RoundOn roundPr)
+            | kept == roundPr -> Right ()
+            | otherwise -> Left (NotItsRound task roundPr)
         (Parked _ _, _) -> Right ()
         (InCi _, _) -> Right ()
         (InReview _, _) -> Right ()

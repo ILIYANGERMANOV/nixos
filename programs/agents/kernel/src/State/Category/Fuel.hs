@@ -84,6 +84,7 @@ cfg fuel =
             LGather -> 1 + reResearches fuel
             LPlan -> 4
             LCi -> 6
+            -- A cap only, so a stuck next_round loop ends: 10 is generous for rounds on one PR.
             LRound -> 10
         , areas = fullReview fuel
         , asks = case fuel of

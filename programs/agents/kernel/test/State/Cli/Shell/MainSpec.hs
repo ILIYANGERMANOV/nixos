@@ -15,7 +15,7 @@ import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
 import State.Run.Event (Envelope (..), SessionId (..))
-import State.Run.RunGen (loadSteps)
+import State.Run.RunGen (loadSteps, roundTask)
 import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
 
@@ -40,6 +40,16 @@ spec = describe "state over the doubles" $ do
                 again `shouldBe` ["resumed " <> run]
                 (refused.code, refused.err)
                     `shouldBe` (2, ["state init: --notes /notes - its run " <> run <> " stopped: replan the plan is wrong", "fix: state init --notes <a new dir>"])
+
+            it "refuses a run in a notes dir whose run finished" $ \world -> do
+                _ <- drive world trivialPath
+                shown : _ <- succeeded =<< state world ["show"]
+                let run = Text.takeWhile (/= ' ') (Text.drop (Text.length "run: ") shown)
+
+                refused <- state world ["init", "--notes", Text.pack notes]
+
+                (refused.code, refused.err)
+                    `shouldBe` (2, ["state init: --notes " <> Text.pack notes <> " - its run " <> run <> " finished", "fix: state init --notes <a new dir>"])
 
             it "stamps each line with the clock, HEAD and the session STATE_SESSION names" $ \world -> do
                 modifyIORef' world (\w -> w {env = Map.insert "STATE_SESSION" "s9" w.env, commits = 3})
@@ -349,6 +359,15 @@ spec = describe "state over the doubles" $ do
 
                 (accepted.code, map (Text.takeWhile (/= ' ')) accepted.out) `shouldBe` (0, ["started"])
 
+            it "refuses a child for a task the parent's breakdown lacks, logging no spawn" $ \world -> do
+                parent <- tenXAtFanOut world
+
+                refused <- state world ["init", "--notes", "/child", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t9"]
+
+                (refused.code, refused.err)
+                    `shouldBe` (2, ["state init: --task t9 - the parent's breakdown has no such task", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                filter (== "spawned") <$> loggedEvents world `shouldReturn` []
+
             it "refuses a child its parent cannot take, keeping the worktree's run" $ \world -> do
                 parent <- startedRun world
 
@@ -399,10 +418,16 @@ spec = describe "state over the doubles" $ do
                                , "QA: no"
                                , "Heavy: yes"
                                , "Security-sensitive: none"
-                               , "Existing PR: none"
                                , ""
                                , "state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t2"
                                ]
+
+            it "briefs a round task with the PR it stays on" $ \world -> do
+                _ <- tenXAtFanOutOf world [roundTask "t1" "https://pr/1"]
+
+                brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
+
+                filter ("Round on PR: " `Text.isPrefixOf`) brief `shouldBe` ["Round on PR: https://pr/1"]
 
             it "refuses to brief an engineer for a task the breakdown lacks" $ \world -> do
                 _ <- tenXAtFanOut world

@@ -360,6 +360,9 @@ tenXRounds = describe "the 10x's rounds" $ do
     it "refuses to keep an ordinary task's PR" $
         tenXRun (toEngineers (plainTask "t1" []) <> [TaskMoved t1 (Kept pr)]) `shouldBe` Left (FanRefused (Fan.NotARound t1))
 
+    it "refuses to keep a PR other than the round's own" $
+        tenXRun (toEngineers onPr <> [TaskMoved t1 (Kept (Url "https://pr/2"))]) `shouldBe` Left (FanRefused (Fan.NotItsRound t1 pr))
+
     it "goes back to the fan-out for a task added at the merge, and spawns it" $ do
         let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded (plainTask "fix" [])]
         atName <$> tenXRun added `shouldBe` Right (Just (StateName "engineers"))
