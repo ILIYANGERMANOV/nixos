@@ -51,9 +51,9 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), Name, fanEvent, fanName)
+import State.Category.Flow (FanEvent (..), Name, ScopePath, fanEvent, fanName, qualify)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), innermost, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Recorded (..), allowed, spentBy)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
@@ -61,11 +61,11 @@ import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal, QId (..), Question (..), Ruling, deliver)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Url, eventId)
+import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Url, eventId, tookEvent)
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
-import State.Step.Catalog (AnyOutcome (..), Layer (..), outcomeEvent)
+import State.Step.Catalog (AnyOutcome (..), Layer (..))
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
@@ -226,7 +226,7 @@ runStart = \case
     Started start -> Just start
     FuelSet _ -> Nothing
     Extended _ -> Nothing
-    Took _ -> Nothing
+    Took _ _ -> Nothing
     Stopped _ -> Nothing
     Overridden _ _ -> Nothing
     Refused _ -> Nothing
@@ -255,7 +255,7 @@ applyEvent g state = \case
         Just set | set /= fuel -> Left (FuelSetOnce set)
         _ -> Right state {fuel = Just fuel}
     Extended _ -> going (extended g state)
-    Took outcome -> going (took g state outcome)
+    Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
     Asked asking -> going (fromChild asking.from <$> asked g state asking)
@@ -297,9 +297,9 @@ triagedBy role untriaged = case break ((== role) . fst) untriaged of
 {- | Moves along the outcome's edge, after the outcome spends its step's
 meter and its problems join the rounds it ends.
 -}
-took :: OpenGraph -> RunState -> AnyOutcome -> Either Refusal RunState
-took g state outcome@(AnyOutcome _ some) = do
-    let name = outcomeEvent outcome
+took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
+took g state scope outcome@(AnyOutcome _ some) = do
+    let name = tookEvent scope outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
         At place -> (place,) <$> step g place name
         Out -> Nothing
@@ -374,7 +374,7 @@ spawned as any task is; the fan-out is left again once every task is settled.
 -}
 reopened :: OpenGraph -> RunState -> Either Refusal RunState
 reopened g state = case state.at of
-    At place | Just fan <- fanOf place.name, place.name == mergeName fan -> overridden g state (fanName fan)
+    At place | Just fan <- fanOf place.name, place.name == mergeName fan -> overridden g state (qualify place.scope (fanName fan))
     At _ -> Right state
     Out -> Right state
     Exit -> Right state
@@ -547,10 +547,10 @@ askingChildren state = [run | pending <- state.pending, ChildRun run <- [pending
 nextQId :: RunState -> QId
 nextQId state = QId state.run (1 + maximum (0 : [n | QId asker n <- Set.toList state.everAsked, asker == state.run]))
 
--- | The state a question asked now is asked at; past the end, the port's name.
+-- | The state a question asked now is asked at, inside its scopes; past the end, the port's name.
 askedAt :: RunState -> StateName
 askedAt state = case state.at of
-    At place -> place.name
+    At place -> placeName place
     Out -> StateName "out"
     Exit -> StateName "exit"
 
@@ -573,7 +573,7 @@ flowRole :: FlowName -> Rung
 flowRole = (.rung) . Role.role
 
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
-overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
+overridden g state target = case Set.toList (Set.filter (\place -> placeName place == target) (places g)) of
     [place] -> do
         Right state {at = At place, rounds = enter g Nothing state.at (At place) state.rounds, meters = kept g (At place) state.meters, askedHere = []}
     _ -> Left (NoSingleState target)

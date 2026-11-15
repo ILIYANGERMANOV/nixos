@@ -160,11 +160,12 @@ data Action
 
 {- | The one outcome the shell records before advising, when the facts or the
 Fuel already decide it: the draft PR or its readiness seen on GitHub, or a
-skip the Fuel makes. The shell records it and asks again, until 'Nothing'.
+skip the Fuel makes, at the step's scope. The shell records it and asks
+again, until 'Nothing'.
 -}
-due :: OpenGraph -> Facts -> RunState -> Maybe AnyOutcome
+due :: OpenGraph -> Facts -> RunState -> Maybe Event
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> kept place.name <> skipped <> leaves place)
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (fromGitHub place.name <> kept place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -184,11 +185,12 @@ due g facts state = case (state.stopped, state.at) of
         IsClosed -> False
     -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
     leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans fan)]]
-    skipped =
+    -- The graph names the skip inside its scopes; its outcome is the step's own.
+    skipped place =
         [ outcome
         | (event, rule) <- skipsHere g state
         , Just why <- [skipsBecause rule]
-        , Just outcome <- [skipOutcome facts state why event]
+        , Just outcome <- [skipOutcome facts state why (EventName place.name event.outcome)]
         ]
     skipsBecause = \case
         Never -> Nothing

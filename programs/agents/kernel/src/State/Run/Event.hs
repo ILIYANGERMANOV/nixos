@@ -34,6 +34,8 @@ module State.Run.Event (
     Note (..),
     AnyOutcome,
     stepTook,
+    tookIn,
+    tookEvent,
     DraftPr (..),
     Commit (..),
     Picks (..),
@@ -62,14 +64,14 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Category.Flow (Name)
+import State.Category.Flow (Name, ScopePath, qualifyEvent)
 import State.Category.Fuel (Fuel)
-import State.Category.Step (Outcome, StateName (..))
+import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
-import State.Step.Catalog (AnyOutcome, KnownLayer, outcome)
+import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 import State.Step.Fan (engineers)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
@@ -108,8 +110,10 @@ data Event
       questions start afresh.
       -}
       Extended Text
-    | -- | A step's outcome, or a mode's skip: the one event that moves the run.
-      Took AnyOutcome
+    | {- | A step's outcome, or a mode's skip, inside the scopes its step sits
+      in: the one event that moves the run. 'tookEvent' is its name on the wire.
+      -}
+      Took ScopePath AnyOutcome
     | -- | Terminal: it ends every question still pending too.
       Stopped Stop
     | {- | A question for this run to rule on or forward: its own, or one handed
@@ -156,9 +160,17 @@ data Event
       WorkerHandedBack AgentRole OneLine
     deriving stock (Eq, Show)
 
--- | The event a step's outcome appends.
+-- | The event a step's outcome appends, at a step in no scope.
 stepTook :: (KnownLayer k) => Outcome (s :: k) l -> Event
-stepTook = Took . outcome
+stepTook = tookIn mempty
+
+-- | The event a step's outcome appends, at a step inside these scopes.
+tookIn :: (KnownLayer k) => ScopePath -> Outcome (s :: k) l -> Event
+tookIn scope = Took scope . outcome
+
+-- | @security/review.rows@: the graph's edge an outcome takes, and its name in the log.
+tookEvent :: ScopePath -> AnyOutcome -> EventName
+tookEvent scope = qualifyEvent scope . outcomeEvent
 
 {- | The run's environment is data here, read by whoever delivers advice, never
 by the flow: a flow does not branch on who runs it (law Principal-blind).

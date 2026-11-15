@@ -9,6 +9,7 @@ after a step that branches connects each branch to its own leg.
 module State.Category.Graph (
     OpenGraph (..),
     Place (..),
+    placeName,
     Node (..),
     Edge (..),
     Arrow (..),
@@ -28,18 +29,23 @@ import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import State.Category.Flow (FanEvent (..), Flow (..), Name (..), fanEvent, fanName, nameText, scoped)
+import State.Category.Flow (FanEvent (..), Flow (..), Name (..), ScopePath, fanEvent, fanName, qualify, qualifyEvent, scopePath, scoped)
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName, Outcomes (..), Sig, Sing, StateName (..), StepSet, outcomes, skippedOutcome, stepName)
 import State.Category.Ty (IsSum, KnownTy (..), NotSum, Ty (..))
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
-position in the term, so a step used twice is two states; the name is what
-people read.
+position in the term, so a step used twice is two states. The name is its
+step's, or its fan-out's, inside the scopes around it: 'placeName' is what
+people and the log read.
 -}
-data Place = Place {path :: [Int], name :: StateName}
+data Place = Place {path :: [Int], scope :: ScopePath, name :: StateName}
     deriving stock (Eq, Ord, Show)
+
+-- | @security/review@: the state's name inside its scopes, as its events and overrides name it.
+placeName :: Place -> StateName
+placeName place = qualify place.scope place.name
 
 -- | Where an edge of a whole flow's graph goes: a state, its end, or its exit.
 data Node = At Place | Out | Exit
@@ -264,9 +270,8 @@ inScope scope p =
         , caps = Map.mapKeys renamed p.caps
         }
   where
-    stateIn (StateName name) = StateName (nameText (scoped scope (Name name)))
-    renamed place = place {name = stateIn place.name}
-    eventIn (EventName state outcome) = EventName (stateIn state) outcome
+    renamed place = place {scope = scopePath scope <> place.scope}
+    eventIn = qualifyEvent (scopePath scope)
     edgeIn edge =
         Edge
             { to = case edge.to of
@@ -298,7 +303,7 @@ stepPart s =
         , caps = Map.empty
         }
   where
-    place = Place [] (stepName s)
+    place = Place [] mempty (stepName s)
     edge :: OutcomeName -> To o -> Ty -> ((Place, EventName), Edge (To o))
     edge outcome to cod =
         let event = EventName place.name outcome
@@ -306,7 +311,7 @@ stepPart s =
 
 -- | 'stepPart' with the step's meter capped at its state.
 cappedPart :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Part i o
-cappedPart limit atCap s = let p = stepPart s in Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Place [] (stepName s)) (Cap (SomeMeter s) limit atCap)}
+cappedPart limit atCap s = let p = stepPart s in Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Place [] mempty (stepName s)) (Cap (SomeMeter s) limit atCap)}
 
 exitTy :: forall x o. Outcomes ('Just x) o -> Ty
 exitTy (ExitsOr _ _) = tyVal @x
@@ -368,7 +373,7 @@ fanOut fan _ =
         , caps = Map.empty
         }
   where
-    place = Place [] (fanName fan)
+    place = Place [] mempty (fanName fan)
     edge event target = ((place, fanEvent event place.name), target)
 
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.

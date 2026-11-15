@@ -15,6 +15,11 @@ module State.Category.Flow (
     Name (..),
     nameText,
     scoped,
+    ScopePath,
+    scopePath,
+    qualify,
+    qualifyEvent,
+    unqualify,
     fanName,
     FanEvent (..),
     fanEvent,
@@ -23,6 +28,7 @@ module State.Category.Flow (
 import Data.List.NonEmpty (NonEmpty)
 import Data.String (IsString)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Meter (AtCap, Limit, Meter)
@@ -143,6 +149,37 @@ nameText (Name name) = name
 -- | @scope/name@: a name inside a scope.
 scoped :: Name -> Name -> Name
 scoped (Name scope) (Name name) = Name (scope <> "/" <> name)
+
+{- | The scopes a state sits in, outermost first: the root's is empty, and
+nesting is '<>', so @Scope s (Scope t f)@ puts @f@ in @scopePath s <> scopePath t@.
+No scope's name holds a @/@: 'scopePath' splits one that does, so a path
+has one spelling and reads back as it was written.
+-}
+newtype ScopePath = ScopePath [Name]
+    deriving stock (Eq, Ord, Show)
+    deriving newtype (Semigroup, Monoid)
+
+-- | A scope's name as a path: @Scope "s/t"@ is @Scope "s" (Scope "t" ..)@ (law Nested scopes).
+scopePath :: Name -> ScopePath
+scopePath (Name name) = ScopePath (map Name (Text.splitOn "/" name))
+
+{- | @s/t/review@: a state's name inside its scopes, as people and the log
+read it. An action of the monoid: @qualify (s <> t) = qualify s . qualify t@.
+-}
+qualify :: ScopePath -> StateName -> StateName
+qualify (ScopePath scopes) (StateName name) = StateName (Text.intercalate "/" (map nameText scopes <> [name]))
+
+-- | @s/review.rows@: an event of a state inside its scopes.
+qualifyEvent :: ScopePath -> EventName -> EventName
+qualifyEvent scope (EventName state outcome) = EventName (qualify scope state) outcome
+
+{- | The scopes a qualified name sits in, and its name inside them: the
+inverse of 'qualify' on a name with no @/@, as every step's and event's is.
+-}
+unqualify :: Text -> (ScopePath, Text)
+unqualify qualified = case Text.breakOnEnd "/" qualified of
+    ("", name) -> (mempty, name)
+    (scopes, name) -> (scopePath (Name (Text.dropEnd 1 scopes)), name)
 
 -- | The state a 'Par' draws as: its fan-out's name.
 fanName :: Name -> StateName

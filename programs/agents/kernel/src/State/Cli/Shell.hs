@@ -324,7 +324,7 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
                 )
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
-        Just outcome -> case commit stamp current [(Cli, Took outcome)] of
+        Just event -> case commit stamp current [(Cli, event)] of
             -- Nobody asked for it, so it is told and not stored.
             Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)

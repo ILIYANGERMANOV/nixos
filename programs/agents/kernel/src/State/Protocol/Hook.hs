@@ -244,7 +244,7 @@ silent headBranch readiness envelopes state = over state || maybe False (\bound 
 
 -- | The branch of the run's latest draft PR, as GitHub reported it.
 boundBranch :: NonEmpty Envelope -> Maybe Branch
-boundBranch envelopes = case [draft.branch | Envelope {event = Took (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (foldr (:) [] envelopes)] of
+boundBranch envelopes = case [draft.branch | Envelope {event = Took _ (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (foldr (:) [] envelopes)] of
     branch : _ -> Just branch
     [] -> Nothing
 

@@ -24,6 +24,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
+import State.Category.Flow (unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Graph (OpenGraph (..), Place, leaving)
 import State.Category.Meter (AtCap (..))
@@ -45,11 +46,14 @@ the shell can read; a breakdown or an added task is read from a file, by the she
 -}
 data Recording = Plain Event | AtHead (Sha -> Event) | FromFile FilePath (Text -> Either Text Event)
 
--- | The @state record@ line for an event, its arguments' usage after it.
+{- | The @state record@ line for an event, its arguments' usage after it. An
+event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
+-}
 recordCommand :: EventName -> Text
-recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usageOf [r | r <- recordables, r.name == name])
+recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usageOf [r | r <- recordables, r.name == step])
   where
     name = eventText event
+    step = snd (unqualify name)
 
 -- | The @state record@ line that extends the gather loop, on the user's yes.
 extendCommand :: Text
