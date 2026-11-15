@@ -48,7 +48,7 @@ from the top. Refused twice: ask the user.
 ## Rebase
 
 Through a fresh fixer in the task's worktree, in `references/brief.md`'s form,
-given the live `headRefOid` and counted against both caps. On its hand-back,
+given the live `headRefOid`. On its hand-back,
 with `<new head>` read live, compare yourself:
 
 ```sh
@@ -82,7 +82,7 @@ yourself:
    skipped: the Current gate catches it.
 4. Read `mergeable` for each other open PR of a live task in that repo. A
    `CONFLICTING` PR gets a rebase, and after a base fix so does each PR red on
-   the base: in a slot free under both caps, else once one frees. A task with an agent is
+   the base, at once. A task with an agent is
    skipped: the Current gate catches it. One merely behind rebases when its turn
    comes, so CI does not run for nothing.
 5. Dispatch what the merge unblocked, then take the next approved PR.

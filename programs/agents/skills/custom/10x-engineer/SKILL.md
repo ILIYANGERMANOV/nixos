@@ -1,6 +1,6 @@
 ---
 name: 10x-engineer
-description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown with a Fuel per task, runs up to 3 whole /engineer flows in worktrees, answers their questions as the authority table allows and asks the user the rest with context, owns CI waits and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Driven by the `state` kernel, resumable with `resume`. Factory only, invoked by the user.
+description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown with a Fuel per task, runs whole /engineer flows in worktrees, one per task, answers their questions as the authority table allows and asks the user the rest with context, owns CI waits and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Driven by the `state` kernel, resumable with `resume`. Factory only, invoked by the user.
 argument-hint: "[issues, PR links, a goal] | resume [run]"
 disable-model-invocation: true
 ---
@@ -15,7 +15,7 @@ user need not see.
 
 ```text
 Intake -> Gather -> Propose the breakdown -> user confirms
-  -> up to 3 engineers, each Gather to Ship -> queue -> user approves
+  -> an engineer per task, each Gather to Ship -> queue -> user approves
   -> merge loop -> audit -> report
 ```
 
@@ -134,19 +134,19 @@ The plan is the breakdown, `plan.md` in the run directory:
 |---|---|
 | Task | an id, one deliverable, its issues, acceptance criteria, the standards it follows |
 | Repo, deps | what must settle first: earlier tasks only |
-| Shape | independent PR to `main`, stacked on its dependency's branch, or child of `epic/<name>` |
+| Shape | independent PR to `main`, or child of `epic/<name>` |
 | Fuel | your call, never a question: Balanced, Low only when very small, Max only when very critical |
 | QA | yes or no |
-| Heavy | Gradle or Next.js build: yes or no |
+| Heavy | Gradle or Next.js build: yes or no, for the record only |
 | Security-sensitive | topics from `ci`, `auth`, `database`, `secrets`, or none |
 
 Add the pre-flight table: one row for every pair of tasks sharing a file or an
 interface, what one produces against what the other consumes, and what you
-found. No rows means you looked and say so. File overlap alone is a risk
-signal: sequence tasks only for a real semantic dependency. An interface two
+found. No rows means you looked and say so. Make a task depend on another
+when running them in parallel is not safe; independent tasks run at once.
+File overlap alone is a risk signal, not a dependency. An interface two
 tasks share is written into both briefs before they start. A dependent task
-starts once its dependency is in review, so it stacks on that branch or
-targets the epic.
+starts once its dependency is merged.
 
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
@@ -169,11 +169,9 @@ Write `tasks.json` in the run directory, a JSON array in the plan's order of
 
 ### Engineers
 
-**Spawn.** `state next` prints `SPAWN engineer --task <id>` while a slot is
-free; run `state record spawning <id>`, then spawn, then `state next` for
-the next line: at most 3 children, one heavy, dependencies settled. A fixer you run
-counts against both caps, a heavy task's as heavy: while one runs, hold a
-spawn the caps would refuse. Worktree, brief and spawn prompt:
+**Spawn.** `state next` prints `SPAWN engineer --task <id>` for each task
+free to start; run `state record spawning <id>`, then spawn, then `state next`
+for the next line. Spawn as many as it prints. Worktree, brief and spawn prompt:
 `${CLAUDE_SKILL_DIR}/references/brief.md`. The child's first command, the
 `state init` line in its brief, records `spawned` in your log.
 
@@ -310,8 +308,8 @@ run it, then triage it as any question. No retry spawns before.
 
 **Base.** A check red on the head of the repo's default branch, unless the PR
 is the base fix itself: a fresh fixer opens `base-fix-<repo>-<n>`, an
-independent PR to that branch, `Heavy` as the red check builds, in the next
-free slot, ahead of the queue, with no confirmation. No check runs there
+independent PR to that branch, `Heavy` as the red check builds, at once,
+ahead of the queue, with no confirmation. No check runs there
 means CI does not run on push, so the base is unknown: treat it as not red.
 Push the user what broke and each PR it holds. Merges on that repo hold until
 the base is green; other repos go on. The base fix takes CI, the queue and
@@ -329,7 +327,9 @@ starts, and on a plain-text question. `AskUserQuestion` notifies by itself.
 ## Resume
 
 `/10x-engineer resume [run]`. No run named: the newest unfinished one; several
-candidates: ask. Subagents and subscriptions die with the session, so:
+candidates: ask. `state` refusing an older `state`'s log names the fix: move
+its notes directory aside and start fresh. Subagents and subscriptions die
+with the session, so:
 
 1. In the run directory, `state show`, then each task's PR and issues on
    GitHub. GitHub wins: a PR merged or closed meanwhile goes through Wakes in
