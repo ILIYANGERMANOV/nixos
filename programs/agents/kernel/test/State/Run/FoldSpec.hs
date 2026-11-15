@@ -20,6 +20,7 @@ import State.Category.Path (ty)
 import State.Flow.Engineer (engineer)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
+import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (OutOfRounds)
 import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
@@ -165,6 +166,8 @@ spec = describe "State.Run.Fold" $ do
         Map.map length . (.rounds) <$> replay g (logOf (started :| map Took gathered))
             `shouldBe` Right (Map.fromList [(LGather, 2), (LPlan, 2)])
 
+    gatherBudgets
+
     it "append_is_idempotent_by_id" . hedgehog $ do
         events <- forAll genAccepted
         let logged = logOf (started :| events)
@@ -261,7 +264,7 @@ budgetOf :: RunState -> LoopId -> Int
 budgetOf state loopId = fromIntegral ((cfg (fuelOf state)).rounds loopId)
 
 unmetIn :: Round -> Bool
-unmetIn (Round problems) = any (\case Unmet _ -> True; Row _ -> False; Failing _ -> False) problems
+unmetIn latest = any (\case Unmet _ -> True; Row _ -> False; Failing _ -> False) latest.found
 
 -- | Any Fuel, then a walk to the end, sometimes with an event from anywhere in the flow.
 genCandidate :: Gen [Event]
@@ -273,6 +276,54 @@ genCandidate = do
     names <- Gen.element [walk, take at walk <> [noise] <> drop at walk]
     outcomes <- traverse outcomeOf names
     pure (knobs <> map Took outcomes)
+
+{- | The gather loop's two budgets, research rounds and questions at
+interview: neither spends the other, @extend@ grants both again, and each
+entry into the loop starts both afresh.
+-}
+gatherBudgets :: Spec
+gatherBudgets = describe "the gather's budgets" $ do
+    it "asks 20 questions at Balanced, spending no research round" $
+        Map.map length . (.rounds) <$> replay g (logOf (started :| researched <> asks 1 20))
+            `shouldBe` Right (Map.fromList [(LGather, 1), (LPlan, 1)])
+
+    it "refuses the question past Balanced's 30" $
+        replay g (logOf (started :| researched <> asks 1 31)) `shouldBe` Left (OutOfAsks 30)
+
+    it "takes a Stuck question past the questions, as asking whether to go on" $
+        replay g (logOf (started :| researched <> asks 1 30 <> [askAt 31 Ask.Stuck])) `shouldSatisfy` isRight
+
+    it "counts no question asked off interview" $
+        replay g (logOf (started :| asks 1 31)) `shouldSatisfy` isRight
+
+    for_ [(Low, 3), (Balanced, 8), (Max, 12)] $ \(fuel, allowed) ->
+        it ("takes " <> show allowed <> " more research rounds at " <> show fuel <> " and refuses the next") $ do
+            let mores n = FuelSet fuel : researched <> concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
+            replay g (logOf (started :| mores allowed)) `shouldSatisfy` isRight
+            replay g (logOf (started :| mores allowed <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds LGather (fromIntegral allowed + 1))
+
+    it "asks Balanced's 30 questions after its 8 research rounds: neither spends the other" $
+        replay g (logOf (started :| spent)) `shouldSatisfy` isRight
+
+    it "grants another 8 research rounds and 30 questions after extend" $ do
+        let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> researchedAgain 8
+        replay g (logOf (started :| extended)) `shouldSatisfy` isRight
+        replay g (logOf (started :| extended <> [askAt 61 Fact])) `shouldBe` Left (OutOfAsks 30)
+        replay g (logOf (started :| extended <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds LGather 9)
+
+    it "starts both budgets afresh when the run gathers again after an adjusted plan" $ do
+        let adjusted = spent <> [stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted] <> researched
+        replay g (logOf (started :| adjusted <> asks 31 30 <> researchedAgain 8)) `shouldSatisfy` isRight
+
+    it "refuses extend outside the gather loop" $
+        replay g (logOf (started :| map Took (take 6 happyPath) <> [Extended "why"])) `shouldBe` Left NotGathering
+  where
+    researched = [stepTook (ResearchDone 1)]
+    -- Balanced's research rounds and questions, all used.
+    spent = researched <> researchedAgain 8 <> asks 1 30
+    researchedAgain n = concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
+    asks from n = [askAt i Fact | i <- [from .. from + n - 1]]
+    askAt n kind = Asked (Asking (Question (QId run n) kind (oneLine "a question")) (StateName "interview") Itself)
 
 -- | The ask events, on the engineer flow's graph: they never move the run.
 questions :: Spec

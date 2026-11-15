@@ -146,6 +146,10 @@ Fuel row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
 says. An answer that opens a new fact gap gets research too (`more`).
 
+Asking needs no record. Your Fuel row caps research rounds and interview
+questions apart; at either cap `state next` asks the user whether to go on:
+yes is `state record extend <why>`, no is `interview.enough`.
+
 Interview with the `grilling` skill, and `domain-modeling` too when the task
 changes the domain language or the architecture - your call. It covers the
 technical design questions a PRD would settle: interfaces, data model,

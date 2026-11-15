@@ -18,7 +18,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (OptId (..))
-import State.Category.Fuel (Cfg (..), Fuel (..), SkipWhen (..), cfg, reReviews)
+import State.Category.Fuel (Cfg (..), Fuel (..), SkipWhen (..), cfg, reResearches, reReviews)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), stateNameText)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
@@ -58,7 +58,9 @@ the flow draws as optional ('Skip' arrow) is skippable by its state's name.
 fuel :: OpenGraph -> Text
 fuel g =
     rows
-        [ "Skippable when trivial" : map (skippable . cfg) levels
+        [ "Research rounds after the first" : map (\level -> "up to " <> tshow (reResearches level)) levels
+        , "Interview questions" : map (\level -> "up to " <> tshow (cfg level).asks) levels
+        , "Skippable when trivial" : map (skippable . cfg) levels
         , "Refactor" : map (\level -> refactor (cfg level) <> refactorDepth level) levels
         , "Re-reviews" : map (\level -> "up to " <> tshow (reReviews level) <> reReviewDepth level) levels
         , "Full review of a fix to" : map (areasText . (.areas) . cfg) levels

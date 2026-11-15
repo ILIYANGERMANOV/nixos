@@ -234,6 +234,10 @@ data Special
       Ordinary
     | -- | Ask the user to confirm the plan, once, before recording.
       AsksConfirm
+    | {- | Ask the user's questions, within the gather's questions, and at either
+      of its budgets' end ask whether to go on.
+      -}
+      Interviews
     | -- | Record the picks the review loop's rounds allow.
       PicksRows
     | -- | Wait on the PR's CI.

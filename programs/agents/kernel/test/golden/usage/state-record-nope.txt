@@ -13,6 +13,7 @@ Available commands:
   research.skipped         no arguments
   interview.enough         no arguments
   interview.more           no arguments
+  extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments
   simplify_plan.skipped    no arguments

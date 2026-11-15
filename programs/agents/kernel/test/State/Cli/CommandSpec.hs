@@ -6,6 +6,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative qualified as Opt
+import State.Category.Flow (LoopId (..))
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (OpenGraph (..))
 import State.Category.Step (eventText)
@@ -15,6 +16,7 @@ import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), oneLineText)
 import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook)
 import State.Run.Fold (Refusal (..), RunState (..))
+import State.Run.Fold qualified as Fold
 import State.Run.RunGen (g, loadSteps, runAt, sha)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
@@ -45,6 +47,9 @@ spec = describe "State.Cli.Command" $ do
     describe "record" $ do
         it "parses a stay event's argument" $
             recorded ["fuel", "low"] `shouldBe` Right (FuelSet Low)
+
+        it "records an extend with its why" $
+            recorded ["extend", "the", "user", "goes", "on"] `shouldBe` Right (Extended "the user goes on")
 
         it "records a commit event at HEAD with its touched areas" $
             recorded ["implement.done", "--touches", "none"] `shouldBe` Right (stepTook (ImplementDone (Commit sha Set.empty)))
@@ -112,6 +117,18 @@ spec = describe "State.Cli.Command" $ do
         it "explains a second Fuel by the one set" $
             (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (FuelSetOnce Max))
                 `shouldBe` ("it is max already, set once", "state show")
+
+        it "fixes a question past the gather's questions by ending or extending the interview" $
+            (explain g Balanced (runAt []).at (OutOfAsks 30)).fix
+                `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
+
+        it "fixes a research round past the gather's rounds by ending or extending the interview" $
+            (explain g Balanced (runAt []).at (Fold.OutOfRounds LGather 9)).fix
+                `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
+
+        it "fixes a round past another loop's rounds by leaving it or stopping" $
+            (explain g Balanced (runAt []).at (Fold.OutOfRounds LReview 4)).fix
+                `shouldSatisfy` Text.isSuffixOf " | state stop rounds <why>"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
             [ (explain g fuel (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix
