@@ -163,7 +163,7 @@ skip the Fuel makes. The shell records it and asks again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe AnyOutcome
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped place <> leaves place)
+    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -181,12 +181,10 @@ due g facts state = case (state.stopped, state.at) of
         IsClosed -> False
     -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
     leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans fan)]]
-    skipped place =
+    skipped =
         [ outcome
-        | ((from, event), edge) <- Map.toList g.edges
-        , from == place
-        , Skip optId <- [edge.arrow]
-        , Just why <- [skipsBecause ((cfg (fuelOf state)).skip optId)]
+        | (event, rule) <- skipsHere g state
+        , Just why <- [skipsBecause rule]
         , Just outcome <- [skipOutcome facts state why event]
         ]
     skipsBecause = \case
@@ -218,19 +216,23 @@ that takes it: the agent skips the step of a trivial task and runs it
 otherwise, so 'due' never records these.
 -}
 skippable :: OpenGraph -> RunState -> [Text]
-skippable g state = case (state.stopped, state.at) of
+skippable g state =
+    [ fuelLabel (fuelOf state) <> ": skip it when the task is trivial: " <> recordCommand event
+    | (event, Skippable) <- skipsHere g state
+    ]
+
+-- | Each skip arrow out of a running run's state, with when its Fuel takes it.
+skipsHere :: OpenGraph -> RunState -> [(EventName, SkipWhen)]
+skipsHere g state = case (state.stopped, state.at) of
     (Nothing, At place) ->
-        [ fuelLabel fuel <> ": skip it when the task is trivial: " <> recordCommand event
+        [ (event, (cfg (fuelOf state)).skip optId)
         | ((from, event), edge) <- Map.toList g.edges
         , from == place
         , Skip optId <- [edge.arrow]
-        , (cfg fuel).skip optId == Skippable
         ]
     (Nothing, Out) -> []
     (Nothing, Exit) -> []
     (Just _, _) -> []
-  where
-    fuel = fuelOf state
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> Facts -> RunState -> Advice
