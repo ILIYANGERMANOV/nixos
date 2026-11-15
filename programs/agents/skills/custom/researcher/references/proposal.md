@@ -3,7 +3,7 @@
 Your prompt names this file with a plan path, the research notes paths and
 `notes`, a directory under `/tmp`. It replaces the researcher skill's Process,
 Notes and Hand-back. Its rules on bounded reads, labels and data still hold,
-and so does its Budget for your Quality.
+and so does its Budget for your Fuel.
 
 ## Rules
 

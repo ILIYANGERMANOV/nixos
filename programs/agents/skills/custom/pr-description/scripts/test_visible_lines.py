@@ -52,7 +52,7 @@ def test_collapsed_block_counts_as_its_summary() -> None:
 
 def test_one_line_collapsed_block_counts_as_one() -> None:
     body = lines(
-        "<details><summary>Demo</summary> a video </details>", "Quality: Balanced"
+        "<details><summary>Demo</summary> a video </details>", "Fuel: Balanced"
     )
 
     assert count_visible(body) == 2

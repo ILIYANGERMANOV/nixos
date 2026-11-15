@@ -1637,16 +1637,19 @@ def children_by_parent(session: Session) -> list[tuple[Agent, list[Agent]]]:
 
 
 # --- Quality modes -----------------------------------------------------------
+# A brief states `Fuel: <level>`; older briefs state `Quality: <mode>` and a
+# `Size:` line, which still parse so old transcripts keep their rows.
 
 
 class Mode(Enum):
     POC = "POC"
+    LOW = "Low"
     BALANCED = "Balanced"
     MAX = "Max"
 
 
 class Size(Enum):
-    """The value is the brief's `Size:` line: stating it either way is its own row."""
+    """The value is an older brief's `Size:` line: stating it either way is its own row."""
 
     UNSTATED = ""
     TRIVIAL = "Trivial"
@@ -1668,7 +1671,9 @@ class Quality:
 
 
 NO_QUALITY = "(none stated)"
-QUALITY = re.compile(rf"\bQuality:\W*({'|'.join(m.value for m in Mode)})\b")
+QUALITY = re.compile(
+    rf"\b(?:Quality|Fuel):\W*({'|'.join(m.value for m in Mode)})\b"
+)
 SIZE = re.compile(
     rf"\bSize:\W*({'|'.join(s.value for s in Size if s.value)})\b(?!\|)"
 )  # `Size: Trivial|Normal` is the rule's placeholder, no size

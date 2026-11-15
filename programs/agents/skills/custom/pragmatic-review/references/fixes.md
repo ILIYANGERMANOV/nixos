@@ -21,13 +21,13 @@ manifest of `0 files` ends the review: report "no changes since `<prev-head>`".
 
 The fixes are **large** when any of these holds:
 
-- more than 300 changed lines, as the Quality table's note defines them
+- more than 300 changed lines, as the Fuel table's note defines them
   (the manifest's `+A -D` added up, generated lockfiles aside);
 - more than 10 files;
 - the manifest says `ancestor: no`, so history was rewritten and
   the fix diff no longer isolates the fixes.
 
-Large fixes get a full review when your row in the Quality table's Large fix
+Large fixes get a full review when your row in the Fuel table's Large fix
 widens on names what made them large: run `references/first-pass.md` on the whole branch,
 and say in one line under the assumptions why. Otherwise continue here.
 

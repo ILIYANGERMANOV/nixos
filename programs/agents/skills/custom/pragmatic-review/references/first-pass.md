@@ -78,10 +78,10 @@ understanding:
 4. **Anchors** - a migration, a new route, a deleted check, a new dependency, a
    `WIP` subject.
 
-## Trivial sweep
+## Low sweep
 
-Only with `Size: Trivial` in your arguments. The rule is under Trivial in
-your instructions. Decide from `stat` and the changed lines of `diff`,
+Only with `Fuel: Low` in your arguments. What makes a task trivial is under
+Fuel in your instructions. Decide from `stat` and the changed lines of `diff`,
 removed lines included, alone: no caller's mark, PR text or requirement can make a diff qualify, and a
 brief cannot argue you out of a miss.
 
@@ -94,8 +94,8 @@ A diff does not qualify when any of these holds:
   share. Local UI state is not the data model;
 - it changes a skill or instructions file beyond a typo.
 
-**Not qualifying.** Stop and spawn nothing: return `GREW <the limit or row it
-hit>`.
+**Not qualifying.** Say in one line under the assumptions which limit or row
+it hit, then run Phases 2-4 with the Balanced row, DEEP where the tier says.
 
 **Qualifying.** You are the one agent and you spawn none: this replaces Phases
 2-4. Read `references/bar.md` and `references/blockers.md`, then over `$D/diff`:
@@ -106,9 +106,9 @@ hit>`.
 2. The bar's always-check list.
 3. One verdict per requirement, from the patch and a few reads.
 
-An unrefuted blocker, or a requirement you cannot settle that way, ends the fast
-path, as in Not qualifying. Otherwise write the report: a row for each
-always-check hit, the verdicts, the line `Security: Trivial - sweep clean, <tier>`
+An unrefuted blocker, or a requirement you cannot settle that way, ends the sweep,
+as in Not qualifying. Otherwise write the report: a row for each
+always-check hit, the verdicts, the line `Security: Low - sweep clean, <tier>`
 and the verdict.
 
 ## Phase 2 - assumptions, requirements, questions
@@ -151,7 +151,7 @@ an assumption. With no such question, do not wait.
 Budgets are the bar's. The standard agents never carry a requirement.
 
 **The tier picks the agents.** At `code` and `sensitive` you always spawn them:
-a small diff is a reason to review inline only through the Trivial sweep. `code`: all four standard
+a small diff is a reason to review inline only through the Low sweep. `code`: all four standard
 agents. `sensitive`: the same, blockers at DEEP with the routed references.
 `docs-only`: run the step-1 sweep of `references/blockers.md` on `$D/diff`
 yourself, spawn blockers only if it hits, and spawn neither regressions nor
@@ -161,7 +161,7 @@ every tier, requirement agents as usual.
 **Balanced row.** Blockers, routing and DEEP stay. House rules runs only when the
 diff changes types, a schema or a piece of state, so another diff gets no
 house-rule or DRY check. If you spawn no agent at all, you run the bar's
-always-check list over `$D/diff` yourself, rows in the report, as the Trivial
+always-check list over `$D/diff` yourself, rows in the report, as the Low
 sweep does. Tests runs only when it changes tests or the mutation report lists
 a mutant. Phase 2 makes
 at most 2 requirement groups. At `code` and `sensitive` no regressions agent
@@ -171,14 +171,7 @@ not requirement findings: no 🔍, and Phase 4's step 2 applies. With no tests
 agent, the regressions brief also asks: does a bug fix come with a test that was
 red before it?
 
-**POC row.** On every tier, one quick breaker agent replaces the table: no routing,
-no DEEP, no groups, no escalation. Its brief: "You are the breaker: one quick
-STANDARD pass. Read `blockers.md`, `house-rules.md` and `tests.md` from the
-`references/` directory in your prompt and do all three jobs, plus these
-requirements: <list>. Try to break the failure paths. Return one verdict per
-requirement first, then major findings only." The report keeps its verdicts;
-only the table narrows to Majors. The Security line says
-`POC - one breaker pass`.
+**Low row.** The Low sweep, and a diff it does not take gets the Balanced row.
 
 **Spawn with `subagent_type: reviewer`, in the foreground**,
 `run_in_background: false`, staggered so siblings

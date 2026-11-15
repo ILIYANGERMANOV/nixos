@@ -29,8 +29,8 @@ and pass the copy as `--root DIR`.
   by unit, costliest first.
 - `startup`: an agent's first-call context, p50 and p90 by type, split into
   instructions, skill listing and remainder (tool schemas, base prompt, brief).
-- `quality`: cost by the first `Quality:` and `Size:` lines in a brief; an
-  agent with none takes the nearest one above it. `(none stated)` is older
+- `quality`: cost by the first `Fuel:` line in a brief, or an older brief's
+  `Quality:` and `Size:` lines; an agent with none takes the nearest one above it. `(none stated)` is older
   than the rule, not Balanced. An agent counts in its own row, so sessions do
   not add up. Per PR is the median over sessions of a mode's cost divided by
   the PRs it opened (`gh pr create` that did not fail).

@@ -1957,6 +1957,13 @@ class TestQualityModes:
             cells = row(report, "quality", mode)
             assert [cells[1], cells[4]] == ["1", "1k"], mode
 
+    def test_a_fuel_line_is_its_levels_row(self, home: Home) -> None:
+        # Given
+        brief = "Fuel: Low\nFix the typo."
+        home.session("s1", idle_main(), {"a": worker("A", subagent(brief, COSTS_1K))})
+        # When / Then
+        assert row(home.report(), "quality", "Low")[3:5] == ["2", "1k"]
+
     def test_the_placeholder_in_a_pasted_rule_is_not_a_mode(self, home: Home) -> None:
         # Given
         home.session(

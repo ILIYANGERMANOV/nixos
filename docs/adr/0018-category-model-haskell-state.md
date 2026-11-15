@@ -103,6 +103,26 @@ PR #376 reorganised the kernel; the model above holds.
   and table, below the run, the protocol and the command line;
   `ArchitectureSpec` refuses an import from a higher layer.
 
+## Amendment: one Fuel knob
+
+PR #383 replaced the two knobs; the model above holds.
+
+- **Fuel replaces Quality x Size.** One level, `Low`, `Balanced` or `Max`,
+  set once per task: the user's, or a 10x picks each child's and never asks.
+  POC, `Size: Trivial` and the `GREW` hand-back are gone. This reverses ADR
+  0012's rejection of Trivial as a mode: the size judgment now only unlocks
+  Low's skips, inside the level.
+- **The loop budget is `rounds`.** The old internal `fuel` became `rounds`, so
+  the word means one thing.
+- **Low may skip, never must.** At Low, research, the simplify pass and the
+  refactor are skippable when the task is trivial: the agent records the skip,
+  the kernel never does. Confirm is asked at every Fuel, and every Fuel ends
+  merge-ready.
+- **The Low sweep has a safety floor.** One review-lead sweep replaces the
+  review agents only for a trivial diff; CI, auth, database, secrets, deploy,
+  the data model or over about 100 changed lines get the full review as at
+  Balanced, DEEP where the tier says.
+
 ## Considered options
 
 - **Keep Python.** Rejected: the laws stay runtime tests, and a flow wired
