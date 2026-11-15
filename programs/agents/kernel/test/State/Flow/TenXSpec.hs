@@ -1,12 +1,13 @@
 module State.Flow.TenXSpec (spec) where
 
 import Data.Either (isRight)
+import State.Category.Flow (FanId (FEngineers), Flow (..))
 import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
-import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
-import State.Role (FlowName (EngineerFlow), RoleDef (..), role)
+import State.Role (RoleDef (..), role)
+import State.Run.Event (fanFlow)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
 spec :: Spec
@@ -21,6 +22,20 @@ spec = describe "State.Flow.TenX" $ do
     it "no_mode_skips_kept_steps" $
         skipsKept (graph tenX) (map StateName ["engineers", "merge"]) `shouldBe` []
 
-    -- The fan-out runs each task's child on the engineer flow the registry names.
+    -- The fan-out runs each task's child on the flow the registry names for it.
     it "runs the registry's engineer flow at its fan-out" $
-        graph engineer `shouldBe` graph (role EngineerFlow).flow
+        lookup FEngineers (parBodies tenX) `shouldBe` fmap (show . (.flow) . role) (fanFlow FEngineers)
+
+{- | Each fan-out's body, shown: a 'Par' hides its body's types, so no two
+bodies share one to compare by 'graph', which also draws a 'Par' as one state.
+-}
+parBodies :: Flow i e o -> [(FanId, String)]
+parBodies = \case
+    Do _ -> []
+    f :> g -> parBodies f <> parBodies g
+    Loop _ _ body -> parBodies body
+    Opt _ body -> parBodies body
+    Par fan body -> (fan, show body) : parBodies body
+    InL -> []
+    InR -> []
+    f :||| g -> parBodies f <> parBodies g
