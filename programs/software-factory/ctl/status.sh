@@ -269,7 +269,7 @@ throttle_row() {
   previous=$(reading "$throttle_file")
   rise=$(throttle_rise "$previous" "$count")
   save_throttle_count "$count"
-  stat_row Throttled "$count $times" "since boot${rise:+, +$rise since last check}" throttle_state "${rise:-none}" "$cpu"
+  stat_row Throttled "$count" "$times since boot${rise:+, +$rise}" throttle_state "${rise:-none}" "$cpu"
 }
 
 # The count the last stats run saw, so a slowdown warns once, when it happens,
