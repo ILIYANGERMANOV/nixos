@@ -23,8 +23,7 @@ module State.Category.Flow (
     qualifyEvent,
     qualifyText,
     unqualify,
-    fanName,
-    choiceName,
+    namedState,
     enoughOutcome,
     FanEvent (..),
     fanEvent,
@@ -214,17 +213,13 @@ unqualify qualified = case Text.breakOnEnd "/" qualified of
     ("", name) -> (mempty, name)
     (scopes, name) -> (scopePath (Name (Text.dropEnd 1 scopes)), name)
 
--- | The state a 'Choice' draws as: its name.
-choiceName :: Name -> StateName
-choiceName = StateName . nameText
-
 -- | The outcome that leaves a 'Choice': @gather.enough@.
 enoughOutcome :: OutcomeName
 enoughOutcome = OutcomeName "enough"
 
--- | The state a 'Par' draws as: its fan-out's name.
-fanName :: Name -> StateName
-fanName = StateName . nameText
+-- | The one state a 'Par' or a 'Choice' draws: its name.
+namedState :: Name -> StateName
+namedState = StateName . nameText
 
 {- | The events at a fan-out's state: a child is spawned or hands back while
 the run stays there; the fan-out is done when it leaves.

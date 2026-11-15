@@ -53,7 +53,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), Name, ScopePath, fanEvent, fanName, qualify)
+import State.Category.Flow (FanEvent (..), Name, ScopePath, fanEvent, namedState, qualify)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
@@ -389,7 +389,7 @@ spawned as any task is; the fan-out is left again once every task is settled.
 -}
 reopened :: OpenGraph -> RunState -> Either Refusal RunState
 reopened g state = case state.at of
-    At place | Just fan <- fanOf place.name, place.name == mergeName fan -> overridden g state (qualify place.scope (fanName fan))
+    At place | Just fan <- fanOf place.name, place.name == mergeName fan -> overridden g state (qualify place.scope (namedState fan))
     At _ -> Right state
     Out -> Right state
     Exit -> Right state

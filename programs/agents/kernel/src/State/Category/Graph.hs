@@ -34,7 +34,7 @@ import Data.Ord (comparing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import State.Category.Flow (FanEvent (..), Flow (..), Name (..), ScopePath, choiceName, enoughOutcome, fanEvent, fanName, qualify, qualifyEvent, scopePath, scoped)
+import State.Category.Flow (FanEvent (..), Flow (..), Name (..), ScopePath, enoughOutcome, fanEvent, namedState, qualify, qualifyEvent, scopePath, scoped)
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), Sig, Sing, StateName (..), StepSet, eventText, handedBackOutcome, outcomes, skippedOutcome, spawnedOutcome, stepName)
@@ -292,23 +292,18 @@ events, its loops, skips and fan-outs.
 inScope :: Name -> Part i o -> Part i o
 inScope scope p =
     Part
-        { inPorts = \sel -> case p.inPorts sel of
-            Enters place -> Enters (renamed place)
-            Passes on -> Passes on
-        , edges = Map.fromList [((renamed from, eventIn event), edgeIn edge) | ((from, event), edge) <- Map.toList p.edges]
-        , loops = Map.fromList [(scoped scope name, at {entry = renamed at.entry, body = Set.map renamed at.body}) | (name, at) <- Map.toList p.loops]
+        { inPorts = moved.inPorts
+        , edges = Map.fromList [((from, eventIn event), edgeIn edge) | ((from, event), edge) <- Map.toList moved.edges]
+        , loops = Map.mapKeys (scoped scope) moved.loops
         , fans = Set.map (scoped scope) p.fans
-        , caps = Map.mapKeys (\metered -> metered {place = renamed metered.place}) p.caps
+        , caps = moved.caps
         }
   where
-    renamed place = place {scope = scopePath scope <> place.scope}
+    moved = movePlaces (\place -> place {scope = scopePath scope <> place.scope}) p
     eventIn = qualifyEvent (scopePath scope)
     edgeIn edge =
         Edge
-            { to = case edge.to of
-                ToState place -> ToState (renamed place)
-                ToOut sel -> ToOut sel
-                ToExit -> ToExit
+            { to = edge.to
             , arrow = case edge.arrow of
                 Along along -> Along along {event = eventIn along.event}
                 Skip name skips -> Skip (scoped scope name) skips
@@ -338,17 +333,21 @@ stepPart s = do
             , caps = Map.empty
             }
   where
-    place = Place [] mempty (stepName s)
+    place = rootPlace (stepName s)
     edge :: OutcomeName -> To o -> Ty -> ((Place, EventName), Edge (To o))
     edge outcome to cod =
         let event = EventName place.name outcome
          in ((place, event), Edge to (Along (OutcomeEdge event (tyVal @i) cod)) Nothing)
 
+-- | A part's own state, before gluing moves it or a scope names it.
+rootPlace :: StateName -> Place
+rootPlace = Place [] mempty
+
 -- | 'stepPart' with the step's meter capped at its state.
 cappedPart :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Either Clash (Part i o)
 cappedPart limit atCap s = do
     p <- stepPart s
-    Right Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Metered (Place [] mempty (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0)}
+    Right Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Metered (rootPlace (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0)}
 
 {- | One state, the hub: each action's events stay there, each action's
 meter is spent there, and @enough@ goes on to the out. The hub is a loop of
@@ -364,7 +363,7 @@ choicePart name branches = do
     caps <- foldM capOnce Map.empty (map snd actions)
     Right Part {inPorts = \Here -> Enters hub, edges, loops = Map.singleton name LoopAt {entry = hub, body = Set.singleton hub}, fans = Set.empty, caps}
   where
-    hub = Place [] mempty (choiceName name)
+    hub = rootPlace (namedState name)
     enough = EventName hub.name enoughOutcome
     leave = Edge (ToOut Here) (Along (OutcomeEdge enough (tyVal @a) (tyVal @a))) Nothing
     stays :: (StepSet k) => Sing (s :: k) -> OutcomeName -> ((Place, EventName), Edge (To a))
@@ -442,7 +441,7 @@ fanOut fan _ =
         , caps = Map.empty
         }
   where
-    place = Place [] mempty (fanName fan)
+    place = rootPlace (namedState fan)
     edge event target = ((place, fanEvent event place.name), target)
 
 -- | The graph's states. Every state has an edge out, so the edges' keys hold them all.
@@ -480,20 +479,23 @@ sources edges = Set.fromList (map fst (Map.keys edges))
 
 -- | Prefixes every path, so the part can sit beside another.
 within :: Int -> Part i o -> Part i o
-within branch p =
+within branch = movePlaces (\place -> place {path = branch : place.path})
+
+-- | Every state of the part moved: where its in ports enter, its edges leave and go, and its loops and caps sit.
+movePlaces :: (Place -> Place) -> Part i o -> Part i o
+movePlaces move p =
     Part
         { inPorts = \sel -> case p.inPorts sel of
-            Enters place -> Enters (moved place)
+            Enters place -> Enters (move place)
             Passes on -> Passes on
-        , edges = Map.fromList [((moved from, event), fmap node edge) | ((from, event), edge) <- Map.toList p.edges]
-        , loops = fmap (\at -> at {entry = moved at.entry, body = Set.map moved at.body}) p.loops
+        , edges = Map.fromList [((move from, event), fmap node edge) | ((from, event), edge) <- Map.toList p.edges]
+        , loops = fmap (\at -> at {entry = move at.entry, body = Set.map move at.body}) p.loops
         , fans = p.fans
-        , caps = Map.mapKeys (\metered -> metered {place = moved metered.place}) p.caps
+        , caps = Map.mapKeys (\metered -> metered {place = move metered.place}) p.caps
         }
   where
-    moved place = place {path = branch : place.path}
     node = \case
-        ToState place -> ToState (moved place)
+        ToState place -> ToState (move place)
         ToOut sel -> ToOut sel
         ToExit -> ToExit
 

@@ -12,12 +12,14 @@ module State.Step.Choice (
     gathering,
     choices,
     choiceNamed,
+    nodeChoice,
 ) where
 
 import Data.List (find)
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import State.Category.Flow (Name, choiceName, enoughOutcome)
+import State.Category.Flow (Name, enoughOutcome, namedState)
+import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 
@@ -41,7 +43,7 @@ instance StepSet ChoiceStep where
     -- No row: 'State.Category.Flow.Choice' draws it, not 'State.Category.Flow.Do'.
     layerSteps = []
 
-    stepName (Hub name) = choiceName name
+    stepName (Hub name) = namedState name
 
     outcomes (Hub _) = Continues enoughOutcome
 
@@ -70,4 +72,11 @@ choices = [gathering]
 
 -- | The choice whose state this is.
 choiceNamed :: StateName -> Maybe Name
-choiceNamed name = find ((== name) . choiceName) choices
+choiceNamed name = find ((== name) . namedState) choices
+
+-- | The choice the run is at: none at a port, nor at a step's or a fan-out's state.
+nodeChoice :: Node -> Maybe Name
+nodeChoice = \case
+    At place -> choiceNamed place.name
+    Out -> Nothing
+    Exit -> Nothing

@@ -63,11 +63,10 @@ import State.Run.Fold (Pending (..), RunState (..), Waits (..), over)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
-import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), allSteps)
-import State.Step.Choice (choiceNamed)
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..))
+import State.Step.Choice (choiceNamed, nodeChoice)
 import State.Step.Gather qualified as Gather
-import State.Table (Row (runner), Steps, agentRoles, row)
-import State.Table qualified as Table
+import State.Table (Steps, agentRoles, stepsRunBy)
 
 data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook
     deriving stock (Eq, Show, Enum, Bounded)
@@ -227,12 +226,7 @@ also spawned beside the advice only at a choice, where it runs an action. A
 child run records its own in its parent's run.
 -}
 followedAt :: Node -> AgentRole -> Bool
-followedAt at role = role `notElem` beside || atChoice
-  where
-    atChoice = case at of
-        At place -> isJust (choiceNamed place.name)
-        Out -> False
-        Exit -> False
+followedAt at role = role `notElem` beside || isJust (nodeChoice at)
 
 {- | What a lead's spawn of this role records: at a choice, the spawn of the
 action the role runs, a child the choice then waits for. The spawn hook
@@ -242,7 +236,7 @@ spawnedAt :: Steps -> Node -> AgentRole -> Maybe Event
 spawnedAt steps at spawned = case at of
     At place
         | Just _ <- choiceNamed place.name ->
-            listToMaybe [event | AnyStep l (SomeStep s) <- allSteps, Table.Agent runner _ <- [(row steps s).runner], runner == spawned, Just event <- [opening place.scope l s]]
+            listToMaybe [event | AnyStep l (SomeStep s) <- stepsRunBy steps spawned, Just event <- [opening place.scope l s]]
         | otherwise -> Nothing
     Out -> Nothing
     Exit -> Nothing

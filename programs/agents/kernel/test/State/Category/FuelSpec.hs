@@ -4,7 +4,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (forAll, tripping)
 import Hedgehog.Gen qualified as Gen
-import State.Category.Fuel (Area (..), Cfg (..), Fuel (..), PerFuel (..), SkipWhen (..), atFuel, cfg, cfgLeq, fuelLabel, fuelName, monotone, parseFuel, skipsAtMost)
+import State.Category.Fuel (Area (..), Fuel (..), PerFuel (..), SkipWhen (..), atFuel, fuelLabel, fuelName, fullReview, monotone, parseFuel, skipsAtMost)
 import State.Golden (golden)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -43,21 +43,14 @@ spec = describe "State.Category.Fuel" $ do
                        ]
 
     it "reviews data model and auth fixes in full below Max, and interface ones too at Max" $
-        [(level, (cfg level).areas) | level <- levels]
+        [(level, fullReview level) | level <- levels]
             `shouldBe` [ (Low, Set.fromList [DataModel, Auth])
                        , (Balanced, Set.fromList [DataModel, Auth])
                        , (Max, Set.fromList [Interface, DataModel, Auth])
                        ]
 
-    it "cfg_is_monotone: each level does at least the work of the one below" $
-        [(low, high) | (low, high) <- zip levels (drop 1 levels), not (cfgLeq (cfg low) (cfg high))] `shouldBe` []
-
-    it "puts a cfg at or below itself" $
-        cfgLeq base base `shouldBe` True
-
-    it "puts no cfg below one that has fewer areas" $
-        cfgLeq base base {areas = Set.empty} `shouldBe` False
+    it "full_review_is_monotone: each level reviews in full at least the areas of the one below" $
+        monotone Set.isSubsetOf (fullReview <$> PerFuel Low Balanced Max) `shouldBe` True
   where
-    base = cfg Balanced
     levels = [minBound .. maxBound]
     skipWhens = [Never, AtOrBelow 100, Skippable]

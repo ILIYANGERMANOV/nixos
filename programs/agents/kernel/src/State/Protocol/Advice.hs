@@ -38,7 +38,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, fanName, nameText, qualify)
+import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), someMeterName)
@@ -302,7 +302,7 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
     extend, and enough once every child handed back.
     -}
     atChoice place = case [budget | (_, budget) <- here, usedUp budget, budget.cap.atCap == Extend] of
-        used : _ | Ask.Stuck `notElem` state.askedHere -> Ask Ask.Stuck (spentText used <> ": go on?")
+        used : _ | Ask.Stuck `notElem` state.askedHere -> goOn used
         used -> Run (NonEmpty.prependList ([option step | (step, budget) <- here, not (usedUp budget)] <> [extendOption | not (null used)]) (leave :| []))
       where
         here = budgetsAt place
@@ -329,8 +329,9 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
         Branches _ _ -> NonEmpty.head (recordOutcomes g place s)
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
-        | Ask.Stuck `notElem` state.askedHere = Ask Ask.Stuck (spentText budget <> ": go on?")
+        | Ask.Stuck `notElem` state.askedHere = goOn budget
         | otherwise = Run (someOptions (capRecords g place budget.cap.atCap))
+    goOn budget = Ask Ask.Stuck (spentText budget <> ": go on?")
     {- At a used-up budget the step's question still comes first; it records
     only what the budget leaves, and an agent is not spawned to spend past it.
     -}
@@ -401,7 +402,7 @@ atFan at ended state = fromMaybe leave (asum [unrecorded, question, triage, reco
     awaitMerge = AwaitMerge <$> NonEmpty.nonEmpty (Fan.mergesAwaited here)
     leave = Run $ case Fan.unsettled here of
         task : _ -> one ("state record task " <> taskIdText task <> " parked <why>") "no agent works on it and none can start it: park it"
-        [] -> one (recordCommand (fanEvent Leaves (qualify at.scope (fanName fan)))) "every task is settled: the fan-out ends"
+        [] -> one (recordCommand (fanEvent Leaves (qualify at.scope (namedState fan)))) "every task is settled: the fan-out ends"
 
 {- | At a fan-out's merge: record a finished task's PR, await the unmerged,
 then record the merge. With every task parked nothing merged, so the run

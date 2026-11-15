@@ -24,7 +24,7 @@ import Data.List (find)
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, fanName, nameText)
+import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, nameText, namedState)
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
@@ -71,12 +71,12 @@ instance StepSet FanStep where
 
     stepName = \case
         Breakdown fan -> breakdownName fan
-        FanOut fan -> fanName fan
+        FanOut fan -> namedState fan
         Merge fan -> mergeName fan
 
     outcomes = \case
         Breakdown _ -> Continues (OutcomeName "done")
-        FanOut fan -> Continues (fanEvent Leaves (fanName fan)).outcome
+        FanOut fan -> Continues (fanEvent Leaves (namedState fan)).outcome
         Merge _ -> ExitsOr (OutcomeName "done") (OutcomeName "next_round")
 
     special = \case
@@ -148,11 +148,11 @@ fanStepName step fan
 
 -- | The fan-out whose state this is: its breakdown, its own or its merge.
 fanOf :: StateName -> Maybe Name
-fanOf name = find (\fan -> name `elem` [breakdownName fan, fanName fan, mergeName fan]) fanOuts
+fanOf name = find (\fan -> name `elem` [breakdownName fan, namedState fan, mergeName fan]) fanOuts
 
 -- | The fan-out whose own state, the one its 'State.Category.Flow.Par' draws, this is.
 fanNamed :: StateName -> Maybe Name
-fanNamed name = find ((== name) . fanName) fanOuts
+fanNamed name = find ((== name) . namedState) fanOuts
 
 -- | Each round that leaves its PRs open: another round of the fan-out.
 instance Meter Merge where

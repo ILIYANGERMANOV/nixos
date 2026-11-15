@@ -15,7 +15,6 @@ module State.Step.Catalog (
     allSteps,
     outcomeSteps,
     stepNamed,
-    nodeStep,
     shownEdges,
 ) where
 
@@ -147,13 +146,6 @@ stepNamed :: StateName -> Maybe AnyStep
 stepNamed name = lookup name [(nameOf some, some) | some <- allSteps]
   where
     nameOf (AnyStep _ (SomeStep s)) = stepName s
-
--- | The step the run does at a node: none at a port, nor at a fan-out's state.
-nodeStep :: Node -> Maybe AnyStep
-nodeStep = \case
-    At place -> stepNamed place.name
-    Out -> Nothing
-    Exit -> Nothing
 
 {- | The edges out of a state in the order they are shown: a choice's
 actions' first, in the order the term declares them, each one's outcomes as

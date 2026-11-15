@@ -17,7 +17,7 @@ module State.Protocol.Handback (
     typeHandback,
 ) where
 
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -34,8 +34,8 @@ import State.Run.Fan (Fan, childTask)
 import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
-import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), allSteps, stepNamed)
-import State.Step.Choice (Sing (Hub), choiceNamed)
+import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
+import State.Step.Choice (Sing (Hub), nodeChoice)
 import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
@@ -44,7 +44,7 @@ import State.Step.Review (Outcome (..))
 import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..))
 import State.Step.Ship qualified as Ship
-import State.Table (Row (..), Runner (..), Steps, row)
+import State.Table (Row (..), Runner (..), Steps, row, stepsRunBy)
 
 data Handback = Handback
     { token :: Maybe Token
@@ -259,9 +259,9 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
     closing typed = case (atChoice, done False) of
         (True, Right events) -> typed {events = events <> typed.events}
         _ -> typed
-    atChoice = not (null [() | At place <- [state.at], Just _ <- [choiceNamed place.name]])
+    atChoice = isJust (nodeChoice state.at)
     -- At a choice, the step is the action this worker runs.
-    stepHere = listToMaybe ([(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]] <> [(place, step) | atChoice, At place <- [state.at], step@(AnyStep _ (SomeStep s)) <- allSteps, Agent runner _ <- [(row steps s).runner], runner == agent])
+    stepHere = listToMaybe ([(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]] <> [(place, step) | atChoice, At place <- [state.at], step <- stepsRunBy steps agent])
     -- Logged, so @state next@ advises the triage until the run asks it.
     triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> oneLine (tokenLine token)
     asked question = [Asked (Asking question (askedAt state) asker)]

@@ -12,6 +12,7 @@ module State.Table (
     namingProblems,
     row,
     agentRoles,
+    stepsRunBy,
 ) where
 
 import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:), (.:?))
@@ -186,3 +187,7 @@ row (Steps rows) s = fromMaybe (error "parseSteps keeps a row for every step") (
 -- | The roles a subagent runs a step as, each once, in the order of the steps.
 agentRoles :: Steps -> [AgentRole]
 agentRoles steps = nub [role | AnyStep _ (SomeStep s) <- allSteps, Agent role _ <- [(row steps s).runner]]
+
+-- | The steps this role runs, in the catalog's order.
+stepsRunBy :: Steps -> AgentRole -> [AnyStep]
+stepsRunBy steps agent = [step | step@(AnyStep _ (SomeStep s)) <- allSteps, Agent runner _ <- [(row steps s).runner], runner == agent]

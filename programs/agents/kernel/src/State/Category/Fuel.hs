@@ -1,6 +1,6 @@
 {- | How much a run spends: the user's one knob, Fuel, the tokens and time a
 task may take. A flow's term carries what each level allows as 'PerFuel'
-values, each monotone ('monotone'); 'cfg' holds the rest. A brief spells it
+values, each monotone ('monotone'); 'fullReview' sets the rest. A brief spells it
 @Fuel: <level>@.
 -}
 module State.Category.Fuel (
@@ -16,9 +16,7 @@ module State.Category.Fuel (
     SkipWhen (..),
     skipsAtMost,
     Area (..),
-    Cfg (..),
-    cfg,
-    cfgLeq,
+    fullReview,
 ) where
 
 import Data.Set (Set)
@@ -97,20 +95,11 @@ skipsAtMost a b = case (a, b) of
 data Area = Interface | DataModel | Auth
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
--- | What a level sets beyond the budgets its flow's term carries.
-newtype Cfg = Cfg {areas :: Set Area}
-
--- | Full-review areas as #351 set them.
-cfg :: Fuel -> Cfg
-cfg fuel = Cfg {areas = fullReview fuel}
-
--- | #351 decided interface fixes get a full review at the top level only.
+{- | The areas whose fix gets a full review at this level: #351 decided
+interface fixes get one at the top level only. Monotone by 'Set.isSubsetOf'.
+-}
 fullReview :: Fuel -> Set Area
 fullReview = \case
     Low -> Set.fromList [DataModel, Auth]
     Balanced -> Set.fromList [DataModel, Auth]
     Max -> Set.fromList [Interface, DataModel, Auth]
-
--- | The order 'cfg' must keep: the higher 'Cfg' has at least the areas.
-cfgLeq :: Cfg -> Cfg -> Bool
-cfgLeq lower higher = lower.areas `Set.isSubsetOf` higher.areas

@@ -19,8 +19,8 @@ import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, top
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
-import State.Step.Catalog (AnyStep (..), allSteps)
-import State.Table (Row (..), Runner (..), Steps, row)
+import State.Step.Catalog (AnyStep (..))
+import State.Table (Row (..), Steps, row, stepsRunBy)
 
 -- | Where the run is and what it carries: step, mode, rounds, questions, rulings.
 showRun :: OpenGraph -> RunState -> Text
@@ -103,7 +103,7 @@ brief steps state agent@(AgentRole role) task
         [] -> "none"
         items -> Text.intercalate ", " items
     yesNo = bool "no" "yes"
-    runs = [(stepName s, row steps s) | AnyStep _ (SomeStep s) <- allSteps, Agent runner _ <- [(row steps s).runner], runner == agent]
+    runs = [(stepName s, row steps s) | AnyStep _ (SomeStep s) <- stepsRunBy steps agent]
     briefed = case [step | step@(name, _) <- runs, At place <- [state.at], place.name == name] of
         [] -> runs
         here -> here

@@ -17,7 +17,8 @@ module State.Category.Meter (
     someMeterName,
 ) where
 
-import Data.Maybe (isJust)
+import Control.Monad (join)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
@@ -95,20 +96,19 @@ data Owed = Opens | Closes
 step's outcome, as for 'spentBy'.
 -}
 owedBy :: SomeMeter -> Recorded -> Maybe Owed
-owedBy (SomeMeter (s :: Sing (s :: k))) = \case
+owedBy (SomeMeter s) = \case
     RecordedAsk -> Nothing
-    RecordedOutcome (SomeOutcome (t :: Sing (t :: j)) leg _) -> case eqT @k @j of
-        Just Refl -> case sameStep s t of
-            Just Refl -> case leg of
-                ByOpening -> Just Opens
-                ByClosing -> Just Closes
-                ByExit -> Nothing
-                ByContinuing -> Nothing
-                BySkip -> Nothing
-                ByInl -> Nothing
-                ByInr -> Nothing
-            Nothing -> Nothing
-        Nothing -> Nothing
+    RecordedOutcome some -> join (ownOutcome s some (\leg _ -> owed leg))
+  where
+    owed :: LegOf sig l -> Maybe Owed
+    owed = \case
+        ByOpening -> Just Opens
+        ByClosing -> Just Closes
+        ByExit -> Nothing
+        ByContinuing -> Nothing
+        BySkip -> Nothing
+        ByInl -> Nothing
+        ByInr -> Nothing
 
 -- | An event a run records at a metered state, its step's kind hidden.
 data Recorded where
@@ -120,10 +120,14 @@ nothing: the graph keeps a meter at its own step's state, so a run records
 none there.
 -}
 spentBy :: SomeMeter -> Recorded -> Natural
-spentBy (SomeMeter (s :: Sing (s :: k))) = \case
+spentBy (SomeMeter s) = \case
     RecordedAsk -> spends s Asks
-    RecordedOutcome (SomeOutcome (t :: Sing (t :: j)) leg o) -> case eqT @k @j of
-        Just Refl -> case sameStep s t of
-            Just Refl -> spends s (Ends leg o)
-            Nothing -> 0
-        Nothing -> 0
+    RecordedOutcome some -> fromMaybe 0 (ownOutcome s some (\leg o -> spends s (Ends leg o)))
+
+-- | What the step makes of the outcome, when it is one of its own: of another step, nothing.
+ownOutcome :: forall k j (s :: k) r. (StepSet k, StepSet j) => Sing s -> SomeOutcome j -> (forall l. LegOf (Sig s) l -> Outcome s l -> r) -> Maybe r
+ownOutcome s (SomeOutcome t leg o) own = case eqT @k @j of
+    Just Refl -> case sameStep s t of
+        Just Refl -> Just (own leg o)
+        Nothing -> Nothing
+    Nothing -> Nothing
