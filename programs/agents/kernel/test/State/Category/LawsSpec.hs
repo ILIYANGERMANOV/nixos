@@ -14,12 +14,12 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, scoped, (|||))
+import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, scoped, unqualify, (|||))
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, redrawn)
 import State.Category.Fuel (PerFuel, SkipWhen, monotone, skipsAtMost)
-import State.Category.Graph (Arrow (..), Clash, Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Graph (Arrow (..), Clash, Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (Limit, limitAtMost, meterName)
-import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..))
+import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..), stateNameText)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
@@ -200,7 +200,7 @@ unscoped scope g =
         }
   where
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
-    place at = at {name = renameState bare at.name}
+    place at = let (inner, name) = unqualify (bare (stateNameText (placeName at))) in at {scope = inner, name = StateName name}
     renameEdge edge =
         Edge
             { to = case edge.to of
@@ -227,7 +227,7 @@ renameName :: (Text -> Text) -> Name -> Name
 renameName f (Name text) = Name (f text)
 
 stateNames :: OpenGraph -> Set.Set StateName
-stateNames = Set.map (.name) . places
+stateNames = Set.map placeName . places
 
 {- | Each meter's and skip's name, and whether its 'PerFuel' is monotone:
 more Fuel never allows less, nor skips where less Fuel runs.

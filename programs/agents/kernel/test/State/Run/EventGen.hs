@@ -44,6 +44,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Category.Flow (ScopePath, scopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
@@ -74,7 +75,7 @@ genEvent =
         [ Started <$> genStart
         , FuelSet <$> Gen.enumBounded
         , Extended <$> genText
-        , Took <$> (Gen.element templates >>= like)
+        , Took <$> genScope <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
         , Refused <$> (Note <$> genText <*> genText)
@@ -94,6 +95,10 @@ genEvent =
         , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         ]
+
+-- | The root, one scope or two nested: a scoped outcome must read back in its scope.
+genScope :: Gen ScopePath
+genScope = Gen.element [mempty, scopePath "security", scopePath "security/deep"]
 
 genPath :: Gen FilePath
 genPath = Gen.string (Range.linear 1 30) Gen.unicode

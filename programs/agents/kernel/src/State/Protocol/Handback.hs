@@ -17,23 +17,24 @@ module State.Protocol.Handback (
     typeHandback,
 ) where
 
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Category.Flow (ScopePath)
 import State.Category.Fuel (Area, parseByName)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, stepTook)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
 import State.Run.Fold (RunState (..), askedAt, fanIn, nextQId)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
-import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), nodeStep)
+import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
 import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
@@ -257,7 +258,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
-        step@(AnyStep _ (SomeStep s)) <- maybe (Left "the run is at no step a subagent runs") Right (nodeStep state.at)
+        (place, step@(AnyStep _ (SomeStep s))) <- maybe (Left "the run is at no step a subagent runs") Right (listToMaybe [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]])
         let name@(StateName label) = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
@@ -266,10 +267,10 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Inline -> Left (label <> " runs inline, not by " <> roleName)
         if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview]
             then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, BLOCKED, FAILED"
-            else doneOf step
-    -- One arm per layer, each total over its steps.
-    doneOf :: AnyStep -> Either Text [Event]
-    doneOf (AnyStep l (SomeStep s)) = case l of
+            else doneOf place.scope step
+    -- One arm per layer, each total over its steps; the outcome is in the step's scope.
+    doneOf :: ScopePath -> AnyStep -> Either Text [Event]
+    doneOf scope (AnyStep l (SomeStep s)) = case l of
         GatherLayer -> case s of
             Gather.Research -> Right []
             Gather.Interview -> inline s
@@ -297,10 +298,11 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Fan.Breakdown _ -> inline s
             Fan.FanOut _ -> inline s
             Fan.Merge _ -> inline s
+      where
+        took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
+        took outcome = Right [tookIn scope outcome]
     inline :: (StepSet k) => Sing (s :: k) -> Either Text [Event]
     inline s = let StateName label = stepName s in Left (label <> " has no done a subagent hands back")
-    took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
-    took outcome = Right [stepTook outcome]
     atHead :: Either Text Sha
     atHead = required "HEAD (run it in the worktree)" worktreeHead
     commit :: Set Area -> Either Text Commit

@@ -105,7 +105,7 @@ spec = describe "State.Run.Fold" $ do
             twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone researchers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
 
     it "runs the engineer flow's happy path to its end" $
-        (.at) <$> replay g (logOf (started :| map Took happyPath)) `shouldBe` Right Out
+        (.at) <$> replay g (logOf (started :| map (Took mempty) happyPath)) `shouldBe` Right Out
 
     it "every_accepted_log_is_a_path" . hedgehog $ do
         events <- forAll genCandidate
@@ -114,7 +114,7 @@ spec = describe "State.Run.Fold" $ do
             Right state -> do
                 cover 20 "accepted" True
                 cover 5 "reached the end" (state.at == Out)
-                path <- evalMaybe (ty g [outcomeEvent took | Took took <- events])
+                path <- evalMaybe (ty g [tookEvent scope took | Took scope took <- events])
                 assert (composes path)
 
     it "never_spends_past_a_cap" . hedgehog $ do
@@ -159,7 +159,7 @@ spec = describe "State.Run.Fold" $ do
     it "restarts gathering in each round of the plan loop" $ do
         let gather = [outcome (ResearchDone 1), outcome InterviewMore]
             gathered = concat (replicate 4 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
-        Map.map length . (.rounds) <$> replay g (logOf (started :| map Took gathered))
+        Map.map length . (.rounds) <$> replay g (logOf (started :| map (Took mempty) gathered))
             `shouldBe` Right (Map.fromList [("gather", 2), ("plan", 2)])
 
     gatherBudgets
@@ -238,11 +238,11 @@ placeName = \case
 
 -- | From the start to the first review.
 toReview :: [Event]
-toReview = map Took (take 8 happyPath)
+toReview = map (Took mempty) (take 8 happyPath)
 
 -- | From the start to the first CI result.
 toCi :: [Event]
-toCi = map Took (take 8 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
+toCi = map (Took mempty) (take 8 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
 
 -- | Fix rounds that pick these rows, as 'pickRounds'.
 reviewRounds :: [[Text]] -> [Event]
@@ -269,7 +269,7 @@ genCandidate = do
     at <- Gen.int (Range.linear 0 (length walk))
     names <- Gen.element [walk, take at walk <> [noise] <> drop at walk]
     outcomes <- traverse outcomeOf names
-    pure (knobs <> map Took outcomes)
+    pure (knobs <> map (Took mempty) outcomes)
 
 {- | The gather loop's two budgets, researchers and questions at interview:
 neither spends the other, @extend@ grants both again, and each entry into
@@ -315,7 +315,7 @@ gatherBudgets = describe "the gather's budgets" $ do
         replay g (logOf (started :| adjusted <> asks 31 30 <> researchedAgain 4)) `shouldSatisfy` isRight
 
     it "refuses extend outside the gather loop" $
-        replay g (logOf (started :| map Took (take 6 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
+        replay g (logOf (started :| map (Took mempty) (take 6 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where
     researched = [stepTook (ResearchDone 1)]
     -- Balanced's researchers and questions, all used.
@@ -369,7 +369,7 @@ tenXRounds = describe "the 10x's rounds" $ do
     pr = Url "https://pr/1"
     t1 = TaskId "t1"
     parent = Parent (runId "p1") "p1/events.jsonl" t1
-    engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map Took (init happyPath) <> [stepTook (ReadySkipped pr)]))
+    engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map (Took mempty) (init happyPath) <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
     agreed = [stepTook (ResearchDone 1), stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
     onPr = roundTask "t1" "https://pr/1"

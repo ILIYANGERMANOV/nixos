@@ -19,6 +19,7 @@ module State.Category.Flow (
     scopePath,
     qualify,
     qualifyEvent,
+    qualifyText,
     unqualify,
     fanName,
     FanEvent (..),
@@ -167,7 +168,11 @@ scopePath (Name name) = ScopePath (map Name (Text.splitOn "/" name))
 read it. An action of the monoid: @qualify (s <> t) = qualify s . qualify t@.
 -}
 qualify :: ScopePath -> StateName -> StateName
-qualify (ScopePath scopes) (StateName name) = StateName (Text.intercalate "/" (map nameText scopes <> [name]))
+qualify scope (StateName name) = StateName (qualifyText scope name)
+
+-- | A name inside its scopes, as the wire spells it: 'unqualify' reads it back.
+qualifyText :: ScopePath -> Text -> Text
+qualifyText (ScopePath scopes) name = Text.intercalate "/" (map nameText scopes <> [name])
 
 -- | @s/review.rows@: an event of a state inside its scopes.
 qualifyEvent :: ScopePath -> EventName -> EventName

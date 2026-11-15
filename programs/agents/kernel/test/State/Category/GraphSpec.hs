@@ -75,7 +75,7 @@ spec = describe "State.Category.Graph" $ do
 
     it "refuses a Refuse cap on a step whose every outcome stays in its loop: past the cap nothing is left to record" $
         graph (Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Refuse FixPR))
-            `shouldBe` Left (RefuseWithoutWayOut (Place [1] (StateName "fix_pr")))
+            `shouldBe` Left (RefuseWithoutWayOut (Place [1] mempty (StateName "fix_pr")))
 
     it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
         graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))
@@ -83,7 +83,7 @@ spec = describe "State.Category.Graph" $ do
 
     it "refuses two skips of one state: a log could not say which was skipped" $
         graph (Opt "research" (always Skippable) (Opt "simplify" (always Skippable) (Do Research)))
-            `shouldBe` Left (SameEvent (Place [] (StateName "research")) (EventName (StateName "research") (OutcomeName "skipped")))
+            `shouldBe` Left (SameEvent (Place [] mempty (StateName "research")) (EventName (StateName "research") (OutcomeName "skipped")))
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
 seqGraphs :: (NotSum a, NotSum b, NotSum c) => Gen (Flow a e1 b) -> Gen (Flow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)

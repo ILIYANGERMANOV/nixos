@@ -119,9 +119,9 @@ typing = describe "typeHandback" $ do
         it "refuses a question the child did not ask in its own run" $
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
-    atImplement = runAt (map Took (take 6 happyPath))
-    atReview = runAt (map Took (take 8 happyPath))
-    atFix = runAt (map Took (take 8 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
+    atImplement = runAt (map (Took mempty) (take 6 happyPath))
+    atReview = runAt (map (Took mempty) (take 8 happyPath))
+    atFix = runAt (map (Took mempty) (take 8 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"

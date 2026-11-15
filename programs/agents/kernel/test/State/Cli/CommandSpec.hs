@@ -160,9 +160,9 @@ spec = describe "State.Cli.Command" $ do
         it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
     -- At interview, at confirm and at the fix loop's pick, past the happy path's first steps.
-    researched = map Took (take 1 happyPath)
-    planned = map Took (take 4 happyPath)
-    picking = map Took (take 8 happyPath) <> [stepTook (ReviewRows sha)]
+    researched = map (Took mempty) (take 1 happyPath)
+    planned = map (Took mempty) (take 4 happyPath)
+    picking = map (Took mempty) (take 8 happyPath) <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.
     capOf :: Text -> Cap
     capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of

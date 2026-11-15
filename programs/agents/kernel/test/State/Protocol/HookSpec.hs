@@ -93,7 +93,7 @@ spec = describe "the hooks" $ do
                 `shouldBe` [False, False]
 
     describe "a spawn off the advice" $ do
-        let refactor = At (Place [] (stepName Refactor))
+        let refactor = At (Place [] mempty (stepName Refactor))
             role = AgentRole
         it "warns on a flow role that is not the one advised" $
             offAdvice steps refactor (role "refactorer") (role "fixer") `shouldBe` Just "state: the advice is SPAWN refactorer, not fixer"

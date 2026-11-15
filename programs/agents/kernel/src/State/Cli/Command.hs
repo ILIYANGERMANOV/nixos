@@ -33,6 +33,7 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
+import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Meter (someMeterName)
@@ -117,8 +118,10 @@ one; else optparse's help or usage error. No command at all is help.
 parseCommand :: Steps -> [Text] -> Either Usage (Text, Either Failure Command)
 parseCommand steps = \case
     [] -> Right ("help", Right Help)
+    -- A scoped event is its step's event inside a scope: the scope goes in its Args.
+    "record" : event : rest | (scope, local) <- unqualify event -> ("record",) <$> runCli (commandInfo steps scope) ("record" : local : rest)
     -- The grammar has no option before the subcommand but --help: a parsed argv starts with it.
-    argv@(sub : _) -> (sub,) <$> runCli (commandInfo steps) argv
+    argv@(sub : _) -> (sub,) <$> runCli (commandInfo steps mempty) argv
 
 -- | @state-hook <name>@'s argv.
 parseHook :: [Text] -> Either Usage HookName
@@ -126,7 +129,7 @@ parseHook = runCli hookInfo
 
 -- | The full usage: every command, then the run's kinds, stop reasons, roles and areas.
 help :: Steps -> Text
-help steps = optparseText (fst (Opt.renderFailure (Opt.parserFailure cliPrefs (commandInfo steps) (Opt.ShowHelpText Nothing) []) "state"))
+help steps = optparseText (fst (Opt.renderFailure (Opt.parserFailure cliPrefs (commandInfo steps mempty) (Opt.ShowHelpText Nothing) []) "state"))
 
 {- | optparse's own parse: a misuse prints its error, then the help of the
 command it reached, so @state record nope@ lists every event. The completion
@@ -150,8 +153,9 @@ hookInfo = Opt.info (Opt.hsubparser (foldMap hookCommand [minBound .. maxBound])
   where
     hookCommand name = Opt.command (Text.unpack (hookName name)) (Opt.info (pure name) (Opt.progDesc (Text.unpack (hookPurpose name))))
 
-commandInfo :: Steps -> ParserInfo (Either Failure Command)
-commandInfo steps =
+-- | The grammar, its @record@ events inside the scope their name gave.
+commandInfo :: Steps -> ScopePath -> ParserInfo (Either Failure Command)
+commandInfo steps scope =
     Opt.info
         (Opt.hsubparser commands <**> Opt.helper)
         (Opt.header "state - the run of an agent flow, kept in the worktree's log" <> Opt.footerDoc (Just (vsep (map pretty footer))))
@@ -159,7 +163,7 @@ commandInfo steps =
     commands =
         mconcat
             [ sub "init" "Start a run, a child run when it names its parent" initArgs
-            , Opt.command "record" (Opt.info recordEvent (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
+            , Opt.command "record" (Opt.info (recordEvent scope) (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
             , sub "handback" "Record a role's hand-back, read from stdin" $
                 (\role child -> HandbackOf <$> knownRole anyRole role <*> traverse runId child)
                     <$> textArgument "<role>"
@@ -249,12 +253,13 @@ initArgs =
         Right (Init InitArgs {notes = Text.unpack notes, flow, parent})
 
 -- | One subcommand per event the table holds, its flags its options.
-recordEvent :: Opt.Parser (Either Failure Command)
-recordEvent = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recordables)
+recordEvent :: ScopePath -> Opt.Parser (Either Failure Command)
+recordEvent scope = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recordables)
   where
     event r = Opt.command (Text.unpack r.name) (Opt.info (recording r <$> positionals r <*> flags r) (Opt.progDesc (Text.unpack (describe r)) <> freeWords r))
-    recording r positional options = OnRun . Record <$> first (refused r) (r.parse (Args positional options))
-    refused r why = Failure BadInput ("record " <> r.name) why (Text.strip ("state record " <> r.name <> " " <> usageOf r))
+    recording r positional options = OnRun . Record <$> first (refused r) (r.parse (Args scope positional options))
+    refused r why = Failure BadInput ("record " <> qualified r) why (Text.strip ("state record " <> qualified r <> " " <> usageOf r))
+    qualified r = qualifyText scope r.name
     positionals r
         | Text.null r.positional = pure []
         | otherwise = many (textArgument r.positional)

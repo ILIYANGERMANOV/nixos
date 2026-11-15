@@ -17,7 +17,6 @@ import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start)
 import State.Run.Fold (RunState (..), replay)
 import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, sha, tenXAt, tenXGraph)
 import State.Step.Build (Outcome (..))
-import State.Step.Catalog (outcome)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -103,7 +102,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "asks Confirm once, then advises its outcome" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
-                answered = runAt (knobs Balanced <> map Took (take 4 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
+                answered = runAt (knobs Balanced <> map (Took mempty) (take 4 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
             next noFacts answered `shouldBe` Run "state record confirm.confirmed | state record confirm.adjusted"
 
     describe "due" $ do
@@ -112,23 +111,23 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "skips the refactor at or below its changed lines" $
             due g noFacts {changedLines = Just 100} atRefactor
-                `shouldBe` Just (outcome (RefactorSkipped "100 changed lines, at or below 100"))
+                `shouldBe` Just (stepTook (RefactorSkipped "100 changed lines, at or below 100"))
 
         it "runs the refactor above its changed lines, or when they are unknown" $
             map (\changed -> due g noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Nothing, Nothing]
 
         it "records the draft PR GitHub already has" $
-            due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map Took (take 5 happyPath)))
-                `shouldBe` Just (outcome (DraftDone draftPr))
+            due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath)))
+                `shouldBe` Just (stepTook (DraftDone draftPr))
 
         it "takes a merged or closed PR on the branch for an old one, not the draft" $
-            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map Took (take 5 happyPath)))
+            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath)))
             | over <- [IsMerged, IsClosed]
             ]
                 `shouldBe` [Nothing, Nothing]
 
         it "records ready once GitHub says the PR is ready" $
-            due g withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (outcome (ReadyDone prUrl))
+            due g withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
 
     describe "the 10x's fan-out" $ do
         let t1 = plainTask "t1" []
@@ -208,7 +207,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "leaves the fan-out itself once every task is settled, and not before" $ do
             let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
-            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (outcome (FanDone engineers))
+            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (stepTook (FanDone engineers))
         it "states each task's child, PR and tries" $
             filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
                 `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
@@ -263,14 +262,14 @@ spec = describe "State.Protocol.Advice" $ do
             ownAsk atImplement Design (oneLine "which store?") `shouldBe` askedUp "ASK user" TheUser
 
         it "hands a Design question back to a parent run" $
-            ownAsk (runUnder child (knobs Balanced <> map Took (take 6 happyPath))) Design (oneLine "which store?")
+            ownAsk (runUnder child (knobs Balanced <> map (Took mempty) (take 6 happyPath))) Design (oneLine "which store?")
                 `shouldBe` askedUp "HANDBACK NEEDS_DECISION Design r7f2:1: which store?" (ParentRun parent)
 
         it "forwards the Confirm to whoever started the run, at every Fuel" $
             [ line
             | fuel <- [minBound .. maxBound]
             , from <- [start, child]
-            , let (_, _, line) = ownAsk (runUnder from (knobs fuel <> map Took (take 4 happyPath))) Confirm (oneLine "the plan holds?")
+            , let (_, _, line) = ownAsk (runUnder from (knobs fuel <> map (Took mempty) (take 4 happyPath))) Confirm (oneLine "the plan holds?")
             ]
                 `shouldBe` concat (replicate 3 ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
 
@@ -287,9 +286,9 @@ spec = describe "State.Protocol.Advice" $ do
     which = Question (QId run 1) Design (oneLine "which store?")
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
-    atImplement = runAt (knobs Balanced <> map Took (take 6 happyPath))
-    atConfirm = runAt (knobs Balanced <> map Took (take 4 happyPath))
-    atRefactor = runAt (knobs Balanced <> map Took (take 7 happyPath))
+    atImplement = runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath))
+    atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 4 happyPath))
+    atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
     tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {flow = TenXFlow} :| events)))
     tenXStarted = tenXRun []
     interview = StateName "interview"
@@ -299,10 +298,10 @@ spec = describe "State.Protocol.Advice" $ do
     questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) interview Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
     goOn = Question (QId run 100) Stuck (oneLine "go on?")
     interviewing = Run "state ask each question; state record interview.enough when nothing is open | state record interview.more to research a new fact"
-    atReady = runAt (knobs Balanced <> map Took (take 12 happyPath))
+    atReady = runAt (knobs Balanced <> map (Took mempty) (take 12 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
-    atPick fuel rest = runAt (knobs fuel <> map Took (take 8 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
+    atPick fuel rest = runAt (knobs fuel <> map (Took mempty) (take 8 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
     -- A Design question the run's own row forwards: asked, then forwarded at once.
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)
 
