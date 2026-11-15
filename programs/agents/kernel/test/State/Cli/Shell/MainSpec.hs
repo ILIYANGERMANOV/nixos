@@ -306,6 +306,27 @@ spec = describe "state over the doubles" $ do
                 again `shouldBe` ["resumed " <> child]
                 filter (== "spawned") <$> loggedEvents world `shouldReturn` ["spawned"]
 
+            it "starts a child on the flow its parent's fan-out runs" $ \world -> do
+                parent <- tenXAtFanOut world
+
+                child <- childRun world parent "/child" "t1"
+                shown <- succeeded =<< state world ["show"]
+
+                take 1 shown `shouldBe` ["run: " <> child <> " (engineer)"]
+
+            it "refuses a child --flow other than its parent's fan-out's, accepting the same" $ \world -> do
+                parent <- tenXAtFanOut world
+                let initChild flow = state world ["init", "--notes", "/child", "--flow", flow, "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+
+                refused <- initChild "10x"
+                spawnedBefore <- filter (== "spawned") <$> loggedEvents world
+                accepted <- initChild "engineer"
+
+                (refused.code, refused.err)
+                    `shouldBe` (2, ["state init: --flow 10x - the parent's fan-out runs engineer", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                spawnedBefore `shouldBe` []
+                (accepted.code, map (Text.takeWhile (/= ' ')) accepted.out) `shouldBe` (0, ["started"])
+
             it "refuses a child its parent cannot take, keeping the worktree's run" $ \world -> do
                 parent <- startedRun world
 

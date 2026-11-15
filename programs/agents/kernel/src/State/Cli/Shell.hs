@@ -44,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), explain, failureText, help, notStarted, noteOf, optparseText, parseCommand, parseHook)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), defaultFlow, explain, failureText, help, notStarted, noteOf, optparseText, parseCommand, parseHook)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
@@ -450,15 +450,15 @@ its parent's log, which is checked to hold that run before this one starts.
 -}
 initRun :: (Shell es) => FilePath -> InitArgs -> Eff es (Either Failure Text)
 initRun gd args =
-    principalOf args.parent >>= \case
+    startOf args >>= \case
         Left failure -> pure (Left failure)
-        Right principal -> do
+        Right (principal, flow) -> do
             notes <- FileSystem.makeAbsolute args.notes
             FileSystem.createDirectory notes
             stamp <- now
             fresh <- newRunId
             let path = logOf notes
-                start = Start {flow = args.flow, notes, principal, interface = interfaceOf principal}
+                start = Start {flow, notes, principal, interface = interfaceOf principal}
             result <- Log.locked path $ \case
                 Left bad -> ([], Left (unreadLine path bad))
                 Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right ("started", fresh))
@@ -499,17 +499,38 @@ joined notes logged@(first :| _) = case (.stopped) . snd <$> replayed (logOf not
     -- A log that does not replay is named by next and show; init leaves it be.
     Left _ -> Right first.run
 
-{- | Who starts the run. A parent's log path was checked by the parser; here
-its first line must be that run's start.
+{- | Who starts the run, and its flow: a child runs the flow of the fan-out its
+parent is at, read from the parent's log.
 -}
-principalOf :: (Log :> es) => Maybe Parent -> Eff es (Either Failure Principal)
-principalOf = \case
-    Nothing -> pure (Right ByUser)
-    Just parent -> do
-        first <- Log.firstLine parent.log
-        pure $ case decodeLine (fromMaybe "" first) of
-            Right envelope | envelope.run == parent.run, Started _ <- envelope.event -> Right (ByRole parent)
-            _ -> Left (Failure BadInput ("--parent " <> runIdText parent.run) (Text.pack parent.log <> " does not start that run") "state brief engineer, in the parent's worktree, prints the init line")
+startOf :: (Shell es) => InitArgs -> Eff es (Either Failure (Principal, FlowName))
+startOf args = case args.parent of
+    Nothing -> pure (Right (ByUser, fromMaybe defaultFlow args.flow))
+    Just parent ->
+        principalOf parent >>= \case
+            Left failure -> pure (Left failure)
+            Right principal -> fmap (principal,) <$> onLog (\_ run -> ([], childFlow parent args.flow run.state)) parent.log
+
+{- | A parent's log path was checked by the parser; here its first line must
+be that run's start.
+-}
+principalOf :: (Log :> es) => Parent -> Eff es (Either Failure Principal)
+principalOf parent = do
+    first <- Log.firstLine parent.log
+    pure $ case decodeLine (fromMaybe "" first) of
+        Right envelope | envelope.run == parent.run, Started _ <- envelope.event -> Right (ByRole parent)
+        _ -> Left (Failure BadInput ("--parent " <> runIdText parent.run) (Text.pack parent.log <> " does not start that run") initLineFix)
+
+-- | The flow of the fan-out the parent is at; a @--flow@ named must be that one.
+childFlow :: Parent -> Maybe FlowName -> RunState -> Either Failure FlowName
+childFlow parent named state = case (Fold.fanAt state.at >>= Event.fanFlow, named) of
+    (Nothing, _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at no fan-out whose children run a flow" "state show, in the parent's worktree")
+    (Just flow, Nothing) -> Right flow
+    (Just flow, Just asked)
+        | asked == flow -> Right flow
+        | otherwise -> Left (Failure BadInput ("--flow " <> Codec.flowText asked) ("the parent's fan-out runs " <> Codec.flowText flow) initLineFix)
+
+initLineFix :: Text
+initLineFix = "state brief engineer, in the parent's worktree, prints the init line"
 
 inWorktree :: (Git :> es) => (FilePath -> Eff es (Either Failure a)) -> Eff es (Either Failure a)
 inWorktree act = gitDir >>= either (pure . Left) act

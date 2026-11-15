@@ -25,6 +25,7 @@ module State.Run.Event (
     Asker (..),
     AgentRole (..),
     roleText,
+    fanFlow,
     fanRole,
     childRole,
     Stop (..),
@@ -169,13 +170,17 @@ data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
 data Asker = Itself | Subagent AgentRole | ChildRun RunId
     deriving stock (Eq, Show)
 
-{- | The role a fan-out's children run as: an engineer runs a whole engineer
-flow, so its name is the registry's; a researcher is a worker, no flow's lead.
+{- | The flow a fan-out's children each run, as its @Par@ body: an engineer
+leads a whole engineer flow; a researcher is a worker, no flow's lead.
 -}
+fanFlow :: FanId -> Maybe FlowName
+fanFlow = \case
+    FResearchers -> Nothing
+    FEngineers -> Just EngineerFlow
+
+-- | The role a fan-out's children run as: the lead of their flow, the registry's name.
 fanRole :: FanId -> AgentRole
-fanRole = \case
-    FResearchers -> AgentRole "researcher"
-    FEngineers -> (role EngineerFlow).name
+fanRole fan = maybe (AgentRole "researcher") ((.name) . role) (fanFlow fan)
 
 -- | The role that runs a whole flow of its own under a run's fan-out.
 childRole :: AgentRole
