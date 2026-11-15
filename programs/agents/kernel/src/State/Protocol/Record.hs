@@ -50,7 +50,11 @@ recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usag
 
 -- | The @state record@ line that extends the gather loop, on the user's yes.
 extendCommand :: Text
-extendCommand = "state record extend <why> when the user goes on"
+extendCommand = Text.unwords ["state record", extend.name, usageOf extend, "when the user goes on"]
+
+-- | The user's yes to one more interview round, and why.
+extend :: Recordable
+extend = Recordable "extend" "<why>" [] (fmap (Plain . Extended) . because . (.positional))
 
 {- | An event @state record@ takes: its name, its positionals' usage, the
 @--name value@ flags it takes, and the parser of both.
@@ -84,7 +88,7 @@ recordables =
     , nothing ResearchSkipped
     , nothing InterviewEnough
     , nothing InterviewMore
-    , stay "extend" "<why>" (fmap Extended . because)
+    , extend
     , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
         [path] -> Right (Plain (stepTook (PlanDone (Text.unpack path))))
         _ -> Left "the plan's path"
@@ -158,9 +162,6 @@ recordables =
     url s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
         [raw] -> Right (Plain (stepTook (done (Url raw))))
         _ -> Left "the PR's url"
-    because = \case
-        [] -> Left "why"
-        why -> Right (Text.unwords why)
     count raw = case decimal raw of
         Right (n, "") -> Right n
         _ -> Left (raw <> " is not a count")
@@ -169,6 +170,12 @@ recordables =
         _ -> Left (raw <> " is not <requirement>=<verdict>")
     known :: Text -> (Text -> Maybe a) -> Text -> Either Text a
     known what parse raw = maybe (Left ("no " <> what <> " " <> raw)) Right (parse raw)
+
+-- | The reason a lead gives, its words joined back.
+because :: [Text] -> Either Text Text
+because = \case
+    [] -> Left "why"
+    why -> Right (Text.unwords why)
 
 -- | Positionals and @--name value@ options, the only kind of flag there is.
 data Args = Args {positional :: [Text], options :: [(Text, Text)]}
