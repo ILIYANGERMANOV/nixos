@@ -16,7 +16,7 @@ import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, childRoles, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt)
 import State.Step.Catalog (AnyStep (..), allSteps)
@@ -71,7 +71,7 @@ returned as the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent@(AgentRole role) task
-    | agent `elem` childRoles = case task of
+    | agent == childRole = case task of
         Nothing -> Right (initLine "<id>")
         Just taskId -> case lookupTask state.fanOut taskId of
             Nothing -> Left taskId

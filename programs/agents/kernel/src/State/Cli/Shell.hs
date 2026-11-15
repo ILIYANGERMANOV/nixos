@@ -41,7 +41,6 @@ import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
-import State.Category.Flow (FanId (FEngineers))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Category.Step (stateNameText)
@@ -62,7 +61,7 @@ import State.Run.Ask (Parent (..), Principal (..), Question (..), oneLineText, q
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), fanRole, parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), childRole, parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
@@ -408,7 +407,7 @@ handedUp steps up =
     sources = [Hook (digestOf [runIdText up.child, tshow up.lastSeq, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
-        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state (fanRole FEngineers) (Just up.child) up.text) of
+        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state childRole (Just up.child) up.text) of
             -- The child tells its refusal; the parent's log does not keep it.
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())

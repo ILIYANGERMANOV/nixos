@@ -122,11 +122,12 @@ research and the final fixer.
 
 ## State hooks
 
-Where hooks reach your session, they record hand-backs and add context. A
-worker's hand-back with no `state:` line was not recorded: pipe it into
-`state handback <role>`. Under a parent, your `state` records your own
-hand-back in the parent's run. `state next`, `state show` and every hook read the PR
-from GitHub first. Offline (`PR sync skipped`): `state record draft.done <url>
+Where hooks reach your session, they record a worker's hand-back and add
+context. Under a parent, your `state` records your own hand-back in the
+parent's run. When `state next` still advises the `SPAWN` of a worker that has
+handed back, its hand-back went unrecorded: pipe it into `state handback
+<role>`. `state next`, `state show` and every hook read the PR from GitHub
+first. Offline (`PR sync skipped`): `state record draft.done <url>
 <base> <branch>` or `ready.done <url>`. Once drafted, the hooks go silent off
 its branch, on a merged or closed PR, or on an older `state`'s log.
 
