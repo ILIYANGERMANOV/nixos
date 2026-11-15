@@ -41,7 +41,7 @@ instance StepSet ShipStep where
         AwaitCiRed :: Sha -> NonEmpty Check -> Outcome AwaitCi 'Continued
         FixPrDone :: Sha -> Outcome FixPR 'Continued
         ReadyDone :: Url -> Outcome Ready 'Continued
-        -- \| POC keeps a draft: the PR it left.
+        -- \| The PR left as it is.
         ReadySkipped :: Url -> Outcome Ready 'Skipped
 
     layerSteps = [SomeStep Describe, SomeStep SimplifyPR, SomeStep AwaitCi, SomeStep FixPR, SomeStep Ready]

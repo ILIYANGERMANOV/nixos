@@ -23,24 +23,13 @@ spec = describe "State.Cli.Render" $ do
                                 , "| draft | you | done: implement |"
                                 ]
 
-    it "renders the Quality rows from the mode table" $
-        quality
+    it "renders the Fuel rows from the Fuel table, Low's skips in the flow's order" $
+        fuel g
             `shouldBe` Text.unlines
-                [ "| Refactor | above about 100 changed lines, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |"
-                , "| Re-reviews | up to 2, blockers and Not met fixed only | up to 3 | up to 5 |"
+                [ "| Skippable when trivial | `research`, `simplify_plan`, `refactor` | none | none |"
+                , "| Refactor | unless trivial, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |"
+                , "| Re-reviews | up to 1, blockers and Not met fixed only | up to 3 | up to 5 |"
                 , "| Full review of a fix to | data model, auth | data model, auth | interface, data model, auth |"
-                ]
-
-    it "lists what Trivial skips, in the flow's order" $
-        trivialSkips g
-            `shouldBe` Text.unlines
-                [ "- `research`: skipped"
-                , "- `simplify_plan`: skipped"
-                , "- `refactor`: skipped"
-                , "- `simplify_pr`: never skipped"
-                , "- `ready`: POC skipped, Balanced never skipped, Max never skipped"
-                , "- re-reviews: 0"
-                , "- researchers: 1"
                 ]
 
     it "renders who answers each kind" $
@@ -52,7 +41,7 @@ spec = describe "State.Cli.Render" $ do
                 , "| Pick | forwards | answers | answers | answers |"
                 , "| Design | forwards | forwards | answers if it passes the rule test | answers |"
                 , "| Scope | forwards | forwards | answers if it passes the rule test | answers |"
-                , "| Confirm | forwards | answers if the task is `Size: Trivial` | answers if the task plan fits the confirmed breakdown | answers |"
+                , "| Confirm | forwards | forwards | answers if the task plan fits the confirmed breakdown | answers |"
                 , "| Security | forwards | forwards | answers if the user already answered it, or it is obvious | answers |"
                 , "| Stuck | forwards | forwards | answers if no retry was spent on it yet | answers |"
                 ]

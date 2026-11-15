@@ -14,17 +14,12 @@ Base instructions for every agent.
 - Start every task with `git fetch origin main`. Branch from `origin/main` and
   diff against it, so you never build on or compare with a stale checkout.
 
-## Quality
+## Fuel
 
-Every brief carries two knobs, and a brief you write passes both on.
-`Quality: <mode>` is the user's: POC, Balanced (the default) or Max. A role
-that varies by mode gets the Quality table.
-
-`Size: Trivial|Normal` is the second knob, Normal when absent. Only the
-engineer leading the task sets it, once. Trivial only skips steps. A worker
-other than an engineer that finds a Trivial task bigger than briefed stops, as
-its brief's stop rule says, with `GREW <why>`; the engineer sets Normal for
-good.
+Every brief carries `Fuel: <level>`, and a brief you write passes it on: Low,
+Balanced (the default) or Max, the tokens and time the user will spend. It sets
+loop budgets and the steps a trivial task may skip. A role that varies by Fuel
+gets the Fuel table.
 
 ## Subagents
 

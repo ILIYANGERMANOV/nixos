@@ -73,7 +73,7 @@ data OpenGraph = OpenGraph
 data Clash
     = -- | Two edges leave one state on one event.
       SameEvent Place EventName
-    | -- | One loop id twice: its rounds and fuel would mix.
+    | -- | One loop id twice: its rounds would mix.
       SameLoop LoopId
     | -- | A fan-out's state drawn twice: a run keeps one fan-out's tasks per fan id.
       SameFan FanId

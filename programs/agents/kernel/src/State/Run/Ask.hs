@@ -58,7 +58,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Records (HasField (..))
 import Numeric.Natural (Natural)
-import State.Category.Mode (Size (..), parseByName)
+import State.Category.Fuel (parseByName)
 import State.Role (Rung (..))
 import State.Run.Id (EventId, RunId, TaskId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
 
@@ -93,8 +93,6 @@ data Cond
       ObviousOrAnswered
     | -- | No retry was spent on it yet.
       OneRetry
-    | -- | The task is @Size: Trivial@.
-      TrivialSize
     deriving stock (Eq, Show, Enum, Bounded)
 
 data Rule
@@ -117,7 +115,7 @@ authority = \case
         Pick -> Answers
         Design -> Forwards
         Scope -> Forwards
-        Confirm -> AnswersIf TrivialSize
+        Confirm -> Forwards
         Security -> Forwards
         Stuck -> Forwards
     Orchestrator -> \case
@@ -331,17 +329,13 @@ data Above
     deriving stock (Eq, Show)
 
 {- | Where a role's own question goes: its own row first, then its principal.
-The run knows its size, so 'TrivialSize' is decided here, and 'FitsBreakdown'
-never holds for a run's own question: the 10x's own Confirm is of the breakdown
+'FitsBreakdown' never holds for a run's own question: the 10x's own Confirm is of the breakdown
 itself, before any is confirmed. The LLM judges every other condition, and may
 still forward.
 -}
-ask :: Principal -> Size -> Rung -> Kind -> Delivery
-ask principal size role kind = case authority role kind of
+ask :: Principal -> Rung -> Kind -> Delivery
+ask principal role kind = case authority role kind of
     Answers -> AnswerSelf
-    AnswersIf TrivialSize -> case size of
-        Trivial -> AnswerSelf
-        Normal -> up
     AnswersIf RuleTest -> AnswerSelf
     AnswersIf FitsBreakdown -> up
     AnswersIf ObviousOrAnswered -> AnswerSelf

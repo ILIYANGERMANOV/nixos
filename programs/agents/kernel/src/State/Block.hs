@@ -20,7 +20,7 @@ import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
 
 {- | Gather and propose until a plan is confirmed: both flows open with it.
-Out of fuel is a stop, as an adjusted plan that never settles needs the user.
+Out of rounds is a stop, as an adjusted plan that never settles needs the user.
 -}
 agree :: Flow 'Ctx 'Nothing 'Plan
 agree = Loop LPlan StopOut (gather :> propose)
@@ -42,7 +42,7 @@ build = Do Draft :> Do Implement :> Opt ORefactor (Do Refactor)
 
 {- | Review is its own block, one 'Diff' in and one out, so another flow can
 glue it in: whoever does supplies the requirements the diff must meet. Out of
-fuel takes the exit rather than stopping, as #351 decided.
+rounds takes the exit rather than stopping, as #351 decided.
 -}
 review :: Flow 'Diff 'Nothing 'Diff
 review = Loop LReview ExitOut (Do Review :> Do Pick :> Do Fix)

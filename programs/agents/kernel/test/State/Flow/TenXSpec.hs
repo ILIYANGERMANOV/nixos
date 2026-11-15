@@ -16,7 +16,7 @@ spec = describe "State.Flow.TenX" $ do
         graph tenX `shouldSatisfy` isRight
 
     {- The steps #351's Keep law names run inside each engineer, whose own spec
-    holds them: here no mode may skip the fan-out that runs the engineers, nor
+    holds them: here no level may skip the fan-out that runs the engineers, nor
     the merge their PRs end in.
     -}
     it "no_mode_skips_kept_steps" $

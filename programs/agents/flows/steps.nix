@@ -1,7 +1,7 @@
 # The step table of #351's flows (#360 "Step table schema"): plain data, one
 # row per step of the kernel's `State.Category.Step`. `dom`, `cod` and `exit` are the
 # step's types (`in` is a Nix keyword), `outcomes` its exit outcome first, then
-# the continuing one; `skipped` is no outcome, a mode's skip appends it.
+# the continuing one; `skipped` is no outcome, a Fuel's skip appends it.
 # The runner is a sum, checked by flows/default.nix:
 #   { runner = "inline"; task; }        the lead runs the step itself
 #   { runner = "<role>"; lead; task; }  a subagent of that role runs it
@@ -19,12 +19,8 @@
 # role's. `offFlow` is a `role`'s work outside the two flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
 let
-  # The lead's Size and Quality rules, read at every step it decides to run
-  # or skip.
-  leadProse = [
-    "topics/trivial.md"
-    "topics/quality.md"
-  ];
+  # The lead's Fuel table, read at every step it decides to run or skip.
+  leadProse = [ "topics/fuel.md" ];
 
   # The 10x's steps around its fan-out. The engineers' keep these names; the
   # researchers' fan-out, in no flow yet, has its own, prefixed with its name,
@@ -89,7 +85,7 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [ "topics/quality.md" ];
+      prose = [ "topics/fuel.md" ];
       ops = [ ];
       flows = [
         "engineer"
@@ -157,7 +153,7 @@ in
         "web"
       ];
       skills = [ "researcher" ];
-      prose = [ "topics/quality.md" ];
+      prose = [ "topics/fuel.md" ];
       ops = [ ];
       flows = [
         "engineer"
@@ -202,7 +198,7 @@ in
       exit = null;
       outcomes = [ "done" ];
       runner = "implementer";
-      lead = "Build: implementers as your Quality row's Implement says, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice.";
+      lead = "Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice.";
       task = "Build the slice your prompt names, as the plan says.";
       tools = [
         "read"
@@ -210,10 +206,7 @@ in
         "shell"
       ];
       skills = [ "engineering" ];
-      prose = [
-        "shared/building.md"
-        "topics/quality.md"
-      ];
+      prose = [ "shared/building.md" ];
       ops = [ ];
       flows = [ "engineer" ];
     };
@@ -236,7 +229,7 @@ in
       ];
       prose = [
         "shared/building.md"
-        "topics/quality.md"
+        "topics/fuel.md"
       ];
       ops = [ ];
       flows = [ "engineer" ];
@@ -252,7 +245,7 @@ in
       runner = "review-lead";
       lead = "Review: one review-lead, briefed with `state brief review-lead`.";
       task = "Run `pragmatic-review` on the branch, or on the fixes after round 1, against the requirements file.";
-      # Its sweep reads the Trivial rule; it spawns the `reviewer`s.
+      # Its Low sweep reads the Fuel table; it spawns the `reviewer`s.
       tools = [
         "read"
         "shell"
@@ -408,7 +401,7 @@ in
         "shell"
       ];
       skills = [ ];
-      prose = [ "topics/quality.md" ];
+      prose = [ "topics/fuel.md" ];
       ops = [ ];
     };
     # The /qa skill's executor.

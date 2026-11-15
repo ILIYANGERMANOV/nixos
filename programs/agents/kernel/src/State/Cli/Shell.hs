@@ -41,14 +41,14 @@ import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
+import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
-import State.Category.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Category.Step (stateNameText)
 import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), defaultFlow, explain, failureText, help, notStarted, noteOf, optparseText, parseCommand, parseHook)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
-import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, ownAsk, pullRequestOf)
+import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
@@ -301,7 +301,7 @@ handbackPlan steps worktreeHead state role child message = do
     unread = either (\why -> Left (Failure BadInput "the hand-back" why "state help")) Right
 
 {- | What @state next@ records and prints, and the advice's action: what GitHub
-and the mode already decide is recorded first, then the advice: its line, the
+and the run's Fuel already decide is recorded first, then the advice: its line, the
 last refusal until the next event, its facts indented, the step's lead and
 task text. The advice leads, so a refusal never reads as the next action.
 -}
@@ -315,14 +315,14 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
-                    <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts]
+                    <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts <> skippable settled.g settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
         Just outcome -> case commit stamp current [(Cli, Took outcome)] of
             -- Nobody asked for it, so it is told and not stored.
-            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.mode current.state) current.state.at refusal).why])
+            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
 
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
@@ -362,7 +362,7 @@ record stamp run sources = \case
     Right plan -> case commit stamp run (zip sources plan.events) of
         Right (new, after) -> (new, Right (plan.say after.state new))
         Left refusal ->
-            let failure = explain run.g (Fold.mode run.state) run.state.at refusal
+            let failure = explain run.g (Fold.fuelOf run.state) run.state.at refusal
              in ([stamped stamp Cli run.state.run (nextSeq run) (Refused (noteOf failure))], Left failure)
 
 -- | Lines are numbered from 1 in the order written, @started@ first.
@@ -442,8 +442,8 @@ replayed path logged@(first :| _) = case Fold.runStart first.event of
     Nothing -> Left (unreplayed path notStarted)
     Just start ->
         let g = graphOf start.flow
-         in -- Balanced Normal, the mode until recorded: only what and why are read.
-            either (Left . unreplayed path . explain g (Mode Balanced Normal) Out) (Right . (g,)) (replay g logged)
+         in -- Balanced, the Fuel until recorded: only what and why are read.
+            either (Left . unreplayed path . explain g Balanced Out) (Right . (g,)) (replay g logged)
 
 {- | @state init@: idempotent, as a retried brief runs it again. A child names
 its parent's log, which is checked to hold that run before this one starts.
@@ -561,9 +561,8 @@ unreplayed path refusal = Failure BadInput (Text.pack path <> " does not replay"
 rendered :: Steps -> Block -> FlowName -> Text
 rendered steps block flow = case block of
     States -> Render.states g steps
-    QualityRows -> Render.quality
+    FuelRows -> Render.fuel g
     Mermaid -> mermaid g
-    TrivialSkips -> Render.trivialSkips g
     Kinds -> Render.kinds
     StopRule -> Render.stopRule
     PlanWrong -> Render.planWrong

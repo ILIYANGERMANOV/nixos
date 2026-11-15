@@ -1,7 +1,7 @@
 {- | What a run knows is a fold over its log (#351 section 7). A step event
 moves the run along one edge of the flow's graph, found by "State.Category.Path", so a
 log the fold accepts is a path of @Run(F)@ (law Trace soundness). Every loop
-has fuel and the stuck guard short-circuits it (law Bounded).
+has a budget of rounds and the stuck guard short-circuits it (law Bounded).
 
 A question stays pending until this run rules on it, the answer comes down
 after a forward, or the run stops. Each is checked against the run's own row
@@ -20,7 +20,7 @@ module State.Run.Fold (
     runStart,
     fold,
     append,
-    mode,
+    fuelOf,
     Stuck (..),
     stuck,
     budget,
@@ -50,8 +50,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), FanId, LoopId, OptId, fanEvent, fanOf)
+import State.Category.Fuel (Cfg (..), Fuel (..), SkipWhen (..), cfg)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
-import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Role (FlowName, RoleDef (..), Rung)
@@ -71,9 +71,8 @@ data RunState = RunState
     { run :: RunId
     , start :: Start
     , at :: Node
-    , quality :: Maybe Quality
-    -- ^ 'Nothing' until recorded: 'mode' reads the defaults meanwhile.
-    , size :: Maybe Size
+    , fuel :: Maybe Fuel
+    -- ^ 'Nothing' until recorded: 'fuelOf' reads the default meanwhile.
     , rounds :: Map LoopId (NonEmpty Round)
     -- ^ The rounds so far of each loop the run is inside, oldest first.
     , seen :: Set EventId
@@ -134,13 +133,11 @@ data Refusal
       AfterStop Stop
     | -- | The flow has no edge on this event where the run is.
       NoEdge Node EventName
-    | -- | The mode never skips this step.
+    | -- | The run's Fuel never skips this step.
       NotSkippable OptId
-    | -- | Another round would pass the loop's fuel.
-      OutOfFuel LoopId Natural
-    | QualitySetOnce Quality
-    | -- | Only @grew@ changes the size.
-      SizeSetOnce Size
+    | -- | Another round would pass the loop's rounds.
+      OutOfRounds LoopId Natural
+    | FuelSetOnce Fuel
     | -- | An override names a state the flow does not have, or more than one.
       NoSingleState StateName
     | -- | The question was asked already, whether pending or closed.
@@ -194,8 +191,7 @@ begin g envelope = case runStart envelope.event of
                 { run = envelope.run
                 , start
                 , at = At g.inPort
-                , quality = Nothing
-                , size = Nothing
+                , fuel = Nothing
                 , rounds = Map.mapMaybe (\loop -> if Set.member g.inPort loop.body then Just firstRound else Nothing) g.loops
                 , seen = Set.singleton (eventId envelope)
                 , stopped = Nothing
@@ -215,9 +211,7 @@ begin g envelope = case runStart envelope.event of
 runStart :: Event -> Maybe Start
 runStart = \case
     Started start -> Just start
-    QualitySet _ -> Nothing
-    SizeSet _ -> Nothing
-    Grew _ -> Nothing
+    FuelSet _ -> Nothing
     Took _ -> Nothing
     Stopped _ -> Nothing
     Overridden _ _ -> Nothing
@@ -241,13 +235,9 @@ applyEvent :: OpenGraph -> RunState -> Event -> Either Refusal RunState
 applyEvent g state = \case
     Refused note -> Right state {refused = Just note}
     Started _ -> going (Left StartedTwice)
-    QualitySet quality -> going $ case state.quality of
-        Just set | set /= quality -> Left (QualitySetOnce set)
-        _ -> Right state {quality = Just quality}
-    SizeSet size -> going $ case state.size of
-        Just set | set /= size -> Left (SizeSetOnce set)
-        _ -> Right state {size = Just size}
-    Grew _ -> going (Right state {size = Just Normal})
+    FuelSet fuel -> going $ case state.fuel of
+        Just set | set /= fuel -> Left (FuelSetOnce set)
+        _ -> Right state {fuel = Just fuel}
     Took outcome -> going (took g state outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)
@@ -294,16 +284,16 @@ took g state outcome = do
         Out -> Nothing
         Exit -> Nothing
     case edge.arrow of
-        Skip optId | (cfg (mode state)).skip optId == Never -> Left (NotSkippable optId)
+        Skip optId | (cfg (fuelOf state)).skip optId == Never -> Left (NotSkippable optId)
         Skip _ -> Right ()
         Along _ -> Right ()
         Stay -> Right ()
     let effect = effects outcome
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
-    rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
+    rounds <- enter g (cfg (fuelOf state)).rounds edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
-        traverse_ (nextRound loopId ((cfg (mode state)).fuel loopId)) (Map.lookup loopId rounds)
+        traverse_ (nextRound loopId ((cfg (fuelOf state)).rounds loopId)) (Map.lookup loopId rounds)
     Right state {at = edge.to, rounds, fans, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
 
 {- | What an outcome changes besides the run's place: its problems join the
@@ -476,7 +466,7 @@ flowRole = (.rung) . Role.role
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
     [place] -> do
-        rounds <- enter g (cfg (mode state)).fuel Nothing state.at (At place) state.rounds
+        rounds <- enter g (cfg (fuelOf state)).rounds Nothing state.at (At place) state.rounds
         Right state {at = At place, rounds, askedHere = []}
     _ -> Left (NoSingleState target)
 
@@ -486,7 +476,7 @@ restarted by an enclosing loop's next round, starts at round one; one left
 is closed.
 -}
 enter :: OpenGraph -> (LoopId -> Natural) -> Maybe LoopId -> Node -> Node -> Map LoopId (NonEmpty Round) -> Either Refusal (Map LoopId (NonEmpty Round))
-enter g fuel back from to current = Map.traverseMaybeWithKey around g.loops
+enter g allowed back from to current = Map.traverseMaybeWithKey around g.loops
   where
     inside loop = \case
         At place -> Set.member place loop.body
@@ -497,22 +487,22 @@ enter g fuel back from to current = Map.traverseMaybeWithKey around g.loops
         Nothing -> False
     around loopId loop = case (inside loop to, Map.lookup loopId current) of
         (False, _) -> Right Nothing
-        (True, Just done) | back == Just loopId -> Just <$> nextRound loopId (fuel loopId) done
+        (True, Just done) | back == Just loopId -> Just <$> nextRound loopId (allowed loopId) done
         (True, Just done) | inside loop from && not (restarts loop) -> Right (Just done)
         (True, _) -> Right (Just firstRound)
 
 nextRound :: LoopId -> Natural -> NonEmpty Round -> Either Refusal (NonEmpty Round)
-nextRound loopId fuel done
-    | fromIntegral (length done) < budget fuel (NonEmpty.last done) = Right (done <> (Round Set.empty :| []))
-    | otherwise = Left (OutOfFuel loopId fuel)
+nextRound loopId allowed done
+    | fromIntegral (length done) < budget allowed (NonEmpty.last done) = Right (done <> (Round Set.empty :| []))
+    | otherwise = Left (OutOfRounds loopId allowed)
 
-{- | The rounds a loop may run: its fuel, and one more when the last round
+{- | The rounds a loop may run: its 'Cfg' rounds, and one more when the last round
 holds a Not met (#351), never more, so a Not met that never clears still ends.
 -}
 budget :: Natural -> Round -> Natural
-budget fuel (Round latest)
-    | any unmet latest = fuel + 1
-    | otherwise = fuel
+budget allowed (Round latest)
+    | any unmet latest = allowed + 1
+    | otherwise = allowed
   where
     unmet = \case
         Unmet _ -> True
@@ -551,9 +541,9 @@ shipped = \case
     AwaitCiGreen _ -> (Set.empty, Nothing)
     FixPrDone _ -> (Set.empty, Nothing)
 
--- | Balanced and Normal until recorded, as a brief with no @Quality@ or @Size@ line reads.
-mode :: RunState -> Mode
-mode state = Mode (fromMaybe Balanced state.quality) (fromMaybe Normal state.size)
+-- | Balanced until recorded, as a brief with no @Fuel@ line reads.
+fuelOf :: RunState -> Fuel
+fuelOf state = fromMaybe Balanced state.fuel
 
 -- | A loop making no progress: these problems were in both of its last two rounds.
 data Stuck = Stuck {loop :: LoopId, same :: Set Problem}
@@ -561,7 +551,7 @@ data Stuck = Stuck {loop :: LoopId, same :: Set Problem}
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses
 rows alternating A, B, A, B on purpose: no two rounds in a row share a row, and
-the loop's fuel ends it.
+the loop's rounds end it.
 -}
 stuck :: RunState -> [Stuck]
 stuck state =

@@ -1,7 +1,7 @@
 ---
 name: pragmatic-review
-description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Quality, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
-argument-hint: "[requirements | --requirements <path>] [PR number or URL] [--fixes <reviewed head sha>] [Quality: <mode>]"
+description: Reviews a diff or PR like a pragmatic engineer, a fresh subagent per pass. A first review picks a risk tier and, by Fuel, runs blockers, regressions, house-rules and tests agents plus one per requirement, answered Met, Not met or Unverified; a sensitive diff (CI, auth, database, secrets, deploy) or a `security-sensitive` requirement naming topics gets a DEEP security review; a re-review (--fixes <sha>) checks only the fix diff. Always blocks on security (injection, RCE, leaked data, broken auth, committed secrets) and irreversible damage (destructive migrations with an unproven WHERE, unbounded deletes), plus broken code and TEMP, WIP or debug commits. Flags engineering and ui-coding rule violations, DRY included, and fake or weak tests. Data-model violations, DB schemas above all, are Major, other rules Minor. Mergeable iff no Major survives. Drops taste and edge cases. Nothing is fixed or posted until a picker says so; a delegating agent answers it. Use before merging a PR or branch.
+argument-hint: "[requirements | --requirements <path>] [PR number or URL] [--fixes <reviewed head sha>] [Fuel: <level>]"
 ---
 
 # Pragmatic Review
@@ -39,11 +39,9 @@ Your prompt, or the arguments, may hold, in any order:
   return. Without it, this is a first review.
 - **`Diff: run ctx diff <ref>, ...`** - the base a first review diffs
   against. A re-review still writes its fix diff.
-- **`Quality: <mode>`** - your row in the Quality table says which agents run;
-  `first-pass.md` and `fixes.md` say how.
-- **`Size: Trivial`** - the caller runs the fast track: `first-pass.md`'s
-  Trivial sweep replaces the agents. It never makes a diff qualify: the sweep
-  reads the diff.
+- **`Fuel: <level>`** - your row in the Fuel table says which agents run;
+  `first-pass.md` and `fixes.md` say how. At Low, `first-pass.md`'s Low sweep
+  replaces the agents when the diff qualifies; the sweep reads the diff.
 - **`--requirements <path>`** - a file holding the requirements, the form every
   calling agent uses; a re-review's adds the "finding N is fixed" lines. Read
   it once.
@@ -93,22 +91,21 @@ diff; a pre-existing one gets one line under the table and does not block.
 `first-pass.md` sets how deep it digs: the sensitive tier gets a DEEP blockers
 agent that loads, on demand, the topic references the diff matches (CI, auth,
 database, secrets) plus common attacks. A `security-sensitive: <topics>`
-requirement forces DEEP and those topics, unless your Quality row's DEEP security says never.
+requirement forces DEEP and those topics.
 
 **House rules are not taste.** A diff that plainly contradicts a rule written in
 `engineering` or `ui-coding`, DRY included, is a finding, judged on the rule
 quoted verbatim. It is Minor, unless the bar makes it a Major **data-model
-violation**. Your Quality row says which diffs get this check.
+violation**. Your Fuel row says which diffs get this check.
 
 ## The flow
 
 - **First review:** follow `references/first-pass.md` - write the diff once,
-  pick the tier, route, sweep on `Size: Trivial`, group the requirements, spawn, judge.
+  pick the tier, route, sweep at `Fuel: Low`, group the requirements, spawn, judge.
 - **Re-review (`--fixes`):** follow `references/fixes.md` - one agent on the fix
   diff, unless the fixes are large.
 
-Both end in the report below, then the pickers. `GREW` ends the review
-instead: it is the whole return, with the `Reviewed head` line.
+Both end in the report below, then the pickers.
 
 ## The report
 
@@ -157,7 +154,7 @@ breaker, one more under it: `Mutants: CI report at <sha7>` or `Mutants: no data
 >
 > Security: docs-only - sweep clean on 4 files
 >
-> Security: Trivial - sweep clean, code tier
+> Security: Low - sweep clean, code tier
 
 **The verdict**, one line, last. It names the rows that drive it and what each
 is, and carries the arithmetic - raised versus survived, Met verdicts not

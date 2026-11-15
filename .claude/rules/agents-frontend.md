@@ -36,7 +36,7 @@ Each folder has its own rule, loaded when you work in it:
 `default.nix` is the surface: `profiles`, `fold`, `renderLead`, `renderRole`,
 `skills`, `ctx`, `state`, `kernel` (the `state` package), `guards`, `hooks`,
 `roles`, `budget` and `check`. `checks.agents` proves every law and every
-rejection, and holds the blocks the engineer skill and `quality.md` paste equal
+rejection, and holds the blocks the engineer skill and `fuel.md` paste equal
 to `state render` (`kernel/rendered.nix`).
 
 ### Kernel

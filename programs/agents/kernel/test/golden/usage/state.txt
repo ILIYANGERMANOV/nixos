@@ -23,7 +23,7 @@ Available commands:
   help                     Print this help
 
 kinds: Fact|Pick|Design|Scope|Confirm|Security|Stuck
-stop reasons: blocked|failed|replan|fuel|grew
+stop reasons: blocked|failed|replan|rounds
 roles: researcher implementer refactorer review-lead fixer
 areas (--touches): interface|data-model|auth
 

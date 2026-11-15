@@ -14,6 +14,7 @@ module State.Protocol.Advice (
     Advice (..),
     Action (..),
     due,
+    skippable,
     advise,
     deliver,
     deliverPrompt,
@@ -36,12 +37,13 @@ import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
+import State.Category.Fuel (Cfg (..), SkipWhen (..), cfg, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
-import State.Category.Mode (Cfg (..), Mode (..), SkipWhen (..), cfg, qualityName, sizeName)
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
-import State.Protocol.Handback (readyState, stopLine)
+import State.Protocol.Handback (stopLine)
 import State.Protocol.Record (recordCommand)
+import State.Role (FlowName (..))
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText)
@@ -49,7 +51,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, mode, nextQId, stuck)
+import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
@@ -156,12 +158,12 @@ data Action
     deriving stock (Eq, Show)
 
 {- | The one outcome the shell records before advising, when the facts or the
-mode already decide it: the draft PR or its readiness seen on GitHub, or a
-skip the mode makes. The shell records it and asks again, until 'Nothing'.
+Fuel already decide it: the draft PR or its readiness seen on GitHub, or a
+skip the Fuel makes. The shell records it and asks again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe AnyOutcome
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped place <> leaves place)
+    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -179,22 +181,21 @@ due g facts state = case (state.stopped, state.at) of
         IsClosed -> False
     -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
     leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans fan)]]
-    skipped place =
+    skipped =
         [ outcome
-        | ((from, event), edge) <- Map.toList g.edges
-        , from == place
-        , Skip optId <- [edge.arrow]
-        , Just why <- [skipsBecause ((cfg (mode state)).skip optId)]
+        | (event, rule) <- skipsHere g state
+        , Just why <- [skipsBecause rule]
         , Just outcome <- [skipOutcome facts state why event]
         ]
     skipsBecause = \case
         Never -> Nothing
-        Always -> Just (modeText (mode state) <> " skips it")
+        -- The agent's call: 'skippable' says so.
+        Skippable -> Nothing
         AtOrBelow most -> case facts.changedLines of
             Just changed | changed <= most -> Just (tshow changed <> " changed lines, at or below " <> tshow most)
             _ -> Nothing
 
-{- | The outcome a skip appends. @simplify_pr@ has none here: no mode skips
+{- | The outcome a skip appends. @simplify_pr@ has none here: no level skips
 it, and its skip names a head these facts lack.
 -}
 skipOutcome :: Facts -> RunState -> Text -> EventName -> Maybe AnyOutcome
@@ -210,6 +211,29 @@ skipOutcome facts state why event =
   where
     stated skip = (Catalog.outcomeEvent skip, Just skip)
 
+{- | The skips the run's Fuel leaves to the agent here, each with the record
+that takes it: the agent skips the step of a trivial task and runs it
+otherwise, so 'due' never records these.
+-}
+skippable :: OpenGraph -> RunState -> [Text]
+skippable g state =
+    [ fuelLabel (fuelOf state) <> ": skip it when the task is trivial: " <> recordCommand event
+    | (event, Skippable) <- skipsHere g state
+    ]
+
+-- | Each skip arrow out of a running run's state, with when its Fuel takes it.
+skipsHere :: OpenGraph -> RunState -> [(EventName, SkipWhen)]
+skipsHere g state = case (state.stopped, state.at) of
+    (Nothing, At place) ->
+        [ (event, (cfg (fuelOf state)).skip optId)
+        | ((from, event), edge) <- Map.toList g.edges
+        , from == place
+        , Skip optId <- [edge.arrow]
+        ]
+    (Nothing, Out) -> []
+    (Nothing, Exit) -> []
+    (Just _, _) -> []
+
 -- | The next action, from the run's state alone.
 advise :: Steps -> Facts -> RunState -> Advice
 advise steps facts state = Advice action (factLines facts state) prompt notify
@@ -218,18 +242,21 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
     notify = case (state.at, Text.null prompt) of
         (At place, False) | Just (AnyStep _ (SomeStep s)) <- stepNamed place.name -> (row steps s).notifies
         _ -> False
-    (action, prompt) = case (state.stopped, state.pending, state.quality, state.size) of
-        (Just stop, _, _, _) -> plain (Stopped stop)
+    (action, prompt) = case (state.stopped, state.pending, fuelAsked) of
+        (Just stop, _, _) -> plain (Stopped stop)
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
-        (Nothing, _ : _, Just _, Just _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
-        (Nothing, oldest : _, _, _) -> plain $ case oldest.waits of
+        (Nothing, _ : _, True) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
+        (Nothing, oldest : _, _) -> plain $ case oldest.waits of
             ForTriage -> Triage oldest.asking.question
             ForAnswer -> AwaitAnswer oldest.asking.question
-        (Nothing, [], Nothing, _) -> plain (Run (recordOne "quality" (map qualityName [minBound .. maxBound])))
-        (Nothing, [], Just _, Nothing) -> plain (Run (recordOne "size" (map sizeName [minBound .. maxBound])))
-        (Nothing, [], Just _, Just _) -> case state.untriaged of
+        (Nothing, [], False) -> plain (Run (recordOne "fuel" (map fuelName [minBound .. maxBound])))
+        (Nothing, [], True) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
+    -- The 10x picks each task's Fuel and never asks one: it runs at the default.
+    fuelAsked = case state.start.flow of
+        EngineerFlow -> isJust state.fuel
+        TenXFlow -> True
     fanHere = case state.at of
         At place -> fanNamed place.name
         Out -> Nothing
@@ -275,7 +302,7 @@ atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, rec
     triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged here]
     record = recordFinished here
     resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
-    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) ((cfg (mode state)).fan fan) here)
+    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) ((cfg (fuelOf state)).fan fan) here)
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
     awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList here.atWork)
     leave = Run $ case Fan.unsettled here of
@@ -283,15 +310,15 @@ atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, rec
         [] -> recordCommand (fanEvent Leaves (fanName fan))
 
 {- | The record of a finished task's PR, for a READY whose line 1 named none
-('State.Protocol.Handback' records the rest): a POC task's stays a draft, parked.
+('State.Protocol.Handback' records the rest).
 -}
 recordFinished :: Fan -> Maybe Action
 recordFinished fan = listToMaybe [Run (recordTask task) | task <- fan.tasks, Fan.unrecorded fan task.id]
 
 recordTask :: Task -> Text
-recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (readyState task.quality (Url "<url>"))
+recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (InReview (Url "<url>"))
 
--- | The PR's url as GitHub reports it, else the draft the run recorded: a POC run offline still skips ready.
+-- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url
 prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$> state.drafted
 
@@ -303,18 +330,18 @@ recordOne :: Text -> [Text] -> Text
 recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"
 
 {- | Pick takes @pick.loop@ only while the review loop has a round left by
-'budget'. At the fuel, a Not met in this round's picks buys one more; past
+'budget'. At the loop's rounds, a Not met in this round's picks buys one more; past
 it, only @pick.final@.
 -}
 pickCommand :: RunState -> Text
 pickCommand state
-    | done < budget fuel (Round Set.empty) = Text.intercalate " | " [loop, final]
-    | done < budget fuel (Round (Set.singleton (Unmet anyRequirement))) =
+    | done < budget allowed (Round Set.empty) = Text.intercalate " | " [loop, final]
+    | done < budget allowed (Round (Set.singleton (Unmet anyRequirement))) =
         final <> " | " <> loop <> " only with a not-met verdict: the last round"
     | otherwise = final <> " - no review round is left"
   where
     done = maybe 1 (fromIntegral . length) (Map.lookup LReview state.rounds)
-    fuel = (cfg (mode state)).fuel LReview
+    allowed = (cfg (fuelOf state)).rounds LReview
     -- Any requirement: 'budget' asks only whether one is Not met.
     anyRequirement = Requirement ""
     loop = recordCommand (continueEvent Review.Pick)
@@ -335,8 +362,8 @@ stuckText found =
 
 factLines :: Facts -> RunState -> [Text]
 factLines facts state =
-    ["mode: " <> modeText (mode state)]
-        <> [ loopName loopId <> " round " <> tshow (length rounds) <> " of " <> tshow ((cfg (mode state)).fuel loopId)
+    ["fuel: " <> fuelName (fuelOf state)]
+        <> [ loopName loopId <> " round " <> tshow (length rounds) <> " of " <> tshow ((cfg (fuelOf state)).rounds loopId)
            | (loopId, rounds) <- Map.toList (Map.map NonEmpty.toList state.rounds)
            ]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
@@ -380,9 +407,6 @@ taskLine fan open task =
             InReview url -> " " <> urlText url
             Merged url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
-
-modeText :: Mode -> Text
-modeText (Mode quality size) = qualityName quality <> " " <> sizeName size
 
 {- | The advice as its first line, for this principal and interface: the only
 place either is read.
@@ -444,8 +468,7 @@ ownAsk :: RunState -> Kind -> OneLine -> (Question, [Event], Text)
 ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
   where
     question = Question (nextQId state) kind text
-    Mode _ size = mode state
-    (forward, line) = case Ask.ask state.start.principal size (flowRole state.start.flow) kind of
+    (forward, line) = case Ask.ask state.start.principal (flowRole state.start.flow) kind of
         AnswerSelf -> ([], "ANSWER yourself")
         Up above ->
             ( [Forwarded question.qid above]

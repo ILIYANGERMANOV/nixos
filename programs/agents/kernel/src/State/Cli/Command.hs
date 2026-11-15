@@ -34,8 +34,8 @@ import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (loopName)
+import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (Never), cfg, fuelName, parseByName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
-import State.Category.Mode (Cfg (..), Mode, SkipWhen (Never), cfg, parseByName, qualityName, sizeName)
 import State.Category.Step (eventText, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), choices, recordCommand, recordables, usageOf)
@@ -86,7 +86,7 @@ data Raise = AsAsked | ToSecurity
     deriving stock (Eq, Show)
 
 -- | What @state render@ prints: each a block the skills paste.
-data Block = States | QualityRows | Mermaid | TrivialSkips | Kinds | StopRule | PlanWrong
+data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong
     deriving stock (Eq, Show, Enum, Bounded)
 
 {- | Why a command did nothing, as @state <sub>: what - why@ and a @fix:@
@@ -333,9 +333,8 @@ parentLog raw
 blockName :: Block -> Text
 blockName = \case
     States -> "states"
-    QualityRows -> "quality"
+    FuelRows -> "fuel"
     Mermaid -> "mermaid"
-    TrivialSkips -> "trivial"
     Kinds -> "kinds"
     StopRule -> "stop-rule"
     PlanWrong -> "plan-wrong"
@@ -346,23 +345,22 @@ notStarted = Failure BadInput "the log" "its first line is not started" "state i
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
-run's mode would take.
+run's Fuel would take.
 -}
-explain :: OpenGraph -> Mode -> Node -> Refusal -> Failure
-explain g mode at = \case
+explain :: OpenGraph -> Fuel -> Node -> Refusal -> Failure
+explain g fuel at = \case
     NotStarted -> notStarted
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
     NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText) (records taken)
-    NotSkippable _ -> refused "the skip" "this mode never skips the step" (records (not . skips))
-    OutOfFuel loop fuel ->
+    NotSkippable _ -> refused "the skip" "this Fuel never skips the step" (records (not . skips))
+    OutOfRounds loop allowed ->
         refused
             ("another " <> loopName loop <> " round")
-            ("the loop ran its " <> tshow fuel <> " rounds")
-            (records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop fuel <why>")
-    QualitySetOnce quality -> refused "quality" ("it is " <> qualityName quality <> " already, set once") "state show"
-    SizeSetOnce size -> refused "size" ("it is " <> sizeName size <> " already; only grew changes it") "state record grew <why>"
+            ("the loop ran its " <> tshow allowed <> " rounds")
+            (records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>")
+    FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
     AskedTwice qid -> refused (qidText qid) "it was asked already" "state pending"
@@ -405,7 +403,7 @@ explain g mode at = \case
         Along _ -> False
         Stay -> False
     taken edge = case edge.arrow of
-        Skip optId -> (cfg mode).skip optId /= Never
+        Skip optId -> (cfg fuel).skip optId /= Never
         Along _ -> True
         Stay -> True
     stateNames = map (stateNameText . (.name)) (Set.toList (places g))

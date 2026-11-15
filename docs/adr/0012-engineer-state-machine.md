@@ -14,6 +14,9 @@ Amended by #376: the `alternative` proposal is gone. Step 3 runs `simplify`
 only, and Confirm asks yes or adjust on the simplified plan. The lines below
 read that way.
 
+Amended by ADR 0018 (Fuel amendment): one Fuel knob replaces Quality and Size,
+which reverses the rejection of Trivial as a mode below.
+
 The spec is the `## States` table in
 `programs/agents/skills/custom/engineer/SKILL.md`, with detail in its
 `references/blockers.md`, `references/review.md` and `references/trivial.md`.

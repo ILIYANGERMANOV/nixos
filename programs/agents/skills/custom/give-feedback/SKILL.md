@@ -129,7 +129,7 @@ No `refactor` per round: `/final-review` covers the whole PR.
 - Review the round: write its bullets, agreed changes and done-whens to a
   requirements file under `/tmp/<unique-dir>/`, then a fresh
   `subagent_type: review-lead` agent invokes `pragmatic-review` with
-  `Quality: <the PR's, else Balanced> --fixes <the head before this round>
+  `Fuel: <the PR's, else Balanced> --fixes <the head before this round>
   --requirements <path> <PR URL>`. The implementer fixes the rows worth fixing;
   a security row is always fixed. No second review.
 - Wait on CI the non-blocking way your instructions describe: subscribe once,

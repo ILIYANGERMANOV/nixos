@@ -16,7 +16,7 @@ owns the decisions.
   never change product code, tests or config. The only files you may commit
   are `QA.md` files, and only after the user approves the diff. The one
   exception is a draft host PR the user chose in step 3, which an agent writes.
-- **Quality changes nothing here.** QA runs only when the user asks, in any mode.
+- **Fuel changes nothing here.** QA runs only when the user asks, at any Fuel.
 - **One question per `AskUserQuestion`.** Never batch blockers. Never ask what
   a tool, the code or `QA.md` can answer.
 - **The user always approves the plan** before any plan item runs, even when
@@ -271,7 +271,7 @@ Write the QA block (format below) and replace the PR body's existing one
 with it: the whole `<details>` block that holds `## QA`, from its `<details>`
 to its `</details>`. An old body may have a bare `## QA` section instead:
 replace it from that heading to the next `## ` heading or the end. With
-neither, insert the block above the closing `Quality: · Size:` line, or
+neither, insert the block above the closing `Fuel:` line, or
 append it when the body has none. Keep it the **last** section before that
 line, so the videos gh appends sit close after it. From the run directory:
 

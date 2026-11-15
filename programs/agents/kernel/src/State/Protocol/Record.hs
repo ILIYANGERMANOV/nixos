@@ -22,7 +22,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
-import State.Category.Mode (parseByName, parseQuality, qualityName, sizeName)
+import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Step (EventName, builtEvent, eventText)
 import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
@@ -70,13 +70,9 @@ usageOf r = Text.unwords (filter (not . Text.null) (r.positional : map flagUsage
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
 recordables =
-    [ stay "quality" ("<" <> choices qualityName <> ">") $ \case
-        [raw] -> QualitySet <$> known "quality" parseQuality raw
-        _ -> Left "one quality"
-    , stay "size" ("<" <> choices sizeName <> ">") $ \case
-        [raw] -> SizeSet <$> known "size" (parseByName sizeName) raw
-        _ -> Left "one size"
-    , stay "grew" "<why>" (fmap Grew . because)
+    [ stay "fuel" ("<" <> choices fuelName <> ">") $ \case
+        [raw] -> FuelSet <$> known "fuel" parseFuel raw
+        _ -> Left "one level"
     , outcome (builtEvent Research ResearchDone) "<n>" [] $ \a -> case a.positional of
         [raw] -> Plain . stepTook . ResearchDone <$> count raw
         _ -> Left "the number of researchers"

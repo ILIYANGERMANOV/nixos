@@ -29,21 +29,21 @@ spec = describe "the state binary" $ do
     bin <- runIO (getEnv "STATE_BIN")
     hookBin <- runIO (getEnv "STATE_HOOK_BIN")
     around withRepo $ do
-        it "runs the engineer flow at Balanced Normal from init to ready" $ \repo -> do
+        it "runs the engineer flow at Balanced from init to ready" $ \repo -> do
             transcript <- drive bin repo (balancedPath repo)
             transcript `shouldBe` balancedTranscript
             done <- succeeded =<< state bin repo ["next"]
             take 4 done
-                `shouldBe` ["DONE " <> prUrl, "  mode: Balanced Normal", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
+                `shouldBe` ["DONE " <> prUrl, "  fuel: balanced", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
 
-        it "logs the steps POC Trivial skips, reviews once and skips ready" $ \repo -> do
+        it "logs the skips a Low run's agent records for a trivial task" $ \repo -> do
             transcript <- drive bin repo (trivialPath repo)
             transcript `shouldBe` trivialTranscript
             done <- succeeded =<< state bin repo ["next"]
             take 1 done `shouldBe` ["DONE " <> prUrl]
 
         it "refuses an event with no arrow: exit 2, a fix line, and next warns" $ \repo -> do
-            _ <- drive bin repo [Record ["quality", "Balanced"], Record ["size", "Normal"]]
+            _ <- drive bin repo [Record ["fuel", "balanced"]]
             refused <- state bin repo ["record", "ready.done", prUrlString]
             (refused.code, refused.err)
                 `shouldBe` (2, ["state record: ready.done - no such arrow out of research", "fix: state record research.done <n>"])
@@ -55,7 +55,7 @@ spec = describe "the state binary" $ do
             moved `shouldSatisfy` (not . mentions "refused:")
 
         it "prints each record it advises with its arguments" $ \repo -> do
-            _ <- drive bin repo [Record ["quality", "Balanced"], Record ["size", "Normal"], Record ["research.done", "2"], Record ["interview.enough"]]
+            _ <- drive bin repo [Record ["fuel", "balanced"], Record ["research.done", "2"], Record ["interview.enough"]]
             advice <- succeeded =<< state bin repo ["next"]
             take 1 advice `shouldBe` ["RUN state record plan.done <path>"]
 
@@ -67,7 +67,7 @@ spec = describe "the state binary" $ do
             refused <- state bin repo ["init", "--notes", repo.notes]
             (refused.code, drop 1 refused.err) `shouldBe` (2, ["fix: state init --notes <a new dir>"])
 
-        it "fixes a refused event by the arrows this mode takes, never a skip it refuses" $ \repo -> do
+        it "fixes a refused event by the arrows this Fuel takes, never a skip it refuses" $ \repo -> do
             _ <- drive bin repo (toSimplifyPr repo)
             refused <- state bin repo ["record", "await_ci.green"]
             (refused.code, refused.err)
@@ -96,7 +96,7 @@ spec = describe "the state binary" $ do
             appendFile (eventsOf repo) "{\"v\":3,broken\n"
             before <- readFile (eventsOf repo)
             let events = Text.pack (eventsOf repo)
-            for_ [("next", []), ("show", []), ("record", ["quality", "Max"])] $ \(sub, args) -> do
+            for_ [("next", []), ("show", []), ("record", ["fuel", "max"])] $ \(sub, args) -> do
                 bad <- state bin repo (sub : args)
                 (bad.code, map (fst . Text.breakOn " - ") bad.err)
                     `shouldBe` (2, ["state " <> Text.pack sub <> ": " <> events <> " line 2 is not read", "fix: repair or move " <> events])
@@ -109,7 +109,7 @@ spec = describe "the state binary" $ do
                 advice <- succeeded =<< state bin repo ["next"]
                 take 1 advice `shouldBe` ["ASK Stuck the review loop repeats R1: go on, change course, or stop?"]
 
-            it "gives a Not met at the fuel one more round, then exits" $ \repo -> do
+            it "gives a Not met at the last round one more round, then exits" $ \repo -> do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]
                     notMet = ["--verdict", "docs=not-met"]
                 _ <- drive bin repo (atReview <> rounds <> reviewRound "R4" notMet <> [Handback "fixer" ready] <> [Handback "review-lead" reviewed])
@@ -117,7 +117,7 @@ spec = describe "the state binary" $ do
                 take 1 advice `shouldSatisfy` all ("- no review round is left" `Text.isSuffixOf`)
                 refused <- state bin repo ["record", "pick.loop", "--row", "R5", "--verdict", "docs=not-met"]
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state record: another review round - the loop ran its 4 rounds", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state stop fuel <why>"])
+                    `shouldBe` (2, ["state record: another review round - the loop ran its 4 rounds", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state stop rounds <why>"])
                 exited <- succeeded =<< state bin repo ["record", "pick.final"]
                 recorded exited `shouldBe` ["pick.final -> describe"]
 
@@ -170,7 +170,7 @@ spec = describe "the state binary" $ do
 
             it "asks the user its own breakdown Confirm, and refuses to rule on it" $ \repo -> do
                 run <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
-                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "confirm", "the", "plan", "is", "written"]] (succeeded <=< state bin repo)
+                for_ [["override", "confirm", "the", "plan", "is", "written"]] (succeeded <=< state bin repo)
                 asked <- succeeded =<< state bin repo ["ask", "--kind", "Confirm", "start", "the", "breakdown?"]
                 asked `shouldSatisfy` mentions "ASK user"
                 ruled <- state bin repo ["rule", Text.unpack run <> ":1", "--answer", "yes", "--why", "fits", "--cost", "none"]
@@ -212,7 +212,7 @@ spec = describe "the state binary" $ do
                 writeFile repo.prJson (pullRequest True "OPEN")
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
-                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"], ["record", "await_ci.green"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
+                for_ [["record", "fuel", "balanced"], ["override", "await_ci", "the", "test", "starts", "here"], ["record", "await_ci.green"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
                 _ <- succeeded =<< state bin w1 ["next"]
                 _ <- succeeded =<< state bin repo ["record", "task", "t2", "parked", "out", "of", "scope"]
                 _ <- succeeded =<< state bin repo ["next"]
@@ -226,7 +226,7 @@ spec = describe "the state binary" $ do
                 writeFile repo.prJson (pullRequest True "OPEN")
                 w1 <- worktree repo "w1"
                 c1 <- childRun bin w1 parent "n1" "t1"
-                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"], ["record", "await_ci.green"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
+                for_ [["record", "fuel", "balanced"], ["override", "await_ci", "the", "test", "starts", "here"], ["record", "await_ci.green"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
                 _ <- succeeded =<< state bin repo ["override", "breakdown", "the", "test", "leaves", "the", "fan-out"]
                 refused <- succeeded =<< state bin w1 ["next"]
                 _ <- succeeded =<< state bin repo ["override", "engineers", "the", "test", "returns"]
@@ -265,7 +265,7 @@ spec = describe "the state binary" $ do
                 writeFile repo.prJson (pullRequest True "OPEN")
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
-                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"]] (succeeded <=< state bin w1)
+                for_ [["record", "fuel", "balanced"], ["override", "await_ci", "the", "test", "starts", "here"]] (succeeded <=< state bin w1)
                 _ <- succeeded =<< state bin w1 ["next"]
                 _ <- succeeded =<< state bin repo ["record", "task", "t2", "parked", "out", "of", "scope"]
                 awaiting <- succeeded =<< state bin repo ["next"]
@@ -438,7 +438,7 @@ tenXAtFanOut bin repo = do
     run <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
     let tasks = repo.root </> "tasks.json"
     Text.writeFile tasks (breakdownJson [plainTask "t1" [], plainTask "t2" ["t1"]])
-    for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo)
+    for_ [["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo)
     pure run
 
 -- | The child run a parent's brief starts for this task, its notes in @dir@ under the repo's root; its id.
@@ -468,8 +468,6 @@ data Act
     | -- | The draft PR the scripted @gh@ reports from now on: @next@ records @draft.done@ from it.
       OpenPr
     | Override String
-    | -- | A @record@ the run refuses, with exit 2.
-      Refused [String]
 
 {- | Starts the run, then each act and a @state next@ after it, every call
 exiting 0. The @recorded@ lines they print, without their sequence numbers:
@@ -491,9 +489,6 @@ drive bin repo acts = do
         Commit -> [] <$ commitLine repo
         OpenPr -> [] <$ writeFile repo.prJson (pullRequest True "OPEN")
         Override to -> succeeded =<< state bin repo ["override", to, "the", "test", "starts", "here"]
-        Refused argv -> do
-            ran <- state bin repo ("record" : argv)
-            [] <$ (ran.code `shouldBe` 2)
 
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]
@@ -519,20 +514,19 @@ toImplement repo =
     , Handback "implementer" ready
     ]
 
--- | A Balanced Normal run to its first Simplify of the PR.
+-- | A Balanced run to its first Simplify of the PR.
 toSimplifyPr :: Repo -> [Act]
 toSimplifyPr repo =
-    [Record ["quality", "Balanced"], Record ["size", "Normal"]]
-        <> toImplement repo
-        <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
+    Record ["fuel", "balanced"]
+        : toImplement repo
+            <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
 
 balancedPath :: Repo -> [Act]
 balancedPath repo = toSimplifyPr repo <> [Handback "fixer" simplified, Record ["await_ci.green"], Record ["ready.done", prUrlString]]
 
 balancedTranscript :: [Text]
 balancedTranscript =
-    [ "quality -> research"
-    , "size -> research"
+    [ "fuel -> research"
     , "research.done -> interview"
     , "interview.enough -> plan"
     , "plan.done -> simplify_plan"
@@ -549,29 +543,30 @@ balancedTranscript =
     , "ready.done -> out"
     ]
 
--- | POC Trivial: no researcher, proposal or refactor runs, so no hand-back of theirs.
+-- | Low, a trivial task: the agent skips research, the proposal and the refactor, so no hand-back of theirs.
 trivialPath :: Repo -> [Act]
 trivialPath repo =
-    [ Record ["quality", "POC"]
-    , Record ["size", "Trivial"]
+    [ Record ["fuel", "low"]
+    , Record ["research.skipped"]
     , Record ["interview.enough"]
     , Record ["plan.done", repo.notes </> "plan.md"]
+    , Record ["simplify_plan.skipped"]
     , Record ["confirm.confirmed"]
     , OpenPr
     , Commit
     , Handback "implementer" ready
+    , Record ["refactor.skipped", "a", "one-line", "change"]
     , Handback "review-lead" reviewed
-    , Refused ["pick.loop", "--row", "R1"]
     , Record ["pick.final"]
     , Handback "fixer" ready
     , Handback "fixer" simplified
     , Record ["await_ci.green"]
+    , Record ["ready.done", prUrlString]
     ]
 
 trivialTranscript :: [Text]
 trivialTranscript =
-    [ "quality -> research"
-    , "size -> research"
+    [ "fuel -> research"
     , "research.skipped -> interview"
     , "interview.enough -> plan"
     , "plan.done -> simplify_plan"
@@ -585,12 +580,12 @@ trivialTranscript =
     , "describe.done -> simplify_pr"
     , "simplify_pr.done -> await_ci"
     , "await_ci.green -> ready"
-    , "ready.skipped -> out"
+    , "ready.done -> out"
     ]
 
--- | Balanced Normal, moved to the review by override.
+-- | Balanced, moved to the review by override.
 atReview :: [Act]
-atReview = [Record ["quality", "Balanced"], Record ["size", "Normal"], Override "review"]
+atReview = [Record ["fuel", "balanced"], Override "review"]
 
 -- | A review back with its rows, and the lead's picks: a loop on this row.
 reviewRound :: String -> [String] -> [Act]

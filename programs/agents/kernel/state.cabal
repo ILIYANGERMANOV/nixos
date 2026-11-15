@@ -42,8 +42,8 @@ library
     Effects.Random
     State.Block
     State.Category.Flow
+    State.Category.Fuel
     State.Category.Graph
-    State.Category.Mode
     State.Category.Path
     State.Category.Step
     State.Category.Ty
@@ -126,8 +126,8 @@ test-suite state-test
     State.BlockSpec
     State.Category.FlowGen
     State.Category.FlowSpec
+    State.Category.FuelSpec
     State.Category.GraphSpec
-    State.Category.ModeSpec
     State.Category.PathSpec
     State.Cli.CommandSpec
     State.Cli.Render.MermaidSpec

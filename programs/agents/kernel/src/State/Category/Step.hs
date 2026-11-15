@@ -234,7 +234,7 @@ data Special
       Ordinary
     | -- | Ask the user to confirm the plan, once, before recording.
       AsksConfirm
-    | -- | Record the picks the review loop's fuel allows.
+    | -- | Record the picks the review loop's rounds allow.
       PicksRows
     | -- | Wait on the PR's CI.
       AwaitsCi

@@ -47,19 +47,19 @@ let
       ./instructions
     ];
     exempt = [
-      ./instructions/topics/quality.md
+      ./instructions/topics/fuel.md
       ./skills/custom/self-improve
     ];
     allowed = [
       {
         file = ./skills/custom/engineer/SKILL.md;
-        labels = [ "POC:" ];
+        labels = [ "Low:" ];
       }
       {
         file = ./skills/custom/pragmatic-review/references/first-pass.md;
         labels = [
           "**Balanced row.**"
-          "**POC row.**"
+          "**Low row.**"
         ];
       }
     ];
@@ -77,8 +77,7 @@ let
       inherit file;
     };
   topics = {
-    trivial = topic ./instructions/topics/trivial.md;
-    quality = topic ./instructions/topics/quality.md;
+    fuel = topic ./instructions/topics/fuel.md;
   };
 
   skills = import ./skills { inherit pkgs lib externalSrcs; };
@@ -97,8 +96,7 @@ let
       layer = "role";
       file = ./roles/shared/building.md;
     };
-    "topics/quality.md" = topics.quality;
-    "topics/trivial.md" = topics.trivial;
+    "topics/fuel.md" = topics.fuel;
   };
   roles = import ./roles {
     inherit lib mkFragment prose;
@@ -260,7 +258,7 @@ in
         inherit pkgs state;
         engineer = ./skills/custom/engineer;
         tenX = ./skills/custom/10x-engineer;
-        quality = ./instructions/topics/quality.md;
+        fuel = ./instructions/topics/fuel.md;
       };
     }
     {

@@ -1,6 +1,6 @@
 ---
 name: engineer
-description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews, confirms the plan and its Quality, opens a draft PR with it, implements through subagents, refactors and reviews as that Quality says, and hands over a ready PR with green CI. Driven by the `state` kernel. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills and sends every question through `state ask`. Use when asked to build, fix or change something end to end and deliver it as a PR.
+description: Delivers a feature end to end as a senior software engineer - plans its own research, interviews, confirms the plan, opens a draft PR with it, implements through subagents, refactors and reviews as its Fuel says, and hands over a ready PR with green CI. Driven by the `state` kernel. Orchestrates the grilling, refactor, pragmatic-review and pr-description skills and sends every question through `state ask`. Use when asked to build, fix or change something end to end and deliver it as a PR.
 argument-hint: "[feature or task]"
 ---
 
@@ -61,14 +61,12 @@ who owns each decision.
   diff against `origin/<base>`: `refactor` gets that base ref,
   `pragmatic-review` the PR URL, `pr-description` the base ref. Every prompt
   you write carries the worktree path and the base.
-- **Quality and Size** are in your instructions. Your row in the Quality
-  table says what each step runs. A `Quality:` or `Size:` line in your prompt
-  is set: `state record quality <mode>`. Else ask Quality first, one `Confirm`
-  question, Balanced recommended, and record the answer; a re-plan keeps it. You set Size, once, before Gather, from the prompt
-  and at most 5 lookups: `Size: Trivial` when the Trivial rule holds, else
-  `Size: Normal`. Growing to Normal:
-  `${CLAUDE_SKILL_DIR}/references/trivial.md`. Ambiguity, or anything the user
-  might want different, still gets a question.
+- **Fuel** is in your instructions. Your row in the Fuel table says what
+  each step runs. A `Fuel:` line in your prompt is set:
+  `state record fuel <level>`. Else, when `state next` prints that record,
+  ask Fuel in one `Confirm` question, Balanced recommended; a re-plan keeps
+  it. At Low, `state next` names the steps a
+  trivial task may skip and the record that skips one.
 - **One plan text.** The plan exists once, as a file: your brief when it holds
   the plan, a plan file you were given, else `plan.md` in the notes directory.
   Never write a second plan beside one. Every brief and review prompt names
@@ -94,8 +92,8 @@ who owns each decision.
 
 ## States
 
-Each step is a state; `state next` names the one you are in. Quality and Size
-take skip arrows, never add any.
+Each step is a state; `state next` names the one you are in. Fuel takes skip
+arrows, never adds any.
 
 | State | Run by | Arrows out |
 |---|---|---|
@@ -117,7 +115,7 @@ take skip arrows, never add any.
 | ready | you | done: end; skipped: end |
 
 In any state, a worker's question goes through Ask and the stuck guard
-applies. Every Quality and Size keeps the quick security review, fact-gap
+applies. Every Fuel keeps Confirm, the quick security review, fact-gap
 research and the final fixer.
 
 ## State hooks
@@ -143,7 +141,7 @@ research topics: the code the task touches, how similar things work today,
 the external systems, the standards that apply. Plan the topics from the
 prompt and file names (`rg -l`, `ls`), never by reading the files: reading is
 the researchers' job. One researcher per group, in parallel, as many as your
-Quality row's Researchers, each prompt `state brief
+Fuel row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
 says. An answer that opens a new fact gap gets research too (`more`).
 
@@ -160,19 +158,18 @@ them. Interview only its open questions and the gaps research opens.
 ### Propose: plan, simplify_plan, confirm
 
 Write the plan: goals, the approach and the standards it follows, decisions,
-out of scope, Quality, and a file tree of the files it adds or changes. A
+out of scope, Fuel, and a file tree of the files it adds or changes. A
 brief or design issue's Goal, Decisions, Out of scope and Acceptance criteria
 carry over as they stand.
 
-The simplify pass runs unless Trivial skips it: `proposal-simplify.md` is
+The simplify pass runs unless Low skips it: `proposal-simplify.md` is
 the plan you confirm, or the identity when nothing is simpler. It never
 changes a settled decision.
 
 Confirm once, as one `Confirm` question: the plan in a few lines, what the
-simplify pass changed and its trade-off. A POC touching a
-`Security-sensitive` topic says it gets no DEEP review. Options: "Yes, build
+simplify pass changed and its trade-off. Options: "Yes, build
 it (Recommended)" / "No, adjust". On adjust, gather again for the correction
-only, keeping all you learned and the Quality; rerun the simplify pass only if
+only, keeping all you learned and the Fuel; rerun the simplify pass only if
 the approach changed. Its `Considered options` table goes into the PR body's
 decisions.
 
@@ -180,15 +177,14 @@ decisions.
 
 **Draft.** Branch from `origin/<base>` (`main` unless your brief names one),
 commit the first change or an empty commit, push, and open a **draft** PR
-whose body is the agreed plan: goals, decisions, out of scope, the `Quality:`
-and `Size:` lines and the **acceptance criteria** - each goal as a checkable
+whose body is the agreed plan: goals, decisions, out of scope, the `Fuel:` line and
+the **acceptance criteria** - each goal as a checkable
 statement, input to observable outcome. A plan touching auth, sessions,
 authorization, databases, secrets or CI states `Security-sensitive: <topics>`
 from `ci`, `auth`, `database`, `secrets`. Attach the PR to the session when
-your instructions say how (`add_repo`, `subscribe_pr_activity`). POC:
-`gh label create POC --force`, then `gh pr edit <n> --add-label POC`.
+your instructions say how (`add_repo`, `subscribe_pr_activity`).
 
-**Implement**, as your Quality row's Implement says. One implementer explores
+**Implement.** One implementer explores
 and implements a self-contained slice: splitting exploring from implementing
 makes it re-read everything. An implementer spawns no agent, so split a large
 task into slices up front, one implementer after another, in parallel only
@@ -234,6 +230,3 @@ and CI runs.
   runtime change, `/final-review --requirements <path> <PR>`,
   `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
   commented. Only the user runs them.
-
-POC skips `ready`: the PR stays a labelled draft, not merge-ready, with no
-next steps.

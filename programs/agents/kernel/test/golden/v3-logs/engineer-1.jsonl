@@ -1,6 +1,5 @@
 {"v":3,"id":"r7f2:0","seq":0,"ts":"2025-11-21T00:00:00Z","run":"r7f2","head":null,"session":null,"type":"started","data":{"flow":"engineer","notes":"notes","principal":"user","interface":["ask_user","hooks"]}}
-{"v":3,"id":"r7f2:1","seq":1,"ts":"2025-11-21T00:00:01Z","run":"r7f2","head":null,"session":null,"type":"quality","data":{"mode":"Max"}}
-{"v":3,"id":"r7f2:2","seq":2,"ts":"2025-11-21T00:00:02Z","run":"r7f2","head":null,"session":null,"type":"size","data":{"size":"Trivial"}}
+{"v":3,"id":"r7f2:1","seq":1,"ts":"2025-11-21T00:00:01Z","run":"r7f2","head":null,"session":null,"type":"fuel","data":{"level":"low"}}
 {"v":3,"id":"r7f2:3","seq":3,"ts":"2025-11-21T00:00:03Z","run":"r7f2","head":null,"session":null,"type":"research.skipped","data":{}}
 {"v":3,"id":"r7f2:4","seq":4,"ts":"2025-11-21T00:00:04Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
 {"v":3,"id":"r7f2:5","seq":5,"ts":"2025-11-21T00:00:05Z","run":"r7f2","head":null,"session":null,"type":"research.skipped","data":{}}

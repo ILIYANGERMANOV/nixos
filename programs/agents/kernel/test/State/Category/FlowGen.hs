@@ -21,8 +21,8 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (FanId (..), Flow (..), OnEmpty (..), inl, inr, (|||))
+import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (..), cfg)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
-import State.Category.Mode (Cfg (..), Mode, SkipWhen (..), cfg, modes)
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Triage (Sing (..))
@@ -124,21 +124,21 @@ pathTo g from target = go (Set.singleton from) [(from, [])]
             let next = [(edge.to, event : walked) | ((place, event), edge) <- Map.toList g.edges, At place == node, edge.to `Set.notMember` seen]
              in go (foldr (Set.insert . fst) seen next) (queue <> next)
 
-{- | Each mode and kept state where that mode bypasses the state: none, by
+{- | Each level and kept state where that level bypasses the state: none, by
 #351's Keep law. A flow whose graph does not build skips them all.
 -}
-skipsKept :: Either e OpenGraph -> [StateName] -> [(Mode, StateName)]
-skipsKept built kept = [(mode, name) | mode <- modes, name <- kept, either (const True) (\g -> bypasses mode g name) built]
+skipsKept :: Either e OpenGraph -> [StateName] -> [(Fuel, StateName)]
+skipsKept built kept = [(fuel, name) | fuel <- [minBound .. maxBound], name <- kept, either (const True) (\g -> bypasses fuel g name) built]
 
-{- | A run in this mode can reach the end without running a step of this
+{- | A run at this level can reach the end without running a step of this
 name: it takes a skip, which leaves the skipped step's state, only where the
-mode may skip.
+level may skip.
 -}
-bypasses :: Mode -> OpenGraph -> StateName -> Bool
-bypasses mode g name = isJust (pathTo g {edges = Map.filterWithKey taken g.edges} (At g.inPort) Out)
+bypasses :: Fuel -> OpenGraph -> StateName -> Bool
+bypasses fuel g name = isJust (pathTo g {edges = Map.filterWithKey taken g.edges} (At g.inPort) Out)
   where
     taken (from, _) edge = case edge.arrow of
-        Skip optId -> (cfg mode).skip optId /= Never
+        Skip optId -> (cfg fuel).skip optId /= Never
         Along _ -> from.name /= name
         Stay -> from.name /= name
 

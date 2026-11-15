@@ -12,7 +12,7 @@ secret name) and `hooks` (hook module files, `agents-frontend.md`). Profiles are
 flavor lists the ones it gets. `mkProfile` and `append` are in `agents-lib.md`.
 
 - `base` - every flavor: the shared skills, `agent.md`, `lead.md`,
-  `trivial.md`, `runtime` (`programs/playwright`'s `qa`, `ctx` and `state`),
+  `fuel.md`, `runtime` (`programs/playwright`'s `qa`, `ctx` and `state`),
   `secretFiles` and the state hooks (`kernel/hooks.nix`).
 - `web-ui` - figma.
 - `pm` - `self-improve`, amplitude, linear.

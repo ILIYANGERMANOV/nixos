@@ -1,7 +1,7 @@
 # The bar
 
 Every review agent reads this file; orchestrators pass its path and judge what
-comes back at the same bar, in every Quality mode. It is the only statement of
+comes back at the same bar, at every Fuel. It is the only statement of
 the bar: change it here, nowhere else.
 
 You review one diff for one question: **is it safe to merge?** Find real bugs
