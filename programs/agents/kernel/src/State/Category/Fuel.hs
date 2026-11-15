@@ -21,7 +21,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanId (..), LoopId (..), OptId (..))
+import State.Category.Flow (LoopId (..), OptId (..))
 
 -- | Ordered by spend: 'cfg' is monotone in this order ('cfgLeq').
 data Fuel = Low | Balanced | Max
@@ -60,13 +60,12 @@ data SkipWhen = Never | AtOrBelow Natural | Skippable
 data Area = Interface | DataModel | Auth
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-{- | The four things a level sets, and nothing else. Functions rather than
+{- | The three things a level sets, and nothing else. Functions rather than
 maps: every id has a value, so no lookup can miss.
 -}
 data Cfg = Cfg
     { skip :: OptId -> SkipWhen
     , rounds :: LoopId -> Natural
-    , fan :: FanId -> Natural
     , areas :: Set Area
     }
 
@@ -80,9 +79,6 @@ cfg fuel =
             LGather -> 6
             LPlan -> 4
             LCi -> 6
-        , fan = \case
-            FResearchers -> researchers fuel
-            FEngineers -> 3
         , areas = fullReview fuel
         }
 
@@ -117,12 +113,6 @@ reReviews = \case
     Balanced -> 3
     Max -> 5
 
-researchers :: Fuel -> Natural
-researchers = \case
-    Low -> 1
-    Balanced -> 3
-    Max -> 6
-
 -- | #351 decided interface fixes get a full review at the top level only.
 fullReview :: Fuel -> Set Area
 fullReview = \case
@@ -131,13 +121,12 @@ fullReview = \case
     Max -> Set.fromList [Interface, DataModel, Auth]
 
 {- | The order 'cfg' must keep: the higher 'Cfg' skips less, and has at least
-the rounds, the fan-out and the areas.
+the rounds and the areas.
 -}
 cfgLeq :: Cfg -> Cfg -> Bool
 cfgLeq lower higher =
     all (\optId -> skipsAtMost (higher.skip optId) (lower.skip optId)) [minBound .. maxBound]
         && all (\loopId -> lower.rounds loopId <= higher.rounds loopId) [minBound .. maxBound]
-        && all (\fanId -> lower.fan fanId <= higher.fan fanId) [minBound .. maxBound]
         && lower.areas `Set.isSubsetOf` higher.areas
 
 -- | @skipsAtMost a b@: @a@ skips in no case where @b@ runs.

@@ -58,6 +58,15 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
             tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
+        it "takes a stop at the merge once every task is parked" $ do
+            let allParked = Stop Blocked "all tasks parked"
+            (.stopped) <$> tenXRun (toEngineers <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), stepTook (FanDone FEngineers), Stopped allParked])
+                `shouldBe` Right (Just allParked)
+        it "refuses a new breakdown while a child is at work, and starts a fresh fan-out after it handed back" $ do
+            let again = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t2" [] :| [])))]
+            tenXRun (toEngineers <> [Spawned child] <> again) `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
+            fmap (.id) . (.tasks) . currentFan <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))] <> again)
+                `shouldBe` Right [TaskId "t2"]
 
     describe "two fan-outs in one flow" $ do
         let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow ByUser) :| events))

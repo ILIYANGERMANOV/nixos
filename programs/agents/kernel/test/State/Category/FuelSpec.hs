@@ -47,15 +47,14 @@ spec = describe "State.Category.Fuel" $ do
     it "puts a cfg at or below itself" $
         cfgLeq base base `shouldBe` True
 
-    it "puts no cfg below one that skips more or has fewer rounds, fan-out or areas" $
+    it "puts no cfg below one that skips more or has fewer rounds or areas" $
         map
             (cfgLeq base)
             [ base {skip = const Skippable}
             , base {rounds = const 0}
-            , base {fan = const 0}
             , base {areas = Set.empty}
             ]
-            `shouldBe` [False, False, False, False]
+            `shouldBe` [False, False, False]
   where
     base = cfg Balanced
     levels = [minBound .. maxBound]

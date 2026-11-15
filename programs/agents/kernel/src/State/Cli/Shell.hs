@@ -70,7 +70,7 @@ import State.Run.Id (digestOf)
 import State.Show (tshow)
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 
 -- | Every effect the shell runs on.
 type Shell es = (Clock :> es, Console :> es, Environment :> es, Gh :> es, Git :> es, Log :> es, Random :> es, RoFileSystem :> es, WrFileSystem :> es)
@@ -547,12 +547,19 @@ newRunId = do
     let hex = Text.pack (concatMap (\b -> (if b < 16 then ('0' :) else id) (showHex b "")) (BS.unpack bytes))
     maybe (throwIO (userError "a hex run id did not parse")) pure (parseRunId hex)
 
+{- | An older state's log (Python's versions 1 and 2) is not migrated: its
+run is set aside and a fresh one started in its place.
+-}
 unreadLine :: FilePath -> LogError -> Failure
-unreadLine path bad = Failure BadInput (Text.pack path <> " line " <> tshow bad.line <> " is not read") why ("repair or move " <> Text.pack path)
+unreadLine path bad = Failure BadInput (Text.pack path <> " line " <> tshow bad.line <> " is not read") why fix
   where
-    why = case bad.why of
-        Unsupported v -> "log version " <> tshow v <> ", this state reads " <> tshow Codec.version
-        Malformed what -> what
+    notes = Text.pack (takeDirectory path)
+    (why, fix) = case bad.why of
+        Unsupported v ->
+            ( "log version " <> tshow v <> ", this state reads " <> tshow Codec.version
+            , "move the old run aside and start fresh: mv " <> notes <> " " <> notes <> ".old, then state init --notes " <> notes
+            )
+        Malformed what -> (what, "repair or move " <> Text.pack path)
 
 -- | A log whose lines read but whose events the flow refuses: edited by hand.
 unreplayed :: FilePath -> Failure -> Failure

@@ -331,7 +331,7 @@ built = \case
 -- | A breakdown sets its fan-out's tasks; the fan-out is left once they are settled.
 fanOutcome :: Outcome (s :: FanStep) l -> Map FanId Fan -> Either Fan.Refusal (Map FanId Fan)
 fanOutcome outcome fans = case outcome of
-    BreakdownDone fan tasks -> Right (Map.insert fan (Fan.broken tasks (fanIn fans fan)) fans)
+    BreakdownDone fan tasks -> (\fresh -> Map.insert fan fresh fans) <$> Fan.broken tasks (fanIn fans fan)
     FanDone fan -> fans <$ Fan.leave (fanIn fans fan)
     MergeDone fan _ -> fans <$ Fan.closed (fanIn fans fan)
 

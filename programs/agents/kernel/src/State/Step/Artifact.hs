@@ -111,7 +111,7 @@ data Task = Task
     , fuel :: Fuel
     , qa :: Bool
     , heavy :: Bool
-    -- ^ At most one heavy task runs at a time.
+    -- ^ Advisory: the kernel caps nothing on it; it stays on the wire for old breakdowns.
     , security :: Set Topic
     }
     deriving stock (Eq, Show)

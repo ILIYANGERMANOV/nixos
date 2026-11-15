@@ -278,20 +278,20 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
         AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
         PicksRows -> Run (pickCommand state)
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
-        AwaitsMerge -> fromMaybe (maybe (Run (recordOutcomes s)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged (currentFan state)))) (recordFinished (currentFan state))
+        AwaitsMerge -> atMerge (recordOutcomes s) (currentFan state)
 
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
 triage a question, then a child's stop, record a finished task's PR, resume
-a child its answer waits for, spawn a task with a free slot - then ask the
-user what waits on them, then wait on CI or the children at work. A question
+a child its answer waits for, spawn a task - then ask the user what waits
+on them, then wait on CI, the children at work or a dependency's merge. A question
 the user holds blocks no other child (the 10x skill's "Other tasks keep
 moving"). A child the 10x resumed, or a task it spawned, has an agent at work
-and is advised no more. With none at work and none spawnable, a task is left
-to park.
+and is advised no more. With none at work, none spawnable and no merge
+awaited, a task is left to park.
 -}
 atFan :: FanId -> [RunId] -> RunState -> Action
-atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren])
+atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren, awaitMerge])
   where
     here = fanIn state.fans fan
     unrecorded = listToMaybe [Run ("state handback " <> roleText (fanRole fan) <> " - child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in") | c <- Fan.running here, c.child.run `elem` ended]
@@ -302,12 +302,24 @@ atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, rec
     triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged here]
     record = recordFinished here
     resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
-    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) ((cfg (fuelOf state)).fan fan) here)
+    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) here)
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
     awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList here.atWork)
+    awaitMerge = AwaitMerge <$> NonEmpty.nonEmpty (Fan.mergesAwaited here)
     leave = Run $ case Fan.unsettled here of
         task : _ -> "state record task " <> taskIdText task <> " parked <why>"
         [] -> recordCommand (fanEvent Leaves (fanName fan))
+
+{- | At a fan-out's merge: record a finished task's PR, await the unmerged,
+then record the merge. With every task parked nothing merged, so the run
+stops honestly instead.
+-}
+atMerge :: Text -> Fan -> Action
+atMerge records fan = case (Fan.allParked fan, recordFinished fan, NonEmpty.nonEmpty (Fan.unmerged fan)) of
+    (True, _, _) -> Run "state stop blocked \"all tasks parked\""
+    (False, Just record, _) -> record
+    (False, Nothing, Just tasks) -> AwaitMerge tasks
+    (False, Nothing, Nothing) -> Run records
 
 {- | The record of a finished task's PR, for a READY whose line 1 named none
 ('State.Protocol.Handback' records the rest).
