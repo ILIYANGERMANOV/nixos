@@ -31,11 +31,16 @@ vm_kernel() {
   rm -rf "$FACTORY_KERNEL_ROOT"
   mkdir -p "$FACTORY_KERNEL_ROOT/proc" "$FACTORY_KERNEL_ROOT/sys/class/hwmon" \
     "$FACTORY_KERNEL_ROOT/sys/class/power_supply" "$FACTORY_KERNEL_ROOT/sys/devices/system/cpu/cpu0"
-  printf 'MemTotal: 10000 kB\nMemAvailable: 9000 kB\nSwapTotal: 10000 kB\nSwapFree: 9000 kB\n' >"$FACTORY_KERNEL_ROOT/proc/meminfo"
+  meminfo 9000 10000 9000
   echo "0.00 0.00 0.00 1/100 1234" >"$FACTORY_KERNEL_ROOT/proc/loadavg"
   echo "4000.00 1000.00" >"$FACTORY_KERNEL_ROOT/proc/uptime"
   sensor "$agents/memory.current" 1073741824
   sensor "$agents/memory.max" 10737418240
+}
+
+# meminfo <available kB> <swap total kB> <swap free kB>, of 10000 kB of RAM
+meminfo() {
+  printf 'MemTotal: 10000 kB\nMemAvailable: %s kB\nSwapTotal: %s kB\nSwapFree: %s kB\n' "$@" >"$FACTORY_KERNEL_ROOT/proc/meminfo"
 }
 
 agents="fs/cgroup/user.slice/user-$(id -u).slice"
@@ -188,7 +193,7 @@ is_state() {
 
 @test "stats: without swap there is no swap row" {
   thinkpad_kernel
-  printf 'MemTotal: 10000 kB\nMemAvailable: 9000 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n' >"$FACTORY_KERNEL_ROOT/proc/meminfo"
+  meminfo 9000 0 0
 
   stats_cleanly
   ! grep -q '^Swap ' "$work/out" || fail_showing "$work/out" "a swap row without swap"
@@ -206,7 +211,7 @@ is_state() {
   thinkpad_kernel
   for case in "2501 normal" "2500 warning" "1001 warning" "1000 critical"; do
     read -r available state <<<"$case"
-    printf 'MemTotal: 10000 kB\nMemAvailable: %s kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n' "$available" >"$FACTORY_KERNEL_ROOT/proc/meminfo"
+    meminfo "$available" 0 0
     is_state RAM "$state"
   done
 }
@@ -215,7 +220,7 @@ is_state() {
   thinkpad_kernel
   for case in "7501 normal" "7500 warning" "4001 warning" "4000 critical"; do
     read -r free state <<<"$case"
-    printf 'MemTotal: 10000 kB\nMemAvailable: 9000 kB\nSwapTotal: 10000 kB\nSwapFree: %s kB\n' "$free" >"$FACTORY_KERNEL_ROOT/proc/meminfo"
+    meminfo 9000 10000 "$free"
     is_state Swap "$state"
   done
 }
@@ -280,9 +285,16 @@ is_state() {
   is_state Throttled normal
   sensor devices/system/cpu/cpu1/thermal_throttle/core_throttle_count 1
   is_state Throttled warning
-  grep -Eq '^Throttled +1 time ' <(factory-ctl stats) || fail "the count is not 1 time"
   sensor class/hwmon/hwmon2/temp1_input 95000
   is_state Throttled critical
+}
+
+@test "stats: a single heat slowdown reads 1 time" {
+  thinkpad_kernel
+  sensor devices/system/cpu/cpu1/thermal_throttle/core_throttle_count 1
+
+  stats_cleanly
+  grep -Eq '^Throttled +1 time ' "$work/out" || fail_showing "$work/out" "the count is not 1 time"
 }
 
 @test "stats: a heat slowdown warns without a CPU temperature" {

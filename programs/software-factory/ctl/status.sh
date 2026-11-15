@@ -164,7 +164,7 @@ load_row() {
 
 # memory.max reads "max" when the slice has no cap.
 agents_row() {
-  local slice used cap used_gb cap_gb
+  local slice used cap used_gb cap_gb pct
   slice="$kernel_root/sys/fs/cgroup/user.slice/user-$(id -u).slice"
   used=$(reading "$slice/memory.current")
   cap=$(sensor "$slice/memory.max")
@@ -176,7 +176,8 @@ agents_row() {
       cap=$(integer "$cap")
       [ "${cap:-0}" -gt 0 ] || return 0
       cap_gb=$(gib "$cap")
-      stat_row Agents "$((used * 100 / cap))% of cap" "$used_gb of $cap_gb" capacity_state "$((used * 100 / cap))"
+      pct=$((used * 100 / cap))
+      stat_row Agents "$pct% of cap" "$used_gb of $cap_gb" capacity_state "$pct"
       ;;
   esac
 }
@@ -270,7 +271,7 @@ throttle_row() {
 
 # The first battery only: the factories have one at most.
 battery_rows() {
-  local dir type status capacity full design cycles detail
+  local dir type status capacity full design cycles detail health
   for dir in "$kernel_root"/sys/class/power_supply/*; do
     type=$(sensor "$dir/type")
     [ "$type" = Battery ] || continue
@@ -288,8 +289,10 @@ battery_rows() {
       design=$(reading "$dir/charge_full_design")
     fi
     cycles=$(reading "$dir/cycle_count")
-    [ -z "$full" ] || [ "${design:-0}" -eq 0 ] ||
-      stat_row "Bat health" "$((full * 100 / design))%" "${cycles:+$cycles cycles}" battery_health_state "$((full * 100 / design))"
+    if [ -n "$full" ] && [ "${design:-0}" -gt 0 ]; then
+      health=$((full * 100 / design))
+      stat_row "Bat health" "$health%" "${cycles:+$cycles cycles}" battery_health_state "$health"
+    fi
     return 0
   done
 }
