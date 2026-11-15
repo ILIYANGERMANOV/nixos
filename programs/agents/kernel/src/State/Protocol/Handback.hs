@@ -31,7 +31,7 @@ import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Fold (RunState (..), askedAt, fanIn, nextQId)
+import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -201,8 +201,8 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. The sha is the worktree's HEAD.
 -}
 typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
-typeHandback steps state worktreeHead agent handback = case [fan | At place <- [state.at], Just fan <- [Fan.fanNamed place.name], fanRole fan == agent] of
-    fan : _ -> fromChild state (fanIn state.fans fan) handback
+typeHandback steps state worktreeHead agent handback = case [ScopedFan place.scope fan | At place <- [state.at], Just fan <- [Fan.fanNamed place.name], fanRole fan == agent] of
+    here : _ -> fromChild state (fanIn state.fans here) handback
     [] -> fromWorker steps state worktreeHead agent handback
 
 {- | A child run's hand-back at the fan-out: what it said, under its run id,

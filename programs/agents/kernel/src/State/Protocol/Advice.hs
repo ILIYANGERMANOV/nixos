@@ -36,9 +36,9 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, fanName, nameText)
+import State.Category.Flow (FanEvent (Leaves), fanEvent, fanName, nameText, qualify, qualifyEvent)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), placeName)
 import State.Category.Meter (AtCap (Extend, Refuse), someMeterName)
 import State.Category.Meter qualified as Meter
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
@@ -53,7 +53,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, stuck, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), Stuck (..), Waits (..), ScopedFan (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, stuck, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
@@ -184,7 +184,7 @@ due g facts state = case (state.stopped, state.at) of
         IsMerged -> False
         IsClosed -> False
     -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
-    leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans fan)]]
+    leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans (ScopedFan place.scope fan))]]
     -- The graph names the skip inside its scopes; its outcome is the step's own.
     skipped place =
         [ outcome
@@ -263,7 +263,7 @@ advise steps g facts state = Advice action (factLines g facts state) prompt noti
         EngineerFlow -> isJust state.fuel
         TenXFlow -> True
     fanHere = case state.at of
-        At place -> fanNamed place.name
+        At place -> ScopedFan place.scope <$> fanNamed place.name
         Out -> Nothing
         Exit -> Nothing
     going = case (state.at, stuck state) of
@@ -274,8 +274,8 @@ advise steps g facts state = Advice action (factLines g facts state) prompt noti
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s))
             Nothing -> case fanNamed place.name of
-                Just fan -> plain (atFan fan facts.ended state)
-                Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
+                Just fan -> plain (atFan (ScopedFan place.scope fan) facts.ended state)
+                Nothing -> plain (Run ("state record the " <> stateNameText (placeName place) <> " fan-out's outcome"))
     usedUpAt place = mfilter usedUp (Map.lookup place (budgets g state))
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
@@ -291,12 +291,12 @@ advise steps g facts state = Advice action (factLines g facts state) prompt noti
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
         AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
-        Interviews -> Run ("state ask each question; " <> recordCommand (exitEvent Interview) <> " when nothing is open | " <> recordCommand (continueEvent Interview) <> " to research a new fact")
+        Interviews -> Run ("state ask each question; " <> recordCommand (qualifyEvent place.scope (exitEvent Interview)) <> " when nothing is open | " <> recordCommand (qualifyEvent place.scope (continueEvent Interview)) <> " to research a new fact")
         PicksRows -> Run records
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
       where
-        records = maybe (recordOutcomes s) (atCapRecords g place) (usedUpAt place)
+        records = maybe (recordOutcomes place s) (atCapRecords g place) (usedUpAt place)
 
 {- | What the run may record at a used-up budget ('capRecords'), after what
 the budget spent when it refuses any more.
@@ -321,10 +321,11 @@ skill's "Other tasks keep moving"). A child the 10x resumed, or a task it spawne
 and is advised no more. With none at work, none spawnable and no merge
 awaited, a task is left to park.
 -}
-atFan :: Name -> [RunId] -> RunState -> Action
-atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren, awaitMerge])
+atFan :: ScopedFan -> [RunId] -> RunState -> Action
+atFan at ended state = fromMaybe leave (asum [unrecorded, question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren, awaitMerge])
   where
-    here = fanIn state.fans fan
+    here = fanIn state.fans at
+    fan = at.fan
     unrecorded = listToMaybe [Run ("state handback " <> roleText (fanRole fan) <> " - child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in") | c <- Fan.running here, c.child.run `elem` ended]
     waiting = Fan.waiting here
     open = map (.asking.question.qid) state.pending
@@ -341,7 +342,7 @@ atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, rec
     awaitMerge = AwaitMerge <$> NonEmpty.nonEmpty (Fan.mergesAwaited here)
     leave = Run $ case Fan.unsettled here of
         task : _ -> "state record task " <> taskIdText task <> " parked <why>"
-        [] -> recordCommand (fanEvent Leaves (fanName fan))
+        [] -> recordCommand (fanEvent Leaves (qualify at.scope (fanName fan)))
 
 {- | At a fan-out's merge: record a finished task's PR, await the unmerged,
 then record the merge. With every task parked nothing merged, so the run
@@ -368,8 +369,8 @@ prUrl :: Facts -> RunState -> Maybe Url
 prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$> state.drafted
 
 -- | The record line for each of a step's outcomes, exit first.
-recordOutcomes :: (StepSet k) => Sing (s :: k) -> Text
-recordOutcomes s = Text.intercalate " | " [recordCommand (EventName (stepName s) outcome) | outcome <- outcomeNames (outcomes s)]
+recordOutcomes :: (StepSet k) => Place -> Sing (s :: k) -> Text
+recordOutcomes place s = Text.intercalate " | " [recordCommand (EventName (placeName place) outcome) | outcome <- outcomeNames (outcomes s)]
 
 recordOne :: Text -> [Text] -> Text
 recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"

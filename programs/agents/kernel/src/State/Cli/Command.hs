@@ -35,7 +35,7 @@ import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), placeName, places)
 import State.Category.Meter (someMeterName)
 import State.Category.Step (eventText, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
@@ -398,7 +398,7 @@ explain g fuel at = \case
   where
     refused = Failure BadInput
     atText = case at of
-        At place -> stateNameText place.name
+        At place -> stateNameText (placeName place)
         Out -> "the end"
         Exit -> "the end"
     records keep = atPlace $ \place -> case [recordCommand event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
@@ -416,6 +416,6 @@ explain g fuel at = \case
         Skip _ when -> atFuel fuel when /= Never
         Along _ -> True
         Stay -> True
-    stateNames = map (stateNameText . (.name)) (Set.toList (places g))
+    stateNames = map (stateNameText . placeName) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid

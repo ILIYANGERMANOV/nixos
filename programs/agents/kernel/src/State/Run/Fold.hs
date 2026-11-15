@@ -33,6 +33,7 @@ module State.Run.Fold (
     askingChildren,
     askedAt,
     over,
+    ScopedFan (..),
     fanAt,
     fanIn,
     currentFan,
@@ -107,8 +108,8 @@ data RunState = RunState
     {- ^ The PR @ready@ recorded last: the url of a run that skipped its draft
     by override, as a retry does, when GitHub is not read.
     -}
-    , fans :: Map Name Fan
-    -- ^ Each fan-out's tasks and child runs, by its name: none before its breakdown.
+    , fans :: Map ScopedFan Fan
+    -- ^ Each fan-out's tasks and child runs, by its name in its scopes: none before its breakdown.
     }
     deriving stock (Eq, Show)
 
@@ -310,7 +311,7 @@ took g state scope outcome@(AnyOutcome _ some) = do
         Along _ -> Right ()
         Stay -> Right ()
     meters <- spend g state (RecordedOutcome some)
-    let effect = effects outcome
+    let effect = effects scope outcome
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
@@ -320,23 +321,24 @@ took g state scope outcome@(AnyOutcome _ some) = do
 rounds it ends, and it may move a fan-out or name the run's PR.
 -}
 data Effect = Effect
-    { fanned :: Map Name Fan -> Either Fan.Refusal (Map Name Fan)
+    { fanned :: Map ScopedFan Fan -> Either Fan.Refusal (Map ScopedFan Fan)
     , problems :: Set Problem
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
     }
 
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
-in the layer's own match below.
+in the layer's own match below. A fan-out's outcome moves the fan-out in the
+outcome's scope.
 -}
-effects :: AnyOutcome -> Effect
-effects (AnyOutcome l (SomeOutcome _ _ o)) = case l of
+effects :: ScopePath -> AnyOutcome -> Effect
+effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     GatherLayer -> none
     PlanLayer -> none
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
-    FanLayer -> none {fanned = fanOutcome o}
+    FanLayer -> none {fanned = fanOutcome scope o}
   where
     none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing}
 
@@ -349,12 +351,14 @@ built = \case
     RefactorSkipped _ -> Nothing
 
 -- | A breakdown sets its fan-out's tasks; the fan-out is left once they are settled.
-fanOutcome :: Outcome (s :: FanStep) l -> Map Name Fan -> Either Fan.Refusal (Map Name Fan)
-fanOutcome outcome fans = case outcome of
-    BreakdownDone fan tasks -> (\fresh -> Map.insert fan fresh fans) <$> Fan.broken tasks (fanIn fans fan)
-    FanDone fan -> fans <$ Fan.leave (fanIn fans fan)
-    MergeDone fan _ -> fans <$ Fan.closed (fanIn fans fan)
-    MergeNextRound fan -> fans <$ Fan.closed (fanIn fans fan)
+fanOutcome :: ScopePath -> Outcome (s :: FanStep) l -> Map ScopedFan Fan -> Either Fan.Refusal (Map ScopedFan Fan)
+fanOutcome scope outcome fans = case outcome of
+    BreakdownDone fan tasks -> (\fresh -> Map.insert (here fan) fresh fans) <$> Fan.broken tasks (fanIn fans (here fan))
+    FanDone fan -> fans <$ Fan.leave (fanIn fans (here fan))
+    MergeDone fan _ -> fans <$ Fan.closed (fanIn fans (here fan))
+    MergeNextRound fan -> fans <$ Fan.closed (fanIn fans (here fan))
+  where
+    here = ScopedFan scope
 
 {- | The Fuel's skips, and @ready@ for a round on an existing PR at every
 Fuel: the PR stays as it is, by the task's shape.
@@ -379,15 +383,21 @@ reopened g state = case state.at of
     Out -> Right state
     Exit -> Right state
 
+{- | A fan-out inside the scopes it sits in: two scoped copies of one
+fan-out are two, each with its own tasks and children.
+-}
+data ScopedFan = ScopedFan {scope :: ScopePath, fan :: Name}
+    deriving stock (Eq, Ord, Show)
+
 -- | The fan-out the run is at: at its breakdown, its own state or its merge.
-fanAt :: Node -> Maybe Name
+fanAt :: Node -> Maybe ScopedFan
 fanAt = \case
-    At place -> fanOf place.name
+    At place -> ScopedFan place.scope <$> fanOf place.name
     Out -> Nothing
     Exit -> Nothing
 
 -- | A fan-out's tasks and children: empty before its breakdown.
-fanIn :: Map Name Fan -> Name -> Fan
+fanIn :: Map ScopedFan Fan -> ScopedFan -> Fan
 fanIn fans fan = Map.findWithDefault emptyFan fan fans
 
 -- | The fan-out the run is at, and an empty one at any other state.

@@ -18,7 +18,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), placeName, places)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
@@ -39,7 +39,7 @@ states :: OpenGraph -> Steps -> Text
 states g steps =
     table
         ["State", "Run by", "Arrows out"]
-        [[stateNameText place.name, runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
+        [[stateNameText (placeName place), runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
   where
     runBy name = case stepNamed name of
         Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
@@ -50,7 +50,7 @@ states g steps =
         Text.intercalate "; " [outcomeText event <> ": " <> target edge.to | ((from, event), edge) <- Map.toList g.edges, from == place]
     outcomeText (EventName _ (OutcomeName outcome)) = outcome
     target = \case
-        At place -> stateNameText place.name
+        At place -> stateNameText (placeName place)
         Out -> "end"
         Exit -> "exit"
 
@@ -74,7 +74,7 @@ fuel g =
     varies limit = nub (map (`atFuel` limit) levels) /= [atFuel Low limit]
     -- An 'Opt' draws as a skip arrow out of its first state.
     optSteps :: [(StateName, PerFuel SkipWhen)]
-    optSteps = nub [(from.name, skips) | ((from, _), Edge {arrow = Skip _ skips}) <- Map.toList g.edges]
+    optSteps = nub [(placeName from, skips) | ((from, _), Edge {arrow = Skip _ skips}) <- Map.toList g.edges]
     skippable level = case ["`" <> stateNameText name <> "`" | (name, skips) <- optSteps, atFuel level skips == Skippable] of
         [] -> "none"
         names -> Text.intercalate ", " names

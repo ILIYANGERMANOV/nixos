@@ -417,7 +417,7 @@ handedUp steps up =
             (new, Right _) -> (new, Right ())
     told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
     -- The hand-back credits the fan-out the parent is at; off one, the engineers'.
-    atFanRole state = maybe childRole fanRole (Fold.fanAt state.at)
+    atFanRole state = maybe childRole (fanRole . (.fan)) (Fold.fanAt state.at)
 
 -- | The worktree's run, locked for one command.
 onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
@@ -538,7 +538,7 @@ childStart parent named state = do
 
 -- | The flow of the fan-out the parent is at; a @--flow@ named must be that one.
 childFlow :: Parent -> Maybe FlowName -> RunState -> Either Failure FlowName
-childFlow parent named state = case (Fold.fanAt state.at >>= Event.fanFlow, named) of
+childFlow parent named state = case (Fold.fanAt state.at >>= Event.fanFlow . (.fan), named) of
     (Nothing, _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at no fan-out whose children run a flow" "state show, in the parent's worktree")
     (Just flow, Nothing) -> Right flow
     (Just flow, Just asked)
