@@ -1,13 +1,14 @@
 module State.Flow.TenXSpec (spec) where
 
 import Data.Either (isRight)
-import State.Category.Flow (FanId (FEngineers), Flow (..))
+import State.Category.Flow (Flow (..), Name, scoped)
 import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
 import State.Flow.TenX (tenX)
 import State.Role (RoleDef (..), role)
 import State.Run.Event (fanFlow)
+import State.Step.Fan (engineers)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
 spec :: Spec
@@ -24,19 +25,22 @@ spec = describe "State.Flow.TenX" $ do
 
     -- The fan-out runs each task's child on the flow the registry names for it.
     it "runs the registry's engineer flow at its fan-out" $
-        lookup FEngineers (parBodies tenX) `shouldBe` fmap (show . (.flow) . role) (fanFlow FEngineers)
+        lookup engineers (parBodies tenX) `shouldBe` fmap (show . (.flow) . role) (fanFlow engineers)
 
 {- | Each fan-out's body, shown. Compared by 'show', not 'graph': 'graph'
 draws a 'Par' as one state, and a 'Par' hides the types 'graph' needs of its
 body.
 -}
-parBodies :: Flow i e o -> [(FanId, String)]
+parBodies :: Flow i e o -> [(Name, String)]
 parBodies = \case
     Do _ -> []
     f :> g -> parBodies f <> parBodies g
-    Loop _ _ body -> parBodies body
-    Opt _ body -> parBodies body
+    Id -> []
+    Loop _ _ _ body -> parBodies body
+    Opt _ _ body -> parBodies body
     Par fan body -> (fan, show body) : parBodies body
     InL -> []
     InR -> []
     f :||| g -> parBodies f <> parBodies g
+    Catch body -> parBodies body
+    Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]

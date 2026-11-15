@@ -18,7 +18,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Flow.Library (gatherLoop, reviewLoop)
 import State.Step.Build (Sing (Refactor))

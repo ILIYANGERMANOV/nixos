@@ -51,7 +51,7 @@ import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Fan (Outcome (..))
+import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -212,7 +212,7 @@ templates =
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)
               ]
-            | fan <- [minBound .. maxBound]
+            | fan <- fanOuts
             ]
 
 -- | The same outcome, with generated data: of the same step, by the same leg.

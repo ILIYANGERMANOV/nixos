@@ -34,7 +34,7 @@ import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (nameText)
-import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (Never), atFuel, cfg, fuelName, parseByName)
+import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (eventText, exitEvent, stateNameText)
 import State.Flow.Library (gatherLoop)
@@ -410,7 +410,7 @@ explain g fuel at = \case
         Along _ -> False
         Stay -> False
     taken edge = case edge.arrow of
-        Skip _ skips -> atFuel fuel skips /= Never
+        Skip _ when -> atFuel fuel when /= Never
         Along _ -> True
         Stay -> True
     -- At either gather budget's end the user may go on; another loop ends or stops.

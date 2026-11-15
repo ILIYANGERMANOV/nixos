@@ -2,6 +2,7 @@
 module State.Run.RunGen (
     g,
     tenXGraph,
+    flowGraph,
     tenXAt,
     plainTask,
     roundTask,
@@ -33,7 +34,6 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanId (..))
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
 import State.Category.Step (EventName)
@@ -45,7 +45,7 @@ import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, 
 import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
-import State.Step.Fan (Outcome (..))
+import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -59,6 +59,12 @@ g = either (error . show) id (graph engineer)
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
 
+-- | The graph a run of this flow walks.
+flowGraph :: FlowName -> OpenGraph
+flowGraph = \case
+    EngineerFlow -> g
+    TenXFlow -> tenXGraph
+
 {- | A 10x run, by the user, at its fan-out with these
 tasks, then these events.
 -}
@@ -66,7 +72,7 @@ tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
     tenXStart = start {flow = TenXFlow}
-    toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf tasks))]
+    toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task

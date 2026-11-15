@@ -9,17 +9,16 @@ import Doubles.Gh (printedPr)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (FanId (..))
 import State.Category.Fuel (Fuel (..))
 import State.Protocol.Advice
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
 import State.Run.Event hiding (Stopped)
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start)
-import State.Run.Fold (replay)
-import State.Run.RunGen (childOf, commit, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, sha, tenXAt, tenXGraph)
+import State.Run.Fold (RunState (..), replay)
+import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, sha, tenXAt, tenXGraph)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
-import State.Step.Fan (Outcome (..))
+import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
@@ -29,7 +28,7 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "State.Protocol.Advice" $ do
     steps <- runIO loadSteps
-    let next facts = (.action) . advise steps facts
+    let next facts state = (advise steps (flowGraph state.start.flow) facts state).action
 
     it "advice_is_equal_under_any_principal_up_to_delivery" . hedgehog $ do
         events <- forAll genAccepted
@@ -37,7 +36,7 @@ spec = describe "State.Protocol.Advice" $ do
         one <- forAll genStart
         other <- forAll genStart
         let under from = runUnder start {principal = from.principal, interface = from.interface} events
-            decided state = (due g facts state, advise steps facts state)
+            decided state = (due g facts state, advise steps g facts state)
         decided (under one) === decided (under other)
 
     describe "pullRequestOf" $ do
@@ -155,7 +154,7 @@ spec = describe "State.Protocol.Advice" $ do
             map (next noFacts . tenXAt (t1 :| [plainTask "t2" ["t1"]])) [reviewed, reviewed <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge (TaskId "t1" :| []), Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
         it "stops the run at merge once every task is parked" $
-            next noFacts (tenXAt (t1 :| [t2]) [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), TaskMoved (TaskId "t2") (Parked "not needed" Nothing), stepTook (FanDone FEngineers)])
+            next noFacts (tenXAt (t1 :| [t2]) [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), TaskMoved (TaskId "t2") (Parked "not needed" Nothing), stepTook (FanDone engineers)])
                 `shouldBe` Run "state stop blocked \"all tasks parked\""
         it "waits on the children while a task's dependencies run" $
             next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
@@ -187,11 +186,11 @@ spec = describe "State.Protocol.Advice" $ do
             map (next noFacts . tenXAt (t1 :| [])) [forwarded, forwarded <> [Answered stuckOn.qid "retry" TheUser]]
                 `shouldBe` [AwaitAnswer stuckOn, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
         it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
-            let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), stepTook (FanDone FEngineers)]
+            let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), stepTook (FanDone engineers)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge (TaskId "t1" :| []), Run "state record merge.done <url> | state record merge.next_round"]
         it "spawns a task added at the merge" $ do
-            let merged = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (Merged prUrl), stepTook (FanDone FEngineers)]
+            let merged = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (Merged prUrl), stepTook (FanDone engineers)]
             next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded (plainTask "fix" [])])) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "resumes a ruled child while the user holds another child's question" $ do
             let asks2 = Question (QId (runId "c2") 1) Security (oneLine "token in env?")
@@ -202,7 +201,7 @@ spec = describe "State.Protocol.Advice" $ do
             map (next noFacts . tenXAt (t1 :| [t2]) . ([Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "done"))] <>)) [[], [TaskMoved (TaskId "t1") (InReview prUrl)]]
                 `shouldBe` [Run "state record task t1 review <url>", Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
         it "states a child's question no more once it is answered" $
-            filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])))
+            filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])))
                 `shouldBe` ["task t1: child c1 waits to resume, tries 1"]
         it "triages a child's question before anything else" $
             next noFacts (tenXAt (t1 :| [t2]) fromChild) `shouldBe` Triage asks
@@ -213,12 +212,12 @@ spec = describe "State.Protocol.Advice" $ do
         it "leaves the fan-out itself once every task is settled, and not before" $ do
             let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
-            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (outcome (FanDone FEngineers))
+            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (outcome (FanDone engineers))
         it "states each task's child, PR and tries" $
-            filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
+            filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
                 `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
         it "states a task's agent at work and its held wakes" $
-            filter ("task " `Text.isPrefixOf`) (factLines noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling, Resumed (runId "c1"), Held (TaskId "t1") (Url "https://pr/1#c")])))
+            filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling, Resumed (runId "c1"), Held (TaskId "t1") (Url "https://pr/1#c")])))
                 `shouldBe` ["task t1: child c1 running, agent at work, tries 1, held https://pr/1#c"]
 
     describe "deliver" $ do
@@ -252,7 +251,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` ["AWAIT ci u", "HANDBACK AWAIT ci u"]
 
         it "notifies at ready only where the interface can, so a child run leaves it to its parent" $ do
-            let ready = advise steps noFacts atReady
+            let ready = advise steps g noFacts atReady
             map (`deliverPrompt` ready) [start {interface = Set.singleton Notify}, child]
                 `shouldBe` [ready.prompt <> " Then notify.", ready.prompt]
         it "ends as DONE for the user, READY for a parent run" $

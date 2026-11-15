@@ -5,7 +5,8 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Hedgehog (Gen, assert, evalMaybe, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), OptId (..))
+import State.Category.Flow (Flow (..))
+import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.FlowGen (composes, genFlow, pathTo)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, graph)
 import State.Category.Path (step, ty)
@@ -28,7 +29,7 @@ spec = describe "State.Category.Path" $ do
         ends path === Just (Ctx, PR)
 
     it "takes a skip to where running the skipped step goes" $ do
-        let built = graph (Opt ORes (Do Research) :> Do Interview)
+        let built = graph (Opt "research" (always Skippable) (Do Research) :> Do Interview)
             from event = do
                 g <- either (const Nothing) Just built
                 edge <- step g g.inPort event
@@ -45,7 +46,7 @@ genSkip = do
   where
     withSkips flow = do
         g <- either (const Nothing) Just (graph flow)
-        skips <- nonEmpty [(place, event, edge) | ((place, event), edge@Edge {arrow = Skip _}) <- Map.toList g.edges]
+        skips <- nonEmpty [(place, event, edge) | ((place, event), edge@Edge {arrow = Skip _ _}) <- Map.toList g.edges]
         Just (g, skips)
 
 ends :: [OutcomeEdge] -> Maybe (Ty, Ty)

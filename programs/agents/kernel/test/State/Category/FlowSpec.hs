@@ -10,14 +10,15 @@ module State.Category.FlowSpec (spec) where
 import Control.Exception (TypeError (..), evaluate, try)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
+import State.Category.Flow (Flow (..), OnEmpty (..), inl, inr, (|||))
+import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
 import State.Flow.Triage (Sing (..))
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
-import State.Step.Fan (Sing (..))
+import State.Step.Fan (Sing (..), engineers)
 import State.Step.Gather (Sing (..))
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
@@ -35,22 +36,22 @@ spec = describe "State.Category.Flow" $ do
         it "an optional step that changes the type" $
             rejected
                 "Couldn't match type ‘State.Category.Ty.Diff’ with ‘State.Category.Ty.Plan’"
-                (Opt ORefactor (Do Implement))
+                (Opt "refactor" (always Never) (Do Implement))
 
         it "an optional step with an exit" $
             rejected
                 "Couldn't match type: Just State.Category.Ty.Plan with: Nothing"
-                (Opt OSimp (Do Confirm))
+                (Opt "simplify_plan" (always Never) (Do Confirm))
 
         it "a loop whose body never exits" $
             rejected
                 "Couldn't match type: Nothing with: Just State.Category.Ty.Diff"
-                (Loop LReview ExitOut (Do Refactor))
+                (Loop "review" (always 2) ExitOut (Do Refactor))
 
         it "a loop that exits when empty to another type than its in" $
             rejected
                 "Couldn't match type ‘State.Category.Ty.Plan’ with ‘State.Category.Ty.Ctx’"
-                (Loop LPlan ExitOut (Do PlanS :> Do Confirm))
+                (Loop "plan" (always 4) ExitOut (Do PlanS :> Do Confirm))
 
         {- The loop's out is pinned: left free, the 'NotSum' 'Loop' asks of it
         is ambiguous, and GHC reports that before the clash of the exits. 'Ty'
@@ -59,12 +60,12 @@ spec = describe "State.Category.Flow" $ do
         it "a series whose two sides exit with different types" $
             rejected
                 "Both sides of :> exit, with different types: State.Category.Ty.Ctx and State.Category.Ty.Plan"
-                (Loop LPlan (StopOut :: OnEmpty 'State.Category.Ty.Ctx 'State.Category.Ty.Ctx) (Do Interview :> Do PlanS :> Do Confirm))
+                (Loop "plan" (always 4) (StopOut :: OnEmpty 'State.Category.Ty.Ctx 'State.Category.Ty.Ctx) (Do Interview :> Do PlanS :> Do Confirm))
 
         it "a fan-out's state drawn as a step" $
             rejected
                 "A fan-out's state is drawn by Par, not Do"
-                (Do (FanOut FEngineers))
+                (Do (FanOut engineers))
 
         it "a case after a step whose out is not a sum" $
             rejected
@@ -77,7 +78,7 @@ spec = describe "State.Category.Flow" $ do
         it "an optional block over a sum: its skip would be one edge for two summands" $
             rejectedShown
                 "A sum State.Category.Ty.Diff State.Category.Ty.:+ State.Category.Ty.Plan where one type is needed"
-                (graph (Do Triage :> Opt ORefactor (inl ||| inr) :> (Do Describe ||| Do Implement :> Do Describe)))
+                (graph (Do Triage :> Opt "refactor" (always Never) (inl ||| inr) :> (Do Describe ||| Do Implement :> Do Describe)))
 
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $

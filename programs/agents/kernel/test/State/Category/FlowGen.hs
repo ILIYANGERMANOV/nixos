@@ -12,6 +12,7 @@ module State.Category.FlowGen (
     pathTo,
     skipsKept,
     composes,
+    redrawn,
 ) where
 
 import Data.Map.Strict qualified as Map
@@ -20,14 +21,15 @@ import Data.Set qualified as Set
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), inl, inr, (|||))
-import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (..), cfg)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
+import Numeric.Natural (Natural)
+import State.Category.Flow (Flow (..), Name, OnEmpty (..), inl, inr, (|||))
+import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
+import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
-import State.Step.Fan (Sing (..))
+import State.Step.Fan (Sing (..), engineers)
 import State.Step.Gather (Sing (..))
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Sing (..))
@@ -55,7 +57,7 @@ genFlow = do
     plan <- genEndo planKit
     Gen.choice
         [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-        , pure (Loop LRound StopOut (ctx :> Do PlanS :> plan :> Do (Breakdown FEngineers) :> Par FEngineers (Do PlanS :> Do Implement :> Do Describe) :> Do (Merge FEngineers)))
+        , pure (Loop "round" (always 10) StopOut (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers (Do PlanS :> Do Implement :> Do Describe) :> Do (Merge engineers)))
         ]
 
 {- | A term from @Diff@ to @PR@ that branches: a triage whose two branches go
@@ -77,11 +79,25 @@ genEndo kit =
     Gen.recursive
         Gen.choice
         [Gen.element kit.endo]
-        ( [ Opt <$> Gen.enumBounded <*> genEndo kit
+        ( [ Opt <$> genName <*> genSkips <*> genEndo kit
           , (:>) <$> genEndo kit <*> genEndo kit
           ]
-            <> [Loop <$> Gen.enumBounded <*> Gen.element [StopOut, ExitOut] <*> genExiting kit | not (null kit.exiting)]
+            <> [Loop <$> genName <*> genRounds <*> Gen.element [StopOut, ExitOut] <*> genExiting kit | not (null kit.exiting)]
         )
+
+-- | A loop or skip name from a small pool, so nested terms sometimes reuse one.
+genName :: Gen Name
+genName = Gen.element ["gather", "plan", "review", "ci", "round"]
+
+genRounds :: Gen (PerFuel Natural)
+genRounds = PerFuel <$> round' <*> round' <*> round'
+  where
+    round' = Gen.integral (Range.linear 1 12)
+
+genSkips :: Gen (PerFuel SkipWhen)
+genSkips = PerFuel <$> skip <*> skip <*> skip
+  where
+    skip = Gen.element [Never, AtOrBelow 100, Skippable]
 
 -- | A term with an exit, an exiting step glued on either side of an endo term.
 genExiting :: (NotSum a) => Kit a -> Gen (Flow a ('Just a) a)
@@ -136,10 +152,29 @@ bypasses :: Fuel -> OpenGraph -> StateName -> Bool
 bypasses fuel g name = isJust (pathTo g {edges = Map.filterWithKey taken g.edges} (At g.inPort) Out)
   where
     taken (from, _) edge = case edge.arrow of
-        Skip optId -> (cfg fuel).skip optId /= Never
+        Skip _ when -> atFuel fuel when /= Never
         Along _ -> from.name /= name
         Stay -> from.name /= name
 
 -- | Each edge starts where the one before it ends: a path of @Cap@.
 composes :: [OutcomeEdge] -> Bool
 composes edges = and (zipWith (\a b -> a.cod == b.dom) edges (drop 1 edges))
+
+{- | The graph with each state's path replaced by its rank in the term's
+order: two terms that draw the same states in the same order, wherever
+their subterms sit, compare equal.
+-}
+redrawn :: OpenGraph -> OpenGraph
+redrawn g =
+    OpenGraph
+        { inPort = ranked g.inPort
+        , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
+        , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
+        }
+  where
+    ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])
+    ranked place = place {path = [Map.findWithDefault (-1) place ranks]}
+    node = \case
+        At place -> At (ranked place)
+        Out -> Out
+        Exit -> Exit

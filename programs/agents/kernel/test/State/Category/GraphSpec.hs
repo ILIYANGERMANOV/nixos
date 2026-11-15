@@ -7,9 +7,10 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
-import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo)
-import State.Category.Graph (Clash (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Flow (Flow (..), OnEmpty (..), inl, inr, (|||))
+import State.Category.Fuel (SkipWhen (..), always)
+import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, redrawn)
+import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, Ty (..))
@@ -86,15 +87,15 @@ spec = describe "State.Category.Graph" $ do
             [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
 
     it "refuses a loop id used twice: their rounds would mix" $
-        graph (Loop LReview ExitOut (Do Review :> Loop LReview ExitOut (Do Pick :> Do Fix)))
-            `shouldBe` Left (SameLoop LReview)
+        graph (Loop "review" (always 2) ExitOut (Do Review :> Loop "review" (always 2) ExitOut (Do Pick :> Do Fix)))
+            `shouldBe` Left (SameLoop "review")
 
     it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
-        graph (Par FEngineers (Do SimplifyPR) :> Par FEngineers (Do SimplifyPR))
-            `shouldBe` Left (SameFan FEngineers)
+        graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))
+            `shouldBe` Left (SameFan "engineers")
 
     it "refuses two skips of one state: a log could not say which was skipped" $
-        graph (Opt ORes (Opt OSimp (Do Research)))
+        graph (Opt "research" (always Skippable) (Opt "simplify" (always Skippable) (Do Research)))
             `shouldBe` Left (SameEvent (Place [] (StateName "research")) (EventName (StateName "research") (OutcomeName "skipped")))
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
@@ -127,33 +128,17 @@ endOf g = foldM next (At g.inPort)
         Out -> Nothing
         Exit -> Nothing
 
-{- | The graph with each state's path replaced by its rank in the term's
-order: two terms that draw the same states in the same order, wherever
-their subterms sit, compare equal.
--}
-redrawn :: OpenGraph -> OpenGraph
-redrawn g =
-    OpenGraph
-        { inPort = ranked g.inPort
-        , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
-        , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
-        }
-  where
-    ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])
-    ranked place = place {path = [Map.findWithDefault (-1) place ranks]}
-    node = \case
-        At place -> At (ranked place)
-        Out -> Out
-        Exit -> Exit
-
 -- | One per outcome of each step, one per skip, and a fan-out's three events.
 arrows :: Flow i e o -> Int
 arrows = \case
     Do s -> length (outcomeNames (outcomes s))
     f :> g -> arrows f + arrows g
-    Loop _ _ body -> arrows body
-    Opt _ body -> 1 + arrows body
+    Id -> 0
+    Loop _ _ _ body -> arrows body
+    Opt _ _ body -> 1 + arrows body
     Par _ _ -> 3
     InL -> 0
     InR -> 0
     f :||| g -> arrows f + arrows g
+    Catch body -> arrows body
+    Scope _ body -> arrows body

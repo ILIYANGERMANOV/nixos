@@ -1,15 +1,17 @@
 module State.Flow.LibrarySpec (spec) where
 
+import Data.List (nub)
 import Data.Map.Strict qualified as Map
-import State.Block (agree, build, describe, gather, propose, review, ship)
-import State.Category.Flow (LoopId (..))
-import State.Category.Graph (Empty (..), LoopAt (..), OpenGraph (..), graph)
+import State.Category.Fuel (Fuel (..), PerFuel (..), SkipWhen (..), atFuel)
+import State.Category.Graph (Arrow (..), Edge (..), Empty (..), LoopAt (..), OpenGraph (..), graph)
+import State.Flow.Engineer (engineer)
+import State.Flow.Library (agree, build, describe, gather, propose, review, reviewLoop, ship)
 import Test.Hspec (Spec, it, shouldBe)
 import Test.Hspec qualified as Hspec
 
 spec :: Spec
-spec = Hspec.describe "State.Block" $ do
-    it "builds every block" $
+spec = Hspec.describe "State.Flow.Library" $ do
+    it "builds every flow" $
         [ name
         | (name, Left _) <-
             [ ("agree", graph agree)
@@ -25,7 +27,17 @@ spec = Hspec.describe "State.Block" $ do
 
     it "takes review's exit when out of fuel, and stops the run in every other loop" $
         [Map.toList . fmap (.onEmpty) . (.loops) <$> built | built <- [graph agree, graph review, graph ship]]
-            `shouldBe` [ Right [(LGather, Stops), (LPlan, Stops)]
-                       , Right [(LReview, Exits)]
-                       , Right [(LCi, Stops)]
+            `shouldBe` [ Right [("gather", Stops), ("plan", Stops)]
+                       , Right [("review", Exits)]
+                       , Right [("ci", Stops)]
                        ]
+
+    it "gives review 1, 3 and 5 re-reviews after the first by level" $
+        ((.rounds) <$>) . Map.lookup reviewLoop . (.loops) <$> graph review
+            `shouldBe` Right (Just (PerFuel 2 4 6))
+
+    it "leaves research, the plan's simplify and the refactor skippable at Low only" $
+        [(level, skippable level <$> graph engineer) | level <- [minBound .. maxBound]]
+            `shouldBe` [(Low, Right ["refactor", "research", "simplify_plan"]), (Balanced, Right []), (Max, Right [])]
+  where
+    skippable level g = nub [name | Edge {arrow = Skip name when} <- Map.elems g.edges, atFuel level when == Skippable]

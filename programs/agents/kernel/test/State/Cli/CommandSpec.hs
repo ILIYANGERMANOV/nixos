@@ -6,7 +6,6 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative qualified as Opt
-import State.Category.Flow (LoopId (..))
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (OpenGraph (..))
 import State.Category.Step (eventText)
@@ -123,11 +122,11 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
 
         it "fixes a research round past the gather's rounds by ending or extending the interview" $
-            (explain g Balanced (runAt []).at (Fold.OutOfRounds LGather 9)).fix
+            (explain g Balanced (runAt []).at (Fold.OutOfRounds "gather" 9)).fix
                 `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
 
         it "fixes a round past another loop's rounds by leaving it or stopping" $
-            (explain g Balanced (runAt []).at (Fold.OutOfRounds LReview 4)).fix
+            (explain g Balanced (runAt []).at (Fold.OutOfRounds "review" 4)).fix
                 `shouldSatisfy` Text.isSuffixOf " | state stop rounds <why>"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $

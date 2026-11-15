@@ -12,9 +12,9 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OptId (..))
+import State.Category.Flow (Flow (..), Name)
 import State.Category.FlowGen (composes, genWalk)
-import State.Category.Fuel (Cfg (..), Fuel (..), cfg)
+import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Path (ty)
 import State.Flow.Engineer (engineer)
@@ -27,7 +27,7 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, roundTask, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
-import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge))
+import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers, researchers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -42,9 +42,9 @@ spec = describe "State.Run.Fold" $ do
 
     describe "the 10x's fan-out" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
-            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t1" [] :| [])))]
+            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
-            rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t2" [] :| [])))]
+            rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone engineers (tasksOf (plainTask "t2" [] :| [])))]
         it "refuses a child's spawn outside the fan-out" $
             tenXRun [Spawned child] `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
@@ -53,16 +53,16 @@ spec = describe "State.Run.Fold" $ do
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))])
                 `shouldBe` Right (Just (StateName "engineers"))
         it "refuses to leave the fan-out while a task is unsettled" $
-            tenXRun (toEngineers <> [Spawned child, stepTook (FanDone FEngineers)])
+            tenXRun (toEngineers <> [Spawned child, stepTook (FanDone engineers)])
                 `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
         it "leaves the fan-out for the merge once every task is settled" $
-            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), stepTook (FanDone FEngineers)])
+            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), stepTook (FanDone engineers)])
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
             tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
         it "takes a stop at the merge once every task is parked" $ do
             let allParked = Stop Blocked "all tasks parked"
-            (.stopped) <$> tenXRun (toEngineers <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), stepTook (FanDone FEngineers), Stopped allParked])
+            (.stopped) <$> tenXRun (toEngineers <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), stepTook (FanDone engineers), Stopped allParked])
                 `shouldBe` Right (Just allParked)
         it "refuses a new breakdown while a child is at work" $
             tenXRun (toEngineers <> [Spawned child] <> rePlan) `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
@@ -73,7 +73,7 @@ spec = describe "State.Run.Fold" $ do
             let fix = plainTask "fix" []
                 withFix = toEngineers <> [TaskAdded fix]
             fmap (.id) . (.tasks) . currentFan <$> tenXRun withFix `shouldBe` Right [TaskId "t1", TaskId "fix"]
-            tenXRun (withFix <> [TaskMoved (TaskId "t1") (Merged (Url "pr")), TaskMoved (TaskId "fix") (InReview (Url "fix-pr")), stepTook (FanDone FEngineers), stepTook (MergeDone FEngineers (Url "pr"))])
+            tenXRun (withFix <> [TaskMoved (TaskId "t1") (Merged (Url "pr")), TaskMoved (TaskId "fix") (InReview (Url "fix-pr")), stepTook (FanDone engineers), stepTook (MergeDone engineers (Url "pr"))])
                 `shouldBe` Left (FanRefused (Fan.Unmerged (TaskId "fix" :| [])))
         it "refuses an added task under an id the fan-out has" $
             tenXRun (toEngineers <> [TaskAdded (plainTask "t1" [])]) `shouldBe` Left (FanRefused (Fan.TaskExists (TaskId "t1")))
@@ -84,22 +84,22 @@ spec = describe "State.Run.Fold" $ do
         let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow ByUser) :| events))
             t1 = TaskId "t1"
             researched =
-                [ stepTook (BreakdownDone FResearchers (tasksOf (plainTask "t1" [] :| [])))
+                [ stepTook (BreakdownDone researchers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
                 , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                , stepTook (FanDone FResearchers)
+                , stepTook (FanDone researchers)
                 ]
-            engineered = researched <> [stepTook (FanDone FEngineers)]
+            engineered = researched <> [stepTook (FanDone engineers)]
         it "keeps the first fan-out's tasks out of the second" $
             twoFansRun (researched <> [Spawned (childOf "c2" "t1")]) `shouldBe` Left (FanRefused (Fan.UnknownTask t1))
         it "leaves the second, empty fan-out by its own done record" $
             atName <$> twoFansRun engineered `shouldBe` Right (Just (StateName "researchers_merge"))
         it "refuses the first fan-out's merge while its task is unmerged" $
-            twoFansRun (engineered <> [stepTook (MergeDone FResearchers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
+            twoFansRun (engineered <> [stepTook (MergeDone researchers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
         it "credits a task's move at a merge to that merge's fan-out" $
-            (.at) <$> twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone FResearchers (Url "pr"))]) `shouldBe` Right Exit
+            (.at) <$> twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone researchers (Url "pr"))]) `shouldBe` Right Exit
         it "refuses a task's move off every fan-out's state" $
-            twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone FResearchers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
+            twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone researchers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
 
     it "runs the engineer flow's happy path to its end" $
         (.at) <$> replay g (logOf (started :| map Took happyPath)) `shouldBe` Right Out
@@ -129,13 +129,13 @@ spec = describe "State.Run.Fold" $ do
     -- At the pick, before the fixer runs, so the run can still take the loop's exit.
     it "refuses a review round past the rounds at the loop pick" $
         replay g (logOf (started :| FuelSet Low : toReview <> reviewRounds [[], []]))
-            `shouldBe` Left (OutOfRounds LReview 2)
+            `shouldBe` Left (OutOfRounds "review" 2)
 
     it "gives one more round after a Not met at the last round, never two" $ do
         let unmet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
             once = toReview <> reviewRound [] <> [stepTook (FixDone commit)] <> roundWith unmet <> [stepTook (FixDone commit), stepTook (ReviewRows sha)]
         (.at) <$> replay g (logOf (started :| FuelSet Low : once)) `shouldSatisfy` either (const False) (/= Out)
-        replay g (logOf (started :| FuelSet Low : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfRounds LReview 2)
+        replay g (logOf (started :| FuelSet Low : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfRounds "review" 2)
 
     it "stuck_after_two_same_rounds" . hedgehog $ do
         -- Max's 6 rounds: the last round's loop pick is refused, as no round is left.
@@ -145,7 +145,7 @@ spec = describe "State.Run.Fold" $ do
                 current : previous : _ -> Set.map (Row . Label) (Set.fromList current `Set.intersection` Set.fromList previous)
                 _ -> Set.empty
         cover 10 "stuck" (not (Set.null expected))
-        stuck state === [Stuck LReview expected | not (Set.null expected)]
+        stuck state === [Stuck "review" expected | not (Set.null expected)]
 
     it "is not stuck on rows alternating A, B, A, B: only rounds in a row count" $
         stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["B"], ["A"], ["B"]]))
@@ -154,7 +154,7 @@ spec = describe "State.Run.Fold" $ do
     it "is stuck on one failing check in two CI rounds in a row" $ do
         let red = stepTook (AwaitCiRed sha (Check "lint" :| []))
         stuck <$> replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red]))
-            `shouldBe` Right [Stuck LCi (Set.singleton (Failing (Check "lint")))]
+            `shouldBe` Right [Stuck "ci" (Set.singleton (Failing (Check "lint")))]
 
     it "forgets a loop's rounds once the run leaves it" $
         stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReviewClean sha)]))
@@ -164,7 +164,7 @@ spec = describe "State.Run.Fold" $ do
         let gather = [outcome (ResearchDone 1), outcome InterviewMore]
             gathered = concat (replicate 5 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
         Map.map length . (.rounds) <$> replay g (logOf (started :| map Took gathered))
-            `shouldBe` Right (Map.fromList [(LGather, 2), (LPlan, 2)])
+            `shouldBe` Right (Map.fromList [("gather", 2), ("plan", 2)])
 
     gatherBudgets
     tenXRounds
@@ -194,7 +194,7 @@ spec = describe "State.Run.Fold" $ do
         replay g (logOf (started :| [stepTook (ReviewClean sha)])) `shouldBe` Left (NoEdge (At research) (outcomeEvent (outcome (ReviewClean sha))))
 
     it "refuses a skip the Fuel never takes" $
-        replay g (logOf (started :| [stepTook ResearchSkipped])) `shouldBe` Left (NotSkippable ORes)
+        replay g (logOf (started :| [stepTook ResearchSkipped])) `shouldBe` Left (NotSkippable "research")
 
     it "takes a skip the agent records where Low leaves it the call" $
         (.at) <$> replay g (logOf (started :| [FuelSet Low, stepTook ResearchSkipped])) `shouldSatisfy` either (const False) (/= At research)
@@ -261,8 +261,9 @@ reviewRounds = \case
     [rows] -> reviewRound (map Label rows)
     rows : rest -> reviewRound (map Label rows) <> [stepTook (FixDone commit)] <> reviewRounds rest
 
-budgetOf :: RunState -> LoopId -> Int
-budgetOf state loopId = fromIntegral ((cfg (fuelOf state)).rounds loopId)
+-- | The rounds the engineer's loop allows at the run's level.
+budgetOf :: RunState -> Name -> Int
+budgetOf state loop = fromIntegral (roundsAllowed g (fuelOf state) loop)
 
 unmetIn :: Round -> Bool
 unmetIn latest = any (\case Unmet _ -> True; Row _ -> False; Failing _ -> False) latest.found
@@ -286,7 +287,7 @@ gatherBudgets :: Spec
 gatherBudgets = describe "the gather's budgets" $ do
     it "asks 20 questions at Balanced, spending no research round" $
         Map.map length . (.rounds) <$> replay g (logOf (started :| researched <> asks 1 20))
-            `shouldBe` Right (Map.fromList [(LGather, 1), (LPlan, 1)])
+            `shouldBe` Right (Map.fromList [("gather", 1), ("plan", 1)])
 
     it "refuses the question past Balanced's 30" $
         replay g (logOf (started :| researched <> asks 1 31)) `shouldBe` Left (OutOfAsks 30)
@@ -301,7 +302,7 @@ gatherBudgets = describe "the gather's budgets" $ do
         it ("takes " <> show allowed <> " more research rounds at " <> show fuel <> " and refuses the next") $ do
             let mores n = FuelSet fuel : researched <> concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
             replay g (logOf (started :| mores allowed)) `shouldSatisfy` isRight
-            replay g (logOf (started :| mores allowed <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds LGather (fromIntegral allowed + 1))
+            replay g (logOf (started :| mores allowed <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds "gather" (fromIntegral allowed + 1))
 
     it "asks Balanced's 30 questions after its 8 research rounds: neither spends the other" $
         replay g (logOf (started :| spent)) `shouldSatisfy` isRight
@@ -310,7 +311,7 @@ gatherBudgets = describe "the gather's budgets" $ do
         let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> researchedAgain 8
         replay g (logOf (started :| extended)) `shouldSatisfy` isRight
         replay g (logOf (started :| extended <> [askAt 61 Fact])) `shouldBe` Left (OutOfAsks 30)
-        replay g (logOf (started :| extended <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds LGather 9)
+        replay g (logOf (started :| extended <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds "gather" 9)
 
     it "starts both budgets afresh when the run gathers again after an adjusted plan" $ do
         let adjusted = spent <> [stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted] <> researched
@@ -337,17 +338,17 @@ tenXRounds = describe "the 10x's rounds" $ do
 
     for_ [Balanced, Max] $ \fuel ->
         it ("refuses an ordinary task's skip of ready at " <> show fuel) $
-            engineerRun (ByRole parent OwnPr) fuel `shouldBe` Left (NotSkippable OReady)
+            engineerRun (ByRole parent OwnPr) fuel `shouldBe` Left (NotSkippable "ready")
 
     it "ends a run whose tasks merged by merge done" $
-        (.at) <$> tenXRun (settled (plainTask "t1" []) (Merged pr) <> [stepTook (MergeDone FEngineers pr)]) `shouldBe` Right Out
+        (.at) <$> tenXRun (settled (plainTask "t1" []) (Merged pr) <> [stepTook (MergeDone engineers pr)]) `shouldBe` Right Out
 
     it "ends a run whose tasks are only kept by merge done" $
-        (.at) <$> tenXRun (settled onPr (Kept pr) <> [stepTook (MergeDone FEngineers pr)]) `shouldBe` Right Out
+        (.at) <$> tenXRun (settled onPr (Kept pr) <> [stepTook (MergeDone engineers pr)]) `shouldBe` Right Out
 
     it "goes back to gather at a fresh round by next_round" $
         fmap (\state -> (atName state, Map.map length state.rounds)) (tenXRun round1)
-            `shouldBe` Right (Just (StateName "research"), Map.fromList [(LGather, 1), (LPlan, 1), (LRound, 2)])
+            `shouldBe` Right (Just (StateName "research"), Map.fromList [("gather", 1), ("plan", 1), ("round", 2)])
 
     it "starts both gather budgets afresh in the next round" $ do
         let spentAgain = round1 <> spent 31
@@ -373,12 +374,12 @@ tenXRounds = describe "the 10x's rounds" $ do
     parent = Parent (runId "p1") "p1/events.jsonl" t1
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map Took (init happyPath) <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
-    agreed = [stepTook (ResearchDone 1), stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone FEngineers (tasksOf (onPr :| [])))]
+    agreed = [stepTook (ResearchDone 1), stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
     onPr = roundTask "t1" "https://pr/1"
-    toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf (task :| [])))]
-    settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved, stepTook (FanDone FEngineers)]
+    toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (task :| [])))]
+    settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved, stepTook (FanDone engineers)]
     -- The first round spends Balanced's 8 research rounds and 30 questions, then loops.
-    round1 = spent 1 <> drop 1 agreed <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 (Kept pr), stepTook (FanDone FEngineers), stepTook (MergeNextRound FEngineers)]
+    round1 = spent 1 <> drop 1 agreed <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 (Kept pr), stepTook (FanDone engineers), stepTook (MergeNextRound engineers)]
     spent from = [stepTook (ResearchDone 1)] <> concat (replicate 8 [stepTook InterviewMore, stepTook (ResearchDone 1)]) <> map askAt [from .. from + 29]
     askAt n = Asked (Asking (Question (QId run n) Fact (oneLine "a question")) (StateName "interview") Itself)
 
@@ -473,7 +474,7 @@ halt = Stop Blocked "no way on"
 step goes from a PR back to a plan, so the second has no breakdown of its own.
 -}
 twoFans :: OpenGraph
-twoFans = either (error . show) id (graph (Do (Breakdown FResearchers) :> Par FResearchers engineer :> Par FEngineers (Do SimplifyPR) :> Do (Merge FResearchers)))
+twoFans = either (error . show) id (graph (Do (Breakdown researchers) :> Par researchers engineer :> Par engineers (Do SimplifyPR) :> Do (Merge researchers)))
 
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName

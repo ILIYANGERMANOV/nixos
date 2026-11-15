@@ -25,7 +25,7 @@ folds :: (FilePath, OpenGraph) -> Spec
 folds (name, flowGraph) = do
     raw <- runIO (BS.readFile ("test/golden/v3-logs/" <> name <> ".jsonl"))
     it ("folds " <> name <> ".jsonl to the state it folded to before") $
-        golden ("v3-logs/" <> name <> ".state") (either (Text.pack . ("does not fold: " <>)) showRun (replayed raw))
+        golden ("v3-logs/" <> name <> ".state") (either (Text.pack . ("does not fold: " <>)) (showRun flowGraph) (replayed raw))
   where
     replayed raw = do
         envelopes <- either (Left . show) Right (decodeLogBytes raw)
