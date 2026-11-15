@@ -9,9 +9,9 @@ disable-model-invocation: true
 
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
 decides; you make their intent real. Every task ends merged, kept (a round on
-a PR that stays open), or parked with a reason. You work as if the user ran N engineers by hand: each engineer runs
-the whole `engineer` flow on one task, and you answer for the user what the
-user need not see.
+a PR that stays open), or parked with a reason. You work as if the user ran
+N engineers by hand: each engineer runs the whole `engineer` flow on one
+task, and you answer for the user what the user need not see.
 
 ```text
 Intake -> Gather -> Propose the breakdown -> user confirms
@@ -274,10 +274,10 @@ budgets. The new breakdown may name the same task again: it respawns, with a
 fresh notes directory in its brief's `state init` line.
 
 **Finish.** When every task is `merged`, `kept` or `parked`, spawn a
-fresh-context audit, a `subagent_type: reviewer` agent, given the run directory, where it
-runs `state show`. From that, `gh` and `git worktree list` it checks that
-every task is merged, kept or parked with a reason, issues of merged tasks are
-closed, issues of parked tasks stay open and are listed, an epic child's
+fresh-context audit, a `subagent_type: reviewer` agent, given the run
+directory, where it runs `state show`. From that, `gh` and `git worktree list`
+it checks that every task is merged, kept or parked with a reason, issues of
+merged tasks are closed, issues of parked tasks stay open and are listed, an epic child's
 issues counting as its final PR's, `state pending` is empty, and worktrees of
 merged tasks are gone. It reports and never closes anything. Fix what fails,
 then run it again. Then `state record merge.done <url>`, the epic's final PR
@@ -320,9 +320,10 @@ is the base fix itself: an engineer opens `base-fix-<repo>-<n>`, an
 independent PR to that branch, `Heavy` as the red check builds, ahead of the
 queue, with no confirmation. Add it with `state record task add` after
 `breakdown.done`, as a breakdown starts a fresh fan-out without it; `state
-next` spawns it at once, at `merge` too, which goes back to `engineers`. No check runs there
-means CI does not run on push, so the base is unknown: treat it as not red.
-Push the user what broke and each PR it holds. Merges on that repo hold until
+next` spawns it at once, at `merge` too, which goes back to `engineers`. No
+check runs there means CI does not run on push, so the base is unknown: treat
+it as not red. Push the user what broke and each PR it holds. Merges on that
+repo hold until
 the base is green; other repos go on. The base fix takes CI, the queue and
 the merge loop like any PR; parked, it asks: retry it, or park the PRs it
 holds.

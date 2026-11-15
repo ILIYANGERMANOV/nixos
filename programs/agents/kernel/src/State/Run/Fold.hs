@@ -367,9 +367,8 @@ skips state optId = (cfg (fuelOf state)).skip optId /= Never || (optId == OReady
 onRound :: Principal -> Bool
 onRound = \case
     ByUser -> False
-    ByRole _ shape -> case shape of
-        OwnPr -> False
-        RoundOn _ -> True
+    ByRole _ OwnPr -> False
+    ByRole _ (RoundOn _) -> True
 
 {- | A task added at a fan-out's merge reopens the fan-out, where it is
 spawned as any task is; the fan-out is left again once every task is settled.
