@@ -207,6 +207,20 @@ spec = describe "the state binary" $ do
                 again `shouldBe` once
                 take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c1 <> " <question> - triage: FAILED no access"]
 
+            it "leaves a child's recorded hand-back be once its parent moved past the fan-out" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                writeFile repo.prJson (pullRequest True "OPEN")
+                w1 <- worktree repo "w1"
+                _ <- childRun bin w1 parent "n1" "t1"
+                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"], ["record", "await_ci.green"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
+                _ <- succeeded =<< state bin w1 ["next"]
+                _ <- succeeded =<< state bin repo ["record", "task", "t2", "parked", "out", "of", "scope"]
+                _ <- succeeded =<< state bin repo ["next"]
+                once <- logLines repo
+                again <- succeeded =<< state bin w1 ["next"]
+                after <- logLines repo
+                (after, filter (Text.isPrefixOf "parent: ") again) `shouldBe` (once, [])
+
             it "tells a child its parent off the fan-out refused its hand-back, and the parent's next names it back there" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
                 writeFile repo.prJson (pullRequest True "OPEN")

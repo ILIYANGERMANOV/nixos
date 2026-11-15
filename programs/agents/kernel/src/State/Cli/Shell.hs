@@ -394,7 +394,8 @@ upOf run new text = case run.state.start.principal of
 
 {- | The child's hand-back, appended to its parent's log under the parent's
 lock by ids hashed from the child's run and its last line: a repeated command
-appends it once. A refusal or an outage does not fail the child's command,
+appends it once. The ids alone skip only events typed alike: typed again
+against a parent that moved on, a repeat would refuse or add others. A refusal or an outage does not fail the child's command,
 which tells it; the parent's @state next@ names a child that ended unrecorded.
 -}
 handedUp :: (Shell es) => Steps -> Up -> Eff es Text
