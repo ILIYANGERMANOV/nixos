@@ -501,13 +501,13 @@ ledger spent = if spent == empty then Nothing else Just spent
 openAt :: Place -> Map Metered Spent -> Natural
 openAt place meters = sum [spent.open | (metered, spent) <- Map.toList meters, metered.place == place]
 
--- | A cap's budget as the run stands: what it spent, the children open, and what the run's Fuel allows.
-data Budget = Budget {cap :: Cap, spent :: Natural, open :: Natural, allows :: Maybe Natural}
+-- | A cap's budget as the run stands: its ledger, and what the run's Fuel allows.
+data Budget = Budget {cap :: Cap, ledger :: Spent, allows :: Maybe Natural}
     deriving stock (Eq, Show)
 
 -- | Nothing is left of it: the next spend is refused.
 usedUp :: Budget -> Bool
-usedUp budget = maybe False (budget.spent >=) budget.allows
+usedUp budget = maybe False (budget.ledger.spent >=) budget.allows
 
 {- | The budgets that hold the run: of each cap whose innermost loop holds
 its place, so the run spends them in this round.
@@ -515,9 +515,7 @@ its place, so the run spends them in this round.
 budgets :: OpenGraph -> RunState -> Map Metered Budget
 budgets g state = Map.mapWithKey budgetOf (Map.filterWithKey (\metered _ -> heldIn g metered.place state.at) g.caps)
   where
-    budgetOf metered cap =
-        let Spent {spent, open} = Map.findWithDefault empty metered state.meters
-         in Budget {cap, spent, open, allows = allowed (atFuel (fuelOf state) cap.limit)}
+    budgetOf metered cap = Budget {cap, ledger = Map.findWithDefault empty metered state.meters, allows = allowed (atFuel (fuelOf state) cap.limit)}
 
 -- | The budgets at the run's state that a question spends.
 spentByAsk :: OpenGraph -> RunState -> [Budget]

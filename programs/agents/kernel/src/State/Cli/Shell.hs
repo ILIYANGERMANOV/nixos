@@ -62,7 +62,7 @@ import State.Run.Ask (Parent (..), Principal (..), Question (..), oneLineText, q
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), childRole, fanRole, parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), childRole, parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
@@ -417,13 +417,11 @@ handedUp steps up =
     sources = [Hook (digestOf [runIdText up.child, tshow up.lastSeq, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
-        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state (atFanRole run.state) (Just up.child) up.text) of
+        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state childRole (Just up.child) up.text) of
             -- The child tells its refusal; the parent's log does not keep it.
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())
     told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
-    -- The hand-back credits the fan-out the parent is at; off one, the engineers'.
-    atFanRole state = maybe childRole (fanRole . (.fan)) (Fold.fanAt state.at)
 
 -- | The worktree's run, locked for one command.
 onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
@@ -544,7 +542,7 @@ childStart parent named state = do
 
 -- | The flow of the fan-out the parent is at; a @--flow@ named must be that one.
 childFlow :: Parent -> Maybe FlowName -> RunState -> Either Failure FlowName
-childFlow parent named state = case (Fold.fanAt state.at >>= Event.fanFlow . (.fan), named) of
+childFlow parent named state = case (Event.fanFlow <$ Fold.fanAt state.at, named) of
     (Nothing, _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at no fan-out whose children run a flow" "state show, in the parent's worktree")
     (Just flow, Nothing) -> Right flow
     (Just flow, Just asked)

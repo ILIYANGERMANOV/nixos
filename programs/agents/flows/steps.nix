@@ -22,9 +22,7 @@ let
   # The lead's Fuel table, read at every step it decides to run or skip.
   leadProse = [ "topics/fuel.md" ];
 
-  # The 10x's steps around its fan-out. The engineers' keep these names; the
-  # researchers' fan-out, in no flow yet, has its own, prefixed with its name,
-  # as the kernel's `State.Category.Flow` names them.
+  # The 10x's steps around its engineers' fan-out.
   fanSteps = {
     breakdown = {
       dom = "Plan";
@@ -63,14 +61,6 @@ let
       flows = [ "10x" ];
     };
   };
-  researchersSteps = builtins.listToAttrs (
-    map (name: {
-      name = "researchers_${name}";
-      value = fanSteps.${name} // {
-        flows = [ ];
-      };
-    }) (builtins.attrNames fanSteps)
-  );
 in
 {
   steps = {
@@ -400,8 +390,7 @@ in
       flows = [ "engineer" ];
     };
   }
-  // fanSteps
-  // researchersSteps;
+  // fanSteps;
 
   # Role work outside the flows: only lib/derive.nix reads it.
   offFlow = {

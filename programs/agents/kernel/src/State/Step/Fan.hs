@@ -10,7 +10,6 @@ module State.Step.Fan (
     FanStep,
     Sing (..),
     Outcome (..),
-    researchers,
     engineers,
     fanOuts,
     breakdownName,
@@ -118,16 +117,15 @@ deriving stock instance Show (Sing (s :: FanStep))
 deriving stock instance Show (Outcome (s :: FanStep) l)
 deriving stock instance Eq (Outcome (s :: FanStep) l)
 
--- | The 10x's own fan-outs: the researchers it may send, and the engineers.
-researchers, engineers :: Name
-researchers = "researchers"
+-- | The 10x's own fan-out: the engineers, one per task.
+engineers :: Name
 engineers = "engineers"
 
 {- | Every fan-out a run may hold, so the log's decoders know each one's
 events. Its order is the one the step table and the generators list.
 -}
 fanOuts :: [Name]
-fanOuts = [researchers, engineers]
+fanOuts = [engineers]
 
 -- | The state of the fan-out's breakdown, before its 'State.Category.Flow.Par'.
 breakdownName :: Name -> StateName

@@ -25,7 +25,7 @@ spec = describe "State.Flow.TenX" $ do
 
     -- The fan-out runs each task's child on the flow the registry names for it.
     it "runs the registry's engineer flow at its fan-out" $
-        lookup engineers (parBodies tenX) `shouldBe` fmap (show . (.flow) . role) (fanFlow engineers)
+        lookup engineers (parBodies tenX) `shouldBe` Just (show (role fanFlow).flow)
 
 {- | Each fan-out's body, shown. Compared by 'show', not 'graph': 'graph'
 draws a 'Par' as one state, and a 'Par' hides the types 'graph' needs of its

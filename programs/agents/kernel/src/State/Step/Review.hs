@@ -63,7 +63,7 @@ instance StepSet ReviewStep where
 
     special = \case
         Review -> Ordinary
-        Pick -> PicksRows
+        Pick -> Ordinary
         Fix -> Ordinary
         ReReview -> Ordinary
 

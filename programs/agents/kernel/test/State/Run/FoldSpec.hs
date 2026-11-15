@@ -32,7 +32,7 @@ import State.Run.Fold qualified as Fold
 import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, securityGraph, securityScope, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), choiceNamed, gathering)
-import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers, researchers)
+import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Review (Outcome (..))
@@ -44,7 +44,7 @@ spec :: Spec
 spec = describe "State.Run.Fold" $ do
     it "names every edge of the engineer and 10x flows by exactly one kind of outcome" $
         -- A fan-out's stays are its children's events; a choice's are its actions' outcomes.
-        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph, twoFans], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
+        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
 
     describe "the 10x's fan-out" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
@@ -89,23 +89,23 @@ spec = describe "State.Run.Fold" $ do
     describe "two fan-outs in one flow" $ do
         let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow ByUser) :| events))
             t1 = TaskId "t1"
-            researched =
-                [ stepTook (BreakdownDone researchers (tasksOf (plainTask "t1" [] :| [])))
+            firstDone =
+                [ stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
                 , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                , stepTook (FanDone researchers)
+                , stepTook (FanDone engineers)
                 ]
-            engineered = researched <> [stepTook (FanDone engineers)]
+            bothDone = firstDone <> [tookIn (scopePath "second") (FanDone engineers)]
         it "keeps the first fan-out's tasks out of the second" $
-            twoFansRun (researched <> [Spawned (childOf "c2" "t1")]) `shouldBe` Left (FanRefused (Fan.UnknownTask t1))
+            twoFansRun (firstDone <> [Spawned (childOf "c2" "t1")]) `shouldBe` Left (FanRefused (Fan.UnknownTask t1))
         it "leaves the second, empty fan-out by its own done record" $
-            atName <$> twoFansRun engineered `shouldBe` Right (Just (StateName "researchers_merge"))
+            atName <$> twoFansRun bothDone `shouldBe` Right (Just (StateName "merge"))
         it "refuses the first fan-out's merge while its task is unmerged" $
-            twoFansRun (engineered <> [stepTook (MergeDone researchers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
+            twoFansRun (bothDone <> [stepTook (MergeDone engineers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
         it "credits a task's move at a merge to that merge's fan-out" $
-            (.at) <$> twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone researchers (Url "pr"))]) `shouldBe` Right Exit
+            (.at) <$> twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]) `shouldBe` Right Exit
         it "refuses a task's move off every fan-out's state" $
-            twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone researchers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
+            twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
 
     describe "a flow with a scoped copy" $ do
         let securityRun events = replay securityGraph (logOf (started :| events))
@@ -159,7 +159,7 @@ spec = describe "State.Run.Fold" $ do
         states <- traverse (evalEither . replay g . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| events)))
         let held = [budget | state <- states, budget <- Map.elems (budgets g state)]
         cover 1 "a used-up budget" (any usedUp held)
-        for_ held $ \budget -> assert (all (budget.spent <=) budget.allows)
+        for_ held $ \budget -> assert (all (budget.ledger.spent <=) budget.allows)
 
     -- At the pick, before the fixer runs, so the run can still take the loop's exit.
     it "refuses a re-review past Low's one at the loop pick" $
@@ -499,10 +499,6 @@ questions = describe "questions" $ do
 halt :: Stop
 halt = Stop Blocked "no way on"
 
-{- | A flow with two fan-outs, the researchers' and then the engineers'. No
-step goes from a PR back to a plan, so the second has no breakdown of its own.
--}
-
 {- | One fan-out twice, inside scopes @a@ and @b@: each copy is its own
 fan-out, with its own tasks and children.
 -}
@@ -511,8 +507,12 @@ scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Sc
   where
     fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
 
+{- | A flow with two fan-outs, the second a scoped copy that runs on the
+first's PRs. No step goes from a PR back to a plan, so the second has no
+breakdown of its own.
+-}
 twoFans :: OpenGraph
-twoFans = either (error . show) id (graph (Do (Breakdown researchers) :> Par researchers engineer :> Par engineers (Do SimplifyPR) :> Do (Merge researchers)))
+twoFans = either (error . show) id (graph (Do (Breakdown engineers) :> Par engineers engineer :> Scope "second" (Par engineers (Do SimplifyPR)) :> Do (Merge engineers)))
 
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName

@@ -42,7 +42,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), someMeterName)
-import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (stopLine)
 import State.Protocol.Record (Option (..), capRecords, extendOption, goes, recordCommand, recordOption)
@@ -50,11 +50,11 @@ import State.Role (FlowName (..))
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText)
-import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), fanRole, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), childRole, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, stuck, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, stuck, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
@@ -306,7 +306,7 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
         used -> Run (NonEmpty.prependList ([option step | (step, budget) <- here, not (usedUp budget)] <> [extendOption | not (null used)]) (leave :| []))
       where
         here = budgetsAt place
-        open = sum [budget.open | (_, budget) <- here]
+        open = sum [budget.ledger.open | (_, budget) <- here]
         enough = EventName (placeName place) enoughOutcome
         leave = case (Map.lookup (place, enough) g.edges, open) of
             (Just edge, 0) -> recordOption enough edge
@@ -342,7 +342,6 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
         AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
-        PicksRows -> Run records
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
       where
@@ -364,11 +363,11 @@ shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.c
 
 -- | @Re-reviews: 1 of 3 used, 2 left@: what a budget spent of what the run's Fuel allows.
 spentText :: Budget -> Text
-spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.spent <> left budget.allows
+spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.ledger.spent <> left budget.allows
   where
     left = \case
-        Just allows | budget.spent >= allows -> " of " <> tshow allows <> " used, none left"
-        Just allows -> " of " <> tshow allows <> " used, " <> tshow (allows - budget.spent) <> " left"
+        Just allows | budget.ledger.spent >= allows -> " of " <> tshow allows <> " used, none left"
+        Just allows -> " of " <> tshow allows <> " used, " <> tshow (allows - budget.ledger.spent) <> " left"
         Nothing -> " used, one per group"
 
 {- | At a fan-out: what this run does at once first - record the hand-back
@@ -386,7 +385,7 @@ atFan at ended state = fromMaybe leave (asum [unrecorded, question, triage, reco
   where
     here = fanIn state.fans at
     fan = at.fan
-    unrecorded = listToMaybe [Run (one ("state handback " <> roleText (fanRole fan)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in")) | c <- Fan.running here, c.child.run `elem` ended]
+    unrecorded = listToMaybe [Run (one ("state handback " <> roleText childRole) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in")) | c <- Fan.running here, c.child.run `elem` ended]
     waiting = Fan.waiting here
     open = map (.asking.question.qid) state.pending
     question = listToMaybe [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]
@@ -396,7 +395,7 @@ atFan at ended state = fromMaybe leave (asum [unrecorded, question, triage, reco
     resume = listToMaybe ([Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open] <> lost)
     -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
     lost = [Resume c.child.run "lost at a restart: a fresh engineer with its spawn prompt" | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c]]
-    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) here)
+    spawn = (\task -> Spawn childRole (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) here)
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
     awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList here.atWork)
     awaitMerge = AwaitMerge <$> NonEmpty.nonEmpty (Fan.mergesAwaited here)

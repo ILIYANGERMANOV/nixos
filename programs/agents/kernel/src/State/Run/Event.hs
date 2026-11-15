@@ -27,7 +27,6 @@ module State.Run.Event (
     AgentRole (..),
     roleText,
     fanFlow,
-    fanRole,
     childRole,
     Stop (..),
     StopReason (..),
@@ -64,7 +63,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Category.Flow (Name, ScopePath, qualifyEvent)
+import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Fuel (Fuel)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
@@ -72,7 +71,6 @@ import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Prop
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
-import State.Step.Fan (engineers)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
 record carries one of its own.
@@ -191,21 +189,13 @@ data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
 data Asker = Itself | Subagent AgentRole | ChildRun RunId
     deriving stock (Eq, Show)
 
-{- | The flow a fan-out's children each run, as its @Par@ body: an engineer
-leads a whole engineer flow; a researcher is a worker, no flow's lead.
--}
-fanFlow :: Name -> Maybe FlowName
-fanFlow fan
-    | fan == engineers = Just EngineerFlow
-    | otherwise = Nothing
+-- | The flow a fan-out's children each run, as its @Par@ body: an engineer leads a whole engineer flow.
+fanFlow :: FlowName
+fanFlow = EngineerFlow
 
 -- | The role a fan-out's children run as: the lead of their flow, the registry's name.
-fanRole :: Name -> AgentRole
-fanRole fan = maybe (AgentRole "researcher") ((.name) . role) (fanFlow fan)
-
--- | The role that runs a whole flow of its own under a run's fan-out.
 childRole :: AgentRole
-childRole = fanRole engineers
+childRole = (role fanFlow).name
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)
