@@ -45,7 +45,7 @@ import State.Protocol.Record (recordCommand)
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText)
-import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), fanRole, runIdText)
+import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), fanRole, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
@@ -61,8 +61,10 @@ import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
--- | What GitHub and git say, read by the shell before it advises.
-data Facts = Facts {changedLines :: Maybe Natural, pr :: Maybe PullRequest}
+{- | What GitHub, git and the children's logs say, read by the shell before
+it advises. @ended@ is the children whose own log shows their run over.
+-}
+data Facts = Facts {changedLines :: Maybe Natural, pr :: Maybe PullRequest, ended :: [RunId]}
     deriving stock (Eq, Show)
 
 {- | @git diff --numstat@'s added plus deleted lines, as the Quality table
@@ -219,7 +221,7 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
     (action, prompt) = case (state.stopped, state.pending, state.quality, state.size) of
         (Just stop, _, _, _) -> plain (Stopped stop)
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
-        (Nothing, _ : _, Just _, Just _) | Just fan <- fanHere -> plain (atFan fan state)
+        (Nothing, _ : _, Just _, Just _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
         (Nothing, oldest : _, _, _) -> plain $ case oldest.waits of
             ForTriage -> Triage oldest.asking.question
             ForAnswer -> AwaitAnswer oldest.asking.question
@@ -239,7 +241,7 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep s, promptOf (row steps s))
             Nothing -> case fanNamed place.name of
-                Just fan -> plain (atFan fan state)
+                Just fan -> plain (atFan fan facts.ended state)
                 Nothing -> plain (Run ("state record the " <> stateNameText place.name <> " fan-out's outcome"))
     atStep :: (StepSet k) => Sing (s :: k) -> Action
     atStep s = case special s of
@@ -251,17 +253,20 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> fromMaybe (maybe (Run (recordOutcomes s)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut))) (recordFinished state.fanOut)
 
-{- | At a fan-out: what this run does at once first - triage a question, then
-a child's stop, record a finished task's PR, resume a child its answer waits
-for, spawn a task with a free slot - then ask the user what waits on them,
-then wait on CI or the children at work. A question the user holds blocks
-no other child (the 10x skill's "Other tasks keep moving"). A child the 10x
-resumed, or a task it spawned, has an agent at work and is advised no more.
-With none at work and none spawnable, a task is left to park.
+{- | At a fan-out: what this run does at once first - record the hand-back
+of a child whose log shows it @ended@ while this run counts it running,
+triage a question, then a child's stop, record a finished task's PR, resume
+a child its answer waits for, spawn a task with a free slot - then ask the
+user what waits on them, then wait on CI or the children at work. A question
+the user holds blocks no other child (the 10x skill's "Other tasks keep
+moving"). A child the 10x resumed, or a task it spawned, has an agent at work
+and is advised no more. With none at work and none spawnable, a task is left
+to park.
 -}
-atFan :: FanId -> RunState -> Action
-atFan fan state = fromMaybe leave (asum [question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren])
+atFan :: FanId -> [RunId] -> RunState -> Action
+atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren])
   where
+    unrecorded = listToMaybe [Run ("state handback " <> roleText (fanRole fan) <> " - child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in") | c <- Fan.running state.fanOut, c.child.run `elem` ended]
     waiting = Fan.waiting state.fanOut
     open = map (.asking.question.qid) state.pending
     question = listToMaybe [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]

@@ -26,7 +26,7 @@ module State.Run.Event (
     AgentRole (..),
     roleText,
     fanRole,
-    childRoles,
+    childRole,
     Stop (..),
     StopReason (..),
     Note (..),
@@ -177,9 +177,9 @@ fanRole = \case
     FResearchers -> AgentRole "researcher"
     FEngineers -> (role EngineerFlow).name
 
--- | The roles that run a whole flow of their own under a run's fan-out.
-childRoles :: [AgentRole]
-childRoles = [fanRole FEngineers]
+-- | The role that runs a whole flow of its own under a run's fan-out.
+childRole :: AgentRole
+childRole = fanRole FEngineers
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)

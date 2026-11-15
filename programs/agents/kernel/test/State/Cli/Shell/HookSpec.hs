@@ -66,7 +66,7 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said `shouldSatisfy` maybe False ("state hook resume: " `Text.isPrefixOf`)
 
         describe "handback" $ do
-            it "records a hand-back seen twice once, appending what it recorded" $ \world -> do
+            it "records a hand-back seen twice once, telling what it recorded as context" $ \world -> do
                 _ <- drive world (init toImplement)
                 before' <- logged world
 
@@ -76,9 +76,19 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 first.code `shouldBe` 0
-                messageOf first `shouldBe` Just "READY\nDone.\n\n\nstate: recorded 8 implement.done -> refactor\n"
+                contextOf first `shouldBe` Just "state: recorded 8 implement.done -> refactor\n"
+                first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
+
+            it "leaves a child run's hand-back in the lead's worktree be" $ \world -> do
+                _ <- drive world (init toImplement)
+                before' <- logged world
+
+                said <- hook world "handback" (handedBack "engineer")
+
+                after <- logged world
+                (said.code, said.out, length after) `shouldBe` (0, [], length before')
 
             it "is silent once the drafted PR is merged or closed" $ \world -> do
                 _ <- drive world (init toImplement)
@@ -143,13 +153,4 @@ spec = describe "state-hook over the doubles" $ do
 contextOf :: Ran -> Maybe Text
 contextOf said = case decodeStrictText (Text.concat said.out) of
     Just (Object reply) | Just (String context) <- KeyMap.lookup "context" reply -> Just context
-    _ -> Nothing
-
--- | The hand-back message of an @allow@ reply that updates the tool's input.
-messageOf :: Ran -> Maybe Text
-messageOf said = case decodeStrictText (Text.concat said.out) of
-    Just (Object reply)
-        | Just (Object input) <- KeyMap.lookup "updatedInput" reply
-        , Just (String message) <- KeyMap.lookup "message" input ->
-            Just message
     _ -> Nothing

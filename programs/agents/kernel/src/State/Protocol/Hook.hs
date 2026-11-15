@@ -5,13 +5,15 @@ remembering to (#360's hooks contract): the neutral hook event in
 @
 resume    sessionStart          context: show and next
 spawn     beforeTool delegate   context: next, and a warning off the advice
-handback  beforeTool handback   records the hand-back; appends what it recorded
+handback  beforeTool handback   records a worker's hand-back; context: what it recorded
 asked     afterTool ask         the answer lines of questions awaiting the user
 @
 
-None denies: a refusal or an error becomes context (fail open and tell). Only
+None denies or rewrites a call: what a hook says is context, a refusal or an
+error too (fail open and tell); auto mode denies a call a hook rewrote. Only
 the lead steers: a subagent's spawn or question is ignored, but a hand-back,
-which only a subagent makes.
+which only a subagent makes. A child run's hand-back is its own @state@'s to
+record in its parent's run, so the hook leaves it be.
 -}
 module State.Protocol.Hook (
     HookName (..),
@@ -43,15 +45,15 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (SomeOutcome (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Run.Ask (Principal (..), Question (..), qidText)
-import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Took), RunId, Source (..), Start (..), childRoles, roleText, runIdText)
-import State.Run.Fold (Pending (..), RunState (..), Waits (..))
+import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Took), RunId, Source (..), Start (..), roleText, runIdText)
+import State.Run.Fold (Pending (..), RunState (..), Waits (..), over)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
@@ -154,8 +156,8 @@ data Want
     = ResumeRun
     | -- | The role the lead spawns, when its input names one.
       SpawnRole (Maybe AgentRole)
-    | -- | A flow role's hand-back: the tool's input, its message, and who sent it.
-      HandedBack Object Text Agent AgentRole
+    | -- | A flow role's hand-back: its message, and who sent it.
+      HandedBack Text Agent AgentRole
     | AskedUser
     deriving stock (Eq, Show)
 
@@ -176,7 +178,7 @@ wants steps hook event = case hook of
         AfterTool {} -> undeclared
     HandbackHook -> case event of
         BeforeTool call _ input -> Right $ case (call.agent, textAt "message" input) of
-            (Just agent@Agent {role = Just role}, Just message) | role `elem` followed steps -> Just (HandedBack input message agent role)
+            (Just agent@Agent {role = Just role}, Just message) | role `elem` followed steps -> Just (HandedBack message agent role)
             _ -> Nothing
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
@@ -210,9 +212,11 @@ isLead steps = \case
 flowRoles :: Steps -> [AgentRole]
 flowRoles steps = agentRoles steps <> beside
 
--- | The roles whose hand-back the run records: a step's runner, not one spawned beside it, and a child run.
+{- | The roles whose hand-back the run records: a step's runner, not one
+spawned beside it. A child run records its own in its parent's run.
+-}
 followed :: Steps -> [AgentRole]
-followed steps = filter (`notElem` beside) (agentRoles steps) <> childRoles
+followed steps = filter (`notElem` beside) (agentRoles steps)
 
 {- | Spawned beside the advised role, never instead of it: a dry-run reviewer
 next to the review-lead, a fact-gap researcher, a checker for the full check.
@@ -225,7 +229,7 @@ another branch than HEAD's (@Nothing@: a detached HEAD), or whose drafted PR
 GitHub reports merged or closed (@Nothing@: no PR read).
 -}
 silent :: Maybe Branch -> Maybe Readiness -> NonEmpty Envelope -> RunState -> Bool
-silent headBranch readiness envelopes state = over || maybe False (\bound -> Just bound /= headBranch || prOver) (boundBranch envelopes)
+silent headBranch readiness envelopes state = over state || maybe False (\bound -> Just bound /= headBranch || prOver) (boundBranch envelopes)
   where
     prOver = case readiness of
         Just IsMerged -> True
@@ -233,11 +237,6 @@ silent headBranch readiness envelopes state = over || maybe False (\bound -> Jus
         Just IsDraft -> False
         Just IsReady -> False
         Nothing -> False
-    over = case (state.stopped, state.at) of
-        (Just _, _) -> True
-        (Nothing, At _) -> False
-        (Nothing, Out) -> True
-        (Nothing, Exit) -> True
 
 -- | The branch of the run's latest draft PR, as GitHub reported it.
 boundBranch :: NonEmpty Envelope -> Maybe Branch
@@ -281,8 +280,8 @@ loggedAlready envelopes = \case
 -- | What a hook prints: nothing, or the result of its event.
 data Reply
     = Quiet
-    | -- | @beforeTool@'s: the input rewritten, context, or both absent.
-      Allow (Maybe Object) (Maybe Text)
+    | -- | @beforeTool@'s context.
+      Allow Text
     | -- | @sessionStart@'s and @afterTool@'s.
       Note Text
     deriving stock (Eq, Show)
@@ -291,25 +290,21 @@ data Reply
 replyOf :: Want -> Text -> Reply
 replyOf want said
     | Text.null said = Quiet
-    | otherwise = case want of
-        HandedBack input message _ _ -> Allow (Just (KeyMap.insert "message" (String (message <> "\n\n" <> said)) input)) Nothing
-        ResumeRun -> toldOf want said
-        SpawnRole _ -> toldOf want said
-        AskedUser -> toldOf want said
+    | otherwise = toldOf want said
 
 -- | Context only: what a refusal or an error says, never a deny.
 toldOf :: Want -> Text -> Reply
 toldOf want said = case want of
     ResumeRun -> Note said
     AskedUser -> Note said
-    SpawnRole _ -> Allow Nothing (Just said)
-    HandedBack {} -> Allow Nothing (Just said)
+    SpawnRole _ -> Allow said
+    HandedBack {} -> Allow said
 
 -- | @agent_hook.py@'s @emit_result@: nothing when there is nothing to say.
 encodeReply :: Reply -> Maybe LBS.ByteString
 encodeReply = \case
     Quiet -> Nothing
-    Allow updated context -> Just (encode (object (("decision" .= ("allow" :: Text)) : catMaybes [("updatedInput" .=) <$> updated, ("context" .=) <$> context])))
+    Allow context -> Just (encode (object ["decision" .= ("allow" :: Text), "context" .= context]))
     Note context -> Just (encode (object ["context" .= context]))
 
 {- | After the lead put a question to the user: the line recording each answer

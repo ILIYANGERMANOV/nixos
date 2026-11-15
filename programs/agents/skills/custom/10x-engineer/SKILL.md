@@ -64,8 +64,8 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   | `AWAIT merge <task>...` | Merge: the merge loop on each approval wake |
   | `triage: <status>`, `RUN state ask ... - triage:` | Failures |
 
-  A hand-back with no `state:` line was not recorded: pipe it into
-  `state handback engineer`.
+  A child's `state` records its hand-back in your run; `state next` names
+  any it missed.
 
 ## States
 
