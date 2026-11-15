@@ -4,11 +4,14 @@ open loops back to agree on the next round's plan, in the same run.
 -}
 module State.Flow.TenX (tenX) where
 
-import State.Block (agree)
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..))
+import State.Category.Flow (Flow (..))
+import State.Category.Fuel (always)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (Ty (..))
 import State.Flow.Engineer (engineer)
-import State.Step.Fan (Sing (Breakdown, Merge))
+import State.Flow.Library (agree)
+import State.Step.Fan (Sing (Breakdown, Merge), engineers)
 
+-- | Each @next_round@ spends a round, so a stuck loop ends: 10 rounds are generous for one PR.
 tenX :: Flow 'Ctx 'Nothing 'PR
-tenX = Loop LRound StopOut (agree :> Do (Breakdown FEngineers) :> Par FEngineers engineer :> Do (Merge FEngineers))
+tenX = Loop "round" (agree :> Do (Breakdown engineers) :> Par engineers engineer :> Capped (always (UpTo 9)) Stop (Merge engineers))

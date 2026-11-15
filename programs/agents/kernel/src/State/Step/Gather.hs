@@ -1,15 +1,17 @@
 {-# LANGUAGE TypeData #-}
 
--- | The steps that gather a task's context: research it, then interview the user.
+{- | The actions of a task's gather, as the agent chooses them
+('State.Category.Flow.Choice'): research a fact gap by a researcher in the
+background, or interview the user.
+-}
 module State.Step.Gather (
     GatherStep,
     Sing (..),
     Outcome (..),
 ) where
 
-import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
-import Numeric.Natural (Natural)
+import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 
@@ -17,7 +19,7 @@ type data GatherStep = Research | Interview
 
 instance StepSet GatherStep where
     type Sig Research = '( 'Ctx, 'Nothing, 'Ctx)
-    type Sig Interview = '( 'Ctx, 'Just 'Ctx, 'Ctx)
+    type Sig Interview = '( 'Ctx, 'Nothing, 'Ctx)
     type Drawn s = 'True
 
     data Sing s where
@@ -25,11 +27,10 @@ instance StepSet GatherStep where
         Interview :: Sing Interview
 
     data Outcome s l where
-        -- \| The number of researchers.
-        ResearchDone :: Natural -> Outcome Research 'Continued
-        ResearchSkipped :: Outcome Research 'Skipped
-        InterviewEnough :: Outcome Interview 'Exited
-        InterviewMore :: Outcome Interview 'Continued
+        -- \| A researcher is spawned in the background.
+        ResearchSpawned :: Outcome Research 'Opened
+        -- \| A researcher handed back.
+        ResearchHandedBack :: Outcome Research 'Closed
 
     layerSteps = [SomeStep Research, SomeStep Interview]
       where
@@ -44,12 +45,12 @@ instance StepSet GatherStep where
             Interview -> "interview"
 
     outcomes = \case
-        Research -> Continues (OutcomeName "done")
-        Interview -> ExitsOr (OutcomeName "enough") (OutcomeName "more")
+        Research -> OpensChildren
+        Interview -> AsksOnly
 
     special = \case
         Research -> Ordinary
-        Interview -> Interviews
+        Interview -> Ordinary
 
     sameStep a b = case (a, b) of
         (Research, Research) -> Just Refl
@@ -58,24 +59,37 @@ instance StepSet GatherStep where
         (Interview, _) -> Nothing
 
     pack = \case
-        o@(ResearchDone _) -> packed Research o
-        o@ResearchSkipped -> packed Research o
-        o@InterviewEnough -> packed Interview o
-        o@InterviewMore -> packed Interview o
+        o@ResearchSpawned -> packed Research o
+        o@ResearchHandedBack -> packed Research o
 
     encodeOutcome = \case
-        ResearchDone n -> "n" .= n
-        ResearchSkipped -> mempty
-        InterviewEnough -> mempty
-        InterviewMore -> mempty
+        ResearchSpawned -> mempty
+        ResearchHandedBack -> mempty
 
     decoders =
-        [ Decoder Research (\obj -> ResearchDone <$> obj .: "n")
-        , Decoder Research (const (pure ResearchSkipped))
-        , Decoder Interview (const (pure InterviewEnough))
-        , Decoder Interview (const (pure InterviewMore))
+        [ Decoder Research (const (pure ResearchSpawned))
+        , Decoder Research (const (pure ResearchHandedBack))
         ]
 
 deriving stock instance Show (Sing (s :: GatherStep))
 deriving stock instance Show (Outcome (s :: GatherStep) l)
 deriving stock instance Eq (Outcome (s :: GatherStep) l)
+
+{- | Each researcher spawned; each must hand back before the gather ends.
+Researchers are alike, so the run counts them: a spawn names none, and a
+hand-back closes any one open.
+-}
+instance Meter Research where
+    type Owes Research = 'True
+    meterName Research = "Researchers"
+    spends Research = \case
+        Ends _ ResearchSpawned -> 1
+        Ends _ ResearchHandedBack -> 0
+        Asks -> 0
+
+-- | Each question asked at the gather.
+instance Meter Interview where
+    meterName Interview = "Interview questions"
+    spends Interview = \case
+        Ends _ o -> case o of {}
+        Asks -> 1

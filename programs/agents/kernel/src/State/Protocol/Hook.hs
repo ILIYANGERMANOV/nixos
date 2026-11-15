@@ -30,6 +30,8 @@ module State.Protocol.Hook (
     wants,
     silent,
     offAdvice,
+    followedAt,
+    spawnedAt,
     hookSources,
     restartOf,
     loggedAlready,
@@ -46,22 +48,25 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Category.Flow (ScopePath)
 import State.Category.Graph (Node (..), Place (..))
-import State.Category.Step (SomeOutcome (..), stepName)
+import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Run.Ask (Principal (..), Question (..), qidText)
-import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, Source (..), Start (..), roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, Source (..), Start (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
 import State.Run.Fold (Pending (..), RunState (..), Waits (..), over)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
-import State.Step.Catalog (AnyOutcome (..), Layer (BuildLayer))
-import State.Table (Steps, agentRoles)
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..))
+import State.Step.Choice (choiceNamed, nodeChoice)
+import State.Step.Gather qualified as Gather
+import State.Table (Steps, agentRoles, stepsRunBy)
 
 data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook
     deriving stock (Eq, Show, Enum, Bounded)
@@ -182,7 +187,7 @@ wants steps hook event = case hook of
         AfterTool {} -> undeclared
     HandbackHook -> case event of
         BeforeTool call _ input -> Right $ case (call.agent, textAt "message" input) of
-            (Just agent@Agent {role = Just role}, Just message) | role `elem` followed steps -> Just (HandedBack message agent role)
+            (Just agent@Agent {role = Just role}, Just message) | role `elem` agentRoles steps -> Just (HandedBack message agent role)
             _ -> Nothing
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
@@ -216,11 +221,38 @@ isLead steps = \case
 flowRoles :: Steps -> [AgentRole]
 flowRoles steps = agentRoles steps <> beside
 
-{- | The roles whose hand-back the run records: a step's runner, not one
-spawned beside it. A child run records its own in its parent's run.
+{- | Whether the run records this step runner's hand-back where it is: one
+also spawned beside the advice only at a choice, where it runs an action. A
+child run records its own in its parent's run.
 -}
-followed :: Steps -> [AgentRole]
-followed steps = filter (`notElem` beside) (agentRoles steps)
+followedAt :: Node -> AgentRole -> Bool
+followedAt at role = role `notElem` beside || isJust (nodeChoice at)
+
+{- | What a lead's spawn of this role records: at a choice, the spawn of the
+action the role runs, a child the choice then waits for. The spawn hook
+carries no child id, so a spawn seen twice records twice: none is deduplicated.
+-}
+spawnedAt :: Steps -> Node -> AgentRole -> Maybe Event
+spawnedAt steps at spawned = case at of
+    At place
+        | Just _ <- choiceNamed place.name ->
+            listToMaybe [event | AnyStep l (SomeStep s) <- stepsRunBy steps spawned, Just event <- [opening place.scope l s]]
+        | otherwise -> Nothing
+    Out -> Nothing
+    Exit -> Nothing
+
+-- | The event of a step's spawn of a child: only an action that opens children has one.
+opening :: ScopePath -> Layer k -> Sing (s :: k) -> Maybe Event
+opening scope l s = case l of
+    GatherLayer -> case s of
+        Gather.Research -> Just (tookIn scope Gather.ResearchSpawned)
+        Gather.Interview -> Nothing
+    PlanLayer -> Nothing
+    BuildLayer -> Nothing
+    ReviewLayer -> Nothing
+    ShipLayer -> Nothing
+    FanLayer -> Nothing
+    ChoiceLayer -> Nothing
 
 {- | Spawned beside the advised role, never instead of it: a dry-run reviewer
 next to the review-lead, a fact-gap researcher, a checker for the full check.
@@ -244,7 +276,7 @@ silent headBranch readiness envelopes state = over state || maybe False (\bound 
 
 -- | The branch of the run's latest draft PR, as GitHub reported it.
 boundBranch :: NonEmpty Envelope -> Maybe Branch
-boundBranch envelopes = case [draft.branch | Envelope {event = Took (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (foldr (:) [] envelopes)] of
+boundBranch envelopes = case [draft.branch | Envelope {event = Took _ (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (foldr (:) [] envelopes)] of
     branch : _ -> Just branch
     [] -> Nothing
 

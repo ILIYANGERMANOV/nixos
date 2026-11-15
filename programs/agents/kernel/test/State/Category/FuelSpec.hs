@@ -4,8 +4,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (forAll, tripping)
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (LoopId (..), OptId (..))
-import State.Category.Fuel (Area (..), Cfg (..), Fuel (..), SkipWhen (..), cfg, cfgLeq, fuelLabel, fuelName, parseFuel)
+import State.Category.Fuel (Area (..), Fuel (..), PerFuel (..), SkipWhen (..), atFuel, fuelLabel, fuelName, fullReview, monotone, parseFuel, skipsAtMost)
 import State.Golden (golden)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -26,35 +25,32 @@ spec = describe "State.Category.Fuel" $ do
     it "refuses an unknown name" $
         parseFuel "fast" `shouldBe` Nothing
 
-    it "gives review 1, 3 and 5 re-reviews after the first by level" $
-        [(level, (cfg level).rounds LReview) | level <- levels]
-            `shouldBe` [(Low, 2), (Balanced, 4), (Max, 6)]
+    it "reads each level's value of a PerFuel" $
+        [atFuel level (PerFuel 'l' 'b' 'm') | level <- levels] `shouldBe` "lbm"
 
-    it "leaves research, the plan's simplify and the refactor skippable at Low only" $
-        [(level, [optId | optId <- [minBound .. maxBound], (cfg level).skip optId == Skippable]) | level <- levels]
-            `shouldBe` [(Low, [ORes, OSimp, ORefactor]), (Balanced, []), (Max, [])]
+    it "calls a PerFuel monotone only when no level allows less than the one below" $
+        map (monotone (<=)) [PerFuel 1 2 2, PerFuel 2 1 3, PerFuel 1 3 (2 :: Int)]
+            `shouldBe` [True, False, False]
+
+    it "orders skips: never skipping is below every rule, the agent's call above a line count" $
+        [(a, b) | a <- skipWhens, b <- skipWhens, skipsAtMost a b]
+            `shouldBe` [ (Never, Never)
+                       , (Never, AtOrBelow 100)
+                       , (Never, Skippable)
+                       , (AtOrBelow 100, AtOrBelow 100)
+                       , (AtOrBelow 100, Skippable)
+                       , (Skippable, Skippable)
+                       ]
 
     it "reviews data model and auth fixes in full below Max, and interface ones too at Max" $
-        [(level, (cfg level).areas) | level <- levels]
+        [(level, fullReview level) | level <- levels]
             `shouldBe` [ (Low, Set.fromList [DataModel, Auth])
                        , (Balanced, Set.fromList [DataModel, Auth])
                        , (Max, Set.fromList [Interface, DataModel, Auth])
                        ]
 
-    it "cfg_is_monotone: each level does at least the work of the one below" $
-        [(low, high) | (low, high) <- zip levels (drop 1 levels), not (cfgLeq (cfg low) (cfg high))] `shouldBe` []
-
-    it "puts a cfg at or below itself" $
-        cfgLeq base base `shouldBe` True
-
-    it "puts no cfg below one that skips more or has fewer rounds or areas" $
-        map
-            (cfgLeq base)
-            [ base {skip = const Skippable}
-            , base {rounds = const 0}
-            , base {areas = Set.empty}
-            ]
-            `shouldBe` [False, False, False]
+    it "full_review_is_monotone: each level reviews in full at least the areas of the one below" $
+        monotone Set.isSubsetOf (fullReview <$> PerFuel Low Balanced Max) `shouldBe` True
   where
-    base = cfg Balanced
     levels = [minBound .. maxBound]
+    skipWhens = [Never, AtOrBelow 100, Skippable]

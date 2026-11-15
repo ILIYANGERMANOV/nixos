@@ -2,6 +2,9 @@
 module State.Run.RunGen (
     g,
     tenXGraph,
+    securityGraph,
+    securityScope,
+    flowGraph,
     tenXAt,
     plainTask,
     roundTask,
@@ -15,6 +18,7 @@ module State.Run.RunGen (
     runUnder,
     loadSteps,
     genAccepted,
+    genAcceptedOn,
     genKnobs,
     outcomeOf,
 ) where
@@ -33,11 +37,12 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanId (..))
+import State.Category.Flow (Flow (..), ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
-import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
-import State.Category.Step (EventName)
+import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
+import State.Category.Step (EventName (..), stateNameText)
 import State.Flow.Engineer (engineer)
+import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
 import State.Run.Codec (branchText, taskIdText, topicText, urlText)
 import State.Run.Event
@@ -45,7 +50,8 @@ import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, 
 import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
-import State.Step.Fan (Outcome (..))
+import State.Step.Choice (Outcome (..), gathering)
+import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -56,8 +62,22 @@ import System.Environment (getEnv)
 g :: OpenGraph
 g = either (error . show) id (graph engineer)
 
+-- | A review, then the same review again inside the @security@ scope.
+securityGraph :: OpenGraph
+securityGraph = either (error . show) id (graph (reviewed :> Scope "security" reviewed))
+
+-- | The @security@ scope.
+securityScope :: ScopePath
+securityScope = scopePath "security"
+
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
+
+-- | The graph a run of this flow walks.
+flowGraph :: FlowName -> OpenGraph
+flowGraph = \case
+    EngineerFlow -> g
+    TenXFlow -> tenXGraph
 
 {- | A 10x run, by the user, at its fan-out with these
 tasks, then these events.
@@ -66,7 +86,7 @@ tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
     tenXStart = start {flow = TenXFlow}
-    toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf tasks))]
+    toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
@@ -112,35 +132,43 @@ commit = Commit sha Set.empty
 
 happyPath :: [AnyOutcome]
 happyPath =
-    [outcome (ResearchDone 3), outcome InterviewEnough, outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome ConfirmConfirmed]
+    [outcome ResearchSpawned, outcome ResearchHandedBack, outcome (Enough gathering), outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome ConfirmConfirmed]
         <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), outcome (RefactorDone sha), outcome (ReviewClean sha)]
         <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
 
 {- | Any Fuel, then up to 300 tries at an event on an edge out of where the
-run is, keeping those the fold accepts. Edges that stay inside every loop are
-likelier, so loops run out of rounds.
+run is, keeping those the fold accepts. Edges into a loop that leave none
+are likelier, so loops run out of rounds: a review with rows enters the fix
+loop rather than exiting clean.
 -}
 genAccepted :: Gen [Event]
-genAccepted = do
+genAccepted = genAcceptedOn g
+
+-- | 'genAccepted' on any graph: an edge inside a scope is taken in its place's scope.
+genAcceptedOn :: OpenGraph -> Gen [Event]
+genAcceptedOn on = do
     knobs <- genKnobs
     steps <- Gen.int (Range.linear 0 300)
-    first <- either (fail . show) pure (replay g (logOf (started :| knobs)))
+    first <- either (fail . show) pure (replay on (logOf (started :| knobs)))
     (knobs <>) <$> go steps first (fromIntegral (length knobs) + 1)
   where
     go :: Int -> RunState -> Natural -> Gen [Event]
     go 0 _ _ = pure []
     go k state n = case state.at of
         At place -> do
-            name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList g.edges, from == place]
-            took <- outcomeOf name
-            case append g state (line n (Took took)) of
-                Right (Appended next) -> (Took took :) <$> go (k - 1) next (n + 1)
+            name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList on.edges, from == place]
+            -- The edge is named in the place's scope; the outcome is its step's own, a choice's action's at a choice.
+            took <- Took place.scope <$> outcomeOf (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
+            case append on state (line n took) of
+                Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
                 Right AlreadyLogged -> go (k - 1) state n
                 Left _ -> go (k - 1) state n
         Out -> pure []
         Exit -> pure []
     stays place edge = case edge.to of
-        At to -> all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems g.loops)
+        At to ->
+            all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems on.loops)
+                && any (Set.member to . (.body)) (Map.elems on.loops)
         Out -> False
         Exit -> False
 

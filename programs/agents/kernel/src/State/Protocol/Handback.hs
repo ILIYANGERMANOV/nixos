@@ -17,24 +17,25 @@ module State.Protocol.Handback (
     typeHandback,
 ) where
 
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Flow (fanNamed)
+import State.Category.Flow (ScopePath)
 import State.Category.Fuel (Area, parseByName)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, stepTook)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), childRole, parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Fold (RunState (..), askedAt, fanIn, nextQId)
+import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
-import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), nodeStep)
+import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
+import State.Step.Choice (Sing (Hub), nodeChoice)
 import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
@@ -43,7 +44,7 @@ import State.Step.Review (Outcome (..))
 import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..))
 import State.Step.Ship qualified as Ship
-import State.Table (Row (..), Runner (..), Steps, row)
+import State.Table (Row (..), Runner (..), Steps, row, stepsRunBy)
 
 data Handback = Handback
     { token :: Maybe Token
@@ -201,8 +202,8 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. The sha is the worktree's HEAD.
 -}
 typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
-typeHandback steps state worktreeHead agent handback = case [fan | At place <- [state.at], Just fan <- [fanNamed place.name], fanRole fan == agent] of
-    fan : _ -> fromChild state (fanIn state.fans fan) handback
+typeHandback steps state worktreeHead agent handback = case [ScopedFan place.scope fan | childRole == agent, At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
+    here : _ -> fromChild state (fanIn state.fans here) handback
     [] -> fromWorker steps state worktreeHead agent handback
 
 {- | A child run's hand-back at the fan-out: what it said, under its run id,
@@ -240,39 +241,48 @@ fromChild state fan handback = case handback.run of
 
 fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
 fromWorker steps state worktreeHead agent handback = case handback.token of
-    Nothing -> recorded <$> done True
+    -- A choice's worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
+    Nothing -> recorded <$> done (not atChoice)
     Just (Ready _) -> recorded <$> done False
-    Just token@(NeedsDecision need) -> case need of
-        Asks question -> Right (recorded (asked question))
-        StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why)))
-        PlanWrong _ -> triage token
-        Untyped _ -> triage token
+    Just token@(NeedsDecision need) ->
+        closing <$> case need of
+            Asks question -> Right (recorded (asked question))
+            StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why)))
+            PlanWrong _ -> triage token
+            Untyped _ -> triage token
     -- The parent waits: nothing changes in this run.
     Just (Await _ _) -> Right (recorded [])
-    Just token@(Blocked _) -> triage token
-    Just token@(Failed _) -> triage token
+    Just token@(Blocked _) -> closing <$> triage token
+    Just token@(Failed _) -> closing <$> triage token
   where
     recorded events = Typed events Nothing
+    -- A choice's worker is done whatever it says: its child hands back first.
+    closing typed = case (atChoice, done False) of
+        (True, Right events) -> typed {events = events <> typed.events}
+        _ -> typed
+    atChoice = isJust (nodeChoice state.at)
+    -- At a choice, the step is the action this worker runs.
+    stepHere = listToMaybe ([(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]] <> [(place, step) | atChoice, At place <- [state.at], step <- stepsRunBy steps agent])
     -- Logged, so @state next@ advises the triage until the run asks it.
     triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> oneLine (tokenLine token)
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
-        step@(AnyStep _ (SomeStep s)) <- maybe (Left "the run is at no step a subagent runs") Right (nodeStep state.at)
+        (place, step@(AnyStep _ (SomeStep s))) <- maybe (Left "the run is at no step a subagent runs") Right stepHere
         let name@(StateName label) = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
             Agent runner _ | runner == agent -> Right ()
             Agent (AgentRole runner) _ -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
             Inline -> Left (label <> " runs inline, not by " <> roleName)
-        if isReport && name /= stepName Review.Review
+        if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview]
             then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, BLOCKED, FAILED"
-            else doneOf step
-    -- One arm per layer, each total over its steps.
-    doneOf :: AnyStep -> Either Text [Event]
-    doneOf (AnyStep l (SomeStep s)) = case l of
+            else doneOf place.scope step
+    -- One arm per layer, each total over its steps; the outcome is in the step's scope.
+    doneOf :: ScopePath -> AnyStep -> Either Text [Event]
+    doneOf scope (AnyStep l (SomeStep s)) = case l of
         GatherLayer -> case s of
-            Gather.Research -> Right []
+            Gather.Research -> took Gather.ResearchHandedBack
             Gather.Interview -> inline s
         PlanLayer -> case s of
             Plan.SimplifyP -> took SimplifyPlanDone
@@ -287,6 +297,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Review.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
             Review.Fix -> took . FixDone =<< commit Set.empty
             Review.Pick -> inline s
+            Review.ReReview -> took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
         ShipLayer -> case s of
             Ship.Describe -> took . DescribeDone =<< atHead
             Ship.SimplifyPR -> took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified
@@ -297,10 +308,13 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Fan.Breakdown _ -> inline s
             Fan.FanOut _ -> inline s
             Fan.Merge _ -> inline s
+        ChoiceLayer -> case s of
+            Hub _ -> inline s
+      where
+        took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
+        took outcome = Right [tookIn scope outcome]
     inline :: (StepSet k) => Sing (s :: k) -> Either Text [Event]
     inline s = let StateName label = stepName s in Left (label <> " has no done a subagent hands back")
-    took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
-    took outcome = Right [stepTook outcome]
     atHead :: Either Text Sha
     atHead = required "HEAD (run it in the worktree)" worktreeHead
     commit :: Set Area -> Either Text Commit

@@ -15,17 +15,20 @@ module State.Step.Catalog (
     allSteps,
     outcomeSteps,
     stepNamed,
-    nodeStep,
+    shownEdges,
 ) where
 
 import Data.Aeson (Object)
 import Data.Aeson.Types (Parser, Series)
+import Data.List (sortOn)
+import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Graph (Node (..), Place (..))
-import State.Category.Step (Decoder, EventName, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
+import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Step (Decoder, EventName (..), SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
 import State.Step.Build (BuildStep)
-import State.Step.Fan (FanStep, Sing (FanOut))
+import State.Step.Choice (ChoiceStep, Sing (Hub), choices)
+import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
 import State.Step.Gather (GatherStep)
 import State.Step.Plan (PlanStep)
 import State.Step.Review (ReviewStep)
@@ -39,6 +42,7 @@ data Layer k where
     ReviewLayer :: Layer ReviewStep
     ShipLayer :: Layer ShipStep
     FanLayer :: Layer FanStep
+    ChoiceLayer :: Layer ChoiceStep
 
 deriving stock instance Show (Layer k)
 
@@ -52,10 +56,11 @@ instance KnownLayer BuildStep where layer = BuildLayer
 instance KnownLayer ReviewStep where layer = ReviewLayer
 instance KnownLayer ShipStep where layer = ShipLayer
 instance KnownLayer FanStep where layer = FanLayer
+instance KnownLayer ChoiceStep where layer = ChoiceLayer
 
 -- | The layers, in the order the flows run them.
 layers :: [SomeLayer]
-layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer FanLayer]
+layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer]
   where
     _listsEvery :: Layer k -> ()
     _listsEvery = \case
@@ -65,6 +70,7 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
         ReviewLayer -> ()
         ShipLayer -> ()
         FanLayer -> ()
+        ChoiceLayer -> ()
 
 data SomeLayer where
     SomeLayer :: (KnownLayer k) => Layer k -> SomeLayer
@@ -83,6 +89,8 @@ sameLayer a b = case (a, b) of
     (ShipLayer, _) -> Nothing
     (FanLayer, FanLayer) -> Just Refl
     (FanLayer, _) -> Nothing
+    (ChoiceLayer, ChoiceLayer) -> Just Refl
+    (ChoiceLayer, _) -> Nothing
 
 -- | A step's outcome, or a mode's skip, with the layer it is of.
 data AnyOutcome where
@@ -126,11 +134,12 @@ allSteps = concatMap stepsOf layers
   where
     stepsOf (SomeLayer l) = map (AnyStep l) layerSteps
 
-{- | Every step with outcomes: those 'allSteps' lists, and each fan-out's own
-state, which 'State.Category.Flow.Par' draws.
+{- | Every step with outcomes: those 'allSteps' lists, each fan-out's own
+state, which 'State.Category.Flow.Par' draws, and each choice's, which
+'State.Category.Flow.Choice' draws.
 -}
 outcomeSteps :: [AnyStep]
-outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- [minBound .. maxBound]]
+outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts] <> [AnyStep ChoiceLayer (SomeStep (Hub choice)) | choice <- choices]
 
 -- | The step a state is named after; a fan-out's state names none.
 stepNamed :: StateName -> Maybe AnyStep
@@ -138,9 +147,17 @@ stepNamed name = lookup name [(nameOf some, some) | some <- allSteps]
   where
     nameOf (AnyStep _ (SomeStep s)) = stepName s
 
--- | The step the run does at a node: none at a port, nor at a fan-out's state.
-nodeStep :: Node -> Maybe AnyStep
-nodeStep = \case
-    At place -> stepNamed place.name
-    Out -> Nothing
-    Exit -> Nothing
+{- | The edges out of a state in the order they are shown: a choice's
+actions' first, in the order the term declares them, each one's outcomes as
+its step declares them; then the state's own, by name.
+-}
+shownEdges :: OpenGraph -> Place -> [(EventName, Edge Node)]
+shownEdges g place = sortOn (shown . fst) [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place]
+  where
+    ranks = Map.fromList [(metered.step, cap.rank) | (metered, cap) <- Map.toList g.caps, metered.place == place, metered.step /= place.name]
+    shown event = case Map.lookup event.step ranks of
+        Just rank -> (0 :: Int, rank, declared event)
+        Nothing -> (1, 0, 0)
+    declared event = case stepNamed event.step of
+        Just (AnyStep _ (SomeStep s)) -> length (takeWhile (/= event.outcome) (Step.outcomeNames (outcomes s)))
+        Nothing -> 0

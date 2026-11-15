@@ -10,7 +10,11 @@ module State.Protocol.Record (
     recordables,
     usageOf,
     recordCommand,
-    extendCommand,
+    Option (..),
+    recordOption,
+    goes,
+    extendOption,
+    capRecords,
     Args (..),
     option,
     options,
@@ -22,17 +26,21 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Read (decimal)
+import State.Category.Flow (ScopePath, nameText, unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
-import State.Category.Step (EventName, builtEvent, eventText)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, placeName)
+import State.Category.Meter (AtCap (..))
+import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, stepTook)
+import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
-import State.Step.Fan (Outcome (..), Sing (..))
-import State.Step.Gather (Outcome (..), Sing (..))
+import State.Step.Choice (Outcome (..))
+import State.Step.Choice qualified as Choice
+import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
+import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
 import State.Step.Ship (Outcome (..), Sing (..))
@@ -42,19 +50,64 @@ the shell can read; a breakdown or an added task is read from a file, by the she
 -}
 data Recording = Plain Event | AtHead (Sha -> Event) | FromFile FilePath (Text -> Either Text Event)
 
--- | The @state record@ line for an event, its arguments' usage after it.
+{- | The @state record@ line for an event, its arguments' usage after it. An
+event inside a scope is named so, @security/review.rows@, and takes its step's arguments.
+-}
 recordCommand :: EventName -> Text
-recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usageOf [r | r <- recordables, r.name == name])
+recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usageOf [r | r <- recordables, r.name == step])
   where
     name = eventText event
+    step = snd (unqualify name)
 
--- | The @state record@ line that extends the gather loop, on the user's yes.
-extendCommand :: Text
-extendCommand = Text.unwords ["state record", extend.name, usageOf extend, "when the user goes on"]
+{- | One way on from where the run is: the exact command, and what taking
+it means, where the run goes next among it.
+-}
+data Option = Option {command :: Text, means :: Text}
+    deriving stock (Eq, Show)
+
+-- | The record of an event along its edge, saying where the run goes.
+recordOption :: EventName -> Edge Node -> Option
+recordOption event edge = Option (recordCommand event) (goes edge)
+
+-- | Where an edge takes the run, in words.
+goes :: Edge Node -> Text
+goes edge = case (edge.arrow, edge.to, edge.back) of
+    (Stay, _, _) -> "the run stays here"
+    (Skip _ _, to, _) -> "skips the step: " <> onTo to
+    (Along _, At place, Just loop) -> "back to " <> stateNameText (placeName place) <> ", the " <> nameText loop <> " loop's next round"
+    (Along _, to, _) -> onTo to
+  where
+    onTo = \case
+        At place -> "on to " <> stateNameText (placeName place)
+        Out -> "the flow ends"
+        Exit -> "the flow ends at its exit"
+
+-- | The @state record@ line that extends a used-up budget, on the user's yes.
+extendOption :: Option
+extendOption = Option (Text.unwords ["state record", extend.name, usageOf extend]) "when the user goes on: the used-up budgets here start afresh"
+
+{- | What the run may record at a used-up budget of the step at this state:
+the ways out of its loop, then as its 'AtCap' says - nothing more, a stop,
+or an @extend@ (with the step's own outcomes when no way leaves).
+-}
+capRecords :: OpenGraph -> Place -> AtCap -> [Option]
+capRecords g place atCap = case atCap of
+    Refuse -> exits
+    Stop -> exits <> [Option "state stop rounds <why>" "stops the run: the budget is used up"]
+    Extend -> extendOption : if null exits then outs else exits
+  where
+    exits = [recordOption event edge | (event, edge) <- leaving g place]
+    outs = [recordOption event edge | ((from, event), edge) <- Map.toList g.edges, from == place]
 
 -- | The user's yes to one more interview round, and why.
 extend :: Recordable
-extend = Recordable "extend" "<why>" [] (fmap (Plain . Extended) . because . (.positional))
+extend = atRoot (Recordable "extend" "<why>" [] (fmap (Plain . Extended) . because . (.positional)))
+
+{- | An event of the run, not of a step, as @fuel@ or @task@: no scope
+names it, so a scoped one is refused.
+-}
+atRoot :: Recordable -> Recordable
+atRoot r = r {parse = \a -> if a.scope == mempty then r.parse a else Left "only a step's outcome is named inside a scope"}
 
 {- | An event @state record@ takes: its name, its positionals' usage, the
 @--name value@ flags it takes, and the parser of both.
@@ -82,46 +135,46 @@ recordables =
     [ stay "fuel" ("<" <> choices fuelName <> ">") $ \case
         [raw] -> FuelSet <$> known "fuel" parseFuel raw
         _ -> Left "one level"
-    , outcome (builtEvent Research ResearchDone) "<n>" [] $ \a -> case a.positional of
-        [raw] -> Plain . stepTook . ResearchDone <$> count raw
-        _ -> Left "the number of researchers"
-    , nothing ResearchSkipped
-    , nothing InterviewEnough
-    , nothing InterviewMore
-    , extend
-    , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
-        [path] -> Right (Plain (stepTook (PlanDone (Text.unpack path))))
-        _ -> Left "the plan's path"
-    , nothing SimplifyPlanDone
-    , nothing SimplifyPlanSkipped
-    , nothing ConfirmConfirmed
-    , nothing ConfirmAdjusted
-    , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
-        [link, base, branch] -> Right (Plain (stepTook (DraftDone (DraftPr (Url link) (Branch base) (Branch branch)))))
-        _ -> Left "the PR's url, base and branch"
-    , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
-      commitAt Implement ImplementDone (Set.fromList [minBound .. maxBound])
-    , atHead Refactor RefactorDone
-    , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (fmap (Plain . stepTook . RefactorSkipped) . because . (.positional))
-    , atHead Review ReviewClean
-    , atHead Review ReviewRows
-    , picks Pick PickFinal
-    , picks Pick PickLoop
-    , -- A fixer's hand-back with no Touches line touches no area.
-      commitAt Fix FixDone Set.empty
-    , atHead Describe DescribeDone
-    , atHead SimplifyPR SimplifyPrDone
-    , atHead SimplifyPR SimplifyPrSkipped
-    , atHead AwaitCi AwaitCiGreen
-    , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of
-        check : more -> Right (AtHead (\sha -> stepTook (AwaitCiRed sha (fmap Check (check :| more)))))
-        [] -> Left "the failing checks"
-    , atHead FixPR FixPrDone
-    , url Ready ReadyDone
-    , url Ready ReadySkipped
+    , nothing ResearchSpawned
+    , nothing ResearchHandedBack
     ]
-        <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- [minBound .. maxBound]]
-        <> [ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+        <> [nothing (Enough choice) | choice <- Choice.choices]
+        <> [ extend
+           , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
+                [path] -> Right (Plain (tookIn a.scope (PlanDone (Text.unpack path))))
+                _ -> Left "the plan's path"
+           , nothing SimplifyPlanDone
+           , nothing SimplifyPlanSkipped
+           , nothing ConfirmConfirmed
+           , nothing ConfirmAdjusted
+           , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
+                [link, base, branch] -> Right (Plain (tookIn a.scope (DraftDone (DraftPr (Url link) (Branch base) (Branch branch)))))
+                _ -> Left "the PR's url, base and branch"
+           , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
+             commitAt Implement ImplementDone (Set.fromList [minBound .. maxBound])
+           , atHead Refactor RefactorDone
+           , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (\a -> Plain . tookIn a.scope . RefactorSkipped <$> because a.positional)
+           , atHead Review ReviewClean
+           , atHead Review ReviewRows
+           , picks Pick PickFinal
+           , picks Pick PickLoop
+           , -- A fixer's hand-back with no Touches line touches no area.
+             commitAt Fix FixDone Set.empty
+           , atHead ReReview ReReviewClean
+           , atHead ReReview ReReviewRows
+           , atHead Describe DescribeDone
+           , atHead SimplifyPR SimplifyPrDone
+           , atHead SimplifyPR SimplifyPrSkipped
+           , atHead AwaitCi AwaitCiGreen
+           , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of
+                check : more -> Right (AtHead (\sha -> tookIn a.scope (AwaitCiRed sha (fmap Check (check :| more)))))
+                [] -> Left "the failing checks"
+           , atHead FixPR FixPrDone
+           , url Ready ReadyDone
+           , url Ready ReadySkipped
+           ]
+        <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
+        <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
                 task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
                 -- Two words never move a task, so a task named add stays recordable.
@@ -140,31 +193,28 @@ recordables =
                 [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
-        <> concat [[url (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- [minBound .. maxBound]]
+        <> concat [[url (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
   where
     breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
-        ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone fan) . Codec.decodeBreakdown))
+        ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (tookIn a.scope . BreakdownDone fan) . Codec.decodeBreakdown))
         _ -> Left "the tasks file, as --tasks <file.json>"
-    stay name usageText build = Recordable name usageText [] (\a -> Plain <$> build a.positional)
+    stay name usageText build = atRoot (Recordable name usageText [] (\a -> Plain <$> build a.positional))
     outcome event = Recordable (eventText event)
     nothing done = outcome (Catalog.outcomeEvent (Catalog.outcome done)) "" [] $ \a -> case a.positional of
-        [] -> Right (Plain (stepTook done))
+        [] -> Right (Plain (tookIn a.scope done))
         _ -> Left "no arguments"
     atHead s done = outcome (builtEvent s done) "" [] $ \a -> case a.positional of
-        [] -> Right (AtHead (stepTook . done))
+        [] -> Right (AtHead (tookIn a.scope . done))
         _ -> Left "no arguments: the head is HEAD"
     commitAt s done unstated = outcome (builtEvent s done) "" [Flag "touches" "<area>,...|none" Optional] $ \a -> case a.positional of
-        [] -> (\areas -> AtHead (\sha -> stepTook (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
+        [] -> (\areas -> AtHead (\sha -> tookIn a.scope (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
         _ -> Left "no arguments: the head is HEAD"
     picks s done = outcome (builtEvent s done) "" [Flag "row" "<label>" Repeated, Flag "verdict" ("<requirement>=<" <> choices judgementText <> ">") Repeated] $ \a -> case a.positional of
-        [] -> Plain . stepTook . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
+        [] -> Plain . tookIn a.scope . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
         _ -> Left "rows and verdicts are options"
     url s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
-        [raw] -> Right (Plain (stepTook (done (Url raw))))
+        [raw] -> Right (Plain (tookIn a.scope (done (Url raw))))
         _ -> Left "the PR's url"
-    count raw = case decimal raw of
-        Right (n, "") -> Right n
-        _ -> Left (raw <> " is not a count")
     verdict raw = case Text.breakOnEnd "=" raw of
         (requirement, judgement) | Just r <- Text.stripSuffix "=" requirement, not (Text.null r) -> (Requirement r,) <$> known "verdict" (parseByName judgementText) judgement
         _ -> Left (raw <> " is not <requirement>=<verdict>")
@@ -177,8 +227,10 @@ because = \case
     [] -> Left "why"
     why -> Right (Text.unwords why)
 
--- | Positionals and @--name value@ options, the only kind of flag there is.
-data Args = Args {positional :: [Text], options :: [(Text, Text)]}
+{- | The scope the event's step sits in, from its qualified name, then
+positionals and @--name value@ options, the only kind of flag there is.
+-}
+data Args = Args {scope :: ScopePath, positional :: [Text], options :: [(Text, Text)]}
 
 -- | The last value given, as a shell user retyping an option expects.
 option :: Text -> Args -> Maybe Text

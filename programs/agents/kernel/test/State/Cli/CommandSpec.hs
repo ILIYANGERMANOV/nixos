@@ -6,18 +6,17 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative qualified as Opt
-import State.Category.Flow (LoopId (..))
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (OpenGraph (..))
+import State.Category.Graph (Cap (..), OpenGraph (..))
+import State.Category.Meter (someMeterName)
 import State.Category.Step (eventText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, optparseText, parseCommand, parseHook)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), oneLineText)
-import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook)
+import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook, tookIn)
 import State.Run.Fold (Refusal (..), RunState (..))
-import State.Run.Fold qualified as Fold
-import State.Run.RunGen (g, loadSteps, runAt, sha)
+import State.Run.RunGen (g, happyPath, loadSteps, runAt, securityScope, sha)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Review (Outcome (..))
@@ -69,6 +68,19 @@ spec = describe "State.Cli.Command" $ do
         it "keeps an event's free words that start with a dash" $
             recorded ["refactor.skipped", "-x", "--flag", "added"] `shouldBe` Right (stepTook (RefactorSkipped "-x --flag added"))
 
+        it "records a step's outcome named inside a scope in that scope" $
+            recorded ["security/review.rows"] `shouldBe` Right (tookIn securityScope (ReviewRows sha))
+
+        it "refuses a run's event named inside a scope" $
+            case parseCommand steps ["record", "security/fuel", "low"] of
+                Right (_, Left failure) -> (failure.what, failure.why) `shouldBe` ("record security/fuel", "only a step's outcome is named inside a scope")
+                _ -> expectationFailure "not a refusal"
+
+        it "refuses a scoped event's usage with its qualified name" $
+            case parseCommand steps ["record", "security/plan.done"] of
+                Right (_, Left failure) -> (failure.what, failure.fix) `shouldBe` ("record security/plan.done", "state record security/plan.done <path>")
+                _ -> expectationFailure "not a refusal"
+
         it "refuses an event's usage with its own fix" $
             case parseCommand steps ["record", "plan.done"] of
                 Right (_, Left failure) -> (failure.what, failure.fix) `shouldBe` ("record plan.done", "state record plan.done <path>")
@@ -115,26 +127,41 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` "state record: fuel - set once\nfix: state show\n"
 
         it "explains a second Fuel by the one set" $
-            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (FuelSetOnce Max))
+            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (runAt []).meters (FuelSetOnce Max))
                 `shouldBe` ("it is max already, set once", "state show")
 
-        it "fixes a question past the gather's questions by ending or extending the interview" $
-            (explain g Balanced (runAt []).at (OutOfAsks 30)).fix
-                `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
+        it "fixes a question past the gather's questions by extending or ending the gather" $
+            (explain g Balanced (runAt researched).at (runAt researched).meters (OutOfBudget (capOf "Interview questions") 30)).fix
+                `shouldBe` "state record extend <why> | state record gather.enough"
 
-        it "fixes a research round past the gather's rounds by ending or extending the interview" $
-            (explain g Balanced (runAt []).at (Fold.OutOfRounds LGather 9)).fix
-                `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
+        it "fixes a researcher past the cap by extending or ending the gather" $
+            (explain g Balanced (runAt []).at (runAt []).meters (OutOfBudget (capOf "Researchers") 5)).fix
+                `shouldBe` "state record extend <why> | state record gather.enough"
 
-        it "fixes a round past another loop's rounds by leaving it or stopping" $
-            (explain g Balanced (runAt []).at (Fold.OutOfRounds LReview 4)).fix
-                `shouldSatisfy` Text.isSuffixOf " | state stop rounds <why>"
+        it "fixes a plan round past the cap by confirming or stopping" $
+            (explain g Balanced (runAt planned).at (runAt planned).meters (OutOfBudget (capOf "Plan rounds") 3)).fix
+                `shouldBe` "state record confirm.confirmed | state stop rounds <why>"
+
+        it "fixes a re-review past the cap by the loop's exit alone" $
+            (explain g Balanced (runAt picking).at (runAt picking).meters (OutOfBudget (capOf "Re-reviews") 3)).fix
+                `shouldBe` "state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
+
+        it "explains an extend where no budget asks the user to go on" $
+            (explain g Balanced (runAt []).at (runAt []).meters NothingToExtend).fix `shouldBe` "state next"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
-            [ (explain g fuel (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            [ (explain g fuel (runAt simplifying).at (runAt simplifying).meters (NoEdge (runAt simplifying).at (outcomeEvent (outcome (ReviewClean sha))))).fix
             | fuel <- [Balanced, Low]
             ]
-                `shouldBe` ["state record research.done <n>", "state record research.done <n> | state record research.skipped"]
+                `shouldBe` ["state record simplify_plan.done", "state record simplify_plan.done | state record simplify_plan.skipped"]
+
+        it "names a choice's hand-back in the fix only while a child is open" $
+            [ (explain g Balanced (runAt events).at (runAt events).meters (NoEdge (runAt events).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            | events <- [[], researched]
+            ]
+                `shouldBe` [ "state record research.spawned | state record gather.enough"
+                           , "state record research.spawned | state record research.handed_back | state record gather.enough"
+                           ]
 
     describe "help" $ do
         it "record's help lists every event the flow's arrows take" $
@@ -153,6 +180,16 @@ spec = describe "State.Cli.Command" $ do
         it "of an unknown event" $ golden "usage/state-record-nope.txt" (usageError "state" (parseCommand steps ["record", "nope"]))
         it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
+    -- At the gather with a researcher open, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
+    researched = map (Took mempty) (take 1 happyPath)
+    simplifying = map (Took mempty) (take 4 happyPath)
+    planned = map (Took mempty) (take 5 happyPath)
+    picking = map (Took mempty) (take 9 happyPath) <> [stepTook (ReviewRows sha)]
+    -- The engineer's cap of this meter.
+    capOf :: Text -> Cap
+    capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of
+        [cap] -> cap
+        caps -> error ("no single cap of " <> show meter <> ": " <> show caps)
     -- optparse's text: help asked for on the right, a usage error on the left.
     usage :: String -> Usage -> Either Text Text
     usage program (Usage failure) = case Opt.renderFailure failure program of

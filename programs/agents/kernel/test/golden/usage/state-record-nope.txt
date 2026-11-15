@@ -9,10 +9,9 @@ Available options:
 
 Available commands:
   fuel                     <low|balanced|max>
-  research.done            <n>
-  research.skipped         no arguments
-  interview.enough         no arguments
-  interview.more           no arguments
+  research.spawned         no arguments
+  research.handed_back     no arguments
+  gather.enough            no arguments
   extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments
@@ -30,6 +29,8 @@ Available commands:
   pick.loop                [--row <label>]... [--verdict
                            <requirement>=<met|not-met|unverified>]...
   fix.done                 [--touches <area>,...|none]
+  re_review.clean          no arguments
+  re_review.rows           no arguments
   describe.done            no arguments
   simplify_pr.done         no arguments
   simplify_pr.skipped      no arguments
@@ -38,9 +39,6 @@ Available commands:
   fix_pr.done              no arguments
   ready.done               <url>
   ready.skipped            <url>
-  researchers_breakdown.done
-                           --tasks <file.json>
-  researchers.done         no arguments
   breakdown.done           --tasks <file.json>
   engineers.done           no arguments
   task                     <id> <ci|review|merged|kept> <pr> | <id> parked <why>
@@ -49,9 +47,6 @@ Available commands:
   acted                    <task> <url>
   spawning                 <task>
   resumed                  <child run>
-  researchers_merge.done   <url>
-  researchers_merge.next_round
-                           no arguments
   merge.done               <url>
   merge.next_round         no arguments
 

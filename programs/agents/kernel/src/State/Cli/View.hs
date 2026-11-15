@@ -10,7 +10,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (fuelLabel)
-import State.Category.Graph (Node (..), Place (..))
+import State.Category.Graph (Node (..), OpenGraph, Place (..))
 import State.Category.Step (SomeStep (..), stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)
@@ -19,17 +19,17 @@ import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, top
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
-import State.Step.Catalog (AnyStep (..), allSteps)
-import State.Table (Row (..), Runner (..), Steps, row)
+import State.Step.Catalog (AnyStep (..))
+import State.Table (Row (..), Steps, row, stepsRunBy)
 
 -- | Where the run is and what it carries: step, mode, rounds, questions, rulings.
-showRun :: RunState -> Text
-showRun state =
+showRun :: OpenGraph -> RunState -> Text
+showRun g state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
             <> ["task: " <> taskIdText parent.task | ByRole parent _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
-            <> factLines (Facts Nothing Nothing []) state
+            <> factLines g (Facts Nothing Nothing []) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
             <> ["refused: " <> note.message <> "; fix: " <> note.fix | Just note <- [state.refused]]
             <> section "pending:" (pendingLines state)
@@ -103,7 +103,7 @@ brief steps state agent@(AgentRole role) task
         [] -> "none"
         items -> Text.intercalate ", " items
     yesNo = bool "no" "yes"
-    runs = [(stepName s, row steps s) | AnyStep _ (SomeStep s) <- allSteps, Agent runner _ <- [(row steps s).runner], runner == agent]
+    runs = [(stepName s, row steps s) | AnyStep _ (SomeStep s) <- stepsRunBy steps agent]
     briefed = case [step | step@(name, _) <- runs, At place <- [state.at], place.name == name] of
         [] -> runs
         here -> here

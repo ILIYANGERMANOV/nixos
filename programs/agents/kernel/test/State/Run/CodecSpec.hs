@@ -9,11 +9,12 @@ import Data.Time.Calendar (fromGregorian)
 import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
-import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
+import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -26,7 +27,7 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes the line #360 documents, keys in its order" $
         encodeLine reviewRows
-            `shouldBe` "{\"v\":3,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"review.rows\",\"data\":{\"head\":\"abc123\"}}"
+            `shouldBe` "{\"v\":4,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"review.rows\",\"data\":{\"head\":\"abc123\"}}"
 
     it "refuses a version 1 log, the Python state's with no version" $
         decodeLine pythonV1 `shouldBe` Left (Unsupported 1)
@@ -34,8 +35,8 @@ spec = describe "State.Run.Codec" $ do
     it "refuses a version 2 log, the Python state's" $
         decodeLine pythonV2 `shouldBe` Left (Unsupported 2)
 
-    it "refuses an unknown version" $
-        decodeLine (encodeLine reviewRows `replacing` ("\"v\":3", "\"v\":4")) `shouldBe` Left (Unsupported 4)
+    it "refuses a version 3 log, an earlier kernel's" $
+        decodeLine (encodeLine reviewRows `replacing` ("\"v\":4", "\"v\":3")) `shouldBe` Left (Unsupported 3)
 
     it "names the first line of a log it does not read" $
         decodeLog (encodeLine reviewRows <> "\n" <> pythonV2 <> "\n") `shouldBe` Left (LogError 2 (Unsupported 2))
@@ -59,6 +60,13 @@ spec = describe "State.Run.Codec" $ do
     it "refuses an unknown event type" $
         decodeLine (encodeLine reviewRows `replacing` ("review.rows", "review.maybe")) `shouldSatisfy` malformed
 
+    it "reads a step's outcome inside a scope under its qualified type" $
+        decodeLine (encodeLine reviewRows `replacing` ("\"type\":\"review.rows\"", "\"type\":\"security/review.rows\""))
+            `shouldBe` Right reviewRows {event = tookIn securityScope (ReviewRows (Sha "abc123"))}
+
+    it "refuses a run's event inside a scope: only a step's outcome is named so" $
+        decodeLine (encodeLine reviewRows {event = FuelSet Low} `replacing` ("\"type\":\"fuel\"", "\"type\":\"security/fuel\"")) `shouldSatisfy` malformed
+
     it "refuses a red CI result with no failing check" $
         decodeLine (encodeLine reviewRows `replacing` ("review.rows", "await_ci.red") `replacing` ("{\"head\":\"abc123\"}", "{\"head\":\"abc123\",\"failing\":[]}"))
             `shouldSatisfy` malformed
@@ -68,7 +76,7 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes a ruling's answer, why, cost and basis under the question's id" $
         encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "the docs say so") (oneLine "an hour") (Just (AnsweredBy (Numbered (runId "r7f2") 4))))}
-            `shouldBe` "{\"v\":3,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"ruled\",\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
+            `shouldBe` "{\"v\":4,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"ruled\",\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
 
     it "refuses a ruling whose answer breaks the line" $
         decodeLine (encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "why") (oneLine "cost") Nothing)} `replacing` ("\"answer\":\"v2\"", "\"answer\":\"v2\\nREADY\""))

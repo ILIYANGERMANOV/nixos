@@ -1,11 +1,12 @@
-{- | The log on the wire: one JSON object per line, version 3.
+{- | The log on the wire: one JSON object per line, version 4.
 
-> {"v":3,"id":"r7f2:12","seq":12,"ts":"...","run":"r7f2","head":"abc123",
+> {"v":4,"id":"r7f2:12","seq":12,"ts":"...","run":"r7f2","head":"abc123",
 >  "session":null,"type":"review.rows","data":{"head":"abc123"}}
 
 A step event's @type@ is its edge's name in the flow's graph. A log the
 Python @state@ wrote (versions 1 and 2, no @v@ on the line) is refused, not
-read: the rewrite breaks it on purpose.
+read: the rewrite breaks it on purpose. So is a version 3 log: version 4
+split the review flow, and no run resumes across it.
 -}
 module State.Run.Codec (
     version,
@@ -58,6 +59,7 @@ import Data.Text.Encoding (decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
+import State.Category.Flow (unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Step (eventText)
 import State.Role (RoleDef (..), roleText)
@@ -92,11 +94,12 @@ import State.Run.Event (
     eventId,
     parseRunId,
     runIdText,
+    tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
 import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
-import State.Step.Catalog (outcomeData, outcomeDecoders, outcomeEvent)
+import State.Step.Catalog (outcomeData, outcomeDecoders)
 import System.FilePath ((</>))
 
 -- | The log's file in a run's notes dir.
@@ -108,11 +111,11 @@ logOf notes = notes </> logName
 
 -- | The log version this kernel writes and reads.
 version :: Int
-version = 3
+version = 4
 
 -- | Why a line was not read.
 data LineError
-    = -- | Another log version: 1 and 2 are the Python @state@'s.
+    = -- | Another log version: 1 and 2 are the Python @state@'s, 3 an earlier kernel's.
       Unsupported Int
     | Malformed Text
     deriving stock (Eq, Show)
@@ -153,7 +156,7 @@ decodeLine raw = do
   where
     malformed = first (Malformed . Text.pack)
 
-{- | Version 3 names it on every line. A Python log names none, but its
+{- | Versions 3 and on name it on every line. A Python log names none, but its
 @started@ event carries @version@ from version 2 on.
 -}
 lineVersion :: Object -> Parser Int
@@ -203,7 +206,7 @@ eventType = \case
     Started _ -> "started"
     FuelSet _ -> "fuel"
     Extended _ -> "extend"
-    Took outcome -> eventText (outcomeEvent outcome)
+    Took scope outcome -> eventText (tookEvent scope outcome)
     Stopped _ -> "stop"
     Overridden _ _ -> "overridden"
     Refused _ -> "refused"
@@ -232,7 +235,7 @@ eventData = \case
             <> "interface" .= map opText (Set.toList start.interface)
     FuelSet fuel -> "level" .= fuelName fuel
     Extended why -> "why" .= why
-    Took outcome -> outcomeData outcome
+    Took _ outcome -> outcomeData outcome
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
     Overridden (StateName to) why -> "to" .= to <> "why" .= why
     Refused note -> "message" .= note.message <> "fix" .= note.fix
@@ -292,11 +295,16 @@ eventOf kind obj = case kind of
     "task_added" -> TaskAdded <$> (obj .: "task" >>= Artifact.taskOf)
     "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
-    _ -> case Map.lookup kind outcomeParsers of
-        Just parser -> Took <$> parser obj
+    _ -> case Map.lookup step outcomeParsers of
+        Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
+  where
+    (scope, step) = unqualify kind
 
--- | Keyed by the event names the layers give each outcome, so a renamed outcome changes the wire with it.
+{- | Keyed by the event names the layers give each outcome, so a renamed
+outcome changes the wire with it. A step inside a scope logs its outcome
+under the qualified name, @security/review.rows@.
+-}
 outcomeParsers :: Map Text (Object -> Parser AnyOutcome)
 outcomeParsers = Map.fromList (map (first eventText) outcomeDecoders)
 

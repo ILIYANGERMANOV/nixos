@@ -40,10 +40,10 @@ library
     Effects.Git
     Effects.Log
     Effects.Random
-    State.Block
     State.Category.Flow
     State.Category.Fuel
     State.Category.Graph
+    State.Category.Meter
     State.Category.Path
     State.Category.Step
     State.Category.Ty
@@ -53,6 +53,7 @@ library
     State.Cli.Shell
     State.Cli.View
     State.Flow.Engineer
+    State.Flow.Library
     State.Flow.TenX
     State.Protocol.Advice
     State.Protocol.Handback
@@ -69,6 +70,7 @@ library
     State.Step.Artifact
     State.Step.Build
     State.Step.Catalog
+    State.Step.Choice
     State.Step.Fan
     State.Step.Gather
     State.Step.Plan
@@ -123,11 +125,11 @@ test-suite state-test
     Effects.LogSpec
     Effects.RandomSpec
     State.ArchitectureSpec
-    State.BlockSpec
     State.Category.FlowGen
     State.Category.FlowSpec
     State.Category.FuelSpec
     State.Category.GraphSpec
+    State.Category.LawsSpec
     State.Category.PathSpec
     State.Cli.CommandSpec
     State.Cli.Render.MermaidSpec
@@ -137,6 +139,7 @@ test-suite state-test
     State.Cli.Shell.World
     State.E2ESpec
     State.Flow.EngineerSpec
+    State.Flow.LibrarySpec
     State.Flow.TenXSpec
     State.Flow.Triage
     State.Golden

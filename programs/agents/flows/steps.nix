@@ -22,9 +22,7 @@ let
   # The lead's Fuel table, read at every step it decides to run or skip.
   leadProse = [ "topics/fuel.md" ];
 
-  # The 10x's steps around its fan-out. The engineers' keep these names; the
-  # researchers' fan-out, in no flow yet, has its own, prefixed with its name,
-  # as the kernel's `State.Category.Flow` names them.
+  # The 10x's steps around its engineers' fan-out.
   fanSteps = {
     breakdown = {
       dom = "Plan";
@@ -63,14 +61,6 @@ let
       flows = [ "10x" ];
     };
   };
-  researchersSteps = builtins.listToAttrs (
-    map (name: {
-      name = "researchers_${name}";
-      value = fanSteps.${name} // {
-        flows = [ ];
-      };
-    }) (builtins.attrNames fanSteps)
-  );
 in
 {
   steps = {
@@ -78,9 +68,12 @@ in
       dom = "Ctx";
       cod = "Ctx";
       exit = null;
-      outcomes = [ "done" ];
+      outcomes = [
+        "spawned"
+        "handed_back"
+      ];
       runner = "researcher";
-      lead = "Gather: researchers in parallel, each prompted per the researcher skill's `## Callers`, one per open fact group. When all are back: `state record research.done <n>`.";
+      lead = "Gather: spawn a researcher in the background per open fact group, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task:";
       task = "Research the open fact group your prompt names, as the researcher skill says.";
       tools = [
         "read"
@@ -98,13 +91,10 @@ in
     interview = {
       dom = "Ctx";
       cod = "Ctx";
-      exit = "Ctx";
-      outcomes = [
-        "enough"
-        "more"
-      ];
+      exit = null;
+      outcomes = [ ];
       runner = "inline";
-      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between. `enough` when nothing is open; `more` only when an answer opens a fact to research. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.";
+      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.";
       # `skill` invokes grilling, which the engineer does not preload; `web`
       # reads a link or doc an answer points to.
       tools = [
@@ -239,7 +229,7 @@ in
     };
     review = {
       dom = "Diff";
-      cod = "Diff";
+      cod = "Findings";
       exit = "Diff";
       outcomes = [
         "clean"
@@ -247,7 +237,7 @@ in
       ];
       runner = "review-lead";
       lead = "Review: one review-lead, briefed with `state brief review-lead`.";
-      task = "Run `pragmatic-review` on the branch, or on the fixes after round 1, against the requirements file.";
+      task = "Run `pragmatic-review` on the branch against the requirements file.";
       # Its Low sweep reads the Fuel table; it spawns the `reviewer`s.
       tools = [
         "read"
@@ -259,15 +249,15 @@ in
       flows = [ "engineer" ];
     };
     pick = {
-      dom = "Diff";
-      cod = "Diff";
+      dom = "Findings";
+      cod = "Findings";
       exit = "Diff";
       outcomes = [
         "final"
         "loop"
       ];
       runner = "inline";
-      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` hands the rows to the final fixer; `loop` fixes them and reviews again.";
+      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` goes on to describe, where the final fixer gets the chosen rows; `loop` sends them to a fixer, then a re-review, and spends one Re-review.";
       tools = [ "read" ];
       skills = [ "engineer" ];
       prose = leadProse;
@@ -275,7 +265,7 @@ in
       flows = [ "engineer" ];
     };
     fix = {
-      dom = "Diff";
+      dom = "Findings";
       cod = "Diff";
       exit = null;
       outcomes = [ "done" ];
@@ -290,6 +280,27 @@ in
       skills = [ "engineering" ];
       prose = [ "shared/building.md" ];
       ops = [ ];
+      flows = [ "engineer" ];
+    };
+    re_review = {
+      dom = "Diff";
+      cod = "Findings";
+      exit = "Diff";
+      outcomes = [
+        "clean"
+        "rows"
+      ];
+      runner = "review-lead";
+      lead = "Review: one review-lead for the fix, briefed with `state brief review-lead`.";
+      task = "Run `pragmatic-review` with `--fixes <sha>`, the last review's head, on the fix against the requirements file; a fix that touches what your Fuel row's Full review of a fix to names gets the whole branch.";
+      # Its Low sweep reads the Fuel table; it spawns the `reviewer`s.
+      tools = [
+        "read"
+        "shell"
+      ];
+      skills = [ "pragmatic-review" ];
+      prose = leadProse;
+      ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
     describe = {
@@ -379,8 +390,7 @@ in
       flows = [ "engineer" ];
     };
   }
-  // fanSteps
-  // researchersSteps;
+  // fanSteps;
 
   # Role work outside the flows: only lib/derive.nix reads it.
   offFlow = {

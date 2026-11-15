@@ -26,6 +26,7 @@ module State.Cli.Command (
 import Control.Applicative (many, optional, some, (<**>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -33,22 +34,23 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
-import State.Category.Flow (LoopId (..), loopName)
-import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (Never), cfg, fuelName, parseByName)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
-import State.Category.Step (eventText, exitEvent, stateNameText)
+import State.Category.Flow (ScopePath, qualifyText, unqualify)
+import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), placeName, places)
+import State.Category.Meter (someMeterName)
+import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
-import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), choices, extendCommand, recordCommand, recordables, usageOf)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, recordCommand, recordables, usageOf)
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), childRole, parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Refusal (..), roundOnly)
+import State.Run.Fold (Refusal (..), Spent (..))
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
-import State.Step.Gather (Sing (Interview))
+import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
 import System.FilePath (isAbsolute, takeFileName)
 
@@ -118,8 +120,10 @@ one; else optparse's help or usage error. No command at all is help.
 parseCommand :: Steps -> [Text] -> Either Usage (Text, Either Failure Command)
 parseCommand steps = \case
     [] -> Right ("help", Right Help)
+    -- A scoped event is its step's event inside a scope: the scope goes in its Args.
+    "record" : event : rest | (scope, local) <- unqualify event -> ("record",) <$> runCli (commandInfo steps scope) ("record" : local : rest)
     -- The grammar has no option before the subcommand but --help: a parsed argv starts with it.
-    argv@(sub : _) -> (sub,) <$> runCli (commandInfo steps) argv
+    argv@(sub : _) -> (sub,) <$> runCli (commandInfo steps mempty) argv
 
 -- | @state-hook <name>@'s argv.
 parseHook :: [Text] -> Either Usage HookName
@@ -127,7 +131,7 @@ parseHook = runCli hookInfo
 
 -- | The full usage: every command, then the run's kinds, stop reasons, roles and areas.
 help :: Steps -> Text
-help steps = optparseText (fst (Opt.renderFailure (Opt.parserFailure cliPrefs (commandInfo steps) (Opt.ShowHelpText Nothing) []) "state"))
+help steps = optparseText (fst (Opt.renderFailure (Opt.parserFailure cliPrefs (commandInfo steps mempty) (Opt.ShowHelpText Nothing) []) "state"))
 
 {- | optparse's own parse: a misuse prints its error, then the help of the
 command it reached, so @state record nope@ lists every event. The completion
@@ -151,8 +155,9 @@ hookInfo = Opt.info (Opt.hsubparser (foldMap hookCommand [minBound .. maxBound])
   where
     hookCommand name = Opt.command (Text.unpack (hookName name)) (Opt.info (pure name) (Opt.progDesc (Text.unpack (hookPurpose name))))
 
-commandInfo :: Steps -> ParserInfo (Either Failure Command)
-commandInfo steps =
+-- | The grammar, its @record@ events inside the scope their name gave.
+commandInfo :: Steps -> ScopePath -> ParserInfo (Either Failure Command)
+commandInfo steps scope =
     Opt.info
         (Opt.hsubparser commands <**> Opt.helper)
         (Opt.header "state - the run of an agent flow, kept in the worktree's log" <> Opt.footerDoc (Just (vsep (map pretty footer))))
@@ -160,7 +165,7 @@ commandInfo steps =
     commands =
         mconcat
             [ sub "init" "Start a run, a child run when it names its parent" initArgs
-            , Opt.command "record" (Opt.info recordEvent (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
+            , Opt.command "record" (Opt.info (recordEvent scope) (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
             , sub "handback" "Record a role's hand-back, read from stdin" $
                 (\role child -> HandbackOf <$> knownRole anyRole role <*> traverse runId child)
                     <$> textArgument "<role>"
@@ -250,12 +255,13 @@ initArgs =
         Right (Init InitArgs {notes = Text.unpack notes, flow, parent})
 
 -- | One subcommand per event the table holds, its flags its options.
-recordEvent :: Opt.Parser (Either Failure Command)
-recordEvent = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recordables)
+recordEvent :: ScopePath -> Opt.Parser (Either Failure Command)
+recordEvent scope = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recordables)
   where
     event r = Opt.command (Text.unpack r.name) (Opt.info (recording r <$> positionals r <*> flags r) (Opt.progDesc (Text.unpack (describe r)) <> freeWords r))
-    recording r positional options = OnRun . Record <$> first (refused r) (r.parse (Args positional options))
-    refused r why = Failure BadInput ("record " <> r.name) why (Text.strip ("state record " <> r.name <> " " <> usageOf r))
+    recording r positional options = OnRun . Record <$> first (refused r) (r.parse (Args scope positional options))
+    refused r why = Failure BadInput ("record " <> qualified r) why (Text.strip ("state record " <> qualified r <> " " <> usageOf r))
+    qualified r = qualifyText scope r.name
     positionals r
         | Text.null r.positional = pure []
         | otherwise = many (textArgument r.positional)
@@ -346,23 +352,25 @@ notStarted = Failure BadInput "the log" "its first line is not started" "state i
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
-run's Fuel would take.
+run's Fuel would take, and the run's meters: a hand-back is named only while
+a child it closes is open.
 -}
-explain :: OpenGraph -> Fuel -> Node -> Refusal -> Failure
-explain g fuel at = \case
+explain :: OpenGraph -> Fuel -> Node -> Map Metered Spent -> Refusal -> Failure
+explain g fuel at meters = \case
     NotStarted -> notStarted
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
     NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText) (records taken)
     NotSkippable _ -> refused "the skip" "this Fuel never skips the step" (records (not . skips))
-    OutOfRounds loop allowed ->
+    OutOfBudget cap allowed ->
         refused
-            ("another " <> loopName loop <> " round")
-            ("the loop ran its " <> tshow allowed <> " rounds")
-            (outOfRoundsFix loop)
-    OutOfAsks allowed -> refused "another question" ("the interview asked its " <> tshow allowed <> " questions") endOrExtend
-    NotGathering -> refused "extend" ("the run is at " <> atText <> ", in no gather loop") "state next"
+            ("the spend at " <> atText)
+            (someMeterName cap.meter <> " allows " <> tshow allowed <> " at this Fuel, all spent")
+            (atPlace (\place -> Text.intercalate " | " (map (.command) (capRecords g place cap.atCap))))
+    NoneOpen (StateName step) -> refused ("the hand-back to " <> step) "no child it spawned is open" "state show"
+    StillOpen open -> refused ("leaving " <> atText) (tshow open <> " spawned here have yet to hand back") "state next"
+    NothingToExtend -> refused "extend" ("the run is at " <> atText <> ", where no budget asks the user to go on") "state next"
     FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
@@ -395,32 +403,27 @@ explain g fuel at = \case
   where
     refused = Failure BadInput
     atText = case at of
-        At place -> stateNameText place.name
+        At place -> stateNameText (placeName place)
         Out -> "the end"
         Exit -> "the end"
-    records keep = case at of
-        At place -> case [recordCommand event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
-            [] -> "state show"
-            commands -> Text.intercalate " | " commands
+    records keep = atPlace $ \place -> case [recordCommand event | (event, edge) <- shownEdges g place, keep edge, closesOpen place event] of
+        [] -> "state show"
+        commands -> Text.intercalate " | " commands
+    atPlace fix = case at of
+        At place -> fix place
         Out -> "state show"
         Exit -> "state show"
     skips edge = case edge.arrow of
-        Skip _ -> True
+        Skip _ _ -> True
         Along _ -> False
         Stay -> False
+    closesOpen place event
+        | event.outcome == handedBackOutcome = maybe False ((> 0) . (.open)) (Map.lookup (Metered place event.step) meters)
+        | otherwise = True
     taken edge = case edge.arrow of
-        Skip optId -> (cfg fuel).skip optId /= Never
+        Skip _ when -> atFuel fuel when /= Never
         Along _ -> True
         Stay -> True
-    -- At either gather budget's end the user may go on; another loop ends or stops.
-    outOfRoundsFix loop = case loop of
-        LGather -> endOrExtend
-        LPlan -> leaveOrStop loop
-        LReview -> leaveOrStop loop
-        LCi -> leaveOrStop loop
-        LRound -> leaveOrStop loop
-    leaveOrStop loop = records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>"
-    endOrExtend = recordCommand (exitEvent Interview) <> " | " <> extendCommand
-    stateNames = map (stateNameText . (.name)) (Set.toList (places g))
+    stateNames = map (stateNameText . placeName) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid

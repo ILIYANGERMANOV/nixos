@@ -1,7 +1,7 @@
 {- | The blocks the skills paste rather than restate (#360, "Rendered and
 checked in"): each is whole lines ending in a newline, so a test can hold a
 file region equal to it. Each reads the knowledge it shows from the one place
-that owns it - the graph, the step table, 'cfg', 'authority' - so the skill
+that owns it - the graph, the step table, 'fullReview', 'authority' - so the skill
 text cannot drift from what the kernel does.
 -}
 module State.Cli.Render (
@@ -12,20 +12,24 @@ module State.Cli.Render (
     planWrong,
 ) where
 
-import Data.List (nub)
+import Data.List (nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Flow (OptId (..))
-import State.Category.Fuel (Cfg (..), Fuel (..), SkipWhen (..), cfg, reResearches, reReviews)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
-import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), stateNameText)
+import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullReview)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
+import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
+import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
 import State.Show (tshow)
-import State.Step.Catalog (AnyStep (..), stepNamed)
+import State.Step.Build (Sing (Refactor))
+import State.Step.Catalog (AnyStep (..), shownEdges, stepNamed)
+import State.Step.Choice (choiceNamed)
+import State.Step.Gather (Sing (Research))
+import State.Step.Review (Sing (Pick))
 import State.Table (Row (runner), Runner (..), Steps, row)
 
 {- | The flow's states in the term's order: who runs each, and where each of
@@ -36,47 +40,75 @@ states :: OpenGraph -> Steps -> Text
 states g steps =
     table
         ["State", "Run by", "Arrows out"]
-        [[stateNameText place.name, runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
+        [[stateNameText (placeName place), runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
   where
-    runBy name = case stepNamed name of
-        Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
+    runBy name = case (stepNamed name, choiceNamed name) of
+        (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
             Agent agent _ -> roleText agent
             Inline -> "you"
-        Nothing -> "fan-out"
+        (Nothing, Just _) -> "you"
+        (Nothing, Nothing) -> "fan-out"
     arrowsOut place =
-        Text.intercalate "; " [outcomeText event <> ": " <> target edge.to | ((from, event), edge) <- Map.toList g.edges, from == place]
-    outcomeText (EventName _ (OutcomeName outcome)) = outcome
+        Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | (event, edge) <- shownEdges g place]
     target = \case
-        At place -> stateNameText place.name
+        At place -> stateNameText (placeName place)
         Out -> "end"
         Exit -> "exit"
 
-{- | The engineer's rows of the Fuel table: the steps a level lets the agent
-skip or repeats, from 'cfg', with each level's depth prose after it. A step
-the flow draws as optional ('Skip' arrow) is skippable by its state's name.
+{- | The engineer's rows of the Fuel table: the meters a level caps
+differently, the steps it lets the agent skip, read off the flow's graph,
+which carries its term's budgets, and 'fullReview', with each level's depth prose
+after it. A meter is a row by its name, in the flow's order, a choice's
+actions in the order the term declares them. One
+capped alike at every level is no row. A step the flow draws as optional
+('Skip' arrow) is skippable by its state's name.
 -}
 fuel :: OpenGraph -> Text
 fuel g =
-    rows
-        [ "Research rounds after the first" : map (\level -> "up to " <> tshow (reResearches level)) levels
-        , "Interview questions" : map (\level -> "up to " <> tshow (cfg level).asks) levels
-        , "Skippable when trivial" : map (skippable . cfg) levels
-        , "Refactor" : map (\level -> refactor (cfg level) <> refactorDepth level) levels
-        , "Re-reviews" : map (\level -> "up to " <> tshow (reReviews level) <> reReviewDepth level) levels
-        , "Full review of a fix to" : map (areasText . (.areas) . cfg) levels
-        ]
+    rows $
+        [someMeterName cap.meter : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels | (_, cap) <- sortOn (uncurry shownOrder) (Map.toList g.caps), varies cap.limit]
+            <> [ "Skippable when trivial" : map skippable levels
+               , "Refactor" : map (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level) levels
+               , "Full review of a fix to" : map (areasText . fullReview) levels
+               ]
   where
     levels = [minBound .. maxBound]
+    varies limit = nub (map (`atFuel` limit) levels) /= [atFuel Low limit]
     -- An 'Opt' draws as a skip arrow out of its first state.
-    optSteps = nub [(optId, from.name) | ((from, _), Edge {arrow = Skip optId}) <- Map.toList g.edges]
-    skippable c = case ["`" <> stateNameText name <> "`" | (optId, name) <- optSteps, c.skip optId == Skippable] of
+    optSteps :: [(StateName, PerFuel SkipWhen)]
+    optSteps = nub [(placeName from, skips) | ((from, _), Edge {arrow = Skip _ skips}) <- Map.toList g.edges]
+    skippable level = case ["`" <> stateNameText name <> "`" | (name, skips) <- optSteps, atFuel level skips == Skippable] of
         [] -> "none"
         names -> Text.intercalate ", " names
-    refactor c = case c.skip ORefactor of
+    skipAt level step = maybe Never (atFuel level) (lookup step optSteps)
+    refactor = \case
         Never -> "always"
         AtOrBelow most -> "above about " <> tshow most <> " changed lines"
         Skippable -> "unless trivial"
     areasText areas = Text.intercalate ", " [Text.replace "-" " " (areaText area) | area <- [minBound .. maxBound], Set.member area areas]
+
+{- | A meter's cell: what the level allows, and for researchers and
+re-reviews how deep each goes.
+-}
+meterCell :: SomeMeter -> Fuel -> Limit -> Text
+meterCell meter level limit
+    | meter == SomeMeter Research = researchers limit <> researchDepth level
+    | meter == SomeMeter Pick = upTo limit <> reReviewDepth level
+    | otherwise = upTo limit
+  where
+    researchers = \case
+        UpTo 1 -> "1 for all"
+        other -> upTo other
+    upTo = \case
+        UpTo most -> "up to " <> tshow most
+        PerGroup -> "one per group"
+
+-- | How far each researcher goes, beyond how many run.
+researchDepth :: Fuel -> Text
+researchDepth = \case
+    Low -> ", 8 calls, notes past the hand-back limit"
+    Balanced -> ", 15 calls, notes"
+    Max -> ", 30 calls, notes, top 5 facts re-checked"
 
 -- | How deep a refactor goes, beyond whether it runs.
 refactorDepth :: Fuel -> Text

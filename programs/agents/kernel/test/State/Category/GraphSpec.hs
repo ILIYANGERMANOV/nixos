@@ -1,23 +1,22 @@
 module State.Category.GraphSpec (spec) where
 
 import Control.Monad (foldM)
-import Data.Either (isRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
+import State.Category.Flow (Flow (..))
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo)
-import State.Category.Graph (Clash (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Fuel (SkipWhen (..), always)
+import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, Ty (..))
-import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
 import State.Step.Gather (Sing (..))
-import State.Step.Review (Sing (..))
-import State.Step.Ship (Sing (SimplifyPR))
+import State.Step.Ship (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -59,43 +58,50 @@ spec = describe "State.Category.Graph" $ do
         (flow, g) <- forAll (Gen.mapMaybe (\flow -> either (const Nothing) (Just . (flow,)) (graph flow)) genFlow)
         Map.size g.edges === arrows flow
 
-    {- The laws of the sum in #351, read off the graph a run walks: a case
-    after an injection is the branch it injects into, and the case is
-    associative.
-    -}
-    describe "sums" $ do
-        it "inl_then_case_draws_as_the_left_branch" . hedgehog $ do
-            (f, g) <- forAll genCase
-            fmap redrawn (graph (inl :> (f ||| g))) === fmap redrawn (graph f)
-
-        it "inr_then_case_draws_as_the_right_branch" . hedgehog $ do
-            (f, g) <- forAll genCase
-            fmap redrawn (graph (inr :> (f ||| g))) === fmap redrawn (graph g)
-
-        {- @x@ ends in @(Diff + Plan) + Plan@; the associator moves it to
-        @Diff + (Plan + Plan)@, so both cases see the same three branches.
-        -}
-        it "case_is_associative" . hedgehog $ do
-            (f, g, h) <- forAll ((,,) <$> genBranching <*> genPlanned <*> genPlanned)
-            let x = Do Triage :> (Do Triage :> inl ||| inr)
-                associator = (inl ||| inl :> inr) ||| inr :> inr
-            fmap redrawn (graph (x :> ((f ||| g) ||| h))) === fmap redrawn (graph (x :> associator :> (f ||| (g ||| h))))
-
-        it "every_state_is_reached_from_the_start_and_reaches_the_end" . hedgehog $ do
-            g <- forAll (Gen.mapMaybe (either (const Nothing) Just . graph) genBranching)
-            [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
+    it "every_state_is_reached_from_the_start_and_reaches_the_end" . hedgehog $ do
+        g <- forAll (Gen.mapMaybe (either (const Nothing) Just . graph) genBranching)
+        [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
 
     it "refuses a loop id used twice: their rounds would mix" $
-        graph (Loop LReview ExitOut (Do Review :> Loop LReview ExitOut (Do Pick :> Do Fix)))
-            `shouldBe` Left (SameLoop LReview)
+        graph (Loop "ci" (Do AwaitCi :> Loop "ci" (Do AwaitCi :> fixCapped) :> fixCapped))
+            `shouldBe` Left (SameLoop "ci")
+
+    it "refuses a loop whose body caps no step: nothing bounds it" $
+        graph (Loop "ci" (Do AwaitCi :> Do FixPR))
+            `shouldBe` Left (Unbounded "ci")
+
+    it "refuses a loop whose only cap is a nested loop's: it starts afresh each time" $
+        graph (Loop "outer" (Do AwaitCi :> Loop "ci" (Do AwaitCi :> fixCapped)))
+            `shouldBe` Left (Unbounded "outer")
+
+    it "refuses a Refuse cap on a step whose every outcome stays in its loop: past the cap nothing is left to record" $
+        graph (Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Refuse FixPR))
+            `shouldBe` Left (RefuseWithoutWayOut (Place [1] mempty (StateName "fix_pr")))
 
     it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
-        graph (Par FEngineers (Do SimplifyPR) :> Par FEngineers (Do SimplifyPR))
-            `shouldBe` Left (SameFan FEngineers)
+        graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))
+            `shouldBe` Left (SameFan "engineers")
 
     it "refuses two skips of one state: a log could not say which was skipped" $
-        graph (Opt ORes (Opt OSimp (Do Research)))
-            `shouldBe` Left (SameEvent (Place [] (StateName "research")) (EventName (StateName "research") (OutcomeName "skipped")))
+        graph (Opt "refactor" (always Skippable) (Opt "simplify" (always Skippable) (Do Refactor)))
+            `shouldBe` Left (SameEvent (Place [] mempty (StateName "refactor")) (EventName (StateName "refactor") (OutcomeName "skipped")))
+
+    describe "a choice" $ do
+        it "refuses a branch that is not a capped action: it would leave the choice" $
+            graph (Choice "gather" [Do Interview])
+                `shouldBe` Left (NotAnAction "gather")
+
+        it "refuses one action twice: their meters would be one" $
+            graph (Choice "gather" [questions, questions])
+                `shouldBe` Left (SameAction "gather" (StateName "interview"))
+
+        it "refuses an action outside a choice: its events would stay nowhere" $
+            graph questions
+                `shouldBe` Left (StaysOutside (Place [] mempty (StateName "interview")))
+
+-- | The gather's questions, capped as an action of its choice.
+questions :: Flow 'Ctx 'Nothing 'Ctx
+questions = Capped (always (UpTo 3)) Extend Interview
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
 seqGraphs :: (NotSum a, NotSum b, NotSum c) => Gen (Flow a e1 b) -> Gen (Flow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)
@@ -104,19 +110,6 @@ seqGraphs genF genG = forAll (Gen.mapMaybe builds ((,) <$> genF <*> genG))
     builds (f, g) = case (graph f, graph g, graph (f :> g)) of
         (Right left, Right right, Right whole) -> Just (left, right, whole)
         _ -> Nothing
-
-{- | Two branches whose case builds. A clash inside either branch, or a loop
-id both use, refuses the whole term, even the branch an injection never
-runs: 'Clash' has its own cases.
--}
-genCase :: Gen (Flow 'Diff 'Nothing 'PR, Flow 'Diff 'Nothing 'PR)
-genCase = Gen.filter builds ((,) <$> genBranching <*> genBranching)
-  where
-    builds (f, g) = isRight (graph (inl :> (f ||| g)))
-
--- | A branch for a planned summand: implement the plan, then on as a diff.
-genPlanned :: Gen (Flow 'Plan 'Nothing 'PR)
-genPlanned = (Do Implement :>) <$> genBranching
 
 -- | Where the events walk from the in port.
 endOf :: OpenGraph -> [EventName] -> Maybe Node
@@ -127,33 +120,23 @@ endOf g = foldM next (At g.inPort)
         Out -> Nothing
         Exit -> Nothing
 
-{- | The graph with each state's path replaced by its rank in the term's
-order: two terms that draw the same states in the same order, wherever
-their subterms sit, compare equal.
--}
-redrawn :: OpenGraph -> OpenGraph
-redrawn g =
-    OpenGraph
-        { inPort = ranked g.inPort
-        , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
-        , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
-        }
-  where
-    ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])
-    ranked place = place {path = [Map.findWithDefault (-1) place ranks]}
-    node = \case
-        At place -> At (ranked place)
-        Out -> Out
-        Exit -> Exit
-
 -- | One per outcome of each step, one per skip, and a fan-out's three events.
 arrows :: Flow i e o -> Int
 arrows = \case
     Do s -> length (outcomeNames (outcomes s))
+    Capped _ _ s -> length (outcomeNames (outcomes s))
     f :> g -> arrows f + arrows g
-    Loop _ _ body -> arrows body
-    Opt _ body -> 1 + arrows body
+    Id -> 0
+    Loop _ body -> arrows body
+    Opt _ _ body -> 1 + arrows body
     Par _ _ -> 3
     InL -> 0
     InR -> 0
     f :||| g -> arrows f + arrows g
+    Catch body -> arrows body
+    Scope _ body -> arrows body
+    Choice _ branches -> 1 + sum (map arrows branches)
+
+-- | A fix of a red CI, capped as the ship flow caps it.
+fixCapped :: Flow 'PR 'Nothing 'PR
+fixCapped = Capped (always (UpTo 5)) Stop FixPR

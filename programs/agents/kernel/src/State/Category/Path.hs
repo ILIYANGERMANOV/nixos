@@ -33,5 +33,5 @@ ty g = go (At g.inPort)
 arrowEdges :: Arrow -> [OutcomeEdge]
 arrowEdges = \case
     Along edge -> [edge]
-    Skip _ -> []
+    Skip _ _ -> []
     Stay -> []

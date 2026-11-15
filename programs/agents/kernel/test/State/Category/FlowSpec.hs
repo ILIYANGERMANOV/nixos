@@ -10,14 +10,16 @@ module State.Category.FlowSpec (spec) where
 import Control.Exception (TypeError (..), evaluate, try)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
+import State.Category.Flow (Flow (..), inl, inr, spawn, (|||))
+import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
 import State.Flow.Triage (Sing (..))
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
-import State.Step.Fan (Sing (..))
+import State.Step.Fan (Sing (..), engineers)
 import State.Step.Gather (Sing (..))
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
@@ -35,36 +37,46 @@ spec = describe "State.Category.Flow" $ do
         it "an optional step that changes the type" $
             rejected
                 "Couldn't match type ‘State.Category.Ty.Diff’ with ‘State.Category.Ty.Plan’"
-                (Opt ORefactor (Do Implement))
+                (Opt "refactor" (always Never) (Do Implement))
 
         it "an optional step with an exit" $
             rejected
                 "Couldn't match type: Just State.Category.Ty.Plan with: Nothing"
-                (Opt OSimp (Do Confirm))
+                (Opt "simplify_plan" (always Never) (Do Confirm))
 
         it "a loop whose body never exits" $
             rejected
                 "Couldn't match type: Nothing with: Just State.Category.Ty.Diff"
-                (Loop LReview ExitOut (Do Refactor))
+                (Loop "review" (Do Refactor) :: Flow 'State.Category.Ty.Diff 'Nothing 'State.Category.Ty.Diff)
 
-        it "a loop that exits when empty to another type than its in" $
+        it "a loop whose body ends at another type than its in" $
             rejected
-                "Couldn't match type ‘State.Category.Ty.Plan’ with ‘State.Category.Ty.Ctx’"
-                (Loop LPlan ExitOut (Do PlanS :> Do Confirm))
+                "Couldn't match type ‘State.Category.Ty.Findings’ with ‘State.Category.Ty.Plan’"
+                (Loop "review" (Do Implement :> Do Review) :: Flow 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
 
-        {- The loop's out is pinned: left free, the 'NotSum' 'Loop' asks of it
-        is ambiguous, and GHC reports that before the clash of the exits. 'Ty'
-        is imported qualified, so GHC still prints every type in full.
+        it "capping a step with no meter" $
+            rejectedShown
+                "Could not deduce ‘State.Category.Meter.Meter State.Step.Build.Implement’"
+                (graph (Capped (always (UpTo 1)) Stop Implement))
+
+        {- The exit is pinned: left free, nothing asks GHC to reduce the
+        clashing 'Join'. 'Ty' is imported qualified, so GHC still prints every
+        type in full.
         -}
         it "a series whose two sides exit with different types" $
             rejected
-                "Both sides of :> exit, with different types: State.Category.Ty.Ctx and State.Category.Ty.Plan"
-                (Loop LPlan (StopOut :: OnEmpty 'State.Category.Ty.Ctx 'State.Category.Ty.Ctx) (Do Interview :> Do PlanS :> Do Confirm))
+                "Both sides of :> exit, with different types: State.Category.Ty.PR and State.Category.Ty.Plan"
+                (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
+
+        it "spawning a step whose events open no child" $
+            rejectedShown
+                "Couldn't match type ‘False’ with ‘True’"
+                (graph (spawn (always (UpTo 1)) Extend Interview))
 
         it "a fan-out's state drawn as a step" $
             rejected
                 "A fan-out's state is drawn by Par, not Do"
-                (Do (FanOut FEngineers))
+                (Do (FanOut engineers))
 
         it "a case after a step whose out is not a sum" $
             rejected
@@ -77,17 +89,17 @@ spec = describe "State.Category.Flow" $ do
         it "an optional block over a sum: its skip would be one edge for two summands" $
             rejectedShown
                 "A sum State.Category.Ty.Diff State.Category.Ty.:+ State.Category.Ty.Plan where one type is needed"
-                (graph (Do Triage :> Opt ORefactor (inl ||| inr) :> (Do Describe ||| Do Implement :> Do Describe)))
+                (graph (Do Triage :> Opt "refactor" (always Never) (inl ||| inr) :> (Do Describe ||| Do Implement :> Do Describe)))
 
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $
             rejectedShown
-                "Outcome leg Exited does not fit step signature '(State.Category.Ty.Diff, Nothing, State.Category.Ty.Diff)"
+                "Outcome leg Exited does not fit step signature '(State.Category.Ty.Findings, Nothing, State.Category.Ty.Diff)"
                 (outcomeEvent (packed Fix (by @'Exited Fix)))
 
         it "a skip of a step with an exit" $
             rejectedShown
-                "Outcome leg Skipped does not fit step signature '(State.Category.Ty.Diff, Just State.Category.Ty.Diff, State.Category.Ty.Diff)"
+                "Outcome leg Skipped does not fit step signature '(State.Category.Ty.Diff, Just State.Category.Ty.Diff, State.Category.Ty.Findings)"
                 (outcomeEvent (packed Review (by @'Skipped Review)))
 
         it "a skip of a step that changes the type" $

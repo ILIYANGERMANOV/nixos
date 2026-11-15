@@ -18,6 +18,7 @@ import State.Run.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runI
 import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
+import State.Step.Gather (Outcome (..))
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -78,6 +79,10 @@ typing = describe "typeHandback" $ do
     it "refuses a line 1 with no token from any other role" $
         typed atImplement "implementer" "built it" `shouldSatisfy` isLeft
 
+    it "closes a researcher's child at the gather on its report, which opens with no token" $
+        typed atGather "researcher" "The Index, ranked\n1. src/State.hs:12"
+            `shouldBe` Right (Typed [stepTook ResearchHandedBack] Nothing)
+
     it "asks a stuck question under the run's next own id" $
         typed atImplement "implementer" "NEEDS_DECISION stuck: the same test fails"
             `shouldBe` Right (Typed [Asked (Asking (Question (QId run 1) Stuck (oneLine "the same test fails")) implement (Subagent (AgentRole "implementer")))] Nothing)
@@ -119,9 +124,10 @@ typing = describe "typeHandback" $ do
         it "refuses a question the child did not ask in its own run" $
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
-    atImplement = runAt (map Took (take 6 happyPath))
-    atReview = runAt (map Took (take 8 happyPath))
-    atFix = runAt (map Took (take 8 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
+    atGather = runAt (map (Took mempty) (take 1 happyPath))
+    atImplement = runAt (map (Took mempty) (take 7 happyPath))
+    atReview = runAt (map (Took mempty) (take 9 happyPath))
+    atFix = runAt (map (Took mempty) (take 9 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"

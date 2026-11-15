@@ -2455,7 +2455,7 @@ class TestStateCtx:
 
 @dataclass
 class RunLog:
-    """A version 3 `state` event log, as the kernel writes it: a `started` line first."""
+    """A version 4 `state` event log, as the kernel writes it: a `started` line first."""
 
     run: str
     flow: str = "engineer"
@@ -2470,7 +2470,7 @@ class RunLog:
         seq = len(self.lines) + 1
         self.lines.append(
             {
-                "v": 3,
+                "v": 4,
                 "id": f"{self.run}:{seq}",
                 "seq": seq,
                 "ts": at(self.start + seq),
@@ -2582,7 +2582,11 @@ class TestStateLog:
 
     def test_a_log_of_an_older_version_is_skipped_and_counted(self, home: Home) -> None:
         # Given
-        home.log("v3", RunLog("r1").ask("r1:1", "Fact", "interview"))
+        home.log("v4", RunLog("r1").ask("r1:1", "Fact", "interview"))
+        v3 = RunLog("r0").ask("r0:1", "Fact", "interview")
+        for line in v3.lines:
+            line["v"] = 3
+        home.log("v3", v3)
         old = RunLog("old")
         old.lines = [{"seq": 1, "event": {"type": "started", "version": 2}}]
         home.log("v2", old)
@@ -2590,7 +2594,7 @@ class TestStateLog:
         report = home.report()
         # Then
         assert headline(report, "state-log").startswith("1 runs, 1 questions")
-        assert "logs older than version 3, skipped: 1" in section(report, "state-log")
+        assert "logs older than version 4, skipped: 2" in section(report, "state-log")
 
     def test_a_log_whose_start_time_is_not_iso_is_skipped_and_counted(
         self, home: Home
@@ -2604,7 +2608,7 @@ class TestStateLog:
         report = home.report()
         # Then
         assert headline(report, "state-log").startswith("1 runs, 1 questions")
-        assert "logs older than version 3, skipped: 1" in section(report, "state-log")
+        assert "logs older than version 4, skipped: 1" in section(report, "state-log")
 
     def test_only_runs_started_in_the_window_and_project_count(
         self, home: Home

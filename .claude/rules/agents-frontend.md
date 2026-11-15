@@ -50,17 +50,32 @@ from a higher layer, lowest first:
 | Layer | Holds |
 |---|---|
 | `State/Category/`, `State/Step/` | types, flow terms, graph, mode; the step layers and their `Catalog` |
-| `State/Block.hs`, `State/Flow/`, `State/Role.hs`, `State/Table.hs` | the named flows, the roles that lead them, the step table |
+| `State/Flow/` (with `Library.hs`), `State/Role.hs`, `State/Table.hs` | the named flows, the roles that lead them, the step table |
 | `State/Run/` | log, codec, fold, who answers (`Ask`) |
 | `State/Protocol/` | advice, hand-backs, hooks, the `record` grammar |
 | `State/Cli/` | commands, views, the effect shell |
 
-A run appends its events to `<notes>/events.jsonl`, version 3
+A run appends its events to `<notes>/events.jsonl`, version 4
 (`State/Run/Codec.hs`); the `self-improve` analyzer reads it, so a format
 change updates `analyze.py` too. The step table is `flows/steps.nix`, handed
 to the kernel as JSON (`State/Table.hs`) and to the roles, whose capabilities
 and skills derive from it (`lib/derive.nix`). Why:
-`docs/adr/0018-category-model-haskell-state.md`.
+`docs/adr/0018-category-model-haskell-state.md` and
+`docs/adr/0019-composable-flows.md`.
+
+A flow is a term of `Flow i e o` (`State/Category/Flow.hs`); a named flow
+composes the small flows of `State/Flow/Library.hs`. Its words, each with a
+law in `LawsSpec`:
+
+- `Do s`: one step. `Id`: no step. `f :> g`: series.
+- `inl`, `inr`, `f ||| g`: sums and case. `Catch f`: the exit goes on as the out.
+- `Loop name f`: repeat until the exit; a `Capped` step in it bounds it.
+- `Capped limits atCap s`: a step whose `Meter` spends a budget per Fuel;
+  `spawn`, one whose spend opens a child that must hand back.
+- `choiceLoop name actions`: the agent takes capped actions in any order,
+  then `<name>.enough`, which waits for open children.
+- `Opt name skips f`: a Fuel may skip it. `Par name f`: one child run per item.
+- `Scope name f`: its states record `name/step.outcome`.
 
 How to extend it; the compiler and `parseSteps` name what is missing:
 

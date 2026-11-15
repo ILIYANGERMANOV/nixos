@@ -16,6 +16,7 @@ import Data.Either (fromRight)
 import Data.Foldable (traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -48,11 +49,11 @@ import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), Ini
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
-import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, ownAsk, pullRequestOf, skippable)
+import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, explained, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, toldOf, wants)
+import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -61,7 +62,7 @@ import State.Run.Ask (Parent (..), Principal (..), Question (..), oneLineText, q
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), childRole, fanRole, parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), childRole, parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
@@ -140,22 +141,26 @@ hookAnswer steps call want =
                 -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
                 (facts, told) <- readFacts
                 onHook facts.pr $ \stamp run -> case commit stamp run [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
-                    Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
+                    Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
                     Right (restart, after) ->
                         let (new, _, out) = adviceOf steps facts told stamp after
-                         in (restart <> new, recordedLines after.state restart <> showRun after.state <> out.text)
+                         in (restart <> new, recordedLines after.state restart <> showRun after.g after.state <> out.text)
             SpawnRole spawned -> do
                 (facts, told) <- readFacts
                 onHook facts.pr $ \stamp run ->
-                    let (new, action, out) = adviceOf steps facts told stamp run
-                        warning = case (action, spawned) of
-                            (Advice.Spawn advised _, Just role) -> offAdvice steps run.state.at advised role
-                            _ -> Nothing
-                     in (new, out.text <> foldMap (<> "\n") warning)
+                    -- At a choice, the spawn of an action's worker opens a child; elsewhere it records nothing.
+                    case commit stamp run [(Cli, event) | Just role <- [spawned], Just event <- [spawnedAt steps run.state.at role]] of
+                        Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
+                        Right (opened, after) ->
+                            let (new, action, out) = adviceOf steps facts told stamp after
+                                warning = case (action, spawned) of
+                                    (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
+                                    _ -> Nothing
+                             in (opened <> new, recordedLines after.state opened <> out.text <> foldMap (<> "\n") warning)
             Hook.HandedBack message agent role ->
                 branchPr >>= \pr -> onHook pr $ \stamp run ->
                     let sources = hookSources run.state.run agent role message
-                     in if loggedAlready run.logged sources
+                     in if loggedAlready run.logged sources || not (followedAt run.state.at role)
                             then ([], "")
                             else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text)) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
             AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
@@ -218,7 +223,7 @@ execute steps = \case
     OnRun command -> do
         -- Read before the lock, as GitHub is.
         file <- traverse FileSystem.readText (fileOf command)
-        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.state command))
+        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.g run.state command))
   where
     fileOf = \case
         Record recording -> case recording of
@@ -256,8 +261,8 @@ recorded :: RunState -> [Envelope] -> Output
 recorded after = printed . recordedLines after
 
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
-planOf :: Steps -> Maybe Sha -> Maybe Text -> RunState -> RunCommand -> Either Failure Plan
-planOf steps worktreeHead file state = \case
+planOf :: Steps -> Maybe Sha -> Maybe Text -> OpenGraph -> RunState -> RunCommand -> Either Failure Plan
+planOf steps worktreeHead file g state = \case
     Record (Plain event) -> Right (Plan [event] recorded)
     Record (AtHead event) -> case worktreeHead of
         Just sha -> Right (Plan [event sha] recorded)
@@ -279,7 +284,7 @@ planOf steps worktreeHead file state = \case
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
     Answer qid answer by -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
-    ShowRun -> Right (Plan [] (\_ _ -> printed (showRun state)))
+    ShowRun -> Right (Plan [] (\_ _ -> printed (showRun g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
     Brief role task -> case brief steps state role task of
         Left unknown -> Left (Failure BadInput ("task " <> taskIdText unknown) "the breakdown has no such task" "state show")
@@ -307,26 +312,27 @@ handbackPlan steps worktreeHead state role child message = do
 {- | What @state next@ records and prints, and the advice's action: what GitHub
 and the run's Fuel already decide is recorded first, then the advice: its line, the
 last refusal until the next event, its facts indented, the step's lead and
-task text. The advice leads, so a refusal never reads as the next action.
+task text. The advice leads, so a refusal never reads as the next action;
+under it, where the run is and each option, one per line.
 -}
 adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Output)
 adviceOf steps facts told stamp run = (new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
-    advice = advise steps facts settled.state
+    advice = advise steps settled.g facts settled.state
     out =
         recorded settled.state new
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
-                    <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts <> skippable settled.g settled.state]
+                    <> Text.concat ["  " <> line <> "\n" | line <- explained advice <> told <> unsynced <> advice.facts <> skippable settled.g settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
-        Just outcome -> case commit stamp current [(Cli, Took outcome)] of
+        Just event -> case commit stamp current [(Cli, event)] of
             -- Nobody asked for it, so it is told and not stored.
-            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why])
+            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at current.state.meters refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
 
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
@@ -366,7 +372,7 @@ record stamp run sources = \case
     Right plan -> case commit stamp run (zip sources plan.events) of
         Right (new, after) -> (new, Right (plan.say after.state new))
         Left refusal ->
-            let failure = explain run.g (Fold.fuelOf run.state) run.state.at refusal
+            let failure = explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal
              in ([stamped stamp Cli run.state.run (nextSeq run) (Refused (noteOf failure))], Left failure)
 
 -- | Lines are numbered from 1 in the order written, @started@ first.
@@ -411,13 +417,11 @@ handedUp steps up =
     sources = [Hook (digestOf [runIdText up.child, tshow up.lastSeq, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
-        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state (atFanRole run.state) (Just up.child) up.text) of
+        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state childRole (Just up.child) up.text) of
             -- The child tells its refusal; the parent's log does not keep it.
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())
     told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
-    -- The hand-back credits the fan-out the parent is at; off one, the engineers'.
-    atFanRole state = maybe childRole fanRole (Fold.fanAt state.at)
 
 -- | The worktree's run, locked for one command.
 onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
@@ -447,7 +451,7 @@ replayed path logged@(first :| _) = case Fold.runStart first.event of
     Just start ->
         let g = graphOf start.flow
          in -- Balanced, the Fuel until recorded: only what and why are read.
-            either (Left . unreplayed path . explain g Balanced Out) (Right . (g,)) (replay g logged)
+            either (Left . unreplayed path . explain g Balanced Out Map.empty) (Right . (g,)) (replay g logged)
 
 {- | @state init@: idempotent, as a retried brief runs it again. A child names
 its parent's log, which is checked to hold that run before this one starts.
@@ -538,7 +542,7 @@ childStart parent named state = do
 
 -- | The flow of the fan-out the parent is at; a @--flow@ named must be that one.
 childFlow :: Parent -> Maybe FlowName -> RunState -> Either Failure FlowName
-childFlow parent named state = case (Fold.fanAt state.at >>= Event.fanFlow, named) of
+childFlow parent named state = case (Event.fanFlow <$ Fold.fanAt state.at, named) of
     (Nothing, _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at no fan-out whose children run a flow" "state show, in the parent's worktree")
     (Just flow, Nothing) -> Right flow
     (Just flow, Just asked)

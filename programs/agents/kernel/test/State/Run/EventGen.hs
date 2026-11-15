@@ -44,6 +44,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
@@ -51,7 +52,8 @@ import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Fan (Outcome (..))
+import State.Step.Choice (Outcome (..), gathering)
+import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -74,7 +76,7 @@ genEvent =
         [ Started <$> genStart
         , FuelSet <$> Gen.enumBounded
         , Extended <$> genText
-        , Took <$> (Gen.element templates >>= like)
+        , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
         , Refused <$> (Note <$> genText <*> genText)
@@ -179,10 +181,9 @@ outcomeNames = Set.fromList (map outcomeEvent templates)
 -- | One of each outcome; 'like' fills in its data.
 templates :: [AnyOutcome]
 templates =
-    [ outcome (ResearchDone 0)
-    , outcome ResearchSkipped
-    , outcome InterviewEnough
-    , outcome InterviewMore
+    [ outcome ResearchSpawned
+    , outcome ResearchHandedBack
+    , outcome (Enough gathering)
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
     , outcome SimplifyPlanSkipped
@@ -197,6 +198,8 @@ templates =
     , outcome (PickFinal (Picks Set.empty Map.empty))
     , outcome (PickLoop (Picks Set.empty Map.empty))
     , outcome (FixDone (Commit (Sha "") Set.empty))
+    , outcome (ReReviewClean (Sha ""))
+    , outcome (ReReviewRows (Sha ""))
     , outcome (DescribeDone (Sha ""))
     , outcome (SimplifyPrDone (Sha ""))
     , outcome (SimplifyPrSkipped (Sha ""))
@@ -212,7 +215,7 @@ templates =
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)
               ]
-            | fan <- [minBound .. maxBound]
+            | fan <- fanOuts
             ]
 
 -- | The same outcome, with generated data: of the same step, by the same leg.
@@ -222,10 +225,8 @@ like (AnyOutcome layer (SomeOutcome s leg o)) = AnyOutcome layer . SomeOutcome s
 likeIn :: Layer k -> Outcome (s :: k) l -> Gen (Outcome s l)
 likeIn = \case
     GatherLayer -> \case
-        ResearchDone _ -> ResearchDone <$> Gen.integral (Range.linear 0 6)
-        ResearchSkipped -> pure ResearchSkipped
-        InterviewEnough -> pure InterviewEnough
-        InterviewMore -> pure InterviewMore
+        ResearchSpawned -> pure ResearchSpawned
+        ResearchHandedBack -> pure ResearchHandedBack
     PlanLayer -> \case
         PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
         SimplifyPlanDone -> pure SimplifyPlanDone
@@ -243,6 +244,8 @@ likeIn = \case
         PickFinal _ -> PickFinal <$> genPicks
         PickLoop _ -> PickLoop <$> genPicks
         FixDone _ -> FixDone <$> genCommit
+        ReReviewClean _ -> ReReviewClean <$> genSha
+        ReReviewRows _ -> ReReviewRows <$> genSha
     ShipLayer -> \case
         DescribeDone _ -> DescribeDone <$> genSha
         SimplifyPrDone _ -> SimplifyPrDone <$> genSha
@@ -257,6 +260,8 @@ likeIn = \case
         FanDone fan -> pure (FanDone fan)
         MergeDone fan _ -> MergeDone fan . Url <$> genText
         MergeNextRound fan -> pure (MergeNextRound fan)
+    ChoiceLayer -> \case
+        Enough choice -> pure (Enough choice)
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

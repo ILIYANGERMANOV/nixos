@@ -9,9 +9,11 @@ module State.Category.FlowGen (
     genBranching,
     genWalk,
     genWalkTo,
+    genScopePath,
     pathTo,
     skipsKept,
     composes,
+    redrawn,
 ) where
 
 import Data.Map.Strict qualified as Map
@@ -20,33 +22,38 @@ import Data.Set qualified as Set
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), inl, inr, (|||))
-import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (..), cfg)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Flow (Flow (..), Name, ScopePath, inl, inr, scopePath, (|||))
+import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
+import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (NotSum, Ty (..))
+import State.Flow.Library (gather)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
-import State.Step.Fan (Sing (..))
-import State.Step.Gather (Sing (..))
+import State.Step.Fan (Sing (..), engineers)
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
 
--- | The steps of one type that a generated flow chains, with and without an exit.
+{- | The steps of one type that a generated flow chains, with and without an
+exit. Each exiting one caps a step, so a loop over it is bounded.
+-}
 data Kit a = Kit {endo :: [Flow a 'Nothing a], exiting :: [Flow a ('Just a) a]}
 
+-- | A gather's choice is @Ctx@'s only step: no step of its own exits.
 ctxKit :: Kit 'Ctx
-ctxKit = Kit [Do Research] [Do Interview]
+ctxKit = Kit [gather] []
 
 planKit :: Kit 'Plan
 planKit = Kit [Do SimplifyP, Do Draft] []
 
+-- | A review with rows always fixes them before the diff goes on.
 diffKit :: Kit 'Diff
-diffKit = Kit [Do Refactor, Do Fix] [Do Review, Do Pick]
+diffKit = Kit [Do Refactor] [Do Review :> Capped (always (UpTo 3)) Refuse Pick :> Do Fix, Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse Pick :> Do Fix]
 
 prKit :: Kit 'PR
-prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi]
+prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR]
 
 -- | A term from @Ctx@ to @PR@ through every type, any combinator on each.
 genFlow :: Gen (Flow 'Ctx 'Nothing 'PR)
@@ -55,7 +62,7 @@ genFlow = do
     plan <- genEndo planKit
     Gen.choice
         [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-        , pure (Loop LRound StopOut (ctx :> Do PlanS :> plan :> Do (Breakdown FEngineers) :> Par FEngineers (Do PlanS :> Do Implement :> Do Describe) :> Do (Merge FEngineers)))
+        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers (Do PlanS :> Do Implement :> Do Describe) :> Capped (always (UpTo 9)) Stop (Merge engineers)))
         ]
 
 {- | A term from @Diff@ to @PR@ that branches: a triage whose two branches go
@@ -77,11 +84,25 @@ genEndo kit =
     Gen.recursive
         Gen.choice
         [Gen.element kit.endo]
-        ( [ Opt <$> Gen.enumBounded <*> genEndo kit
+        ( [ Opt <$> genName <*> genSkips <*> genEndo kit
           , (:>) <$> genEndo kit <*> genEndo kit
+          , Scope <$> genName <*> genEndo kit
           ]
-            <> [Loop <$> Gen.enumBounded <*> Gen.element [StopOut, ExitOut] <*> genExiting kit | not (null kit.exiting)]
+            <> [Loop <$> genName <*> genExiting kit | not (null kit.exiting)]
         )
+
+-- | A loop or skip name from a small pool, so nested terms sometimes reuse one.
+genName :: Gen Name
+genName = Gen.element ["gather", "plan", "review", "ci", "round"]
+
+-- | The root or a nesting of up to three scopes from 'genName''s pool.
+genScopePath :: Gen ScopePath
+genScopePath = foldMap scopePath <$> Gen.list (Range.linear 0 3) genName
+
+genSkips :: Gen (PerFuel SkipWhen)
+genSkips = PerFuel <$> skip <*> skip <*> skip
+  where
+    skip = Gen.element [Never, AtOrBelow 100, Skippable]
 
 -- | A term with an exit, an exiting step glued on either side of an endo term.
 genExiting :: (NotSum a) => Kit a -> Gen (Flow a ('Just a) a)
@@ -136,10 +157,30 @@ bypasses :: Fuel -> OpenGraph -> StateName -> Bool
 bypasses fuel g name = isJust (pathTo g {edges = Map.filterWithKey taken g.edges} (At g.inPort) Out)
   where
     taken (from, _) edge = case edge.arrow of
-        Skip optId -> (cfg fuel).skip optId /= Never
+        Skip _ when -> atFuel fuel when /= Never
         Along _ -> from.name /= name
         Stay -> from.name /= name
 
 -- | Each edge starts where the one before it ends: a path of @Cap@.
 composes :: [OutcomeEdge] -> Bool
 composes edges = and (zipWith (\a b -> a.cod == b.dom) edges (drop 1 edges))
+
+{- | The graph with each state's path replaced by its rank in the term's
+order: two terms that draw the same states in the same order, wherever
+their subterms sit, compare equal.
+-}
+redrawn :: OpenGraph -> OpenGraph
+redrawn g =
+    OpenGraph
+        { inPort = ranked g.inPort
+        , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
+        , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
+        , caps = Map.mapKeys (\metered -> metered {place = ranked metered.place}) g.caps
+        }
+  where
+    ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])
+    ranked place = place {path = [Map.findWithDefault (-1) place ranks]}
+    node = \case
+        At place -> At (ranked place)
+        Out -> Out
+        Exit -> Exit

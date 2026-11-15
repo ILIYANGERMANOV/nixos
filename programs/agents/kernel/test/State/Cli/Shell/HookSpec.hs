@@ -13,7 +13,7 @@ import Data.Text qualified as Text
 import State.Cli.Shell.World
 import State.Protocol.Advice (Readiness (..))
 import State.Run.Event (Branch (..))
-import Test.Hspec (Spec, before, describe, it, shouldBe, shouldSatisfy)
+import Test.Hspec (Spec, before, describe, it, shouldBe, shouldReturn, shouldSatisfy)
 
 spec :: Spec
 spec = describe "state-hook over the doubles" $ do
@@ -30,7 +30,7 @@ spec = describe "state-hook over the doubles" $ do
                 said <- hook world "resume" sessionStart
 
                 (said.code, said.err) `shouldBe` (0, [])
-                contextOf said `shouldSatisfy` maybe False ("step: research" `Text.isInfixOf`)
+                contextOf said `shouldSatisfy` maybe False ("step: gather" `Text.isInfixOf`)
 
             it "is silent off the branch the draft PR bound the run to" $ \world -> do
                 _ <- drive world (init toImplement)
@@ -76,7 +76,7 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 first.code `shouldBe` 0
-                contextOf first `shouldBe` Just "state: recorded 8 implement.done -> refactor\n"
+                contextOf first `shouldBe` Just "state: recorded 9 implement.done -> refactor\n"
                 first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
@@ -105,12 +105,50 @@ spec = describe "state-hook over the doubles" $ do
 
         describe "spawn" $ do
             it "warns the lead spawning a role off the advice" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Record ["plan.done", "/notes/plan.md"]]
 
                 said <- hook world "spawn" (spawned "implementer")
 
                 said.code `shouldBe` 0
                 contextOf said `shouldSatisfy` maybe False ("state: the advice is SPAWN researcher, not implementer" `Text.isInfixOf`)
+
+            it "records a researcher's spawn at the gather, and its hand-back, which lets the gather end" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"]]
+
+                spawn <- hook world "spawn" (spawned "researcher")
+                early <- state world ["record", "gather.enough"]
+                back <- hook world "handback" (handedBack "researcher")
+                enough <- state world ["record", "gather.enough"]
+
+                (contextOf spawn, early.code, contextOf back, enough.code)
+                    `shouldSatisfy` \case
+                        (Just opened, 2, Just closed, 0) -> "recorded 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded 5 research.handed_back -> gather" `Text.isInfixOf` closed
+                        _ -> False
+
+            it "opens no child for a spawn past the researchers' cap, and tells the refusal" $ \world -> do
+                _ <- drive world [Record ["fuel", "low"]]
+                _ <- hook world "spawn" (spawned "researcher")
+
+                said <- hook world "spawn" (spawned "researcher")
+
+                said.code `shouldBe` 0
+                contextOf said `shouldSatisfy` maybe False ("Researchers allows 1" `Text.isInfixOf`)
+                loggedEvents world `shouldReturn` ["started", "fuel", "research.spawned"]
+
+            it "records nothing on a spawn of a role whose step opens no child" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"]]
+
+                _ <- hook world "spawn" (spawned "implementer")
+
+                loggedEvents world `shouldReturn` ["started", "fuel"]
+
+            it "leaves a researcher's hand-back off the gather to the lead" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"]]
+
+                said <- hook world "handback" (handedBack "researcher")
+
+                (said.code, said.out) `shouldBe` (0, [])
+                loggedEvents world `shouldReturn` ["started", "fuel", "gather.enough"]
 
         describe "asked" $ do
             it "tells the lead how to record the answer to a question put to the user" $ \world -> do

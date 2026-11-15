@@ -32,6 +32,7 @@ for its engineers, wraps a flow without changing it.
 - **Capabilities and blocks.** Each step is defined once and typed. Steps glue
   into the blocks Gather, Propose, Build, Review, Describe and Ship; a flow is
   a few blocks in a row, and any flow can be one step of a bigger one.
+  Superseded by ADR 0019: blocks are composable flows, loop rounds are step meters.
 - **Roles are named flows.** `engineer : Ctx -> PR`. A 10x runs whole Engineer
   flows, as the user would run N engineers by hand.
 - **Delegation is a handler, not a mode.** A flow never branches on who runs
