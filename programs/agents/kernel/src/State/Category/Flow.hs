@@ -1,31 +1,32 @@
 {- | #351's category @Flow@: typed terms over the steps of "State.Category.Step"'s layers. The
 indexes make an ill-typed gluing a compile error (law Typed gluing), and 'Opt'
-and 'Loop' exist only on the shapes #351 allows (law Skip is endo).
+and 'Loop' exist only on the shapes #351 allows (law Skip is endo). A flow
+is built by composing small flows ("State.Flow.Library"), each reusable in
+any flow.
 -}
 module State.Category.Flow (
     Flow (..),
     inl,
     inr,
     (|||),
+    alternateLoop,
     Join,
     OnEmpty (..),
-    LoopId (..),
-    OptId (..),
-    FanId (..),
+    Name (..),
+    nameText,
+    scoped,
     fanName,
-    fanNamed,
-    breakdownName,
-    mergeName,
-    fanOf,
     FanEvent (..),
     fanEvent,
-    loopName,
 ) where
 
 import Data.Kind (Type)
-import Data.List (find)
+import Data.List.NonEmpty (NonEmpty)
+import Data.String (IsString)
 import Data.Text (Text)
 import GHC.TypeError (ErrorMessage (..), TypeError)
+import Numeric.Natural (Natural)
+import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..))
 import State.Category.Ty (KnownTy, NotSum, Ty (..))
 
@@ -56,31 +57,56 @@ data OnEmpty a b where
 
 deriving stock instance Show (OnEmpty a b)
 
-{- | @i@: in. @e@: the exit, if any. @o@: continue. Rounds, skips and fan-out
-are not numbers in the term: 'State.Category.Fuel.cfg' gives each id its value.
+{- | @i@: in. @e@: the exit, if any. @o@: continue. Each constructor's
+comment states its law, read off the graph a run walks ("State.Category.Graph").
+A loop, skip or fan-out is known by its 'Name' and carries its budgets as
+'PerFuel' data: no global table of ids.
 -}
 data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
-    -- | One step, of any layer: its signature is the term's type. A step takes one type, never a sum.
+    {- | One step, of any layer: its signature is the term's type. A step takes
+    one type, never a sum. Law: one state, one edge per outcome.
+    -}
     Do :: (StepSet k, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Flow i e o
-    -- | Series: an exit of either side exits the whole.
+    -- | Identity: no step runs. Law: @Id :> f = f = f :> Id@.
+    Id :: Flow a 'Nothing a
+    {- | Series: an exit of either side exits the whole. Law: associative,
+    @(f :> g) :> h = f :> (g :> h)@.
+    -}
     (:>) :: Flow a e1 b -> Flow b e2 c -> Flow a (Join e1 e2) c
-    {- | Repeat the body while it continues; its exit is the loop's out. Over
-    one type only: a loop over a sum would start each round at one of
-    several states, and the exit of a sum would not say which summand.
+    {- | Repeat the body while it continues, at most its rounds at the run's
+    Fuel; its exit is the loop's out. Over one type only: a loop over a sum
+    would start each round at one of several states, and the exit of a sum
+    would not say which summand. Law, Elgot's fixpoint: the loop is its body
+    unrolled once, @Loop n r e f = Catch (f :> Loop n r e f)@, rounds aside.
     -}
-    Loop :: (NotSum a, NotSum b) => LoopId -> OnEmpty a b -> Flow a ('Just b) a -> Flow a 'Nothing b
-    {- | A mark: the mode may skip the body, so it must keep the type. Over one
-    type only: a skip is one edge, and a sum would need one per summand.
+    Loop :: (NotSum a, NotSum b) => Name -> PerFuel Natural -> OnEmpty a b -> Flow a ('Just b) a -> Flow a 'Nothing b
+    {- | A mark: the level may skip the body, so it must keep the type. Over
+    one type only: a skip is one edge, and a sum would need one per summand.
+    Law: a skip walks as 'Id'; at a level that never skips, the body alone.
     -}
-    Opt :: (NotSum a) => OptId -> Flow a 'Nothing a -> Flow a 'Nothing a
-    -- | One flow per item, as child runs.
-    Par :: (KnownTy a, KnownTy b) => FanId -> Flow a 'Nothing b -> Flow ('List a) 'Nothing ('List b)
+    Opt :: (NotSum a) => Name -> PerFuel SkipWhen -> Flow a 'Nothing a -> Flow a 'Nothing a
+    -- | One flow per item, as child runs. Law: one state, its children's events stay there.
+    Par :: (KnownTy a, KnownTy b) => Name -> Flow a 'Nothing b -> Flow ('List a) 'Nothing ('List b)
     -- | Into the left summand: no step runs, the next block's left branch does.
     InL :: Flow a 'Nothing (a ':+ b)
     -- | Into the right summand.
     InR :: Flow b 'Nothing (a ':+ b)
-    -- | Case: the left branch on the left summand, the right on the right.
+    {- | Case: the left branch on the left summand, the right on the right.
+    Laws: @inl :> (f ||| g) = f@, @inr :> (f ||| g) = g@, and
+    @(inl :> h) ||| (inr :> h) = h@.
+    -}
     (:|||) :: Flow a e1 c -> Flow b e2 c -> Flow (a ':+ b) (Join e1 e2) c
+    {- | The codiagonal @b + b -> b@: the exit goes on as the out. Laws:
+    @Catch (f :> g) = f :> Catch g@ for an @f@ with no exit, and
+    @Catch (f ||| g) = Catch f ||| Catch g@.
+    -}
+    Catch :: (NotSum b) => Flow a ('Just b) b -> Flow a 'Nothing b
+    {- | The body's states, loops, skips and fan-outs named @scope/name@, so
+    a flow can sit twice in one graph. The root is unprefixed. Laws:
+    @Scope s (f :> g) = Scope s f :> Scope s g@, and
+    @Scope s (Scope t f) = Scope (s/t) f@.
+    -}
+    Scope :: Name -> Flow i e o -> Flow i e o
 
 infixr 5 :>
 
@@ -101,48 +127,31 @@ inr = InR
 
 infixr 4 |||
 
+{- | The steps in a fixed order, round after round: a loop over their series.
+Law: @alternateLoop n r e (f :| [g]) = Loop n r e (f :> g)@.
+-}
+alternateLoop :: (NotSum a, NotSum b) => Name -> PerFuel Natural -> OnEmpty a b -> NonEmpty (Flow a ('Just b) a) -> Flow a 'Nothing b
+alternateLoop name rounds onEmpty = Loop name rounds onEmpty . foldr1 (:>)
+
 deriving stock instance Show (Flow i e o)
 
-data LoopId = LGather | LPlan | LReview | LCi | LRound
-    deriving stock (Eq, Ord, Show, Enum, Bounded)
-
-data OptId = ORes | OSimp | ORefactor | OBody | OReady
-    deriving stock (Eq, Ord, Show, Enum, Bounded)
-
-data FanId = FResearchers | FEngineers
-    deriving stock (Eq, Ord, Show, Enum, Bounded)
-
--- | The fan-out whose own state, the one its 'Par' draws, this is.
-fanNamed :: StateName -> Maybe FanId
-fanNamed name = find ((== name) . fanName) [minBound .. maxBound]
-
--- | The state a 'Par' draws as.
-fanName :: FanId -> StateName
-fanName =
-    StateName . \case
-        FResearchers -> "researchers"
-        FEngineers -> "engineers"
-
--- | The state of the fan-out's breakdown, before its 'Par'.
-breakdownName :: FanId -> StateName
-breakdownName = fanStepName "breakdown"
-
--- | The state of the fan-out's merge, after its 'Par'.
-mergeName :: FanId -> StateName
-mergeName = fanStepName "merge"
-
-{- | The engineers' breakdown and merge keep their wire v3 names, @breakdown@
-and @merge@, so a v3 log still reads; another fan-out's are prefixed with its
-own name, as state names are unique.
+{- | A loop's, skip's, fan-out's or scope's name. A fan-out's is its state's
+too; a scope's prefixes every name inside it.
 -}
-fanStepName :: Text -> FanId -> StateName
-fanStepName step fan = StateName $ case fan of
-    FEngineers -> step
-    FResearchers -> let StateName own = fanName fan in own <> "_" <> step
+newtype Name = Name Text
+    deriving stock (Eq, Ord, Show)
+    deriving newtype (IsString)
 
--- | The fan-out whose state this is: its breakdown, its own or its merge.
-fanOf :: StateName -> Maybe FanId
-fanOf name = find (\fan -> name `elem` [breakdownName fan, fanName fan, mergeName fan]) [minBound .. maxBound]
+nameText :: Name -> Text
+nameText (Name name) = name
+
+-- | @scope/name@: a name inside a scope.
+scoped :: Name -> Name -> Name
+scoped (Name scope) (Name name) = Name (scope <> "/" <> name)
+
+-- | The state a 'Par' draws as: its fan-out's name.
+fanName :: Name -> StateName
+fanName = StateName . nameText
 
 {- | The events at a fan-out's state: a child is spawned or hands back while
 the run stays there; the fan-out is done when it leaves.
@@ -157,11 +166,3 @@ fanEvent event fan =
         Spawns -> "spawned"
         HandsBack -> "handed_back"
         Leaves -> "done"
-
-loopName :: LoopId -> Text
-loopName = \case
-    LGather -> "gather"
-    LPlan -> "plan"
-    LReview -> "review"
-    LCi -> "ci"
-    LRound -> "round"
