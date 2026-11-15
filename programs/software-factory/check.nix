@@ -60,6 +60,7 @@ let
     claude = fakeClaude;
     claudeUnwrapped = fakeClaudeUnwrapped;
     ghToken = "${work}/gh-token";
+    label = "factory-test";
   };
 
   relinkSkills = factory.mkRelinkSkills { lockSeconds = 1; };
@@ -68,6 +69,7 @@ let
     opsStateDir = "${work}/ops";
     deployRepo = "owner/nixos";
     deployWorkflow = "deploy-factory.yml";
+    deployHost = "software-factory-lenovo";
     inherit gcrootsAuto tmpDir;
   };
 

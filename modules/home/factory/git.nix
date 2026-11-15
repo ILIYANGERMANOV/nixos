@@ -1,5 +1,5 @@
 # Git as the bot account: its identity from myConfig.user, and its SSH key -
-# generated on the server by `just factory-gh-key` - for both pushing and
+# generated on the server by `just factory-gh-key <host>` - for both pushing and
 # signing, so its commits show as Verified on GitHub.
 { pkgs, userConfig, ... }:
 {

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mode=$1
+host=$1
+mode=$2
+bash "$(dirname "$0")/factory-host.sh" "$host" >/dev/null
 case "$mode" in
   concise | detailed) ;;
   *)
@@ -12,7 +14,7 @@ esac
 # The remote side runs without -e or pipefail, so one failing section
 # still leaves the others printed. $mode is one of two fixed words by
 # now, so it is safe in the remote command line.
-ssh -o ConnectTimeout=10 factory@software-factory "bash -s -- $mode" <<'EOF' || {
+ssh -o ConnectTimeout=10 "factory@$host" "bash -s -- $mode" <<'EOF' || {
 set -u
 
 main() {
@@ -88,6 +90,6 @@ top_memory() {
 main "$1"
 EOF
   status=$?
-  [ "$status" -ne 255 ] || echo "ERROR: could not reach software-factory. Is Tailscale up? (just macos-main-tailscale-up)" >&2
+  [ "$status" -ne 255 ] || echo "ERROR: could not reach $host. Is Tailscale up? (just macos-main-tailscale-up)" >&2
   exit "$status"
 }

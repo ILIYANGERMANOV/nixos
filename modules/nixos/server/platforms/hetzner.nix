@@ -30,7 +30,4 @@
   # Hetzner hands out IPv4 over DHCP. IPv6 would need the /64 configured
   # statically, and github.com is IPv4-only anyway.
   networking.useDHCP = true;
-
-  # No timezone surprises in logs and commit dates.
-  time.timeZone = "UTC";
 }

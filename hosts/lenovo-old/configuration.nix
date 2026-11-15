@@ -1,17 +1,5 @@
-{ modulesPath, ... }: {
-  imports = [
-    (modulesPath + "/installer/scan/not-detected.nix")
-    ./disk-config.nix
-  ];
-
-  boot.initrd.availableKernelModules = [
-    "xhci_pci"
-    "ahci"
-    "nvme"
-    "usb_storage"
-    "sd_mod"
-  ];
-  boot.kernelModules = [ "kvm-intel" ];
+_: {
+  imports = [ ./disk-config.nix ];
 
   networking.hostName = "lenovo-old";
   networking.networkmanager.enable = true;

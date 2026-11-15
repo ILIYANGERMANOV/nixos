@@ -1,16 +1,28 @@
-name: Deploy software-factory
+name: Deploy software factories
 
-# Requests a deploy of main's tip to the software-factory server, from the
-# Actions tab or with `factory-ctl deploy` on the server. The server polls for
-# the deployment this creates and builds it itself, so GitHub holds no
-# credential to the server.
+# Requests a deploy of main's tip to one software factory, or to all of them,
+# from the Actions tab or with `factory-ctl deploy` on a factory (its own host).
+# Each factory polls for the deployment of the environment named after it and
+# builds it itself, so GitHub holds no credential to a server.
 #
 # The `if:` below is a convenience, not the boundary: a branch can carry its own
 # copy of this file, and anyone with write access can create a deployment
 # through the API. The server checks that the commit is main's tip before it
 # builds anything. See docs/adr/0007-software-factory.md.
 
-on: workflow_dispatch
+# The host options and FACTORIES below are `factories` in flake.nix:
+# checks.factory-deploy-hosts fails when either drifts from it.
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: The factory to deploy, or all of them
+        type: choice
+        default: all
+        options:
+          - all
+          - software-factory
+          - software-factory-lenovo
 
 permissions:
   checks: read
@@ -26,6 +38,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     env:
       GH_TOKEN: ${{ github.token }}
+      FACTORIES: software-factory software-factory-lenovo
     steps:
       # The jobs of check.yml that gate a deploy. It runs on every push to main.
       - name: Require green CI on this commit
@@ -38,11 +51,20 @@ jobs:
             exit 1
           }
 
+      # One deployment per factory, for the environment named after its host.
       # required_contexts is empty because the step above already checked CI,
       # and GitHub would otherwise demand every status on the commit.
-      - name: Create the deployment
+      - name: Create the deployments
+        env:
+          HOST: ${{ inputs.host }}
         run: |
-          jq -n --arg ref "$GITHUB_SHA" --arg actor "$GITHUB_ACTOR" \
-            '{ref: $ref, environment: "software-factory", description: "Requested by \($actor)", auto_merge: false, required_contexts: []}' |
-            gh api "repos/$GITHUB_REPOSITORY/deployments" --input -
-          echo "Requested a deploy of $GITHUB_SHA. The server picks it up within a minute."
+          case "$HOST" in
+            all) hosts=$FACTORIES ;;
+            *) hosts=$HOST ;;
+          esac
+          for host in $hosts; do
+            jq -n --arg ref "$GITHUB_SHA" --arg environment "$host" --arg actor "$GITHUB_ACTOR" \
+              '{ref: $ref, environment: $environment, description: "Requested by \($actor)", auto_merge: false, required_contexts: []}' |
+              gh api "repos/$GITHUB_REPOSITORY/deployments" --input -
+            echo "Requested a deploy of $GITHUB_SHA to $host. It picks it up within a minute."
+          done

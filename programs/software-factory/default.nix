@@ -84,9 +84,11 @@ let
       claude,
       claudeUnwrapped,
       ghToken,
+      label,
     }:
     let
       settings = lib.toShellVars {
+        server_label = label;
         claude_bin = lib.getExe claude;
         claude_unwrapped = lib.getExe claudeUnwrapped;
         gh_token_file = ghToken;
@@ -183,11 +185,13 @@ let
   #   opsStateDir    - where the root units record their results
   #   deployRepo     - owner/repo of this flake, which deploys are requested on
   #   deployWorkflow - the workflow file that requests them
+  #   deployHost     - this factory's hostname, the workflow's `host` choice
   mkCtl =
     {
       opsStateDir,
       deployRepo,
       deployWorkflow,
+      deployHost,
       gcrootsAuto ? "/nix/var/nix/gcroots/auto",
       tmpDir ? "/tmp",
     }:
@@ -196,6 +200,7 @@ let
         admin_unit = adminUnit;
         deploy_repo = deployRepo;
         deploy_workflow = deployWorkflow;
+        deploy_host = deployHost;
         gcroots_auto = gcrootsAuto;
         ops_state_dir = opsStateDir;
         tmp_dir = tmpDir;

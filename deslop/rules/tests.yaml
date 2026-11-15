@@ -85,6 +85,8 @@ rules:
       - "just/scripts/darwin-generate-age-key.sh"
       # Mac only: it hands the key over through pbcopy.
       - "just/scripts/factory-generate-age-key.sh"
+      # Wipes a machine's disk over SSH, from a Mac.
+      - "just/scripts/factory-install.sh"
       # Needs a YubiKey.
       - "just/scripts/enroll-backup-yubikey.sh"
       - "just/scripts/rotate-ssh-key.sh"
