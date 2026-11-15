@@ -399,6 +399,7 @@ spec = describe "state over the doubles" $ do
                                , "QA: no"
                                , "Heavy: yes"
                                , "Security-sensitive: none"
+                               , "Existing PR: none"
                                , ""
                                , "state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t2"
                                ]

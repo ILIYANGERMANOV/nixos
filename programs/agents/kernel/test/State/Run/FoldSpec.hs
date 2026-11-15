@@ -97,7 +97,7 @@ spec = describe "State.Run.Fold" $ do
         it "refuses the first fan-out's merge while its task is unmerged" $
             twoFansRun (engineered <> [stepTook (MergeDone FResearchers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
         it "credits a task's move at a merge to that merge's fan-out" $
-            (.at) <$> twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone FResearchers (Url "pr"))]) `shouldBe` Right Out
+            (.at) <$> twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone FResearchers (Url "pr"))]) `shouldBe` Right Exit
         it "refuses a task's move off every fan-out's state" $
             twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone FResearchers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
 
@@ -435,7 +435,7 @@ or a parent, keeping those the fold accepts: the run state and the events.
 genAskLog :: Gen (RunState, [Event])
 genAskLog = do
     flow <- Gen.enumBounded
-    principal <- Gen.element [ByUser, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1"))]
+    principal <- Gen.element [ByUser, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr]
     first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
     go tries first 1 0
@@ -481,7 +481,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow ByUser]
             , [rung "x1" TenXFlow ByUser]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1"))), rung "x1" TenXFlow ByUser]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr), rung "x1" TenXFlow ByUser]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

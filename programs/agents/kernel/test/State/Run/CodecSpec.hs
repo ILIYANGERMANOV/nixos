@@ -11,7 +11,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
 import State.Run.RunGen (breakdownJson, plainTask, taskFileJson)
 import State.Step.Review (Outcome (..))
@@ -135,7 +135,7 @@ metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
 
 -- | A started line naming parent run r7f2.
 parentRun :: Envelope
-parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") "/p/events.jsonl" (TaskId "t1"))) mempty)}
+parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") "/p/events.jsonl" (TaskId "t1")) OwnPr) mempty)}
 
 -- | Lines in the shape the Python @state@ wrote, its other keys left out.
 pythonV1, pythonV2 :: Text

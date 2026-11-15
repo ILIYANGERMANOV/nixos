@@ -417,6 +417,7 @@ explain g fuel at = \case
         LPlan -> leaveOrStop loop
         LReview -> leaveOrStop loop
         LCi -> leaveOrStop loop
+        LRound -> leaveOrStop loop
     leaveOrStop loop = records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>"
     endOrExtend = recordCommand (exitEvent Interview) <> " | " <> extendCommand
     stateNames = map (stateNameText . (.name)) (Set.toList (places g))

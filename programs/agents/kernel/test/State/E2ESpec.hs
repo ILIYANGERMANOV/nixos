@@ -291,7 +291,7 @@ spec = describe "the state binary" $ do
                 early.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
                 done <- succeeded =<< state bin repo ["next"]
-                take 1 done `shouldBe` ["RUN state record merge.done <url>"]
+                take 1 done `shouldBe` ["RUN state record merge.done <url> | state record merge.next_round"]
 
         describe "brief" $ do
             it "gives a refactorer its step's task and the stop rule" $ \repo -> do
