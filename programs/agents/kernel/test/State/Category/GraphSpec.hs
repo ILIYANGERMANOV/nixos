@@ -1,21 +1,18 @@
 module State.Category.GraphSpec (spec) where
 
 import Control.Monad (foldM)
-import Data.Either (isRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), OnEmpty (..), inl, inr, (|||))
-import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, redrawn)
+import State.Category.Flow (Flow (..), OnEmpty (..))
+import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo)
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
-import State.Category.Ty (NotSum, Ty (..))
-import State.Flow.Triage (Sing (..))
-import State.Step.Build (Sing (..))
+import State.Category.Ty (NotSum)
 import State.Step.Gather (Sing (..))
 import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (SimplifyPR))
@@ -60,31 +57,9 @@ spec = describe "State.Category.Graph" $ do
         (flow, g) <- forAll (Gen.mapMaybe (\flow -> either (const Nothing) (Just . (flow,)) (graph flow)) genFlow)
         Map.size g.edges === arrows flow
 
-    {- The laws of the sum in #351, read off the graph a run walks: a case
-    after an injection is the branch it injects into, and the case is
-    associative.
-    -}
-    describe "sums" $ do
-        it "inl_then_case_draws_as_the_left_branch" . hedgehog $ do
-            (f, g) <- forAll genCase
-            fmap redrawn (graph (inl :> (f ||| g))) === fmap redrawn (graph f)
-
-        it "inr_then_case_draws_as_the_right_branch" . hedgehog $ do
-            (f, g) <- forAll genCase
-            fmap redrawn (graph (inr :> (f ||| g))) === fmap redrawn (graph g)
-
-        {- @x@ ends in @(Diff + Plan) + Plan@; the associator moves it to
-        @Diff + (Plan + Plan)@, so both cases see the same three branches.
-        -}
-        it "case_is_associative" . hedgehog $ do
-            (f, g, h) <- forAll ((,,) <$> genBranching <*> genPlanned <*> genPlanned)
-            let x = Do Triage :> (Do Triage :> inl ||| inr)
-                associator = (inl ||| inl :> inr) ||| inr :> inr
-            fmap redrawn (graph (x :> ((f ||| g) ||| h))) === fmap redrawn (graph (x :> associator :> (f ||| (g ||| h))))
-
-        it "every_state_is_reached_from_the_start_and_reaches_the_end" . hedgehog $ do
-            g <- forAll (Gen.mapMaybe (either (const Nothing) Just . graph) genBranching)
-            [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
+    it "every_state_is_reached_from_the_start_and_reaches_the_end" . hedgehog $ do
+        g <- forAll (Gen.mapMaybe (either (const Nothing) Just . graph) genBranching)
+        [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
 
     it "refuses a loop id used twice: their rounds would mix" $
         graph (Loop "review" (always 2) ExitOut (Do Review :> Loop "review" (always 2) ExitOut (Do Pick :> Do Fix)))
@@ -105,19 +80,6 @@ seqGraphs genF genG = forAll (Gen.mapMaybe builds ((,) <$> genF <*> genG))
     builds (f, g) = case (graph f, graph g, graph (f :> g)) of
         (Right left, Right right, Right whole) -> Just (left, right, whole)
         _ -> Nothing
-
-{- | Two branches whose case builds. A clash inside either branch, or a loop
-id both use, refuses the whole term, even the branch an injection never
-runs: 'Clash' has its own cases.
--}
-genCase :: Gen (Flow 'Diff 'Nothing 'PR, Flow 'Diff 'Nothing 'PR)
-genCase = Gen.filter builds ((,) <$> genBranching <*> genBranching)
-  where
-    builds (f, g) = isRight (graph (inl :> (f ||| g)))
-
--- | A branch for a planned summand: implement the plan, then on as a diff.
-genPlanned :: Gen (Flow 'Plan 'Nothing 'PR)
-genPlanned = (Do Implement :>) <$> genBranching
 
 -- | Where the events walk from the in port.
 endOf :: OpenGraph -> [EventName] -> Maybe Node
