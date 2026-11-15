@@ -35,8 +35,8 @@ spec = describe "the state binary" $ do
             transcript <- drive bin repo (balancedPath repo)
             transcript `shouldBe` balancedTranscript
             done <- succeeded =<< state bin repo ["next"]
-            take 4 done
-                `shouldBe` ["DONE " <> prUrl, "  fuel: balanced", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
+            take 5 done
+                `shouldBe` ["DONE " <> prUrl, "  at the end: the flow is done", "  fuel: balanced", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
 
         it "logs the skips a Low run's agent records for a trivial task" $ \repo -> do
             transcript <- drive bin repo (trivialPath repo)
@@ -48,10 +48,10 @@ spec = describe "the state binary" $ do
             _ <- drive bin repo [Record ["fuel", "balanced"]]
             refused <- state bin repo ["record", "ready.done", prUrlString]
             (refused.code, refused.err)
-                `shouldBe` (2, ["state record: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"])
+                `shouldBe` (2, ["state record: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"])
             warned <- succeeded =<< state bin repo ["next"]
             take 3 warned
-                `shouldBe` ["RUN Interview questions: 0 of 30: state ask each question | Researchers: 0 of 5: spawn a researcher in the background | state record gather.enough", "refused: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"]
+                `shouldBe` ["RUN one option below", "refused: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"]
             _ <- succeeded =<< state bin repo ["record", "gather.enough"]
             moved <- succeeded =<< state bin repo ["next"]
             moved `shouldSatisfy` (not . mentions "refused:")
@@ -115,7 +115,8 @@ spec = describe "the state binary" $ do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]
                 _ <- drive bin repo (atReview <> rounds <> [Handback "review-lead" reviewed])
                 advice <- succeeded =<< state bin repo ["next"]
-                take 1 advice `shouldSatisfy` any ("state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - Re-reviews: 3 of 3, none is left" `Text.isSuffixOf`)
+                (take 1 advice, filter ("  Re-reviews: " `Text.isPrefixOf`) advice)
+                    `shouldBe` (["RUN state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."], ["  Re-reviews: 3 of 3 used, none left"])
                 refused <- state bin repo ["record", "pick.loop", "--row", "R4"]
                 (refused.code, refused.err)
                     `shouldBe` (2, ["state record: the spend at pick - Re-reviews allows 3 at this Fuel, all spent", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."])
@@ -245,7 +246,8 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin repo ["override", "engineers", "the", "test", "returns"]
                 named <- succeeded =<< state bin repo ["next"]
                 refused `shouldSatisfy` mentions "parent: "
-                take 1 named `shouldBe` ["RUN state handback engineer - child " <> c1 <> " ended, its hand-back unrecorded: pipe it in"]
+                take 1 named `shouldBe` ["RUN state handback engineer"]
+                named `shouldContain` ["    state handback engineer - child " <> c1 <> " ended, its hand-back unrecorded: pipe it in"]
 
             it "triages a child's stop before it retries the task" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
@@ -292,7 +294,8 @@ spec = describe "the state binary" $ do
                 early.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
                 done <- succeeded =<< state bin repo ["next"]
-                take 1 done `shouldBe` ["RUN state record merge.done <url> | state record merge.next_round"]
+                take 1 done `shouldBe` ["RUN one option below"]
+                done `shouldContain` ["  options:", "    state record merge.done <url> - the flow ends", "    state record merge.next_round - back to gather, the round loop's next round"]
 
             it "keeps a round's PR open, loops back to gather with fresh budgets, and respawns the task" $ \repo -> do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
@@ -309,7 +312,7 @@ spec = describe "the state binary" $ do
                 recorded skipped `shouldBe` ["ready.skipped -> out"]
                 merging <- succeeded =<< state bin repo ["next"]
                 recorded merging `shouldBe` ["engineers.done -> merge"]
-                drop 1 merging `shouldSatisfy` mentions "RUN state record merge.done <url> | state record merge.next_round"
+                drop 1 merging `shouldSatisfy` mentions "state record merge.next_round - back to gather, the round loop's next round"
                 for_ (["merge.next_round"] : gathered) (succeeded <=< state bin repo . ("record" :))
                 spent <- state bin repo ["record", "research.spawned"]
                 spent.code `shouldBe` 2

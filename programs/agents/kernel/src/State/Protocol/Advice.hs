@@ -310,7 +310,7 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
         enough = EventName (placeName place) enoughOutcome
         leave = case (Map.lookup (place, enough) g.edges, open) of
             (Just edge, 0) -> recordOption enough edge
-            (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", once the " <> tshow open <> " open hand back: end your turn until they do"}
+            (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
             (Nothing, _) -> Option (recordCommand enough) "leaves the choice"
         option step = maybe (Option (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
     choicePrompt place = Text.unwords [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
@@ -368,7 +368,6 @@ spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.spent 
         Just allows | budget.spent >= allows -> " of " <> tshow allows <> " used, none left"
         Just allows -> " of " <> tshow allows <> " used, " <> tshow (allows - budget.spent) <> " left"
         Nothing -> " used, one per group"
-
 
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
@@ -580,7 +579,7 @@ atLine steps state = case state.at of
   where
     meaning name = case (stepNamed name, choiceNamed name) of
         (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
-            Inline -> "a step you run - do the task below, take its option, then state next"
+            Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
             Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
         (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
         (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what the first line says, then state next"

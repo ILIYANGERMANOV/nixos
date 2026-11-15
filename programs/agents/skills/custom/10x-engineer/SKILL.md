@@ -71,7 +71,7 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 
 | State | Run by | Arrows out |
 |---|---|---|
-| gather | you | enough: plan; research.handed_back: gather; research.spawned: gather |
+| gather | you | research.spawned: gather; research.handed_back: gather; enough: plan |
 | plan | you | done: simplify_plan |
 | simplify_plan | researcher | done: confirm; skipped: confirm |
 | confirm | you | adjusted: gather; confirmed: breakdown |

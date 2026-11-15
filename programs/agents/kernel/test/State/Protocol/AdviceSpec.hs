@@ -1,6 +1,8 @@
 module State.Protocol.AdviceSpec (spec) where
 
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -11,6 +13,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (..))
 import State.Protocol.Advice
+import State.Protocol.Record (Option (..))
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
 import State.Run.Event hiding (Stopped)
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
@@ -27,7 +30,8 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "State.Protocol.Advice" $ do
     steps <- runIO loadSteps
-    let next facts state = (advise steps (flowGraph state.start.flow) facts state).action
+    let next facts state = commandsOnly (advise steps (flowGraph state.start.flow) facts state).action
+        explainedAt state = explained (advise steps (flowGraph state.start.flow) noFacts state)
 
     it "advice_is_equal_under_any_principal_up_to_delivery" . hedgehog $ do
         events <- forAll genAccepted
@@ -61,44 +65,53 @@ spec = describe "State.Protocol.Advice" $ do
     describe "fuel" $ do
         it "asks the engineer's Fuel first, the 10x's never: it runs at Balanced" $
             map (next noFacts) [runAt [], tenXStarted]
-                `shouldBe` [Run "state record fuel <low|balanced|max>", choosing 0 0]
+                `shouldBe` [offering ["state record fuel <low|balanced|max>"], choosing]
 
     describe "gather" $ do
-        it "offers each action with its budget, and enough" $
-            next noFacts (runAt (knobs Balanced)) `shouldBe` choosing 0 0
+        it "offers each action in the order the flow declares them, and enough, each with what it does" $
+            explainedAt (runAt (knobs Balanced)) `shouldBe` gatherHub ["  state record gather.enough - on to plan"]
 
         it "advises the 10x's gather as the engineer's, with no Fuel ask" $
-            next noFacts tenXStarted `shouldBe` choosing 0 0
+            next noFacts tenXStarted `shouldBe` choosing
 
         it "waits for an open researcher before enough" $
-            next noFacts (runAt (knobs Balanced <> researched)) `shouldBe` Run "Interview questions: 0 of 30: state ask each question | Researchers: 1 of 5: spawn a researcher in the background | await the 1 open to hand back, then state record gather.enough"
+            explainedAt (runAt (knobs Balanced <> researched))
+                `shouldBe` gatherHub ["  state record gather.enough - on to plan, after the open ones hand back (1 open): end your turn until then"]
 
         it "offers enough again once every researcher handed back" $
-            next noFacts (runAt (knobs Balanced <> researched <> [stepTook ResearchHandedBack])) `shouldBe` choosing 1 0
+            explainedAt (runAt (knobs Balanced <> researched <> [stepTook ResearchHandedBack])) `shouldBe` explainedAt (runAt (knobs Balanced))
 
         it "asks the user whether to go on once the questions are used up" $
-            next noFacts (runAt (knobs Balanced <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
+            next noFacts (runAt (knobs Balanced <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30 used, none left: go on?"
 
         it "asks the user whether to go on at the questions' end, after a Stuck question before it" $ do
             let stuckFirst = [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt (knobs Balanced <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
+            next noFacts (runAt (knobs Balanced <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30 used, none left: go on?"
 
         it "asks the user whether to go on once the researchers are used up" $
-            next noFacts (runAt (knobs Low <> researched)) `shouldBe` Ask Stuck "Researchers: 1 of 1: go on?"
+            next noFacts (runAt (knobs Low <> researched)) `shouldBe` Ask Stuck "Researchers: 1 of 1 used, none left: go on?"
 
         it "extends on the user's yes, or ends the gather" $ do
             let onStuck = knobs Balanced <> questions 30 <> [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt onStuck) `shouldBe` Run "Researchers: 0 of 5: spawn a researcher in the background | state record extend <why> when the user goes on | state record gather.enough"
-            next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing 0 0
+            next noFacts (runAt onStuck) `shouldBe` offering ["spawn a researcher in the background", "state record extend <why>", "state record gather.enough"]
+            next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing
+
+    it "names where a spawned step's outcomes lead, for the hook records them" $
+        explainedAt (runAt (knobs Balanced <> map (Took mempty) (take 9 happyPath)))
+            `shouldBe` [ "at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next"
+                       , "outcomes:"
+                       , "  review.clean - on to describe"
+                       , "  review.rows - on to pick"
+                       ]
 
     describe "pick" $ do
         it "offers pick.loop while a re-review is left" $
             next noFacts (atPick Balanced [])
-                `shouldSatisfy` runs ("state record pick.loop" `Text.isInfixOf`)
+                `shouldSatisfy` offers (any ("state record pick.loop" `Text.isPrefixOf`))
 
         it "offers only pick.final once no re-review is left" $
             next noFacts (atPick Low looped)
-                `shouldSatisfy` runs (\command -> "state record pick.final" `Text.isPrefixOf` command && not ("pick.loop" `Text.isInfixOf` command))
+                `shouldSatisfy` offers (all ("state record pick.final" `Text.isPrefixOf`))
 
     describe "confirm" $ do
         it "asks Confirm at confirm" $
@@ -109,14 +122,14 @@ spec = describe "State.Protocol.Advice" $ do
         it "asks Confirm once, then advises its outcome" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
                 answered = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
-            next noFacts answered `shouldBe` Run "state record confirm.confirmed | state record confirm.adjusted"
+            next noFacts answered `shouldBe` offering ["state record confirm.confirmed", "state record confirm.adjusted"]
 
     it "advises a scoped step's outcomes under their qualified names" $ do
         let atSecurityPick =
                 either (error . show) id . replay securityGraph . logOf $
                     started :| knobs Balanced <> [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty)), tookIn securityScope (ReviewRows sha)]
-        (advise steps securityGraph noFacts atSecurityPick).action
-            `shouldBe` Run "state record security/pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state record security/pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
+        commandsOnly (advise steps securityGraph noFacts atSecurityPick).action
+            `shouldBe` offering ["state record security/pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]...", "state record security/pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."]
 
     describe "due" $ do
         it "records nothing at the gather's choice" $
@@ -154,7 +167,7 @@ spec = describe "State.Protocol.Advice" $ do
             [ next noFacts {ended = [runId "c1"]} (tenXAt (t1 :| [t2]) (Spawned (childOf "c1" "t1") : said))
             | said <- [[], [HandedBack (runId "c1") (Finished (oneLine "done"))]]
             ]
-                `shouldBe` [Run "state handback engineer - child c1 ended, its hand-back unrecorded: pipe it in", Run "state record task t1 review <url>"]
+                `shouldBe` [offering ["state handback engineer"], offering ["state record task t1 review <url>"]]
         it "spawns a second heavy task while one runs" $
             next noFacts (tenXAt (heavy "t1" :| [heavy "t2"]) [Spawned (childOf "c1" "t1")]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "t2"))
         it "awaits a dependency's merge, not a park of its dependent" $ do
@@ -163,7 +176,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` [AwaitMerge (TaskId "t1" :| []), Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
         it "stops the run at merge once every task is parked" $
             next noFacts (tenXAt (t1 :| [t2]) [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), TaskMoved (TaskId "t2") (Parked "not needed" Nothing), stepTook (FanDone engineers)])
-                `shouldBe` Run "state stop blocked \"all tasks parked\""
+                `shouldBe` offering ["state stop blocked \"all tasks parked\""]
         it "waits on the children while a task's dependencies run" $
             next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "spawns the next task once a spawn is recorded, never the same task twice" $
@@ -196,7 +209,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
             let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), stepTook (FanDone engineers)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
-                `shouldBe` [AwaitMerge (TaskId "t1" :| []), Run "state record merge.done <url> | state record merge.next_round"]
+                `shouldBe` [AwaitMerge (TaskId "t1" :| []), offering ["state record merge.done <url>", "state record merge.next_round"]]
         it "spawns a task added at the merge" $ do
             let merged = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (Merged prUrl), stepTook (FanDone engineers)]
             next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded (plainTask "fix" [])])) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
@@ -207,7 +220,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` [Resume (runId "c1") "with the answer to c1:1", AwaitAnswer asks2]
         it "records a finished task's PR when the child's READY named none" $
             map (next noFacts . tenXAt (t1 :| [t2]) . ([Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "done"))] <>)) [[], [TaskMoved (TaskId "t1") (InReview prUrl)]]
-                `shouldBe` [Run "state record task t1 review <url>", Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
+                `shouldBe` [offering ["state record task t1 review <url>"], Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
         it "states a child's question no more once it is answered" $
             filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])))
                 `shouldBe` ["task t1: child c1 waits to resume, tries 1"]
@@ -309,8 +322,15 @@ spec = describe "State.Protocol.Advice" $ do
     -- Each put to the user and answered.
     questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) gathering Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
     goOn = Question (QId run 100) Stuck (oneLine "go on?")
-    choosing :: Int -> Int -> Action
-    choosing researchers asks = Run ("Interview questions: " <> Text.show asks <> " of 30: state ask each question | Researchers: " <> Text.show researchers <> " of 5: spawn a researcher in the background | state record gather.enough")
+    -- What @state next@ explains at the gather's choice, ending in this @enough@ line.
+    gatherHub enough =
+        [ "at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
+        , "options:"
+        , "  spawn a researcher in the background - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back"
+        , "  state ask --kind <kind> <question> - asks one question; what it prints says who answers"
+        ]
+            <> enough
+    choosing = offering ["spawn a researcher in the background", "state ask --kind <kind> <question>", "state record gather.enough"]
     atReady = runAt (knobs Balanced <> map (Took mempty) (take 13 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
@@ -321,10 +341,21 @@ spec = describe "State.Protocol.Advice" $ do
 knobs :: Fuel -> [Event]
 knobs fuel = [FuelSet fuel]
 
-runs :: (Text -> Bool) -> Action -> Bool
-runs holds = \case
-    Run command -> holds command
+-- | Whether the commands a 'Run' offers hold.
+offers :: ([Text] -> Bool) -> Action -> Bool
+offers holds = \case
+    Run options -> holds (map (.command) (toList options))
     _ -> False
+
+-- | A 'Run' of these commands, each meaning left to the specs that pin it.
+offering :: [Text] -> Action
+offering = Run . fmap (`Option` "") . NonEmpty.fromList
+
+-- | The action with each option's meaning dropped: most specs pin only the commands.
+commandsOnly :: Action -> Action
+commandsOnly = \case
+    Run options -> Run (fmap (\option -> option {means = ""}) options)
+    other -> other
 
 genFacts :: Gen Facts
 genFacts = Facts <$> Gen.maybe (Gen.integral (Range.linear 0 300)) <*> Gen.maybe genPullRequest <*> pure []

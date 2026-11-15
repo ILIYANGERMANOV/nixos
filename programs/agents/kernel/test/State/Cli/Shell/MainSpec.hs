@@ -83,8 +83,8 @@ spec = describe "state over the doubles" $ do
                 done <- succeeded =<< state world ["next"]
 
                 transcript `shouldBe` balancedTranscript
-                take 4 done
-                    `shouldBe` ["DONE " <> prUrl, "  fuel: balanced", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
+                take 5 done
+                    `shouldBe` ["DONE " <> prUrl, "  at the end: the flow is done", "  fuel: balanced", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
 
             it "logs the skips a Low run's agent records for a trivial task" $ \world -> do
                 transcript <- drive world trivialPath
@@ -167,12 +167,12 @@ spec = describe "state over the doubles" $ do
                 refused <- state world ["record", "ready.done", prUrl]
 
                 (refused.code, refused.out, refused.err)
-                    `shouldBe` (2, [], ["state record: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"])
+                    `shouldBe` (2, [], ["state record: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"])
                 events <- loggedEvents world
                 last events `shouldBe` "refused"
                 warned <- succeeded =<< state world ["next"]
                 take 3 warned
-                    `shouldBe` ["RUN Interview questions: 0 of 30: state ask each question | Researchers: 0 of 5: spawn a researcher in the background | state record gather.enough", "refused: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"]
+                    `shouldBe` ["RUN one option below", "refused: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"]
 
             it "fixes a refused event by the arrows this Fuel takes, never a skip it refuses" $ \world -> do
                 _ <- drive world toSimplifyPr
@@ -287,7 +287,8 @@ spec = describe "state over the doubles" $ do
                 refused <- state world ["record", "pick.loop", "--row", "R4"]
                 exited <- succeeded =<< state world ["record", "pick.final"]
 
-                take 1 advice `shouldSatisfy` any ("state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - Re-reviews: 3 of 3, none is left" `Text.isSuffixOf`)
+                (take 1 advice, filter ("  Re-reviews: " `Text.isPrefixOf`) advice)
+                    `shouldBe` (["RUN state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."], ["  Re-reviews: 3 of 3 used, none left"])
                 (refused.code, refused.err)
                     `shouldBe` (2, ["state record: the spend at pick - Re-reviews allows 3 at this Fuel, all spent", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."])
                 recorded exited `shouldBe` ["pick.final -> describe"]

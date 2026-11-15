@@ -49,6 +49,7 @@ who owns each decision.
   | `ASK <Kind> <what>` | the Ask rule above |
   | `ASK <Kind> <qid>: <q>` | asked and the user's: the `ASK user` rule |
   | `RUN <command>` | do the step, then run the command, placeholders filled |
+  | `RUN one option below` | pick the one option under `options:` that fits and take it: run its command, placeholders filled, or the spawn it names; then `state next` |
   | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions describe, then record green or red |
   | `HANDBACK <line>` | the Ask rule's `HANDBACK` |
   | `STOP <reason>` | the run is over, as `blockers.md`'s Stops says |
@@ -97,7 +98,7 @@ arrows, never adds any.
 
 | State | Run by | Arrows out |
 |---|---|---|
-| gather | you | enough: plan; research.handed_back: gather; research.spawned: gather |
+| gather | you | research.spawned: gather; research.handed_back: gather; enough: plan |
 | plan | you | done: simplify_plan |
 | simplify_plan | researcher | done: confirm; skipped: confirm |
 | confirm | you | adjusted: gather; confirmed: draft |

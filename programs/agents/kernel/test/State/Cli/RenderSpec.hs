@@ -15,7 +15,7 @@ spec = describe "State.Cli.Render" $ do
     describe "states" $ do
         it "has a row per state, in the flow's order" $
             (length rows, take 1 rows, take 1 (reverse rows))
-                `shouldBe` (Set.size (places g), ["| gather | you | enough: plan; research.handed_back: gather; research.spawned: gather |"], ["| ready | you | done: end; skipped: end |"])
+                `shouldBe` (Set.size (places g), ["| gather | you | research.spawned: gather; research.handed_back: gather; enough: plan |"], ["| ready | you | done: end; skipped: end |"])
 
         it "names who runs each state and where each outcome goes" $
             rows
@@ -23,11 +23,11 @@ spec = describe "State.Cli.Render" $ do
                                 , "| draft | you | done: implement |"
                                 ]
 
-    it "renders the Fuel rows from the Fuel table: the meters by state, a choice's by name, then Low's skips in the flow's order" $
+    it "renders the Fuel rows from the Fuel table: the meters by state, a choice's in the order it declares them, then Low's skips in the flow's order" $
         fuel g
             `shouldBe` Text.unlines
-                [ "| Interview questions | up to 15 | up to 30 | up to 50 |"
-                , "| Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 5, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |"
+                [ "| Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 5, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |"
+                , "| Interview questions | up to 15 | up to 30 | up to 50 |"
                 , "| Re-reviews | up to 1, blockers and Not met fixed only | up to 3 | up to 5 |"
                 , "| Skippable when trivial | `simplify_plan`, `refactor` | none | none |"
                 , "| Refactor | unless trivial, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |"

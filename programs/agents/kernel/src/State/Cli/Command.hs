@@ -41,7 +41,6 @@ import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, recordCommand, recordables, usageOf)
-import State.Step.Catalog (shownEdges)
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
@@ -51,6 +50,7 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), Spent (..))
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
+import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
 import System.FilePath (isAbsolute, takeFileName)
 
