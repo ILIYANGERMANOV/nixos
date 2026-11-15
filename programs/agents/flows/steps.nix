@@ -101,7 +101,7 @@ in
         "more"
       ];
       runner = "inline";
-      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`. `enough` when nothing is open; `more` when an answer opens a fact to research.";
+      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between. `enough` when nothing is open; `more` only when an answer opens a fact to research. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `enough`.";
       # `skill` invokes grilling, which the engineer does not preload; `web`
       # reads a link or doc an answer points to.
       tools = [
