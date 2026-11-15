@@ -102,6 +102,10 @@ data Event
     = Started Start
     | -- | Set once.
       FuelSet Fuel
+    | {- | The user let the gather loop go on, and why: its research rounds and
+      questions start afresh.
+      -}
+      Extended Text
     | -- | A step's outcome, or a mode's skip: the one event that moves the run.
       Took AnyOutcome
     | -- | Terminal: it ends every question still pending too.

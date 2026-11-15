@@ -46,6 +46,9 @@ spec = describe "State.Cli.Command" $ do
         it "parses a stay event's argument" $
             recorded ["fuel", "low"] `shouldBe` Right (FuelSet Low)
 
+        it "records an extend with its why" $
+            recorded ["extend", "the", "user", "goes", "on"] `shouldBe` Right (Extended "the user goes on")
+
         it "records a commit event at HEAD with its touched areas" $
             recorded ["implement.done", "--touches", "none"] `shouldBe` Right (stepTook (ImplementDone (Commit sha Set.empty)))
 
@@ -112,6 +115,10 @@ spec = describe "State.Cli.Command" $ do
         it "explains a second Fuel by the one set" $
             (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (FuelSetOnce Max))
                 `shouldBe` ("it is max already, set once", "state show")
+
+        it "fixes a question past the gather's questions by ending or extending the interview" $
+            (explain g Balanced (runAt []).at (OutOfAsks 30)).fix
+                `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
             [ (explain g fuel (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix

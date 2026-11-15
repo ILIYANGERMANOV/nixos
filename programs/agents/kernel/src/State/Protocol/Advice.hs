@@ -37,9 +37,9 @@ import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
-import State.Category.Fuel (Cfg (..), SkipWhen (..), cfg, fuelLabel, fuelName)
+import State.Category.Fuel (Cfg (..), SkipWhen (..), cfg, fuelLabel, fuelName, reResearches)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
-import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
+import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (stopLine)
 import State.Protocol.Record (recordCommand)
@@ -51,13 +51,13 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, stuck)
+import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, interviewAsks, nextQId, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..))
-import State.Step.Gather (Outcome (..))
+import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..), Sing (Ready))
@@ -276,9 +276,33 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
             Agent role _ -> Spawn role Nothing
             Inline -> Run (recordOutcomes s)
         AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
+        Interviews -> interviewing state
         PicksRows -> Run (pickCommand state)
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge (recordOutcomes s) (currentFan state)
+
+{- | Ask on, research a new fact, or end the interview; asking needs no
+record. At the end of either gather budget, ask the user once whether to go
+on: yes extends both, no ends the interview.
+-}
+interviewing :: RunState -> Action
+interviewing state = case spentAtGather state of
+    [] -> Run ("state ask each question; " <> enough <> " when nothing is open | " <> recordCommand (continueEvent Interview) <> " to research a new fact")
+    spent
+        | Ask.Stuck `notElem` state.askedHere -> Ask Ask.Stuck ("gather used its " <> Text.intercalate " and " spent <> ": go on?")
+        | otherwise -> Run ("state record extend <why> when the user goes on | " <> enough)
+  where
+    enough = recordCommand (exitEvent Interview)
+
+-- | The gather budgets the run has used up since it entered the gather loop or extended it.
+spentAtGather :: RunState -> [Text]
+spentAtGather state = case Map.lookup LGather state.rounds of
+    Nothing -> []
+    Just rounds ->
+        [tshow (reResearches (fuelOf state)) <> " research rounds" | fromIntegral (length rounds) >= budget (allowed.rounds LGather) (NonEmpty.last rounds)]
+            <> [tshow allowed.asks <> " questions" | interviewAsks state >= allowed.asks]
+  where
+    allowed = cfg (fuelOf state)
 
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
@@ -349,8 +373,8 @@ it, only @pick.final@.
 -}
 pickCommand :: RunState -> Text
 pickCommand state
-    | done < budget allowed (Round Set.empty) = Text.intercalate " | " [loop, final]
-    | done < budget allowed (Round (Set.singleton (Unmet anyRequirement))) =
+    | done < budget allowed (Round Set.empty 0) = Text.intercalate " | " [loop, final]
+    | done < budget allowed (Round (Set.singleton (Unmet anyRequirement)) 0) =
         final <> " | " <> loop <> " only with a not-met verdict: the last round"
     | otherwise = final <> " - no review round is left"
   where
@@ -380,6 +404,7 @@ factLines facts state =
         <> [ loopName loopId <> " round " <> tshow (length rounds) <> " of " <> tshow ((cfg (fuelOf state)).rounds loopId)
            | (loopId, rounds) <- Map.toList (Map.map NonEmpty.toList state.rounds)
            ]
+        <> ["questions: " <> tshow (interviewAsks state) <> " of " <> tshow (cfg (fuelOf state)).asks | Map.member LGather state.rounds]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]

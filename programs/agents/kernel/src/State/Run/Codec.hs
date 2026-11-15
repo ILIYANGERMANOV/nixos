@@ -202,6 +202,7 @@ eventType :: Event -> Text
 eventType = \case
     Started _ -> "started"
     FuelSet _ -> "fuel"
+    Extended _ -> "extend"
     Took outcome -> eventText (outcomeEvent outcome)
     Stopped _ -> "stop"
     Overridden _ _ -> "overridden"
@@ -230,6 +231,7 @@ eventData = \case
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
     FuelSet fuel -> "level" .= fuelName fuel
+    Extended why -> "why" .= why
     Took outcome -> outcomeData outcome
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
     Overridden (StateName to) why -> "to" .= to <> "why" .= why
@@ -271,6 +273,7 @@ eventOf :: Text -> Object -> Parser Event
 eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
     "fuel" -> FuelSet <$> (obj .: "level" >>= named "fuel" parseFuel)
+    "extend" -> Extended <$> obj .: "why"
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")

@@ -73,6 +73,7 @@ genEvent =
     Gen.choice
         [ Started <$> genStart
         , FuelSet <$> Gen.enumBounded
+        , Extended <$> genText
         , Took <$> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText

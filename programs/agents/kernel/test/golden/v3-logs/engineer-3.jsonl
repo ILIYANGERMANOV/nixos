@@ -29,10 +29,6 @@
 {"v":3,"id":"r7f2:32","seq":32,"ts":"2025-11-21T00:00:32Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
 {"v":3,"id":"r7f2:33","seq":33,"ts":"2025-11-21T00:00:33Z","run":"r7f2","head":null,"session":null,"type":"research.skipped","data":{}}
 {"v":3,"id":"r7f2:34","seq":34,"ts":"2025-11-21T00:00:34Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
-{"v":3,"id":"r7f2:35","seq":35,"ts":"2025-11-21T00:00:35Z","run":"r7f2","head":null,"session":null,"type":"research.done","data":{"n":0}}
-{"v":3,"id":"r7f2:36","seq":36,"ts":"2025-11-21T00:00:36Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
-{"v":3,"id":"r7f2:37","seq":37,"ts":"2025-11-21T00:00:37Z","run":"r7f2","head":null,"session":null,"type":"research.skipped","data":{}}
-{"v":3,"id":"r7f2:38","seq":38,"ts":"2025-11-21T00:00:38Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
 {"v":3,"id":"r7f2:39","seq":39,"ts":"2025-11-21T00:00:39Z","run":"r7f2","head":null,"session":null,"type":"research.skipped","data":{}}
 {"v":3,"id":"r7f2:40","seq":40,"ts":"2025-11-21T00:00:40Z","run":"r7f2","head":null,"session":null,"type":"interview.enough","data":{}}
 {"v":3,"id":"r7f2:41","seq":41,"ts":"2025-11-21T00:00:41Z","run":"r7f2","head":null,"session":null,"type":"plan.done","data":{"path":"󁯊"}}

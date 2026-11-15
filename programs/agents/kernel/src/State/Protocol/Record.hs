@@ -79,6 +79,7 @@ recordables =
     , nothing ResearchSkipped
     , nothing InterviewEnough
     , nothing InterviewMore
+    , stay "extend" "<why>" (fmap Extended . because)
     , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
         [path] -> Right (Plain (stepTook (PlanDone (Text.unpack path))))
         _ -> Left "the plan's path"

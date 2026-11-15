@@ -14,6 +14,7 @@ module State.Category.Fuel (
     cfg,
     cfgLeq,
     reReviews,
+    reResearches,
 ) where
 
 import Data.Set (Set)
@@ -60,26 +61,34 @@ data SkipWhen = Never | AtOrBelow Natural | Skippable
 data Area = Interface | DataModel | Auth
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-{- | The three things a level sets, and nothing else. Functions rather than
+{- | The four things a level sets, and nothing else. Functions rather than
 maps: every id has a value, so no lookup can miss.
 -}
 data Cfg = Cfg
     { skip :: OptId -> SkipWhen
     , rounds :: LoopId -> Natural
     , areas :: Set Area
+    , asks :: Natural
+    -- ^ The questions an interview asks the user in one gather, research rounds aside.
     }
 
--- | The Fuel table: review rounds and full-review areas as #351 set them.
+{- | The Fuel table: review rounds and full-review areas as #351 set them,
+research rounds and questions as #377 did.
+-}
 cfg :: Fuel -> Cfg
 cfg fuel =
     Cfg
         { skip = skipWhen fuel
         , rounds = \case
             LReview -> 1 + reReviews fuel
-            LGather -> 6
+            LGather -> 1 + reResearches fuel
             LPlan -> 4
             LCi -> 6
         , areas = fullReview fuel
+        , asks = case fuel of
+            Low -> 15
+            Balanced -> 30
+            Max -> 50
         }
 
 {- | Low may skip research, the plan's simplify and the refactor of a trivial
@@ -113,6 +122,15 @@ reReviews = \case
     Balanced -> 3
     Max -> 5
 
+{- | Research rounds after the first, one per @interview.more@; the gather
+loop's rounds are @reResearches + 1@.
+-}
+reResearches :: Fuel -> Natural
+reResearches = \case
+    Low -> 3
+    Balanced -> 8
+    Max -> 12
+
 -- | #351 decided interface fixes get a full review at the top level only.
 fullReview :: Fuel -> Set Area
 fullReview = \case
@@ -121,13 +139,14 @@ fullReview = \case
     Max -> Set.fromList [Interface, DataModel, Auth]
 
 {- | The order 'cfg' must keep: the higher 'Cfg' skips less, and has at least
-the rounds and the areas.
+the rounds, the areas and the questions.
 -}
 cfgLeq :: Cfg -> Cfg -> Bool
 cfgLeq lower higher =
     all (\optId -> skipsAtMost (higher.skip optId) (lower.skip optId)) [minBound .. maxBound]
         && all (\loopId -> lower.rounds loopId <= higher.rounds loopId) [minBound .. maxBound]
         && lower.areas `Set.isSubsetOf` higher.areas
+        && lower.asks <= higher.asks
 
 -- | @skipsAtMost a b@: @a@ skips in no case where @b@ runs.
 skipsAtMost :: SkipWhen -> SkipWhen -> Bool

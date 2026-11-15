@@ -20,6 +20,7 @@ import State.Run.RunGen (childOf, commit, g, genAccepted, happyPath, loadSteps, 
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Fan (Outcome (..))
+import State.Step.Gather (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
@@ -63,6 +64,24 @@ spec = describe "State.Protocol.Advice" $ do
         it "asks the engineer's Fuel first, the 10x's never: it runs at Balanced" $
             map (next noFacts) [runAt [], tenXStarted]
                 `shouldBe` [Run "state record fuel <low|balanced|max>", Spawn (AgentRole "researcher") Nothing]
+
+    describe "interview" $ do
+        it "asks with no record, ending or researching by one" $
+            next noFacts atInterview `shouldBe` interviewing
+
+        it "advises the 10x's interview as the engineer's, with no Fuel or Size ask" $
+            next noFacts (tenXRun [stepTook (ResearchDone 1)]) `shouldBe` interviewing
+
+        it "asks the user whether to go on once the questions are used up" $
+            next noFacts (runAt (knobs Balanced <> researched <> questions 30)) `shouldBe` Ask Stuck "gather used its 30 questions: go on?"
+
+        it "asks the user whether to go on once the research rounds are used up" $
+            next noFacts (runAt (knobs Low <> researched <> researchedAgain 3)) `shouldBe` Ask Stuck "gather used its 3 research rounds: go on?"
+
+        it "extends on the user's yes, or ends the interview" $ do
+            let onStuck = knobs Low <> researched <> researchedAgain 3 <> [Asked (Asking goOn interview Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
+            next noFacts (runAt onStuck) `shouldBe` Run "state record extend <why> when the user goes on | state record interview.enough"
+            next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` interviewing
 
     describe "pick" $ do
         it "offers pick.loop while a review round is left" $
@@ -270,7 +289,16 @@ spec = describe "State.Protocol.Advice" $ do
     atImplement = runAt (knobs Balanced <> map Took (take 6 happyPath))
     atConfirm = runAt (knobs Balanced <> map Took (take 4 happyPath))
     atRefactor = runAt (knobs Balanced <> map Took (take 7 happyPath))
-    tenXStarted = either (error . show) id (replay tenXGraph (logOf (Started start {flow = TenXFlow} :| [])))
+    tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {flow = TenXFlow} :| events)))
+    tenXStarted = tenXRun []
+    interview = StateName "interview"
+    researched = [stepTook (ResearchDone 1)]
+    atInterview = runAt (knobs Balanced <> researched)
+    researchedAgain n = concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
+    -- Each put to the user and answered.
+    questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) interview Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
+    goOn = Question (QId run 100) Stuck (oneLine "go on?")
+    interviewing = Run "state ask each question; state record interview.enough when nothing is open | state record interview.more to research a new fact"
     atReady = runAt (knobs Balanced <> map Took (take 12 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReviewRows sha)]
