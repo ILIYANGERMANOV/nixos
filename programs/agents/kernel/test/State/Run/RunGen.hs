@@ -4,6 +4,7 @@ module State.Run.RunGen (
     tenXGraph,
     tenXAt,
     plainTask,
+    roundTask,
     breakdownJson,
     taskFileJson,
     childOf,
@@ -70,6 +71,10 @@ tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started
 -- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
 plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced False False Set.empty OwnPr
+
+-- | A round on the existing PR @pr@: a plain task otherwise.
+roundTask :: Text -> Text -> Task
+roundTask name pr = (plainTask name []) {shape = RoundOn (Url pr)}
 
 -- | The breakdown file the 10x writes for these tasks, in this order.
 breakdownJson :: [Task] -> Text

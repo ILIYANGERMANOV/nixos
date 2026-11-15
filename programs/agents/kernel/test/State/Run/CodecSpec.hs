@@ -13,7 +13,7 @@ import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
 import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
-import State.Run.RunGen (breakdownJson, plainTask, taskFileJson)
+import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -90,6 +90,9 @@ spec = describe "State.Run.Codec" $ do
 
     it "reads a task file as a breakdown spells each task" $
         decodeTask (taskFileJson (plainTask "fix" ["t1"])) `shouldBe` Right (plainTask "fix" ["t1"])
+
+    it "reads a round task's existing PR from its pr key" $
+        decodeTask (taskFileJson (roundTask "t1" "https://pr/1")) `shouldBe` Right (roundTask "t1" "https://pr/1")
 
     it "refuses a malformed task file as the breakdown's decoder does" $
         map decodeTask ["[]", taskFileJson (plainTask "fix" []) `replacing` ("\"fuel\":\"balanced\"", "\"fuel\":\"huge\"")]

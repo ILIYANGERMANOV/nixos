@@ -415,7 +415,6 @@ startOf obj =
         <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
 
 -- | The user is a bare word; a parent run is its id, its log, the task it gave and a round's PR.
-
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser -> text "user"

@@ -25,7 +25,7 @@ import State.Run.Event hiding (OutOfRounds)
 import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
-import State.Run.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, sha, tenXGraph)
+import State.Run.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, roundTask, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge))
 import State.Step.Gather (Outcome (..))
@@ -167,6 +167,7 @@ spec = describe "State.Run.Fold" $ do
             `shouldBe` Right (Map.fromList [(LGather, 2), (LPlan, 2)])
 
     gatherBudgets
+    tenXRounds
 
     it "append_is_idempotent_by_id" . hedgehog $ do
         events <- forAll genAccepted
@@ -324,6 +325,59 @@ gatherBudgets = describe "the gather's budgets" $ do
     researchedAgain n = concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
     asks from n = [askAt i Fact | i <- [from .. from + n - 1]]
     askAt n kind = Asked (Asking (Question (QId run n) kind (oneLine "a question")) (StateName "interview") Itself)
+
+{- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
+or loops back to gather for the next round, with fresh budgets.
+-}
+tenXRounds :: Spec
+tenXRounds = describe "the 10x's rounds" $ do
+    for_ [minBound .. maxBound] $ \fuel ->
+        it ("lets a round on an existing PR skip ready at " <> show fuel) $
+            (.at) <$> engineerRun (ByRole parent (RoundOn pr)) fuel `shouldBe` Right Out
+
+    for_ [Balanced, Max] $ \fuel ->
+        it ("refuses an ordinary task's skip of ready at " <> show fuel) $
+            engineerRun (ByRole parent OwnPr) fuel `shouldBe` Left (NotSkippable OReady)
+
+    it "ends a run whose tasks merged by merge done" $
+        (.at) <$> tenXRun (settled (plainTask "t1" []) (Merged pr) <> [stepTook (MergeDone FEngineers pr)]) `shouldBe` Right Out
+
+    it "ends a run whose tasks are only kept by merge done" $
+        (.at) <$> tenXRun (settled onPr (Kept pr) <> [stepTook (MergeDone FEngineers pr)]) `shouldBe` Right Out
+
+    it "goes back to gather at a fresh round by next_round" $
+        fmap (\state -> (atName state, Map.map length state.rounds)) (tenXRun round1)
+            `shouldBe` Right (Just (StateName "research"), Map.fromList [(LGather, 1), (LPlan, 1), (LRound, 2)])
+
+    it "starts both gather budgets afresh in the next round" $ do
+        let spentAgain = round1 <> spent 31
+        tenXRun spentAgain `shouldSatisfy` isRight
+        tenXRun (spentAgain <> [askAt 61]) `shouldBe` Left (OutOfAsks 30)
+
+    it "respawns the same task in the next round" $
+        atName <$> tenXRun (round1 <> agreed <> [Spawned (childOf "c2" "t1")]) `shouldBe` Right (Just (StateName "engineers"))
+
+    it "refuses to keep an ordinary task's PR" $
+        tenXRun (toEngineers (plainTask "t1" []) <> [TaskMoved t1 (Kept pr)]) `shouldBe` Left (FanRefused (Fan.NotARound t1))
+
+    it "goes back to the fan-out for a task added at the merge, and spawns it" $ do
+        let added = settled (plainTask "t1" []) (Merged pr) <> [TaskAdded (plainTask "fix" [])]
+        atName <$> tenXRun added `shouldBe` Right (Just (StateName "engineers"))
+        atName <$> tenXRun (added <> [Spawned (childOf "c2" "fix")]) `shouldBe` Right (Just (StateName "engineers"))
+  where
+    pr = Url "https://pr/1"
+    t1 = TaskId "t1"
+    parent = Parent (runId "p1") "p1/events.jsonl" t1
+    engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map Took (init happyPath) <> [stepTook (ReadySkipped pr)]))
+    tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
+    agreed = [stepTook (ResearchDone 1), stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone FEngineers (tasksOf (onPr :| [])))]
+    onPr = roundTask "t1" "https://pr/1"
+    toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf (task :| [])))]
+    settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved, stepTook (FanDone FEngineers)]
+    -- The first round spends Balanced's 8 research rounds and 30 questions, then loops.
+    round1 = spent 1 <> drop 1 agreed <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 (Kept pr), stepTook (FanDone FEngineers), stepTook (MergeNextRound FEngineers)]
+    spent from = [stepTook (ResearchDone 1)] <> concat (replicate 8 [stepTook InterviewMore, stepTook (ResearchDone 1)]) <> map askAt [from .. from + 29]
+    askAt n = Asked (Asking (Question (QId run n) Fact (oneLine "a question")) (StateName "interview") Itself)
 
 -- | The ask events, on the engineer flow's graph: they never move the run.
 questions :: Spec
