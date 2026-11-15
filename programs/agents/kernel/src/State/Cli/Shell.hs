@@ -64,8 +64,8 @@ import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, lo
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), fanRole, parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
-import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
 import State.Run.Fan qualified as Fan
+import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)

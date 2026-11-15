@@ -77,7 +77,7 @@ spec = describe "state-hook over the doubles" $ do
 
                 first.code `shouldBe` 0
                 contextOf first `shouldBe` Just "state: recorded 8 implement.done -> refactor\n"
-                first.out `shouldSatisfy` all (not . Text.isInfixOf "updatedInput")
+                first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
 

@@ -195,6 +195,31 @@ spec = describe "the state binary" $ do
                 twice <- state bin repo ["record", "spawning", "t1"]
                 twice.code `shouldBe` 2
 
+            it "records a child's stop in its run once, a repeated next adding nothing, and triages it" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                _ <- succeeded =<< state bin w1 ["stop", "failed", "no", "access"]
+                once <- logLines repo
+                _ <- succeeded =<< state bin w1 ["next"]
+                again <- logLines repo
+                triage <- succeeded =<< state bin repo ["next"]
+                again `shouldBe` once
+                take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c1 <> " <question> - triage: FAILED no access"]
+
+            it "tells a child its parent off the fan-out refused its hand-back, and the parent's next names it back there" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                writeFile repo.prJson (pullRequest True "OPEN")
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"], ["record", "await_ci.green"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
+                _ <- succeeded =<< state bin repo ["override", "breakdown", "the", "test", "leaves", "the", "fan-out"]
+                refused <- succeeded =<< state bin w1 ["next"]
+                _ <- succeeded =<< state bin repo ["override", "engineers", "the", "test", "returns"]
+                named <- succeeded =<< state bin repo ["next"]
+                refused `shouldSatisfy` mentions "parent: "
+                take 1 named `shouldBe` ["RUN state handback engineer - child " <> c1 <> " ended, its hand-back unrecorded: pipe it in"]
+
             it "triages a child's stop before it retries the task" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
                 w1 <- worktree repo "w1"
