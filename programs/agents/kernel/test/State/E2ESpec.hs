@@ -7,6 +7,8 @@ module State.E2ESpec (spec) where
 
 import Control.Monad (void, (<=<))
 import Data.Aeson (Value (..), encode, object, (.=))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Foldable (for_)
@@ -46,16 +48,16 @@ spec = describe "the state binary" $ do
             _ <- drive bin repo [Record ["fuel", "balanced"]]
             refused <- state bin repo ["record", "ready.done", prUrlString]
             (refused.code, refused.err)
-                `shouldBe` (2, ["state record: ready.done - no such arrow out of research", "fix: state record research.done <n>"])
+                `shouldBe` (2, ["state record: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"])
             warned <- succeeded =<< state bin repo ["next"]
             take 3 warned
-                `shouldBe` ["SPAWN researcher background: yes", "refused: ready.done - no such arrow out of research", "fix: state record research.done <n>"]
-            _ <- succeeded =<< state bin repo ["record", "research.done", "2"]
+                `shouldBe` ["RUN Interview questions: 0 of 30: state ask each question | Researchers: 0 of 5: spawn a researcher in the background | state record gather.enough", "refused: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"]
+            _ <- succeeded =<< state bin repo ["record", "gather.enough"]
             moved <- succeeded =<< state bin repo ["next"]
             moved `shouldSatisfy` (not . mentions "refused:")
 
         it "prints each record it advises with its arguments" $ \repo -> do
-            _ <- drive bin repo [Record ["fuel", "balanced"], Record ["research.done", "2"], Record ["interview.enough"]]
+            _ <- drive bin repo [Record ["fuel", "balanced"], Record ["gather.enough"]]
             advice <- succeeded =<< state bin repo ["next"]
             take 1 advice `shouldBe` ["RUN state record plan.done <path>"]
 
@@ -87,7 +89,7 @@ spec = describe "the state binary" $ do
                 `shouldBe` ( 2
                            ,
                                [ "state override: override to nowhere - the flow has no single state of that name"
-                               , "fix: state override <research|interview|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                               , "fix: state override <gather|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                ]
                            )
 
@@ -296,8 +298,8 @@ spec = describe "the state binary" $ do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 writeFile repo.prJson (pullRequest True "OPEN")
                 let tasks = repo.root </> "tasks.json"
-                    gathered = ["research.done", "1"] : concat (replicate 4 [["interview.more"], ["research.done", "1"]])
-                    agreed = [["interview.enough"], ["plan.done", repo.notes </> "plan.md"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
+                    gathered = concat (replicate 5 [["research.spawned"], ["research.handed_back"]])
+                    agreed = [["gather.enough"], ["plan.done", repo.notes </> "plan.md"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
                 Text.writeFile tasks (breakdownJson [roundTask "t1" prUrl])
                 for_ (gathered <> agreed) (succeeded <=< state bin repo . ("record" :))
                 w1 <- worktree repo "w1"
@@ -308,10 +310,10 @@ spec = describe "the state binary" $ do
                 merging <- succeeded =<< state bin repo ["next"]
                 recorded merging `shouldBe` ["engineers.done -> merge"]
                 drop 1 merging `shouldSatisfy` mentions "RUN state record merge.done <url> | state record merge.next_round"
-                for_ (["merge.next_round"] : gathered <> [["interview.more"]]) (succeeded <=< state bin repo . ("record" :))
-                spent <- state bin repo ["record", "research.done", "1"]
+                for_ (["merge.next_round"] : gathered) (succeeded <=< state bin repo . ("record" :))
+                spent <- state bin repo ["record", "research.spawned"]
                 spent.code `shouldBe` 2
-                for_ (["research.done", "0"] : agreed) (succeeded <=< state bin repo . ("record" :))
+                for_ agreed (succeeded <=< state bin repo . ("record" :))
                 respawn <- succeeded =<< state bin repo ["next"]
                 take 1 respawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
@@ -352,7 +354,7 @@ spec = describe "the state binary" $ do
             it "tell a resumed session where its run stands" $ \repo -> do
                 _ <- drive bin repo []
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
-                said `shouldSatisfy` mentions "step: research"
+                said `shouldSatisfy` mentions "step: gather"
 
             it "record a hand-back seen twice once, appending what they recorded" $ \repo -> do
                 _ <- drive bin repo (init (toImplement repo))
@@ -456,6 +458,10 @@ handedBack repo role =
         (object ["id" .= String "a1", "role" .= role])
         ["event" .= String "beforeTool", "tool" .= String "handback", "input" .= object ["message" .= String "READY\nDone.\n"], "history" .= ([] :: [Text])]
 
+-- | The lead spawns a subagent of this role.
+spawned :: Repo -> Text -> String
+spawned repo role = hookEvent repo Null ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
+
 askedUser :: Repo -> String
 askedUser repo = hookEvent repo Null ["event" .= String "afterTool", "tool" .= String "ask", "input" .= object [], "output" .= String "ok", "context" .= Null]
 
@@ -538,6 +544,12 @@ data Act
     | -- | The draft PR the scripted @gh@ reports from now on: @next@ records @draft.done@ from it.
       OpenPr
     | Override String
+    | -- | The lead spawns a subagent of this role, as the spawn hook sees it.
+      Spawn Text
+    | -- | A subagent of this role hands back @READY@, as the hand-back hook sees it.
+      HandsBack Text
+    | -- | The lead asks the user a question of this kind, and the user answers it.
+      AskUser String [String]
 
 {- | Starts the run, then each act and a @state next@ after it, every call
 exiting 0. The @recorded@ lines they print, without their sequence numbers:
@@ -559,6 +571,21 @@ drive bin repo acts = do
         Commit -> [] <$ commitLine repo
         OpenPr -> [] <$ writeFile repo.prJson (pullRequest True "OPEN")
         Override to -> succeeded =<< state bin repo ["override", to, "the", "test", "starts", "here"]
+        Spawn role -> hooked "spawn" (spawned repo role)
+        HandsBack role -> hooked "handback" (handedBack repo role)
+        AskUser kind question -> do
+            asked <- succeeded =<< state bin repo (["ask", "--kind", kind] <> question)
+            case concatMap Text.words (take 1 asked) of
+                ["asked", qid] -> succeeded =<< state bin repo ["answer", Text.unpack qid, "yes"]
+                _ -> [] <$ expectationFailure ("no question asked: " <> show asked)
+    -- The context a hook replies with, line by line, as the CLI prints it.
+    hooked name event = do
+        hookBin <- getEnv "STATE_HOOK_BIN"
+        said <- succeeded =<< hook hookBin repo name event
+        pure (concatMap contextLines said)
+    contextLines reply = case Aeson.decodeStrictText reply of
+        Just (Object fields) | Just (String context) <- KeyMap.lookup "context" fields -> map (\line -> fromMaybe line (Text.stripPrefix "state: " line)) (Text.lines context)
+        _ -> []
 
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]
@@ -574,8 +601,10 @@ simplified sha = "READY\nSimplified: " <> sha <> "\n"
 -- | From the start to the draft PR and a first commit on it.
 toImplement :: Repo -> [Act]
 toImplement repo =
-    [ Record ["research.done", "1"]
-    , Record ["interview.enough"]
+    [ Spawn "researcher"
+    , AskUser "Scope" ["which", "scope?"]
+    , HandsBack "researcher"
+    , Record ["gather.enough"]
     , Record ["plan.done", repo.notes </> "plan.md"]
     , Handback "researcher" ready
     , Record ["confirm.confirmed"]
@@ -596,9 +625,10 @@ balancedPath repo = toSimplifyPr repo <> [Handback "fixer" simplified, Record ["
 
 balancedTranscript :: [Text]
 balancedTranscript =
-    [ "fuel -> research"
-    , "research.done -> interview"
-    , "interview.enough -> plan"
+    [ "fuel -> gather"
+    , "research.spawned -> gather"
+    , "research.handed_back -> gather"
+    , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.done -> confirm"
     , "confirm.confirmed -> draft"
@@ -613,12 +643,11 @@ balancedTranscript =
     , "ready.done -> out"
     ]
 
--- | Low, a trivial task: the agent skips research, the proposal and the refactor, so no hand-back of theirs.
+-- | Low, a trivial task: the agent gathers nothing, skips the proposal and the refactor, so no hand-back of theirs.
 trivialPath :: Repo -> [Act]
 trivialPath repo =
     [ Record ["fuel", "low"]
-    , Record ["research.skipped"]
-    , Record ["interview.enough"]
+    , Record ["gather.enough"]
     , Record ["plan.done", repo.notes </> "plan.md"]
     , Record ["simplify_plan.skipped"]
     , Record ["confirm.confirmed"]
@@ -636,9 +665,8 @@ trivialPath repo =
 
 trivialTranscript :: [Text]
 trivialTranscript =
-    [ "fuel -> research"
-    , "research.skipped -> interview"
-    , "interview.enough -> plan"
+    [ "fuel -> gather"
+    , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.skipped -> confirm"
     , "confirm.confirmed -> draft"

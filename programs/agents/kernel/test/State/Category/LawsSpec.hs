@@ -170,7 +170,7 @@ genActions = do
     let genLimit = Gen.element [UpTo 1, UpTo 5, PerGroup]
         genCap = Gen.element [Refuse, Stop, Extend]
     research <- spawn <$> (PerFuel <$> genLimit <*> genLimit <*> genLimit) <*> genCap <*> pure Research
-    interview <- Capped <$> (always <$> genLimit) <*> genCap <*> pure Interview
+    interview <- Capped . always <$> genLimit <*> genCap <*> pure Interview
     Gen.subsequence [research, interview]
 
 -- | A loop body with an exit.

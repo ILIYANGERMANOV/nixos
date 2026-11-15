@@ -52,7 +52,7 @@ import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, toldOf, wants)
+import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -147,15 +147,19 @@ hookAnswer steps call want =
             SpawnRole spawned -> do
                 (facts, told) <- readFacts
                 onHook facts.pr $ \stamp run ->
-                    let (new, action, out) = adviceOf steps facts told stamp run
-                        warning = case (action, spawned) of
-                            (Advice.Spawn advised _, Just role) -> offAdvice steps run.state.at advised role
-                            _ -> Nothing
-                     in (new, out.text <> foldMap (<> "\n") warning)
+                    -- At a choice, the spawn of an action's worker opens a child; elsewhere it records nothing.
+                    case commit stamp run [(Cli, event) | Just role <- [spawned], Just event <- [spawnedAt steps run.state.at role]] of
+                        Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
+                        Right (opened, after) ->
+                            let (new, action, out) = adviceOf steps facts told stamp after
+                                warning = case (action, spawned) of
+                                    (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
+                                    _ -> Nothing
+                             in (opened <> new, recordedLines after.state opened <> out.text <> foldMap (<> "\n") warning)
             Hook.HandedBack message agent role ->
                 branchPr >>= \pr -> onHook pr $ \stamp run ->
                     let sources = hookSources run.state.run agent role message
-                     in if loggedAlready run.logged sources
+                     in if loggedAlready run.logged sources || not (followedAt run.state.at role)
                             then ([], "")
                             else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text)) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
             AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))

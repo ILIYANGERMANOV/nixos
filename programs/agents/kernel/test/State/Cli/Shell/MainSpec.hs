@@ -96,13 +96,13 @@ spec = describe "state over the doubles" $ do
 
             for_ ["balanced", "max"] $ \fuel ->
                 it ("goes from the simplified plan straight to confirm at " <> Text.unpack fuel) $ \world -> do
-                    transcript <- drive world [Record ["fuel", fuel], Record ["research.done", "2"], Record ["interview.enough"], Record ["plan.done", "/notes/plan.md"], Handback "researcher" ready]
+                    transcript <- drive world [Record ["fuel", fuel], Record ["gather.enough"], Record ["plan.done", "/notes/plan.md"], Handback "researcher" ready]
 
-                    drop 3 transcript `shouldBe` ["plan.done -> simplify_plan", "simplify_plan.done -> confirm"]
+                    drop 2 transcript `shouldBe` ["plan.done -> simplify_plan", "simplify_plan.done -> confirm"]
 
             -- The agent's call, a fact line of next: never recorded for it, and Confirm is asked all the same.
             for_ [("low", lowSkips), ("balanced", []), ("max", [])] $ \(fuel, skips) ->
-                it ("leaves research, simplify_plan and refactor to the agent only at Low, and asks Confirm, at " <> Text.unpack fuel) $ \world -> do
+                it ("leaves simplify_plan and refactor to the agent only at Low, and asks Confirm, at " <> Text.unpack fuel) $ \world -> do
                     outs <- driveOut world (Record ["fuel", fuel] : toImplement)
                     _ : confirm <- succeeded =<< state world ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
 
@@ -111,7 +111,7 @@ spec = describe "state over the doubles" $ do
                         `shouldBe` (skips, ["ASK Confirm the simplified plan: confirmed, or adjusted?"], ["ASK user"])
 
             it "prints each record it advises with its arguments" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["research.done", "2"], Record ["interview.enough"]]
+                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"]]
 
                 advice <- succeeded =<< state world ["next"]
 
@@ -167,12 +167,12 @@ spec = describe "state over the doubles" $ do
                 refused <- state world ["record", "ready.done", prUrl]
 
                 (refused.code, refused.out, refused.err)
-                    `shouldBe` (2, [], ["state record: ready.done - no such arrow out of research", "fix: state record research.done <n>"])
+                    `shouldBe` (2, [], ["state record: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"])
                 events <- loggedEvents world
                 last events `shouldBe` "refused"
                 warned <- succeeded =<< state world ["next"]
                 take 3 warned
-                    `shouldBe` ["SPAWN researcher background: yes", "refused: ready.done - no such arrow out of research", "fix: state record research.done <n>"]
+                    `shouldBe` ["RUN Interview questions: 0 of 30: state ask each question | Researchers: 0 of 5: spawn a researcher in the background | state record gather.enough", "refused: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record research.handed_back | state record research.spawned"]
 
             it "fixes a refused event by the arrows this Fuel takes, never a skip it refuses" $ \world -> do
                 _ <- drive world toSimplifyPr
@@ -187,7 +187,7 @@ spec = describe "state over the doubles" $ do
 
                 ran <- state world ["record", "fuel", "max"]
 
-                (ran.code, ran.out, ran.err) `shouldBe` (0, ["recorded 2 fuel -> research"], [])
+                (ran.code, ran.out, ran.err) `shouldBe` (0, ["recorded 2 fuel -> gather"], [])
                 loggedEvents world `shouldReturn` ["started", "fuel"]
 
             it "names a usage error with exit 2, lists the events and writes nothing" $ \world -> do
@@ -201,7 +201,7 @@ spec = describe "state over the doubles" $ do
 
         describe "handback" $ do
             it "records a role's hand-back from stdin" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["research.done", "2"], Record ["interview.enough"], Record ["plan.done", "/notes/plan.md"]]
+                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Record ["plan.done", "/notes/plan.md"]]
 
                 ran <- stateIn world "READY\nDone.\n" ["handback", "researcher"]
 
@@ -262,7 +262,7 @@ spec = describe "state over the doubles" $ do
                     `shouldBe` ( 2
                                ,
                                    [ "state override: override to nowhere - the flow has no single state of that name"
-                                   , "fix: state override <research|interview|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                                   , "fix: state override <gather|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                    ]
                                )
 
@@ -512,9 +512,10 @@ balancedPath = toSimplifyPr <> [Handback "fixer" simplified, Record ["await_ci.g
 
 balancedTranscript :: [Text]
 balancedTranscript =
-    [ "fuel -> research"
-    , "research.done -> interview"
-    , "interview.enough -> plan"
+    [ "fuel -> gather"
+    , "research.spawned -> gather"
+    , "research.handed_back -> gather"
+    , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.done -> confirm"
     , "confirm.confirmed -> draft"
@@ -529,12 +530,11 @@ balancedTranscript =
     , "ready.done -> out"
     ]
 
--- | Low, a trivial task: the agent skips research, the proposal and the refactor, so no hand-back of theirs.
+-- | Low, a trivial task: the agent gathers nothing, skips the proposal and the refactor, so no hand-back of theirs.
 trivialPath :: [Act]
 trivialPath =
     [ Record ["fuel", "low"]
-    , Record ["research.skipped"]
-    , Record ["interview.enough"]
+    , Record ["gather.enough"]
     , Record ["plan.done", Text.pack (notes </> "plan.md")]
     , Record ["simplify_plan.skipped"]
     , Record ["confirm.confirmed"]
@@ -552,9 +552,8 @@ trivialPath =
 
 trivialTranscript :: [Text]
 trivialTranscript =
-    [ "fuel -> research"
-    , "research.skipped -> interview"
-    , "interview.enough -> plan"
+    [ "fuel -> gather"
+    , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.skipped -> confirm"
     , "confirm.confirmed -> draft"
@@ -569,11 +568,10 @@ trivialTranscript =
     , "ready.done -> out"
     ]
 
--- | What next says a Low run's agent may skip, at research, simplify_plan and refactor.
+-- | What next says a Low run's agent may skip, at simplify_plan and refactor.
 lowSkips :: [Text]
 lowSkips =
-    [ "  Low: skip it when the task is trivial: state record research.skipped"
-    , "  Low: skip it when the task is trivial: state record simplify_plan.skipped"
+    [ "  Low: skip it when the task is trivial: state record simplify_plan.skipped"
     , "  Low: skip it when the task is trivial: state record refactor.skipped <why>"
     ]
 
