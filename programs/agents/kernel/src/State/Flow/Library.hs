@@ -75,7 +75,7 @@ here, as the exit is no longer the loop's in type, and the fold reads no
 'OnEmpty', so the loop says 'StopOut'.
 -}
 fixReReview :: Flow 'Findings 'Nothing 'Diff
-fixReReview = Loop fixLoop (PerFuel 2 4 6) StopOut (Do Pick :> Do Fix :> Do ReReview)
+fixReReview = Catch (Do Pick :> Loop fixLoop (PerFuel 1 3 5) StopOut (Do Fix :> Do ReReview :> Scope fixLoop (Do Pick)))
 
 -- | The fix loop's name: pick reads its rounds.
 fixLoop :: Name
