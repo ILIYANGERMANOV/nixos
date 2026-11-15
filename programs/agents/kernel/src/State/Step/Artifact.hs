@@ -236,11 +236,14 @@ picksOf obj =
 
 -- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
 decodeBreakdown :: Text -> Either Text Tasks
-decodeBreakdown raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither breakdownOf)
+decodeBreakdown = decodeWith breakdownOf
 
 -- | A task file for @task add@: one task, as a breakdown file spells each.
 decodeTask :: Text -> Either Text Task
-decodeTask raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither taskOf)
+decodeTask = decodeWith taskOf
+
+decodeWith :: (Value -> Parser a) -> Text -> Either Text a
+decodeWith parser raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither parser)
 
 breakdownOf :: Value -> Parser Tasks
 breakdownOf value = do

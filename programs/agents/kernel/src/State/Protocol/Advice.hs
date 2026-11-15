@@ -283,10 +283,10 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
 triage a question, then a child's stop, record a finished task's PR, resume
-a child its answer waits for or a restart lost, spawn a task - then ask the user what waits
-on them, then wait on CI, the children at work or a dependency's merge. A question
-the user holds blocks no other child (the 10x skill's "Other tasks keep
-moving"). A child the 10x resumed, or a task it spawned, has an agent at work
+a child its answer waits for or a restart lost, spawn a task - then ask the
+user what waits on them, then wait on CI, the children at work or a
+dependency's merge. A question the user holds blocks no other child (the 10x
+skill's "Other tasks keep moving"). A child the 10x resumed, or a task it spawned, has an agent at work
 and is advised no more. With none at work, none spawnable and no merge
 awaited, a task is left to park.
 -}

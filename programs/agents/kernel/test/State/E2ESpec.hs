@@ -372,7 +372,7 @@ spec = describe "the state binary" $ do
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
                 said `shouldSatisfy` mentions "line 2 is not read"
 
-            it "record a restart of the lead's session, so its lost child is sent again, and nothing at a compaction" $ \repo -> do
+            it "records a restart of the lead's session, so its lost child is sent again, and nothing at a compaction" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
                 w1 <- worktree repo "w1"
                 c1 <- childRun bin w1 parent "n1" "t1"

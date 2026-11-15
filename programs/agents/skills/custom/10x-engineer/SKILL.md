@@ -133,7 +133,7 @@ The plan is the breakdown, `plan.md` in the run directory:
 | Field | Value |
 |---|---|
 | Task | an id, one deliverable, its issues, acceptance criteria, the standards it follows |
-| Repo, deps | what must settle first: earlier tasks only |
+| Repo, deps | what must merge first: earlier tasks only |
 | Shape | independent PR to `main`, or child of `epic/<name>` |
 | Fuel | your call, never a question: Balanced, Low only when very small, Max only when very critical |
 | QA | yes or no |
