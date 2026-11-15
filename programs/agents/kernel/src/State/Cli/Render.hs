@@ -26,9 +26,9 @@ import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
 import State.Show (tshow)
 import State.Step.Build (Sing (Refactor))
+import State.Step.Catalog (AnyStep (..), stepNamed)
 import State.Step.Gather (Sing (Research))
 import State.Step.Review (Sing (Pick))
-import State.Step.Catalog (AnyStep (..), stepNamed)
 import State.Table (Row (runner), Runner (..), Steps, row)
 
 {- | The flow's states in the term's order: who runs each, and where each of

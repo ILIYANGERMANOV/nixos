@@ -25,8 +25,8 @@ import Data.Foldable (minimumBy)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set (Set)
 import Data.Ord (comparing)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import State.Category.Flow (FanEvent (..), Flow (..), Name (..), fanEvent, fanName, nameText, scoped)
 import State.Category.Fuel (PerFuel, SkipWhen)

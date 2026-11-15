@@ -97,7 +97,6 @@ re-review cap and the stuck guard reset.
 <reason>`, or under a parent the `HANDBACK` line to send instead.
 
 - `rounds`: a loop ran out of rounds - plan 4, CI 6, a 10x's rounds 10 at
-  every Fuel, gather and review as your Fuel row's Research rounds and
-  Re-reviews say. Tell the user what is left.
+  every Fuel. Tell the user what is left.
 - `blocked` or `failed`: tell the user why, with the head SHA and what remains.
 - `replan`: the Re-plan above.

@@ -104,7 +104,7 @@ data Event
     = Started Start
     | -- | Set once.
       FuelSet Fuel
-    | {- | The user let the gather loop go on, and why: its research rounds and
+    | {- | The user let the gather loop go on, and why: its researchers and
       questions start afresh.
       -}
       Extended Text

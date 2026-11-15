@@ -23,8 +23,8 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Flow (..), Name, inl, inr, (|||))
 import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
-import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Triage (Sing (..))
