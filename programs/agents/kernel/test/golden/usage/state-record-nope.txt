@@ -8,9 +8,7 @@ Available options:
   -h,--help                Show this help text
 
 Available commands:
-  quality                  <POC|Balanced|Max>
-  size                     <Trivial|Normal>
-  grew                     <why>
+  fuel                     <low|balanced|max>
   research.done            <n>
   research.skipped         no arguments
   interview.enough         no arguments

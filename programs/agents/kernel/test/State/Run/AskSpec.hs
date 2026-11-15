@@ -5,7 +5,6 @@ import Data.Text qualified as Text
 import Hedgehog (Gen, PropertyT, assert, cover, forAll, tripping, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Mode (Size (..))
 import State.Role (Rung (..))
 import State.Run.Ask
 import State.Run.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
@@ -114,19 +113,19 @@ spec = describe "State.Run.Ask" $ do
 
     describe "ask" $ do
         it "sends a role's own question its row forwards to the user who started the run" $
-            ask ByUser Normal Lead Design `shouldBe` Up TheUser
+            ask ByUser Lead Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
-            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1"))) Normal Lead Design `shouldBe` Up (ParentRun (runId "p1"))
+            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1"))) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
-            map (ask ByUser Trivial Lead) [Fact, Confirm] `shouldBe` [AnswerSelf, AnswerSelf]
+            ask ByUser Lead Fact `shouldBe` AnswerSelf
 
-        it "forwards the Confirm of a task not Trivial, whose row answers it only when Trivial" $
-            ask ByUser Normal Lead Confirm `shouldBe` Up TheUser
+        it "forwards the engineer's Confirm at every Fuel: its row never answers it" $
+            ask ByUser Lead Confirm `shouldBe` Up TheUser
 
         it "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit" $
-            ask ByUser Normal Orchestrator Confirm `shouldBe` Up TheUser
+            ask ByUser Orchestrator Confirm `shouldBe` Up TheUser
 
     it "spells the hand-back line as #360's wire format" $
         needsDecision (Question qid Design (oneLine "change the data model?"))
@@ -174,7 +173,7 @@ table =
     , (Pick, [Forwards, Answers, Answers, Answers])
     , (Design, [Forwards, Forwards, AnswersIf RuleTest, Answers])
     , (Scope, [Forwards, Forwards, AnswersIf RuleTest, Answers])
-    , (Confirm, [Forwards, AnswersIf TrivialSize, AnswersIf FitsBreakdown, Answers])
+    , (Confirm, [Forwards, Forwards, AnswersIf FitsBreakdown, Answers])
     , (Security, [Forwards, Forwards, AnswersIf ObviousOrAnswered, Answers])
     , (Stuck, [Forwards, Forwards, AnswersIf OneRetry, Answers])
     ]

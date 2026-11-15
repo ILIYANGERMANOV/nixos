@@ -43,7 +43,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Mode (Quality (..), Size (..))
+import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
@@ -71,9 +71,7 @@ genEvent :: Gen Event
 genEvent =
     Gen.choice
         [ Started <$> genStart
-        , QualitySet <$> Gen.enumBounded
-        , SizeSet <$> Gen.enumBounded
-        , Grew <$> genText
+        , FuelSet <$> Gen.enumBounded
         , Took <$> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText
@@ -133,7 +131,6 @@ genTasks = do
             <$> Gen.subsequence (map taskNamed [1 .. i - 1])
             <*> (Branch <$> genText)
             <*> (Branch <$> genText)
-            <*> Gen.enumBounded
             <*> Gen.enumBounded
             <*> Gen.bool
             <*> Gen.bool
@@ -199,7 +196,7 @@ templates =
     , outcome (ReadySkipped (Url ""))
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced Normal False False Set.empty :| [])))
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty :| [])))
               , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               ]

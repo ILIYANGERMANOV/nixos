@@ -15,12 +15,12 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OptId (..))
 import State.Category.FlowGen (composes, genWalk)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
-import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), cfg)
+import State.Category.Fuel (Cfg (..), Fuel (..), cfg)
 import State.Category.Path (ty)
 import State.Flow.Engineer (engineer)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
-import State.Run.Event
+import State.Run.Event hiding (OutOfRounds)
 import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
@@ -93,33 +93,33 @@ spec = describe "State.Run.Fold" $ do
                 path <- evalMaybe (ty g [outcomeEvent took | Took took <- events])
                 assert (composes path)
 
-    it "rounds_never_exceed_fuel_plus_one" . hedgehog $ do
+    it "rounds_never_exceed_the_budget_plus_one" . hedgehog $ do
         events <- forAll genAccepted
         states <- traverse (evalEither . replay g . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| events)))
         let reached = [(loopId, rounds, state) | state <- states, (loopId, rounds) <- Map.toList state.rounds]
-        cover 1 "a loop past its fuel" (any (\(l, rs, s) -> length rs > fuel s l) reached)
+        cover 1 "a loop past its rounds" (any (\(l, rs, s) -> length rs > budgetOf s l) reached)
         sequence_
             [ do
-                assert (length rounds <= fuel state loopId + 1)
-                assert (length rounds <= fuel state loopId || unmetIn (NonEmpty.toList rounds !! (fuel state loopId - 1)))
+                assert (length rounds <= budgetOf state loopId + 1)
+                assert (length rounds <= budgetOf state loopId || unmetIn (NonEmpty.toList rounds !! (budgetOf state loopId - 1)))
             | (loopId, rounds, state) <- reached
             ]
 
     -- At the pick, before the fixer runs, so the run can still take the loop's exit.
-    it "refuses a review round past the fuel at the loop pick" $
-        replay g (logOf (started :| QualitySet Balanced : SizeSet Trivial : toReview <> reviewRound []))
-            `shouldBe` Left (OutOfFuel LReview 1)
+    it "refuses a review round past the rounds at the loop pick" $
+        replay g (logOf (started :| FuelSet Low : toReview <> reviewRounds [[], []]))
+            `shouldBe` Left (OutOfRounds LReview 2)
 
-    it "gives one more round after a Not met at the fuel, never two" $ do
+    it "gives one more round after a Not met at the last round, never two" $ do
         let unmet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
-            once = toReview <> roundWith unmet <> [stepTook (FixDone commit), stepTook (ReviewRows sha)]
-        (.at) <$> replay g (logOf (started :| SizeSet Trivial : once)) `shouldSatisfy` either (const False) (/= Out)
-        replay g (logOf (started :| SizeSet Trivial : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfFuel LReview 1)
+            once = toReview <> reviewRound [] <> [stepTook (FixDone commit)] <> roundWith unmet <> [stepTook (FixDone commit), stepTook (ReviewRows sha)]
+        (.at) <$> replay g (logOf (started :| FuelSet Low : once)) `shouldSatisfy` either (const False) (/= Out)
+        replay g (logOf (started :| FuelSet Low : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfRounds LReview 2)
 
     it "stuck_after_two_same_rounds" . hedgehog $ do
         -- Max's 6 rounds: the last round's loop pick is refused, as no round is left.
         rows <- forAll (Gen.list (Range.linear 1 5) (Gen.subsequence ["A", "B", "C"]))
-        state <- evalEither (replay g (logOf (started :| QualitySet Max : toReview <> reviewRounds rows)))
+        state <- evalEither (replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds rows)))
         let expected = case reverse rows of
                 current : previous : _ -> Set.map (Row . Label) (Set.fromList current `Set.intersection` Set.fromList previous)
                 _ -> Set.empty
@@ -127,7 +127,7 @@ spec = describe "State.Run.Fold" $ do
         stuck state === [Stuck LReview expected | not (Set.null expected)]
 
     it "is not stuck on rows alternating A, B, A, B: only rounds in a row count" $
-        stuck <$> replay g (logOf (started :| QualitySet Max : toReview <> reviewRounds [["A"], ["B"], ["A"], ["B"]]))
+        stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["B"], ["A"], ["B"]]))
             `shouldBe` Right []
 
     it "is stuck on one failing check in two CI rounds in a row" $ do
@@ -136,7 +136,7 @@ spec = describe "State.Run.Fold" $ do
             `shouldBe` Right [Stuck LCi (Set.singleton (Failing (Check "lint")))]
 
     it "forgets a loop's rounds once the run leaves it" $
-        stuck <$> replay g (logOf (started :| QualitySet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReviewClean sha)]))
+        stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReviewClean sha)]))
             `shouldBe` Right []
 
     it "restarts gathering in each round of the plan loop" $ do
@@ -169,20 +169,17 @@ spec = describe "State.Run.Fold" $ do
     it "refuses an event with no edge where the run is" $
         replay g (logOf (started :| [stepTook (ReviewClean sha)])) `shouldBe` Left (NoEdge (At research) (outcomeEvent (outcome (ReviewClean sha))))
 
-    it "refuses a skip the mode never takes" $
+    it "refuses a skip the Fuel never takes" $
         replay g (logOf (started :| [stepTook ResearchSkipped])) `shouldBe` Left (NotSkippable ORes)
 
-    it "takes a skip where the mode does" $
-        (.at) <$> replay g (logOf (started :| [SizeSet Trivial, stepTook ResearchSkipped])) `shouldSatisfy` either (const False) (/= At research)
+    it "takes a skip the agent records where Low leaves it the call" $
+        (.at) <$> replay g (logOf (started :| [FuelSet Low, stepTook ResearchSkipped])) `shouldSatisfy` either (const False) (/= At research)
 
-    it "refuses a second Quality" $
-        replay g (logOf (started :| [QualitySet Max, QualitySet Poc])) `shouldBe` Left (QualitySetOnce Max)
+    it "refuses a second Fuel" $
+        replay g (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
 
-    it "refuses a second Size" $
-        replay g (logOf (started :| [SizeSet Trivial, SizeSet Normal])) `shouldBe` Left (SizeSetOnce Trivial)
-
-    it "takes the same Quality again, and a Size that grew" $
-        mode <$> replay g (logOf (started :| [QualitySet Max, QualitySet Max, SizeSet Trivial, Grew "bigger"])) `shouldBe` Right (Mode Max Normal)
+    it "takes the same Fuel again" $
+        fuelOf <$> replay g (logOf (started :| [FuelSet Max, FuelSet Max])) `shouldBe` Right Max
 
     it "takes no event after a stop" $
         replay g (logOf (started :| [Stopped stop, stepTook (ResearchDone 1)])) `shouldBe` Left (AfterStop stop)
@@ -240,13 +237,13 @@ reviewRounds = \case
     [rows] -> reviewRound (map Label rows)
     rows : rest -> reviewRound (map Label rows) <> [stepTook (FixDone commit)] <> reviewRounds rest
 
-fuel :: RunState -> LoopId -> Int
-fuel state loopId = fromIntegral ((cfg (mode state)).fuel loopId)
+budgetOf :: RunState -> LoopId -> Int
+budgetOf state loopId = fromIntegral ((cfg (fuelOf state)).rounds loopId)
 
 unmetIn :: Round -> Bool
 unmetIn (Round problems) = any (\case Unmet _ -> True; Row _ -> False; Failing _ -> False) problems
 
--- | Any mode, then a walk to the end, sometimes with an event from anywhere in the flow.
+-- | Any Fuel, then a walk to the end, sometimes with an event from anywhere in the flow.
 genCandidate :: Gen [Event]
 genCandidate = do
     knobs <- genKnobs
@@ -383,7 +380,7 @@ genAskLog = do
             Gen.frequency
                 [ (30, (\kind text -> (Asked (Asking (Question (QId run fresh) kind text) (StateName "implement") Itself), fresh + 1)) <$> Gen.enumBounded <*> genOneLine)
                 , (10, same (RetaggedSecurity <$> known))
-                , (30, same (RuledOn <$> known <*> genProposal))
+                , (40, same (RuledOn <$> known <*> genProposal))
                 , (30, same (Forwarded <$> known <*> above))
                 , (20, same (Answered <$> known <*> genText <*> above))
                 , (1, same (pure (Stopped halt)))

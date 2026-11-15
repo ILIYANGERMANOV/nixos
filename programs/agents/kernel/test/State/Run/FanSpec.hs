@@ -113,7 +113,7 @@ spec = describe "State.Run.Fan" $ do
         map (.id) . spawnable [] 3 <$> (spawned [] (childFor "c1" t1) twoTasks >>= handedBack (runId "c1") (Finished (oneLine "PR"))) `shouldBe` Right [t2]
 
     it "spawns no task whose dependency is parked: it never merges to stack on" $
-        map (.id) . spawnable [] 3 <$> moved t1 (Parked "POC" Nothing) twoTasks `shouldBe` Right []
+        map (.id) . spawnable [] 3 <$> moved t1 (Parked "out of scope" Nothing) twoTasks `shouldBe` Right []
 
     it "frees the slot of a task parked with its agent at work" $
         map (.id) . spawnable [] 1 <$> (spawning [] t1 independent >>= moved t1 (Parked "lost" Nothing)) `shouldBe` Right [t2]

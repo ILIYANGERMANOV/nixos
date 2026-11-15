@@ -105,7 +105,7 @@ spec = describe "state-hook over the doubles" $ do
 
         describe "spawn" $ do
             it "warns the lead spawning a role off the advice" $ \world -> do
-                _ <- drive world [Record ["quality", "Balanced"], Record ["size", "Normal"]]
+                _ <- drive world [Record ["fuel", "balanced"]]
 
                 said <- hook world "spawn" (spawned "implementer")
 

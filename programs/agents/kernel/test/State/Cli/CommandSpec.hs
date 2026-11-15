@@ -7,7 +7,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative qualified as Opt
 import State.Category.Graph (OpenGraph (..))
-import State.Category.Mode (Mode (..), Quality (..), Size (..))
+import State.Category.Fuel (Fuel (..))
 import State.Category.Step (eventText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, optparseText, parseCommand, parseHook)
 import State.Golden (golden)
@@ -44,7 +44,7 @@ spec = describe "State.Cli.Command" $ do
 
     describe "record" $ do
         it "parses a stay event's argument" $
-            recorded ["quality", "Balanced"] `shouldBe` Right (QualitySet Balanced)
+            recorded ["fuel", "low"] `shouldBe` Right (FuelSet Low)
 
         it "records a commit event at HEAD with its touched areas" $
             recorded ["implement.done", "--touches", "none"] `shouldBe` Right (stepTook (ImplementDone (Commit sha Set.empty)))
@@ -62,7 +62,7 @@ spec = describe "State.Cli.Command" $ do
             recorded ["pick.final", "--row", "R1", "--row", "R2"] `shouldBe` Right (stepTook (PickFinal (Picks (Set.fromList [Label "R1", Label "R2"]) Map.empty)))
 
         it "keeps an event's free words that start with a dash" $
-            recorded ["grew", "-x", "--flag", "added"] `shouldBe` Right (Grew "-x --flag added")
+            recorded ["refactor.skipped", "-x", "--flag", "added"] `shouldBe` Right (stepTook (RefactorSkipped "-x --flag added"))
 
         it "refuses an event's usage with its own fix" $
             case parseCommand steps ["record", "plan.done"] of
@@ -106,15 +106,16 @@ spec = describe "State.Cli.Command" $ do
 
     describe "failures" $ do
         it "prints what, why and the fix as the analyzer parses them" $
-            failureText "record" (Failure BadInput "size" "set once" "state show")
-                `shouldBe` "state record: size - set once\nfix: state show\n"
+            failureText "record" (Failure BadInput "fuel" "set once" "state show")
+                `shouldBe` "state record: fuel - set once\nfix: state show\n"
 
-        it "fixes a second size with grew" $
-            (explain g (Mode Balanced Normal) (runAt []).at (SizeSetOnce Normal)).fix `shouldBe` "state record grew <why>"
+        it "explains a second Fuel by the one set" $
+            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (FuelSetOnce Max))
+                `shouldBe` ("it is max already, set once", "state show")
 
-        it "fixes an event with no arrow by the events out of the step the mode takes" $
-            [ (explain g mode (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix
-            | mode <- [Mode Balanced Normal, Mode Poc Trivial]
+        it "fixes an event with no arrow by the events out of the step the Fuel takes" $
+            [ (explain g fuel (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            | fuel <- [Balanced, Low]
             ]
                 `shouldBe` ["state record research.done <n>", "state record research.done <n> | state record research.skipped"]
 

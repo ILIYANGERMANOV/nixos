@@ -33,6 +33,7 @@ module State.Cli.Shell.World (
     spawned,
     Act (..),
     drive,
+    driveOut,
     recorded,
     ready,
     reviewed,
@@ -45,7 +46,6 @@ import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.Foldable (for_)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -74,7 +74,7 @@ import State.Run.RunGen (breakdownJson, plainTask)
 import System.Environment (getEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
-import Test.Hspec (expectationFailure, shouldBe)
+import Test.Hspec (expectationFailure)
 
 {- | Everything outside the process. The worktree's commits on @feat@ are
 counted: each changes one line, as the e2e's do.
@@ -186,7 +186,6 @@ tenXAtFanOut :: IORef World -> IO Text
 tenXAtFanOut world = do
     tenX <- startedIn world ["--flow", "10x"]
     putFile world (notes </> "tasks.json") (breakdownJson [plainTask "t1" [], (plainTask "t2" ["t1"]) {heavy = True}])
-    for_ [["quality", "Balanced"], ["size", "Normal"]] $ \argv -> succeeded =<< state world ("record" : argv)
     _ <- succeeded =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
     _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
     pure tenX
@@ -267,18 +266,20 @@ data Act
     | -- | The draft PR GitHub reports from now on: @next@ records @draft.done@ from it.
       OpenPr
     | Override Text
-    | -- | A @record@ the run refuses, with exit 2.
-      Refused [Text]
 
 {- | Starts the run, then each act and a @state next@ after it, every call
 exiting 0. The @recorded@ lines they print, without their sequence numbers.
 -}
 drive :: IORef World -> [Act] -> IO [Text]
-drive world acts = do
+drive world acts = recorded . concat <$> driveOut world acts
+
+-- | As 'drive', each call's whole output: the first @next@'s, then each act's with its @next@.
+driveOut :: IORef World -> [Act] -> IO [[Text]]
+driveOut world acts = do
     _ <- startedRun world
     first <- next
     rest <- traverse (\act -> (<>) <$> perform act <*> next) acts
-    pure (recorded (concat (first : rest)))
+    pure (first : rest)
   where
     next = succeeded =<< state world ["next"]
     perform = \case
@@ -289,9 +290,6 @@ drive world acts = do
         Commit -> [] <$ modifyIORef' world (\w -> w {commits = w.commits + 1})
         OpenPr -> [] <$ modifyIORef' world (\w -> w {pr = draftPr IsDraft})
         Override to -> succeeded =<< state world ["override", to, "the", "test", "starts", "here"]
-        Refused argv -> do
-            ran <- state world ("record" : argv)
-            [] <$ (ran.code `shouldBe` 2)
 
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]

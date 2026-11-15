@@ -33,7 +33,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanId (..))
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
-import State.Category.Mode (Quality (..), Size (..), qualityName, sizeName)
+import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Step (EventName)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
@@ -57,18 +57,18 @@ g = either (error . show) id (graph engineer)
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
 
-{- | A 10x run, by the user, Balanced Normal, at its fan-out with these
+{- | A 10x run, by the user, at its fan-out with these
 tasks, then these events.
 -}
 tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
     tenXStart = start {flow = TenXFlow}
-    toFanOut = [QualitySet Balanced, SizeSet Normal, Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf tasks))]
+    toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf tasks))]
 
--- | A task on its own branch off main, Balanced Normal, light, after these tasks.
+-- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
-plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced Normal False False Set.empty
+plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced False False Set.empty
 
 -- | The breakdown file the 10x writes for these tasks, in this order.
 breakdownJson :: [Task] -> Text
@@ -80,8 +80,7 @@ breakdownJson = decodeUtf8 . LBS.toStrict . Aeson.encode . map taskJson
             , "deps" .= map taskIdText task.deps
             , "base" .= branchText task.base
             , "branch" .= branchText task.branch
-            , "quality" .= qualityName task.quality
-            , "size" .= sizeName task.size
+            , "fuel" .= fuelName task.fuel
             , "qa" .= task.qa
             , "heavy" .= task.heavy
             , "security" .= map topicText (Set.toList task.security)
@@ -103,9 +102,9 @@ happyPath =
         <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), outcome (RefactorDone sha), outcome (ReviewClean sha)]
         <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
 
-{- | Any mode, then up to 300 tries at an event on an edge out of where the
+{- | Any Fuel, then up to 300 tries at an event on an edge out of where the
 run is, keeping those the fold accepts. Edges that stay inside every loop are
-likelier, so loops run out of fuel.
+likelier, so loops run out of rounds.
 -}
 genAccepted :: Gen [Event]
 genAccepted = do
@@ -132,7 +131,7 @@ genAccepted = do
         Exit -> False
 
 genKnobs :: Gen [Event]
-genKnobs = (\quality size -> [QualitySet quality, SizeSet size]) <$> Gen.enumBounded <*> Gen.enumBounded
+genKnobs = (\fuel -> [FuelSet fuel]) <$> Gen.enumBounded
 
 outcomeOf :: EventName -> Gen AnyOutcome
 outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
