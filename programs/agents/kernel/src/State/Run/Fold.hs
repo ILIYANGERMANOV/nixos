@@ -293,7 +293,7 @@ took g state outcome = do
     let noted = fmap (noteProblems effect.problems) state.rounds
     rounds <- enter g (cfg (fuelOf state)).rounds edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
-        traverse_ (nextRound loopId ((cfg (fuelOf state)).fuel loopId)) (Map.lookup loopId rounds)
+        traverse_ (nextRound loopId ((cfg (fuelOf state)).rounds loopId)) (Map.lookup loopId rounds)
     Right state {at = edge.to, rounds, fans, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
 
 {- | What an outcome changes besides the run's place: its problems join the

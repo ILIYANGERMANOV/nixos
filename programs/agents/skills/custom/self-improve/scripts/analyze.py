@@ -1671,9 +1671,7 @@ class Quality:
 
 
 NO_QUALITY = "(none stated)"
-QUALITY = re.compile(
-    rf"\b(?:Quality|Fuel):\W*({'|'.join(m.value for m in Mode)})\b"
-)
+QUALITY = re.compile(rf"\b(?:Quality|Fuel):\W*({'|'.join(m.value for m in Mode)})\b")
 SIZE = re.compile(
     rf"\bSize:\W*({'|'.join(s.value for s in Size if s.value)})\b(?!\|)"
 )  # `Size: Trivial|Normal` is the rule's placeholder, no size
