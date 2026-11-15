@@ -1,6 +1,6 @@
 ---
 name: 10x-engineer
-description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown with a Quality per task, runs up to 3 whole /engineer flows in worktrees, answers their questions as the authority table allows and asks the user the rest with context, owns CI waits and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Driven by the `state` kernel, resumable with `resume`. Factory only, invoked by the user.
+description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown with a Fuel per task, runs up to 3 whole /engineer flows in worktrees, answers their questions as the authority table allows and asks the user the rest with context, owns CI waits and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Driven by the `state` kernel, resumable with `resume`. Factory only, invoked by the user.
 argument-hint: "[issues, PR links, a goal] | resume [run]"
 disable-model-invocation: true
 ---
@@ -93,9 +93,8 @@ links and free text, across repos. Touch only the PRs the user named.
 
 Create `~/.10x/<yyyy-mm-dd>-<slug>/`, `git init -q` it, and in it run
 `state init --notes . --flow 10x`. Write the user's words verbatim to
-`intent.md` there, never edited. The run's Quality is the user's for the run,
-else Balanced: it sets the run's own research and proposals. Its Size is
-Normal.
+`intent.md` there, never edited. The run's own Fuel is Balanced: it sets the
+run's own research and proposals.
 
 Once per repo, before anything reads it: `add_repo` with `access: "read"` as
 your instructions say, then, as this run's own step, `git clone` its SSH URL
@@ -109,7 +108,7 @@ leave that repo out and tell the user.
 List what you need to know, the standards that apply included, and group it
 into topics; you plan them yourself. One `subagent_type: researcher` agent
 per group, in the background, given each repo's clone path, with notes under
-`/tmp/<unique-dir>/`, as many as your Quality row's Researchers. Its prompt:
+`/tmp/<unique-dir>/`, as many as your Fuel row's Researchers. Its prompt:
 `## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section only.
 Check that each repo's CI runs on PRs to `epic/*` before planning an epic
 there; if it does not, say so in the breakdown.
@@ -136,8 +135,7 @@ The plan is the breakdown, `plan.md` in the run directory:
 | Task | an id, one deliverable, its issues, acceptance criteria, the standards it follows |
 | Repo, deps | what must settle first: earlier tasks only |
 | Shape | independent PR to `main`, stacked on its dependency's branch, or child of `epic/<name>` |
-| Quality | POC, Balanced or Max; ask unless told, Balanced recommended; a `Size: Trivial` task needs no question |
-| Size | Trivial when it qualifies by your instructions' rule, else Normal: your call, set once, never a question |
+| Fuel | your call, never a question: Balanced, Low only when very small, Max only when very critical |
 | QA | yes or no |
 | Heavy | Gradle or Next.js build: yes or no |
 | Security-sensitive | topics from `ci`, `auth`, `database`, `secrets`, or none |
@@ -153,7 +151,7 @@ targets the epic.
 Use an epic when children depend on each other or must ship together;
 otherwise independent PRs.
 
-The simplify pass runs unless Trivial skips it: a `researcher` whose prompt
+The simplify pass runs: a `researcher` whose prompt
 names `~/.claude/skills/researcher/references/proposal.md`, the plan and the
 notes paths. You pick among their `Considered options` where the Rule
 test holds, as a ruling; a real trade-off is the user's.
@@ -166,8 +164,8 @@ clear. No engineer starts before this, except a base fix (Failures).
 ### Breakdown
 
 Write `tasks.json` in the run directory, a JSON array in the plan's order of
-`{"id", "deps": [ids], "base", "branch", "quality", "size", "qa", "heavy",
-"security": [topics]}`, then `state record breakdown.done --tasks tasks.json`.
+`{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
+"security": [topics]}`, `fuel` one of `low`, `balanced`, `max`, then `state record breakdown.done --tasks tasks.json`.
 
 ### Engineers
 
@@ -189,7 +187,7 @@ or pipe it in. Every open question is in `state pending`: `state rule` or
 | Pick | forwards | answers | answers | answers |
 | Design | forwards | forwards | answers if it passes the rule test | answers |
 | Scope | forwards | forwards | answers if it passes the rule test | answers |
-| Confirm | forwards | answers if the task is `Size: Trivial` | answers if the task plan fits the confirmed breakdown | answers |
+| Confirm | forwards | forwards | answers if the task plan fits the confirmed breakdown | answers |
 | Security | forwards | forwards | answers if the user already answered it, or it is obvious | answers |
 | Stuck | forwards | forwards | answers if no retry was spent on it yet | answers |
 
@@ -238,15 +236,12 @@ without CI stands, or ask it. Green: `state record task <id> review <url>`,
 then the merge loop's gates.
 
 **READY.** The child is done. `state handback engineer` records the PR its
-line 1 names: in review, or parked as a labelled draft for POC; with none
-named, `state next` prints the record. Notify as the engineer skill's Ship
+line 1 names, in review; with none named, `state next` prints the record. Notify as the engineer skill's Ship
 does in a run with no parent: the PR's `## What & Why` and its optional next
 steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or runtime
 change, `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`,
 and `/address-pr-feedback <PR>` when others commented. Only the user runs
-them. A POC task's parked draft gets none, and a task depending on it opens
-one decision: retry it at a higher Quality, or re-plan. `state next` spawns
-no dependent of a parked task. Never offer to run the app:
+them. `state next` spawns no dependent of a parked task. Never offer to run the app:
 run it only when the user asks, on a port in 3000-3099, and give the URL. A QA
 Fail the user reports is a comment from the user.
 
@@ -301,7 +296,7 @@ every ruling, follow-ups.
 
 ## Failures
 
-A child's `BLOCKED`, `FAILED` or `GREW` prints `triage:` and a `fix:` line,
+A child's `BLOCKED` or `FAILED` prints `triage:` and a `fix:` line,
 and `state next` the same `state ask ... --from <run>` line: give it a kind,
 run it, then triage it as any question. No retry spawns before.
 

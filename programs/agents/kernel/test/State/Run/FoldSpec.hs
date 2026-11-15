@@ -14,8 +14,8 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OptId (..))
 import State.Category.FlowGen (composes, genWalk)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Fuel (Cfg (..), Fuel (..), cfg)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Path (ty)
 import State.Flow.Engineer (engineer)
 import State.Role qualified as Role

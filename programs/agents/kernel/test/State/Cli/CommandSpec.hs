@@ -6,8 +6,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative qualified as Opt
-import State.Category.Graph (OpenGraph (..))
 import State.Category.Fuel (Fuel (..))
+import State.Category.Graph (OpenGraph (..))
 import State.Category.Step (eventText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, optparseText, parseCommand, parseHook)
 import State.Golden (golden)

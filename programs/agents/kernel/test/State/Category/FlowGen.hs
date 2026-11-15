@@ -21,8 +21,8 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (FanId (..), Flow (..), OnEmpty (..), inl, inr, (|||))
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (..), cfg)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Triage (Sing (..))

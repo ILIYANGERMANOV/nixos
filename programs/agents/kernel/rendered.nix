@@ -5,7 +5,7 @@
 # would rebuild the installed `state` on every prose edit.
 #
 # A table or quoted block must stand alone: blank lines around it, so a row
-# added or dropped beside it fails too. The Quality rows sit apart in their
+# added or dropped beside it fails too. The Fuel rows sit apart in their
 # table, so each must be a whole line of it.
 {
   pkgs,
@@ -13,7 +13,7 @@
   # The checked-in files that paste a block.
   engineer,
   tenX,
-  quality,
+  fuel,
 }:
 pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
   fail() { echo "$1 drifted from \`state render $2\`; paste this:" >&2; cat "$3" >&2; exit 1; }
@@ -38,9 +38,8 @@ pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
   block ${engineer}/references/blockers.md stop-rule
   block ${engineer}/references/blockers.md plan-wrong
   block ${engineer}/references/blockers.md kinds
-  block ${engineer}/references/trivial.md trivial
   block ${tenX}/SKILL.md "states --flow 10x"
   block ${tenX}/SKILL.md kinds
-  lines ${quality} quality
+  lines ${fuel} fuel
   touch "$out"
 ''

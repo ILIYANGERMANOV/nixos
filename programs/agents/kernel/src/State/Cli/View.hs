@@ -9,8 +9,8 @@ import Data.Bool (bool)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Graph (Node (..), Place (..))
 import State.Category.Fuel (fuelLabel)
+import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (SomeStep (..), stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)

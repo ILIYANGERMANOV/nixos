@@ -32,8 +32,8 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanId (..))
-import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
 import State.Category.Fuel (Fuel (..), fuelName)
+import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
 import State.Category.Step (EventName)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)

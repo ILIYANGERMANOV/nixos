@@ -16,12 +16,8 @@ brief:
 > body, plus `(does not build yet)` when it does not build.
 > Start your hand-back with `NEEDS_DECISION <question>`, then that commit, what
 > you tried and the evidence paths. Spawn no researcher.
-> On `Size: Trivial`, work bigger than briefed is `GREW <why>`: stop the same
-> way, after committing and pushing what you have, and start your hand-back
-> with that line. With a `NEEDS_DECISION`, that line comes first and `GREW`
-> on the next.
 
-A review-lead brief, the Trivial sweep's included, gets this line instead, and
+A review-lead brief, the Low sweep's included, gets this line instead, and
 passes nothing of it to its reviewers:
 
 > The plan is wrong when a finding shows a wrong approach, a requirement that
@@ -46,7 +42,7 @@ is `engineer`. `Security` is above every other kind: raise a question to it
 | Pick | forwards | answers | answers | answers |
 | Design | forwards | forwards | answers if it passes the rule test | answers |
 | Scope | forwards | forwards | answers if it passes the rule test | answers |
-| Confirm | forwards | answers if the task is `Size: Trivial` | answers if the task plan fits the confirmed breakdown | answers |
+| Confirm | forwards | forwards | answers if the task plan fits the confirmed breakdown | answers |
 | Security | forwards | forwards | answers if the user already answered it, or it is obvious | answers |
 | Stuck | forwards | forwards | answers if no retry was spent on it yet | answers |
 
@@ -76,8 +72,8 @@ trips the stuck guard.
 
 **Fact path.** One researcher per fact gap, prompted per `## Callers` in the
 researcher skill with the question in it; it does not count against
-Gather's. Write a delta plan: what the facts change. Run your Quality row's
-simplify pass on it, `Size: Trivial` aside. Record the fact and the delta in
+Gather's. Write a delta plan: what the facts change. Run the simplify pass
+on it, unless Low skips it. Record the fact and the delta in
 the PR body, `state rule` the question, then resume. A fact that changes a
 goal, a decision or an interface, or opens a choice someone else owns, is a
 new question of that kind.
@@ -88,9 +84,9 @@ then do what it prints. On `STOP replan`, or resumed after its
 `HANDBACK NEEDS_DECISION plan wrong`, start a new run in a fresh notes
 directory, `state init --notes <dir>-replan-<n>` plus the `--parent`,
 `--parent-log` and `--task` of your first `state init` when it had them, on
-the same branch and PR, at the same Quality: Gather for the open question
-only, never re-asking what was just answered, then Propose and confirm. A
-`Size: Trivial` task moves to Normal first (`trivial.md`). The new plan and
+the same branch and PR, at the same Fuel: Gather for the open question
+only, never re-asking what was just answered, then Propose and confirm. The
+new plan and
 its `Considered options` go into the PR body. Existing commits stay and the
 new plan adds commits on top; its review starts again at round 1, so the
 re-review cap and the stuck guard reset.
@@ -100,10 +96,7 @@ re-review cap and the stuck guard reset.
 `state stop <reason> <why>` ends the run; `state next` then prints `STOP
 <reason>`, or under a parent the `HANDBACK` line to send instead.
 
-- `fuel`: a loop ran out of rounds - gather 6, plan 4, CI 6 in every mode,
-  review as your Quality row's Re-reviews say. Tell the user what is left.
+- `rounds`: a loop ran out of rounds - gather 6, plan 4, CI 6 at every Fuel,
+  review as your Fuel row's Re-reviews say. Tell the user what is left.
 - `blocked` or `failed`: tell the user why, with the head SHA and what remains.
 - `replan`: the Re-plan above.
-- `grew`: only a run under a parent, briefed `Size: Trivial`, whose task grew
-  past it; it hands back `GREW <why>`. Your own run grows with
-  `state record grew <why>` (`trivial.md`).

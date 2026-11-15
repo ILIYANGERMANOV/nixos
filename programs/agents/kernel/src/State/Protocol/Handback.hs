@@ -23,8 +23,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (fanNamed)
-import State.Category.Graph (Node (..), Place (..))
 import State.Category.Fuel (Area, parseByName)
+import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)

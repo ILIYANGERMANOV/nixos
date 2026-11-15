@@ -519,7 +519,7 @@ toSimplifyPr :: Repo -> [Act]
 toSimplifyPr repo =
     Record ["fuel", "balanced"]
         : toImplement repo
-        <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
+            <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
 
 balancedPath :: Repo -> [Act]
 balancedPath repo = toSimplifyPr repo <> [Handback "fixer" simplified, Record ["await_ci.green"], Record ["ready.done", prUrlString]]

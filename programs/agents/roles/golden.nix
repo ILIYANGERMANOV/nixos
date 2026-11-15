@@ -36,8 +36,7 @@
       "spawn:review-lead"
     ];
     prose = [
-      "topics/trivial.md"
-      "topics/quality.md"
+      "topics/fuel.md"
     ];
   };
   fixer = {
@@ -58,10 +57,7 @@
     ];
     skills = [ "engineering" ];
     operations = [ ];
-    prose = [
-      "shared/building.md"
-      "topics/quality.md"
-    ];
+    prose = [ "shared/building.md" ];
   };
   qa-runner = {
     capabilities = [
@@ -87,7 +83,7 @@
     operations = [ ];
     prose = [
       "shared/building.md"
-      "topics/quality.md"
+      "topics/fuel.md"
     ];
   };
   researcher = {
@@ -98,7 +94,7 @@
     ];
     skills = [ "researcher" ];
     operations = [ ];
-    prose = [ "topics/quality.md" ];
+    prose = [ "topics/fuel.md" ];
   };
   reviewer = {
     capabilities = [
@@ -107,7 +103,7 @@
     ];
     skills = [ ];
     operations = [ ];
-    prose = [ "topics/quality.md" ];
+    prose = [ "topics/fuel.md" ];
   };
   review-lead = {
     capabilities = [
@@ -118,8 +114,7 @@
     skills = [ "pragmatic-review" ];
     operations = [ "spawn:reviewer" ];
     prose = [
-      "topics/trivial.md"
-      "topics/quality.md"
+      "topics/fuel.md"
     ];
   };
 }

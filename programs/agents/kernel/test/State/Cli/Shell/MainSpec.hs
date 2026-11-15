@@ -470,7 +470,7 @@ toSimplifyPr :: [Act]
 toSimplifyPr =
     Record ["fuel", "balanced"]
         : toImplement
-        <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
+            <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
 
 balancedPath :: [Act]
 balancedPath = toSimplifyPr <> [Handback "fixer" simplified, Record ["await_ci.green"], Record ["ready.done", prUrl]]

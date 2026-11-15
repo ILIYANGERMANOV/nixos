@@ -41,8 +41,8 @@ import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
-import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Fuel (Fuel (Balanced))
+import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
 import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), defaultFlow, explain, failureText, help, notStarted, noteOf, optparseText, parseCommand, parseHook)
 import State.Cli.Render qualified as Render

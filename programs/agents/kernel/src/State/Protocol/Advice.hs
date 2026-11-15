@@ -37,8 +37,8 @@ import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Fuel (Cfg (..), SkipWhen (..), cfg, fuelLabel, fuelName)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (stopLine)
