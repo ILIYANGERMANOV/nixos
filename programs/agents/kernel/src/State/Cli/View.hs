@@ -29,7 +29,7 @@ showRun state =
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
             <> ["task: " <> taskIdText parent.task | ByRole parent <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
-            <> factLines (Facts Nothing Nothing) state
+            <> factLines (Facts Nothing Nothing []) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
             <> ["refused: " <> note.message <> "; fix: " <> note.fix | Just note <- [state.refused]]
             <> section "pending:" (pendingLines state)

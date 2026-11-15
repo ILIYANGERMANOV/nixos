@@ -62,11 +62,11 @@ spec = describe "the hooks" $ do
             wants steps SpawnHook (BeforeTool (Call "s" "/w" Nothing) Delegate (KeyMap.fromList [("subagent_type", String "implementer")]))
                 `shouldBe` Right (Just (SpawnRole (Just (AgentRole "implementer"))))
 
-        it "records a step runner's hand-back, not a reviewer's" $
+        it "records a step runner's hand-back, not a reviewer's or a child run's" $
             [ wants steps HandbackHook (BeforeTool (Call "s" "/w" (Just agent)) HandbackTool (message "READY"))
-            | agent <- [reviewLead, Agent (Just "a2") (Just (AgentRole "reviewer"))]
+            | agent <- [reviewLead, Agent (Just "a2") (Just (AgentRole "reviewer")), Agent (Just "a3") (Just (AgentRole "engineer"))]
             ]
-                `shouldBe` [Right (Just (HandedBack (message "READY") "READY" reviewLead (AgentRole "review-lead"))), Right Nothing]
+                `shouldBe` [Right (Just (HandedBack "READY" reviewLead (AgentRole "review-lead"))), Right Nothing, Right Nothing]
 
         it "refuses a hook at an event it is not declared on" $
             wants steps SpawnHook (SessionStart (Call "s" "/w" Nothing) Startup) `shouldBe` Left "state-hook spawn does not run at sessionStart"
@@ -126,9 +126,9 @@ spec = describe "the hooks" $ do
         it "prints nothing with nothing to say" $
             encodeReply (replyOf ResumeRun "") `shouldBe` Nothing
 
-        it "appends what a hand-back recorded to its message" $
-            decoded (replyOf (HandedBack (message "READY") "READY" reviewLead (AgentRole "review-lead")) "state: recorded 9 review.rows -> pick\n")
-                `shouldBe` Right (object ["decision" .= ("allow" :: Text), "updatedInput" .= message "READY\n\nstate: recorded 9 review.rows -> pick\n"])
+        it "tells what a hand-back recorded as context, never rewriting the call" $
+            decoded (replyOf (HandedBack "READY" reviewLead (AgentRole "review-lead")) "state: recorded 9 review.rows -> pick\n")
+                `shouldBe` Right (object ["decision" .= ("allow" :: Text), "context" .= ("state: recorded 9 review.rows -> pick\n" :: Text)])
 
         it "never denies: a spawn's error is context" $
             decoded (toldOf (SpawnRole Nothing) "state hook spawn: disk full") `shouldBe` Right (object ["decision" .= ("allow" :: Text), "context" .= ("state hook spawn: disk full" :: Text)])

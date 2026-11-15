@@ -29,6 +29,7 @@ module State.Run.Fold (
     nextQId,
     askingChildren,
     askedAt,
+    over,
 ) where
 
 import Control.Applicative ((<|>))
@@ -430,6 +431,14 @@ askedAt state = case state.at of
     At place -> place.name
     Out -> StateName "out"
     Exit -> StateName "exit"
+
+-- | The run stopped, or left its flow.
+over :: RunState -> Bool
+over state = case (state.stopped, state.at) of
+    (Just _, _) -> True
+    (Nothing, At _) -> False
+    (Nothing, Out) -> True
+    (Nothing, Exit) -> True
 
 -- | Questions go up to, and answers come down from, whoever started the run.
 fromAbove :: Principal -> Above -> Either Refusal ()

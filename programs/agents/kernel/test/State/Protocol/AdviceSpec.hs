@@ -121,6 +121,11 @@ spec = describe "State.Protocol.Advice" $ do
             fromChild = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AsksUp asks.qid), Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1")))]
         it "spawns the first task a slot is free for" $
             next noFacts (tenXAt (t1 :| [t2]) [Spawned (childOf "c1" "t1")]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "t2"))
+        it "has a child that ended unrecorded handed back first, one it holds finished never" $
+            [ next noFacts {ended = [runId "c1"]} (tenXAt (t1 :| [t2]) (Spawned (childOf "c1" "t1") : said))
+            | said <- [[], [HandedBack (runId "c1") (Finished (oneLine "done"))]]
+            ]
+                `shouldBe` [Run "state handback engineer - child c1 ended, its hand-back unrecorded: pipe it in", Run "state record task t1 review <url>"]
         it "spawns no second heavy task while one runs" $
             next noFacts (tenXAt (heavy "t1" :| [heavy "t2"]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "waits on the children while a task's dependencies run" $
@@ -246,7 +251,7 @@ spec = describe "State.Protocol.Advice" $ do
             ownAsk atImplement Pick (oneLine "which rows?")
                 `shouldBe` (Question (QId run 1) Pick (oneLine "which rows?"), [Asked (Asking (Question (QId run 1) Pick (oneLine "which rows?")) implement Itself)], "ANSWER yourself")
   where
-    noFacts = Facts Nothing Nothing
+    noFacts = Facts Nothing Nothing []
     withPr = noFacts {pr = Just (PullRequest draftPr IsDraft)}
     prUrl = Url "https://pr/1"
     draftPr = DraftPr prUrl (Branch "main") (Branch "b")
@@ -273,7 +278,7 @@ runs holds = \case
     _ -> False
 
 genFacts :: Gen Facts
-genFacts = Facts <$> Gen.maybe (Gen.integral (Range.linear 0 300)) <*> Gen.maybe genPullRequest
+genFacts = Facts <$> Gen.maybe (Gen.integral (Range.linear 0 300)) <*> Gen.maybe genPullRequest <*> pure []
 
 genPullRequest :: Gen PullRequest
 genPullRequest =

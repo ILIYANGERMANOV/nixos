@@ -144,8 +144,8 @@ spec = describe "the state binary" $ do
                 w2 <- worktree repo "w2"
                 c1 <- childRun bin w1 parent "n1" "t1"
                 c2 <- childRun bin w2 parent "n2" "t2"
-                relay bin repo =<< succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
-                relay bin repo =<< succeeded =<< state bin w2 ["ask", "--kind", "Security", "token", "in", "env?"]
+                _ <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
+                _ <- succeeded =<< state bin w2 ["ask", "--kind", "Security", "token", "in", "env?"]
                 let q1 = Text.unpack c1 <> ":1"
                     q2 = Text.unpack c2 <> ":1"
                 _ <- succeeded =<< state bin repo ["rule", q1, "--answer", "postgres", "--why", "already used", "--cost", "none"]
@@ -180,7 +180,7 @@ spec = describe "the state binary" $ do
                 parent <- tenXAtFanOut bin repo
                 w1 <- worktree repo "w1"
                 c1 <- childRun bin w1 parent "n1" "t1"
-                relay bin repo =<< succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
+                _ <- succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
                 _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
                 resume <- succeeded =<< state bin repo ["next"]
                 take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1"]
@@ -216,7 +216,7 @@ spec = describe "the state binary" $ do
                 w2 <- worktree repo "w2"
                 c1 <- childRun bin w1 parent "n1" "t1"
                 c2 <- childRun bin w2 parent "n2" "t2"
-                relay bin repo =<< succeeded =<< state bin w2 ["ask", "--kind", "Design", "which", "store?"]
+                _ <- succeeded =<< state bin w2 ["ask", "--kind", "Design", "which", "store?"]
                 advice <- succeeded =<< state bin repo ["next"]
                 take 1 advice `shouldSatisfy` mentions ("state rule " <> c2 <> ":1")
                 advice `shouldContain` ["  task t1: child " <> c1 <> " running, tries 1"]
@@ -227,12 +227,12 @@ spec = describe "the state binary" $ do
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
                 for_ [["record", "quality", "Balanced"], ["record", "size", "Normal"], ["override", "await_ci", "the", "test", "starts", "here"]] (succeeded <=< state bin w1)
-                relay bin repo =<< succeeded =<< state bin w1 ["next"]
+                _ <- succeeded =<< state bin w1 ["next"]
                 _ <- succeeded =<< state bin repo ["record", "task", "t2", "parked", "out", "of", "scope"]
                 awaiting <- succeeded =<< state bin repo ["next"]
                 take 1 awaiting `shouldBe` ["AWAIT ci " <> prUrl]
                 for_ [["await_ci.green"], ["ready.done", prUrlString]] $ \argv -> succeeded =<< state bin w1 ("record" : argv)
-                relay bin repo =<< succeeded =<< state bin w1 ["next"]
+                _ <- succeeded =<< state bin w1 ["next"]
                 left <- succeeded =<< state bin repo ["next"]
                 recorded left `shouldBe` ["engineers.done -> merge"]
                 drop 1 left `shouldSatisfy` mentions "AWAIT merge t1"
@@ -413,7 +413,7 @@ worktree repo name = do
     git repo ["worktree", "add", "-q", "-b", name, path]
     pure repo {work = path}
 
--- | Records in the parent the hand-back a child's output ends with, as the 10x relays it.
+-- | Records in the parent a hand-back a child made by hand, not by its state, as the 10x pipes it in.
 relay :: FilePath -> Repo -> [Text] -> IO ()
 relay bin parent output = case dropWhile (not . ("HANDBACK " `Text.isPrefixOf`)) output of
     handback : run : _ | Just report <- Text.stripPrefix "HANDBACK " handback -> void (succeeded =<< stateIn bin parent (Text.unpack (Text.unlines [report, run])) ["handback", "engineer"])

@@ -14,7 +14,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight)
 import Data.Foldable (traverse_)
-import Data.Functor (($>))
+import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -41,6 +41,7 @@ import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
+import State.Category.Flow (FanId (FEngineers))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Mode (Mode (..), Quality (Balanced), Size (Normal))
 import State.Category.Step (stateNameText)
@@ -61,9 +62,10 @@ import State.Run.Ask (Parent (..), Principal (..), Question (..), oneLineText, q
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), fanRole, parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
+import State.Run.Fan qualified as Fan
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
@@ -138,7 +140,7 @@ hookAnswer steps call want =
             ResumeRun -> do
                 -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
                 (facts, told) <- readFacts
-                onHook facts.pr $ \stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, showRun run.state <> out)
+                onHook facts.pr $ \stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, showRun run.state <> out.text)
             SpawnRole spawned -> do
                 (facts, told) <- readFacts
                 onHook facts.pr $ \stamp run ->
@@ -146,13 +148,13 @@ hookAnswer steps call want =
                         warning = case (action, spawned) of
                             (Advice.Spawn advised _, Just role) -> offAdvice steps run.state.at advised role
                             _ -> Nothing
-                     in (new, out <> foldMap (<> "\n") warning)
-            Hook.HandedBack _ message agent role ->
+                     in (new, out.text <> foldMap (<> "\n") warning)
+            Hook.HandedBack message agent role ->
                 branchPr >>= \pr -> onHook pr $ \stamp run ->
                     let sources = hookSources run.state.run agent role message
                      in if loggedAlready run.logged sources
                             then ([], "")
-                            else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
+                            else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text)) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
             AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
     -- A run that is over, bound to another branch or whose PR is merged or closed is
@@ -204,16 +206,16 @@ execute steps = \case
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
-        onRun (\stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out))
+        handingBack steps (\stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out))
     HandbackOf role child -> do
         input <- Console.readStdin
         case decodeUtf8' input of
             Left _ -> pure (Left (Failure BadInput "the hand-back" "stdin is not UTF-8" "state help"))
-            Right message -> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
+            Right message -> fmap (.text) <$> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
     OnRun command -> do
         -- Read before the lock, as GitHub is.
         file <- traverse FileSystem.readText (fileOf command)
-        onRun (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.state command))
+        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.state command))
   where
     fileOf = \case
         Record recording -> case recording of
@@ -231,39 +233,56 @@ execute steps = \case
         Pending -> Nothing
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
-data Plan = Plan {events :: [Event], say :: RunState -> [Envelope] -> Text}
+data Plan = Plan {events :: [Event], say :: RunState -> [Envelope] -> Output}
+
+-- | What a command prints, and the hand-back it delivers, if any.
+data Output = Output {text :: Text, handback :: Maybe Text}
+
+instance Semigroup Output where
+    Output a first <> Output b second = Output (a <> b) (first <|> second)
+
+instance Monoid Output where
+    mempty = Output "" Nothing
+
+-- | Text that delivers no hand-back.
+printed :: Text -> Output
+printed text = Output text Nothing
+
+-- | A line per event written, delivering no hand-back.
+recorded :: RunState -> [Envelope] -> Output
+recorded after = printed . recordedLines after
 
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
 planOf :: Steps -> Maybe Sha -> Maybe Text -> RunState -> RunCommand -> Either Failure Plan
 planOf steps worktreeHead file state = \case
-    Record (Plain event) -> Right (Plan [event] recordedLines)
+    Record (Plain event) -> Right (Plan [event] recorded)
     Record (AtHead event) -> case worktreeHead of
-        Just sha -> Right (Plan [event sha] recordedLines)
+        Just sha -> Right (Plan [event sha] recorded)
         Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
     Record (FromFile path parse) -> case parse <$> file of
-        Just (Right event) -> Right (Plan [event] recordedLines)
+        Just (Right event) -> Right (Plan [event] recorded)
         Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
         Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
-    Override target why -> Right (Plan [Overridden target why] recordedLines)
+    Override target why -> Right (Plan [Overridden target why] recorded)
     AskQuestion kind Itself text ->
         let (question, events, line) = ownAsk state kind text
          in Right (Plan events (\after _ -> asked question <> delivered after line))
     AskQuestion kind from text ->
         let question = Question (nextQId state) kind text
          in Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
-    RuleOn qid raise proposal -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\_ _ -> "ruled " <> qidText qid <> "\n"))
+    RuleOn qid raise proposal -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\_ _ -> printed ("ruled " <> qidText qid <> "\n")))
     Forward qid raise ->
         Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
-            "forwarded " <> qidText qid <> "\n" <> Text.concat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
-    Answer qid answer by -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> "answered " <> qidText qid <> "\n"))
-    StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
-    ShowRun -> Right (Plan [] (\_ _ -> showRun state))
-    Pending -> Right (Plan [] (\_ _ -> Text.unlines (pendingLines state)))
+            printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
+    Answer qid answer by -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
+    StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
+    ShowRun -> Right (Plan [] (\_ _ -> printed (showRun state)))
+    Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
     Brief role task -> case brief steps state role task of
         Left unknown -> Left (Failure BadInput ("task " <> taskIdText unknown) "the breakdown has no such task" "state show")
-        Right text -> Right (Plan [] (\_ _ -> text))
+        Right text -> Right (Plan [] (\_ _ -> printed text))
   where
-    asked question = "asked " <> qidText question.qid <> "\n"
+    asked question = printed ("asked " <> qidText question.qid <> "\n")
     raised raise qid = case raise of
         AsAsked -> []
         ToSecurity -> [RetaggedSecurity qid]
@@ -278,7 +297,7 @@ handbackPlan steps worktreeHead state role child message = do
     typed <- unread (typeHandback steps state worktreeHead role parsed {Handback.run = run})
     let from = maybe (roleText role) runIdText run
         triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> from <> " <question>\n"
-    Right (Plan typed.events (\after new -> recordedLines after new <> foldMap triage typed.untriaged))
+    Right (Plan typed.events (\after new -> printed (recordedLines after new <> foldMap triage typed.untriaged)))
   where
     unread = either (\why -> Left (Failure BadInput "the hand-back" why "state help")) Right
 
@@ -287,17 +306,19 @@ and the mode already decide is recorded first, then the advice: its line, the
 last refusal until the next event, its facts indented, the step's lead and
 task text. The advice leads, so a refusal never reads as the next action.
 -}
-adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Text)
+adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Output)
 adviceOf steps facts told stamp run = (new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
     advice = advise steps facts settled.state
     out =
-        recordedLines settled.state new
+        recorded settled.state new
             <> delivered settled.state (deliver settled.state.start advice.action)
-            <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
-            <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts]
-            <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
+            <> printed
+                ( foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
+                    <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts]
+                    <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
+                )
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
         Just outcome -> case commit stamp current [(Cli, Took outcome)] of
@@ -305,11 +326,11 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
             Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.mode current.state) current.state.at refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
 
--- | A hand-back line under a parent carries the run and its rulings (law Audit).
-delivered :: RunState -> Text -> Text
+-- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
+delivered :: RunState -> Text -> Output
 delivered state line
-    | "HANDBACK " `Text.isPrefixOf` line = Ask.handback line state.run state.rulings
-    | otherwise = line <> "\n"
+    | "HANDBACK " `Text.isPrefixOf` line = let handback = Ask.handback line state.run state.rulings in Output handback (Just handback)
+    | otherwise = printed (line <> "\n")
 
 -- | A line per event written, each with where the run is now.
 recordedLines :: RunState -> [Envelope] -> Text
@@ -336,7 +357,7 @@ commit stamp = go []
                 AlreadyLogged -> go written run rest
 
 -- | The plan written by these sources, or its refusal logged so the next read warns of it.
-record :: Stamp -> Loaded -> [Source] -> Either Failure Plan -> ([Envelope], Either Failure Text)
+record :: Stamp -> Loaded -> [Source] -> Either Failure Plan -> ([Envelope], Either Failure Output)
 record stamp run sources = \case
     Left failure -> ([], Left failure)
     Right plan -> case commit stamp run (zip sources plan.events) of
@@ -351,6 +372,46 @@ nextSeq run = fromIntegral (length run.logged) + 1
 
 stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
 stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run, head = stamp.head, session = stamp.session, event}
+
+{- | 'onRun' for a command that may hand back. A hand-back it delivers under
+a parent is recorded in the parent's run too, once this run's lock is
+released, as init's spawn is ('spawnedIn').
+-}
+handingBack :: (Shell es) => Steps -> (Stamp -> Loaded -> ([Envelope], Either Failure Output)) -> Eff es (Either Failure Text)
+handingBack steps act =
+    onRun (\stamp run -> let (new, result) = act stamp run in (new, (\out -> (out.text, upOf run new =<< out.handback)) <$> result)) >>= \case
+        Left failure -> pure (Left failure)
+        Right (text, Nothing) -> pure (Right text)
+        Right (text, Just up) -> Right . (text <>) <$> handedUp steps up
+
+-- | A child run's hand-back to its parent: the parent, the child's run and its last line, and the text.
+data Up = Up {parent :: Parent, child :: RunId, lastSeq :: Natural, text :: Text}
+
+upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
+upOf run new text = case run.state.start.principal of
+    ByUser -> Nothing
+    ByRole parent -> Just (Up parent run.state.run (nextSeq run - 1 + fromIntegral (length new)) text)
+
+{- | The child's hand-back, appended to its parent's log under the parent's
+lock by ids hashed from the child's run and its last line: a repeated command
+appends it once. A refusal or an outage does not fail the child's command,
+which tells it; the parent's @state next@ names a child that ended unrecorded.
+-}
+handedUp :: (Shell es) => Steps -> Up -> Eff es Text
+handedUp steps up =
+    try (onLog append up.parent.log) <&> \case
+        Right (Right ()) -> ""
+        Right (Left failure) -> told (failure.what <> " - " <> failure.why)
+        Left (e :: IOException) -> told (tshow e)
+  where
+    sources = [Hook (digestOf [runIdText up.child, tshow up.lastSeq, tshow n]) | n <- [0 :: Int ..]]
+    append stamp run
+        | loggedAlready run.logged sources = ([], Right ())
+        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state (fanRole FEngineers) (Just up.child) up.text) of
+            -- The child tells its refusal; the parent's log does not keep it.
+            (_, Left failure) -> ([], Left failure)
+            (new, Right _) -> (new, Right ())
+    told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
 
 -- | The worktree's run, locked for one command.
 onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
@@ -407,7 +468,8 @@ initRun gd args =
                 (Left failure, _) -> pure (Left failure)
             traverse (\(verb, run) -> writePointer gd notes $> (verb <> " " <> runIdText run <> "\n")) accepted
   where
-    -- A subagent has no hooks, wakes, notifications or background of its own (#351 s4).
+    -- A subagent has no wakes, notifications or background of its own (#351 s4). Hooks
+    -- run in it, but a child's hand-back is its own state's to record in the parent.
     interfaceOf = \case
         ByUser -> Set.fromList [minBound .. maxBound]
         ByRole _ -> Set.empty
@@ -422,7 +484,7 @@ spawnedIn parent parentLog childAt =
         Right top ->
             let child = childAt top
                 source = Hook (digestOf [runIdText parent, runIdText child.run])
-             in Monad.void <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> "")))) parentLog
+             in Monad.void <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> mempty)))) parentLog
 
 {- | The run a retried init joins: the one its log holds. One log holds one
 run, so a run stopped there leaves the dir to no other.
@@ -505,15 +567,28 @@ pointerOf :: FilePath -> FilePath
 pointerOf dir = dir </> "state-notes"
 
 {- | The branch's PR on GitHub and the lines it changes, each 'Nothing' when
-it cannot be read, with a line saying why.
+it cannot be read, with a line saying why, and the children that ended.
 -}
-readFacts :: (Gh :> es, Git :> es) => Eff es (Facts, [Text])
+readFacts :: (Shell es) => Eff es (Facts, [Text])
 readFacts = do
     reply <- Gh.prView
+    ended <- endedChildren
     case pullRequestOf reply of
-        Left why -> pure (Facts Nothing Nothing, ["PR sync skipped - " <> why])
-        Right Nothing -> pure (Facts Nothing Nothing, [])
+        Left why -> pure (Facts Nothing Nothing ended, ["PR sync skipped - " <> why])
+        Right Nothing -> pure (Facts Nothing Nothing ended, [])
         Right (Just pr) ->
             Git.numstat pr.draft.base >>= \case
-                Right out -> pure (Facts (Just (changedLinesOf out)) (Just pr), [])
-                Left why -> pure (Facts Nothing (Just pr), ["changed lines unknown - " <> why])
+                Right out -> pure (Facts (Just (changedLinesOf out)) (Just pr) ended, [])
+                Left why -> pure (Facts Nothing (Just pr) ended, ["changed lines unknown - " <> why])
+
+{- | The children the worktree's run counts running whose own log shows their
+run over, each log read under its lock in turn. A log that does not read
+counts as running; the run's own failure is its command's to tell.
+-}
+endedChildren :: (Shell es) => Eff es [RunId]
+endedChildren =
+    onRun (\_ run -> ([], Right (map (.child) (Fan.running run.state.fanOut)))) >>= \case
+        Left _ -> pure []
+        Right children -> concat <$> traverse ended children
+  where
+    ended child = fromRight [] <$> onLog (\_ run -> ([], Right [child.run | Fold.over run.state])) child.log
