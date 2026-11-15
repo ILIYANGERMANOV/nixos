@@ -13,6 +13,7 @@ module State.Run.EventGen (
     genText,
     genOneLine,
     genTasks,
+    genTaskAt,
     genTaskId,
     genSaid,
     genTaskState,
@@ -88,6 +89,8 @@ genEvent =
         , TaskMoved <$> genTaskId <*> genTaskState
         , Held <$> genTaskId <*> (Url <$> genText)
         , ActedOn <$> genTaskId <*> (Url <$> genText)
+        , TaskAdded <$> (Gen.int (Range.linear 1 6) >>= genTaskAt)
+        , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
         ]
 
@@ -124,18 +127,20 @@ genTasks = do
     n <- Gen.int (Range.linear 1 5)
     tasks <- traverse genTaskAt [1 .. n]
     pure (tasksOf (NonEmpty.fromList tasks))
+
+-- | The task @ti@, depending on some of @t1@ to the one before it.
+genTaskAt :: Int -> Gen Task
+genTaskAt i =
+    Task (taskNamed i)
+        <$> Gen.subsequence (map taskNamed [1 .. i - 1])
+        <*> (Branch <$> genText)
+        <*> (Branch <$> genText)
+        <*> Gen.enumBounded
+        <*> Gen.bool
+        <*> Gen.bool
+        <*> genSet Gen.enumBounded
   where
-    genTaskAt :: Int -> Gen Task
-    genTaskAt i =
-        Task (taskNamed i)
-            <$> Gen.subsequence (map taskNamed [1 .. i - 1])
-            <*> (Branch <$> genText)
-            <*> (Branch <$> genText)
-            <*> Gen.enumBounded
-            <*> Gen.bool
-            <*> Gen.bool
-            <*> genSet Gen.enumBounded
-    taskNamed i = TaskId ("t" <> Text.pack (show i))
+    taskNamed n = TaskId ("t" <> Text.pack (show n))
 
 -- | A breakdown the test spells, which must be one 'breakdown' accepts.
 tasksOf :: NonEmpty Task -> Tasks

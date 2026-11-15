@@ -5,6 +5,7 @@ module State.Run.RunGen (
     tenXAt,
     plainTask,
     breakdownJson,
+    taskFileJson,
     childOf,
     sha,
     commit,
@@ -73,18 +74,23 @@ plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Bran
 -- | The breakdown file the 10x writes for these tasks, in this order.
 breakdownJson :: [Task] -> Text
 breakdownJson = decodeUtf8 . LBS.toStrict . Aeson.encode . map taskJson
-  where
-    taskJson task =
-        object
-            [ "id" .= taskIdText task.id
-            , "deps" .= map taskIdText task.deps
-            , "base" .= branchText task.base
-            , "branch" .= branchText task.branch
-            , "fuel" .= fuelName task.fuel
-            , "qa" .= task.qa
-            , "heavy" .= task.heavy
-            , "security" .= map topicText (Set.toList task.security)
-            ]
+
+-- | The file the 10x writes for @task add@.
+taskFileJson :: Task -> Text
+taskFileJson = decodeUtf8 . LBS.toStrict . Aeson.encode . taskJson
+
+taskJson :: Task -> Aeson.Value
+taskJson task =
+    object
+        [ "id" .= taskIdText task.id
+        , "deps" .= map taskIdText task.deps
+        , "base" .= branchText task.base
+        , "branch" .= branchText task.branch
+        , "fuel" .= fuelName task.fuel
+        , "qa" .= task.qa
+        , "heavy" .= task.heavy
+        , "security" .= map topicText (Set.toList task.security)
+        ]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

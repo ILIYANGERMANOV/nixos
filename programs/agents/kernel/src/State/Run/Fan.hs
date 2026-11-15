@@ -16,6 +16,8 @@ module State.Run.Fan (
     Refusal (..),
     emptyFan,
     broken,
+    added,
+    restarted,
     spawning,
     spawned,
     resumed,
@@ -48,7 +50,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import State.Run.Event (Child (..), RunId, Said (..), Stop, Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
@@ -97,6 +99,8 @@ data Refusal
       Busy (NonEmpty TaskId)
     | -- | The run is not over while these tasks are neither merged nor parked.
       Unmerged (NonEmpty TaskId)
+    | -- | A task added under an id the fan-out has already.
+      TaskExists TaskId
     deriving stock (Eq, Show)
 
 emptyFan :: Fan
@@ -107,6 +111,19 @@ broken :: Tasks -> Fan -> Either Refusal Fan
 broken tasks fan = case NonEmpty.nonEmpty (map (.id) (busy fan)) of
     Just working -> Left (Busy working)
     Nothing -> Right emptyFan {tasks = taskList tasks}
+
+{- | A task joins after the breakdown, last: its dependencies are tasks the
+fan-out has, so they stay acyclic. It is spawnable as any task is.
+-}
+added :: Task -> Fan -> Either Refusal Fan
+added task fan = case (lookupTask fan task.id, filter (isNothing . lookupTask fan) task.deps) of
+    (Just _, _) -> Left (TaskExists task.id)
+    (Nothing, unknown : _) -> Left (UnknownTask unknown)
+    (Nothing, []) -> Right fan {tasks = fan.tasks <> [task]}
+
+-- | Every agent at work died with the lead's session: their children wait on the 10x.
+restarted :: Fan -> Fan
+restarted fan = fan {atWork = Set.empty}
 
 {- | The 10x sends an engineer to the task: refused while one works on it, or
 as 'free' refuses. @asking@ is the children whose question is still open.

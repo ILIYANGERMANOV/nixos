@@ -165,7 +165,9 @@ clear. No engineer starts before this, except a base fix (Failures).
 
 Write `tasks.json` in the run directory, a JSON array in the plan's order of
 `{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
-"security": [topics]}`, `fuel` one of `low`, `balanced`, `max`, then `state record breakdown.done --tasks tasks.json`.
+"security": [topics]}`, `fuel` one of `low`, `balanced`, `max`, then `state record breakdown.done --tasks tasks.json`. A task outside it, a base
+fix or an epic's final PR, joins mid-run: one such object in a file, then
+`state record task add <file>`.
 
 ### Engineers
 
@@ -338,9 +340,9 @@ with the session, so:
    handling a failed subscribe as CI does. Then read each PR's
    `gh pr checks` and reviews once. A change request or comment on a task
    with a running child: `state record held`.
-3. Each task `AWAIT children` lists has lost its agent: a fresh engineer
-   with its spawn prompt, recording nothing; its `state init` line resumes
-   its run. A fixer whose `<head>`
+3. A fresh or resumed session records `restarted`, so `state next` prints
+   `RESUME` for each child that lost its agent: a fresh engineer with its
+   spawn prompt; its `state init` line resumes its run. A fixer whose `<head>`
    is no longer the live head pushed: a rebase takes Rebase in
    `${CLAUDE_SKILL_DIR}/references/merge.md`, any other CI; any other fixer: a
    fresh one. A crash is not a failed try.

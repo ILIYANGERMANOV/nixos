@@ -14,9 +14,9 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Hook
-import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Stopped), Stop (..), StopReason (..), Url (..), stepTook)
+import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped), Stop (..), StopReason (..), Url (..), stepTook)
 import State.Run.EventGen (line, logOf, run, started)
-import State.Run.RunGen (commit, loadSteps, runAt)
+import State.Run.RunGen (childOf, commit, loadSteps, plainTask, runAt, tenXAt)
 import State.Step.Build (Outcome (..), Sing (Refactor))
 import State.Step.Review (Outcome (..))
 import System.Environment (getEnv)
@@ -50,7 +50,7 @@ spec = describe "the hooks" $ do
     describe "what a hook asks of the run" $ do
         it "resumes for the lead, and for an agent no flow knows" $
             map (\agent -> wants steps ResumeHook (SessionStart (Call "s" "/w" agent) Startup)) [Nothing, Just (Agent Nothing (Just (AgentRole "engineer")))]
-                `shouldBe` [Right (Just ResumeRun), Right (Just ResumeRun)]
+                `shouldBe` [Right (Just (ResumeRun Startup)), Right (Just (ResumeRun Startup))]
 
         it "ignores a subagent's spawn and question" $
             [ wants steps SpawnHook (BeforeTool (Call "s" "/w" (Just reviewLead)) Delegate KeyMap.empty)
@@ -122,9 +122,20 @@ spec = describe "the hooks" $ do
         it "is not one whose records the log lacks, or holds only past the first" $
             map (`logWith` sources) [[], [hooked 1]] `shouldBe` [False, False]
 
+    describe "a session start" $ do
+        let atWork = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
+        it "records a restart when a fresh or resumed session lost an agent at work" $
+            map (`restartOf` atWork) [Startup, Resumed] `shouldBe` [Just Restarted, Just Restarted]
+
+        it "records nothing after a compaction, which keeps the agents" $
+            restartOf Compact atWork `shouldBe` Nothing
+
+        it "records nothing on a run with no agent at work" $
+            map (`restartOf` runAt []) [Startup, Resumed] `shouldBe` [Nothing, Nothing]
+
     describe "the reply" $ do
         it "prints nothing with nothing to say" $
-            encodeReply (replyOf ResumeRun "") `shouldBe` Nothing
+            encodeReply (replyOf (ResumeRun Startup) "") `shouldBe` Nothing
 
         it "tells what a hand-back recorded as context, never rewriting the call" $
             decoded (replyOf (HandedBack "READY" reviewLead (AgentRole "review-lead")) "state: recorded 9 review.rows -> pick\n")

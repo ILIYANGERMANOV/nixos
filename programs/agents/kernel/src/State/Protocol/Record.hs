@@ -37,7 +37,7 @@ import State.Step.Review (Outcome (..), Sing (..))
 import State.Step.Ship (Outcome (..), Sing (..))
 
 {- | An event to record. Most carry the commit the worktree is at, which only
-the shell can read; a breakdown is read from a file, by the shell too.
+the shell can read; a breakdown or an added task is read from a file, by the shell too.
 -}
 data Recording = Plain Event | AtHead (Sha -> Event) | FromFile FilePath (Text -> Either Text Event)
 
@@ -111,10 +111,12 @@ recordables =
     , url Ready ReadySkipped
     ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- [minBound .. maxBound]]
-        <> [ Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+        <> [ Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
                 task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
-                _ -> Left "the task, then ci, review or merged and its PR, or parked and why"
+                -- Two words never move a task, so a task named add stays recordable.
+                ["add", path] -> Right (FromFile (Text.unpack path) (fmap TaskAdded . Codec.decodeTask))
+                _ -> Left "the task, then ci, review or merged and its PR, or parked and why; or add and a task file"
            , stay "held" "<task> <url>" $ \case
                 [task, link] -> Right (Held (TaskId task) (Url link))
                 _ -> Left "the task and the url"

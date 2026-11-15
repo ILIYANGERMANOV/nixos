@@ -10,10 +10,10 @@ import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
-import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, encodeLine)
+import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
 import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
-import State.Run.RunGen (breakdownJson, plainTask)
+import State.Run.RunGen (breakdownJson, plainTask, taskFileJson)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -87,6 +87,13 @@ spec = describe "State.Run.Codec" $ do
                        , Left "Error in $: task t1 is named twice"
                        , Left "Error in $: task t1 depends on t2, which is not an earlier task"
                        ]
+
+    it "reads a task file as a breakdown spells each task" $
+        decodeTask (taskFileJson (plainTask "fix" ["t1"])) `shouldBe` Right (plainTask "fix" ["t1"])
+
+    it "refuses a malformed task file as the breakdown's decoder does" $
+        map decodeTask ["[]", taskFileJson (plainTask "fix" []) `replacing` ("\"fuel\":\"balanced\"", "\"fuel\":\"huge\"")]
+            `shouldBe` [Left "Error in $: parsing task failed, expected Object, but encountered Array", Left "Error in $: unknown fuel \"huge\""]
 
     it "refuses a retag to any kind but Security" $
         decodeLine (encodeLine reviewRows {event = RetaggedSecurity (QId (runId "c1") 3)} `replacing` ("\"kind\":\"Security\"", "\"kind\":\"Design\""))

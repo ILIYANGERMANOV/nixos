@@ -3,7 +3,7 @@ remembering to (#360's hooks contract): the neutral hook event in
 (programs/agents/hooks/agent_hook.py), what the run is asked, and the reply out.
 
 @
-resume    sessionStart          context: show and next
+resume    sessionStart          a fresh or resumed session records restarted; context: show and next
 spawn     beforeTool delegate   context: next, and a warning off the advice
 handback  beforeTool handback   records a worker's hand-back; context: what it recorded
 asked     afterTool ask         the answer lines of questions awaiting the user
@@ -31,6 +31,7 @@ module State.Protocol.Hook (
     silent,
     offAdvice,
     hookSources,
+    restartOf,
     loggedAlready,
     Reply (..),
     replyOf,
@@ -46,13 +47,15 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (SomeOutcome (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Run.Ask (Principal (..), Question (..), qidText)
-import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Took), RunId, Source (..), Start (..), roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, Source (..), Start (..), roleText, runIdText)
+import State.Run.Fan (Fan (..))
 import State.Run.Fold (Pending (..), RunState (..), Waits (..), over)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
@@ -153,7 +156,8 @@ startSourceName = \case
 
 -- | What a hook asks of the worktree's run.
 data Want
-    = ResumeRun
+    = -- | Why the session started.
+      ResumeRun StartSource
     | -- | The role the lead spawns, when its input names one.
       SpawnRole (Maybe AgentRole)
     | -- | A flow role's hand-back: its message, and who sent it.
@@ -169,7 +173,7 @@ is an error.
 wants :: Steps -> HookName -> HookEvent -> Either Text (Maybe Want)
 wants steps hook event = case hook of
     ResumeHook -> case event of
-        SessionStart call _ -> Right (lead call ResumeRun)
+        SessionStart call source -> Right (lead call (ResumeRun source))
         BeforeTool {} -> undeclared
         AfterTool {} -> undeclared
     SpawnHook -> case event of
@@ -261,6 +265,18 @@ offAdvice steps at advised spawned
         Out -> False
         Exit -> False
 
+{- | What a session start records: a fresh or resumed session lost every
+agent the lead had at work, so the advice sends them again; a compacted one
+lost none. A run with no agent at work records nothing.
+-}
+restartOf :: StartSource -> RunState -> Maybe Event
+restartOf source state = case source of
+    Startup -> lost
+    Resumed -> lost
+    Compact -> Nothing
+  where
+    lost = if all (Set.null . (.atWork)) state.fans then Nothing else Just Restarted
+
 {- | The ids of a hook's records, one per event it appends, in order: a hash
 of the run, the agent and its message, so the same hand-back seen twice
 appends once (#360 call 18).
@@ -295,7 +311,7 @@ replyOf want said
 -- | Context only: what a refusal or an error says, never a deny.
 toldOf :: Want -> Text -> Reply
 toldOf want said = case want of
-    ResumeRun -> Note said
+    ResumeRun _ -> Note said
     AskedUser -> Note said
     SpawnRole _ -> Allow said
     HandedBack {} -> Allow said

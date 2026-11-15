@@ -10,7 +10,7 @@ import Hedgehog (Gen, assert, cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Run.Event
-import State.Run.EventGen (genSaid, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
+import State.Run.EventGen (genSaid, genTaskAt, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
 import State.Run.Fan
 import State.Run.RunGen (plainTask)
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -117,6 +117,31 @@ spec = describe "State.Run.Fan" $ do
         map (fmap allParked) [moved t1 (Parked "out of scope" Nothing) twoTasks, moved t1 (Parked "a" Nothing) twoTasks >>= moved t2 (Parked "b" Nothing)]
             `shouldBe` [Right False, Right True]
 
+    describe "an added task" $ do
+        it "is spawnable at once, its dependencies merged" $
+            map (.id) . spawnable [] <$> (moved t1 (Merged (Url "pr")) oneTask >>= added (plainTask "fix" ["t1"])) `shouldBe` Right [TaskId "fix"]
+
+        it "waits for its dependency's merge as any task" $
+            map (.id) . spawnable [] <$> (spawning [] t1 oneTask >>= added (plainTask "fix" ["t1"])) `shouldBe` Right []
+
+        it "keeps the fan-out open until it settles" $
+            (moved t1 (Merged (Url "pr")) oneTask >>= added (plainTask "fix" []) >>= leave) `shouldBe` Left (Unsettled (TaskId "fix" :| []))
+
+        it "is refused under an id the fan-out has" $
+            added (plainTask "t1" []) oneTask `shouldBe` Left (TaskExists t1)
+
+        it "is refused depending on a task the fan-out lacks" $
+            added (plainTask "fix" ["t9"]) oneTask `shouldBe` Left (UnknownTask (TaskId "t9"))
+
+    describe "a restart" $ do
+        it "leaves no agent at work, so each running child waits on the 10x" . hedgehog $ do
+            fan <- forAll genFan
+            let after = restarted fan
+            (Set.toList after.atWork, map (.child.run) (waiting after)) === ([], map (.child.run) (running fan))
+
+        it "frees a task whose spawned agent never started its child" $
+            map (.id) . spawnable [] . restarted <$> spawning [] t1 oneTask `shouldBe` Right [t1]
+
     describe "a new breakdown" $ do
         it "starts a fresh fan-out" $
             (spawned [] (childFor "c1" t1) independent >>= handedBack (runId "c1") (Finished (oneLine "PR")) >>= moved t1 (Merged (Url "pr")) >>= broken (tasksOf (plainTask "t3" [] :| [])))
@@ -183,6 +208,8 @@ genFan = do
             , (\taskId _ -> spawning [] taskId) <$> genTaskId
             , (\i _ fan -> Right (triaged (pickChild i fan) fan)) <$> Gen.int (Range.linear 0 10)
             , (\i _ fan -> resumed (pickChild i fan) fan) <$> Gen.int (Range.linear 0 10)
+            , (\task _ -> added task) <$> (Gen.int (Range.linear 1 7) >>= genTaskAt)
+            , pure (\_ fan -> Right (restarted fan))
             ]
     pickChild i fan = case fan.children of
         [] -> runId "none"

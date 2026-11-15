@@ -67,6 +67,16 @@ spec = describe "State.Run.Fold" $ do
             tenXRun (toEngineers <> [Spawned child] <> again) `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
             fmap (.id) . (.tasks) . currentFan <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))] <> again)
                 `shouldBe` Right [TaskId "t2"]
+        it "adds a task mid-run, one the merge then awaits" $ do
+            let fix = plainTask "fix" []
+                withFix = toEngineers <> [TaskAdded fix]
+            fmap (.id) . (.tasks) . currentFan <$> tenXRun withFix `shouldBe` Right [TaskId "t1", TaskId "fix"]
+            tenXRun (withFix <> [TaskMoved (TaskId "t1") (Merged (Url "pr")), TaskMoved (TaskId "fix") (InReview (Url "fix-pr")), stepTook (FanDone FEngineers), stepTook (MergeDone FEngineers (Url "pr"))])
+                `shouldBe` Left (FanRefused (Fan.Unmerged (TaskId "fix" :| [])))
+        it "refuses an added task under an id the fan-out has" $
+            tenXRun (toEngineers <> [TaskAdded (plainTask "t1" [])]) `shouldBe` Left (FanRefused (Fan.TaskExists (TaskId "t1")))
+        it "frees every agent at a restart, so its child waits on the run" $
+            fmap (.child.run) . Fan.waiting . currentFan <$> tenXRun (toEngineers <> [Spawned child, Restarted]) `shouldBe` Right [runId "c1"]
 
     describe "two fan-outs in one flow" $ do
         let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow ByUser) :| events))

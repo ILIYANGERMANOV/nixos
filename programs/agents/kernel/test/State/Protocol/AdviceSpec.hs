@@ -144,6 +144,12 @@ spec = describe "State.Protocol.Advice" $ do
                 both = fromChild <> [RuledOn asks.qid ruling, Spawned (childOf "c2" "t2"), HandedBack (runId "c2") (AsksUp asks2.qid), Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2"))), RuledOn asks2.qid ruling]
             map (next noFacts . tenXAt (t1 :| [t2])) [both <> [Resumed (runId "c1")], both <> [Resumed (runId "c1"), Resumed (runId "c2")]]
                 `shouldBe` [Resume (runId "c2") "with the answer to c2:1", AwaitChildren (TaskId "t1" :| [TaskId "t2"])]
+        it "sends a child lost at a restart again, and waits on it once resumed" $ do
+            let lost = [Spawned (childOf "c1" "t1"), Restarted]
+            map (next noFacts . tenXAt (t1 :| [])) [lost, lost <> [Resumed (runId "c1")]]
+                `shouldBe` [Resume (runId "c1") "lost at a restart: a fresh engineer with its spawn prompt", AwaitChildren (TaskId "t1" :| [])]
+        it "spawns a task added mid-run" $
+            next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), TaskAdded (plainTask "fix" [])]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "waits on CI no more once the child is resumed" $
             next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AwaitsCi (oneLine "https://pr/1")), Resumed (runId "c1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "triages a child's stop before a retry, and retries once it is asked" $ do

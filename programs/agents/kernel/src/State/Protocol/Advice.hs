@@ -283,7 +283,7 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
 triage a question, then a child's stop, record a finished task's PR, resume
-a child its answer waits for, spawn a task - then ask the user what waits
+a child its answer waits for or a restart lost, spawn a task - then ask the user what waits
 on them, then wait on CI, the children at work or a dependency's merge. A question
 the user holds blocks no other child (the 10x skill's "Other tasks keep
 moving"). A child the 10x resumed, or a task it spawned, has an agent at work
@@ -301,7 +301,9 @@ atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, rec
     awaitAnswer = listToMaybe [AwaitAnswer p.asking.question | p <- state.pending, p.waits == ForAnswer]
     triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged here]
     record = recordFinished here
-    resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
+    resume = listToMaybe ([Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open] <> lost)
+    -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
+    lost = [Resume c.child.run "lost at a restart: a fresh engineer with its spawn prompt" | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c]]
     spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) here)
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
     awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList here.atWork)

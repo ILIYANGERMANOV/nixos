@@ -16,7 +16,7 @@ import Data.Either (fromRight)
 import Data.Foldable (traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -52,7 +52,7 @@ import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, silent, toldOf, wants)
+import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -136,10 +136,14 @@ hookAnswer steps call want =
     hasRun >>= \case
         False -> pure ""
         True -> case want of
-            ResumeRun -> do
+            ResumeRun source -> do
                 -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
                 (facts, told) <- readFacts
-                onHook facts.pr $ \stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, showRun run.state <> out.text)
+                onHook facts.pr $ \stamp run -> case commit stamp run [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
+                    Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
+                    Right (restart, after) ->
+                        let (new, _, out) = adviceOf steps facts told stamp after
+                         in (restart <> new, recordedLines after.state restart <> showRun after.state <> out.text)
             SpawnRole spawned -> do
                 (facts, told) <- readFacts
                 onHook facts.pr $ \stamp run ->
