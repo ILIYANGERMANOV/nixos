@@ -264,7 +264,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Agent runner _ | runner == agent -> Right ()
             Agent (AgentRole runner) _ -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
             Inline -> Left (label <> " runs inline, not by " <> roleName)
-        if isReport && name /= stepName Review.Review
+        if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview]
             then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, BLOCKED, FAILED"
             else doneOf step
     -- One arm per layer, each total over its steps.
@@ -286,6 +286,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Review.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
             Review.Fix -> took . FixDone =<< commit Set.empty
             Review.Pick -> inline s
+            Review.ReReview -> took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
         ShipLayer -> case s of
             Ship.Describe -> took . DescribeDone =<< atHead
             Ship.SimplifyPR -> took . SimplifyPrDone =<< required "Simplified: <sha>" handback.simplified

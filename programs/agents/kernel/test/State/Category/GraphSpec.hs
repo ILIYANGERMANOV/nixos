@@ -14,8 +14,7 @@ import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum)
 import State.Step.Gather (Sing (..))
-import State.Step.Review (Sing (..))
-import State.Step.Ship (Sing (SimplifyPR))
+import State.Step.Ship (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -62,8 +61,8 @@ spec = describe "State.Category.Graph" $ do
         [place | place <- Set.toList (places g), isNothing (pathTo g (At g.inPort) (At place)) || isNothing (pathTo g (At place) Out)] === []
 
     it "refuses a loop id used twice: their rounds would mix" $
-        graph (Loop "review" (always 2) ExitOut (Do Review :> Loop "review" (always 2) ExitOut (Do Pick :> Do Fix)))
-            `shouldBe` Left (SameLoop "review")
+        graph (Loop "ci" (always 2) ExitOut (Do AwaitCi :> Loop "ci" (always 2) ExitOut (Do AwaitCi :> Do FixPR)))
+            `shouldBe` Left (SameLoop "ci")
 
     it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
         graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))

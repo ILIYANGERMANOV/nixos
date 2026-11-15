@@ -96,7 +96,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldSatisfy` runs (\command -> "state record pick.final" `Text.isPrefixOf` command && "only with a not-met verdict" `Text.isInfixOf` command)
 
         it "offers only pick.final once no review round is left" $
-            next noFacts (atPick Low (looped <> [stepTook (PickLoop notMet), stepTook (FixDone commit), stepTook (ReviewRows sha)]))
+            next noFacts (atPick Low (looped <> [stepTook (PickLoop notMet), stepTook (FixDone commit), stepTook (ReReviewRows sha)]))
                 `shouldSatisfy` runs (\command -> "state record pick.final" `Text.isPrefixOf` command && not ("pick.loop" `Text.isInfixOf` command))
 
     describe "confirm" $ do
@@ -307,7 +307,7 @@ spec = describe "State.Protocol.Advice" $ do
     interviewing = Run "state ask each question; state record interview.enough when nothing is open | state record interview.more to research a new fact"
     atReady = runAt (knobs Balanced <> map Took (take 12 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
-    looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReviewRows sha)]
+    looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
     atPick fuel rest = runAt (knobs fuel <> map Took (take 8 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
     -- A Design question the run's own row forwards: asked, then forwarded at once.
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)

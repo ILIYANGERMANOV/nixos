@@ -123,8 +123,9 @@ happyPath =
         <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
 
 {- | Any Fuel, then up to 300 tries at an event on an edge out of where the
-run is, keeping those the fold accepts. Edges that stay inside every loop are
-likelier, so loops run out of rounds.
+run is, keeping those the fold accepts. Edges into a loop that leave none
+are likelier, so loops run out of rounds: a review with rows enters the fix
+loop rather than exiting clean.
 -}
 genAccepted :: Gen [Event]
 genAccepted = do
@@ -146,7 +147,9 @@ genAccepted = do
         Out -> pure []
         Exit -> pure []
     stays place edge = case edge.to of
-        At to -> all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems g.loops)
+        At to ->
+            all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems g.loops)
+                && any (Set.member to . (.body)) (Map.elems g.loops)
         Out -> False
         Exit -> False
 

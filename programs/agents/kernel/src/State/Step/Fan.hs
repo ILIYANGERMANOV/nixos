@@ -136,9 +136,9 @@ breakdownName = fanStepName "breakdown"
 mergeName :: Name -> StateName
 mergeName = fanStepName "merge"
 
-{- | The engineers' breakdown and merge keep their wire v3 names, @breakdown@
-and @merge@, so a v3 log still reads; another fan-out's are prefixed with its
-own name, as state names are unique.
+{- | The engineers' breakdown and merge keep their bare names, @breakdown@
+and @merge@, as the 10x skill names them; another fan-out's are prefixed with
+its own name, as state names are unique.
 -}
 fanStepName :: Text -> Name -> StateName
 fanStepName step fan

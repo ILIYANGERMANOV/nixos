@@ -239,7 +239,7 @@ in
     };
     review = {
       dom = "Diff";
-      cod = "Diff";
+      cod = "Findings";
       exit = "Diff";
       outcomes = [
         "clean"
@@ -247,7 +247,7 @@ in
       ];
       runner = "review-lead";
       lead = "Review: one review-lead, briefed with `state brief review-lead`.";
-      task = "Run `pragmatic-review` on the branch, or on the fixes after round 1, against the requirements file.";
+      task = "Run `pragmatic-review` on the branch against the requirements file.";
       # Its Low sweep reads the Fuel table; it spawns the `reviewer`s.
       tools = [
         "read"
@@ -259,15 +259,15 @@ in
       flows = [ "engineer" ];
     };
     pick = {
-      dom = "Diff";
-      cod = "Diff";
+      dom = "Findings";
+      cod = "Findings";
       exit = "Diff";
       outcomes = [
         "final"
         "loop"
       ];
       runner = "inline";
-      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` hands the rows to the final fixer; `loop` fixes them and reviews again.";
+      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` hands the rows to the final fixer; `loop` fixes them and re-reviews the fix.";
       tools = [ "read" ];
       skills = [ "engineer" ];
       prose = leadProse;
@@ -275,7 +275,7 @@ in
       flows = [ "engineer" ];
     };
     fix = {
-      dom = "Diff";
+      dom = "Findings";
       cod = "Diff";
       exit = null;
       outcomes = [ "done" ];
@@ -290,6 +290,27 @@ in
       skills = [ "engineering" ];
       prose = [ "shared/building.md" ];
       ops = [ ];
+      flows = [ "engineer" ];
+    };
+    re_review = {
+      dom = "Diff";
+      cod = "Findings";
+      exit = "Diff";
+      outcomes = [
+        "clean"
+        "rows"
+      ];
+      runner = "review-lead";
+      lead = "Review: one review-lead for the fix, briefed with `state brief review-lead`.";
+      task = "Run `pragmatic-review` with `--fixes <sha>`, the last review's head, on the fix against the requirements file; a fix that touches what your Fuel row's Full review of a fix to names gets the whole branch.";
+      # Its Low sweep reads the Fuel table; it spawns the `reviewer`s.
+      tools = [
+        "read"
+        "shell"
+      ];
+      skills = [ "pragmatic-review" ];
+      prose = leadProse;
+      ops = [ "spawn:reviewer" ];
       flows = [ "engineer" ];
     };
     describe = {

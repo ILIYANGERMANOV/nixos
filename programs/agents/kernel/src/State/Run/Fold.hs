@@ -611,6 +611,8 @@ reviewProblems = \case
     ReviewClean _ -> Set.empty
     ReviewRows _ -> Set.empty
     FixDone _ -> Set.empty
+    ReReviewClean _ -> Set.empty
+    ReReviewRows _ -> Set.empty
   where
     picked picks =
         Set.map Row picks.rows

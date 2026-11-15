@@ -20,7 +20,7 @@ import Data.Text qualified as Text
 import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName, StepSet (stepName), stateNameText)
-import State.Flow.Library (gatherLoop, reviewLoop)
+import State.Flow.Library (fixLoop, gatherLoop)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
@@ -65,7 +65,7 @@ fuel g =
         , "Interview questions" : map (\level -> "up to " <> tshow (cfg level).asks) levels
         , "Skippable when trivial" : map skippable levels
         , "Refactor" : map (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level) levels
-        , "Re-reviews" : map (\level -> "up to " <> tshow (reRuns level reviewLoop) <> reReviewDepth level) levels
+        , "Re-reviews" : map (\level -> "up to " <> tshow (reRuns level fixLoop) <> reReviewDepth level) levels
         , "Full review of a fix to" : map (areasText . (.areas) . cfg) levels
         ]
   where

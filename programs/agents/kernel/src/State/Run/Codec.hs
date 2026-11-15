@@ -1,11 +1,12 @@
-{- | The log on the wire: one JSON object per line, version 3.
+{- | The log on the wire: one JSON object per line, version 4.
 
-> {"v":3,"id":"r7f2:12","seq":12,"ts":"...","run":"r7f2","head":"abc123",
+> {"v":4,"id":"r7f2:12","seq":12,"ts":"...","run":"r7f2","head":"abc123",
 >  "session":null,"type":"review.rows","data":{"head":"abc123"}}
 
 A step event's @type@ is its edge's name in the flow's graph. A log the
 Python @state@ wrote (versions 1 and 2, no @v@ on the line) is refused, not
-read: the rewrite breaks it on purpose.
+read: the rewrite breaks it on purpose. So is a version 3 log: version 4
+split the review flow, and no run resumes across it.
 -}
 module State.Run.Codec (
     version,
@@ -108,11 +109,11 @@ logOf notes = notes </> logName
 
 -- | The log version this kernel writes and reads.
 version :: Int
-version = 3
+version = 4
 
 -- | Why a line was not read.
 data LineError
-    = -- | Another log version: 1 and 2 are the Python @state@'s.
+    = -- | Another log version: 1 and 2 are the Python @state@'s, 3 an earlier kernel's.
       Unsupported Int
     | Malformed Text
     deriving stock (Eq, Show)
@@ -153,7 +154,7 @@ decodeLine raw = do
   where
     malformed = first (Malformed . Text.pack)
 
-{- | Version 3 names it on every line. A Python log names none, but its
+{- | Versions 3 and on name it on every line. A Python log names none, but its
 @started@ event carries @version@ from version 2 on.
 -}
 lineVersion :: Object -> Parser Int

@@ -44,8 +44,9 @@ ctxKit = Kit [Do Research] [Do Interview]
 planKit :: Kit 'Plan
 planKit = Kit [Do SimplifyP, Do Draft] []
 
+-- | A review with rows always fixes them before the diff goes on.
 diffKit :: Kit 'Diff
-diffKit = Kit [Do Refactor, Do Fix] [Do Review, Do Pick]
+diffKit = Kit [Do Refactor] [Do Review :> Do Fix, Do Review :> Do Pick :> Do Fix, Do ReReview :> Do Fix]
 
 prKit :: Kit 'PR
 prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi]

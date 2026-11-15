@@ -8,10 +8,12 @@ module State.Flow.Library (
     propose,
     build,
     review,
+    fixReReview,
+    reviewed,
     describe,
     ship,
     gatherLoop,
-    reviewLoop,
+    fixLoop,
 ) where
 
 import State.Category.Flow (Flow (..), Name, OnEmpty (..))
@@ -53,17 +55,31 @@ refactor at or below 100 changed lines, Low on a trivial task.
 build :: Flow 'Plan 'Nothing 'Diff
 build = Do Draft :> Do Implement :> Opt "refactor" (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
 
-{- | Review is its own flow, one 'Diff' in and one out, so another flow can
-glue it in: whoever does supplies the requirements the diff must meet. Its
-rounds are the re-reviews #351 set, @n(m)@, plus the first. Out of rounds
-takes the exit rather than stopping, as #351 decided.
+{- | The reviewed flow, one 'Diff' in and one out, so another flow can glue it
+in: whoever does supplies the requirements the diff must meet. A clean
+review or re-review, or a final pick, takes the exit: 'Catch' joins it with
+the fixed diff.
 -}
-review :: Flow 'Diff 'Nothing 'Diff
-review = Loop reviewLoop ((+ 1) <$> PerFuel 1 3 5) ExitOut (Do Review :> Do Pick :> Do Fix)
+reviewed :: Flow 'Diff 'Nothing 'Diff
+reviewed = Catch (review :> fixReReview)
 
--- | The review loop's name: pick reads its rounds.
-reviewLoop :: Name
-reviewLoop = "review"
+-- | A clean review exits early; one with rows hands on its findings.
+review :: Flow 'Diff ('Just 'Diff) 'Findings
+review = Do Review
+
+{- | Pick, fix and re-review the fix until a pick is final or a re-review
+clean. Its rounds are the re-reviews #351 set, @n(m)@, plus the last
+round's pick: pick offers only @pick.final@ once no round is left, which is
+how out of rounds takes the exit, as #351 decided. 'ExitOut' cannot type
+here, as the exit is no longer the loop's in type, and the fold reads no
+'OnEmpty', so the loop says 'StopOut'.
+-}
+fixReReview :: Flow 'Findings 'Nothing 'Diff
+fixReReview = Loop fixLoop (PerFuel 2 4 6) StopOut (Do Pick :> Do Fix :> Do ReReview)
+
+-- | The fix loop's name: pick reads its rounds.
+fixLoop :: Name
+fixLoop = "fix"
 
 -- | @describe@ is the final fixer, so @simplify_pr@ is never skipped: the Keep law.
 describe :: Flow 'Diff 'Nothing 'PR

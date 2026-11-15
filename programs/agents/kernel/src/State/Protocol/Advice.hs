@@ -41,7 +41,7 @@ import State.Category.Fuel (Cfg (..), SkipWhen (..), atFuel, cfg, fuelLabel, fue
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
-import State.Flow.Library (gatherLoop, reviewLoop)
+import State.Flow.Library (fixLoop, gatherLoop)
 import State.Protocol.Handback (stopLine)
 import State.Protocol.Record (extendCommand, recordCommand)
 import State.Role (FlowName (..))
@@ -372,7 +372,7 @@ recordOutcomes s = Text.intercalate " | " [recordCommand (EventName (stepName s)
 recordOne :: Text -> [Text] -> Text
 recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"
 
-{- | Pick takes @pick.loop@ only while the review loop has a round left by
+{- | Pick takes @pick.loop@ only while the fix loop has a round left by
 'budget'. At the loop's rounds, a Not met in this round's picks buys one more; past
 it, only @pick.final@.
 -}
@@ -383,8 +383,8 @@ pickCommand g state
         final <> " | " <> loop <> " only with a not-met verdict: the last round"
     | otherwise = final <> " - no review round is left"
   where
-    done = maybe 1 (fromIntegral . length) (Map.lookup reviewLoop state.rounds)
-    allowed = roundsAllowed g (fuelOf state) reviewLoop
+    done = maybe 1 (fromIntegral . length) (Map.lookup fixLoop state.rounds)
+    allowed = roundsAllowed g (fuelOf state) fixLoop
     -- Any requirement: 'budget' asks only whether one is Not met.
     anyRequirement = Requirement ""
     loop = recordCommand (continueEvent Review.Pick)

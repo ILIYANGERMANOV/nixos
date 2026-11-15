@@ -5,7 +5,7 @@ import Data.Set qualified as Set
 import State.Category.Fuel (Fuel (..), PerFuel (..), SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Edge (..), Empty (..), LoopAt (..), OpenGraph (..), graph)
 import State.Flow.Engineer (engineer)
-import State.Flow.Library (agree, build, describe, gather, propose, review, reviewLoop, ship)
+import State.Flow.Library (agree, build, describe, fixLoop, fixReReview, gather, propose, review, reviewed, ship)
 import Test.Hspec (Spec, it, shouldBe)
 import Test.Hspec qualified as Hspec
 
@@ -19,21 +19,23 @@ spec = Hspec.describe "State.Flow.Library" $ do
             , ("propose", graph propose)
             , ("build", graph build)
             , ("review", graph review)
+            , ("fixReReview", graph fixReReview)
+            , ("reviewed", graph reviewed)
             , ("describe", graph describe)
             , ("ship", graph ship)
             ]
         ]
             `shouldBe` ([] :: [String])
 
-    it "takes review's exit when out of fuel, and stops the run in every other loop" $
-        [Map.toList . fmap (.onEmpty) . (.loops) <$> built | built <- [graph agree, graph review, graph ship]]
+    it "stops the run in every loop out of fuel" $
+        [Map.toList . fmap (.onEmpty) . (.loops) <$> built | built <- [graph agree, graph reviewed, graph ship]]
             `shouldBe` [ Right [("gather", Stops), ("plan", Stops)]
-                       , Right [("review", Exits)]
+                       , Right [("fix", Stops)]
                        , Right [("ci", Stops)]
                        ]
 
-    it "gives review 1, 3 and 5 re-reviews after the first by level" $
-        ((.rounds) <$>) . Map.lookup reviewLoop . (.loops) <$> graph review
+    it "gives the fix loop 1, 3 and 5 re-reviews, plus a last round's final pick, by level" $
+        ((.rounds) <$>) . Map.lookup fixLoop . (.loops) <$> graph reviewed
             `shouldBe` Right (Just (PerFuel 2 4 6))
 
     it "leaves research, the plan's simplify and the refactor skippable at Low only" $

@@ -162,6 +162,7 @@ tyText = \case
     Ctx -> "Ctx"
     Plan -> "Plan"
     Diff -> "Diff"
+    Findings -> "Findings"
     PR -> "PR"
     List t -> "[" <> tyText t <> "]"
     a :+ b -> "(" <> tyText a <> " + " <> tyText b <> ")"

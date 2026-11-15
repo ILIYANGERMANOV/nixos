@@ -1,7 +1,7 @@
-{- | Logs written by an earlier kernel still fold, to the state they folded
-to then: a run started before an upgrade resumes after it. The logs under
-@test/golden/v3-logs@ are version 3 as the kernel wrote them, and each
-@.state@ golden pins the state they replay to, as @state show@ prints it.
+{- | Logs this kernel wrote fold to the state they folded to then: a run
+resumes from its log. The logs under @test/golden/v4-logs@ are version 4,
+and each @.state@ golden pins the state they replay to, as @state show@
+prints it.
 -}
 module State.Run.ReplaySpec (spec) where
 
@@ -18,14 +18,14 @@ import Test.Hspec (Spec, describe, it, runIO)
 
 spec :: Spec
 spec =
-    describe "a version 3 log" $
-        mapM_ folds [("engineer-1", g), ("engineer-2", g), ("engineer-3", g), ("tenx", tenXGraph)]
+    describe "a version 4 log" $
+        mapM_ folds [("engineer-1", g), ("engineer-2", g), ("engineer-3", g), ("engineer-4", g), ("tenx", tenXGraph)]
 
 folds :: (FilePath, OpenGraph) -> Spec
 folds (name, flowGraph) = do
-    raw <- runIO (BS.readFile ("test/golden/v3-logs/" <> name <> ".jsonl"))
+    raw <- runIO (BS.readFile ("test/golden/v4-logs/" <> name <> ".jsonl"))
     it ("folds " <> name <> ".jsonl to the state it folded to before") $
-        golden ("v3-logs/" <> name <> ".state") (either (Text.pack . ("does not fold: " <>)) (showRun flowGraph) (replayed raw))
+        golden ("v4-logs/" <> name <> ".state") (either (Text.pack . ("does not fold: " <>)) (showRun flowGraph) (replayed raw))
   where
     replayed raw = do
         envelopes <- either (Left . show) Right (decodeLogBytes raw)

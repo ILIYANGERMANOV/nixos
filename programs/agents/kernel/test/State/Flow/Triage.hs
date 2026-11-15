@@ -18,7 +18,6 @@ import State.Category.Step
 import State.Category.Ty (Ty (..))
 import State.Step.Artifact (Sha, headData, headOf)
 import State.Step.Build (Sing (..))
-import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
 
 type data TriageStep = Triage
@@ -62,4 +61,4 @@ deriving stock instance Show (Outcome (s :: TriageStep) l)
 deriving stock instance Eq (Outcome (s :: TriageStep) l)
 
 triaged :: Flow 'Diff 'Nothing 'PR
-triaged = Do Triage :> (Do Describe ||| Do Implement :> Do Fix :> Do Describe)
+triaged = Do Triage :> (Do Describe ||| Do Implement :> Do Refactor :> Do Describe)

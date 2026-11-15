@@ -2,6 +2,7 @@ module State.Run.FoldSpec (spec) where
 
 import Data.Either (isRight)
 import Data.Foldable (for_)
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -129,13 +130,13 @@ spec = describe "State.Run.Fold" $ do
     -- At the pick, before the fixer runs, so the run can still take the loop's exit.
     it "refuses a review round past the rounds at the loop pick" $
         replay g (logOf (started :| FuelSet Low : toReview <> reviewRounds [[], []]))
-            `shouldBe` Left (OutOfRounds "review" 2)
+            `shouldBe` Left (OutOfRounds "fix" 2)
 
     it "gives one more round after a Not met at the last round, never two" $ do
         let unmet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
-            once = toReview <> reviewRound [] <> [stepTook (FixDone commit)] <> roundWith unmet <> [stepTook (FixDone commit), stepTook (ReviewRows sha)]
+            once = toReview <> pickRounds [Picks Set.empty Map.empty, unmet] <> [stepTook (FixDone commit), stepTook (ReReviewRows sha)]
         (.at) <$> replay g (logOf (started :| FuelSet Low : once)) `shouldSatisfy` either (const False) (/= Out)
-        replay g (logOf (started :| FuelSet Low : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfRounds "review" 2)
+        replay g (logOf (started :| FuelSet Low : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfRounds "fix" 2)
 
     it "stuck_after_two_same_rounds" . hedgehog $ do
         -- Max's 6 rounds: the last round's loop pick is refused, as no round is left.
@@ -145,7 +146,7 @@ spec = describe "State.Run.Fold" $ do
                 current : previous : _ -> Set.map (Row . Label) (Set.fromList current `Set.intersection` Set.fromList previous)
                 _ -> Set.empty
         cover 10 "stuck" (not (Set.null expected))
-        stuck state === [Stuck "review" expected | not (Set.null expected)]
+        stuck state === [Stuck "fix" expected | not (Set.null expected)]
 
     it "is not stuck on rows alternating A, B, A, B: only rounds in a row count" $
         stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["B"], ["A"], ["B"]]))
@@ -157,7 +158,7 @@ spec = describe "State.Run.Fold" $ do
             `shouldBe` Right [Stuck "ci" (Set.singleton (Failing (Check "lint")))]
 
     it "forgets a loop's rounds once the run leaves it" $
-        stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReviewClean sha)]))
+        stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReReviewClean sha)]))
             `shouldBe` Right []
 
     it "restarts gathering in each round of the plan loop" $ do
@@ -248,18 +249,15 @@ toReview = map Took (take 8 happyPath)
 toCi :: [Event]
 toCi = map Took (take 8 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
 
-reviewRound :: [Label] -> [Event]
-reviewRound rows = roundWith (Picks (Set.fromList rows) Map.empty)
-
-roundWith :: Picks -> [Event]
-roundWith picks = [stepTook (ReviewRows sha), stepTook (PickLoop picks)]
-
--- | Review rounds with these rows, fixed between rounds; the last ends at its picks.
+-- | Fix rounds that pick these rows, as 'pickRounds'.
 reviewRounds :: [[Text]] -> [Event]
-reviewRounds = \case
+reviewRounds = pickRounds . map (\rows -> Picks (Set.fromList (map Label rows)) Map.empty)
+
+-- | A review with rows, then a round per pick, fixed and re-reviewed before the next; the last ends at its pick.
+pickRounds :: [Picks] -> [Event]
+pickRounds = \case
     [] -> []
-    [rows] -> reviewRound (map Label rows)
-    rows : rest -> reviewRound (map Label rows) <> [stepTook (FixDone commit)] <> reviewRounds rest
+    picks -> stepTook (ReviewRows sha) : intercalate [stepTook (FixDone commit), stepTook (ReReviewRows sha)] [[stepTook (PickLoop p)] | p <- picks]
 
 -- | The rounds the engineer's loop allows at the run's level.
 budgetOf :: RunState -> Name -> Int

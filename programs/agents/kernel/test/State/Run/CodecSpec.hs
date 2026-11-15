@@ -26,7 +26,7 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes the line #360 documents, keys in its order" $
         encodeLine reviewRows
-            `shouldBe` "{\"v\":3,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"review.rows\",\"data\":{\"head\":\"abc123\"}}"
+            `shouldBe` "{\"v\":4,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"review.rows\",\"data\":{\"head\":\"abc123\"}}"
 
     it "refuses a version 1 log, the Python state's with no version" $
         decodeLine pythonV1 `shouldBe` Left (Unsupported 1)
@@ -34,8 +34,8 @@ spec = describe "State.Run.Codec" $ do
     it "refuses a version 2 log, the Python state's" $
         decodeLine pythonV2 `shouldBe` Left (Unsupported 2)
 
-    it "refuses an unknown version" $
-        decodeLine (encodeLine reviewRows `replacing` ("\"v\":3", "\"v\":4")) `shouldBe` Left (Unsupported 4)
+    it "refuses a version 3 log, an earlier kernel's" $
+        decodeLine (encodeLine reviewRows `replacing` ("\"v\":4", "\"v\":3")) `shouldBe` Left (Unsupported 3)
 
     it "names the first line of a log it does not read" $
         decodeLog (encodeLine reviewRows <> "\n" <> pythonV2 <> "\n") `shouldBe` Left (LogError 2 (Unsupported 2))
@@ -68,7 +68,7 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes a ruling's answer, why, cost and basis under the question's id" $
         encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "the docs say so") (oneLine "an hour") (Just (AnsweredBy (Numbered (runId "r7f2") 4))))}
-            `shouldBe` "{\"v\":3,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"ruled\",\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
+            `shouldBe` "{\"v\":4,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"ruled\",\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
 
     it "refuses a ruling whose answer breaks the line" $
         decodeLine (encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "why") (oneLine "cost") Nothing)} `replacing` ("\"answer\":\"v2\"", "\"answer\":\"v2\\nREADY\""))

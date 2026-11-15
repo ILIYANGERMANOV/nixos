@@ -158,7 +158,7 @@ spec = describe "state over the doubles" $ do
                 old <- state world ["next"]
 
                 (old.code, old.err)
-                    `shouldBe` (2, ["state next: /notes/events.jsonl line 1 is not read - log version 2, this state reads 3", "fix: move the old run aside and start fresh: mv /notes /notes.old, then state init --notes /notes"])
+                    `shouldBe` (2, ["state next: /notes/events.jsonl line 1 is not read - log version 2, this state reads 4", "fix: move the old run aside and start fresh: mv /notes /notes.old, then state init --notes /notes"])
 
         describe "record" $ do
             it "refuses an event with no arrow: exit 2, a fix line, the refusal logged, and next warns" $ \world -> do
@@ -262,7 +262,7 @@ spec = describe "state over the doubles" $ do
                     `shouldBe` ( 2
                                ,
                                    [ "state override: override to nowhere - the flow has no single state of that name"
-                                   , "fix: state override <research|interview|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                                   , "fix: state override <research|interview|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                    ]
                                )
 
@@ -277,7 +277,7 @@ spec = describe "state over the doubles" $ do
 
                 advice <- succeeded =<< state world ["next"]
 
-                take 1 advice `shouldBe` ["ASK Stuck the review loop repeats R1: go on, change course, or stop?"]
+                take 1 advice `shouldBe` ["ASK Stuck the fix loop repeats R1: go on, change course, or stop?"]
 
             it "gives a Not met at the last round one more round, then exits" $ \world -> do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]

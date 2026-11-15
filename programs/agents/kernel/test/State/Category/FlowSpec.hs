@@ -83,12 +83,12 @@ spec = describe "State.Category.Flow" $ do
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $
             rejectedShown
-                "Outcome leg Exited does not fit step signature '(State.Category.Ty.Diff, Nothing, State.Category.Ty.Diff)"
+                "Outcome leg Exited does not fit step signature '(State.Category.Ty.Findings, Nothing, State.Category.Ty.Diff)"
                 (outcomeEvent (packed Fix (by @'Exited Fix)))
 
         it "a skip of a step with an exit" $
             rejectedShown
-                "Outcome leg Skipped does not fit step signature '(State.Category.Ty.Diff, Just State.Category.Ty.Diff, State.Category.Ty.Diff)"
+                "Outcome leg Skipped does not fit step signature '(State.Category.Ty.Diff, Just State.Category.Ty.Diff, State.Category.Ty.Findings)"
                 (outcomeEvent (packed Review (by @'Skipped Review)))
 
         it "a skip of a step that changes the type" $

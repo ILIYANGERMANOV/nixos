@@ -197,6 +197,8 @@ templates =
     , outcome (PickFinal (Picks Set.empty Map.empty))
     , outcome (PickLoop (Picks Set.empty Map.empty))
     , outcome (FixDone (Commit (Sha "") Set.empty))
+    , outcome (ReReviewClean (Sha ""))
+    , outcome (ReReviewRows (Sha ""))
     , outcome (DescribeDone (Sha ""))
     , outcome (SimplifyPrDone (Sha ""))
     , outcome (SimplifyPrSkipped (Sha ""))
@@ -243,6 +245,8 @@ likeIn = \case
         PickFinal _ -> PickFinal <$> genPicks
         PickLoop _ -> PickLoop <$> genPicks
         FixDone _ -> FixDone <$> genCommit
+        ReReviewClean _ -> ReReviewClean <$> genSha
+        ReReviewRows _ -> ReReviewRows <$> genSha
     ShipLayer -> \case
         DescribeDone _ -> DescribeDone <$> genSha
         SimplifyPrDone _ -> SimplifyPrDone <$> genSha

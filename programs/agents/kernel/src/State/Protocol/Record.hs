@@ -109,6 +109,8 @@ recordables =
     , picks Pick PickLoop
     , -- A fixer's hand-back with no Touches line touches no area.
       commitAt Fix FixDone Set.empty
+    , atHead ReReview ReReviewClean
+    , atHead ReReview ReReviewRows
     , atHead Describe DescribeDone
     , atHead SimplifyPR SimplifyPrDone
     , atHead SimplifyPR SimplifyPrSkipped
