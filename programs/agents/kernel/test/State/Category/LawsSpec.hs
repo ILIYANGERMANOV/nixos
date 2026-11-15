@@ -1,7 +1,8 @@
 {- | The laws "State.Category.Flow"'s Haddock states, read off the graph a run
 walks. Equal is graph isomorphism up to where a state sits in the term
 ('redrawn'); where a law copies a subterm, equal is bisimilar: a run walks
-the same names and events from the start on either side.
+the same names and events from the start on either side, up to renaming:
+the copy sits under @Scope "u"@, so a copied loop keeps a name of its own.
 -}
 module State.Category.LawsSpec (spec) where
 
@@ -9,6 +10,7 @@ import Data.Either (isRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
@@ -16,14 +18,13 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Name (..), OnEmpty (..), inl, inr, nameText, scoped, (|||))
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, redrawn)
 import State.Category.Fuel (PerFuel, SkipWhen, always, monotone, skipsAtMost)
-import State.Category.Graph (Arrow (..), Clash (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Graph (Arrow (..), Clash, Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..))
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
-import State.Step.Review (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -54,7 +55,7 @@ spec = describe "laws" $ do
         -- @Do Triage@ feeds both summands, so both sides draw each branch.
         it "a_case_of_injections_then_h_walks_as_h" . hedgehog $ do
             h <- forAll (Gen.filter (isRight . graph . (Do Triage :>)) genOnSum)
-            (bisimilar <$> graph (Do Triage :> ((inl :> h) ||| (inr :> h))) <*> graph (Do Triage :> h)) === Right []
+            (bisimilar <$> graph (Do Triage :> ((inl :> h) ||| (inr :> Scope copy h))) <*> graph (Do Triage :> h)) === Right []
 
         {- @x@ ends in @(Diff + Plan) + Plan@; the associator moves it to
         @Diff + (Plan + Plan)@, so both cases see the same three branches.
@@ -79,18 +80,10 @@ spec = describe "laws" $ do
         edges start no round: bisimilar, not isomorphic, and rounds aside.
         -}
         it "a_loop_walks_as_its_body_unrolled_once" . hedgehog $ do
-            body <- forAll (Gen.filter (isRight . graph . Catch) genBody)
             onEmpty <- forAll (Gen.element [StopOut, ExitOut])
+            body <- forAll (Gen.filter (isRight . graph . Loop "review" (always 3) onEmpty) genBody)
             let loop = Loop "review" (always 3) onEmpty body
-            (bisimilar <$> graph loop <*> graph (Catch (body :> loop))) === Right []
-
-        {- The law's domain: a body with a loop of its own draws that loop
-        twice once unrolled, and one loop name twice would mix its rounds.
-        -}
-        it "refuses to unroll a body that holds a loop of its own" $ do
-            let body = Do Review :> Loop "ci" (always 2) ExitOut (Do Pick :> Do Fix)
-                loop = Loop "review" (always 3) ExitOut body
-            graph (Catch (body :> loop)) `shouldBe` Left (SameLoop "ci")
+            (bisimilar <$> graph loop <*> graph (Catch (Scope copy body :> loop))) === Right []
 
     describe "Scope" $ do
         it "scope_preserves_the_graph_but_its_names" . hedgehog $ do
@@ -131,13 +124,13 @@ genCase = Gen.filter builds ((,) <$> genBranching <*> genBranching)
 genPlanned :: Gen (Flow 'Plan 'Nothing 'PR)
 genPlanned = (Do Implement :>) <$> genBranching
 
-{- | Diff steps that draw no loop: a term the eta and Elgot laws copy must
-not hold one, as 'refuses to unroll a body that holds a loop of its own' pins.
+{- | The scope a law's copied subterm sits under: one loop name drawn twice
+would mix its rounds ('SameLoop'), so the copy is renamed.
 -}
-loopFree :: Kit 'Diff
-loopFree = diffKit {exiting = []}
+copy :: Name
+copy = "u"
 
--- | A case over a triaged diff, then more steps, all without a loop.
+-- | A case over a triaged diff, then more steps.
 genOnSum :: Gen (Flow ('Diff ':+ 'Plan) 'Nothing 'Diff)
 genOnSum =
     Gen.recursive
@@ -150,22 +143,22 @@ genOnSum =
     genDiff =
         Gen.recursive
             Gen.choice
-            [genEndo loopFree]
+            [genEndo diffKit]
             [(Do Triage :>) <$> genOnSum]
 
--- | A loop body with an exit and no loop of its own.
+-- | A loop body with an exit.
 genBody :: Gen (Flow 'Diff ('Just 'Diff) 'Diff)
 genBody =
     Gen.choice
-        [ (:>) <$> Gen.element diffKit.exiting <*> genEndo loopFree
-        , (:>) <$> genEndo loopFree <*> Gen.element diffKit.exiting
-        , (\f exit g -> f :> exit :> g) <$> genEndo loopFree <*> Gen.element diffKit.exiting <*> genEndo loopFree
+        [ genExiting diffKit
+        , (\f exit g -> f :> exit :> g) <$> genEndo diffKit <*> Gen.element diffKit.exiting <*> genEndo diffKit
         ]
 
 {- | The pairs of states, one per graph, that a run reaches together from
 the in ports but that differ: in name, in the events that leave them, or in
 an edge's arrow or kind of target. Empty when the graphs are bisimilar.
-Which round an edge starts ('back') and the loops' extents are not compared.
+Which round an edge starts ('back') and the loops' extents are not compared;
+a name under 'copy' compares as its bare name.
 -}
 bisimilar :: OpenGraph -> OpenGraph -> [(Place, Place)]
 bisimilar left right = go Set.empty [(left.inPort, right.inPort)]
@@ -177,19 +170,22 @@ bisimilar left right = go Set.empty [(left.inPort, right.inPort)]
             Nothing -> pair : go (Set.insert pair seen) rest
             Just next -> go (Set.insert pair seen) (next <> rest)
     matched p q
-        | p.name /= q.name || Map.keys outP /= Map.keys outQ = Nothing
-        | otherwise = concat <$> sequence (Map.elems (Map.intersectionWith step outP outQ))
+        | uncopied p.name /= uncopied q.name || Map.keys (uncopiedKeys outP) /= Map.keys (uncopiedKeys outQ) = Nothing
+        | otherwise = concat <$> sequence (Map.elems (Map.intersectionWith step (uncopiedKeys outP) (uncopiedKeys outQ)))
       where
         outP = leaving left p
         outQ = leaving right q
     step a b
-        | a.arrow /= b.arrow = Nothing
+        | renameArrow strip a.arrow /= renameArrow strip b.arrow = Nothing
         | otherwise = case (a.to, b.to) of
             (At x, At y) -> Just [(x, y)]
             (Out, Out) -> Just []
             (Exit, Exit) -> Just []
             _ -> Nothing
     leaving g place = Map.fromList [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place]
+    uncopiedKeys = Map.mapKeys (renameEvent strip)
+    uncopied = renameState strip
+    strip text = fromMaybe text (Text.stripPrefix (nameText copy <> "/") text)
 
 {- | The graph with the scope's prefix taken off every name it holds. A name
 without the prefix keeps a mark, so it cannot pass for one the scope named.
@@ -198,27 +194,36 @@ unscoped :: Name -> OpenGraph -> OpenGraph
 unscoped scope g =
     OpenGraph
         { inPort = place g.inPort
-        , edges = Map.fromList [((place from, event' event), edge' edge) | ((from, event), edge) <- Map.toList g.edges]
-        , loops = Map.fromList [(name' loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
+        , edges = Map.fromList [((place from, renameEvent bare event), renameEdge edge) | ((from, event), edge) <- Map.toList g.edges]
+        , loops = Map.fromList [(renameName bare loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
         }
   where
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
-    name' (Name text) = Name (bare text)
-    state (StateName text) = StateName (bare text)
-    place at = at {name = state at.name}
-    event' (EventName from outcome) = EventName (state from) outcome
-    edge' edge =
+    place at = at {name = renameState bare at.name}
+    renameEdge edge =
         Edge
             { to = case edge.to of
                 At at -> At (place at)
                 Out -> Out
                 Exit -> Exit
-            , arrow = case edge.arrow of
-                Along along -> Along along {event = event' along.event}
-                Skip name skips -> Skip (name' name) skips
-                Stay -> Stay
-            , back = name' <$> edge.back
+            , arrow = renameArrow bare edge.arrow
+            , back = renameName bare <$> edge.back
             }
+
+renameArrow :: (Text -> Text) -> Arrow -> Arrow
+renameArrow f = \case
+    Along along -> Along along {event = renameEvent f along.event}
+    Skip name skips -> Skip (renameName f name) skips
+    Stay -> Stay
+
+renameEvent :: (Text -> Text) -> EventName -> EventName
+renameEvent f (EventName from outcome) = EventName (renameState f from) outcome
+
+renameState :: (Text -> Text) -> StateName -> StateName
+renameState f (StateName text) = StateName (f text)
+
+renameName :: (Text -> Text) -> Name -> Name
+renameName f (Name text) = Name (f text)
 
 stateNames :: OpenGraph -> Set.Set StateName
 stateNames = Set.map (.name) . places
