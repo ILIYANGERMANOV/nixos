@@ -59,7 +59,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Mode (Area (..), Quality, Size, parseByName, parseQuality, qualityName, sizeName)
+import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
 
 -- | The draft PR, synced from GitHub.
 data DraftPr = DraftPr {url :: Url, base :: Branch, branch :: Branch}
@@ -108,8 +108,7 @@ data Task = Task
     -- ^ Tasks whose work this one builds on: earlier ones only.
     , base :: Branch
     , branch :: Branch
-    , quality :: Quality
-    , size :: Size
+    , fuel :: Fuel
     , qa :: Bool
     , heavy :: Bool
     -- ^ At most one heavy task runs at a time.
@@ -207,8 +206,7 @@ taskEncoding task =
             <> "deps" .= map taskIdText task.deps
             <> "base" .= branchText task.base
             <> "branch" .= branchText task.branch
-            <> "quality" .= qualityName task.quality
-            <> "size" .= sizeName task.size
+            <> "fuel" .= fuelName task.fuel
             <> "qa" .= task.qa
             <> "heavy" .= task.heavy
             <> "security" .= map topicText (Set.toList task.security)
@@ -255,8 +253,7 @@ taskFieldsOf obj =
         <*> (map TaskId <$> obj .: "deps")
         <*> (Branch <$> obj .: "base")
         <*> (Branch <$> obj .: "branch")
-        <*> (obj .: "quality" >>= named "quality" parseQuality)
-        <*> (obj .: "size" >>= named "size" (parseByName sizeName))
+        <*> (obj .: "fuel" >>= named "fuel" parseFuel)
         <*> obj .: "qa"
         <*> obj .: "heavy"
         <*> (obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic")

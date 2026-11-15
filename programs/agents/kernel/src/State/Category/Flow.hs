@@ -46,18 +46,18 @@ type family Join a b where
                 ':<>: 'ShowType b
             )
 
--- | What a 'Loop' does when its fuel runs out.
+-- | What a 'Loop' does when its rounds run out.
 type OnEmpty :: Ty -> Ty -> Type
 data OnEmpty a b where
-    -- | Stop the run: out of fuel is a @stop fuel@.
+    -- | Stop the run: out of rounds is a @stop rounds@.
     StopOut :: OnEmpty a b
     -- | Take the exit, as Review does: only when the exit is the loop's in type.
     ExitOut :: OnEmpty a a
 
 deriving stock instance Show (OnEmpty a b)
 
-{- | @i@: in. @e@: the exit, if any. @o@: continue. Fuel, skips and fan-out
-are not numbers in the term: 'State.Category.Mode.cfg' gives each id its value.
+{- | @i@: in. @e@: the exit, if any. @o@: continue. Rounds, skips and fan-out
+are not numbers in the term: 'State.Category.Fuel.cfg' gives each id its value.
 -}
 data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     -- | One step, of any layer: its signature is the term's type. A step takes one type, never a sum.

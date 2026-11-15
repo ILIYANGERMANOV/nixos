@@ -57,7 +57,7 @@ import Data.Text.Encoding (decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Data.Text.Lazy qualified as Lazy
 import Data.Text.Lazy.Encoding qualified as Lazy
 import Numeric.Natural (Natural)
-import State.Category.Mode (parseByName, parseQuality, qualityName, sizeName)
+import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Step (eventText)
 import State.Role (RoleDef (..), roleText)
 import State.Role qualified as Role
@@ -199,9 +199,7 @@ sourceOf run n raw
 eventType :: Event -> Text
 eventType = \case
     Started _ -> "started"
-    QualitySet _ -> "quality"
-    SizeSet _ -> "size"
-    Grew _ -> "grew"
+    FuelSet _ -> "fuel"
     Took outcome -> eventText (outcomeEvent outcome)
     Stopped _ -> "stop"
     Overridden _ _ -> "overridden"
@@ -227,9 +225,7 @@ eventData = \case
             <> "notes" .= start.notes
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
-    QualitySet quality -> "mode" .= qualityName quality
-    SizeSet size -> "size" .= sizeName size
-    Grew why -> "why" .= why
+    FuelSet fuel -> "level" .= fuelName fuel
     Took outcome -> outcomeData outcome
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
     Overridden (StateName to) why -> "to" .= to <> "why" .= why
@@ -268,9 +264,7 @@ eventData = \case
 eventOf :: Text -> Object -> Parser Event
 eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
-    "quality" -> QualitySet <$> (obj .: "mode" >>= named "quality" parseQuality)
-    "size" -> SizeSet <$> (obj .: "size" >>= named "size" (parseByName sizeName))
-    "grew" -> Grew <$> obj .: "why"
+    "fuel" -> FuelSet <$> (obj .: "level" >>= named "fuel" parseFuel)
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")
@@ -331,8 +325,7 @@ stopToken = \case
     Blocked -> ("BLOCKED", "")
     Failed -> ("FAILED", "")
     Replan -> ("NEEDS_DECISION", "plan wrong: ")
-    Fuel -> ("BLOCKED", "out of fuel: ")
-    Outgrown -> ("GREW", "")
+    OutOfRounds -> ("BLOCKED", "out of rounds: ")
 
 -- | A stop's hand-back token and its payload.
 stopWire :: Stop -> (Text, Text)
@@ -346,8 +339,8 @@ parseStopLine line = parseStop word (Text.drop 1 payload)
   where
     (word, payload) = Text.breakOn " " line
 
-{- | The prefixed reasons are tried first, so @BLOCKED out of fuel: x@ reads as
-'Fuel', as the wire cannot tell it from a 'Blocked' whose why says so.
+{- | The prefixed reasons are tried first, so @BLOCKED out of rounds: x@ reads as
+'OutOfRounds', as the wire cannot tell it from a 'Blocked' whose why says so.
 -}
 parseStop :: Text -> Text -> Maybe Stop
 parseStop token payload =
@@ -498,5 +491,4 @@ reasonText = \case
     Blocked -> "blocked"
     Failed -> "failed"
     Replan -> "replan"
-    Fuel -> "fuel"
-    Outgrown -> "grew"
+    OutOfRounds -> "rounds"

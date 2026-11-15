@@ -58,8 +58,8 @@ flowModules :: [String]
 flowModules =
     [ "State.Block"
     , "State.Category.Flow"
+    , "State.Category.Fuel"
     , "State.Category.Graph"
-    , "State.Category.Mode"
     , "State.Category.Path"
     , "State.Category.Step"
     , "State.Category.Ty"

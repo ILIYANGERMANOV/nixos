@@ -61,7 +61,7 @@ import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanId (..))
-import State.Category.Mode (Quality, Size)
+import State.Category.Fuel (Fuel)
 import State.Category.Step (Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
@@ -100,11 +100,7 @@ newtype SessionId = SessionId Text
 data Event
     = Started Start
     | -- | Set once.
-      QualitySet Quality
-    | -- | Set once; only 'Grew' changes it.
-      SizeSet Size
-    | -- | A Trivial task found bigger: the size is Normal from here.
-      Grew Text
+      FuelSet Fuel
     | -- | A step's outcome, or a mode's skip: the one event that moves the run.
       Took AnyOutcome
     | -- | Terminal: it ends every question still pending too.
@@ -190,7 +186,7 @@ data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)
 
 -- | @replan@ ends this run; a new run starts at @Ctx@.
-data StopReason = Blocked | Failed | Replan | Fuel | Outgrown
+data StopReason = Blocked | Failed | Replan | OutOfRounds
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | A refusal as the reader saw it: what was wrong, and the fix.

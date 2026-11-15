@@ -13,7 +13,6 @@ module State.Protocol.Handback (
     renderHandback,
     tokenLine,
     stopLine,
-    readyState,
     Typed (..),
     typeHandback,
 ) where
@@ -25,7 +24,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (fanNamed)
 import State.Category.Graph (Node (..), Place (..))
-import State.Category.Mode (Area, Quality (..), parseByName)
+import State.Category.Fuel (Area, parseByName)
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
@@ -62,11 +61,9 @@ data Handback = Handback
 
 data Token
     = Ready OneLine
-    | -- | With the @GREW@ line below it when the task outgrew Trivial too.
-      NeedsDecision Need (Maybe OneLine)
+    | NeedsDecision Need
     | -- | What the sender cannot wait on itself, and its ref: the parent waits.
       Await Waiting OneLine
-    | Grew OneLine
     | Blocked OneLine
     | Failed OneLine
     deriving stock (Eq, Show)
@@ -85,7 +82,7 @@ data Waiting = Ci
 
 parseHandback :: Text -> Either Text Handback
 parseHandback message = do
-    token <- withGrew (trailer "GREW ") =<< parseToken first
+    token <- parseToken first
     run <- traverse (\raw -> maybe (Left ("Run: " <> raw <> " is no run id")) Right (parseRunId raw)) (trailer "Run: ")
     reviewedHead <- traverse (sha "Reviewed head:") (trailer "Reviewed head:")
     simplified <- traverse (sha "Simplified:") (trailer "Simplified:")
@@ -104,28 +101,13 @@ parseHandback message = do
         "" -> Left (label <> " names no sha")
         named -> Right (Sha named)
 
--- | A @GREW@ line below line 1 follows a @NEEDS_DECISION@ only.
-withGrew :: Maybe Text -> Maybe Token -> Either Text (Maybe Token)
-withGrew below token = case (below, token) of
-    (Nothing, _) -> Right token
-    (Just why, Just (NeedsDecision need _)) -> Just . NeedsDecision need . Just <$> oneLine why
-    (Just _, Just (Ready _)) -> misplaced
-    (Just _, Just (Await _ _)) -> misplaced
-    (Just _, Just (Grew _)) -> misplaced
-    (Just _, Just (Blocked _)) -> misplaced
-    (Just _, Just (Failed _)) -> misplaced
-    (Just _, Nothing) -> misplaced
-  where
-    misplaced = Left "a GREW line below line 1 follows NEEDS_DECISION only: put GREW <why> on line 1"
-
 parseToken :: Text -> Either Text (Maybe Token)
 parseToken line = case word of
     "READY" -> Just . Ready <$> oneLine payload
-    "NEEDS_DECISION" -> Just . (`NeedsDecision` Nothing) <$> parseNeed payload
+    "NEEDS_DECISION" -> Just . NeedsDecision <$> parseNeed payload
     "AWAIT" -> case Text.breakOn " " payload of
         ("ci", ref) -> Just . Await Ci <$> oneLine (Text.drop 1 ref)
         (other, _) -> Left ("AWAIT " <> other <> ": only ci is awaited")
-    "GREW" -> Just . Grew <$> oneLine payload
     "BLOCKED" -> Just . Blocked <$> oneLine payload
     "FAILED" -> Just . Failed <$> oneLine payload
     _ -> Right Nothing
@@ -174,33 +156,22 @@ renderHandback handback =
     Text.unlines $
         maybe "" tokenLine handback.token
             : catMaybes
-                [ ("GREW " <>) . oneLineText <$> (grewBelow =<< handback.token)
-                , ("Run: " <>) . runIdText <$> handback.run
+                [ ("Run: " <>) . runIdText <$> handback.run
                 , ("Reviewed head: " <>) . shaText <$> handback.reviewedHead
                 , ("Simplified: " <>) . shaText <$> handback.simplified
                 , ("Touches: " <>) . touchesText <$> handback.touches
                 ]
 
-grewBelow :: Token -> Maybe OneLine
-grewBelow = \case
-    NeedsDecision _ grew -> grew
-    Ready _ -> Nothing
-    Await _ _ -> Nothing
-    Grew _ -> Nothing
-    Blocked _ -> Nothing
-    Failed _ -> Nothing
-
 -- | Line 1 of a hand-back.
 tokenLine :: Token -> Text
 tokenLine = \case
     Ready ref -> spaced "READY" (oneLineText ref)
-    NeedsDecision need _ -> case need of
+    NeedsDecision need -> case need of
         Asks question -> needsDecision question
         StuckOn why -> needing ("stuck: " <> oneLineText why)
         PlanWrong finding -> needing (planWrong (oneLineText finding))
         Untyped question -> needing (oneLineText question)
     Await Ci ref -> spaced "AWAIT ci" (oneLineText ref)
-    Grew why -> spaced "GREW" (oneLineText why)
     Blocked why -> spaced "BLOCKED" (oneLineText why)
     Failed why -> spaced "FAILED" (oneLineText why)
   where
@@ -209,13 +180,6 @@ tokenLine = \case
 -- | The hand-back line a run stopped under a parent sends it.
 stopLine :: Stop -> Text
 stopLine = uncurry spaced . stopWire
-
--- | Where a finished task's PR stands: POC keeps a draft, set aside.
-readyState :: Quality -> Url -> TaskState
-readyState quality pr = case quality of
-    Poc -> Parked "POC" (Just pr)
-    Balanced -> InReview pr
-    Max -> InReview pr
 
 planWrong :: Text -> Text
 planWrong finding = snd (stopToken Replan) <> finding
@@ -249,25 +213,23 @@ fromChild :: RunState -> Fan -> Handback -> Either Text Typed
 fromChild state fan handback = case handback.run of
     Nothing -> Left "a child's hand-back names its run: add Run: <run id> as line 2"
     Just child -> case handback.token of
-        Nothing -> Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, GREW, BLOCKED, FAILED"
+        Nothing -> Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, BLOCKED, FAILED"
         Just (Ready summary) -> Right (Typed (said (Finished summary) : prMoved summary) Nothing)
-        -- A GREW below it is the child's own size, not this run's.
-        Just token@(NeedsDecision need _) -> case need of
+        Just token@(NeedsDecision need) -> case need of
             Asks question -> Right (Typed [said (AsksUp question.qid), Asked (Asking question (askedAt state) (ChildRun child))] Nothing)
             PlanWrong _ -> ended token
             StuckOn _ -> unasked
             Untyped _ -> unasked
         Just (Await Ci ref) -> Right (Typed [said (AwaitsCi ref)] Nothing)
-        Just token@(Grew _) -> ended token
         Just token@(Blocked _) -> ended token
         Just token@(Failed _) -> ended token
       where
         said = HandedBack child
-        -- A READY naming its PR first puts the task in review, a POC task's parked as a draft.
+        -- A READY naming its PR first puts the task in review.
         prMoved summary = case (Text.words (oneLineText summary), childTask fan child) of
-            (pr : _, Just task) | "https://" `Text.isPrefixOf` pr -> [TaskMoved task.id (readyState task.quality (Url pr))]
+            (pr : _, Just task) | "https://" `Text.isPrefixOf` pr -> [TaskMoved task.id (InReview (Url pr))]
             _ -> []
-        -- Read back as the log reads it, so a fuel stop stays one.
+        -- Read back as the log reads it, so an out-of-rounds stop stays one.
         ended token = case parseStopLine (tokenLine token) of
             Just stop -> Typed [said (Ended stop)] . Just <$> oneLine (tokenLine token)
             Nothing -> Left ("line 1 is no stop: " <> tokenLine token)
@@ -277,22 +239,19 @@ fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either 
 fromWorker steps state worktreeHead agent handback = case handback.token of
     Nothing -> recorded <$> done True
     Just (Ready _) -> recorded <$> done False
-    Just token@(NeedsDecision need grew) ->
-        let grown = [Event.Grew (oneLineText why) | Just why <- [grew]]
-         in case need of
-                Asks question -> Right (recorded (asked question <> grown))
-                StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why) <> grown))
-                PlanWrong _ -> triage grown token
-                Untyped _ -> triage grown token
+    Just token@(NeedsDecision need) -> case need of
+        Asks question -> Right (recorded (asked question))
+        StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why)))
+        PlanWrong _ -> triage token
+        Untyped _ -> triage token
     -- The parent waits: nothing changes in this run.
     Just (Await _ _) -> Right (recorded [])
-    Just (Grew why) -> Right (recorded [Event.Grew (oneLineText why)])
-    Just token@(Blocked _) -> triage [] token
-    Just token@(Failed _) -> triage [] token
+    Just token@(Blocked _) -> triage token
+    Just token@(Failed _) -> triage token
   where
     recorded events = Typed events Nothing
     -- Logged, so @state next@ advises the triage until the run asks it.
-    triage grown token = (\line -> Typed (grown <> [Event.WorkerHandedBack agent line]) (Just line)) <$> oneLine (tokenLine token)
+    triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> oneLine (tokenLine token)
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
@@ -304,7 +263,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Agent (AgentRole runner) _ -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
             Inline -> Left (label <> " runs inline, not by " <> roleName)
         if isReport && name /= stepName Review.Review
-            then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, GREW, BLOCKED, FAILED"
+            then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, BLOCKED, FAILED"
             else doneOf step
     -- One arm per layer, each total over its steps.
     doneOf :: AnyStep -> Either Text [Event]

@@ -10,7 +10,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Graph (Node (..), Place (..))
-import State.Category.Mode (qualityName, sizeName)
+import State.Category.Fuel (fuelLabel)
 import State.Category.Step (SomeStep (..), stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)
@@ -88,8 +88,7 @@ brief steps state agent@(AgentRole role) task
             <> "\n"
     taskLines found =
         [ "Task: " <> taskIdText found.id
-        , "Quality: " <> qualityName found.quality
-        , "Size: " <> sizeName found.size
+        , "Fuel: " <> fuelLabel found.fuel
         , "Base: " <> branchText found.base
         , "Branch: " <> branchText found.branch
         , "Depends on: " <> listed (map taskIdText found.deps)
