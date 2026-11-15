@@ -43,7 +43,6 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanId (..))
 import State.Category.Mode (Quality (..), Size (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
@@ -198,10 +197,14 @@ templates =
     , outcome (FixPrDone (Sha ""))
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
-    , outcome (BreakdownDone (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced Normal False False Set.empty :| [])))
-    , outcome (FanDone FEngineers)
-    , outcome (MergeDone (Url ""))
     ]
+        <> concat
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced Normal False False Set.empty :| [])))
+              , outcome (FanDone fan)
+              , outcome (MergeDone fan (Url ""))
+              ]
+            | fan <- [minBound .. maxBound]
+            ]
 
 -- | The same outcome, with generated data: of the same step, by the same leg.
 like :: AnyOutcome -> Gen AnyOutcome
@@ -241,9 +244,9 @@ likeIn = \case
         ReadyDone _ -> ReadyDone . Url <$> genText
         ReadySkipped _ -> ReadySkipped . Url <$> genText
     FanLayer -> \case
-        BreakdownDone _ -> BreakdownDone <$> genTasks
+        BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
         FanDone fan -> pure (FanDone fan)
-        MergeDone _ -> MergeDone . Url <$> genText
+        MergeDone fan _ -> MergeDone fan . Url <$> genText
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

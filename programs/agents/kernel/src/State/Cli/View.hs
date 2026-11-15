@@ -18,7 +18,7 @@ import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, 
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
 import State.Run.Fan (lookupTask)
-import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt)
+import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
 import State.Step.Catalog (AnyStep (..), allSteps)
 import State.Table (Row (..), Runner (..), Steps, row)
 
@@ -73,7 +73,7 @@ brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent@(AgentRole role) task
     | agent == childRole = case task of
         Nothing -> Right (initLine "<id>")
-        Just taskId -> case lookupTask state.fanOut taskId of
+        Just taskId -> case lookupTask (currentFan state) taskId of
             Nothing -> Left taskId
             Just found -> Right (Text.unlines (taskLines found) <> "\n" <> initLine (taskIdText taskId))
     | otherwise = Right (Text.concat [section name r | (name, r) <- briefed] <> rule)

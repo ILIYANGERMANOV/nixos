@@ -40,7 +40,7 @@ spec = describe "State.Run.Fold" $ do
 
     describe "the 10x's fan-out" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
-            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone (tasksOf (plainTask "t1" [] :| [])))]
+            toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
             atName state = case state.at of
                 At place -> Just place.name

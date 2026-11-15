@@ -23,7 +23,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import State.Category.Flow (FanEvent (..), FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanEvent, fanName)
+import State.Category.Flow (FanEvent (..), FanId, Flow (..), LoopId, OnEmpty (..), OptId, fanEvent, fanName, fanOf)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName, Outcomes (..), Sig, Sing, StateName, StepSet, outcomes, skippedOutcome, stepName)
 import State.Category.Ty (IsSum, KnownTy (..), NotSum, Ty (..))
 
@@ -75,6 +75,8 @@ data Clash
       SameEvent Place EventName
     | -- | One loop id twice: its rounds and fuel would mix.
       SameLoop LoopId
+    | -- | A fan-out's state drawn twice: a run keeps one fan-out's tasks per fan id.
+      SameFan FanId
     deriving stock (Eq, Show)
 
 {- | A whole flow starts from one type and ends in one, so it has one in port
@@ -82,7 +84,17 @@ and one end. Its graph holds only the states a run can reach: a branch an
 injection never takes (@inl :> (f ||| g)@ never runs @g@) is not drawn.
 -}
 graph :: (NotSum i, NotSum o) => Flow i e o -> Either Clash OpenGraph
-graph flow = whole <$> part flow
+graph flow = oneFanEach . whole =<< part flow
+
+{- | Each fan-out's breakdown, own state and merge drawn once in the whole
+graph: gluing gives each side its own paths, so two parts never clash on it.
+-}
+oneFanEach :: OpenGraph -> Either Clash OpenGraph
+oneFanEach g = case [fan | (name, drawn) <- Map.toList named, drawn > 1, Just fan <- [fanOf name]] of
+    [] -> Right g
+    fan : _ -> Left (SameFan fan)
+  where
+    named = Map.fromListWith (+) [(place.name, 1 :: Int) | place <- Set.toList (places g)]
 
 whole :: (NotSum i, NotSum o) => Part i o -> OpenGraph
 whole p =

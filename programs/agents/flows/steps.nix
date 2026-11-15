@@ -25,6 +25,53 @@ let
     "topics/trivial.md"
     "topics/quality.md"
   ];
+
+  # The 10x's steps around its fan-out. The engineers' keep these names; the
+  # researchers' fan-out, in no flow yet, has its own, prefixed with its name,
+  # as the kernel's `State.Category.Flow` names them.
+  fanSteps = {
+    breakdown = {
+      dom = "Plan";
+      cod = "[Ctx]";
+      exit = null;
+      outcomes = [ "done" ];
+      runner = "inline";
+      task = "Break the confirmed plan into tasks.";
+      tools = [
+        "read"
+        "edit"
+        "shell"
+      ];
+      skills = [ "10x-engineer" ];
+      prose = leadProse;
+      ops = [ ];
+      flows = [ "10x" ];
+    };
+    merge = {
+      dom = "[PR]";
+      cod = "PR";
+      exit = null;
+      outcomes = [ "done" ];
+      runner = "inline";
+      task = "Merge: the review queue, the merge loop and the final audit, as the 10x skill's Merge says.";
+      tools = [ "shell" ];
+      skills = [ "10x-engineer" ];
+      prose = [ ];
+      ops = [
+        "await"
+        "notify"
+      ];
+      flows = [ "10x" ];
+    };
+  };
+  researchersSteps = builtins.listToAttrs (
+    map (name: {
+      name = "researchers_${name}";
+      value = fanSteps.${name} // {
+        flows = [ ];
+      };
+    }) (builtins.attrNames fanSteps)
+  );
 in
 {
   steps = {
@@ -335,40 +382,9 @@ in
       ];
       flows = [ "engineer" ];
     };
-    breakdown = {
-      dom = "Plan";
-      cod = "[Ctx]";
-      exit = null;
-      outcomes = [ "done" ];
-      runner = "inline";
-      task = "Break the confirmed plan into tasks.";
-      tools = [
-        "read"
-        "edit"
-        "shell"
-      ];
-      skills = [ "10x-engineer" ];
-      prose = leadProse;
-      ops = [ ];
-      flows = [ "10x" ];
-    };
-    merge = {
-      dom = "[PR]";
-      cod = "PR";
-      exit = null;
-      outcomes = [ "done" ];
-      runner = "inline";
-      task = "Merge: the review queue, the merge loop and the final audit, as the 10x skill's Merge says.";
-      tools = [ "shell" ];
-      skills = [ "10x-engineer" ];
-      prose = [ ];
-      ops = [
-        "await"
-        "notify"
-      ];
-      flows = [ "10x" ];
-    };
-  };
+  }
+  // fanSteps
+  // researchersSteps;
 
   # Role work outside the flows: only lib/derive.nix reads it.
   offFlow = {

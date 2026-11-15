@@ -22,7 +22,6 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
-import State.Category.Flow (FanId (FEngineers))
 import State.Category.Mode (parseByName, parseQuality, qualityName, sizeName)
 import State.Category.Step (EventName, builtEvent, eventText)
 import State.Protocol.Handback (parseTouches)
@@ -114,11 +113,9 @@ recordables =
     , atHead FixPR FixPrDone
     , url Ready ReadyDone
     , url Ready ReadySkipped
-    , outcome (builtEvent Breakdown BreakdownDone) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
-        ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone) . Codec.decodeBreakdown))
-        _ -> Left "the tasks file, as --tasks <file.json>"
-    , nothing (FanDone FEngineers)
-    , Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+    ]
+        <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- [minBound .. maxBound]]
+        <> [ Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
         [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
         task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
         _ -> Left "the task, then ci, review or merged and its PR, or parked and why"
@@ -134,9 +131,12 @@ recordables =
     , stay "resumed" "<child run>" $ \case
         [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
         _ -> Left "the child run you resume"
-    , url Merge MergeDone
-    ]
+       ]
+        <> [url (Merge fan) (MergeDone fan) | fan <- [minBound .. maxBound]]
   where
+    breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
+        ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone fan) . Codec.decodeBreakdown))
+        _ -> Left "the tasks file, as --tasks <file.json>"
     stay name usageText build = Recordable name usageText [] (\a -> Plain <$> build a.positional)
     outcome event = Recordable (eventText event)
     nothing done = outcome (Catalog.outcomeEvent (Catalog.outcome done)) "" [] $ \a -> case a.positional of

@@ -31,6 +31,7 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Category.Flow (FanId (..))
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), graph)
 import State.Category.Mode (Quality (..), Size (..), qualityName, sizeName)
 import State.Category.Step (EventName)
@@ -63,7 +64,7 @@ tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
     tenXStart = start {flow = TenXFlow}
-    toFanOut = [QualitySet Balanced, SizeSet Normal, Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone (tasksOf tasks))]
+    toFanOut = [QualitySet Balanced, SizeSet Normal, Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced Normal, light, after these tasks.
 plainTask :: Text -> [Text] -> Task

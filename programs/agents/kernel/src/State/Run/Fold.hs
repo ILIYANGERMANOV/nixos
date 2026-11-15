@@ -30,6 +30,9 @@ module State.Run.Fold (
     askingChildren,
     askedAt,
     over,
+    fanAt,
+    fanIn,
+    currentFan,
 ) where
 
 import Control.Applicative ((<|>))
@@ -46,7 +49,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), LoopId, OptId, fanEvent)
+import State.Category.Flow (FanEvent (..), FanId, LoopId, OptId, fanEvent, fanOf)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), SkipWhen (..), cfg)
 import State.Category.Path (step)
@@ -95,8 +98,8 @@ data RunState = RunState
     {- ^ The PR @ready@ recorded last: the url of a run that skipped its draft
     by override, as a retry does, when GitHub is not read.
     -}
-    , fanOut :: Fan
-    -- ^ The 10x's tasks and child runs: empty in a run with no fan-out.
+    , fans :: Map FanId Fan
+    -- ^ Each fan-out's tasks and child runs, by its id: none before its breakdown.
     }
     deriving stock (Eq, Show)
 
@@ -152,6 +155,8 @@ data Refusal
     | -- | A forward or answer naming another than whoever started the run.
       NotAbove Above
     | FanRefused Fan.Refusal
+    | -- | A child's or a task's event where the run is at no fan-out's breakdown, own state or merge.
+      NotAtFan
     deriving stock (Eq, Show)
 
 -- | An id already in the log is not appended twice: the append is a no-op.
@@ -203,7 +208,7 @@ begin g envelope = case runStart envelope.event of
                 , drafted = Nothing
                 , published = Nothing
                 , untriaged = []
-                , fanOut = emptyFan
+                , fans = Map.empty
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -262,11 +267,14 @@ applyEvent g state = \case
   where
     -- A question asked from a stopped child is its stop, triaged.
     fromChild from after = case from of
-        ChildRun child -> after {fanOut = Fan.triaged child after.fanOut}
+        ChildRun child -> after {fans = maybe id (Map.adjust (Fan.triaged child)) (fanAt after.at) after.fans}
         Itself -> after
         -- A question asked from a worker triages its oldest hand-back.
         Subagent role -> after {untriaged = triagedBy role after.untriaged}
-    inFan change = (\fanOut -> state {fanOut}) <$> Bifunctor.first FanRefused (change state.fanOut)
+    -- A child's or a task's event names no fan-out: it is the one the run is at.
+    inFan change = case fanAt state.at of
+        Just fan -> (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (change (fanIn state.fans fan))
+        Nothing -> Left NotAtFan
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
         Nothing -> (\moved -> moved {refused = Nothing}) <$> next
@@ -291,18 +299,18 @@ took g state outcome = do
         Along _ -> Right ()
         Stay -> Right ()
     let effect = effects outcome
-    fanOut <- Bifunctor.first FanRefused (effect.fanned state.fanOut)
+    fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
     rounds <- enter g (cfg (mode state)).fuel edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
         traverse_ (nextRound loopId ((cfg (mode state)).fuel loopId)) (Map.lookup loopId rounds)
-    Right state {at = edge.to, rounds, fanOut, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
+    Right state {at = edge.to, rounds, fans, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
 
 {- | What an outcome changes besides the run's place: its problems join the
-rounds it ends, and it may move the fan-out or name the run's PR.
+rounds it ends, and it may move a fan-out or name the run's PR.
 -}
 data Effect = Effect
-    { fanned :: Fan -> Either Fan.Refusal Fan
+    { fanned :: Map FanId Fan -> Either Fan.Refusal (Map FanId Fan)
     , problems :: Set Problem
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
@@ -330,12 +338,27 @@ built = \case
     RefactorDone _ -> Nothing
     RefactorSkipped _ -> Nothing
 
--- | A breakdown sets the fan-out's tasks; the fan-out is left once they are settled.
-fanOutcome :: Outcome (s :: FanStep) l -> Fan -> Either Fan.Refusal Fan
-fanOutcome outcome fan = case outcome of
-    BreakdownDone tasks -> Right (Fan.broken tasks fan)
-    FanDone _ -> fan <$ Fan.leave fan
-    MergeDone _ -> fan <$ Fan.closed fan
+-- | A breakdown sets its fan-out's tasks; the fan-out is left once they are settled.
+fanOutcome :: Outcome (s :: FanStep) l -> Map FanId Fan -> Either Fan.Refusal (Map FanId Fan)
+fanOutcome outcome fans = case outcome of
+    BreakdownDone fan tasks -> Right (Map.insert fan (Fan.broken tasks (fanIn fans fan)) fans)
+    FanDone fan -> fans <$ Fan.leave (fanIn fans fan)
+    MergeDone fan _ -> fans <$ Fan.closed (fanIn fans fan)
+
+-- | The fan-out the run is at: at its breakdown, its own state or its merge.
+fanAt :: Node -> Maybe FanId
+fanAt = \case
+    At place -> fanOf place.name
+    Out -> Nothing
+    Exit -> Nothing
+
+-- | A fan-out's tasks and children: empty before its breakdown.
+fanIn :: Map FanId Fan -> FanId -> Fan
+fanIn fans fan = Map.findWithDefault emptyFan fan fans
+
+-- | The fan-out the run is at, and an empty one at any other state.
+currentFan :: RunState -> Fan
+currentFan state = maybe emptyFan (fanIn state.fans) (fanAt state.at)
 
 -- | A child's spawn or hand-back stays where the graph has that fan-out event: at the fan-out.
 atFan :: OpenGraph -> RunState -> FanEvent -> Either Refusal ()

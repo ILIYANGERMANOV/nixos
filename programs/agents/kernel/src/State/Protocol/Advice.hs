@@ -49,7 +49,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, flowRole, mode, nextQId, stuck)
+import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, mode, nextQId, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
@@ -178,7 +178,7 @@ due g facts state = case (state.stopped, state.at) of
         IsMerged -> False
         IsClosed -> False
     -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
-    leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave state.fanOut]]
+    leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans fan)]]
     skipped place =
         [ outcome
         | ((from, event), edge) <- Map.toList g.edges
@@ -251,7 +251,7 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
         AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
         PicksRows -> Run (pickCommand state)
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
-        AwaitsMerge -> fromMaybe (maybe (Run (recordOutcomes s)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged state.fanOut))) (recordFinished state.fanOut)
+        AwaitsMerge -> fromMaybe (maybe (Run (recordOutcomes s)) AwaitMerge (NonEmpty.nonEmpty (Fan.unmerged (currentFan state)))) (recordFinished (currentFan state))
 
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
@@ -266,18 +266,19 @@ to park.
 atFan :: FanId -> [RunId] -> RunState -> Action
 atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren])
   where
-    unrecorded = listToMaybe [Run ("state handback " <> roleText (fanRole fan) <> " - child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in") | c <- Fan.running state.fanOut, c.child.run `elem` ended]
-    waiting = Fan.waiting state.fanOut
+    here = fanIn state.fans fan
+    unrecorded = listToMaybe [Run ("state handback " <> roleText (fanRole fan) <> " - child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in") | c <- Fan.running here, c.child.run `elem` ended]
+    waiting = Fan.waiting here
     open = map (.asking.question.qid) state.pending
     question = listToMaybe [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]
     awaitAnswer = listToMaybe [AwaitAnswer p.asking.question | p <- state.pending, p.waits == ForAnswer]
-    triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged state.fanOut]
-    record = recordFinished state.fanOut
+    triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged here]
+    record = recordFinished here
     resume = listToMaybe [Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open]
-    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) ((cfg (mode state)).fan fan) state.fanOut)
+    spawn = (\task -> Spawn (fanRole fan) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) ((cfg (mode state)).fan fan) here)
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
-    awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList state.fanOut.atWork)
-    leave = Run $ case Fan.unsettled state.fanOut of
+    awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList here.atWork)
+    leave = Run $ case Fan.unsettled here of
         task : _ -> "state record task " <> taskIdText task <> " parked <why>"
         [] -> recordCommand (fanEvent Leaves (fanName fan))
 
@@ -340,7 +341,7 @@ factLines facts state =
            ]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
-        <> map (taskLine state.fanOut (map (.asking.question.qid) state.pending)) state.fanOut.tasks
+        <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]
   where
     readinessText = \case
         IsDraft -> " (draft)"

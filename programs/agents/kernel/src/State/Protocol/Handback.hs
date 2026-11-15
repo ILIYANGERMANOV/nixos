@@ -31,8 +31,8 @@ import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLi
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, stepTook)
 import State.Run.Event qualified as Event
-import State.Run.Fan (childTask)
-import State.Run.Fold (RunState (..), askedAt, nextQId)
+import State.Run.Fan (Fan, childTask)
+import State.Run.Fold (RunState (..), askedAt, fanIn, nextQId)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), nodeStep)
@@ -238,15 +238,15 @@ the run. The sha is the worktree's HEAD.
 -}
 typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
 typeHandback steps state worktreeHead agent handback = case [fan | At place <- [state.at], Just fan <- [fanNamed place.name], fanRole fan == agent] of
-    _ : _ -> fromChild state handback
+    fan : _ -> fromChild state (fanIn state.fans fan) handback
     [] -> fromWorker steps state worktreeHead agent handback
 
 {- | A child run's hand-back at the fan-out: what it said, under its run id,
 which it must name. A question it asked joins this run's pending; its stop
 leaves the task to another child or a park, and is this run's to triage.
 -}
-fromChild :: RunState -> Handback -> Either Text Typed
-fromChild state handback = case handback.run of
+fromChild :: RunState -> Fan -> Handback -> Either Text Typed
+fromChild state fan handback = case handback.run of
     Nothing -> Left "a child's hand-back names its run: add Run: <run id> as line 2"
     Just child -> case handback.token of
         Nothing -> Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, GREW, BLOCKED, FAILED"
@@ -264,7 +264,7 @@ fromChild state handback = case handback.run of
       where
         said = HandedBack child
         -- A READY naming its PR first puts the task in review, a POC task's parked as a draft.
-        prMoved summary = case (Text.words (oneLineText summary), childTask state.fanOut child) of
+        prMoved summary = case (Text.words (oneLineText summary), childTask fan child) of
             (pr : _, Just task) | "https://" `Text.isPrefixOf` pr -> [TaskMoved task.id (readyState task.quality (Url pr))]
             _ -> []
         -- Read back as the log reads it, so a fuel stop stays one.
@@ -332,9 +332,9 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Ship.AwaitCi -> inline s
             Ship.Ready -> inline s
         FanLayer -> case s of
-            Fan.Breakdown -> inline s
+            Fan.Breakdown _ -> inline s
             Fan.FanOut _ -> inline s
-            Fan.Merge -> inline s
+            Fan.Merge _ -> inline s
     inline :: (StepSet k) => Sing (s :: k) -> Either Text [Event]
     inline s = let StateName label = stepName s in Left (label <> " has no done a subagent hands back")
     took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
