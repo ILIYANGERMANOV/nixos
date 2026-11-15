@@ -15,7 +15,7 @@ Check ladder, fastest first. Stop at the rung that covers the edit:
 | `nix run .#kernel-quick-test -- <match>` | Runs the hspec examples `--match` selects in that session. Fails when none match. No match given: `kernel-test` |
 | `nix run .#kernel-test [-- <match>]` | `cabal test` of the suite, fixed seed |
 | `nix run .#kernel-lint` | hlint, `fourmolu --mode check`, `cabal-fmt --check` (`kernel-format` fixes the last two) |
-| `nix develop -c just tech haskell` | The Nix build that runs the suite, the lint check and the runners' shellcheck |
+| `nix develop -c just tech haskell` | The Nix build that runs the suite, the lint check, cabal's offline build plan and the runners' shellcheck |
 | `just check` | Once, at the end |
 
 `kernel-build` is `cabal build all`. `just kernel <runner> <args>` is the same
