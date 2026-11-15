@@ -155,6 +155,8 @@ exitOf = \case
     Continues _ -> Nothing
     ExitsOr @x _ _ -> Just (tyVal @x)
     Branches _ _ -> Nothing
+    OpensChildren -> Nothing
+    AsksOnly -> Nothing
 
 -- | As the table spells a type: @[Ctx]@ for a list.
 tyText :: Ty -> Text

@@ -34,7 +34,8 @@ import State.Run.Fan (Fan, childTask)
 import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
-import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
+import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), allSteps, stepNamed)
+import State.Step.Choice (Sing (Hub), choiceNamed)
 import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
@@ -242,23 +243,30 @@ fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either 
 fromWorker steps state worktreeHead agent handback = case handback.token of
     Nothing -> recorded <$> done True
     Just (Ready _) -> recorded <$> done False
-    Just token@(NeedsDecision need) -> case need of
+    Just token@(NeedsDecision need) -> closing <$> case need of
         Asks question -> Right (recorded (asked question))
         StuckOn why -> Right (recorded (asked (Question (nextQId state) Stuck why)))
         PlanWrong _ -> triage token
         Untyped _ -> triage token
     -- The parent waits: nothing changes in this run.
     Just (Await _ _) -> Right (recorded [])
-    Just token@(Blocked _) -> triage token
-    Just token@(Failed _) -> triage token
+    Just token@(Blocked _) -> closing <$> triage token
+    Just token@(Failed _) -> closing <$> triage token
   where
     recorded events = Typed events Nothing
+    -- A choice's worker is done whatever it says: its child hands back first.
+    closing typed = case (atChoice, done False) of
+        (True, Right events) -> typed {events = events <> typed.events}
+        _ -> typed
+    atChoice = not (null [() | At place <- [state.at], Just _ <- [choiceNamed place.name]])
+    -- At a choice, the step is the action this worker runs.
+    stepHere = listToMaybe ([(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]] <> [(place, step) | atChoice, At place <- [state.at], step@(AnyStep _ (SomeStep s)) <- allSteps, Agent runner _ <- [(row steps s).runner], runner == agent])
     -- Logged, so @state next@ advises the triage until the run asks it.
     triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> oneLine (tokenLine token)
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
-        (place, step@(AnyStep _ (SomeStep s))) <- maybe (Left "the run is at no step a subagent runs") Right (listToMaybe [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]])
+        (place, step@(AnyStep _ (SomeStep s))) <- maybe (Left "the run is at no step a subagent runs") Right stepHere
         let name@(StateName label) = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
@@ -272,7 +280,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
     doneOf :: ScopePath -> AnyStep -> Either Text [Event]
     doneOf scope (AnyStep l (SomeStep s)) = case l of
         GatherLayer -> case s of
-            Gather.Research -> Right []
+            Gather.Research -> took Gather.ResearchHandedBack
             Gather.Interview -> inline s
         PlanLayer -> case s of
             Plan.SimplifyP -> took SimplifyPlanDone
@@ -298,6 +306,8 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Fan.Breakdown _ -> inline s
             Fan.FanOut _ -> inline s
             Fan.Merge _ -> inline s
+        ChoiceLayer -> case s of
+            Hub _ -> inline s
       where
         took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
         took outcome = Right [tookIn scope outcome]

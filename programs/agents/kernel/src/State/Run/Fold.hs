@@ -26,6 +26,7 @@ module State.Run.Fold (
     Stuck (..),
     stuck,
     Budget (..),
+    Spent (..),
     budgets,
     usedUp,
     flowRole,
@@ -54,8 +55,8 @@ import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), Name, ScopePath, fanEvent, fanName, qualify)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
-import State.Category.Meter (AtCap (..), Recorded (..), allowed, spentBy)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
+import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
 import State.Role (FlowName, RoleDef (..), Rung)
@@ -87,9 +88,10 @@ data RunState = RunState
     -- ^ Oldest first.
     , everAsked :: Set QId
     -- ^ Every question asked, open or closed: a retried ask is refused, so it is never ruled twice.
-    , meters :: Map Place Natural
+    , meters :: Map Metered Spent
     {- ^ What the run spent of each capped step's budget since it entered the
-    innermost loop around the step, or extended it: none spent is absent.
+    innermost loop around the step's state, or extended it, and the children
+    its spends opened that have yet to hand back: an empty ledger is absent.
     -}
     , askedHere :: [Kind]
     {- ^ The kinds asked since the run last moved, oldest first: advice asks a step's
@@ -148,6 +150,10 @@ data Refusal
       NotSkippable Name
     | -- | The event would spend past its step's cap, which allows this many at the run's Fuel.
       OutOfBudget Cap Natural
+    | -- | A hand-back to this step where it has no child open.
+      NoneOpen StateName
+    | -- | A move off the state while this many children its spends opened have yet to hand back.
+      StillOpen Natural
     | -- | An @extend@ where no budget the user may extend holds the run.
       NothingToExtend
     | FuelSetOnce Fuel
@@ -310,12 +316,16 @@ took g state scope outcome@(AnyOutcome _ some) = do
         Skip _ _ -> Right ()
         Along _ -> Right ()
         Stay -> Right ()
+    case (edge.to == At from, openAt from state.meters) of
+        (False, open) | open > 0 -> Left (StillOpen open)
+        _ -> Right ()
     meters <- spend g state (RecordedOutcome some)
     let effect = effects scope outcome
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
-    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
+    -- A stay is no move: the questions asked here still are.
+    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
 
 {- | What an outcome changes besides the run's place: its problems join the
 rounds it ends, and it may move a fan-out or name the run's PR.
@@ -339,6 +349,7 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
     FanLayer -> none {fanned = fanOutcome scope o}
+    ChoiceLayer -> none
   where
     none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing}
 
@@ -425,7 +436,7 @@ asked g state asking
                 { pending = state.pending <> [Pending asking ForTriage]
                 , everAsked = Set.insert qid state.everAsked
                 , meters
-                , askedHere = if spends && any usedUp (budgetHere g state {meters}) then [] else state.askedHere <> [asking.question.kind]
+                , askedHere = if spends && any usedUp (spentByAsk g state {meters}) then [] else state.askedHere <> [asking.question.kind]
                 }
   where
     qid = asking.question.qid
@@ -442,31 +453,56 @@ once more.
 extended :: OpenGraph -> RunState -> Either Refusal RunState
 extended g state = case Map.keys (Map.filter (\budget -> extends budget.cap.atCap) (budgets g state)) of
     [] -> Left NothingToExtend
-    regranted -> Right state {meters = foldr Map.delete state.meters regranted, askedHere = []}
+    regranted -> Right state {meters = foldr (Map.update (\l -> ledger (Spent 0 l.open))) state.meters regranted, askedHere = []}
   where
     extends = \case
         Extend -> True
         Refuse -> False
         Stop -> False
 
-{- | What the event spends of the cap at the run's place, if any. Past the
-cap at the run's Fuel it is refused; a 'State.Category.Meter.PerGroup' cap
-the kernel only counts.
+{- | What the event spends of each cap at the run's place, and the child it
+opens or closes. Past the cap at the run's Fuel it is refused; a
+'State.Category.Meter.PerGroup' cap the kernel only counts. A hand-back
+closes any child its step opened: children are alike, so none is named.
 -}
-spend :: OpenGraph -> RunState -> Recorded -> Either Refusal (Map Place Natural)
+spend :: OpenGraph -> RunState -> Recorded -> Either Refusal (Map Metered Spent)
 spend g state recorded = case state.at of
-    At place -> maybe (Right state.meters) (charge place) (Map.lookup place g.caps)
+    At place -> foldM charge state.meters [(metered, cap) | (metered, cap) <- Map.toList g.caps, metered.place == place]
     Out -> Right state.meters
     Exit -> Right state.meters
   where
-    charge place cap = case (spentBy cap.meter recorded, allowed (atFuel (fuelOf state) cap.limit)) of
-        (0, _) -> Right state.meters
-        (cost, Just most) | spent place + cost > most -> Left (OutOfBudget cap most)
-        (cost, _) -> Right (Map.insert place (spent place + cost) state.meters)
-    spent place = Map.findWithDefault 0 place state.meters
+    charge meters (metered, cap) = do
+        let before = Map.findWithDefault empty metered meters
+        spent <- case (spentBy cap.meter recorded, allowed (atFuel (fuelOf state) cap.limit)) of
+            (0, _) -> Right before.spent
+            (cost, Just most) | before.spent + cost > most -> Left (OutOfBudget cap most)
+            (cost, _) -> Right (before.spent + cost)
+        open <- case (owedBy cap.meter recorded, before.open) of
+            (Nothing, open) -> Right open
+            (Just Opens, open) -> Right (open + 1)
+            (Just Closes, 0) -> Left (NoneOpen metered.step)
+            (Just Closes, open) -> Right (open - 1)
+        Right (Map.alter (const (ledger (Spent spent open))) metered meters)
 
--- | A cap's budget as the run stands: what it spent and what the run's Fuel allows.
-data Budget = Budget {cap :: Cap, spent :: Natural, allows :: Maybe Natural}
+{- | What the run spent of a capped step's budget, and how many children its
+spends opened that have yet to hand back.
+-}
+data Spent = Spent {spent :: Natural, open :: Natural}
+    deriving stock (Eq, Show)
+
+empty :: Spent
+empty = Spent 0 0
+
+-- | The ledger as the map keeps it: an empty one is absent.
+ledger :: Spent -> Maybe Spent
+ledger spent = if spent == empty then Nothing else Just spent
+
+-- | The children the spends at this state opened, yet to hand back: the state is left only at none (an AND-join).
+openAt :: Place -> Map Metered Spent -> Natural
+openAt place meters = sum [spent.open | (metered, spent) <- Map.toList meters, metered.place == place]
+
+-- | A cap's budget as the run stands: what it spent, the children open, and what the run's Fuel allows.
+data Budget = Budget {cap :: Cap, spent :: Natural, open :: Natural, allows :: Maybe Natural}
     deriving stock (Eq, Show)
 
 -- | Nothing is left of it: the next spend is refused.
@@ -476,21 +512,20 @@ usedUp budget = maybe False (budget.spent >=) budget.allows
 {- | The budgets that hold the run: of each cap whose innermost loop holds
 its place, so the run spends them in this round.
 -}
-budgets :: OpenGraph -> RunState -> Map Place Budget
-budgets g state = Map.mapWithKey budgetOf (Map.filterWithKey (\place _ -> heldIn g place state.at) g.caps)
+budgets :: OpenGraph -> RunState -> Map Metered Budget
+budgets g state = Map.mapWithKey budgetOf (Map.filterWithKey (\metered _ -> heldIn g metered.place state.at) g.caps)
   where
-    budgetOf place cap = Budget {cap, spent = Map.findWithDefault 0 place state.meters, allows = allowed (atFuel (fuelOf state) cap.limit)}
+    budgetOf metered cap =
+        let Spent {spent, open} = Map.findWithDefault empty metered state.meters
+         in Budget {cap, spent, open, allows = allowed (atFuel (fuelOf state) cap.limit)}
 
--- | The budget of the step the run is at, if it is capped.
-budgetHere :: OpenGraph -> RunState -> Maybe Budget
-budgetHere g state = case state.at of
-    At place -> Map.lookup place (budgets g state)
-    Out -> Nothing
-    Exit -> Nothing
+-- | The budgets at the run's state that a question spends.
+spentByAsk :: OpenGraph -> RunState -> [Budget]
+spentByAsk g state = [budget | (metered, budget) <- Map.toList (budgets g state), At metered.place == state.at, spentBy budget.cap.meter RecordedAsk > 0]
 
--- | The ledger after a move: a meter's spend lasts while the run stays in the innermost loop around its step.
-kept :: OpenGraph -> Node -> Map Place Natural -> Map Place Natural
-kept g to = Map.filterWithKey (\place _ -> heldIn g place to)
+-- | The ledger after a move: a meter's spend lasts while the run stays in the innermost loop around its step's state.
+kept :: OpenGraph -> Node -> Map Metered Spent -> Map Metered Spent
+kept g to = Map.filterWithKey (\metered _ -> heldIn g metered.place to)
 
 {- | The node is in the innermost loop around the capped step's place, or the
 step is in no loop: the run is still in the rounds the step's meter counts.

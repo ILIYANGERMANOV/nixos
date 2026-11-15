@@ -24,14 +24,14 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Flow (..), Name, ScopePath, inl, inr, scopePath, (|||))
 import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
-import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..), engineers)
-import State.Step.Gather (Sing (..))
+import State.Flow.Library (gather)
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
@@ -41,8 +41,9 @@ exit. Each exiting one caps a step, so a loop over it is bounded.
 -}
 data Kit a = Kit {endo :: [Flow a 'Nothing a], exiting :: [Flow a ('Just a) a]}
 
+-- | A gather's choice is @Ctx@'s only step: no step of its own exits.
 ctxKit :: Kit 'Ctx
-ctxKit = Kit [Do Research] [Capped (UpTo <$> PerFuel 15 30 50) Extend Interview]
+ctxKit = Kit [gather] []
 
 planKit :: Kit 'Plan
 planKit = Kit [Do SimplifyP, Do Draft] []
@@ -174,7 +175,7 @@ redrawn g =
         { inPort = ranked g.inPort
         , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
-        , caps = Map.mapKeys ranked g.caps
+        , caps = Map.mapKeys (\metered -> metered {place = ranked metered.place}) g.caps
         }
   where
     ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])

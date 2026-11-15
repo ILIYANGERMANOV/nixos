@@ -11,6 +11,8 @@ module State.Category.Flow (
     inr,
     (|||),
     alternateLoop,
+    choiceLoop,
+    spawn,
     Join,
     Name (..),
     nameText,
@@ -22,6 +24,8 @@ module State.Category.Flow (
     qualifyText,
     unqualify,
     fanName,
+    choiceName,
+    enoughOutcome,
     FanEvent (..),
     fanEvent,
 ) where
@@ -32,8 +36,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Fuel (PerFuel, SkipWhen)
-import State.Category.Meter (AtCap, Limit, Meter)
-import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..))
+import State.Category.Meter (AtCap, Limit, Meter (Owes))
+import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..), handedBackOutcome, spawnedOutcome)
 import State.Category.Ty (KnownTy, NotSum, Ty (..))
 
 {- | The exit of @f ':>' g@: either side's, and the same type when both have
@@ -109,6 +113,17 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     @Scope s (Scope t f) = Scope (s/t) f@.
     -}
     Scope :: Name -> Flow i e o -> Flow i e o
+    {- | The agent's choice, round after round, of one of the actions, or
+    @<name>.enough@: one state, the actions' events staying there. Each
+    action is a 'Capped' step whose events stay (a choice's action, as
+    'State.Category.Step.OpensChildren' or 'State.Category.Step.AsksOnly'
+    declare), so its meter, not a count of rounds, bounds the choice; any
+    other branch is a clash. A child an action opens hands back while the
+    run stays, and @enough@ waits for every one (an AND-join). Law, the
+    Kleene star of a sum, @(a1 + .. + an)*@: the order of the actions does
+    not matter.
+    -}
+    Choice :: (KnownTy a, NotSum a) => Name -> [Flow a 'Nothing a] -> Flow a 'Nothing a
 
 infixr 5 :>
 
@@ -134,6 +149,19 @@ Law: @alternateLoop n (f :| [g]) = Loop n (f :> g)@.
 -}
 alternateLoop :: (NotSum a, NotSum b) => Name -> NonEmpty (Flow a ('Just b) a) -> Flow a 'Nothing b
 alternateLoop name = Loop name . foldr1 (:>)
+
+{- | The vocabulary's name for a 'Choice'. One state is its own scope: its
+meters and children live while the run is there, so no 'Scope' wraps it,
+which would only prefix @gather/@ to every name.
+-}
+choiceLoop :: (KnownTy a, NotSum a) => Name -> [Flow a 'Nothing a] -> Flow a 'Nothing a
+choiceLoop = Choice
+
+{- | A capped action whose every spend opens a child that must hand back:
+a step that 'Owes' none cannot be spawned. Law: it is 'Capped'.
+-}
+spawn :: (StepSet k, Meter s, Owes s ~ 'True, Drawn s ~ 'True, Sig s ~ '(i, 'Nothing, i), KnownTy i, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Flow i 'Nothing i
+spawn = Capped
 
 deriving stock instance Show (Flow i e o)
 
@@ -186,6 +214,14 @@ unqualify qualified = case Text.breakOnEnd "/" qualified of
     ("", name) -> (mempty, name)
     (scopes, name) -> (scopePath (Name (Text.dropEnd 1 scopes)), name)
 
+-- | The state a 'Choice' draws as: its name.
+choiceName :: Name -> StateName
+choiceName = StateName . nameText
+
+-- | The outcome that leaves a 'Choice': @gather.enough@.
+enoughOutcome :: OutcomeName
+enoughOutcome = OutcomeName "enough"
+
 -- | The state a 'Par' draws as: its fan-out's name.
 fanName :: Name -> StateName
 fanName = StateName . nameText
@@ -199,7 +235,7 @@ data FanEvent = Spawns | HandsBack | Leaves
 -- | @engineers.spawned@: the graph's name for a fan-out's event.
 fanEvent :: FanEvent -> StateName -> EventName
 fanEvent event fan =
-    EventName fan . OutcomeName $ case event of
-        Spawns -> "spawned"
-        HandsBack -> "handed_back"
-        Leaves -> "done"
+    EventName fan $ case event of
+        Spawns -> spawnedOutcome
+        HandsBack -> handedBackOutcome
+        Leaves -> OutcomeName "done"

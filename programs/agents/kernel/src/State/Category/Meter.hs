@@ -12,6 +12,8 @@ module State.Category.Meter (
     SomeMeter (..),
     Recorded (..),
     spentBy,
+    Owed (..),
+    owedBy,
     someMeterName,
 ) where
 
@@ -20,7 +22,7 @@ import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
 import Numeric.Natural (Natural)
-import State.Category.Step (LegOf, Outcome, Sig, Sing, SomeOutcome (..), StepSet (..))
+import State.Category.Step (LegOf (..), Outcome, Sig, Sing, SomeOutcome (..), StepSet (..))
 
 {- | What a step records at its own state that a meter may count: one of its
 outcomes, or a question the run asks there (an interview's question is an
@@ -30,8 +32,14 @@ data Spend (s :: k) where
     Ends :: LegOf (Sig s) l -> Outcome s l -> Spend s
     Asks :: Spend s
 
--- | A step that spends a budget: its row name in the Fuel table, and what each event costs.
+{- | A step that spends a budget: its row name in the Fuel table, and what
+each event costs. 'Owes' says whether a spend opens a child that must hand
+back ('State.Category.Flow.spawn'): only then may the step's outcomes open
+and close one.
+-}
 class (StepSet k) => Meter (s :: k) where
+    type Owes s :: Bool
+    type Owes s = 'False
     meterName :: Sing s -> Text
     spends :: Sing s -> Spend s -> Natural
 
@@ -78,6 +86,29 @@ instance Eq SomeMeter where
 
 someMeterName :: SomeMeter -> Text
 someMeterName (SomeMeter s) = meterName s
+
+-- | What an event does to the children a meter's step owes.
+data Owed = Opens | Closes
+    deriving stock (Eq, Show)
+
+{- | The child the event opens or closes, by its leg: none for another
+step's outcome, as for 'spentBy'.
+-}
+owedBy :: SomeMeter -> Recorded -> Maybe Owed
+owedBy (SomeMeter (s :: Sing (s :: k))) = \case
+    RecordedAsk -> Nothing
+    RecordedOutcome (SomeOutcome (t :: Sing (t :: j)) leg _) -> case eqT @k @j of
+        Just Refl -> case sameStep s t of
+            Just Refl -> case leg of
+                ByOpening -> Just Opens
+                ByClosing -> Just Closes
+                ByExit -> Nothing
+                ByContinuing -> Nothing
+                BySkip -> Nothing
+                ByInl -> Nothing
+                ByInr -> Nothing
+            Nothing -> Nothing
+        Nothing -> Nothing
 
 -- | An event a run records at a metered state, its step's kind hidden.
 data Recorded where

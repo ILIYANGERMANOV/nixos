@@ -365,6 +365,8 @@ explain g fuel at = \case
             ("the spend at " <> atText)
             (someMeterName cap.meter <> " allows " <> tshow allowed <> " at this Fuel, all spent")
             (atPlace (\place -> capRecords g place cap.atCap))
+    NoneOpen (StateName step) -> refused ("the hand-back to " <> step) "no child it spawned is open" "state show"
+    StillOpen open -> refused ("leaving " <> atText) (tshow open <> " spawned here have yet to hand back") "state next"
     NothingToExtend -> refused "extend" ("the run is at " <> atText <> ", where no budget asks the user to go on") "state next"
     FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
     NoSingleState (StateName name) ->

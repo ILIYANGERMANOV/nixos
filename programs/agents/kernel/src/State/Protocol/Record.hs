@@ -23,7 +23,6 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Read (decimal)
 import State.Category.Flow (ScopePath, unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Graph (OpenGraph (..), Place, leaving)
@@ -36,7 +35,9 @@ import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Even
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
-import State.Step.Gather (Outcome (..), Sing (..))
+import State.Step.Choice (Outcome (..))
+import State.Step.Choice qualified as Choice
+import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
 import State.Step.Ship (Outcome (..), Sing (..))
@@ -61,8 +62,7 @@ extendCommand = Text.unwords ["state record", extend.name, usageOf extend, "when
 
 {- | What the run may record at a used-up budget of the step at this state:
 the ways out of its loop, then as its 'AtCap' says - nothing more, a stop,
-or an @extend@ (with the step's own outcomes when no way leaves, as
-research's @research.done 0@).
+or an @extend@ (with the step's own outcomes when no way leaves).
 -}
 capRecords :: OpenGraph -> Place -> AtCap -> Text
 capRecords g place atCap =
@@ -110,12 +110,8 @@ recordables =
     [ stay "fuel" ("<" <> choices fuelName <> ">") $ \case
         [raw] -> FuelSet <$> known "fuel" parseFuel raw
         _ -> Left "one level"
-    , outcome (builtEvent Research ResearchDone) "<n>" [] $ \a -> case a.positional of
-        [raw] -> Plain . tookIn a.scope . ResearchDone <$> count raw
-        _ -> Left "the number of researchers"
-    , nothing ResearchSkipped
-    , nothing InterviewEnough
-    , nothing InterviewMore
+    , nothing ResearchSpawned
+    , nothing ResearchHandedBack
     , extend
     , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
         [path] -> Right (Plain (tookIn a.scope (PlanDone (Text.unpack path))))
@@ -150,6 +146,7 @@ recordables =
     , url Ready ReadyDone
     , url Ready ReadySkipped
     ]
+        <> [nothing (Enough choice) | choice <- Choice.choices]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
         <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
@@ -192,9 +189,6 @@ recordables =
     url s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
         [raw] -> Right (Plain (tookIn a.scope (done (Url raw))))
         _ -> Left "the PR's url"
-    count raw = case decimal raw of
-        Right (n, "") -> Right n
-        _ -> Left (raw <> " is not a count")
     verdict raw = case Text.breakOnEnd "=" raw of
         (requirement, judgement) | Just r <- Text.stripSuffix "=" requirement, not (Text.null r) -> (Requirement r,) <$> known "verdict" (parseByName judgementText) judgement
         _ -> Left (raw <> " is not <requirement>=<verdict>")

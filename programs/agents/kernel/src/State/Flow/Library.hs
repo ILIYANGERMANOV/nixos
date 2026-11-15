@@ -14,11 +14,12 @@ module State.Flow.Library (
     ship,
 ) where
 
-import State.Category.Flow (Flow (..))
+import State.Category.Flow (Flow (..), choiceLoop, spawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (Ty (..))
 import State.Step.Build (Sing (..))
+import State.Step.Choice (gathering)
 import State.Step.Gather (Sing (..))
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Sing (..))
@@ -31,17 +32,19 @@ needs the user.
 agree :: Flow 'Ctx 'Nothing 'Plan
 agree = Loop "plan" (gather :> propose)
 
-{- | Research, then interview, until the interview has enough. Its meters
-are the researchers and the questions; at either cap the user is asked
-whether to go on. Low may skip research on a trivial task.
+{- | The agent's choice, until it has enough: spawn a researcher on a fact
+gap, in the background, or ask the user a question. More researchers may
+follow any answer; @enough@ waits for every researcher to hand back. Its
+meters are the researchers and the questions; at either cap the user is
+asked whether to go on, and @extend@ grants both again.
 -}
 gather :: Flow 'Ctx 'Nothing 'Ctx
 gather =
-    Loop
-        "gather"
-        ( Opt "research" skippableAtLow (Capped (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research)
-            :> Capped (UpTo <$> PerFuel 15 30 50) Extend Interview
-        )
+    choiceLoop
+        gathering
+        [ spawn (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research
+        , Capped (UpTo <$> PerFuel 15 30 50) Extend Interview
+        ]
 
 -- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm is asked at every level.
 propose :: Flow 'Ctx ('Just 'Plan) 'Ctx

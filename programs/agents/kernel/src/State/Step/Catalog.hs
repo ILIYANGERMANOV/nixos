@@ -25,6 +25,7 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Decoder, EventName, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
 import State.Step.Build (BuildStep)
+import State.Step.Choice (ChoiceStep, Sing (Hub), choices)
 import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
 import State.Step.Gather (GatherStep)
 import State.Step.Plan (PlanStep)
@@ -39,6 +40,7 @@ data Layer k where
     ReviewLayer :: Layer ReviewStep
     ShipLayer :: Layer ShipStep
     FanLayer :: Layer FanStep
+    ChoiceLayer :: Layer ChoiceStep
 
 deriving stock instance Show (Layer k)
 
@@ -52,10 +54,11 @@ instance KnownLayer BuildStep where layer = BuildLayer
 instance KnownLayer ReviewStep where layer = ReviewLayer
 instance KnownLayer ShipStep where layer = ShipLayer
 instance KnownLayer FanStep where layer = FanLayer
+instance KnownLayer ChoiceStep where layer = ChoiceLayer
 
 -- | The layers, in the order the flows run them.
 layers :: [SomeLayer]
-layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer FanLayer]
+layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer]
   where
     _listsEvery :: Layer k -> ()
     _listsEvery = \case
@@ -65,6 +68,7 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
         ReviewLayer -> ()
         ShipLayer -> ()
         FanLayer -> ()
+        ChoiceLayer -> ()
 
 data SomeLayer where
     SomeLayer :: (KnownLayer k) => Layer k -> SomeLayer
@@ -83,6 +87,8 @@ sameLayer a b = case (a, b) of
     (ShipLayer, _) -> Nothing
     (FanLayer, FanLayer) -> Just Refl
     (FanLayer, _) -> Nothing
+    (ChoiceLayer, ChoiceLayer) -> Just Refl
+    (ChoiceLayer, _) -> Nothing
 
 -- | A step's outcome, or a mode's skip, with the layer it is of.
 data AnyOutcome where
@@ -126,11 +132,12 @@ allSteps = concatMap stepsOf layers
   where
     stepsOf (SomeLayer l) = map (AnyStep l) layerSteps
 
-{- | Every step with outcomes: those 'allSteps' lists, and each fan-out's own
-state, which 'State.Category.Flow.Par' draws.
+{- | Every step with outcomes: those 'allSteps' lists, each fan-out's own
+state, which 'State.Category.Flow.Par' draws, and each choice's, which
+'State.Category.Flow.Choice' draws.
 -}
 outcomeSteps :: [AnyStep]
-outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts]
+outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts] <> [AnyStep ChoiceLayer (SomeStep (Hub choice)) | choice <- choices]
 
 -- | The step a state is named after; a fan-out's state names none.
 stepNamed :: StateName -> Maybe AnyStep

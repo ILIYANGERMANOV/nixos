@@ -36,15 +36,15 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), fanEvent, fanName, nameText, qualify, qualifyEvent)
+import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, fanName, nameText, qualify)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), placeName)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName)
 import State.Category.Meter (AtCap (Extend, Refuse), someMeterName)
 import State.Category.Meter qualified as Meter
-import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
+import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, PicksRows), StepSet (..), builtEvent, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (stopLine)
-import State.Protocol.Record (capRecords, recordCommand)
+import State.Protocol.Record (capRecords, extendCommand, recordCommand)
 import State.Role (FlowName (..))
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
@@ -59,7 +59,7 @@ import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Fan (Outcome (..), fanNamed)
-import State.Step.Gather (Outcome (..), Sing (Interview))
+import State.Step.Choice (choiceNamed)
 import State.Step.Plan (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
@@ -208,8 +208,7 @@ skipOutcome facts state why event =
     join . lookup event $
         map
             stated
-            [ Catalog.outcome ResearchSkipped
-            , Catalog.outcome SimplifyPlanSkipped
+            [ Catalog.outcome SimplifyPlanSkipped
             , Catalog.outcome (RefactorSkipped why)
             ]
             <> [(builtEvent Ready ReadySkipped, Catalog.outcome . ReadySkipped <$> prUrl facts state)]
@@ -270,13 +269,38 @@ advise steps g facts state = Advice action (factLines g facts state) prompt noti
         (Out, _) -> plain (Done (prUrl facts state))
         (Exit, _) -> plain (Done (prUrl facts state))
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
+        (At place, _) | Just _ <- choiceNamed place.name -> plain (atChoice place)
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s))
             Nothing -> case fanNamed place.name of
                 Just fan -> plain (atFan (ScopedFan place.scope fan) facts.ended state)
                 Nothing -> plain (Run ("state record the " <> stateNameText (placeName place) <> " fan-out's outcome"))
-    usedUpAt place = mfilter usedUp (Map.lookup place (budgets g state))
+    usedUpAt place = mfilter usedUp (listToMaybe [budget | (_, budget) <- budgetsAt place])
+    budgetsAt place = [(metered.step, budget) | (metered, budget) <- Map.toList (budgets g state), metered.place == place]
+    {- At a choice: the user says whether to go on at a used-up budget, once;
+    then each action its budget leaves, extend, and enough once every child
+    handed back.
+    -}
+    atChoice place = case [budget | (_, budget) <- here, usedUp budget, budget.cap.atCap == Extend] of
+        used : _ | Ask.Stuck `notElem` state.askedHere -> Ask Ask.Stuck (spentText used <> ": go on?")
+        used -> Run (Text.intercalate " | " ([option step budget | (step, budget) <- here, not (usedUp budget)] <> [extendCommand | not (null used)] <> [leave]))
+      where
+        here = budgetsAt place
+        open = sum [budget.open | (_, budget) <- here]
+        leave
+            | open > 0 = "await the " <> tshow open <> " open to hand back, then " <> enough
+            | otherwise = enough
+        enough = recordCommand (EventName (placeName place) enoughOutcome)
+        option step budget = spentText budget <> ": " <> maybe (stateNameText step) (actionAt place) (stepNamed step)
+    actionAt place (AnyStep _ (SomeStep s)) = case outcomes s of
+        OpensChildren -> case (row steps s).runner of
+            Agent (AgentRole role) _ -> "spawn a " <> role <> " in the background"
+            Inline -> recordCommand (EventName (stepName s) spawnedOutcome)
+        AsksOnly -> "state ask each question"
+        Continues _ -> recordOutcomes place s
+        ExitsOr _ _ -> recordOutcomes place s
+        Branches _ _ -> recordOutcomes place s
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
         | Ask.Stuck `notElem` state.askedHere = Ask Ask.Stuck (spentText budget <> ": go on?")
@@ -291,7 +315,6 @@ advise steps g facts state = Advice action (factLines g facts state) prompt noti
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
         AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
-        Interviews -> Run ("state ask each question; " <> recordCommand (qualifyEvent place.scope (exitEvent Interview)) <> " when nothing is open | " <> recordCommand (qualifyEvent place.scope (continueEvent Interview)) <> " to research a new fact")
         PicksRows -> Run records
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
