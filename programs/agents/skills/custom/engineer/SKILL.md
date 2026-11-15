@@ -133,8 +133,10 @@ its branch, on a merged or closed PR, or on an older `state`'s log; there
 
 ## Steps
 
-The steps come in blocks: Gather, Propose, Build, Review, Describe, Ship.
-`state next` prints each step's mechanics; here is what only you decide.
+Your flow is small reusable flows in a row: Gather, Propose, Build, Review,
+Describe, Ship. `state next` prints the step you are at, its options, each
+with its command and where it goes, and the budgets left; `state record`
+logs the option you took. Here is what only you decide.
 
 ### Gather: research, interview
 
@@ -147,9 +149,10 @@ Fuel row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
 says. An answer that opens a new fact gap gets research too.
 
-Gather is a choice: each turn, spawn researchers in the background or ask a
-question, in any order. The hooks record each spawn and hand-back; asking
-needs no record. `gather.enough` waits until every researcher handed back.
+Gather is a choice, one step at a time, in any order: spawn a researcher in
+the background, ask a question, end your turn to wait for a hand-back, or
+`gather.enough`. The hooks record each spawn and hand-back; asking needs no
+record. `gather.enough` waits until every open researcher handed back.
 Your Fuel row caps researchers and interview questions apart; at either cap
 `state next` asks the user whether to go on: yes is `state record extend
 <why>`, no is `gather.enough`.
@@ -207,11 +210,14 @@ security-sensitive topic an implementer reports to the plan's line.
 the bigger refactors past the diff, are one `Scope` question with their scope
 and payoff: in this PR, a follow-up, or drop.
 
-### Review: review, pick, fix
+### Review: review, pick, fix, re_review
 
-As `${CLAUDE_SKILL_DIR}/references/review.md` says: requirements, a fresh
-review-lead per round, the rows you pick (`pick.final` or `pick.loop`, a
-`--row` per chosen row, its `--verdict`s), a fixer between rounds.
+As `${CLAUDE_SKILL_DIR}/references/review.md` says: requirements, then a
+fresh review-lead: `clean` goes on to describe, `rows` to `pick`. There you
+choose rows (a `--row` per
+chosen row, its `--verdict`s). `pick.loop` sends them to a fixer, then a
+fresh `re_review`, and spends one Re-review; `pick.final` goes on to
+describe, the final fixer.
 
 ### Describe: describe, simplify_pr
 

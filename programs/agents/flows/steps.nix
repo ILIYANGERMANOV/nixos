@@ -83,7 +83,7 @@ in
         "handed_back"
       ];
       runner = "researcher";
-      lead = "Gather: spawn a researcher in the background per open fact group, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back.";
+      lead = "Gather: spawn a researcher in the background per open fact group, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task:";
       task = "Research the open fact group your prompt names, as the researcher skill says.";
       tools = [
         "read"
@@ -267,7 +267,7 @@ in
         "loop"
       ];
       runner = "inline";
-      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` hands the rows to the final fixer; `loop` fixes them and re-reviews the fix.";
+      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` goes on to describe, where the final fixer gets the chosen rows; `loop` sends them to a fixer, then a re-review, and spends one Re-review.";
       tools = [ "read" ];
       skills = [ "engineer" ];
       prose = leadProse;

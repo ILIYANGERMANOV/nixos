@@ -71,6 +71,9 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers each action in the order the flow declares them, and enough, each with what it does" $
             explainedAt (runAt (knobs Balanced)) `shouldBe` gatherHub ["  state record gather.enough - on to plan"]
 
+        it "prints each action's task on its own line, so the researcher's reads apart from the interview's" $
+            length (Text.lines (advise steps g noFacts (runAt (knobs Balanced))).prompt) `shouldBe` 2
+
         it "advises the 10x's gather as the engineer's, with no Fuel ask" $
             next noFacts tenXStarted `shouldBe` choosing
 

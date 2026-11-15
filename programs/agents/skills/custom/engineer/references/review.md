@@ -1,8 +1,8 @@
 # The review loop
 
-The Review block and Ship's CI fix. You drive the loop: a fresh review-lead
-per round, a fixer between rounds. Your Fuel row's Re-reviews count the
-rounds after the first; the stuck guard ends the loop early. Never load
+The Review flow and Ship's CI fix. You drive the loop: a fresh review-lead
+per round, a fixer between rounds. Each `pick.loop` spends one of your Fuel
+row's Re-reviews; the stuck guard ends the loop early. Never load
 `pragmatic-review` yourself.
 
 ## Requirements
@@ -19,7 +19,7 @@ words, so a deliberately skipped edge case is not raised. A
 ## Each round
 
 The review-lead's prompt: `state brief review-lead`, then "invoke
-`pragmatic-review` with: `--requirements <path> <PR> Fuel: <level>`". A round after the first adds `--fixes <sha>`, the
+`pragmatic-review` with: `--requirements <path> <PR> Fuel: <level>`". A `re_review` adds `--fixes <sha>`, the
 last return's `Reviewed head`, and its requirements are a copy with a
 "finding N is fixed: <What and Impact>" line per fixed row. A diff that
 changes a skill gets your Fuel row's Skill dry run in round 1: a fresh
@@ -33,14 +33,14 @@ house-rule row is fixed, or the reason for leaving it goes in the PR body.
 When your Fuel row fixes only blockers (security, irreversible damage,
 broken code), every other row goes in `## Follow-ups`. A Not met verdict
 never does: `Not met always` below. `pick.loop` sends the chosen rows to a
-fixer, then a `--fixes` review; `pick.final`, with no row chosen or no round
-left, ends the loop at the final fixer. Record every requirement's verdict.
+fixer, then a `re_review`. `pick.final`, with no row chosen or no Re-review
+left, goes on to describe, the final fixer. Record every requirement's verdict.
 
 A row's `--row <label>` is a short slug you give its finding, such as
 `null-email`, the same slug when that finding comes back: the stuck guard
-compares labels. A recorded review-lead hand-back is `review.rows` even with
-no findings: then `pick.final` with no `--row`. `review.clean` is only for a
-review you record by hand that found nothing.
+compares labels. A recorded review-lead hand-back is `review.rows` or
+`re_review.rows` even with no findings: then `pick.final` with no `--row`.
+`clean` is only for a review you record by hand that found nothing.
 
 A return that starts `NEEDS_DECISION plan wrong` is a question: fix and
 record no row, security included. A re-plan's round 1 finds the rows again.
@@ -59,9 +59,9 @@ R0 writes the full facts; S0 owns the shape.
 ## Not met always
 
 A Not met verdict on a requirement or a plan decision never goes in
-`## Follow-ups`, at any Fuel: a fixer fixes it, then
-one `--fixes` review checks it, with no round left too, before the final
-fixer. A Not met it cannot fix is a question.
+`## Follow-ups`, at any Fuel: `pick.loop` fixes it and a `re_review`
+checks it. With no Re-review left, the final fixer fixes it. A Not met it
+cannot fix is a question.
 
 ## Later rounds and the CI fix
 

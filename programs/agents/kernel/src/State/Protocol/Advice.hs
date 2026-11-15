@@ -313,7 +313,8 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
             (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
             (Nothing, _) -> Option (recordCommand enough) "leaves the choice"
         option step = maybe (Option (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
-    choicePrompt place = Text.unwords [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
+    -- One line per action, so one action's task never reads as another's.
+    choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
     actionAt :: Place -> AnyStep -> Option
     actionAt place (AnyStep _ (SomeStep s)) = case outcomes s of
         OpensChildren -> case (row steps s).runner of

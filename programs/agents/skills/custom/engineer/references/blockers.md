@@ -96,7 +96,7 @@ re-review cap and the stuck guard reset.
 `state stop <reason> <why>` ends the run; `state next` then prints `STOP
 <reason>`, or under a parent the `HANDBACK` line to send instead.
 
-- `rounds`: a loop ran out of rounds - plan 4, CI 6, a 10x's rounds 10 at
-  every Fuel. Tell the user what is left.
+- `rounds`: a budget that stops ran out - Plan rounds 3 adjusts, CI fixes 5,
+  a 10x's Rounds 9 next rounds, at every Fuel. Tell the user what is left.
 - `blocked` or `failed`: tell the user why, with the head SHA and what remains.
 - `replan`: the Re-plan above.
