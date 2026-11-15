@@ -71,14 +71,13 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 
 | State | Run by | Arrows out |
 |---|---|---|
-| research | researcher | done: interview; skipped: interview |
-| interview | you | enough: plan; more: research |
+| gather | you | enough: plan; research.handed_back: gather; research.spawned: gather |
 | plan | you | done: simplify_plan |
 | simplify_plan | researcher | done: confirm; skipped: confirm |
-| confirm | you | adjusted: research; confirmed: breakdown |
+| confirm | you | adjusted: gather; confirmed: breakdown |
 | breakdown | you | done: engineers |
 | engineers | fan-out | done: merge; handed_back: engineers; spawned: engineers |
-| merge | you | done: end; next_round: research |
+| merge | you | done: end; next_round: gather |
 
 `engineers` stays while children run. `state next` records `engineers.done`
 once every task is settled: its child finished, or it is in review, merged,
@@ -110,6 +109,9 @@ into topics; you plan them yourself. One `subagent_type: researcher` agent
 per group, in the background, given each repo's clone path, with notes under
 `/tmp/<unique-dir>/`, as many as your Fuel row's Researchers. Its prompt:
 `## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section only.
+As the engineer's, the gather is a choice of research and questions, in any
+order; the hooks record each spawn and hand-back, and `gather.enough` waits
+for every researcher.
 Check that each repo's CI runs on PRs to `epic/*` before planning an epic
 there; if it does not, say so in the breakdown.
 
@@ -269,7 +271,7 @@ The user approves on GitHub. Push one line saying how many PRs wait.
 `${CLAUDE_SKILL_DIR}/references/merge.md`.
 
 **Next round.** The user wants another round on a kept PR:
-`state record merge.next_round` takes the run back to research with fresh
+`state record merge.next_round` takes the run back to gather with fresh
 budgets. The new breakdown may name the same task again: it respawns, with a
 fresh notes directory in its brief's `state init` line.
 

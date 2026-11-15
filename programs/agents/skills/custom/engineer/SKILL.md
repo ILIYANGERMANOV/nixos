@@ -97,11 +97,10 @@ arrows, never adds any.
 
 | State | Run by | Arrows out |
 |---|---|---|
-| research | researcher | done: interview; skipped: interview |
-| interview | you | enough: plan; more: research |
+| gather | you | enough: plan; research.handed_back: gather; research.spawned: gather |
 | plan | you | done: simplify_plan |
 | simplify_plan | researcher | done: confirm; skipped: confirm |
-| confirm | you | adjusted: research; confirmed: draft |
+| confirm | you | adjusted: gather; confirmed: draft |
 | draft | you | done: implement |
 | implement | implementer | done: refactor |
 | refactor | refactorer | done: review; skipped: review |
@@ -145,11 +144,14 @@ prompt and file names (`rg -l`, `ls`), never by reading the files: reading is
 the researchers' job. One researcher per group, in parallel, as many as your
 Fuel row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
-says. An answer that opens a new fact gap gets research too (`more`).
+says. An answer that opens a new fact gap gets research too.
 
-Asking needs no record. Your Fuel row caps researchers and interview
-questions apart; at either cap `state next` asks the user whether to go on:
-yes is `state record extend <why>`, no is `interview.enough`.
+Gather is a choice: each turn, spawn researchers in the background or ask a
+question, in any order. The hooks record each spawn and hand-back; asking
+needs no record. `gather.enough` waits until every researcher handed back.
+Your Fuel row caps researchers and interview questions apart; at either cap
+`state next` asks the user whether to go on: yes is `state record extend
+<why>`, no is `gather.enough`.
 
 Interview with the `grilling` skill, and `domain-modeling` too when the task
 changes the domain language or the architecture - your call. It covers the
