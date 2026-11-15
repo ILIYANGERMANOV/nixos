@@ -2971,11 +2971,11 @@ def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
 # --- State event logs --------------------------------------------------------
 #
 # Each engineer or 10x run appends its steps to `<notes>/events.jsonl`, one JSON
-# object per line, version 3 (programs/agents/kernel/src/State/Run/Codec.hs). A 10x
+# object per line, version 4 (programs/agents/kernel/src/State/Run/Codec.hs). A 10x
 # re-asks a child's question in its own log under the child's qid, so a question
 # counts once, in the log of the run whose qid it bears.
 
-LOG_VERSION = 3  # the version `read_log` matches on
+LOG_VERSION = 4  # the version `read_log` matches on
 REPLAN = "replan"  # the stop reason that ends a run for a new plan
 STUCK = "Stuck"  # the question kind the stuck guard asks
 
