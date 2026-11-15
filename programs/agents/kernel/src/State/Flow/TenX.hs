@@ -10,4 +10,4 @@ import State.Flow.Engineer (engineer)
 import State.Step.Fan (Sing (Breakdown, Merge))
 
 tenX :: Flow 'Ctx 'Nothing 'PR
-tenX = agree :> Do Breakdown :> Par FEngineers engineer :> Do Merge
+tenX = agree :> Do (Breakdown FEngineers) :> Par FEngineers engineer :> Do (Merge FEngineers)

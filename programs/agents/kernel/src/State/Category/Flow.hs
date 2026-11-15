@@ -14,6 +14,9 @@ module State.Category.Flow (
     FanId (..),
     fanName,
     fanNamed,
+    breakdownName,
+    mergeName,
+    fanOf,
     FanEvent (..),
     fanEvent,
     loopName,
@@ -109,7 +112,7 @@ data OptId = ORes | OSimp | ORefactor | OBody | OReady
 data FanId = FResearchers | FEngineers
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
--- | The fan-out whose state this is, if any.
+-- | The fan-out whose own state, the one its 'Par' draws, this is.
 fanNamed :: StateName -> Maybe FanId
 fanNamed name = find ((== name) . fanName) [minBound .. maxBound]
 
@@ -119,6 +122,27 @@ fanName =
     StateName . \case
         FResearchers -> "researchers"
         FEngineers -> "engineers"
+
+-- | The state of the fan-out's breakdown, before its 'Par'.
+breakdownName :: FanId -> StateName
+breakdownName = fanStepName "breakdown"
+
+-- | The state of the fan-out's merge, after its 'Par'.
+mergeName :: FanId -> StateName
+mergeName = fanStepName "merge"
+
+{- | The engineers' breakdown and merge keep their wire v3 names, @breakdown@
+and @merge@, so a v3 log still reads; another fan-out's are prefixed with its
+own name, as state names are unique.
+-}
+fanStepName :: Text -> FanId -> StateName
+fanStepName step fan = StateName $ case fan of
+    FEngineers -> step
+    FResearchers -> let StateName own = fanName fan in own <> "_" <> step
+
+-- | The fan-out whose state this is: its breakdown, its own or its merge.
+fanOf :: StateName -> Maybe FanId
+fanOf name = find (\fan -> name `elem` [breakdownName fan, fanName fan, mergeName fan]) [minBound .. maxBound]
 
 {- | The events at a fan-out's state: a child is spawned or hands back while
 the run stays there; the fan-out is done when it leaves.

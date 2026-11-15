@@ -1,8 +1,9 @@
 {-# LANGUAGE TypeData #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-{- | The 10x's steps around its fan-out: break the plan into tasks, leave
-the fan-out once every task is settled, merge the PRs into one.
+{- | The 10x's steps around a fan-out: break the plan into tasks, leave
+the fan-out once every task is settled, merge the PRs into one. Each names
+its fan-out, so a run's fan-outs keep their own tasks and children.
 -}
 module State.Step.Fan (
     FanStep,
@@ -13,7 +14,7 @@ module State.Step.Fan (
 import Data.Aeson ((.:))
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import State.Category.Flow (FanEvent (Leaves), FanId, fanEvent, fanName)
+import State.Category.Flow (FanEvent (Leaves), FanId, breakdownName, fanEvent, fanName, mergeName)
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
@@ -35,63 +36,67 @@ instance StepSet FanStep where
     type Drawn s = DrawnFan s
 
     data Sing s where
-        Breakdown :: Sing Breakdown
+        Breakdown :: FanId -> Sing Breakdown
         FanOut :: FanId -> Sing FanOut
-        Merge :: Sing Merge
+        Merge :: FanId -> Sing Merge
 
     data Outcome s l where
-        BreakdownDone :: Tasks -> Outcome Breakdown 'Continued
+        BreakdownDone :: FanId -> Tasks -> Outcome Breakdown 'Continued
         -- \| Every task of the fan-out is settled ("State.Run.Fan").
         FanDone :: FanId -> Outcome FanOut 'Continued
         -- \| The one PR the merge left.
-        MergeDone :: Url -> Outcome Merge 'Continued
+        MergeDone :: FanId -> Url -> Outcome Merge 'Continued
 
-    layerSteps = [SomeStep Breakdown, SomeStep Merge]
+    layerSteps = concat [[SomeStep (Breakdown fan), SomeStep (Merge fan)] | fan <- [minBound .. maxBound]]
       where
         _listsEvery :: Sing (s :: FanStep) -> ()
         _listsEvery = \case
-            Breakdown -> ()
+            Breakdown _ -> ()
             -- No row: 'State.Category.Flow.Par' draws it, not 'State.Category.Flow.Do'.
             FanOut _ -> ()
-            Merge -> ()
+            Merge _ -> ()
 
     stepName = \case
-        Breakdown -> StateName "breakdown"
+        Breakdown fan -> breakdownName fan
         FanOut fan -> fanName fan
-        Merge -> StateName "merge"
+        Merge fan -> mergeName fan
 
     outcomes = \case
-        Breakdown -> Continues (OutcomeName "done")
+        Breakdown _ -> Continues (OutcomeName "done")
         FanOut fan -> Continues (fanEvent Leaves (fanName fan)).outcome
-        Merge -> Continues (OutcomeName "done")
+        Merge _ -> Continues (OutcomeName "done")
 
     special = \case
-        Breakdown -> Ordinary
+        Breakdown _ -> Ordinary
         FanOut _ -> Ordinary
-        Merge -> AwaitsMerge
+        Merge _ -> AwaitsMerge
 
     sameStep a b = case (a, b) of
-        (Breakdown, Breakdown) -> Just Refl
-        (Breakdown, _) -> Nothing
+        (Breakdown _, Breakdown _) -> Just Refl
+        (Breakdown _, _) -> Nothing
         (FanOut _, FanOut _) -> Just Refl
         (FanOut _, _) -> Nothing
-        (Merge, Merge) -> Just Refl
-        (Merge, _) -> Nothing
+        (Merge _, Merge _) -> Just Refl
+        (Merge _, _) -> Nothing
 
     pack = \case
-        o@(BreakdownDone _) -> packed Breakdown o
+        o@(BreakdownDone fan _) -> packed (Breakdown fan) o
         o@(FanDone fan) -> packed (FanOut fan) o
-        o@(MergeDone _) -> packed Merge o
+        o@(MergeDone fan _) -> packed (Merge fan) o
 
     encodeOutcome = \case
-        BreakdownDone tasks -> tasksData tasks
+        BreakdownDone _ tasks -> tasksData tasks
         FanDone _ -> mempty
-        MergeDone url -> urlData url
+        MergeDone _ url -> urlData url
 
     decoders =
-        [Decoder Breakdown (\obj -> BreakdownDone <$> (obj .: "tasks" >>= breakdownOf))]
-            <> [Decoder (FanOut fan) (const (pure (FanDone fan))) | fan <- [minBound .. maxBound]]
-            <> [Decoder Merge (fmap MergeDone . urlOf)]
+        concat
+            [ [ Decoder (Breakdown fan) (\obj -> BreakdownDone fan <$> (obj .: "tasks" >>= breakdownOf))
+              , Decoder (FanOut fan) (const (pure (FanDone fan)))
+              , Decoder (Merge fan) (fmap (MergeDone fan) . urlOf)
+              ]
+            | fan <- [minBound .. maxBound]
+            ]
 
 deriving stock instance Show (Sing (s :: FanStep))
 deriving stock instance Show (Outcome (s :: FanStep) l)

@@ -7,6 +7,7 @@ module State.Cli.Command (
     Command (..),
     RunCommand (..),
     InitArgs (..),
+    defaultFlow,
     Raise (..),
     Block (..),
     Failure (..),
@@ -75,7 +76,10 @@ data RunCommand
     | StopRun Stop
     | Pending
 
-data InitArgs = InitArgs {notes :: FilePath, flow :: FlowName, parent :: Maybe Parent}
+{- | A child's flow, when not named, is its parent's fan-out's; a top run's
+is 'defaultFlow'.
+-}
+data InitArgs = InitArgs {notes :: FilePath, flow :: Maybe FlowName, parent :: Maybe Parent}
 
 -- | A question kept at its kind, or raised to 'Ask.Security' first.
 data Raise = AsAsked | ToSecurity
@@ -237,7 +241,7 @@ initArgs =
         <*> optional (textOption "task" "<id>" "the parent's task this child run takes")
   where
     init' notes flowRaw parentRaw logRaw taskRaw = do
-        flow <- flowOf flowRaw
+        flow <- traverse flowNamed flowRaw
         parent <- case (parentRaw, logRaw, taskRaw) of
             (Nothing, Nothing, Nothing) -> Right Nothing
             (Just run, Just logPath, Just task) -> (\r l -> Just (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
@@ -268,7 +272,14 @@ flowOption :: Opt.Parser Text
 flowOption = textOption "flow" (choices Codec.flowText) "the flow (default engineer)"
 
 flowOf :: Maybe Text -> Either Failure FlowName
-flowOf = maybe (Right EngineerFlow) (named "flow" (parseByName Codec.flowText))
+flowOf = maybe (Right defaultFlow) flowNamed
+
+flowNamed :: Text -> Either Failure FlowName
+flowNamed = named "flow" (parseByName Codec.flowText)
+
+-- | The flow a run follows when none is named.
+defaultFlow :: FlowName
+defaultFlow = EngineerFlow
 
 textOption :: String -> Text -> String -> Opt.Parser Text
 textOption name value about = Opt.strOption (Opt.long name <> Opt.metavar (Text.unpack value) <> Opt.help about)
@@ -376,6 +387,7 @@ explain g mode at = \case
         Fan.AwaitsUser child -> refused ("a retry of child " <> runIdText child) "its question is open: the retry waits for the answer" "state next"
         Fan.HeavyBusy task heavy -> refused ("an agent for task " <> Codec.taskIdText task) ("it is heavy and heavy task " <> Codec.taskIdText heavy <> " is at work: one heavy task at a time") "state next"
         Fan.Unmerged tasks -> refused "the run's end" ("tasks neither merged nor parked: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
+    NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText <> ", no fan-out's state") "state show"
   where
     refused = Failure BadInput
     atText = case at of

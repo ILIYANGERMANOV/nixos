@@ -56,7 +56,7 @@ genFlow = do
     rest <-
         Gen.choice
             [ (\diff pr -> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-            , pure (Do Breakdown :> Par FEngineers (Do PlanS :> Do Implement :> Do Describe) :> Do Merge)
+            , pure (Do (Breakdown FEngineers) :> Par FEngineers (Do PlanS :> Do Implement :> Do Describe) :> Do (Merge FEngineers))
             ]
     pure (ctx :> Do PlanS :> plan :> rest)
 
