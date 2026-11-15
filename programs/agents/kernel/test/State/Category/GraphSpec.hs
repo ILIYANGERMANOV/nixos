@@ -7,7 +7,7 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
+import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), OptId (..), inl, inr, (|||))
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo)
 import State.Category.Graph (Clash (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Path (step, ty)
@@ -17,6 +17,7 @@ import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
 import State.Step.Gather (Sing (..))
 import State.Step.Review (Sing (..))
+import State.Step.Ship (Sing (SimplifyPR))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -87,6 +88,10 @@ spec = describe "State.Category.Graph" $ do
     it "refuses a loop id used twice: their rounds would mix" $
         graph (Loop LReview ExitOut (Do Review :> Loop LReview ExitOut (Do Pick :> Do Fix)))
             `shouldBe` Left (SameLoop LReview)
+
+    it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
+        graph (Par FEngineers (Do SimplifyPR) :> Par FEngineers (Do SimplifyPR))
+            `shouldBe` Left (SameFan FEngineers)
 
     it "refuses two skips of one state: a log could not say which was skipped" $
         graph (Opt ORes (Opt OSimp (Do Research)))

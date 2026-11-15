@@ -37,6 +37,9 @@ Available commands:
   fix_pr.done              no arguments
   ready.done               <url>
   ready.skipped            <url>
+  researchers_breakdown.done
+                           --tasks <file.json>
+  researchers.done         no arguments
   breakdown.done           --tasks <file.json>
   engineers.done           no arguments
   task                     <id> <ci|review|merged> <pr> | <id> parked <why>
@@ -45,6 +48,7 @@ Available commands:
   acted                    <task> <url>
   spawning                 <task>
   resumed                  <child run>
+  researchers_merge.done   <url>
   merge.done               <url>
 
 A commit event records HEAD.

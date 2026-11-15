@@ -12,11 +12,12 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanId (..), LoopId (..), OptId (..))
+import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OptId (..))
 import State.Category.FlowGen (composes, genWalk)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Mode (Cfg (..), Mode (..), Quality (..), Size (..), cfg)
 import State.Category.Path (ty)
+import State.Flow.Engineer (engineer)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Event
@@ -25,27 +26,23 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
-import State.Step.Fan (Outcome (..))
+import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge))
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
-import State.Step.Ship (Outcome (..))
+import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
     it "names every edge of the engineer and 10x flows by exactly one kind of outcome" $
-        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph], ((_, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay]
+        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph, twoFans], ((_, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay]
 
     describe "the 10x's fan-out" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
             toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
-            atName state = case state.at of
-                At place -> Just place.name
-                Out -> Nothing
-                Exit -> Nothing
         it "refuses a child's spawn outside the fan-out" $
             tenXRun [Spawned child] `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
@@ -61,6 +58,27 @@ spec = describe "State.Run.Fold" $ do
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
             tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
+
+    describe "two fan-outs in one flow" $ do
+        let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow ByUser) :| events))
+            t1 = TaskId "t1"
+            researched =
+                [ stepTook (BreakdownDone FResearchers (tasksOf (plainTask "t1" [] :| [])))
+                , Spawned (childOf "c1" "t1")
+                , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                , stepTook (FanDone FResearchers)
+                ]
+            engineered = researched <> [stepTook (FanDone FEngineers)]
+        it "keeps the first fan-out's tasks out of the second" $
+            twoFansRun (researched <> [Spawned (childOf "c2" "t1")]) `shouldBe` Left (FanRefused (Fan.UnknownTask t1))
+        it "leaves the second, empty fan-out by its own done record" $
+            atName <$> twoFansRun engineered `shouldBe` Right (Just (StateName "researchers_merge"))
+        it "refuses the first fan-out's merge while its task is unmerged" $
+            twoFansRun (engineered <> [stepTook (MergeDone FResearchers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
+        it "credits a task's move at a merge to that merge's fan-out" $
+            (.at) <$> twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone FResearchers (Url "pr"))]) `shouldBe` Right Out
+        it "refuses a task's move off every fan-out's state" $
+            twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone FResearchers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
 
     it "runs the engineer flow's happy path to its end" $
         (.at) <$> replay g (logOf (started :| map Took happyPath)) `shouldBe` Right Out
@@ -327,6 +345,20 @@ halt :: Stop
 halt = Stop Blocked "no way on"
 
 -- | A run of this flow under this principal, with no ops.
+
+{- | A flow with two fan-outs, the researchers' and then the engineers'. No
+step goes from a PR back to a plan, so the second has no breakdown of its own.
+-}
+twoFans :: OpenGraph
+twoFans = either (error . show) id (graph (Do (Breakdown FResearchers) :> Par FResearchers engineer :> Par FEngineers (Do SimplifyPR) :> Do (Merge FResearchers)))
+
+-- | The state a run is at, if it is at one.
+atName :: RunState -> Maybe StateName
+atName state = case state.at of
+    At place -> Just place.name
+    Out -> Nothing
+    Exit -> Nothing
+
 startOf :: FlowName -> Principal -> Start
 startOf flow principal = Start flow "notes" principal Set.empty
 
