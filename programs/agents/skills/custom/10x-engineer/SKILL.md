@@ -8,15 +8,15 @@ disable-model-invocation: true
 # 10x Engineer
 
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
-decides; you make their intent real. Every task ends merged, or parked with a
-reason. You work as if the user ran N engineers by hand: each engineer runs
+decides; you make their intent real. Every task ends merged, kept (a round on
+a PR that stays open), or parked with a reason. You work as if the user ran N engineers by hand: each engineer runs
 the whole `engineer` flow on one task, and you answer for the user what the
 user need not see.
 
 ```text
 Intake -> Gather -> Propose the breakdown -> user confirms
   -> an engineer per task, each Gather to Ship -> queue -> user approves
-  -> merge loop -> audit -> report
+  -> merge loop -> audit -> report, or the next round
 ```
 
 ## Rules
@@ -78,11 +78,11 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 | confirm | you | adjusted: research; confirmed: breakdown |
 | breakdown | you | done: engineers |
 | engineers | fan-out | done: merge; handed_back: engineers; spawned: engineers |
-| merge | you | done: end |
+| merge | you | done: end; next_round: research |
 
 `engineers` stays while children run. `state next` records `engineers.done`
-once every task is settled: its child finished, or it is in review, merged or
-parked.
+once every task is settled: its child finished, or it is in review, merged,
+kept or parked.
 
 ## Steps
 
@@ -134,7 +134,7 @@ The plan is the breakdown, `plan.md` in the run directory:
 |---|---|
 | Task | an id, one deliverable, its issues, acceptance criteria, the standards it follows |
 | Repo, deps | what must merge first: earlier tasks only |
-| Shape | independent PR to `main`, or child of `epic/<name>` |
+| Shape | independent PR to `main`, child of `epic/<name>`, or a round on an existing PR that stays open |
 | Fuel | your call, never a question: Balanced, Low only when very small, Max only when very critical |
 | QA | yes or no |
 | Heavy | Gradle or Next.js build: yes or no, for the record only |
@@ -165,9 +165,10 @@ clear. No engineer starts before this, a base fix included (Failures).
 
 Write `tasks.json` in the run directory, a JSON array in the plan's order of
 `{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
-"security": [topics]}`, `fuel` one of `low`, `balanced`, `max`, then `state record breakdown.done --tasks tasks.json`. A task outside it, a base
-fix or an epic's final PR, joins mid-run: one such object in a file, then
-`state record task add <file>`.
+"security": [topics]}`, `fuel` one of `low`, `balanced`, `max`, then `state record breakdown.done --tasks tasks.json`. A round task adds
+`"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
+settles it `kept`. A task outside it, a base fix or an epic's final PR, joins
+mid-run: one such object in a file, then `state record task add <file>`.
 
 ### Engineers
 
@@ -236,7 +237,8 @@ without CI stands, or ask it. Green: `state record task <id> review <url>`,
 then the merge loop's gates.
 
 **READY.** The child is done. `state handback engineer` records the PR its
-line 1 names, in review; with none named, `state next` prints the record. Notify as the engineer skill's Ship
+line 1 names, in review, or `kept` for a round task, which skips the queue;
+with none named, `state next` prints the record. Notify as the engineer skill's Ship
 does in a run with no parent: the PR's `## What & Why` and its optional next
 steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or runtime
 change, `/final-review --requirements <path> <PR>`, `/give-feedback <PR>`,
@@ -266,16 +268,21 @@ The user approves on GitHub. Push one line saying how many PRs wait.
 **Merge loop.** On an approval wake, follow
 `${CLAUDE_SKILL_DIR}/references/merge.md`.
 
-**Finish.** When every task is `merged` or `parked`, spawn a fresh-context
-audit, a `subagent_type: reviewer` agent, given the run directory, where it
+**Next round.** The user wants another round on a kept PR:
+`state record merge.next_round` takes the run back to research with fresh
+budgets. The new breakdown may name the same task again: it respawns, with a
+fresh notes directory in its brief's `state init` line.
+
+**Finish.** When every task is `merged`, `kept` or `parked`, spawn a
+fresh-context audit, a `subagent_type: reviewer` agent, given the run directory, where it
 runs `state show`. From that, `gh` and `git worktree list` it checks that
-every task is merged or parked with a reason, issues of merged tasks are
+every task is merged, kept or parked with a reason, issues of merged tasks are
 closed, issues of parked tasks stay open and are listed, an epic child's
 issues counting as its final PR's, `state pending` is empty, and worktrees of
 merged tasks are gone. It reports and never closes anything. Fix what fails,
 then run it again. Then `state record merge.done <url>`, the epic's final PR
-or the last PR merged, and send the final report: merged, parked and why,
-every ruling, follow-ups.
+or the last PR merged or kept, and send the final report: merged, kept,
+parked and why, every ruling, follow-ups.
 
 ## Epics
 
@@ -313,7 +320,7 @@ is the base fix itself: an engineer opens `base-fix-<repo>-<n>`, an
 independent PR to that branch, `Heavy` as the red check builds, ahead of the
 queue, with no confirmation. Add it with `state record task add` after
 `breakdown.done`, as a breakdown starts a fresh fan-out without it; `state
-next` spawns it at once. No check runs there
+next` spawns it at once, at `merge` too, which goes back to `engineers`. No check runs there
 means CI does not run on push, so the base is unknown: treat it as not red.
 Push the user what broke and each PR it holds. Merges on that repo hold until
 the base is green; other repos go on. The base fix takes CI, the queue and
