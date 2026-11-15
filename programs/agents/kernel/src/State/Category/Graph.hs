@@ -376,7 +376,17 @@ choicePart name branches = do
                     OpensChildren -> Right ([stays s spawnedOutcome, stays s handedBackOutcome], metered)
                     AsksOnly -> Right ([], metered)
                     Continues _ -> Left (NotAnAction name)
-        _ -> Left (NotAnAction name)
+        Do _ -> notAction
+        Id -> notAction
+        _ :> _ -> notAction
+        Loop _ _ -> notAction
+        Opt {} -> notAction
+        Par _ _ -> notAction
+        -- InL, InR and :||| are absent: a sum in or out, which a branch's type refutes.
+        Catch _ -> notAction
+        Scope _ _ -> notAction
+        Choice _ _ -> notAction
+    notAction = Left (NotAnAction name)
     capOnce drawn (metered, cap)
         | Map.member metered drawn = Left (SameAction name metered.step)
         | otherwise = Right (Map.insert metered cap drawn)

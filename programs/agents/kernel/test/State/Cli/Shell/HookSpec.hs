@@ -125,6 +125,16 @@ spec = describe "state-hook over the doubles" $ do
                         (Just opened, 2, Just closed, 0) -> "recorded 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded 5 research.handed_back -> gather" `Text.isInfixOf` closed
                         _ -> False
 
+            it "opens no child for a spawn past the researchers' cap, and tells the refusal" $ \world -> do
+                _ <- drive world [Record ["fuel", "low"]]
+                _ <- hook world "spawn" (spawned "researcher")
+
+                said <- hook world "spawn" (spawned "researcher")
+
+                said.code `shouldBe` 0
+                contextOf said `shouldSatisfy` maybe False ("Researchers allows 1" `Text.isInfixOf`)
+                loggedEvents world `shouldReturn` ["started", "fuel", "research.spawned"]
+
             it "records nothing on a spawn of a role whose step opens no child" $ \world -> do
                 _ <- drive world [Record ["fuel", "balanced"]]
 

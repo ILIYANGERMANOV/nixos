@@ -241,7 +241,8 @@ fromChild state fan handback = case handback.run of
 
 fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
 fromWorker steps state worktreeHead agent handback = case handback.token of
-    Nothing -> recorded <$> done True
+    -- A choice's worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
+    Nothing -> recorded <$> done (not atChoice)
     Just (Ready _) -> recorded <$> done False
     Just token@(NeedsDecision need) ->
         closing <$> case need of
