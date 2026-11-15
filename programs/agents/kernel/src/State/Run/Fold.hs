@@ -27,6 +27,7 @@ module State.Run.Fold (
     budget,
     roundsSpent,
     roundOnly,
+    roundsAllowed,
     flowRole,
     nextQId,
     askingChildren,
@@ -51,8 +52,8 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), FanId, LoopId (..), OptId (OReady), fanEvent, fanName, fanOf, mergeName)
-import State.Category.Fuel (Cfg (..), Fuel (..), SkipWhen (..), cfg)
+import State.Category.Flow (FanEvent (..), Name, fanEvent, fanName)
+import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
@@ -65,10 +66,11 @@ import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcomeEvent)
-import State.Step.Fan (FanStep, Outcome (..))
+import State.Flow.Library (gatherLoop)
+import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
 import State.Step.Gather (Sing (Interview))
 import State.Step.Review (Outcome (..), ReviewStep)
-import State.Step.Ship (Outcome (..), ShipStep)
+import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
 
 data RunState = RunState
     { run :: RunId
@@ -76,7 +78,7 @@ data RunState = RunState
     , at :: Node
     , fuel :: Maybe Fuel
     -- ^ 'Nothing' until recorded: 'fuelOf' reads the default meanwhile.
-    , rounds :: Map LoopId (NonEmpty Round)
+    , rounds :: Map Name (NonEmpty Round)
     -- ^ The rounds so far of each loop the run is inside, oldest first.
     , seen :: Set EventId
     , stopped :: Maybe Stop
@@ -107,8 +109,8 @@ data RunState = RunState
     {- ^ The PR @ready@ recorded last: the url of a run that skipped its draft
     by override, as a retry does, when GitHub is not read.
     -}
-    , fans :: Map FanId Fan
-    -- ^ Each fan-out's tasks and child runs, by its id: none before its breakdown.
+    , fans :: Map Name Fan
+    -- ^ Each fan-out's tasks and child runs, by its name: none before its breakdown.
     }
     deriving stock (Eq, Show)
 
@@ -144,9 +146,9 @@ data Refusal
     | -- | The flow has no edge on this event where the run is.
       NoEdge Node EventName
     | -- | The run's Fuel never skips this step.
-      NotSkippable OptId
+      NotSkippable Name
     | -- | Another round would pass the loop's rounds.
-      OutOfRounds LoopId Natural
+      OutOfRounds Name Natural
     | -- | Another question at interview would pass the gather's questions.
       OutOfAsks Natural
     | -- | An @extend@ where the run is in no gather loop to extend.
@@ -300,28 +302,28 @@ triagedBy role untriaged = case break ((== role) . fst) untriaged of
 took :: OpenGraph -> RunState -> AnyOutcome -> Either Refusal RunState
 took g state outcome = do
     let name = outcomeEvent outcome
-    edge <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
-        At place -> step g place name
+    (from, edge) <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
+        At place -> (place,) <$> step g place name
         Out -> Nothing
         Exit -> Nothing
     case edge.arrow of
-        Skip optId | not (skips state optId) -> Left (NotSkippable optId)
-        Skip _ -> Right ()
+        Skip opt when | not (skips state from when) -> Left (NotSkippable opt)
+        Skip _ _ -> Right ()
         Along _ -> Right ()
         Stay -> Right ()
     let effect = effects outcome
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
-    rounds <- enter g (cfg (fuelOf state)).rounds edge.back state.at edge.to noted
-    for_ (roundOnly g edge.to) $ \loopId ->
-        traverse_ (nextRound loopId ((cfg (fuelOf state)).rounds loopId)) (Map.lookup loopId rounds)
+    rounds <- enter g (fuelOf state) edge.back state.at edge.to noted
+    for_ (roundOnly g edge.to) $ \loop ->
+        traverse_ (nextRound loop (roundsAllowed g (fuelOf state) loop)) (Map.lookup loop rounds)
     Right state {at = edge.to, rounds, fans, interviewAsks = asksInside rounds state.interviewAsks, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
 
 {- | What an outcome changes besides the run's place: its problems join the
 rounds it ends, and it may move a fan-out or name the run's PR.
 -}
 data Effect = Effect
-    { fanned :: Map FanId Fan -> Either Fan.Refusal (Map FanId Fan)
+    { fanned :: Map Name Fan -> Either Fan.Refusal (Map Name Fan)
     , problems :: Set Problem
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
@@ -350,7 +352,7 @@ built = \case
     RefactorSkipped _ -> Nothing
 
 -- | A breakdown sets its fan-out's tasks; the fan-out is left once they are settled.
-fanOutcome :: Outcome (s :: FanStep) l -> Map FanId Fan -> Either Fan.Refusal (Map FanId Fan)
+fanOutcome :: Outcome (s :: FanStep) l -> Map Name Fan -> Either Fan.Refusal (Map Name Fan)
 fanOutcome outcome fans = case outcome of
     BreakdownDone fan tasks -> (\fresh -> Map.insert fan fresh fans) <$> Fan.broken tasks (fanIn fans fan)
     FanDone fan -> fans <$ Fan.leave (fanIn fans fan)
@@ -360,8 +362,8 @@ fanOutcome outcome fans = case outcome of
 {- | The Fuel's skips, and @ready@ for a round on an existing PR at every
 Fuel: the PR stays as it is, by the task's shape.
 -}
-skips :: RunState -> OptId -> Bool
-skips state optId = (cfg (fuelOf state)).skip optId /= Never || (optId == OReady && onRound state.start.principal)
+skips :: RunState -> Place -> PerFuel SkipWhen -> Bool
+skips state from when = atFuel (fuelOf state) when /= Never || (from.name == stepName Ready && onRound state.start.principal)
 
 -- | The run is a round on a PR that exists already, by its parent's breakdown.
 onRound :: Principal -> Bool
@@ -381,14 +383,14 @@ reopened g state = case state.at of
     Exit -> Right state
 
 -- | The fan-out the run is at: at its breakdown, its own state or its merge.
-fanAt :: Node -> Maybe FanId
+fanAt :: Node -> Maybe Name
 fanAt = \case
     At place -> fanOf place.name
     Out -> Nothing
     Exit -> Nothing
 
 -- | A fan-out's tasks and children: empty before its breakdown.
-fanIn :: Map FanId Fan -> FanId -> Fan
+fanIn :: Map Name Fan -> Name -> Fan
 fanIn fans fan = Map.findWithDefault emptyFan fan fans
 
 -- | The fan-out the run is at, and an empty one at any other state.
@@ -407,10 +409,10 @@ atFan g state event = case state.at of
 the review loop. A move there with no round left is refused before the work
 it starts: the run is still where the loop's exit is open (#360's fold).
 -}
-roundOnly :: OpenGraph -> Node -> Maybe LoopId
+roundOnly :: OpenGraph -> Node -> Maybe Name
 roundOnly g = \case
     At place -> case [edge.back | ((from, _), edge) <- Map.toList g.edges, from == place] of
-        Just loopId : backs | all (== Just loopId) backs -> Just loopId
+        Just loop : backs | all (== Just loop) backs -> Just loop
         _ -> Nothing
     Out -> Nothing
     Exit -> Nothing
@@ -442,9 +444,9 @@ asked state asking
 gather loop, so each entry starts afresh. Only the plan loop restarts gathering,
 and its back edge leaves from outside the gather loop.
 -}
-asksInside :: Map LoopId (NonEmpty Round) -> Natural -> Natural
+asksInside :: Map Name (NonEmpty Round) -> Natural -> Natural
 asksInside rounds asks
-    | Map.member LGather rounds = asks
+    | Map.member gatherLoop rounds = asks
     | otherwise = 0
 
 {- | The gather loop starts afresh where it is, so it has its research rounds
@@ -452,7 +454,7 @@ and questions again; the run may ask whether to go on once more.
 -}
 extended :: RunState -> Either Refusal RunState
 extended state
-    | Map.member LGather state.rounds = Right state {rounds = Map.insert LGather firstRound state.rounds, interviewAsks = 0, askedHere = []}
+    | Map.member gatherLoop state.rounds = Right state {rounds = Map.insert gatherLoop firstRound state.rounds, interviewAsks = 0, askedHere = []}
     | otherwise = Left NotGathering
 
 retagged :: RunState -> QId -> Either Refusal RunState
@@ -538,7 +540,7 @@ flowRole = (.rung) . Role.role
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
     [place] -> do
-        rounds <- enter g (cfg (fuelOf state)).rounds Nothing state.at (At place) state.rounds
+        rounds <- enter g (fuelOf state) Nothing state.at (At place) state.rounds
         Right state {at = At place, rounds, interviewAsks = asksInside rounds state.interviewAsks, askedHere = []}
     _ -> Left (NoSingleState target)
 
@@ -547,8 +549,8 @@ starts its next round, within its budget; one entered from outside, or
 restarted by an enclosing loop's next round, starts at round one; one left
 is closed.
 -}
-enter :: OpenGraph -> (LoopId -> Natural) -> Maybe LoopId -> Node -> Node -> Map LoopId (NonEmpty Round) -> Either Refusal (Map LoopId (NonEmpty Round))
-enter g allowed back from to current = Map.traverseMaybeWithKey around g.loops
+enter :: OpenGraph -> Fuel -> Maybe Name -> Node -> Node -> Map Name (NonEmpty Round) -> Either Refusal (Map Name (NonEmpty Round))
+enter g fuel back from to current = Map.traverseMaybeWithKey around g.loops
   where
     inside loop = \case
         At place -> Set.member place loop.body
@@ -557,22 +559,28 @@ enter g allowed back from to current = Map.traverseMaybeWithKey around g.loops
     restarts loop = case back of
         Just outer -> maybe False (\outerAt -> loop.body `Set.isProperSubsetOf` outerAt.body) (Map.lookup outer g.loops)
         Nothing -> False
-    around loopId loop = case (inside loop to, Map.lookup loopId current) of
+    around name loop = case (inside loop to, Map.lookup name current) of
         (False, _) -> Right Nothing
-        (True, Just done) | back == Just loopId -> Just <$> nextRound loopId (allowed loopId) done
+        (True, Just done) | back == Just name -> Just <$> nextRound name (atFuel fuel loop.rounds) done
         (True, Just done) | inside loop from && not (restarts loop) -> Right (Just done)
         (True, _) -> Right (Just firstRound)
 
-nextRound :: LoopId -> Natural -> NonEmpty Round -> Either Refusal (NonEmpty Round)
-nextRound loopId allowed done
-    | roundsSpent allowed done = Left (OutOfRounds loopId allowed)
+nextRound :: Name -> Natural -> NonEmpty Round -> Either Refusal (NonEmpty Round)
+nextRound name allowed done
+    | roundsSpent allowed done = Left (OutOfRounds name allowed)
     | otherwise = Right (done <> firstRound)
+
+{- | A loop's rounds at this Fuel, as its term carries them. A name the graph
+has no loop of allows none.
+-}
+roundsAllowed :: OpenGraph -> Fuel -> Name -> Natural
+roundsAllowed g fuel name = maybe 0 (atFuel fuel . (.rounds)) (Map.lookup name g.loops)
 
 -- | Whether a loop has run every round its 'budget' allows.
 roundsSpent :: Natural -> NonEmpty Round -> Bool
 roundsSpent allowed done = fromIntegral (length done) >= budget allowed (NonEmpty.last done)
 
-{- | The rounds a loop may run: its 'Cfg' rounds, and one more when the last round
+{- | The rounds a loop may run: its term's rounds, and one more when the last round
 holds a Not met (#351), never more, so a Not met that never clears still ends.
 -}
 budget :: Natural -> Round -> Natural
@@ -625,7 +633,7 @@ fuelOf :: RunState -> Fuel
 fuelOf state = fromMaybe Balanced state.fuel
 
 -- | A loop making no progress: these problems were in both of its last two rounds.
-data Stuck = Stuck {loop :: LoopId, same :: Set Problem}
+data Stuck = Stuck {loop :: Name, same :: Set Problem}
     deriving stock (Eq, Show)
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses
@@ -634,8 +642,8 @@ the loop's rounds end it.
 -}
 stuck :: RunState -> [Stuck]
 stuck state =
-    [ Stuck loopId same
-    | (loopId, rounds) <- Map.toList state.rounds
+    [ Stuck loop same
+    | (loop, rounds) <- Map.toList state.rounds
     , current : previous : _ <- [reverse (NonEmpty.toList rounds)]
     , let same = Set.intersection previous.found current.found
     , not (Set.null same)

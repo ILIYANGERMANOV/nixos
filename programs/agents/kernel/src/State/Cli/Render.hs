@@ -17,10 +17,11 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Flow (OptId (..))
-import State.Category.Fuel (Cfg (..), Fuel (..), SkipWhen (..), cfg, reResearches, reReviews)
+import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
-import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), stateNameText)
+import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName, StepSet (stepName), stateNameText)
+import State.Flow.Library (gatherLoop, reviewLoop)
+import State.Step.Build (Sing (Refactor))
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
@@ -52,27 +53,32 @@ states g steps =
         Exit -> "exit"
 
 {- | The engineer's rows of the Fuel table: the steps a level lets the agent
-skip or repeats, from 'cfg', with each level's depth prose after it. A step
-the flow draws as optional ('Skip' arrow) is skippable by its state's name.
+skip or repeats, read off the flow's graph, which carries its term's
+budgets, and 'cfg', with each level's depth prose after it. A step the flow
+draws as optional ('Skip' arrow) is skippable by its state's name. A loop
+round after the first is a re-run: a re-review, a research round.
 -}
 fuel :: OpenGraph -> Text
 fuel g =
     rows
-        [ "Research rounds after the first" : map (\level -> "up to " <> tshow (reResearches level)) levels
+        [ "Research rounds after the first" : map (\level -> "up to " <> tshow (reRuns level gatherLoop)) levels
         , "Interview questions" : map (\level -> "up to " <> tshow (cfg level).asks) levels
-        , "Skippable when trivial" : map (skippable . cfg) levels
-        , "Refactor" : map (\level -> refactor (cfg level) <> refactorDepth level) levels
-        , "Re-reviews" : map (\level -> "up to " <> tshow (reReviews level) <> reReviewDepth level) levels
+        , "Skippable when trivial" : map skippable levels
+        , "Refactor" : map (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level) levels
+        , "Re-reviews" : map (\level -> "up to " <> tshow (reRuns level reviewLoop) <> reReviewDepth level) levels
         , "Full review of a fix to" : map (areasText . (.areas) . cfg) levels
         ]
   where
     levels = [minBound .. maxBound]
+    reRuns level loop = maybe 0 (pred . atFuel level . (.rounds)) (Map.lookup loop g.loops)
     -- An 'Opt' draws as a skip arrow out of its first state.
-    optSteps = nub [(optId, from.name) | ((from, _), Edge {arrow = Skip optId}) <- Map.toList g.edges]
-    skippable c = case ["`" <> stateNameText name <> "`" | (optId, name) <- optSteps, c.skip optId == Skippable] of
+    optSteps :: [(StateName, PerFuel SkipWhen)]
+    optSteps = nub [(from.name, skips) | ((from, _), Edge {arrow = Skip _ skips}) <- Map.toList g.edges]
+    skippable level = case ["`" <> stateNameText name <> "`" | (name, skips) <- optSteps, atFuel level skips == Skippable] of
         [] -> "none"
         names -> Text.intercalate ", " names
-    refactor c = case c.skip ORefactor of
+    skipAt level step = maybe Never (atFuel level) (lookup step optSteps)
+    refactor = \case
         Never -> "always"
         AtOrBelow most -> "above about " <> tshow most <> " changed lines"
         Skippable -> "unless trivial"

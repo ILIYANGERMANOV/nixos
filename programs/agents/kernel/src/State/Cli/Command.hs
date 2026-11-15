@@ -33,10 +33,11 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
-import State.Category.Flow (LoopId (..), loopName)
-import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (Never), cfg, fuelName, parseByName)
+import State.Category.Flow (nameText)
+import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (Never), atFuel, cfg, fuelName, parseByName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (eventText, exitEvent, stateNameText)
+import State.Flow.Library (gatherLoop)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), choices, extendCommand, recordCommand, recordables, usageOf)
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
@@ -358,7 +359,7 @@ explain g fuel at = \case
     NotSkippable _ -> refused "the skip" "this Fuel never skips the step" (records (not . skips))
     OutOfRounds loop allowed ->
         refused
-            ("another " <> loopName loop <> " round")
+            ("another " <> nameText loop <> " round")
             ("the loop ran its " <> tshow allowed <> " rounds")
             (outOfRoundsFix loop)
     OutOfAsks allowed -> refused "another question" ("the interview asked its " <> tshow allowed <> " questions") endOrExtend
@@ -405,20 +406,17 @@ explain g fuel at = \case
         Out -> "state show"
         Exit -> "state show"
     skips edge = case edge.arrow of
-        Skip _ -> True
+        Skip _ _ -> True
         Along _ -> False
         Stay -> False
     taken edge = case edge.arrow of
-        Skip optId -> (cfg fuel).skip optId /= Never
+        Skip _ skips -> atFuel fuel skips /= Never
         Along _ -> True
         Stay -> True
     -- At either gather budget's end the user may go on; another loop ends or stops.
-    outOfRoundsFix loop = case loop of
-        LGather -> endOrExtend
-        LPlan -> leaveOrStop loop
-        LReview -> leaveOrStop loop
-        LCi -> leaveOrStop loop
-        LRound -> leaveOrStop loop
+    outOfRoundsFix loop
+        | loop == gatherLoop = endOrExtend
+        | otherwise = leaveOrStop loop
     leaveOrStop loop = records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>"
     endOrExtend = recordCommand (exitEvent Interview) <> " | " <> extendCommand
     stateNames = map (stateNameText . (.name)) (Set.toList (places g))

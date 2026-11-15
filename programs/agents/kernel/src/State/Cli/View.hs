@@ -10,7 +10,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (fuelLabel)
-import State.Category.Graph (Node (..), Place (..))
+import State.Category.Graph (Node (..), OpenGraph, Place (..))
 import State.Category.Step (SomeStep (..), stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)
@@ -23,13 +23,13 @@ import State.Step.Catalog (AnyStep (..), allSteps)
 import State.Table (Row (..), Runner (..), Steps, row)
 
 -- | Where the run is and what it carries: step, mode, rounds, questions, rulings.
-showRun :: RunState -> Text
-showRun state =
+showRun :: OpenGraph -> RunState -> Text
+showRun g state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
             <> ["task: " <> taskIdText parent.task | ByRole parent _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
-            <> factLines (Facts Nothing Nothing []) state
+            <> factLines g (Facts Nothing Nothing []) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
             <> ["refused: " <> note.message <> "; fix: " <> note.fix | Just note <- [state.refused]]
             <> section "pending:" (pendingLines state)

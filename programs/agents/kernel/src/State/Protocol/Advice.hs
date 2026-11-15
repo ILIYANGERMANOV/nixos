@@ -36,8 +36,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), FanId, LoopId (..), fanEvent, fanName, fanNamed, loopName)
-import State.Category.Fuel (Cfg (..), SkipWhen (..), cfg, fuelLabel, fuelName, reResearches)
+import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, fanName, nameText)
+import State.Category.Fuel (Cfg (..), SkipWhen (..), atFuel, cfg, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
@@ -51,12 +51,13 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, roundsSpent, stuck)
+import State.Flow.Library (gatherLoop, reviewLoop)
+import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, roundsAllowed, roundsSpent, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
 import State.Step.Catalog qualified as Catalog
-import State.Step.Fan (Outcome (..))
+import State.Step.Fan (Outcome (..), fanNamed)
 import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review qualified as Review
@@ -227,18 +228,18 @@ skippable g state =
 skipsHere :: OpenGraph -> RunState -> [(EventName, SkipWhen)]
 skipsHere g state = case (state.stopped, state.at) of
     (Nothing, At place) ->
-        [ (event, (cfg (fuelOf state)).skip optId)
+        [ (event, atFuel (fuelOf state) skips)
         | ((from, event), edge) <- Map.toList g.edges
         , from == place
-        , Skip optId <- [edge.arrow]
+        , Skip _ skips <- [edge.arrow]
         ]
     (Nothing, Out) -> []
     (Nothing, Exit) -> []
     (Just _, _) -> []
 
 -- | The next action, from the run's state alone.
-advise :: Steps -> Facts -> RunState -> Advice
-advise steps facts state = Advice action (factLines facts state) prompt notify
+advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
+advise steps g facts state = Advice action (factLines g facts state) prompt notify
   where
     plain next = (next, "")
     notify = case (state.at, Text.null prompt) of
@@ -278,8 +279,8 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
             Agent role _ -> Spawn role Nothing
             Inline -> Run (recordOutcomes s)
         AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run (recordOutcomes s) else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
-        Interviews -> interviewing state
-        PicksRows -> Run (pickCommand state)
+        Interviews -> interviewing g state
+        PicksRows -> Run (pickCommand g state)
         Step.AwaitsCi -> AwaitCi (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge (recordOutcomes s) (currentFan state)
 
@@ -287,8 +288,8 @@ advise steps facts state = Advice action (factLines facts state) prompt notify
 record. At the end of either gather budget, ask the user once whether to go
 on: yes extends both, no ends the interview.
 -}
-interviewing :: RunState -> Action
-interviewing state = case spentAtGather state of
+interviewing :: OpenGraph -> RunState -> Action
+interviewing g state = case spentAtGather g state of
     [] -> Run ("state ask each question; " <> enough <> " when nothing is open | " <> recordCommand (continueEvent Interview) <> " to research a new fact")
     spent
         | Ask.Stuck `notElem` state.askedHere -> Ask Ask.Stuck ("gather used its " <> Text.intercalate " and " spent <> ": go on?")
@@ -297,14 +298,16 @@ interviewing state = case spentAtGather state of
     enough = recordCommand (exitEvent Interview)
 
 -- | The gather budgets the run has used up since it entered the gather loop or extended it.
-spentAtGather :: RunState -> [Text]
-spentAtGather state = case Map.lookup LGather state.rounds of
+spentAtGather :: OpenGraph -> RunState -> [Text]
+spentAtGather g state = case Map.lookup gatherLoop state.rounds of
     Nothing -> []
     Just rounds ->
-        [tshow (reResearches (fuelOf state)) <> " research rounds" | roundsSpent (allowed.rounds LGather) rounds]
-            <> [tshow allowed.asks <> " questions" | state.interviewAsks >= allowed.asks]
+        -- The first round is no research round of its own: each after it is.
+        [tshow (pred allowedRounds) <> " research rounds" | roundsSpent allowedRounds rounds]
+            <> [tshow asks <> " questions" | state.interviewAsks >= asks]
   where
-    allowed = cfg (fuelOf state)
+    allowedRounds = roundsAllowed g (fuelOf state) gatherLoop
+    asks = (cfg (fuelOf state)).asks
 
 {- | At a fan-out: what this run does at once first - record the hand-back
 of a child whose log shows it @ended@ while this run counts it running,
@@ -316,7 +319,7 @@ skill's "Other tasks keep moving"). A child the 10x resumed, or a task it spawne
 and is advised no more. With none at work, none spawnable and no merge
 awaited, a task is left to park.
 -}
-atFan :: FanId -> [RunId] -> RunState -> Action
+atFan :: Name -> [RunId] -> RunState -> Action
 atFan fan ended state = fromMaybe leave (asum [unrecorded, question, triage, record, resume, spawn, awaitAnswer, awaitCi, awaitChildren, awaitMerge])
   where
     here = fanIn state.fans fan
@@ -373,15 +376,15 @@ recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "
 'budget'. At the loop's rounds, a Not met in this round's picks buys one more; past
 it, only @pick.final@.
 -}
-pickCommand :: RunState -> Text
-pickCommand state
+pickCommand :: OpenGraph -> RunState -> Text
+pickCommand g state
     | done < budget allowed (Round Set.empty) = Text.intercalate " | " [loop, final]
     | done < budget allowed (Round (Set.singleton (Unmet anyRequirement))) =
         final <> " | " <> loop <> " only with a not-met verdict: the last round"
     | otherwise = final <> " - no review round is left"
   where
-    done = maybe 1 (fromIntegral . length) (Map.lookup LReview state.rounds)
-    allowed = (cfg (fuelOf state)).rounds LReview
+    done = maybe 1 (fromIntegral . length) (Map.lookup reviewLoop state.rounds)
+    allowed = roundsAllowed g (fuelOf state) reviewLoop
     -- Any requirement: 'budget' asks only whether one is Not met.
     anyRequirement = Requirement ""
     loop = recordCommand (continueEvent Review.Pick)
@@ -390,7 +393,7 @@ pickCommand state
 stuckText :: Stuck -> Text
 stuckText found =
     "the "
-        <> loopName found.loop
+        <> nameText found.loop
         <> " loop repeats "
         <> Text.intercalate ", " (map problemText (Set.toList found.same))
         <> ": go on, change course, or stop?"
@@ -400,13 +403,13 @@ stuckText found =
         Unmet (Requirement requirement) -> "not met: " <> requirement
         Failing (Event.Check check) -> "failing: " <> check
 
-factLines :: Facts -> RunState -> [Text]
-factLines facts state =
+factLines :: OpenGraph -> Facts -> RunState -> [Text]
+factLines g facts state =
     ["fuel: " <> fuelName (fuelOf state)]
-        <> [ loopName loopId <> " round " <> tshow (length rounds) <> " of " <> tshow ((cfg (fuelOf state)).rounds loopId)
-           | (loopId, rounds) <- Map.toList (Map.map NonEmpty.toList state.rounds)
+        <> [ nameText loop <> " round " <> tshow (length rounds) <> " of " <> tshow (roundsAllowed g (fuelOf state) loop)
+           | (loop, rounds) <- Map.toList (Map.map NonEmpty.toList state.rounds)
            ]
-        <> ["questions: " <> tshow state.interviewAsks <> " of " <> tshow (cfg (fuelOf state)).asks | Map.member LGather state.rounds]
+        <> ["questions: " <> tshow state.interviewAsks <> " of " <> tshow (cfg (fuelOf state)).asks | Map.member gatherLoop state.rounds]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]

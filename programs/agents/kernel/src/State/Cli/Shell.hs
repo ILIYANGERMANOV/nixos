@@ -143,7 +143,7 @@ hookAnswer steps call want =
                     Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
                     Right (restart, after) ->
                         let (new, _, out) = adviceOf steps facts told stamp after
-                         in (restart <> new, recordedLines after.state restart <> showRun after.state <> out.text)
+                         in (restart <> new, recordedLines after.state restart <> showRun after.g after.state <> out.text)
             SpawnRole spawned -> do
                 (facts, told) <- readFacts
                 onHook facts.pr $ \stamp run ->
@@ -218,7 +218,7 @@ execute steps = \case
     OnRun command -> do
         -- Read before the lock, as GitHub is.
         file <- traverse FileSystem.readText (fileOf command)
-        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.state command))
+        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.g run.state command))
   where
     fileOf = \case
         Record recording -> case recording of
@@ -256,8 +256,8 @@ recorded :: RunState -> [Envelope] -> Output
 recorded after = printed . recordedLines after
 
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
-planOf :: Steps -> Maybe Sha -> Maybe Text -> RunState -> RunCommand -> Either Failure Plan
-planOf steps worktreeHead file state = \case
+planOf :: Steps -> Maybe Sha -> Maybe Text -> OpenGraph -> RunState -> RunCommand -> Either Failure Plan
+planOf steps worktreeHead file g state = \case
     Record (Plain event) -> Right (Plan [event] recorded)
     Record (AtHead event) -> case worktreeHead of
         Just sha -> Right (Plan [event sha] recorded)
@@ -279,7 +279,7 @@ planOf steps worktreeHead file state = \case
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
     Answer qid answer by -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
-    ShowRun -> Right (Plan [] (\_ _ -> printed (showRun state)))
+    ShowRun -> Right (Plan [] (\_ _ -> printed (showRun g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
     Brief role task -> case brief steps state role task of
         Left unknown -> Left (Failure BadInput ("task " <> taskIdText unknown) "the breakdown has no such task" "state show")
@@ -313,7 +313,7 @@ adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, 
 adviceOf steps facts told stamp run = (new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
-    advice = advise steps facts settled.state
+    advice = advise steps settled.g facts settled.state
     out =
         recorded settled.state new
             <> delivered settled.state (deliver settled.state.start advice.action)

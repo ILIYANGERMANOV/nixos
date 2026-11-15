@@ -25,7 +25,7 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Decoder, EventName, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
 import State.Step.Build (BuildStep)
-import State.Step.Fan (FanStep, Sing (FanOut))
+import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
 import State.Step.Gather (GatherStep)
 import State.Step.Plan (PlanStep)
 import State.Step.Review (ReviewStep)
@@ -130,7 +130,7 @@ allSteps = concatMap stepsOf layers
 state, which 'State.Category.Flow.Par' draws.
 -}
 outcomeSteps :: [AnyStep]
-outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- [minBound .. maxBound]]
+outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts]
 
 -- | The step a state is named after; a fan-out's state names none.
 stepNamed :: StateName -> Maybe AnyStep

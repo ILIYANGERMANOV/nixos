@@ -22,7 +22,6 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Flow (fanNamed)
 import State.Category.Fuel (Area, parseByName)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
@@ -201,7 +200,7 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. The sha is the worktree's HEAD.
 -}
 typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
-typeHandback steps state worktreeHead agent handback = case [fan | At place <- [state.at], Just fan <- [fanNamed place.name], fanRole fan == agent] of
+typeHandback steps state worktreeHead agent handback = case [fan | At place <- [state.at], Just fan <- [Fan.fanNamed place.name], fanRole fan == agent] of
     fan : _ -> fromChild state (fanIn state.fans fan) handback
     [] -> fromWorker steps state worktreeHead agent handback
 

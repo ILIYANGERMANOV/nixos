@@ -1,4 +1,4 @@
-module State.BlockSpec (spec) where
+module State.Flow.LibrarySpec (spec) where
 
 import Data.Map.Strict qualified as Map
 import State.Block (agree, build, describe, gather, propose, review, ship)

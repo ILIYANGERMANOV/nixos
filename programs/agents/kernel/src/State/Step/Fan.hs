@@ -10,12 +10,21 @@ module State.Step.Fan (
     FanStep,
     Sing (..),
     Outcome (..),
+    researchers,
+    engineers,
+    fanOuts,
+    breakdownName,
+    mergeName,
+    fanOf,
+    fanNamed,
 ) where
 
 import Data.Aeson ((.:))
+import Data.List (find)
+import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import State.Category.Flow (FanEvent (Leaves), FanId, breakdownName, fanEvent, fanName, mergeName)
+import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, fanName, nameText)
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
@@ -37,20 +46,20 @@ instance StepSet FanStep where
     type Drawn s = DrawnFan s
 
     data Sing s where
-        Breakdown :: FanId -> Sing Breakdown
-        FanOut :: FanId -> Sing FanOut
-        Merge :: FanId -> Sing Merge
+        Breakdown :: Name -> Sing Breakdown
+        FanOut :: Name -> Sing FanOut
+        Merge :: Name -> Sing Merge
 
     data Outcome s l where
-        BreakdownDone :: FanId -> Tasks -> Outcome Breakdown 'Continued
+        BreakdownDone :: Name -> Tasks -> Outcome Breakdown 'Continued
         -- \| Every task of the fan-out is settled ("State.Run.Fan").
-        FanDone :: FanId -> Outcome FanOut 'Continued
+        FanDone :: Name -> Outcome FanOut 'Continued
         -- \| The one PR the merge left: the run ends.
-        MergeDone :: FanId -> Url -> Outcome Merge 'Exited
+        MergeDone :: Name -> Url -> Outcome Merge 'Exited
         -- \| The round ends with its PRs merged, parked or kept: the next one starts at gathering.
-        MergeNextRound :: FanId -> Outcome Merge 'Continued
+        MergeNextRound :: Name -> Outcome Merge 'Continued
 
-    layerSteps = concat [[SomeStep (Breakdown fan), SomeStep (Merge fan)] | fan <- [minBound .. maxBound]]
+    layerSteps = concat [[SomeStep (Breakdown fan), SomeStep (Merge fan)] | fan <- fanOuts]
       where
         _listsEvery :: Sing (s :: FanStep) -> ()
         _listsEvery = \case
@@ -101,9 +110,45 @@ instance StepSet FanStep where
               , Decoder (Merge fan) (fmap (MergeDone fan) . urlOf)
               , Decoder (Merge fan) (const (pure (MergeNextRound fan)))
               ]
-            | fan <- [minBound .. maxBound]
+            | fan <- fanOuts
             ]
 
 deriving stock instance Show (Sing (s :: FanStep))
 deriving stock instance Show (Outcome (s :: FanStep) l)
 deriving stock instance Eq (Outcome (s :: FanStep) l)
+
+-- | The 10x's own fan-outs: the researchers it may send, and the engineers.
+researchers, engineers :: Name
+researchers = "researchers"
+engineers = "engineers"
+
+{- | Every fan-out a run may hold, so the log's decoders know each one's
+events. Its order is the one the step table and the generators list.
+-}
+fanOuts :: [Name]
+fanOuts = [researchers, engineers]
+
+-- | The state of the fan-out's breakdown, before its 'State.Category.Flow.Par'.
+breakdownName :: Name -> StateName
+breakdownName = fanStepName "breakdown"
+
+-- | The state of the fan-out's merge, after its 'State.Category.Flow.Par'.
+mergeName :: Name -> StateName
+mergeName = fanStepName "merge"
+
+{- | The engineers' breakdown and merge keep their wire v3 names, @breakdown@
+and @merge@, so a v3 log still reads; another fan-out's are prefixed with its
+own name, as state names are unique.
+-}
+fanStepName :: Text -> Name -> StateName
+fanStepName step fan
+    | fan == engineers = StateName step
+    | otherwise = StateName (nameText fan <> "_" <> step)
+
+-- | The fan-out whose state this is: its breakdown, its own or its merge.
+fanOf :: StateName -> Maybe Name
+fanOf name = find (\fan -> name `elem` [breakdownName fan, fanName fan, mergeName fan]) fanOuts
+
+-- | The fan-out whose own state, the one its 'State.Category.Flow.Par' draws, this is.
+fanNamed :: StateName -> Maybe Name
+fanNamed name = find ((== name) . fanName) fanOuts

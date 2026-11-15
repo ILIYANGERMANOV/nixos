@@ -31,7 +31,7 @@ import State.Run.Codec qualified as Codec
 import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, stepTook)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
-import State.Step.Fan (Outcome (..), Sing (..))
+import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
 import State.Step.Gather (Outcome (..), Sing (..))
 import State.Step.Plan (Outcome (..), Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
@@ -120,7 +120,7 @@ recordables =
     , url Ready ReadyDone
     , url Ready ReadySkipped
     ]
-        <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- [minBound .. maxBound]]
+        <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
         <> [ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
                 task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
@@ -140,7 +140,7 @@ recordables =
                 [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
-        <> concat [[url (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- [minBound .. maxBound]]
+        <> concat [[url (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
   where
     breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone fan) . Codec.decodeBreakdown))

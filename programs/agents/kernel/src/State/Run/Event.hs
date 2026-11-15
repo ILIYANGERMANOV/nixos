@@ -62,7 +62,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanId (..))
+import State.Category.Flow (Name)
 import State.Category.Fuel (Fuel)
 import State.Category.Step (Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
@@ -70,6 +70,7 @@ import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Prop
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome)
+import State.Step.Fan (engineers)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
 record carries one of its own.
@@ -181,18 +182,18 @@ data Asker = Itself | Subagent AgentRole | ChildRun RunId
 {- | The flow a fan-out's children each run, as its @Par@ body: an engineer
 leads a whole engineer flow; a researcher is a worker, no flow's lead.
 -}
-fanFlow :: FanId -> Maybe FlowName
-fanFlow = \case
-    FResearchers -> Nothing
-    FEngineers -> Just EngineerFlow
+fanFlow :: Name -> Maybe FlowName
+fanFlow fan
+    | fan == engineers = Just EngineerFlow
+    | otherwise = Nothing
 
 -- | The role a fan-out's children run as: the lead of their flow, the registry's name.
-fanRole :: FanId -> AgentRole
+fanRole :: Name -> AgentRole
 fanRole fan = maybe (AgentRole "researcher") ((.name) . role) (fanFlow fan)
 
 -- | The role that runs a whole flow of its own under a run's fan-out.
 childRole :: AgentRole
-childRole = fanRole FEngineers
+childRole = fanRole engineers
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)
