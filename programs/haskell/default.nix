@@ -1,7 +1,7 @@
 # The dev tooling of a Haskell package in this repo, from one call: its dev
-# shell, the runners agents use fastest first, and its lint check. Ported from
-# Ivy-Apps/haskell-template's flake apps and nix/ghcid. How to use and add one:
-# .claude/rules/haskell.md.
+# shell, the runners agents use fastest first, and its lint and solver checks.
+# Ported from Ivy-Apps/haskell-template's flake apps and nix/ghcid. How to use
+# and add one: .claude/rules/haskell.md.
 { pkgs }:
 let
   inherit (pkgs) lib;
@@ -92,6 +92,34 @@ in
         ]
         ++ map (exe: "${package.pname}:exe:${exe}") executables;
       };
+      # cabal's solver takes no executable from an installed package, so with
+      # no Hackage index it cannot meet a `build-tool-depends` (hspec-discover)
+      # from the GHC package db: Cabal-7107. This config's one repository is a
+      # local one of the sources of the package's Haskell build tools, which
+      # cabal then builds offline into its store, once per machine.
+      cabalEnv = {
+        CABAL_CONFIG = "${toolRepository}/config";
+      }
+      // (testEnv.env or { });
+      toolRepository =
+        pkgs.runCommand "${name}-build-tools" { nativeBuildInputs = [ pkgs.cabal-install ]; }
+          ''
+            mkdir -p "$out/sdists"
+            ${lib.concatMapStrings (tool: ''
+              cp ${tool.src} "$out/sdists/${tool.pname}-${tool.version}.tar.gz"
+            '') buildTools}
+            printf 'repository build-tools\n  url: file+noindex://%s\n' "$out/sdists" > "$out/config"
+            # cabal writes the index cache into the repository: here, while
+            # it is still writable.
+            CABAL_DIR=$TMPDIR CABAL_CONFIG=$out/config cabal list > /dev/null
+          '';
+      buildTools = lib.filter (dep: dep ? isHaskellLibrary) (
+        lib.concatMap (deps: package.getCabalDeps.${deps}) [
+          "libraryToolDepends"
+          "executableToolDepends"
+          "testToolDepends"
+        ]
+      );
       cabal = shellCheck.fragment ./cabal.sh;
       ghcid = shellCheck.fragment ./ghcid.sh;
       # A session spawned by other scripts or for other values is respawned.
@@ -101,7 +129,7 @@ in
         ghcidConfig + cabal + ghcid + builtins.toJSON (testEnv.env or { })
       );
       # The repl inherits these from the dev shell; the runners set them.
-      cabalScript = cabalConfig + exports (_: "") { env = testEnv.env or { }; } + cabal;
+      cabalScript = cabalConfig + exports (_: "") { env = cabalEnv; } + cabal;
       ghcidScript = ghcidConfig + config { inherit version; } + ghcid;
 
       # `<name>-<call>`, running the script's `run_<call>` in the
@@ -174,7 +202,7 @@ in
           ]
           ++ lib.attrValues tools;
         }
-        // (testEnv.env or { })
+        // cabalEnv
       );
       toolchain = shell.nativeBuildInputs;
 
@@ -213,6 +241,16 @@ in
           runtimeInputs = lib.attrValues tools;
           enter = false;
         })}
+        touch "$out"
+      '';
+      # cabal plans the package, build tools included, offline from the dev
+      # shell's GHC and `cabalEnv`'s config: it fails on a Cabal-7107 rejection.
+      solver = pkgs.runCommand "${name}-solver" ({ nativeBuildInputs = toolchain; } // cabalEnv) ''
+        cp -r ${package.src} src
+        chmod -R u+w src
+        cd src
+        # The source has no cabal.project: tests on, as the package's sets them.
+        CABAL_DIR=$TMPDIR cabal build --dry-run --enable-tests all
         touch "$out"
       '';
     };

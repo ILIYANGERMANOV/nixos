@@ -13,6 +13,9 @@
   # format half repeats `just format --ci`, so a miss shows in this job too.
   haskell-lint = kernelDev.lint;
 
+  # cabal's offline plan of the kernel, as the cabal runners make it.
+  haskell-solver = kernelDev.solver;
+
   # The runners' shellcheck, which only building them runs.
   haskell-runners = pkgs.linkFarmFromDrvs "haskell-runners" kernelDev.scripts;
 }
