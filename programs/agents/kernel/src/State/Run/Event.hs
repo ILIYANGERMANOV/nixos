@@ -47,6 +47,7 @@ module State.Run.Event (
     StateName (..),
     TaskId (..),
     Task (..),
+    Shape (..),
     Topic (..),
     Tasks,
     BreakdownError (..),
@@ -67,7 +68,7 @@ import State.Category.Step (Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
-import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
+import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
@@ -223,6 +224,8 @@ data TaskState
     = InCi Url
     | InReview Url
     | Merged Url
+    | -- | A round's PR, left open on purpose: settled, and no merge awaited.
+      Kept Url
     | -- | Set aside, and why: a parked task counts as settled.
       Parked Text (Maybe Url)
     deriving stock (Eq, Show)

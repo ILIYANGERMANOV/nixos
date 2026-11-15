@@ -11,9 +11,9 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
-import State.Run.RunGen (breakdownJson, plainTask, taskFileJson)
+import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -91,6 +91,9 @@ spec = describe "State.Run.Codec" $ do
     it "reads a task file as a breakdown spells each task" $
         decodeTask (taskFileJson (plainTask "fix" ["t1"])) `shouldBe` Right (plainTask "fix" ["t1"])
 
+    it "reads a round task's existing PR from its pr key" $
+        decodeTask (taskFileJson (roundTask "t1" "https://pr/1")) `shouldBe` Right (roundTask "t1" "https://pr/1")
+
     it "refuses a malformed task file as the breakdown's decoder does" $
         map decodeTask ["[]", taskFileJson (plainTask "fix" []) `replacing` ("\"fuel\":\"balanced\"", "\"fuel\":\"huge\"")]
             `shouldBe` [Left "Error in $: parsing task failed, expected Object, but encountered Array", Left "Error in $: unknown fuel \"huge\""]
@@ -135,7 +138,7 @@ metR1 = "{\"requirement\":\"R1\",\"outcome\":\"met\"}"
 
 -- | A started line naming parent run r7f2.
 parentRun :: Envelope
-parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") "/p/events.jsonl" (TaskId "t1"))) mempty)}
+parentRun = reviewRows {event = Started (Start EngineerFlow "notes" (ByRole (Parent (runId "r7f2") "/p/events.jsonl" (TaskId "t1")) OwnPr) mempty)}
 
 -- | Lines in the shape the Python @state@ wrote, its other keys left out.
 pythonV1, pythonV2 :: Text

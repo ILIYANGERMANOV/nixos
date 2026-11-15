@@ -183,6 +183,7 @@ merged fan task = case Map.lookup task fan.moves of
     Just (Parked _ _) -> False
     Just (InReview _) -> False
     Just (InCi _) -> False
+    Just (Kept _) -> False
     Nothing -> False
 
 tshow :: Int -> Text.Text

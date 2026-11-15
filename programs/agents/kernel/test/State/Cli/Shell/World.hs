@@ -15,6 +15,7 @@ module State.Cli.Shell.World (
     startedRun,
     putFile,
     tenXAtFanOut,
+    tenXAtFanOutOf,
     childRun,
     logged,
     loggedEvents,
@@ -183,9 +184,13 @@ putFile world path content = modifyIORef' world $ \w ->
 @t1@, @t2@ heavy; the run's id.
 -}
 tenXAtFanOut :: IORef World -> IO Text
-tenXAtFanOut world = do
+tenXAtFanOut world = tenXAtFanOutOf world [plainTask "t1" [], (plainTask "t2" ["t1"]) {heavy = True}]
+
+-- | A 10x run at its fan-out with these tasks; the run's id.
+tenXAtFanOutOf :: IORef World -> [Task] -> IO Text
+tenXAtFanOutOf world tasks = do
     tenX <- startedIn world ["--flow", "10x"]
-    putFile world (notes </> "tasks.json") (breakdownJson [plainTask "t1" [], (plainTask "t2" ["t1"]) {heavy = True}])
+    putFile world (notes </> "tasks.json") (breakdownJson tasks)
     _ <- succeeded =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
     _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
     pure tenX

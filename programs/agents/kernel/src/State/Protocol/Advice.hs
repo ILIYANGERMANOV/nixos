@@ -51,7 +51,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, roundsSpent, stuck)
+import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, roundsSpent, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
@@ -163,7 +163,7 @@ skip the Fuel makes. The shell records it and asks again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe AnyOutcome
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> skipped <> leaves place)
+    (Nothing, At place) -> listToMaybe (fromGitHub place.name <> kept place.name <> skipped <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -173,6 +173,8 @@ due g facts state = case (state.stopped, state.at) of
             | name == stepName Draft, open pr.readiness -> [Catalog.outcome (DraftDone pr.draft)]
             | name == stepName Ready, IsReady <- pr.readiness -> [Catalog.outcome (ReadyDone pr.draft.url)]
         _ -> []
+    -- A round on an existing PR leaves it as it is, at every Fuel: the task's shape skips ready.
+    kept name = [Catalog.outcome (ReadySkipped url) | name == stepName Ready, onRound state.start.principal, Just url <- [prUrl facts state]]
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case
         IsDraft -> True
@@ -445,6 +447,7 @@ taskLine fan open task =
             InCi url -> " " <> urlText url
             InReview url -> " " <> urlText url
             Merged url -> " " <> urlText url
+            Kept url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
 
 {- | The advice as its first line, for this principal and interface: the only

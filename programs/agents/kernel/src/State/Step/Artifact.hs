@@ -15,6 +15,7 @@ module State.Step.Artifact (
     Check (..),
     TaskId (..),
     Task (..),
+    Shape (..),
     Topic (..),
     Tasks,
     BreakdownError (..),
@@ -34,6 +35,7 @@ module State.Step.Artifact (
     picksData,
     tasksData,
     taskEncoding,
+    shapeData,
     headOf,
     urlOf,
     draftOf,
@@ -42,6 +44,7 @@ module State.Step.Artifact (
     breakdownOf,
     decodeBreakdown,
     taskOf,
+    shapeOf,
     decodeTask,
     distinct,
     keyed,
@@ -49,7 +52,7 @@ module State.Step.Artifact (
 ) where
 
 import Control.Monad (foldM)
-import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject, (.:), (.=))
+import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Encoding (Encoding, list, pair, pairs)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
@@ -116,7 +119,14 @@ data Task = Task
     , heavy :: Bool
     -- ^ Advisory: the kernel caps nothing on it; it stays on the wire for old breakdowns.
     , security :: Set Topic
+    , shape :: Shape
     }
+    deriving stock (Eq, Show)
+
+{- | What the task's engineer does to its PR. A round on a PR that already
+exists leaves it open: its run skips @ready@, and the task settles kept.
+-}
+data Shape = OwnPr | RoundOn Url
     deriving stock (Eq, Show)
 
 -- | The security-sensitive work a task's brief flags.
@@ -213,6 +223,13 @@ taskEncoding task =
             <> "qa" .= task.qa
             <> "heavy" .= task.heavy
             <> "security" .= map topicText (Set.toList task.security)
+            <> shapeData task.shape
+
+-- | Only a round names its PR: a log older than rounds reads as own PRs.
+shapeData :: Shape -> Series
+shapeData = \case
+    OwnPr -> mempty
+    RoundOn url -> "pr" .= urlText url
 
 headOf :: Object -> Parser Sha
 headOf obj = Sha <$> obj .: "head"
@@ -270,6 +287,10 @@ taskFieldsOf obj =
         <*> obj .: "qa"
         <*> obj .: "heavy"
         <*> (obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic")
+        <*> shapeOf obj
+
+shapeOf :: Object -> Parser Shape
+shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"
 
 {- | A list read as a set, refusing a repeat: a set would keep one copy
 silently, and a log naming one twice is a bug in its writer.

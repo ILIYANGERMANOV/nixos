@@ -7,6 +7,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Role (Rung (..))
 import State.Run.Ask
+import State.Run.Event (Shape (..))
 import State.Run.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
 import State.Run.Id (TaskId (..), breaksLine)
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -116,7 +117,7 @@ spec = describe "State.Run.Ask" $ do
             ask ByUser Lead Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
-            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1"))) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
+            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1")) OwnPr) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
             ask ByUser Lead Fact `shouldBe` AnswerSelf

@@ -15,7 +15,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
-import State.Run.RunGen (breakdownJson, plainTask, taskFileJson)
+import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
 import System.Exit (ExitCode (..))
@@ -291,7 +291,30 @@ spec = describe "the state binary" $ do
                 early.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
                 done <- succeeded =<< state bin repo ["next"]
-                take 1 done `shouldBe` ["RUN state record merge.done <url>"]
+                take 1 done `shouldBe` ["RUN state record merge.done <url> | state record merge.next_round"]
+
+            it "keeps a round's PR open, loops back to gather with fresh budgets, and respawns the task" $ \repo -> do
+                parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                writeFile repo.prJson (pullRequest True "OPEN")
+                let tasks = repo.root </> "tasks.json"
+                    gathered = ["research.done", "1"] : concat (replicate 8 [["interview.more"], ["research.done", "1"]])
+                    agreed = [["interview.enough"], ["plan.done", repo.notes </> "plan.md"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
+                Text.writeFile tasks (breakdownJson [roundTask "t1" prUrl])
+                for_ (gathered <> agreed) (succeeded <=< state bin repo . ("record" :))
+                w1 <- worktree repo "w1"
+                _ <- childRun bin w1 parent "n1" "t1"
+                for_ [["record", "fuel", "balanced"], ["override", "ready", "the", "test", "starts", "here"]] (succeeded <=< state bin w1)
+                skipped <- succeeded =<< state bin w1 ["next"]
+                recorded skipped `shouldBe` ["ready.skipped -> out"]
+                merging <- succeeded =<< state bin repo ["next"]
+                recorded merging `shouldBe` ["engineers.done -> merge"]
+                drop 1 merging `shouldSatisfy` mentions "RUN state record merge.done <url> | state record merge.next_round"
+                for_ (["merge.next_round"] : gathered) (succeeded <=< state bin repo . ("record" :))
+                spent <- state bin repo ["record", "interview.more"]
+                spent.code `shouldBe` 2
+                for_ agreed (succeeded <=< state bin repo . ("record" :))
+                respawn <- succeeded =<< state bin repo ["next"]
+                take 1 respawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
         describe "brief" $ do
             it "gives a refactorer its step's task and the stop rule" $ \repo -> do

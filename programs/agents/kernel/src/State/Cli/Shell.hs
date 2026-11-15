@@ -393,7 +393,7 @@ data Up = Up {parent :: Parent, child :: RunId, lastSeq :: Natural, text :: Text
 upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
 upOf run new text = case run.state.start.principal of
     ByUser -> Nothing
-    ByRole parent -> Just (Up parent run.state.run (nextSeq run - 1 + fromIntegral (length new)) text)
+    ByRole parent _ -> Just (Up parent run.state.run (nextSeq run - 1 + fromIntegral (length new)) text)
 
 {- | The child's hand-back, appended to its parent's log under the parent's
 lock by ids hashed from the child's run and its last line: a repeated command
@@ -478,7 +478,7 @@ initRun gd args =
     -- run in it, but a child's hand-back is its own state's to record in the parent.
     interfaceOf = \case
         ByUser -> Set.fromList [minBound .. maxBound]
-        ByRole _ -> Set.empty
+        ByRole _ _ -> Set.empty
 
 {- | The child's @spawned@, appended to its parent's log under the parent's
 lock, by an id hashed from both runs: a retried init appends it once.
@@ -493,36 +493,48 @@ spawnedIn parent parentLog childAt =
              in Monad.void <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> mempty)))) parentLog
 
 {- | The run a retried init joins: the one its log holds. One log holds one
-run, so a run stopped there leaves the dir to no other.
+run, so a run stopped or finished there leaves the dir to no other: a 10x's
+next round gives its engineer a fresh one.
 -}
 joined :: FilePath -> NonEmpty Envelope -> Either Failure RunId
-joined notes logged@(first :| _) = case (.stopped) . snd <$> replayed (logOf notes) logged of
-    Right (Just stop) ->
-        Left (Failure BadInput ("--notes " <> Text.pack notes) ("its run " <> runIdText first.run <> " stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>")
-    Right Nothing -> Right first.run
+joined notes logged@(first :| _) = case snd <$> replayed (logOf notes) logged of
+    Right state -> case (state.stopped, Fold.over state) of
+        (Just stop, _) -> Left (taken (" stopped: " <> reasonText stop.reason <> " " <> stop.why))
+        (Nothing, True) -> Left (taken " finished")
+        (Nothing, False) -> Right first.run
     -- A log that does not replay is named by next and show; init leaves it be.
     Left _ -> Right first.run
+  where
+    taken why = Failure BadInput ("--notes " <> Text.pack notes) ("its run " <> runIdText first.run <> why) "state init --notes <a new dir>"
 
 {- | Who starts the run, and its flow: a child runs the flow of the fan-out its
-parent is at, read from the parent's log.
+parent is at, on its task of the parent's breakdown, read from the parent's log.
 -}
 startOf :: (Shell es) => InitArgs -> Eff es (Either Failure (Principal, FlowName))
 startOf args = case args.parent of
     Nothing -> pure (Right (ByUser, fromMaybe defaultFlow args.flow))
     Just parent ->
-        principalOf parent >>= \case
+        parentStarts parent >>= \case
             Left failure -> pure (Left failure)
-            Right principal -> fmap (principal,) <$> onLog (\_ run -> ([], childFlow parent args.flow run.state)) parent.log
+            Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
 
 {- | A parent's log path was checked by the parser; here its first line must
 be that run's start.
 -}
-principalOf :: (Log :> es) => Parent -> Eff es (Either Failure Principal)
-principalOf parent = do
+parentStarts :: (Log :> es) => Parent -> Eff es (Either Failure ())
+parentStarts parent = do
     first <- Log.firstLine parent.log
     pure $ case decodeLine (fromMaybe "" first) of
-        Right envelope | envelope.run == parent.run, Started _ <- envelope.event -> Right (ByRole parent)
+        Right envelope | envelope.run == parent.run, Started _ <- envelope.event -> Right ()
         _ -> Left (Failure BadInput ("--parent " <> runIdText parent.run) (Text.pack parent.log <> " does not start that run") initLineFix)
+
+-- | The child's principal, with its task's shape, and its flow.
+childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure (Principal, FlowName)
+childStart parent named state = do
+    flow <- childFlow parent named state
+    case Fan.lookupTask (Fold.currentFan state) parent.task of
+        Just task -> Right (ByRole parent task.shape, flow)
+        Nothing -> Left (Failure BadInput ("--task " <> taskIdText parent.task) "the parent's breakdown has no such task" initLineFix)
 
 -- | The flow of the fan-out the parent is at; a @--flow@ named must be that one.
 childFlow :: Parent -> Maybe FlowName -> RunState -> Either Failure FlowName

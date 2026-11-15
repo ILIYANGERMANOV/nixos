@@ -43,7 +43,7 @@ import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Propos
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), childRole, parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), childRole, parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), roundOnly)
 import State.Run.Id (parseEventId)
@@ -387,7 +387,9 @@ explain g fuel at = \case
         Fan.StopUntriaged child -> refused ("a retry of child " <> runIdText child) "its stop is not triaged yet" ("state ask --kind <kind> --from " <> runIdText child <> " <question>")
         Fan.AwaitsUser child -> refused ("a retry of child " <> runIdText child) "its question is open: the retry waits for the answer" "state next"
         Fan.Busy tasks -> refused "a new breakdown" ("an agent is at work on tasks: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
-        Fan.Unmerged tasks -> refused "the run's end" ("tasks neither merged nor parked: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
+        Fan.Unmerged tasks -> refused "the round's end" ("tasks neither merged, kept nor parked: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
+        Fan.NotARound task -> refused ("task " <> Codec.taskIdText task <> " kept") "only a round on an existing PR is kept: merge or park it" "state show"
+        Fan.NotItsRound task url -> refused ("task " <> Codec.taskIdText task <> " kept") ("its round is on " <> Codec.urlText url <> ": only that PR is kept") ("state record task " <> Codec.taskIdText task <> " " <> Codec.taskStateArgs (Kept url))
         Fan.TaskExists task -> refused ("task " <> Codec.taskIdText task) "the fan-out has a task of that id already" "state show"
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText <> ", no fan-out's state") "state show"
   where
@@ -416,6 +418,7 @@ explain g fuel at = \case
         LPlan -> leaveOrStop loop
         LReview -> leaveOrStop loop
         LCi -> leaveOrStop loop
+        LRound -> leaveOrStop loop
     leaveOrStop loop = records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>"
     endOrExtend = recordCommand (exitEvent Interview) <> " | " <> extendCommand
     stateNames = map (stateNameText . (.name)) (Set.toList (places g))

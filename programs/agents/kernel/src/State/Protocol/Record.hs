@@ -121,12 +121,12 @@ recordables =
     , url Ready ReadySkipped
     ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- [minBound .. maxBound]]
-        <> [ Recordable "task" "<id> <ci|review|merged> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+        <> [ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
                 task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
                 -- Two words never move a task, so a task named add stays recordable.
                 ["add", path] -> Right (FromFile (Text.unpack path) (fmap TaskAdded . Codec.decodeTask))
-                _ -> Left "the task, then ci, review or merged and its PR, or parked and why; or add and a task file"
+                _ -> Left "the task, then ci, review, merged or kept and its PR, or parked and why; or add and a task file"
            , stay "held" "<task> <url>" $ \case
                 [task, link] -> Right (Held (TaskId task) (Url link))
                 _ -> Left "the task and the url"
@@ -140,7 +140,7 @@ recordables =
                 [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
-        <> [url (Merge fan) (MergeDone fan) | fan <- [minBound .. maxBound]]
+        <> concat [[url (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- [minBound .. maxBound]]
   where
     breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (stepTook . BreakdownDone fan) . Codec.decodeBreakdown))

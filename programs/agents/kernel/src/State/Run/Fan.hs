@@ -1,7 +1,7 @@
 {- | The 10x's fan-out as the fold sees it: the tasks of the breakdown, the
 child run spawned for each, what each child said, and where each task's PR
 stands. A task is settled when its latest child finished, or its PR is in
-review, merged or parked; the fan-out leaves its state only once every task
+review, merged, kept or parked; the fan-out leaves its state only once every task
 is settled. A task has an agent at work from the 10x's spawn or resume until
 its child hands back or the task is parked, so the 10x sends one agent per
 task, once. A child's stop is the 10x's to triage before another child takes
@@ -53,7 +53,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import State.Run.Event (Child (..), RunId, Said (..), Stop, Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
+import State.Run.Event (Child (..), RunId, Said (..), Shape (..), Stop, Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
 
 data Fan = Fan
     { tasks :: [Task]
@@ -97,8 +97,12 @@ data Refusal
       AwaitsUser RunId
     | -- | A new breakdown while these tasks have an agent at work: it would orphan them.
       Busy (NonEmpty TaskId)
-    | -- | The run is not over while these tasks are neither merged nor parked.
+    | -- | The round is not over while these tasks are neither merged, kept nor parked.
       Unmerged (NonEmpty TaskId)
+    | -- | Only a round on an existing PR is kept: any other PR is merged or parked.
+      NotARound TaskId
+    | -- | A round keeps its own PR only: this is that PR's URL.
+      NotItsRound TaskId Url
     | -- | A task added under an id the fan-out has already.
       TaskExists TaskId
     deriving stock (Eq, Show)
@@ -186,15 +190,29 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
         | childRun.child.run == run = childRun {said = childRun.said <> [Heard said]}
         | otherwise = childRun
 
--- | A parked task has no agent at work: parking settles even a lost child.
+{- | A parked task has no agent at work: parking settles even a lost child.
+Only a round's PR is kept, and only under that PR's own URL.
+-}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
-moved task state fan = fan {moves = Map.insert task state fan.moves, atWork = working} <$ known task fan
+moved task state fan = do
+    found <- known task fan
+    case (state, found.shape) of
+        (Kept _, OwnPr) -> Left (NotARound task)
+        (Kept kept, RoundOn roundPr)
+            | kept == roundPr -> Right ()
+            | otherwise -> Left (NotItsRound task roundPr)
+        (Parked _ _, _) -> Right ()
+        (InCi _, _) -> Right ()
+        (InReview _, _) -> Right ()
+        (Merged _, _) -> Right ()
+    Right fan {moves = Map.insert task state fan.moves, atWork = working}
   where
     working = case state of
         Parked _ _ -> Set.delete task fan.atWork
         InCi _ -> fan.atWork
         InReview _ -> fan.atWork
         Merged _ -> fan.atWork
+        Kept _ -> fan.atWork
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan
@@ -207,16 +225,17 @@ actedOn task url fan = fan {held = filter (/= (task, url)) fan.held} <$ known ta
 leave :: Fan -> Either Refusal ()
 leave fan = maybe (Right ()) (Left . Unsettled) (NonEmpty.nonEmpty (unsettled fan))
 
--- | The run may end: every task is merged or parked.
+-- | The round may end: every task is merged, kept or parked.
 closed :: Fan -> Either Refusal ()
 closed fan = maybe (Right ()) (Left . Unmerged) (NonEmpty.nonEmpty (unmerged fan))
 
--- | The tasks neither merged nor parked, in the breakdown's order.
+-- | The tasks neither merged, kept nor parked, in the breakdown's order.
 unmerged :: Fan -> [TaskId]
 unmerged fan = [task.id | task <- fan.tasks, not (over task.id)]
   where
     over task = case Map.lookup task fan.moves of
         Just (Merged _) -> True
+        Just (Kept _) -> True
         Just (Parked _ _) -> True
         Just (InReview _) -> False
         Just (InCi _) -> False
@@ -229,6 +248,7 @@ allParked fan = not (null fan.tasks) && all (parked . (.id)) fan.tasks
     parked task = case Map.lookup task fan.moves of
         Just (Parked _ _) -> True
         Just (Merged _) -> False
+        Just (Kept _) -> False
         Just (InReview _) -> False
         Just (InCi _) -> False
         Nothing -> False
@@ -283,8 +303,8 @@ latest childRun = case reverse childRun.said of
 childrenOf :: Fan -> TaskId -> [ChildRun]
 childrenOf fan task = [childRun | childRun <- fan.children, childRun.child.task == task]
 
-{- | Parked, or no child of it runs and its PR is in review or merged, or its
-latest child finished. A stopped child leaves the task open: another child
+{- | Parked, or no child of it runs and its PR is in review, merged or kept,
+or its latest child finished. A stopped child leaves the task open: another child
 may take it, or the 10x parks it. Parking settles even a child that never
 handed back, so a lost child cannot keep the fan-out open.
 -}
@@ -293,6 +313,7 @@ settled fan task = case Map.lookup task fan.moves of
     Just (Parked _ _) -> True
     Just (InReview _) -> idle
     Just (Merged _) -> idle
+    Just (Kept _) -> idle
     Just (InCi _) -> finished fan task
     Nothing -> finished fan task
   where
@@ -331,12 +352,13 @@ spawnable asking fan =
     ]
 
 {- | Merged: a dependent starts from the base the dependency merged into, as
-GitHub Actions' @needs@ waits for success. A dependency in review or parked
-keeps its dependents waiting; 'settled' still lets the fan-out leave then.
+GitHub Actions' @needs@ waits for success. A dependency in review, kept or
+parked keeps its dependents waiting; 'settled' still lets the fan-out leave then.
 -}
 built :: Fan -> TaskId -> Bool
 built fan task = case Map.lookup task fan.moves of
     Just (Merged _) -> True
+    Just (Kept _) -> False
     Just (Parked _ _) -> False
     Just (InCi _) -> False
     Just (InReview _) -> False
@@ -353,6 +375,7 @@ mergesAwaited fan = [dep.id | dep <- fan.tasks, opened dep.id, any (elem dep.id 
         Just (InReview _) -> True
         Just (InCi _) -> True
         Just (Merged _) -> False
+        Just (Kept _) -> False
         Just (Parked _ _) -> False
         Nothing -> False
 

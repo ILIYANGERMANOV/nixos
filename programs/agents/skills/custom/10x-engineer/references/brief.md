@@ -28,7 +28,8 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 `~/.10x/<run>/briefs/<task>.md`, with every field. No pasted research: paths.
 Its head is what `state brief engineer --task <id>` prints in the run
 directory, its last line the child's `state init` with `<dir>` filled:
-`/tmp/engineer-<owner>-<repo>-<branch>/`, or a fresh one on a retry.
+`/tmp/engineer-<owner>-<repo>-<branch>/`, or a fresh one on a retry or a new
+round: `state init` refuses a finished run's directory.
 
 ```markdown
 # <task>

@@ -94,7 +94,7 @@ import State.Run.Event (
     runIdText,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, shaText, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders, outcomeEvent)
 import System.FilePath ((</>))
@@ -370,6 +370,7 @@ taskStateData moved = "state" .= taskStateName moved <> "why" .= why <> "pr" .= 
         InCi url -> (Nothing, Just url)
         InReview url -> (Nothing, Just url)
         Merged url -> (Nothing, Just url)
+        Kept url -> (Nothing, Just url)
         Parked reason parkedPr -> (Just reason, parkedPr)
 
 taskStateOf :: Object -> Parser TaskState
@@ -383,7 +384,7 @@ taskStateOf obj = do
 
 -- | The states that name their PR, by the name 'taskStateName' gives each: @state record task@'s and the log's.
 prStates :: [(Text, Url -> TaskState)]
-prStates = [("ci", InCi), ("review", InReview), ("merged", Merged)]
+prStates = [("ci", InCi), ("review", InReview), ("merged", Merged), ("kept", Kept)]
 
 -- | As @state record task@ names it.
 taskStateName :: TaskState -> Text
@@ -391,6 +392,7 @@ taskStateName = \case
     InCi _ -> "ci"
     InReview _ -> "review"
     Merged _ -> "merged"
+    Kept _ -> "kept"
     Parked _ _ -> "parked"
 
 -- | The arguments @state record task@ takes after the task's id for this state.
@@ -401,6 +403,7 @@ taskStateArgs moved =
             InCi pr -> [urlText pr]
             InReview pr -> [urlText pr]
             Merged pr -> [urlText pr]
+            Kept pr -> [urlText pr]
             Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
 
 startOf :: Object -> Parser Start
@@ -411,16 +414,16 @@ startOf obj =
         <*> (obj .: "principal" >>= principalOf)
         <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
 
--- | The user is a bare word; a parent run is its id, its log and the task it gave.
+-- | The user is a bare word; a parent run is its id, its log, the task it gave and a round's PR.
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser -> text "user"
-    ByRole parent -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task)
+    ByRole parent shape -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task <> shapeData shape)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
     String "user" -> pure ByUser
-    Object obj -> fmap ByRole $ Parent <$> (obj .: "run" >>= runIdOf) <*> obj .: "log" <*> taskOf obj
+    Object obj -> ByRole <$> (Parent <$> (obj .: "run" >>= runIdOf) <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj
     other -> fail ("a principal is \"user\" or {run, log}, not " <> show other)
 
 askingOf :: Object -> Parser Asking

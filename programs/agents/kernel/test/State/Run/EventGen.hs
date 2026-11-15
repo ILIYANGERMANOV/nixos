@@ -113,6 +113,7 @@ genTaskState =
         [ InCi . Url <$> genText
         , InReview . Url <$> genText
         , Merged . Url <$> genText
+        , Kept . Url <$> genText
         , Parked <$> genText <*> Gen.maybe (Url <$> genText)
         ]
 
@@ -140,8 +141,12 @@ genTaskAt i =
         <*> Gen.bool
         <*> Gen.bool
         <*> genSet Gen.enumBounded
+        <*> genShape
   where
     taskNamed n = TaskId ("t" <> Text.pack (show n))
+
+genShape :: Gen Shape
+genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]
 
 -- | A breakdown the test spells, which must be one 'breakdown' accepts.
 tasksOf :: NonEmpty Task -> Tasks
@@ -158,7 +163,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [pure ByUser, fmap ByRole $ Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId]
+        <*> Gen.choice [pure ByUser, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -202,9 +207,10 @@ templates =
     , outcome (ReadySkipped (Url ""))
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty :| [])))
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr :| [])))
               , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
+              , outcome (MergeNextRound fan)
               ]
             | fan <- [minBound .. maxBound]
             ]
@@ -250,6 +256,7 @@ likeIn = \case
         BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
         FanDone fan -> pure (FanDone fan)
         MergeDone fan _ -> MergeDone fan . Url <$> genText
+        MergeNextRound fan -> pure (MergeNextRound fan)
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

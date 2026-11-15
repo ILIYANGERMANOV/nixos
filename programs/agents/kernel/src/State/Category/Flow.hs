@@ -103,7 +103,7 @@ infixr 4 |||
 
 deriving stock instance Show (Flow i e o)
 
-data LoopId = LGather | LPlan | LReview | LCi
+data LoopId = LGather | LPlan | LReview | LCi | LRound
     deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data OptId = ORes | OSimp | ORefactor | OBody | OReady
@@ -164,3 +164,4 @@ loopName = \case
     LPlan -> "plan"
     LReview -> "review"
     LCi -> "ci"
+    LRound -> "round"

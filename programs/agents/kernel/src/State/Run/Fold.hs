@@ -21,6 +21,7 @@ module State.Run.Fold (
     fold,
     append,
     fuelOf,
+    onRound,
     Stuck (..),
     stuck,
     budget,
@@ -50,16 +51,16 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), FanId, LoopId (..), OptId, fanEvent, fanOf)
+import State.Category.Flow (FanEvent (..), FanId, LoopId (..), OptId (OReady), fanEvent, fanName, fanOf, mergeName)
 import State.Category.Fuel (Cfg (..), Fuel (..), SkipWhen (..), cfg)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal, Proposal, QId (..), Question (..), Ruling, deliver)
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal, QId (..), Question (..), Ruling, deliver)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Start (..), StateName (..), Stop, Url, eventId)
+import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Url, eventId)
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
@@ -271,7 +272,7 @@ applyEvent g state = \case
     TaskMoved task moved -> going (inFan (Fan.moved task moved))
     Held task url -> going (inFan (Fan.held task url))
     ActedOn task url -> going (inFan (Fan.actedOn task url))
-    TaskAdded task -> going (inFan (Fan.added task))
+    TaskAdded task -> going (inFan (Fan.added task) >>= reopened g)
     Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
   where
@@ -304,7 +305,7 @@ took g state outcome = do
         Out -> Nothing
         Exit -> Nothing
     case edge.arrow of
-        Skip optId | (cfg (fuelOf state)).skip optId == Never -> Left (NotSkippable optId)
+        Skip optId | not (skips state optId) -> Left (NotSkippable optId)
         Skip _ -> Right ()
         Along _ -> Right ()
         Stay -> Right ()
@@ -354,6 +355,30 @@ fanOutcome outcome fans = case outcome of
     BreakdownDone fan tasks -> (\fresh -> Map.insert fan fresh fans) <$> Fan.broken tasks (fanIn fans fan)
     FanDone fan -> fans <$ Fan.leave (fanIn fans fan)
     MergeDone fan _ -> fans <$ Fan.closed (fanIn fans fan)
+    MergeNextRound fan -> fans <$ Fan.closed (fanIn fans fan)
+
+{- | The Fuel's skips, and @ready@ for a round on an existing PR at every
+Fuel: the PR stays as it is, by the task's shape.
+-}
+skips :: RunState -> OptId -> Bool
+skips state optId = (cfg (fuelOf state)).skip optId /= Never || (optId == OReady && onRound state.start.principal)
+
+-- | The run is a round on a PR that exists already, by its parent's breakdown.
+onRound :: Principal -> Bool
+onRound = \case
+    ByUser -> False
+    ByRole _ OwnPr -> False
+    ByRole _ (RoundOn _) -> True
+
+{- | A task added at a fan-out's merge reopens the fan-out, where it is
+spawned as any task is; the fan-out is left again once every task is settled.
+-}
+reopened :: OpenGraph -> RunState -> Either Refusal RunState
+reopened g state = case state.at of
+    At place | Just fan <- fanOf place.name, place.name == mergeName fan -> overridden g state (fanName fan)
+    At _ -> Right state
+    Out -> Right state
+    Exit -> Right state
 
 -- | The fan-out the run is at: at its breakdown, its own state or its merge.
 fanAt :: Node -> Maybe FanId

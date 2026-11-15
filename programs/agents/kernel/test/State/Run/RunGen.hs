@@ -4,6 +4,7 @@ module State.Run.RunGen (
     tenXGraph,
     tenXAt,
     plainTask,
+    roundTask,
     breakdownJson,
     taskFileJson,
     childOf,
@@ -38,7 +39,7 @@ import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), 
 import State.Category.Step (EventName)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
-import State.Run.Codec (branchText, taskIdText, topicText)
+import State.Run.Codec (branchText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Run.Fold (Append (..), RunState (..), append, replay)
@@ -69,7 +70,11 @@ tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started
 
 -- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
-plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced False False Set.empty
+plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced False False Set.empty OwnPr
+
+-- | A round on the existing PR @pr@: a plain task otherwise.
+roundTask :: Text -> Text -> Task
+roundTask name pr = (plainTask name []) {shape = RoundOn (Url pr)}
 
 -- | The breakdown file the 10x writes for these tasks, in this order.
 breakdownJson :: [Task] -> Text
@@ -81,7 +86,7 @@ taskFileJson = decodeUtf8 . LBS.toStrict . Aeson.encode . taskJson
 
 taskJson :: Task -> Aeson.Value
 taskJson task =
-    object
+    object $
         [ "id" .= taskIdText task.id
         , "deps" .= map taskIdText task.deps
         , "base" .= branchText task.base
@@ -91,6 +96,9 @@ taskJson task =
         , "heavy" .= task.heavy
         , "security" .= map topicText (Set.toList task.security)
         ]
+            <> case task.shape of
+                OwnPr -> []
+                RoundOn url -> ["pr" .= urlText url]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

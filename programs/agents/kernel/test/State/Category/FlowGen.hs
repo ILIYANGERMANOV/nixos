@@ -20,7 +20,7 @@ import Data.Set qualified as Set
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (FanId (..), Flow (..), OnEmpty (..), inl, inr, (|||))
+import State.Category.Flow (FanId (..), Flow (..), LoopId (..), OnEmpty (..), inl, inr, (|||))
 import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (..), cfg)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName, OutcomeEdge (..), StateName)
@@ -53,12 +53,10 @@ genFlow :: Gen (Flow 'Ctx 'Nothing 'PR)
 genFlow = do
     ctx <- genEndo ctxKit
     plan <- genEndo planKit
-    rest <-
-        Gen.choice
-            [ (\diff pr -> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-            , pure (Do (Breakdown FEngineers) :> Par FEngineers (Do PlanS :> Do Implement :> Do Describe) :> Do (Merge FEngineers))
-            ]
-    pure (ctx :> Do PlanS :> plan :> rest)
+    Gen.choice
+        [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
+        , pure (Loop LRound StopOut (ctx :> Do PlanS :> plan :> Do (Breakdown FEngineers) :> Par FEngineers (Do PlanS :> Do Implement :> Do Describe) :> Do (Merge FEngineers)))
+        ]
 
 {- | A term from @Diff@ to @PR@ that branches: a triage whose two branches go
 on, or an injection into a case, whose other branch no run takes.
