@@ -1,6 +1,6 @@
 {"v":4,"id":"r7f2:0","seq":0,"ts":"2025-11-21T00:00:00Z","run":"r7f2","head":null,"session":null,"type":"started","data":{"flow":"engineer","notes":"notes","principal":"user","interface":["ask_user","hooks"]}}
 {"v":4,"id":"r7f2:1","seq":1,"ts":"2025-11-21T00:00:01Z","run":"r7f2","head":null,"session":null,"type":"fuel","data":{"level":"low"}}
-{"v":4,"id":"r7f2:2","seq":2,"ts":"2025-11-21T00:00:02Z","run":"r7f2","head":null,"session":null,"type":"research.done","data":{"n":2}}
+{"v":4,"id":"r7f2:2","seq":2,"ts":"2025-11-21T00:00:02Z","run":"r7f2","head":null,"session":null,"type":"research.done","data":{"n":1}}
 {"v":4,"id":"r7f2:3","seq":3,"ts":"2025-11-21T00:00:03Z","run":"r7f2","head":null,"session":null,"type":"interview.enough","data":{}}
 {"v":4,"id":"r7f2:4","seq":4,"ts":"2025-11-21T00:00:04Z","run":"r7f2","head":null,"session":null,"type":"plan.done","data":{"path":"󥂆"}}
 {"v":4,"id":"r7f2:5","seq":5,"ts":"2025-11-21T00:00:05Z","run":"r7f2","head":null,"session":null,"type":"simplify_plan.done","data":{}}
@@ -16,7 +16,7 @@
 {"v":4,"id":"r7f2:15","seq":15,"ts":"2025-11-21T00:00:15Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
 {"v":4,"id":"r7f2:16","seq":16,"ts":"2025-11-21T00:00:16Z","run":"r7f2","head":null,"session":null,"type":"research.done","data":{"n":0}}
 {"v":4,"id":"r7f2:17","seq":17,"ts":"2025-11-21T00:00:17Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
-{"v":4,"id":"r7f2:18","seq":18,"ts":"2025-11-21T00:00:18Z","run":"r7f2","head":null,"session":null,"type":"research.done","data":{"n":1}}
+{"v":4,"id":"r7f2:18","seq":18,"ts":"2025-11-21T00:00:18Z","run":"r7f2","head":null,"session":null,"type":"research.done","data":{"n":0}}
 {"v":4,"id":"r7f2:19","seq":19,"ts":"2025-11-21T00:00:19Z","run":"r7f2","head":null,"session":null,"type":"interview.more","data":{}}
 {"v":4,"id":"r7f2:20","seq":20,"ts":"2025-11-21T00:00:20Z","run":"r7f2","head":null,"session":null,"type":"research.skipped","data":{}}
 {"v":4,"id":"r7f2:21","seq":21,"ts":"2025-11-21T00:00:21Z","run":"r7f2","head":null,"session":null,"type":"interview.enough","data":{}}

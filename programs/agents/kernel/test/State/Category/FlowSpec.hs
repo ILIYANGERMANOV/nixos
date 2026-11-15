@@ -56,7 +56,7 @@ spec = describe "State.Category.Flow" $ do
 
         it "capping a step with no meter" $
             rejectedShown
-                "No instance for ‘State.Category.Meter.Meter State.Step.Build.Implement’"
+                "Could not deduce ‘State.Category.Meter.Meter State.Step.Build.Implement’"
                 (graph (Capped (always (UpTo 1)) Stop Implement))
 
         {- The loop's out is pinned: left free, the 'NotSum' 'Loop' asks of its exit

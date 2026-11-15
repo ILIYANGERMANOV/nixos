@@ -23,14 +23,14 @@ spec = describe "State.Cli.Render" $ do
                                 , "| draft | you | done: implement |"
                                 ]
 
-    it "renders the Fuel rows from the Fuel table, Low's skips in the flow's order" $
+    it "renders the Fuel rows from the Fuel table: the meters first, then Low's skips in the flow's order" $
         fuel g
             `shouldBe` Text.unlines
-                [ "| Research rounds after the first | up to 3 | up to 8 | up to 12 |"
+                [ "| Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 5, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |"
                 , "| Interview questions | up to 15 | up to 30 | up to 50 |"
+                , "| Re-reviews | up to 1, blockers and Not met fixed only | up to 3 | up to 5 |"
                 , "| Skippable when trivial | `research`, `simplify_plan`, `refactor` | none | none |"
                 , "| Refactor | unless trivial, quick: items 1-3, no `tests.md` | above about 100 changed lines | always |"
-                , "| Re-reviews | up to 1, blockers and Not met fixed only | up to 3 | up to 5 |"
                 , "| Full review of a fix to | data model, auth | data model, auth | interface, data model, auth |"
                 ]
 

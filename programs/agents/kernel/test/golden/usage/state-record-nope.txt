@@ -30,6 +30,8 @@ Available commands:
   pick.loop                [--row <label>]... [--verdict
                            <requirement>=<met|not-met|unverified>]...
   fix.done                 [--touches <area>,...|none]
+  re_review.clean          no arguments
+  re_review.rows           no arguments
   describe.done            no arguments
   simplify_pr.done         no arguments
   simplify_pr.skipped      no arguments

@@ -7,7 +7,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (OpenGraph (..))
+import State.Category.Graph (Cap (..), OpenGraph (..))
+import State.Category.Meter (someMeterName)
 import State.Category.Step (eventText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, optparseText, parseCommand, parseHook)
 import State.Golden (golden)
@@ -15,8 +16,7 @@ import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), oneLineText)
 import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook)
 import State.Run.Fold (Refusal (..), RunState (..))
-import State.Run.Fold qualified as Fold
-import State.Run.RunGen (g, loadSteps, runAt, sha)
+import State.Run.RunGen (g, happyPath, loadSteps, runAt, sha)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Review (Outcome (..))
@@ -117,17 +117,24 @@ spec = describe "State.Cli.Command" $ do
             (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (FuelSetOnce Max))
                 `shouldBe` ("it is max already, set once", "state show")
 
-        it "fixes a question past the gather's questions by ending or extending the interview" $
-            (explain g Balanced (runAt []).at (OutOfAsks 30)).fix
-                `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
+        it "fixes a question past the gather's questions by extending or ending the interview" $
+            (explain g Balanced (runAt researched).at (OutOfBudget (capOf "Interview questions") 30)).fix
+                `shouldBe` "state record extend <why> when the user goes on | state record interview.enough"
 
-        it "fixes a research round past the gather's rounds by ending or extending the interview" $
-            (explain g Balanced (runAt []).at (Fold.OutOfRounds "gather" 9)).fix
-                `shouldBe` "state record interview.enough | state record extend <why> when the user goes on"
+        it "fixes a researcher past the cap by extending, else by the research's own outcomes" $
+            (explain g Balanced (runAt []).at (OutOfBudget (capOf "Researchers") 5)).fix
+                `shouldBe` "state record extend <why> when the user goes on | state record research.done <n> | state record research.skipped"
 
-        it "fixes a round past another loop's rounds by leaving it or stopping" $
-            (explain g Balanced (runAt []).at (Fold.OutOfRounds "review" 4)).fix
-                `shouldSatisfy` Text.isSuffixOf " | state stop rounds <why>"
+        it "fixes a plan round past the cap by confirming or stopping" $
+            (explain g Balanced (runAt planned).at (OutOfBudget (capOf "Plan rounds") 3)).fix
+                `shouldBe` "state record confirm.confirmed | state stop rounds <why>"
+
+        it "fixes a re-review past the cap by the loop's exit alone" $
+            (explain g Balanced (runAt picking).at (OutOfBudget (capOf "Re-reviews") 3)).fix
+                `shouldBe` "state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
+
+        it "explains an extend where no budget asks the user to go on" $
+            (explain g Balanced (runAt []).at NothingToExtend).fix `shouldBe` "state next"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
             [ (explain g fuel (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix
@@ -152,6 +159,15 @@ spec = describe "State.Cli.Command" $ do
         it "of an unknown event" $ golden "usage/state-record-nope.txt" (usageError "state" (parseCommand steps ["record", "nope"]))
         it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
+    -- At interview, at confirm and at the fix loop's pick, past the happy path's first steps.
+    researched = map Took (take 1 happyPath)
+    planned = map Took (take 4 happyPath)
+    picking = map Took (take 8 happyPath) <> [stepTook (ReviewRows sha)]
+    -- The engineer's cap of this meter.
+    capOf :: Text -> Cap
+    capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of
+        [cap] -> cap
+        caps -> error ("no single cap of " <> show meter <> ": " <> show caps)
     -- optparse's text: help asked for on the right, a usage error on the left.
     usage :: String -> Usage -> Either Text Text
     usage program (Usage failure) = case Opt.renderFailure failure program of

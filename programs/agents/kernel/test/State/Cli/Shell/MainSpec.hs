@@ -279,17 +279,17 @@ spec = describe "state over the doubles" $ do
 
                 take 1 advice `shouldBe` ["ASK Stuck the fix loop repeats R1: go on, change course, or stop?"]
 
-            it "gives a Not met at the last round one more round, then exits" $ \world -> do
+            it "refuses a pick.loop past Balanced's 3 re-reviews, then exits by pick.final" $ \world -> do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]
-                _ <- drive world (atReview <> rounds <> reviewRound "R4" ["--verdict", "docs=not-met"] <> [Handback "fixer" ready, Handback "review-lead" reviewed])
+                _ <- drive world (atReview <> rounds <> [Handback "review-lead" reviewed])
 
                 advice <- succeeded =<< state world ["next"]
-                refused <- state world ["record", "pick.loop", "--row", "R5", "--verdict", "docs=not-met"]
+                refused <- state world ["record", "pick.loop", "--row", "R4"]
                 exited <- succeeded =<< state world ["record", "pick.final"]
 
-                take 1 advice `shouldSatisfy` all ("- no review round is left" `Text.isSuffixOf`)
+                take 1 advice `shouldSatisfy` any ("state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - Re-reviews: 3 of 3, none is left" `Text.isSuffixOf`)
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state record: another review round - the loop ran its 4 rounds", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state stop rounds <why>"])
+                    `shouldBe` (2, ["state record: the spend at pick - Re-reviews allows 3 at this Fuel, all spent", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."])
                 recorded exited `shouldBe` ["pick.final -> describe"]
 
         it "puts every ruling of a child run in show and in its hand-back" $ \world -> do

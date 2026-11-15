@@ -13,19 +13,21 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), Name)
+import State.Category.Flow (Flow (..))
 import State.Category.FlowGen (composes, genWalk)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
+import State.Category.Meter (someMeterName)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Path (ty)
 import State.Flow.Engineer (engineer)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
-import State.Run.Event hiding (OutOfRounds)
+import State.Run.Event
 import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
+import State.Run.Fold qualified as Fold
 import State.Run.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, roundTask, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers, researchers)
@@ -115,31 +117,24 @@ spec = describe "State.Run.Fold" $ do
                 path <- evalMaybe (ty g [outcomeEvent took | Took took <- events])
                 assert (composes path)
 
-    it "rounds_never_exceed_the_budget_plus_one" . hedgehog $ do
+    it "never_spends_past_a_cap" . hedgehog $ do
         events <- forAll genAccepted
         states <- traverse (evalEither . replay g . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| events)))
-        let reached = [(loopId, rounds, state) | state <- states, (loopId, rounds) <- Map.toList state.rounds]
-        cover 1 "a loop past its rounds" (any (\(l, rs, s) -> length rs > budgetOf s l) reached)
-        sequence_
-            [ do
-                assert (length rounds <= budgetOf state loopId + 1)
-                assert (length rounds <= budgetOf state loopId || unmetIn (NonEmpty.toList rounds !! (budgetOf state loopId - 1)))
-            | (loopId, rounds, state) <- reached
-            ]
+        let held = [budget | state <- states, budget <- Map.elems (budgets g state)]
+        cover 1 "a used-up budget" (any usedUp held)
+        for_ held $ \budget -> assert (all (budget.spent <=) budget.allows)
 
     -- At the pick, before the fixer runs, so the run can still take the loop's exit.
-    it "refuses a review round past the rounds at the loop pick" $
+    it "refuses a re-review past Low's one at the loop pick" $
         replay g (logOf (started :| FuelSet Low : toReview <> reviewRounds [[], []]))
-            `shouldBe` Left (OutOfRounds "fix" 2)
+            `shouldSatisfy` outOf "Re-reviews" 1
 
-    it "gives one more round after a Not met at the last round, never two" $ do
-        let unmet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
-            once = toReview <> pickRounds [Picks Set.empty Map.empty, unmet] <> [stepTook (FixDone commit), stepTook (ReReviewRows sha)]
-        (.at) <$> replay g (logOf (started :| FuelSet Low : once)) `shouldSatisfy` either (const False) (/= Out)
-        replay g (logOf (started :| FuelSet Low : once <> [stepTook (PickLoop unmet)])) `shouldBe` Left (OutOfRounds "fix" 2)
+    it "takes the loop's exit at Low's used-up pick" $
+        atName <$> replay g (logOf (started :| FuelSet Low : toReview <> reviewRounds [[]] <> [stepTook (FixDone commit), stepTook (ReReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty))]))
+            `shouldBe` Right (Just (StateName "describe"))
 
     it "stuck_after_two_same_rounds" . hedgehog $ do
-        -- Max's 6 rounds: the last round's loop pick is refused, as no round is left.
+        -- Up to Max's 5 re-reviews, each a pick of the loop.
         rows <- forAll (Gen.list (Range.linear 1 5) (Gen.subsequence ["A", "B", "C"]))
         state <- evalEither (replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds rows)))
         let expected = case reverse rows of
@@ -163,7 +158,7 @@ spec = describe "State.Run.Fold" $ do
 
     it "restarts gathering in each round of the plan loop" $ do
         let gather = [outcome (ResearchDone 1), outcome InterviewMore]
-            gathered = concat (replicate 5 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
+            gathered = concat (replicate 4 gather) <> [outcome (ResearchDone 1), outcome InterviewEnough, outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
         Map.map length . (.rounds) <$> replay g (logOf (started :| map Took gathered))
             `shouldBe` Right (Map.fromList [("gather", 2), ("plan", 2)])
 
@@ -259,12 +254,11 @@ pickRounds = \case
     [] -> []
     picks -> stepTook (ReviewRows sha) : intercalate [stepTook (FixDone commit), stepTook (ReReviewRows sha)] [[stepTook (PickLoop p)] | p <- picks]
 
--- | The rounds the engineer's loop allows at the run's level.
-budgetOf :: RunState -> Name -> Int
-budgetOf state loop = fromIntegral (roundsAllowed g (fuelOf state) loop)
-
-unmetIn :: Round -> Bool
-unmetIn latest = any (\case Unmet _ -> True; Row _ -> False; Failing _ -> False) latest.found
+-- | Refused as a spend past the named meter's cap, which allows this many at the run's Fuel.
+outOf :: Text -> Natural -> Either Fold.Refusal a -> Bool
+outOf meter most = \case
+    Left (OutOfBudget cap n) -> someMeterName cap.meter == meter && n == most
+    _ -> False
 
 -- | Any Fuel, then a walk to the end, sometimes with an event from anywhere in the flow.
 genCandidate :: Gen [Event]
@@ -277,18 +271,17 @@ genCandidate = do
     outcomes <- traverse outcomeOf names
     pure (knobs <> map Took outcomes)
 
-{- | The gather loop's two budgets, research rounds and questions at
-interview: neither spends the other, @extend@ grants both again, and each
-entry into the loop starts both afresh.
+{- | The gather loop's two budgets, researchers and questions at interview:
+neither spends the other, @extend@ grants both again, and each entry into
+the loop starts both afresh.
 -}
 gatherBudgets :: Spec
 gatherBudgets = describe "the gather's budgets" $ do
-    it "asks 20 questions at Balanced, spending no research round" $
-        Map.map length . (.rounds) <$> replay g (logOf (started :| researched <> asks 1 20))
-            `shouldBe` Right (Map.fromList [("gather", 1), ("plan", 1)])
+    it "asks 20 questions at Balanced, spending no researcher" $
+        replay g (logOf (started :| researched <> asks 1 20 <> researchedAgain 4)) `shouldSatisfy` isRight
 
     it "refuses the question past Balanced's 30" $
-        replay g (logOf (started :| researched <> asks 1 31)) `shouldBe` Left (OutOfAsks 30)
+        replay g (logOf (started :| researched <> asks 1 31)) `shouldSatisfy` outOf "Interview questions" 30
 
     it "takes a Stuck question past the questions, as asking whether to go on" $
         replay g (logOf (started :| researched <> asks 1 30 <> [askAt 31 Ask.Stuck])) `shouldSatisfy` isRight
@@ -296,31 +289,37 @@ gatherBudgets = describe "the gather's budgets" $ do
     it "counts no question asked off interview" $
         replay g (logOf (started :| asks 1 31)) `shouldSatisfy` isRight
 
-    for_ [(Low, 3), (Balanced, 8), (Max, 12)] $ \(fuel, allowed) ->
-        it ("takes " <> show allowed <> " more research rounds at " <> show fuel <> " and refuses the next") $ do
-            let mores n = FuelSet fuel : researched <> concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
-            replay g (logOf (started :| mores allowed)) `shouldSatisfy` isRight
-            replay g (logOf (started :| mores allowed <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds "gather" (fromIntegral allowed + 1))
+    for_ [(Low, 1), (Balanced, 5)] $ \(fuel, allowed) ->
+        it ("spawns " <> show allowed <> " researchers at " <> show fuel <> " and refuses the next") $ do
+            let rounds n = FuelSet fuel : researched <> researchedAgain (n - 1)
+            replay g (logOf (started :| rounds allowed)) `shouldSatisfy` isRight
+            replay g (logOf (started :| rounds (allowed + 1))) `shouldSatisfy` outOf "Researchers" (fromIntegral allowed)
 
-    it "asks Balanced's 30 questions after its 8 research rounds: neither spends the other" $
+    it "spends a researcher per one spawned, refusing a round past the cap at once" $
+        replay g (logOf (started :| [stepTook (ResearchDone 6)])) `shouldSatisfy` outOf "Researchers" 5
+
+    it "spawns a researcher per group of the plan at Max, as many as the agent counts" $
+        replay g (logOf (started :| FuelSet Max : researched <> researchedAgain 12)) `shouldSatisfy` isRight
+
+    it "asks Balanced's 30 questions after its 5 researchers: neither spends the other" $
         replay g (logOf (started :| spent)) `shouldSatisfy` isRight
 
-    it "grants another 8 research rounds and 30 questions after extend" $ do
-        let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> researchedAgain 8
+    it "grants another 5 researchers and 30 questions after extend" $ do
+        let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> researchedAgain 5
         replay g (logOf (started :| extended)) `shouldSatisfy` isRight
-        replay g (logOf (started :| extended <> [askAt 61 Fact])) `shouldBe` Left (OutOfAsks 30)
-        replay g (logOf (started :| extended <> [stepTook InterviewMore])) `shouldBe` Left (OutOfRounds "gather" 9)
+        replay g (logOf (started :| extended <> [askAt 61 Fact])) `shouldSatisfy` outOf "Interview questions" 30
+        replay g (logOf (started :| extended <> researchedAgain 1)) `shouldSatisfy` outOf "Researchers" 5
 
     it "starts both budgets afresh when the run gathers again after an adjusted plan" $ do
         let adjusted = spent <> [stepTook InterviewEnough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted] <> researched
-        replay g (logOf (started :| adjusted <> asks 31 30 <> researchedAgain 8)) `shouldSatisfy` isRight
+        replay g (logOf (started :| adjusted <> asks 31 30 <> researchedAgain 4)) `shouldSatisfy` isRight
 
     it "refuses extend outside the gather loop" $
-        replay g (logOf (started :| map Took (take 6 happyPath) <> [Extended "why"])) `shouldBe` Left NotGathering
+        replay g (logOf (started :| map Took (take 6 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where
     researched = [stepTook (ResearchDone 1)]
-    -- Balanced's research rounds and questions, all used.
-    spent = researched <> researchedAgain 8 <> asks 1 30
+    -- Balanced's researchers and questions, all used.
+    spent = researched <> researchedAgain 4 <> asks 1 30
     researchedAgain n = concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
     asks from n = [askAt i Fact | i <- [from .. from + n - 1]]
     askAt n kind = Asked (Asking (Question (QId run n) kind (oneLine "a question")) (StateName "interview") Itself)
@@ -351,7 +350,7 @@ tenXRounds = describe "the 10x's rounds" $ do
     it "starts both gather budgets afresh in the next round" $ do
         let spentAgain = round1 <> spent 31
         tenXRun spentAgain `shouldSatisfy` isRight
-        tenXRun (spentAgain <> [askAt 61]) `shouldBe` Left (OutOfAsks 30)
+        tenXRun (spentAgain <> [askAt 61]) `shouldSatisfy` outOf "Interview questions" 30
 
     it "respawns the same task in the next round" $
         atName <$> tenXRun (round1 <> agreed <> [Spawned (childOf "c2" "t1")]) `shouldBe` Right (Just (StateName "engineers"))
@@ -376,9 +375,9 @@ tenXRounds = describe "the 10x's rounds" $ do
     onPr = roundTask "t1" "https://pr/1"
     toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (task :| [])))]
     settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved, stepTook (FanDone engineers)]
-    -- The first round spends Balanced's 8 research rounds and 30 questions, then loops.
+    -- The first round spends Balanced's 5 researchers and 30 questions, then loops.
     round1 = spent 1 <> drop 1 agreed <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 (Kept pr), stepTook (FanDone engineers), stepTook (MergeNextRound engineers)]
-    spent from = [stepTook (ResearchDone 1)] <> concat (replicate 8 [stepTook InterviewMore, stepTook (ResearchDone 1)]) <> map askAt [from .. from + 29]
+    spent from = [stepTook (ResearchDone 1)] <> concat (replicate 4 [stepTook InterviewMore, stepTook (ResearchDone 1)]) <> map askAt [from .. from + 29]
     askAt n = Asked (Asking (Question (QId run n) Fact (oneLine "a question")) (StateName "interview") Itself)
 
 -- | The ask events, on the engineer flow's graph: they never move the run.

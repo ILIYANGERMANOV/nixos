@@ -109,15 +109,14 @@ spec = describe "the state binary" $ do
                 advice <- succeeded =<< state bin repo ["next"]
                 take 1 advice `shouldBe` ["ASK Stuck the fix loop repeats R1: go on, change course, or stop?"]
 
-            it "gives a Not met at the last round one more round, then exits" $ \repo -> do
+            it "refuses a pick.loop past Balanced's 3 re-reviews, then exits by pick.final" $ \repo -> do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]
-                    notMet = ["--verdict", "docs=not-met"]
-                _ <- drive bin repo (atReview <> rounds <> reviewRound "R4" notMet <> [Handback "fixer" ready] <> [Handback "review-lead" reviewed])
+                _ <- drive bin repo (atReview <> rounds <> [Handback "review-lead" reviewed])
                 advice <- succeeded =<< state bin repo ["next"]
-                take 1 advice `shouldSatisfy` all ("- no review round is left" `Text.isSuffixOf`)
-                refused <- state bin repo ["record", "pick.loop", "--row", "R5", "--verdict", "docs=not-met"]
+                take 1 advice `shouldSatisfy` any ("state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - Re-reviews: 3 of 3, none is left" `Text.isSuffixOf`)
+                refused <- state bin repo ["record", "pick.loop", "--row", "R4"]
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state record: another review round - the loop ran its 4 rounds", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state stop rounds <why>"])
+                    `shouldBe` (2, ["state record: the spend at pick - Re-reviews allows 3 at this Fuel, all spent", "fix: state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."])
                 exited <- succeeded =<< state bin repo ["record", "pick.final"]
                 recorded exited `shouldBe` ["pick.final -> describe"]
 
@@ -297,7 +296,7 @@ spec = describe "the state binary" $ do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 writeFile repo.prJson (pullRequest True "OPEN")
                 let tasks = repo.root </> "tasks.json"
-                    gathered = ["research.done", "1"] : concat (replicate 8 [["interview.more"], ["research.done", "1"]])
+                    gathered = ["research.done", "1"] : concat (replicate 4 [["interview.more"], ["research.done", "1"]])
                     agreed = [["interview.enough"], ["plan.done", repo.notes </> "plan.md"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
                 Text.writeFile tasks (breakdownJson [roundTask "t1" prUrl])
                 for_ (gathered <> agreed) (succeeded <=< state bin repo . ("record" :))
@@ -309,10 +308,10 @@ spec = describe "the state binary" $ do
                 merging <- succeeded =<< state bin repo ["next"]
                 recorded merging `shouldBe` ["engineers.done -> merge"]
                 drop 1 merging `shouldSatisfy` mentions "RUN state record merge.done <url> | state record merge.next_round"
-                for_ (["merge.next_round"] : gathered) (succeeded <=< state bin repo . ("record" :))
-                spent <- state bin repo ["record", "interview.more"]
+                for_ (["merge.next_round"] : gathered <> [["interview.more"]]) (succeeded <=< state bin repo . ("record" :))
+                spent <- state bin repo ["record", "research.done", "1"]
                 spent.code `shouldBe` 2
-                for_ agreed (succeeded <=< state bin repo . ("record" :))
+                for_ (["research.done", "0"] : agreed) (succeeded <=< state bin repo . ("record" :))
                 respawn <- succeeded =<< state bin repo ["next"]
                 take 1 respawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
@@ -575,7 +574,7 @@ simplified sha = "READY\nSimplified: " <> sha <> "\n"
 -- | From the start to the draft PR and a first commit on it.
 toImplement :: Repo -> [Act]
 toImplement repo =
-    [ Record ["research.done", "2"]
+    [ Record ["research.done", "1"]
     , Record ["interview.enough"]
     , Record ["plan.done", repo.notes </> "plan.md"]
     , Handback "researcher" ready

@@ -310,7 +310,7 @@ simplified sha = "READY\nSimplified: " <> sha <> "\n"
 -- | From the start to the draft PR and a first commit on it.
 toImplement :: [Act]
 toImplement =
-    [ Record ["research.done", "2"]
+    [ Record ["research.done", "1"]
     , Record ["interview.enough"]
     , Record ["plan.done", Text.pack (notes </> "plan.md")]
     , Handback "researcher" ready

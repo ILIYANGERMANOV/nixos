@@ -72,31 +72,27 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts (tenXRun [stepTook (ResearchDone 1)]) `shouldBe` interviewing
 
         it "asks the user whether to go on once the questions are used up" $
-            next noFacts (runAt (knobs Balanced <> researched <> questions 30)) `shouldBe` Ask Stuck "gather used its 30 questions: go on?"
+            next noFacts (runAt (knobs Balanced <> researched <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
 
         it "asks the user whether to go on at the questions' end, after a Stuck question before it" $ do
             let stuckFirst = [Asked (Asking goOn interview Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt (knobs Balanced <> researched <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "gather used its 30 questions: go on?"
+            next noFacts (runAt (knobs Balanced <> researched <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30: go on?"
 
-        it "asks the user whether to go on once the research rounds are used up" $
-            next noFacts (runAt (knobs Low <> researched <> researchedAgain 3)) `shouldBe` Ask Stuck "gather used its 3 research rounds: go on?"
+        it "asks the user whether to go on at research once the researchers are used up" $
+            next noFacts (runAt (knobs Low <> researched <> [stepTook InterviewMore])) `shouldBe` Ask Stuck "Researchers: 1 of 1: go on?"
 
         it "extends on the user's yes, or ends the interview" $ do
-            let onStuck = knobs Low <> researched <> researchedAgain 3 <> [Asked (Asking goOn interview Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
+            let onStuck = knobs Balanced <> researched <> questions 30 <> [Asked (Asking goOn interview Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
             next noFacts (runAt onStuck) `shouldBe` Run "state record extend <why> when the user goes on | state record interview.enough"
             next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` interviewing
 
     describe "pick" $ do
-        it "offers pick.loop while a review round is left" $
+        it "offers pick.loop while a re-review is left" $
             next noFacts (atPick Balanced [])
-                `shouldSatisfy` runs ("state record pick.loop" `Text.isPrefixOf`)
+                `shouldSatisfy` runs ("state record pick.loop" `Text.isInfixOf`)
 
-        it "offers the last review round's pick.loop only with a Not met" $
+        it "offers only pick.final once no re-review is left" $
             next noFacts (atPick Low looped)
-                `shouldSatisfy` runs (\command -> "state record pick.final" `Text.isPrefixOf` command && "only with a not-met verdict" `Text.isInfixOf` command)
-
-        it "offers only pick.final once no review round is left" $
-            next noFacts (atPick Low (looped <> [stepTook (PickLoop notMet), stepTook (FixDone commit), stepTook (ReReviewRows sha)]))
                 `shouldSatisfy` runs (\command -> "state record pick.final" `Text.isPrefixOf` command && not ("pick.loop" `Text.isInfixOf` command))
 
     describe "confirm" $ do
@@ -289,7 +285,6 @@ spec = describe "State.Protocol.Advice" $ do
     parent = runId "p1"
     child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")) OwnPr, interface = Set.empty}
     which = Question (QId run 1) Design (oneLine "which store?")
-    notMet = Picks Set.empty (Map.singleton (Requirement "R1") NotMet)
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
     atImplement = runAt (knobs Balanced <> map Took (take 6 happyPath))
@@ -300,7 +295,6 @@ spec = describe "State.Protocol.Advice" $ do
     interview = StateName "interview"
     researched = [stepTook (ResearchDone 1)]
     atInterview = runAt (knobs Balanced <> researched)
-    researchedAgain n = concat (replicate n [stepTook InterviewMore, stepTook (ResearchDone 1)])
     -- Each put to the user and answered.
     questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) interview Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
     goOn = Question (QId run 100) Stuck (oneLine "go on?")

@@ -89,8 +89,9 @@ spec = describe "laws" $ do
             f <- forAll (Gen.filter (isRight . graph) genFlow)
             (unscoped "inner" <$> graph (Scope "inner" f)) === graph f
 
+        -- Of a series that builds: a clash inside the scope is named bare on one side, scoped on the other.
         it "scope_distributes_over_series" . hedgehog $ do
-            (f, g) <- forAll ((,) <$> genExiting diffKit <*> genBranching)
+            (f, g) <- forAll (Gen.filter (\(f, g) -> isRight (graph (f :> g))) ((,) <$> genExiting diffKit <*> genBranching))
             drawn (Scope "inner" (f :> g)) === drawn (Scope "inner" f :> Scope "inner" g)
 
         it "nested_scopes_are_one_scope_of_both_names" . hedgehog $ do
