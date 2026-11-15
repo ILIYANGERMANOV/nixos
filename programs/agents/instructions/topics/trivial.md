@@ -13,5 +13,5 @@ except at POC.
   credentials: check before implementing.
 - When it stops qualifying, the engineer sets `Size: Normal` for good, as on
   `GREW`.
-- What it skips: `~/.claude/skills/engineer/references/trivial.md`, read only
-  when used.
+- What it skips: `~/.claude/skills/engineer/references/trivial.md`, read when
+  used.

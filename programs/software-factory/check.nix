@@ -148,6 +148,7 @@ let
     (import ../agents {
       inherit pkgs lib;
       inherit (import ../playwright { inherit pkgs; }) qa;
+      haskell = import ../haskell { inherit pkgs; };
     }).skills.mkCheck
       factory.admin.skills;
 

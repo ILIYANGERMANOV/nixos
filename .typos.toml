@@ -11,8 +11,9 @@
 # the next rotation and blind us to a real one in prose. A glob rather than a list
 # so a new host's file is covered without touching this.
 #
-# A lock file holds generated names and hashes, not prose.
-extend-exclude = ["/secrets/**/*.yaml", "pnpm-lock.yaml"]
+# A lock file holds generated names and hashes, not prose; so do the kernel's
+# golden v3 logs, whose random shas (`DBE`, `Ba`) read as typos.
+extend-exclude = ["/secrets/**/*.yaml", "pnpm-lock.yaml", "/programs/agents/kernel/test/golden/v3-logs/*.jsonl"]
 
 [default.extend-words]
 # The nvim-noice plugin. Lowercase covers `Noice` and `NoiceDismiss` too, since

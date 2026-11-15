@@ -6,8 +6,13 @@ back to the user. Now each step is a state with named arrows. A Quality mode or
 a Size only skips arrows. A worker hands a blocking question back, and the
 engineer sorts it.
 
-Amended by #317, #318, #324, #326 and #328. This text describes the current
-flow.
+Amended by #317, #318, #324, #326 and #328. Superseded by ADR 0018: the
+flow is a typed path the Haskell `state` checks, and the `## States` table is
+rendered from it. This text describes the flow before ADR 0018.
+
+Amended by #376: the `alternative` proposal is gone. Step 3 runs `simplify`
+only, and Confirm asks yes or adjust on the simplified plan. The lines below
+read that way.
 
 The spec is the `## States` table in
 `programs/agents/skills/custom/engineer/SKILL.md`, with detail in its
@@ -26,10 +31,9 @@ stateDiagram-v2
   state "3 - Propose: confirm the plan" as Propose {
     [*] --> Proposal
     Proposal --> Revised1: simplify
-    Revised1 --> Pair: alternative
-    Pair --> Plan: pi1 / pi2
+    Revised1 --> Plan: confirm
   }
-  Pair --> Ctx: adjust
+  Revised1 --> Ctx: adjust
   Plan --> DraftPlan: draft PR
   DraftPlan --> Implement: implement
   Implement --> Refactor: refactor
@@ -44,7 +48,6 @@ stateDiagram-v2
   PR --> PR: CI fix
   PR --> [*]: green, ready
   Revised1: Revised
-  Pair: Revised x Revised
   note left of Ctx
     From any state
     NEEDS_DECISION goes to triage
@@ -55,7 +58,7 @@ stateDiagram-v2
 | Step | State | Spec |
 |---|---|---|
 | 1-2 | Ctx | `engineer/SKILL.md` Research, Interview |
-| 3 | Propose (plan values Proposal, Revised, Revised x Revised, Plan) | Confirm the plan |
+| 3 | Propose (plan values Proposal, Revised, Plan) | Confirm the plan |
 | 4 | DraftPlan | Open a draft PR |
 | 5 | Implement | Implement |
 | 6 | Refactor | Refactor; `fixed` before it stays |
@@ -64,11 +67,9 @@ stateDiagram-v2
 | 9 | DraftPR | Describe and notify: R0 already wrote the body |
 | 10 | PR | Hand over, `references/review.md` CI fix |
 
-- **Adjust** goes back to Ctx and keeps what was learned. Proposals rerun only
-  when the approach changed.
-- **Confirm is a projection**: the first plan is `pi1`, the second `pi2`.
-- **POC, or an alternative that returns the identity**, asks yes or no
-  instead of first or second: on the diagonal `(p, p)`, `pi1 = pi2`.
+- **Adjust** goes back to Ctx and keeps what was learned. The simplify pass
+  reruns only when the approach changed.
+- **Confirm asks yes or adjust** on the simplified plan.
 - **Stuck guard** (`engineer/SKILL.md` Rules): the same failing check or the
   same review row in 2 rounds in a row asks the user. Delegated, it hands back
   `NEEDS_DECISION stuck: <check or row>`. A re-plan does not reset it.
@@ -102,28 +103,25 @@ table.
 >           | Stuck (Either Check Row)
 > ```
 >
-> The world holds the current plan, and step 3 acts on it through three pure
+> The world holds the current plan, and step 3 acts on it through two pure
 > functions. `Revised` and `Plan` name a stage, not a new type:
 >
 > ```haskell
 > type Revised = Proposal  -- a revised plan
 > type Plan    = Proposal  -- the confirmed plan
-> simplify    :: Proposal -> Revised
-> alternative :: Revised -> (Revised, Revised)  -- p |-> (p, q), or (p, p)
-> confirm     :: (Revised, Revised) -> Plan   -- fst (pi1) or snd (pi2)
+> simplify :: Proposal -> Revised
+> confirm  :: Revised -> Plan  -- id: the user says yes
 > ```
 >
-> So `alternative . simplify :: Proposal -> (Revised, Revised)`, the
-> `Revised x Revised` state. The world's plan slot holds the stage's value: a
-> `Proposal`, a `Revised x Revised` pair or a `Plan`. Each step-3 edge lifts its `f`
+> The world's plan slot holds the stage's value: a `Proposal`, a `Revised`
+> or a `Plan`. Each step-3 edge lifts its `f`
 > to `pure . over plan f`, a Kleisli arrow on `W`. The researcher's run is
 > the effect that computes `f`, and it can still stop with a `Left`.
 >
 > A mode is a functor from that free category into this Kleisli category. It
 > sends a skipped path to arrows that compose to `pure`, the Kleisli
-> identity. Trivial sends `simplify` to the lift of `id`, `alternative` to
-> the lift of the diagonal `\p -> (p, p)` and confirm to the lift of `fst`.
-> Their composite `fst . (\p -> (p, p)) . id = id` lifts to `pure`, and
+> identity. Trivial sends `simplify` and confirm to the lift of `id`.
+> Their composite `id . id = id` lifts to `pure`, and
 > Trivial sends `plan` to writing its short plan, so its Ctx to Plan path is
 > that one write. The skip lives in the functor, not
 > the graph, since the free category has no arrow between two distinct states
@@ -136,7 +134,7 @@ table.
 |---|---|---|---|---|---|---|
 | 1, fact gap | `researcher` | Quality row, one first | bg | code, docs, web | `research-<topic>.md` | ranked index |
 | 2 | engineer, `grilling` | - | in turn | research notes, the user's answers | - (feeds step 3) | - |
-| 3 | `researcher`, proposal mode | one runs simplify, then alternative on its output | bg | `plan.md` | `proposal-<mode>.md` | the plans |
+| 3 | `researcher`, proposal mode | one runs simplify | bg | `plan.md` | `proposal-simplify.md` | the plan |
 | 4 | engineer | - | in turn | plan | branch, draft PR, `report.md` | - |
 | 5 | `implementer` | one per slice, a successor at 150k | bg | plan, slice, notes | commits | stop rule line |
 | 6 | `refactorer` | 1, fresh | bg | `ctx diff` | commits | proposals |
@@ -310,7 +308,7 @@ the branch name (`engineer/SKILL.md` Rules).
 |---|---|---|---|
 | `research-<topic>.md` | researcher | engineer, implementers | the task |
 | `plan.md` | engineer, step 3 | every brief, by path | rewritten on re-plan |
-| `proposal-simplify.md`, `proposal-alternative.md` | proposal researcher | engineer, step 3 | per plan |
+| `proposal-simplify.md` | proposal researcher | engineer, step 3 | per plan |
 | `requirements.md` | engineer, step 7 | every review, `/final-review` | rewritten on re-plan |
 | `requirements-fixes.md` | engineer, from round 2 | `--fixes` reviews | fresh copy on re-plan |
 | `report.md` | engineer, after each step | a fresh context on resume | the task |
@@ -379,10 +377,8 @@ never asks the user, and stops before the CI wait. It hands back `READY`,
   requirement, new scope, or a data-model or auth redesign.
 - **Proposals are one researcher in proposal mode**
   (`researcher/references/proposal.md`): `simplify : Proposal -> Revised` revises
-  the plan, then `alternative : Revised -> Revised x Revised` pairs it with
-  another plan, or with itself (the diagonal) when it returns the identity.
-  Confirm projects with `pi1` or `pi2`, and adjust goes back to Ctx. Both
-  end in a MADR-style `Considered options` table (https://adr.github.io/madr/).
+  the plan. Confirm says yes, and adjust goes back to Ctx. It ends in a
+  MADR-style `Considered options` table (https://adr.github.io/madr/).
 - **Diffs come from `ctx`**, a cached folder read by ranges, so a diff is built
   once per head (`docs/adr/0013-deterministic-programs-over-instructions.md`).
 - **A progress file in every mode**, so a fresh context resumes from it and

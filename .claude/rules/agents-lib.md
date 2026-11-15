@@ -38,9 +38,14 @@ paths:
   file, the table and self-improve aside, holds a mode table row, the old
   `, Trivial` suffix or a self-activation phrase.
 - `passes/budget.nix` - the agnostic size budget (`agents-frontend.md`).
-- `role.nix` - `mkRole` throws on any unknown field, capability, tier or
-  effort: a backend's format may ignore a misspelled field, and a dropped
+- `role.nix` - `mkRole` throws on any unknown field, capability, operation,
+  tier or effort: a backend's format may ignore a misspelled field, and a dropped
   tool list would widen a role.
+- `derive.nix` - derived roles, stage A (#351 section 8): a role's
+  capabilities, skills, operations and prose are the union of its rows in
+  `flows/steps.nix`, its `steps` and `offFlow` work; `engineer` and `review-lead` preload only the prose
+  every step needs. Its check holds the laws `derived_role_holds_every_step_need`,
+  `derived_role_holds_nothing_else` and `derived_equals_recorded_golden`.
 - `mcp.nix` - MCP without a wire format: `mkLocal`, `mkRemote`, `selectServers`
   (an unknown name throws), `availableServers` (a server whose secret the host
   lacks is dropped silently) and `provided` (the same for secret files).

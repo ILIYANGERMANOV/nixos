@@ -10,5 +10,6 @@
 import "${root}/programs/agents" {
   inherit pkgs lib secrets;
   inherit (import "${root}/programs/playwright" { inherit pkgs; }) qa;
+  haskell = import "${root}/programs/haskell" { inherit pkgs; };
   externalSrcs.mattpocock = inputs.mattpocock-skills;
 }

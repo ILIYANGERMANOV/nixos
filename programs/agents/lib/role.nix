@@ -19,6 +19,8 @@ let
   # renderer puts the instructions every agent gets in front of them.
   # capabilities: what it may do, from `capabilities` below.
   # skills: catalog skills it starts with loaded.
+  # operations: what it may call, `ask`, `await`, `notify` or `spawn:<role>`.
+  # No harness enforces them yet; a check holds them equal to its steps'.
   # tier, effort: null inherits from whoever spawns it.
   fields = [
     "name"
@@ -26,6 +28,7 @@ let
     "instructions"
     "capabilities"
     "skills"
+    "operations"
     "tier"
     "effort"
   ];
@@ -36,6 +39,11 @@ let
     "web"
     "delegate"
     "skill"
+  ];
+  operations = [
+    "ask"
+    "await"
+    "notify"
   ];
   tiers = [
     null
@@ -58,6 +66,11 @@ let
       lib.subtractLists capabilities (record.capabilities or [ ])
     )
     ++ map (skill: "${skill} is not in the skill catalog") (lib.subtractLists skillNames record.skills)
+    ++ map (operation: "unknown operation ${operation}") (
+      lib.filter (
+        operation: !(lib.elem operation operations || lib.hasPrefix "spawn:" operation)
+      ) record.operations
+    )
     ++ lib.optional (!lib.elem record.tier tiers) "unknown tier"
     ++ lib.optional (!lib.elem record.effort efforts) "unknown effort";
 
@@ -66,6 +79,7 @@ let
     let
       record = {
         skills = [ ];
+        operations = [ ];
         tier = null;
         effort = null;
       }
@@ -107,6 +121,20 @@ let
     assert lib.assertMsg (rejected (
       valid // { skills = [ "no-such-skill" ]; }
     )) "mkRole accepted an unknown skill";
+    assert lib.assertMsg (
+      !rejected (
+        valid
+        // {
+          operations = [
+            "ask"
+            "spawn:reviewer"
+          ];
+        }
+      )
+    ) "mkRole refused known operations";
+    assert lib.assertMsg (rejected (
+      valid // { operations = [ "delegate" ]; }
+    )) "mkRole accepted an unknown operation";
     assert lib.assertMsg (rejected (valid // { tier = "huge"; })) "mkRole accepted an unknown tier";
     assert lib.assertMsg (rejected (valid // { effort = "hgih"; })) "mkRole accepted an unknown effort";
     assert lib.assertMsg (
@@ -115,5 +143,10 @@ let
     pkgs.writeText "role-check" "";
 in
 {
-  inherit mkRole discover check;
+  inherit
+    mkRole
+    discover
+    check
+    capabilities
+    ;
 }

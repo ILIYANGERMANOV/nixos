@@ -1,0 +1,5 @@
+-- The runners (programs/haskell) and HLS build here against the dev shell's GHC
+-- and its package set, never Hackage. Tests on, so `cabal build all`,
+-- `cabal test` and the repl share one build plan.
+packages: .
+tests:    True
