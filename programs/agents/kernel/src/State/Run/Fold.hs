@@ -25,7 +25,6 @@ module State.Run.Fold (
     stuck,
     budget,
     roundsSpent,
-    interviewAsks,
     roundOnly,
     flowRole,
     nextQId,
@@ -86,8 +85,15 @@ data RunState = RunState
     -- ^ Oldest first.
     , everAsked :: Set QId
     -- ^ Every question asked, open or closed: a retried ask is refused, so it is never ruled twice.
+    , interviewAsks :: Natural
+    {- ^ The questions asked at interview since the run entered the gather loop,
+    or extended it: none outside it.
+    -}
     , askedHere :: [Kind]
-    -- ^ The kinds asked since the run last moved, oldest first: advice asks a step's question once.
+    {- ^ The kinds asked since the run last moved, oldest first: advice asks a step's
+    question once. Also emptied when the interview's questions run out, so the
+    question whether to go on is asked after that, whatever was asked before.
+    -}
     , rulings :: [Ruling]
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     , answers :: [Answer]
@@ -120,10 +126,8 @@ data Waits
       ForAnswer
     deriving stock (Eq, Show)
 
-{- | What went wrong in one round of a loop, which the stuck guard compares
-two of, and the questions the run asked at interview in it.
--}
-data Round = Round {found :: Set Problem, asks :: Natural}
+-- | What went wrong in one round of a loop, which the stuck guard compares two of.
+newtype Round = Round {found :: Set Problem}
     deriving stock (Eq, Show)
 
 data Problem = Row Label | Unmet Requirement | Failing Check
@@ -207,6 +211,7 @@ begin g envelope = case runStart envelope.event of
                 , refused = Nothing
                 , pending = []
                 , everAsked = Set.empty
+                , interviewAsks = 0
                 , askedHere = []
                 , rulings = []
                 , answers = []
@@ -309,7 +314,7 @@ took g state outcome = do
     rounds <- enter g (cfg (fuelOf state)).rounds edge.back state.at edge.to noted
     for_ (roundOnly g edge.to) $ \loopId ->
         traverse_ (nextRound loopId ((cfg (fuelOf state)).rounds loopId)) (Map.lookup loopId rounds)
-    Right state {at = edge.to, rounds, fans, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
+    Right state {at = edge.to, rounds, fans, interviewAsks = asksInside rounds state.interviewAsks, askedHere = [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
 
 {- | What an outcome changes besides the run's place: its problems join the
 rounds it ends, and it may move a fan-out or name the run's PR.
@@ -388,18 +393,19 @@ roundOnly g = \case
 asked :: RunState -> Asking -> Either Refusal RunState
 asked state asking
     | Set.member qid state.everAsked = Left (AskedTwice qid)
-    | interviews && interviewAsks state >= allowed = Left (OutOfAsks allowed)
+    | interviews && state.interviewAsks >= allowed = Left (OutOfAsks allowed)
     | otherwise =
         Right
             state
                 { pending = state.pending <> [Pending asking ForTriage]
                 , everAsked = Set.insert qid state.everAsked
-                , askedHere = state.askedHere <> [asking.question.kind]
-                , rounds = if interviews then Map.adjust (lastRound (\(Round problems n) -> Round problems (n + 1))) LGather state.rounds else state.rounds
+                , interviewAsks = asks
+                , askedHere = if interviews && asks >= allowed then [] else state.askedHere <> [asking.question.kind]
                 }
   where
     qid = asking.question.qid
     allowed = (cfg (fuelOf state)).asks
+    asks = if interviews then state.interviewAsks + 1 else state.interviewAsks
     -- The run's own question to the user at interview; asking whether to go on spends none.
     interviews = case (asking.from, asking.question.kind) of
         (Itself, Ask.Stuck) -> False
@@ -407,16 +413,21 @@ asked state asking
         (Subagent _, _) -> False
         (ChildRun _, _) -> False
 
--- | The questions asked at interview since the run entered the gather loop, or extended it.
-interviewAsks :: RunState -> Natural
-interviewAsks state = maybe 0 (sum . fmap (.asks)) (Map.lookup LGather state.rounds)
+{- | The interview's questions after a move into these rounds: none outside the
+gather loop, so each entry starts afresh. Only the plan loop restarts gathering,
+and its back edge leaves from outside the gather loop.
+-}
+asksInside :: Map LoopId (NonEmpty Round) -> Natural -> Natural
+asksInside rounds asks
+    | Map.member LGather rounds = asks
+    | otherwise = 0
 
 {- | The gather loop starts afresh where it is, so it has its research rounds
 and questions again; the run may ask whether to go on once more.
 -}
 extended :: RunState -> Either Refusal RunState
 extended state
-    | Map.member LGather state.rounds = Right state {rounds = Map.insert LGather firstRound state.rounds, askedHere = []}
+    | Map.member LGather state.rounds = Right state {rounds = Map.insert LGather firstRound state.rounds, interviewAsks = 0, askedHere = []}
     | otherwise = Left NotGathering
 
 retagged :: RunState -> QId -> Either Refusal RunState
@@ -503,7 +514,7 @@ overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> place.name == target) (places g)) of
     [place] -> do
         rounds <- enter g (cfg (fuelOf state)).rounds Nothing state.at (At place) state.rounds
-        Right state {at = At place, rounds, askedHere = []}
+        Right state {at = At place, rounds, interviewAsks = asksInside rounds state.interviewAsks, askedHere = []}
     _ -> Left (NoSingleState target)
 
 {- | The rounds after a move from one node to another. A loop's own back edge
@@ -550,10 +561,10 @@ budget allowed latest
         Failing _ -> False
 
 firstRound :: NonEmpty Round
-firstRound = Round Set.empty 0 :| []
+firstRound = Round Set.empty :| []
 
 noteProblems :: Set Problem -> NonEmpty Round -> NonEmpty Round
-noteProblems new = lastRound (\(Round problems n) -> Round (problems <> new) n)
+noteProblems new = lastRound (\(Round problems) -> Round (problems <> new))
 
 lastRound :: (Round -> Round) -> NonEmpty Round -> NonEmpty Round
 lastRound change rounds = case NonEmpty.reverse rounds of

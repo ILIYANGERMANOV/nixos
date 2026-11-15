@@ -75,6 +75,10 @@ spec = describe "State.Protocol.Advice" $ do
         it "asks the user whether to go on once the questions are used up" $
             next noFacts (runAt (knobs Balanced <> researched <> questions 30)) `shouldBe` Ask Stuck "gather used its 30 questions: go on?"
 
+        it "asks the user whether to go on at the questions' end, after a Stuck question before it" $ do
+            let stuckFirst = [Asked (Asking goOn interview Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
+            next noFacts (runAt (knobs Balanced <> researched <> stuckFirst <> questions 30)) `shouldBe` Ask Stuck "gather used its 30 questions: go on?"
+
         it "asks the user whether to go on once the research rounds are used up" $
             next noFacts (runAt (knobs Low <> researched <> researchedAgain 3)) `shouldBe` Ask Stuck "gather used its 3 research rounds: go on?"
 

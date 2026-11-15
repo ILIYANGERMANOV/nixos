@@ -51,7 +51,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, interviewAsks, nextQId, roundsSpent, stuck)
+import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, roundsSpent, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
@@ -300,7 +300,7 @@ spentAtGather state = case Map.lookup LGather state.rounds of
     Nothing -> []
     Just rounds ->
         [tshow (reResearches (fuelOf state)) <> " research rounds" | roundsSpent (allowed.rounds LGather) rounds]
-            <> [tshow allowed.asks <> " questions" | interviewAsks state >= allowed.asks]
+            <> [tshow allowed.asks <> " questions" | state.interviewAsks >= allowed.asks]
   where
     allowed = cfg (fuelOf state)
 
@@ -373,8 +373,8 @@ it, only @pick.final@.
 -}
 pickCommand :: RunState -> Text
 pickCommand state
-    | done < budget allowed (Round Set.empty 0) = Text.intercalate " | " [loop, final]
-    | done < budget allowed (Round (Set.singleton (Unmet anyRequirement)) 0) =
+    | done < budget allowed (Round Set.empty) = Text.intercalate " | " [loop, final]
+    | done < budget allowed (Round (Set.singleton (Unmet anyRequirement))) =
         final <> " | " <> loop <> " only with a not-met verdict: the last round"
     | otherwise = final <> " - no review round is left"
   where
@@ -404,7 +404,7 @@ factLines facts state =
         <> [ loopName loopId <> " round " <> tshow (length rounds) <> " of " <> tshow ((cfg (fuelOf state)).rounds loopId)
            | (loopId, rounds) <- Map.toList (Map.map NonEmpty.toList state.rounds)
            ]
-        <> ["questions: " <> tshow (interviewAsks state) <> " of " <> tshow (cfg (fuelOf state)).asks | Map.member LGather state.rounds]
+        <> ["questions: " <> tshow state.interviewAsks <> " of " <> tshow (cfg (fuelOf state)).asks | Map.member LGather state.rounds]
         <> ["changed lines: " <> tshow changed | Just changed <- [facts.changedLines]]
         <> ["PR: " <> urlText pr.draft.url <> readinessText pr.readiness | Just pr <- [facts.pr]]
         <> [taskLine fan (map (.asking.question.qid) state.pending) task | fan <- Map.elems state.fans, task <- fan.tasks]
