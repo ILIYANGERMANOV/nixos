@@ -50,7 +50,7 @@ from a higher layer, lowest first:
 | Layer | Holds |
 |---|---|
 | `State/Category/`, `State/Step/` | types, flow terms, graph, mode; the step layers and their `Catalog` |
-| `State/Block.hs`, `State/Flow/`, `State/Role.hs`, `State/Table.hs` | the named flows, the roles that lead them, the step table |
+| `State/Flow/` (with `Library.hs`), `State/Role.hs`, `State/Table.hs` | the named flows, the roles that lead them, the step table |
 | `State/Run/` | log, codec, fold, who answers (`Ask`) |
 | `State/Protocol/` | advice, hand-backs, hooks, the `record` grammar |
 | `State/Cli/` | commands, views, the effect shell |

@@ -56,14 +56,14 @@ packageFiles dir = do
 -- | The modules a flow is built from; none may know who runs it.
 flowModules :: [String]
 flowModules =
-    [ "State.Block"
-    , "State.Category.Flow"
+    [ "State.Category.Flow"
     , "State.Category.Fuel"
     , "State.Category.Graph"
     , "State.Category.Path"
     , "State.Category.Step"
     , "State.Category.Ty"
     , "State.Flow.Engineer"
+    , "State.Flow.Library"
     , "State.Flow.TenX"
     ]
 
@@ -75,7 +75,7 @@ agents; and the command line.
 layers :: [[String]]
 layers =
     [ ["State.Category.", "State.Step."]
-    , ["State.Block", "State.Flow.", "State.Role", "State.Table"]
+    , ["State.Flow.", "State.Role", "State.Table"]
     , ["State.Run."]
     , ["State.Protocol."]
     , ["State.Cli."]

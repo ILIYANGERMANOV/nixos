@@ -21,11 +21,11 @@ import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel,
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Flow.Library (gatherLoop, reviewLoop)
-import State.Step.Build (Sing (Refactor))
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
 import State.Show (tshow)
+import State.Step.Build (Sing (Refactor))
 import State.Step.Catalog (AnyStep (..), stepNamed)
 import State.Table (Row (runner), Runner (..), Steps, row)
 

@@ -8,8 +8,8 @@ import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Flow (..), OnEmpty (..), inl, inr, (|||))
-import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, redrawn)
+import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)

@@ -1,7 +1,7 @@
 module State.Flow.LibrarySpec (spec) where
 
-import Data.List (nub)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import State.Category.Fuel (Fuel (..), PerFuel (..), SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Edge (..), Empty (..), LoopAt (..), OpenGraph (..), graph)
 import State.Flow.Engineer (engineer)
@@ -38,6 +38,6 @@ spec = Hspec.describe "State.Flow.Library" $ do
 
     it "leaves research, the plan's simplify and the refactor skippable at Low only" $
         [(level, skippable level <$> graph engineer) | level <- [minBound .. maxBound]]
-            `shouldBe` [(Low, Right ["refactor", "research", "simplify_plan"]), (Balanced, Right []), (Max, Right [])]
+            `shouldBe` [(Low, Right (Set.fromList ["refactor", "research", "simplify_plan"])), (Balanced, Right Set.empty), (Max, Right Set.empty)]
   where
-    skippable level g = nub [name | Edge {arrow = Skip name when} <- Map.elems g.edges, atFuel level when == Skippable]
+    skippable level g = Set.fromList [name | Edge {arrow = Skip name when} <- Map.elems g.edges, atFuel level when == Skippable]

@@ -41,6 +41,7 @@ import State.Category.Fuel (Cfg (..), SkipWhen (..), atFuel, cfg, fuelLabel, fue
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
+import State.Flow.Library (gatherLoop, reviewLoop)
 import State.Protocol.Handback (stopLine)
 import State.Protocol.Record (extendCommand, recordCommand)
 import State.Role (FlowName (..))
@@ -51,7 +52,6 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Flow.Library (gatherLoop, reviewLoop)
 import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, roundsAllowed, roundsSpent, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))

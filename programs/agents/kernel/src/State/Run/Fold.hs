@@ -57,6 +57,7 @@ import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel,
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
+import State.Flow.Library (gatherLoop)
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal, QId (..), Question (..), Ruling, deliver)
@@ -66,7 +67,6 @@ import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcomeEvent)
-import State.Flow.Library (gatherLoop)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
 import State.Step.Gather (Sing (Interview))
 import State.Step.Review (Outcome (..), ReviewStep)
