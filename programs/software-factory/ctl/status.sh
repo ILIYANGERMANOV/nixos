@@ -80,33 +80,352 @@ dangling_skills() {
   fi
 }
 
-# stats: the machine's headline numbers.
+# stats: the machine's headline numbers, each with a state - normal, warning
+# or critical - then the verdict, the worst state and every row that is not
+# normal. Rows are "name<TAB>value<TAB>detail<TAB>state" until printed.
 cmd_stats() {
-  local slice load cores used cap
-  slice="/sys/fs/cgroup/user.slice/user-$(id -u).slice"
-  awk '
+  local rows
+  rows=$(stat_rows)
+  awk -F '\t' 'NF { printf "%-10s %-10s %-26s %s\n", $1, $2, $3, $4 }' <<<"$rows"
+  sensor "$kernel_root/proc/uptime" | awk '$1 ~ /^[0-9]+(\.[0-9]+)?$/ {
+    printf "%-10s %dd %dh %dm\n", "Up", $1 / 86400, $1 % 86400 / 3600, $1 % 3600 / 60 }'
+  awk -F '\t' '
+    $4 == "critical" { critical = 1 }
+    NF && $4 != "normal" { reasons = reasons sep $1 " " $2; sep = ", " }
+    END { printf "%-10s %s\n", "Health", critical ? "CRITICAL - " reasons : reasons != "" ? "WARNING - " reasons : "OK" }
+  ' <<<"$rows"
+}
+
+# Where /proc and /sys are read from: the suites point it at a fake tree.
+kernel_root="${FACTORY_KERNEL_ROOT:-}"
+
+# Whatever the machine lacks drops its row and never fails the command: a VM
+# has no sensors at all, a laptop has some that fail to read. A rule that
+# needs the CPU's temperature gets "none" without one.
+stat_rows() {
+  local cpu package crit core
+  memory_rows
+  disk_row
+  load_row
+  agents_row
+  # "package crit hottest-core" in millidegrees, or nothing without coretemp.
+  cpu=$(cpu_temps)
+  read -r package crit core <<<"${cpu:-none none none}"
+  [ "$package" = none ] || cpu_temp_row "$package" "$crit" "$core"
+  nvme_rows
+  fan_row "$package"
+  throttle_row "$package"
+  battery_rows
+}
+
+# stat_row <name> <value> <detail> <state command...>: the command prints the state.
+stat_row() {
+  printf '%s\t%s\t%s\t' "$1" "$2" "$3"
+  "${@:4}"
+}
+
+memory_rows() {
+  local name pct detail
+  # shellcheck disable=SC2312 # sensor cannot fail, and awk only on a bug
+  while IFS=$'\t' read -r name pct detail; do
+    case "$name" in
+      RAM) stat_row "$name" "$pct% used" "$detail" capacity_state "$pct" ;;
+      Swap) stat_row "$name" "$pct% used" "$detail" swap_state "$pct" ;;
+      *) ;;
+    esac
+  done < <(sensor "$kernel_root/proc/meminfo" | awk '
+    $2 !~ /^[0-9]+$/ { next }
     /^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 }
     /^SwapTotal:/ { st = $2 } /^SwapFree:/ { sf = $2 }
     END {
-      printf "RAM    %3d%% used  (%.1f GB free of %.1f)\n", (t - a) * 100 / t, a / 1048576, t / 1048576
-      if (st > 0) printf "Swap   %3d%% used  (%.1f GB of %.1f)\n", (st - sf) * 100 / st, (st - sf) / 1048576, st / 1048576
-    }' /proc/meminfo
-  df -B1 --output=size,avail / | awk 'NR == 2 {
-    printf "Disk   %3d%% used  (%.0f GB free of %.0f)\n", ($1 - $2) * 100 / $1, $2 / 1e9, $1 / 1e9 }'
-  load=$(cut -d ' ' -f 1 /proc/loadavg) || true
-  cores=$(nproc) || true
-  printf 'CPU    load %s on %s core(s)\n' "$load" "$cores"
-  if [ -r "$slice/memory.current" ]; then
-    used=$(gib "$(<"$slice/memory.current")")
-    cap=$(gib "$(<"$slice/memory.max")")
-    printf 'Agents %s of %s cap\n' "$used" "$cap"
-  fi
-  awk '{ printf "Up     %dd %dh %dm\n", $1 / 86400, $1 % 86400 / 3600, $1 % 3600 / 60 }' /proc/uptime
+      if (t > 0 && a != "") printf "RAM\t%d\t%.1f GB free of %.1f\n", (t - a) * 100 / t, a / 1048576, t / 1048576
+      if (st > 0 && sf != "") printf "Swap\t%d\t%.1f GB of %.1f\n", (st - sf) * 100 / st, (st - sf) / 1048576, st / 1048576
+    }')
 }
 
-gib() {
-  case "$1" in
-    max) echo "no" ;;
-    *) awk -v b="$1" 'BEGIN { printf "%.1f GB", b / 1073741824 }' ;;
+# The real root filesystem even under a fake kernel root: df cannot be faked.
+disk_row() {
+  local usage pct detail
+  usage=$(df -B1 --output=size,avail / 2>/dev/null | awk 'NR == 2 && $1 > 0 {
+    printf "%d %.0f GB free of %.0f\n", ($1 - $2) * 100 / $1, $2 / 1e9, $1 / 1e9 }') || true
+  [ -n "$usage" ] || return 0
+  read -r pct detail <<<"$usage"
+  stat_row Disk "$pct% used" "$detail" capacity_state "$pct"
+}
+
+load_row() {
+  local load cores
+  load=$(sensor "$kernel_root/proc/loadavg" | cut -d ' ' -f 1)
+  # The kernel prints two decimals, which load_state relies on.
+  [[ $load =~ ^[0-9]+\.[0-9][0-9]$ ]] || return 0
+  cores=$(nproc)
+  stat_row CPU "load $load" "on $cores core(s)" load_state "$load" "$cores"
+}
+
+# memory.max reads "max" when the slice has no cap.
+agents_row() {
+  local slice used cap used_gb cap_gb pct
+  slice="$kernel_root/sys/fs/cgroup/user.slice/user-$(id -u).slice"
+  used=$(reading "$slice/memory.current")
+  cap=$(sensor "$slice/memory.max")
+  [ -n "$used" ] || return 0
+  used_gb=$(gib "$used")
+  case "$cap" in
+    max) stat_row Agents "$used_gb" "no cap" echo normal ;;
+    *)
+      cap=$(integer "$cap")
+      [ "${cap:-0}" -gt 0 ] || return 0
+      cap_gb=$(gib "$cap")
+      pct=$((used * 100 / cap))
+      stat_row Agents "$pct% of cap" "$used_gb of $cap_gb" capacity_state "$pct"
+      ;;
   esac
+}
+
+gib() { awk -v b="$1" 'BEGIN { printf "%.1f GB", b / 1073741824 }'; }
+
+# The hottest package with its crit, and the hottest core (or "none"), from
+# coretemp. Silent without a package sensor, as on a VM.
+cpu_temps() {
+  local dir label input package="" crit="" core=""
+  for dir in $(hwmon coretemp); do
+    for label in "$dir"/temp*_label; do
+      input=$(reading "${label%_label}_input")
+      case "$(sensor "$label")/$input" in
+        */) ;;
+        "Package id "*)
+          if [ -z "$package" ] || [ "$input" -gt "$package" ]; then
+            package=$input
+            crit=$(reading "${label%_label}_crit")
+          fi
+          ;;
+        "Core "*) if [ -z "$core" ] || [ "$input" -gt "$core" ]; then core=$input; fi ;;
+        *) ;;
+      esac
+    done
+  done
+  [ -z "$package" ] || echo "$package ${crit:-none} ${core:-none}"
+}
+
+cpu_temp_row() {
+  local package="$1" crit="$2" core="$3" detail=""
+  [ "$core" = none ] || detail="hottest core $((core / 1000)) C"
+  stat_row "CPU temp" "$((package / 1000)) C" "$detail" cpu_temp_state "$package" "$crit"
+}
+
+# The Composite sensor of every drive, against the drive's own max (WCTEMP).
+nvme_rows() {
+  local dir label name temp max
+  for dir in $(hwmon nvme); do
+    for label in "$dir"/temp*_label; do
+      name=$(sensor "$label")
+      temp=$(reading "${label%_label}_input")
+      [ "$name" = Composite ] && [ -n "$temp" ] || continue
+      max=$(reading "${label%_label}_max")
+      stat_row "NVMe temp" "$((temp / 1000)) C" "${max:+max $((max / 1000)) C}" nvme_temp_state "$temp" "${max:-none}"
+    done
+  done
+}
+
+# thinkpad_acpi's fan; pwm1_enable is 2 under the firmware's automatic control.
+fan_row() {
+  local cpu="$1" dir rpm control mode
+  for dir in $(hwmon thinkpad); do
+    rpm=$(reading "$dir/fan1_input")
+    [ -n "$rpm" ] || continue
+    control=$(sensor "$dir/pwm1_enable")
+    case "$control" in
+      0) mode="full speed" ;;
+      1) mode="manual" ;;
+      2) mode="auto" ;;
+      *) mode="" ;;
+    esac
+    stat_row Fan "$rpm RPM" "$mode" fan_state "$rpm" "$cpu"
+  done
+}
+
+# Every CPU of a package reports the same package count, and hyperthread
+# siblings the same core count, so each is taken once per package or core.
+throttle_row() {
+  local cpu="$1" dir count package_id core package=0 cores=0 found=0 times=times previous rise
+  local -A counted=()
+  for dir in "$kernel_root"/sys/devices/system/cpu/cpu*/thermal_throttle; do
+    [ -d "$dir" ] || continue
+    found=1
+    count=$(reading "$dir/package_throttle_count")
+    [ "${count:-0}" -le "$package" ] || package=$count
+    package_id=$(sensor "$dir/../topology/physical_package_id")
+    core=$(sensor "$dir/../topology/core_id")
+    core="$package_id/$core"
+    [ "$core" != / ] || core=$dir
+    [ -z "${counted[$core]:-}" ] || continue
+    counted[$core]=1
+    count=$(reading "$dir/core_throttle_count")
+    cores=$((cores + ${count:-0}))
+  done
+  [ "$found" -eq 1 ] || return 0
+  count=$((package + cores))
+  [ "$count" -ne 1 ] || times="time"
+  previous=$(reading "$throttle_file")
+  rise=$(throttle_rise "$previous" "$count")
+  save_throttle_count "$count"
+  stat_row Throttled "$count" "$times since boot${rise:+, +$rise}" throttle_state "${rise:-none}" "$cpu"
+}
+
+# The count the last stats run saw, so a slowdown warns once, when it happens,
+# not for the rest of the boot. Kept beside the enabled set.
+throttle_file="${state_file%/*}/throttle-count"
+
+# throttle_rise <previous count> <current count>: the rise since the last run,
+# or nothing without a baseline - the first run, garbage in the file, or a
+# lower count, which means a reboot reset the counters.
+throttle_rise() {
+  [ -n "$1" ] && (($2 >= $1)) && echo $(($2 - $1)) || true
+}
+
+# Atomic, and silent on failure: losing the baseline only repeats a warning.
+save_throttle_count() {
+  local tmp
+  { mkdir -p "${throttle_file%/*}" && tmp=$(mktemp "$throttle_file.XXXXXX"); } 2>/dev/null || return 0
+  { echo "$1" >"$tmp" && mv -fT "$tmp" "$throttle_file"; } 2>/dev/null || rm -f "$tmp"
+}
+
+# The first battery only: the factories have one at most.
+battery_rows() {
+  local dir type status capacity full design cycles detail health
+  for dir in "$kernel_root"/sys/class/power_supply/*; do
+    type=$(sensor "$dir/type")
+    [ "$type" = Battery ] || continue
+    status=$(sensor "$dir/status")
+    capacity=$(reading "$dir/capacity")
+    case "$status" in
+      Discharging) detail="on battery" ;;
+      *) detail="on AC${status:+, ${status,,}}" ;;
+    esac
+    [ -z "$capacity" ] || stat_row Battery "$capacity%" "$detail" charge_state "$status" "$capacity"
+    full=$(reading "$dir/energy_full")
+    design=$(reading "$dir/energy_full_design")
+    if [ -z "$full" ]; then
+      full=$(reading "$dir/charge_full")
+      design=$(reading "$dir/charge_full_design")
+    fi
+    cycles=$(reading "$dir/cycle_count")
+    if [ -n "$full" ] && [ "${design:-0}" -gt 0 ]; then
+      health=$((full * 100 / design))
+      stat_row "Bat health" "$health%" "${cycles:+$cycles cycles}" battery_health_state "$health"
+    fi
+    return 0
+  done
+}
+
+# hwmon numbers follow probe order, which can change across boots; the name
+# is stable.
+hwmon() {
+  local dir name
+  for dir in "$kernel_root"/sys/class/hwmon/*; do
+    name=$(sensor "$dir/name")
+    [ "$name" != "$1" ] || echo "$dir"
+  done
+}
+
+# A whole number from a kernel file, or nothing when it is missing, fails to
+# read (ENXIO, permissions) or holds something else.
+reading() {
+  local text
+  text=$(sensor "$1")
+  integer "$text"
+}
+
+# Base 10 even with a leading zero, which bash arithmetic reads as octal.
+integer() {
+  case "$1" in
+    "" | *[!0-9]*) ;;
+    *) echo "$((10#$1))" ;;
+  esac
+}
+
+# A kernel file's text, or nothing when it is missing or fails to read.
+sensor() { cat "$1" 2>/dev/null || true; }
+
+# ─── States: value in, state out. Temperatures are in millidegrees C. ───────
+
+# RAM, disk and the agents' memory, in percent used.
+capacity_state() { at_or_above "$1" 75 90; }
+
+swap_state() { at_or_above "$1" 25 60; }
+
+# The 1-minute load ("1.89") against the core count: warns above 0.75 per
+# core and is critical above 1.5, where work waits.
+load_state() {
+  local hundredths=$((10#${1%.*} * 100 + 10#${1#*.}))
+  at_or_above "$hundredths" $(($2 * 75 + 1)) $(($2 * 150 + 1))
+}
+
+# Critical 5 C below the sensor's crit, where the CPU starts cutting its clock,
+# when that comes before 95 C.
+cpu_temp_state() {
+  local critical=95000
+  [ "$2" = none ] || [ $(($2 - 5000)) -ge "$critical" ] || critical=$(($2 - 5000))
+  at_or_above "$1" 80000 "$critical"
+}
+
+# Without the drive's max, only the early warning applies.
+nvme_temp_state() {
+  case "$2" in
+    none) if (($1 >= 65000)); then echo warning; else echo normal; fi ;;
+    *) at_or_above "$1" 65000 "$2" ;;
+  esac
+}
+
+# Any speed is fine on its own; a stopped fan under a hot CPU is not.
+fan_state() {
+  case "$1/$2" in
+    0/none) echo normal ;;
+    0/*) at_or_above "$2" 60000 80000 ;;
+    *) echo normal ;;
+  esac
+}
+
+# throttle_state <rise since the last run, or none> <CPU temp, or none>
+throttle_state() {
+  case "$1/$2" in
+    none/* | 0/*) echo normal ;;
+    */none) echo warning ;;
+    *) at_or_above "$2" 0 95000 ;;
+  esac
+}
+
+# Not charging at all means the AC brings nothing, so a low charge warns there
+# too; only a discharging battery runs out.
+charge_state() {
+  case "$1" in
+    Discharging) below "$2" 60 20 ;;
+    "Not charging") below "$2" 60 0 ;;
+    *) echo normal ;;
+  esac
+}
+
+# Full capacity against design, in percent.
+battery_health_state() { below "$1" 85 60; }
+
+# at_or_above <value> <warning from> <critical from>
+at_or_above() {
+  if (($1 >= $3)); then
+    echo critical
+  elif (($1 >= $2)); then
+    echo warning
+  else
+    echo normal
+  fi
+}
+
+# below <value> <warning under> <critical under>
+below() {
+  if (($1 < $3)); then
+    echo critical
+  elif (($1 < $2)); then
+    echo warning
+  else
+    echo normal
+  fi
 }

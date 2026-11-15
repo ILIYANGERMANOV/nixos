@@ -33,7 +33,7 @@ factory-ctl - run the software factory
   resolve <name>                SSH URLs of the bot's repositories named <name>
   terminate [--force] [name]    end live sessions; servers keep running
   status                        servers, sessions, local work, last deploy
-  stats                         RAM, disk, CPU, agent memory
+  stats                         RAM, disk, CPU, temps, fan, battery; health
   free-disk plan|apply          list or delete what can be reclaimed
   root-shells                   keep main's dev shells and flake inputs from GC
   deploy                        deploy main's tip once CI is green
