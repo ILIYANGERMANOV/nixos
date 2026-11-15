@@ -228,6 +228,8 @@ runStart = \case
     TaskMoved _ _ -> Nothing
     Held _ _ -> Nothing
     ActedOn _ _ -> Nothing
+    TaskAdded _ -> Nothing
+    Restarted -> Nothing
     WorkerHandedBack _ _ -> Nothing
 
 -- | A refusal is logged whatever the run's state; anything else needs a run going.
@@ -253,6 +255,8 @@ applyEvent g state = \case
     TaskMoved task moved -> going (inFan (Fan.moved task moved))
     Held task url -> going (inFan (Fan.held task url))
     ActedOn task url -> going (inFan (Fan.actedOn task url))
+    TaskAdded task -> going (inFan (Fan.added task))
+    Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
   where
     -- A question asked from a stopped child is its stop, triaged.
@@ -331,7 +335,7 @@ built = \case
 -- | A breakdown sets its fan-out's tasks; the fan-out is left once they are settled.
 fanOutcome :: Outcome (s :: FanStep) l -> Map FanId Fan -> Either Fan.Refusal (Map FanId Fan)
 fanOutcome outcome fans = case outcome of
-    BreakdownDone fan tasks -> Right (Map.insert fan (Fan.broken tasks (fanIn fans fan)) fans)
+    BreakdownDone fan tasks -> (\fresh -> Map.insert fan fresh fans) <$> Fan.broken tasks (fanIn fans fan)
     FanDone fan -> fans <$ Fan.leave (fanIn fans fan)
     MergeDone fan _ -> fans <$ Fan.closed (fanIn fans fan)
 

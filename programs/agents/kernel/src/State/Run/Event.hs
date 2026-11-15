@@ -3,7 +3,8 @@ places it. A step's outcome is an 'AnyOutcome' of its layer, named by the
 step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A question is an
 'Asking' and the events on its id that close it. The 10x's fan-out logs its
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
-'Resumed') and its tasks ('TaskMoved', 'Held', 'ActedOn') as stay events.
+'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
+'ActedOn') as stay events.
 -}
 module State.Run.Event (
     Envelope (..),
@@ -137,6 +138,12 @@ data Event
       Held TaskId Url
     | -- | The 10x acted on the task's held wake at this url: it is held no more.
       ActedOn TaskId Url
+    | -- | A task joins the fan-out after its breakdown: a base fix, an epic's final PR.
+      TaskAdded Task
+    | {- | The lead's session started afresh, so every agent it had at work
+      is gone: no task has one until the 10x sends one again.
+      -}
+      Restarted
     | {- | A worker's hand-back line 1 the run triages as a question of its own
       (@state ask --from <role>@) before it goes on: a stop, or a question with no kind.
       -}

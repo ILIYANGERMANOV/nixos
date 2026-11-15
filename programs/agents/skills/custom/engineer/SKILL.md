@@ -127,7 +127,8 @@ handed back, its hand-back went unrecorded: pipe it into `state handback
 <role>`. `state next`, `state show` and every hook read the PR from GitHub
 first. Offline (`PR sync skipped`): `state record draft.done <url>
 <base> <branch>` or `ready.done <url>`. Once drafted, the hooks go silent off
-its branch, on a merged or closed PR, or on an older `state`'s log.
+its branch, on a merged or closed PR, or on an older `state`'s log; there
+`state` names the fix: move the notes directory aside and start fresh.
 
 ## Steps
 

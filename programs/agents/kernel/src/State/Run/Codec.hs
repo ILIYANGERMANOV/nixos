@@ -38,6 +38,7 @@ module State.Run.Codec (
     prStates,
     topicText,
     decodeBreakdown,
+    decodeTask,
 ) where
 
 import Data.Aeson (Key, Object, Value (..), eitherDecodeStrictText, withObject, (.:), (.:?), (.=))
@@ -93,7 +94,8 @@ import State.Run.Event (
     runIdText,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (areaText, branchText, decodeBreakdown, judgementText, named, shaText, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, shaText, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders, outcomeEvent)
 import System.FilePath ((</>))
 
@@ -216,6 +218,8 @@ eventType = \case
     TaskMoved _ _ -> "task"
     Held _ _ -> "held"
     ActedOn _ _ -> "acted"
+    TaskAdded _ -> "task_added"
+    Restarted -> "restarted"
     WorkerHandedBack _ _ -> "worker_handed_back"
 
 eventData :: Event -> Series
@@ -257,6 +261,8 @@ eventData = \case
     TaskMoved task moved -> "task" .= taskIdText task <> taskStateData moved
     Held task url -> "task" .= taskIdText task <> urlData url
     ActedOn task url -> "task" .= taskIdText task <> urlData url
+    TaskAdded task -> pair "task" (taskEncoding task)
+    Restarted -> mempty
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
   where
     qidData qid = "qid" .= qidText qid
@@ -280,6 +286,8 @@ eventOf kind obj = case kind of
     "task" -> TaskMoved <$> taskOf obj <*> taskStateOf obj
     "held" -> Held <$> taskOf obj <*> urlOf obj
     "acted" -> ActedOn <$> taskOf obj <*> urlOf obj
+    "task_added" -> TaskAdded <$> (obj .: "task" >>= Artifact.taskOf)
+    "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     _ -> case Map.lookup kind outcomeParsers of
         Just parser -> Took <$> parser obj

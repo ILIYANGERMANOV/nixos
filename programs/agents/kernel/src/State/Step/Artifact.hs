@@ -33,6 +33,7 @@ module State.Step.Artifact (
     commitData,
     picksData,
     tasksData,
+    taskEncoding,
     headOf,
     urlOf,
     draftOf,
@@ -40,6 +41,8 @@ module State.Step.Artifact (
     picksOf,
     breakdownOf,
     decodeBreakdown,
+    taskOf,
+    decodeTask,
     distinct,
     keyed,
     named,
@@ -111,7 +114,7 @@ data Task = Task
     , fuel :: Fuel
     , qa :: Bool
     , heavy :: Bool
-    -- ^ At most one heavy task runs at a time.
+    -- ^ Advisory: the kernel caps nothing on it; it stays on the wire for old breakdowns.
     , security :: Set Topic
     }
     deriving stock (Eq, Show)
@@ -233,11 +236,18 @@ picksOf obj =
 
 -- | A breakdown file: the JSON array @breakdown.done@ logs as its @tasks@.
 decodeBreakdown :: Text -> Either Text Tasks
-decodeBreakdown raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither breakdownOf)
+decodeBreakdown = decodeWith breakdownOf
+
+-- | A task file for @task add@: one task, as a breakdown file spells each.
+decodeTask :: Text -> Either Text Task
+decodeTask = decodeWith taskOf
+
+decodeWith :: (Value -> Parser a) -> Text -> Either Text a
+decodeWith parser raw = first Text.pack (eitherDecodeStrictText raw >>= parseEither parser)
 
 breakdownOf :: Value -> Parser Tasks
 breakdownOf value = do
-    tasks <- parseJSON value >>= traverse (withObject "task" taskFieldsOf)
+    tasks <- parseJSON value >>= traverse taskOf
     case NonEmpty.nonEmpty tasks of
         Nothing -> fail "a breakdown has a task at least"
         Just some -> either (fail . Text.unpack . breakdownErrorText) pure (breakdown some)
@@ -245,6 +255,9 @@ breakdownOf value = do
     breakdownErrorText = \case
         TaskTwice (TaskId task) -> "task " <> task <> " is named twice"
         DependsLater (TaskId task) (TaskId dep) -> "task " <> task <> " depends on " <> dep <> ", which is not an earlier task"
+
+taskOf :: Value -> Parser Task
+taskOf = withObject "task" taskFieldsOf
 
 taskFieldsOf :: Object -> Parser Task
 taskFieldsOf obj =

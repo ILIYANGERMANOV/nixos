@@ -141,6 +141,15 @@ spec = describe "state over the doubles" $ do
                 after <- logBytes world
                 after `shouldBe` before'
 
+            it "names the recovery for an older state's log: set it aside, start fresh" $ \world -> do
+                _ <- drive world []
+                editLog world (const "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n")
+
+                old <- state world ["next"]
+
+                (old.code, old.err)
+                    `shouldBe` (2, ["state next: /notes/events.jsonl line 1 is not read - log version 2, this state reads 3", "fix: move the old run aside and start fresh: mv /notes /notes.old, then state init --notes /notes"])
+
         describe "record" $ do
             it "refuses an event with no arrow: exit 2, a fix line, the refusal logged, and next warns" $ \world -> do
                 _ <- drive world [Record ["fuel", "balanced"]]

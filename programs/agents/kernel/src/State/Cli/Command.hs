@@ -383,8 +383,9 @@ explain g fuel at = \case
         Fan.AtWork task -> refused ("an agent for task " <> Codec.taskIdText task) "one works on it already, until its child hands back" "state next"
         Fan.StopUntriaged child -> refused ("a retry of child " <> runIdText child) "its stop is not triaged yet" ("state ask --kind <kind> --from " <> runIdText child <> " <question>")
         Fan.AwaitsUser child -> refused ("a retry of child " <> runIdText child) "its question is open: the retry waits for the answer" "state next"
-        Fan.HeavyBusy task heavy -> refused ("an agent for task " <> Codec.taskIdText task) ("it is heavy and heavy task " <> Codec.taskIdText heavy <> " is at work: one heavy task at a time") "state next"
+        Fan.Busy tasks -> refused "a new breakdown" ("an agent is at work on tasks: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
         Fan.Unmerged tasks -> refused "the run's end" ("tasks neither merged nor parked: " <> Text.unwords (map Codec.taskIdText (toList tasks))) "state next"
+        Fan.TaskExists task -> refused ("task " <> Codec.taskIdText task) "the fan-out has a task of that id already" "state show"
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText <> ", no fan-out's state") "state show"
   where
     refused = Failure BadInput

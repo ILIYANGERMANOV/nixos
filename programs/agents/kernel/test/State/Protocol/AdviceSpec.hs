@@ -118,15 +118,22 @@ spec = describe "State.Protocol.Advice" $ do
             heavy name = (plainTask name []) {heavy = True}
             asks = Question (QId (runId "c1") 1) Design (oneLine "which store?")
             fromChild = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AsksUp asks.qid), Asked (Asking asks (StateName "engineers") (ChildRun (runId "c1")))]
-        it "spawns the first task a slot is free for" $
+        it "spawns the next free task" $
             next noFacts (tenXAt (t1 :| [t2]) [Spawned (childOf "c1" "t1")]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "t2"))
         it "has a child that ended unrecorded handed back first, one it holds finished never" $
             [ next noFacts {ended = [runId "c1"]} (tenXAt (t1 :| [t2]) (Spawned (childOf "c1" "t1") : said))
             | said <- [[], [HandedBack (runId "c1") (Finished (oneLine "done"))]]
             ]
                 `shouldBe` [Run "state handback engineer - child c1 ended, its hand-back unrecorded: pipe it in", Run "state record task t1 review <url>"]
-        it "spawns no second heavy task while one runs" $
-            next noFacts (tenXAt (heavy "t1" :| [heavy "t2"]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
+        it "spawns a second heavy task while one runs" $
+            next noFacts (tenXAt (heavy "t1" :| [heavy "t2"]) [Spawned (childOf "c1" "t1")]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "t2"))
+        it "awaits a dependency's merge, not a park of its dependent" $ do
+            let reviewed = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl)]
+            map (next noFacts . tenXAt (t1 :| [plainTask "t2" ["t1"]])) [reviewed, reviewed <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
+                `shouldBe` [AwaitMerge (TaskId "t1" :| []), Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
+        it "stops the run at merge once every task is parked" $
+            next noFacts (tenXAt (t1 :| [t2]) [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), TaskMoved (TaskId "t2") (Parked "not needed" Nothing), stepTook (FanDone FEngineers)])
+                `shouldBe` Run "state stop blocked \"all tasks parked\""
         it "waits on the children while a task's dependencies run" $
             next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "spawns the next task once a spawn is recorded, never the same task twice" $
@@ -137,6 +144,12 @@ spec = describe "State.Protocol.Advice" $ do
                 both = fromChild <> [RuledOn asks.qid ruling, Spawned (childOf "c2" "t2"), HandedBack (runId "c2") (AsksUp asks2.qid), Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2"))), RuledOn asks2.qid ruling]
             map (next noFacts . tenXAt (t1 :| [t2])) [both <> [Resumed (runId "c1")], both <> [Resumed (runId "c1"), Resumed (runId "c2")]]
                 `shouldBe` [Resume (runId "c2") "with the answer to c2:1", AwaitChildren (TaskId "t1" :| [TaskId "t2"])]
+        it "sends a child lost at a restart again, and waits on it once resumed" $ do
+            let lost = [Spawned (childOf "c1" "t1"), Restarted]
+            map (next noFacts . tenXAt (t1 :| [])) [lost, lost <> [Resumed (runId "c1")]]
+                `shouldBe` [Resume (runId "c1") "lost at a restart: a fresh engineer with its spawn prompt", AwaitChildren (TaskId "t1" :| [])]
+        it "spawns a task added mid-run" $
+            next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), TaskAdded (plainTask "fix" [])]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "waits on CI no more once the child is resumed" $
             next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AwaitsCi (oneLine "https://pr/1")), Resumed (runId "c1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "triages a child's stop before a retry, and retries once it is asked" $ do
