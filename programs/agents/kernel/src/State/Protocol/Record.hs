@@ -10,6 +10,7 @@ module State.Protocol.Record (
     recordables,
     usageOf,
     recordCommand,
+    extendCommand,
     Args (..),
     option,
     options,
@@ -46,6 +47,10 @@ recordCommand :: EventName -> Text
 recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usageOf [r | r <- recordables, r.name == name])
   where
     name = eventText event
+
+-- | The @state record@ line that extends the gather loop, on the user's yes.
+extendCommand :: Text
+extendCommand = "state record extend <why> when the user goes on"
 
 {- | An event @state record@ takes: its name, its positionals' usage, the
 @--name value@ flags it takes, and the parser of both.

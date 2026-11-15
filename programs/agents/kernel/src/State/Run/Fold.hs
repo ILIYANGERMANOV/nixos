@@ -24,6 +24,7 @@ module State.Run.Fold (
     Stuck (..),
     stuck,
     budget,
+    roundsSpent,
     interviewAsks,
     roundOnly,
     flowRole,
@@ -528,8 +529,12 @@ enter g allowed back from to current = Map.traverseMaybeWithKey around g.loops
 
 nextRound :: LoopId -> Natural -> NonEmpty Round -> Either Refusal (NonEmpty Round)
 nextRound loopId allowed done
-    | fromIntegral (length done) < budget allowed (NonEmpty.last done) = Right (done <> firstRound)
-    | otherwise = Left (OutOfRounds loopId allowed)
+    | roundsSpent allowed done = Left (OutOfRounds loopId allowed)
+    | otherwise = Right (done <> firstRound)
+
+-- | Whether a loop has run every round its 'budget' allows.
+roundsSpent :: Natural -> NonEmpty Round -> Bool
+roundsSpent allowed done = fromIntegral (length done) >= budget allowed (NonEmpty.last done)
 
 {- | The rounds a loop may run: its 'Cfg' rounds, and one more when the last round
 holds a Not met (#351), never more, so a Not met that never clears still ends.

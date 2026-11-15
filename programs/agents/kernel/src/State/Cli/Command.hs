@@ -33,12 +33,12 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
-import State.Category.Flow (loopName)
+import State.Category.Flow (LoopId (..), loopName)
 import State.Category.Fuel (Cfg (..), Fuel, SkipWhen (Never), cfg, fuelName, parseByName)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Step (eventText, exitEvent, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
-import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), choices, recordCommand, recordables, usageOf)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), choices, extendCommand, recordCommand, recordables, usageOf)
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
@@ -360,12 +360,8 @@ explain g fuel at = \case
         refused
             ("another " <> loopName loop <> " round")
             ("the loop ran its " <> tshow allowed <> " rounds")
-            (records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>")
-    OutOfAsks allowed ->
-        refused
-            "another question"
-            ("the interview asked its " <> tshow allowed <> " questions")
-            (recordCommand (exitEvent Interview) <> " | state record extend <why> when the user goes on")
+            (outOfRoundsFix loop)
+    OutOfAsks allowed -> refused "another question" ("the interview asked its " <> tshow allowed <> " questions") endOrExtend
     NotGathering -> refused "extend" ("the run is at " <> atText <> ", in no gather loop") "state next"
     FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
     NoSingleState (StateName name) ->
@@ -414,6 +410,14 @@ explain g fuel at = \case
         Skip optId -> (cfg fuel).skip optId /= Never
         Along _ -> True
         Stay -> True
+    -- At either gather budget's end the user may go on; another loop ends or stops.
+    outOfRoundsFix loop = case loop of
+        LGather -> endOrExtend
+        LPlan -> leaveOrStop loop
+        LReview -> leaveOrStop loop
+        LCi -> leaveOrStop loop
+    leaveOrStop loop = records (\edge -> edge.back /= Just loop && roundOnly g edge.to /= Just loop) <> " | state stop rounds <why>"
+    endOrExtend = recordCommand (exitEvent Interview) <> " | " <> extendCommand
     stateNames = map (stateNameText . (.name)) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid

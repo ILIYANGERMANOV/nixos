@@ -42,7 +42,7 @@ import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), P
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Interviews, Ordinary, PicksRows), StepSet (..), builtEvent, continueEvent, exitEvent, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (stopLine)
-import State.Protocol.Record (recordCommand)
+import State.Protocol.Record (extendCommand, recordCommand)
 import State.Role (FlowName (..))
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
@@ -51,7 +51,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, interviewAsks, nextQId, stuck)
+import State.Run.Fold (Pending (..), Problem (..), Round (..), RunState (..), Stuck (..), Waits (..), askedAt, askingChildren, budget, currentFan, fanIn, flowRole, fuelOf, interviewAsks, nextQId, roundsSpent, stuck)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)
@@ -290,7 +290,7 @@ interviewing state = case spentAtGather state of
     [] -> Run ("state ask each question; " <> enough <> " when nothing is open | " <> recordCommand (continueEvent Interview) <> " to research a new fact")
     spent
         | Ask.Stuck `notElem` state.askedHere -> Ask Ask.Stuck ("gather used its " <> Text.intercalate " and " spent <> ": go on?")
-        | otherwise -> Run ("state record extend <why> when the user goes on | " <> enough)
+        | otherwise -> Run (extendCommand <> " | " <> enough)
   where
     enough = recordCommand (exitEvent Interview)
 
@@ -299,7 +299,7 @@ spentAtGather :: RunState -> [Text]
 spentAtGather state = case Map.lookup LGather state.rounds of
     Nothing -> []
     Just rounds ->
-        [tshow (reResearches (fuelOf state)) <> " research rounds" | fromIntegral (length rounds) >= budget (allowed.rounds LGather) (NonEmpty.last rounds)]
+        [tshow (reResearches (fuelOf state)) <> " research rounds" | roundsSpent (allowed.rounds LGather) rounds]
             <> [tshow allowed.asks <> " questions" | interviewAsks state >= allowed.asks]
   where
     allowed = cfg (fuelOf state)
