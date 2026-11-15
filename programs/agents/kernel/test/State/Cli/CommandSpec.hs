@@ -14,9 +14,9 @@ import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), 
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), oneLineText)
-import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook)
+import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook, tookIn)
 import State.Run.Fold (Refusal (..), RunState (..))
-import State.Run.RunGen (g, happyPath, loadSteps, runAt, sha)
+import State.Run.RunGen (g, happyPath, loadSteps, runAt, securityScope, sha)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Review (Outcome (..))
@@ -67,6 +67,19 @@ spec = describe "State.Cli.Command" $ do
 
         it "keeps an event's free words that start with a dash" $
             recorded ["refactor.skipped", "-x", "--flag", "added"] `shouldBe` Right (stepTook (RefactorSkipped "-x --flag added"))
+
+        it "records a step's outcome named inside a scope in that scope" $
+            recorded ["security/review.rows"] `shouldBe` Right (tookIn securityScope (ReviewRows sha))
+
+        it "refuses a run's event named inside a scope" $
+            case parseCommand steps ["record", "security/fuel", "low"] of
+                Right (_, Left failure) -> (failure.what, failure.why) `shouldBe` ("record security/fuel", "only a step's outcome is named inside a scope")
+                _ -> expectationFailure "not a refusal"
+
+        it "refuses a scoped event's usage with its qualified name" $
+            case parseCommand steps ["record", "security/plan.done"] of
+                Right (_, Left failure) -> (failure.what, failure.fix) `shouldBe` ("record security/plan.done", "state record security/plan.done <path>")
+                _ -> expectationFailure "not a refusal"
 
         it "refuses an event's usage with its own fix" $
             case parseCommand steps ["record", "plan.done"] of

@@ -53,7 +53,7 @@ import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), Stuck (..), Waits (..), ScopedFan (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, stuck, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, nextQId, onRound, stuck, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), stepNamed)

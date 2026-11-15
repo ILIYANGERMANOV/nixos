@@ -13,10 +13,10 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..))
-import State.Category.FlowGen (composes, genWalk)
+import State.Category.Flow (Flow (..), scopePath)
+import State.Category.FlowGen (composes, genFlow, genWalk)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName)
 import State.Category.Meter (someMeterName)
 import State.Category.Path (ty)
 import State.Flow.Engineer (engineer)
@@ -28,11 +28,11 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (childOf, commit, g, genAccepted, genKnobs, happyPath, outcomeOf, plainTask, roundTask, sha, tenXGraph)
+import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, securityGraph, securityScope, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers, researchers)
 import State.Step.Gather (Outcome (..))
-import State.Step.Plan (Outcome (..))
+import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
@@ -104,6 +104,32 @@ spec = describe "State.Run.Fold" $ do
         it "refuses a task's move off every fan-out's state" $
             twoFansRun (engineered <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone researchers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
 
+    describe "a flow with a scoped copy" $ do
+        let securityRun events = replay securityGraph (logOf (started :| events))
+            toSecurity = [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty))]
+        it "takes the copy's outcome in its scope, to the copy's next state" $
+            atName <$> securityRun (toSecurity <> [tookIn securityScope (ReviewRows sha)]) `shouldBe` Right (Just (StateName "security/pick"))
+        it "refuses the copy's outcome named bare: it is the other review's" $
+            securityRun (toSecurity <> [stepTook (ReviewRows sha)]) `shouldSatisfy` \case
+                Left (NoEdge _ _) -> True
+                _ -> False
+
+    describe "two scoped copies of one fan-out" $ do
+        let copiesRun events = replay scopedFans (logOf (Started (startOf TenXFlow ByUser) :| events))
+            inA = tookIn (scopePath "a")
+            settled =
+                [ inA (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
+                , Spawned (childOf "c1" "t1")
+                , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
+                , inA (FanDone engineers)
+                , TaskMoved (TaskId "t1") (Merged (Url "pr"))
+                , inA (MergeNextRound engineers)
+                , stepTook (PlanDone "plan.md")
+                ]
+        it "starts the second copy with none of the first's tasks" $
+            (\state -> (atName state, map (.id) (currentFan state).tasks)) <$> copiesRun settled
+                `shouldBe` Right (Just (StateName "b/breakdown"), [])
+
     it "runs the engineer flow's happy path to its end" $
         (.at) <$> replay g (logOf (started :| map (Took mempty) happyPath)) `shouldBe` Right Out
 
@@ -116,6 +142,14 @@ spec = describe "State.Run.Fold" $ do
                 cover 5 "reached the end" (state.at == Out)
                 path <- evalMaybe (ty g [tookEvent scope took | Took scope took <- events])
                 assert (composes path)
+
+    it "every_accepted_log_of_a_scoped_flow_is_a_path" . hedgehog $ do
+        f <- forAll (Gen.filter (isRight . graph) genFlow)
+        flow <- evalEither (graph f)
+        events <- forAll (genAcceptedOn flow)
+        cover 10 "a step's outcome inside a scope" (or [scope /= mempty | Took scope _ <- events])
+        path <- evalMaybe (ty flow [tookEvent scope took | Took scope took <- events])
+        assert (composes path)
 
     it "never_spends_past_a_cap" . hedgehog $ do
         events <- forAll genAccepted
@@ -214,7 +248,7 @@ spec = describe "State.Run.Fold" $ do
         replay g (line 0 started :| [ofRun (runId "other") (line 1 (stepTook (ResearchDone 1)))]) `shouldBe` Left (OtherRun (runId "other"))
 
     it "overrides to a named state" $
-        placeName . (.at) <$> replay g (logOf (started :| [Overridden (StateName "review") "why"])) `shouldBe` Right (Just (StateName "review"))
+        atName <$> replay g (logOf (started :| [Overridden (StateName "review") "why"])) `shouldBe` Right (Just (StateName "review"))
 
     it "refuses an override to a state the flow does not have" $
         replay g (logOf (started :| [Overridden (StateName "nowhere") "why"])) `shouldBe` Left (NoSingleState (StateName "nowhere"))
@@ -229,12 +263,6 @@ research = g.inPort
 
 ofRun :: RunId -> Envelope -> Envelope
 ofRun other (Envelope source n ts _ sha' session event) = Envelope source n ts other sha' session event
-
-placeName :: Node -> Maybe StateName
-placeName = \case
-    At place -> Just place.name
-    Out -> Nothing
-    Exit -> Nothing
 
 -- | From the start to the first review.
 toReview :: [Event]
@@ -470,13 +498,22 @@ halt = Stop Blocked "no way on"
 {- | A flow with two fan-outs, the researchers' and then the engineers'. No
 step goes from a PR back to a plan, so the second has no breakdown of its own.
 -}
+
+{- | One fan-out twice, inside scopes @a@ and @b@: each copy is its own
+fan-out, with its own tasks and children.
+-}
+scopedFans :: OpenGraph
+scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Scope "b" fanned))
+  where
+    fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
+
 twoFans :: OpenGraph
 twoFans = either (error . show) id (graph (Do (Breakdown researchers) :> Par researchers engineer :> Par engineers (Do SimplifyPR) :> Do (Merge researchers)))
 
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName
 atName state = case state.at of
-    At place -> Just place.name
+    At place -> Just (placeName place)
     Out -> Nothing
     Exit -> Nothing
 

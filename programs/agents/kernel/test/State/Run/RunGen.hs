@@ -2,6 +2,8 @@
 module State.Run.RunGen (
     g,
     tenXGraph,
+    securityGraph,
+    securityScope,
     flowGraph,
     tenXAt,
     plainTask,
@@ -16,6 +18,7 @@ module State.Run.RunGen (
     runUnder,
     loadSteps,
     genAccepted,
+    genAcceptedOn,
     genKnobs,
     outcomeOf,
 ) where
@@ -34,10 +37,12 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
+import State.Category.Flow (Flow (..), ScopePath, scopePath)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Step (EventName (..))
 import State.Flow.Engineer (engineer)
+import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
 import State.Run.Codec (branchText, taskIdText, topicText, urlText)
 import State.Run.Event
@@ -55,6 +60,14 @@ import System.Environment (getEnv)
 
 g :: OpenGraph
 g = either (error . show) id (graph engineer)
+
+-- | A review, then the same review again inside the @security@ scope.
+securityGraph :: OpenGraph
+securityGraph = either (error . show) id (graph (reviewed :> Scope "security" reviewed))
+
+-- | The @security@ scope.
+securityScope :: ScopePath
+securityScope = scopePath "security"
 
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
@@ -128,20 +141,24 @@ are likelier, so loops run out of rounds: a review with rows enters the fix
 loop rather than exiting clean.
 -}
 genAccepted :: Gen [Event]
-genAccepted = do
+genAccepted = genAcceptedOn g
+
+-- | 'genAccepted' on any graph: an edge inside a scope is taken in its place's scope.
+genAcceptedOn :: OpenGraph -> Gen [Event]
+genAcceptedOn on = do
     knobs <- genKnobs
     steps <- Gen.int (Range.linear 0 300)
-    first <- either (fail . show) pure (replay g (logOf (started :| knobs)))
+    first <- either (fail . show) pure (replay on (logOf (started :| knobs)))
     (knobs <>) <$> go steps first (fromIntegral (length knobs) + 1)
   where
     go :: Int -> RunState -> Natural -> Gen [Event]
     go 0 _ _ = pure []
     go k state n = case state.at of
         At place -> do
-            name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList g.edges, from == place]
+            name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList on.edges, from == place]
             -- The edge is named in the place's scope; the outcome is its step's own.
             took <- Took place.scope <$> outcomeOf (EventName place.name name.outcome)
-            case append g state (line n took) of
+            case append on state (line n took) of
                 Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
                 Right AlreadyLogged -> go (k - 1) state n
                 Left _ -> go (k - 1) state n
@@ -149,8 +166,8 @@ genAccepted = do
         Exit -> pure []
     stays place edge = case edge.to of
         At to ->
-            all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems g.loops)
-                && any (Set.member to . (.body)) (Map.elems g.loops)
+            all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems on.loops)
+                && any (Set.member to . (.body)) (Map.elems on.loops)
         Out -> False
         Exit -> False
 

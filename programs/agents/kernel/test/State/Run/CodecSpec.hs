@@ -9,11 +9,12 @@ import Data.Time.Calendar (fromGregorian)
 import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
-import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
+import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -58,6 +59,13 @@ spec = describe "State.Run.Codec" $ do
 
     it "refuses an unknown event type" $
         decodeLine (encodeLine reviewRows `replacing` ("review.rows", "review.maybe")) `shouldSatisfy` malformed
+
+    it "reads a step's outcome inside a scope under its qualified type" $
+        decodeLine (encodeLine reviewRows `replacing` ("\"type\":\"review.rows\"", "\"type\":\"security/review.rows\""))
+            `shouldBe` Right reviewRows {event = tookIn securityScope (ReviewRows (Sha "abc123"))}
+
+    it "refuses a run's event inside a scope: only a step's outcome is named so" $
+        decodeLine (encodeLine reviewRows {event = FuelSet Low} `replacing` ("\"type\":\"fuel\"", "\"type\":\"security/fuel\"")) `shouldSatisfy` malformed
 
     it "refuses a red CI result with no failing check" $
         decodeLine (encodeLine reviewRows `replacing` ("review.rows", "await_ci.red") `replacing` ("{\"head\":\"abc123\"}", "{\"head\":\"abc123\",\"failing\":[]}"))

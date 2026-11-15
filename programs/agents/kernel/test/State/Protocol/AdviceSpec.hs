@@ -13,9 +13,9 @@ import State.Category.Fuel (Fuel (..))
 import State.Protocol.Advice
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
 import State.Run.Event hiding (Stopped)
-import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start)
+import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), replay)
-import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, sha, tenXAt, tenXGraph)
+import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, securityGraph, securityScope, sha, tenXAt, tenXGraph)
 import State.Step.Build (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
@@ -104,6 +104,13 @@ spec = describe "State.Protocol.Advice" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
                 answered = runAt (knobs Balanced <> map (Took mempty) (take 4 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
             next noFacts answered `shouldBe` Run "state record confirm.confirmed | state record confirm.adjusted"
+
+    it "advises a scoped step's outcomes under their qualified names" $ do
+        let atSecurityPick =
+                either (error . show) id . replay securityGraph . logOf $
+                    started :| knobs Balanced <> [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty)), tookIn securityScope (ReviewRows sha)]
+        (advise steps securityGraph noFacts atSecurityPick).action
+            `shouldBe` Run "state record security/pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... | state record security/pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
 
     describe "due" $ do
         it "leaves Low's research skip to the agent, never recording it" $

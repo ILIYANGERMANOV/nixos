@@ -9,6 +9,7 @@ module State.Category.FlowGen (
     genBranching,
     genWalk,
     genWalkTo,
+    genScopePath,
     pathTo,
     skipsKept,
     composes,
@@ -21,7 +22,7 @@ import Data.Set qualified as Set
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (Flow (..), Name, inl, inr, (|||))
+import State.Category.Flow (Flow (..), Name, ScopePath, inl, inr, scopePath, (|||))
 import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), places)
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -84,6 +85,7 @@ genEndo kit =
         [Gen.element kit.endo]
         ( [ Opt <$> genName <*> genSkips <*> genEndo kit
           , (:>) <$> genEndo kit <*> genEndo kit
+          , Scope <$> genName <*> genEndo kit
           ]
             <> [Loop <$> genName <*> genExiting kit | not (null kit.exiting)]
         )
@@ -91,6 +93,10 @@ genEndo kit =
 -- | A loop or skip name from a small pool, so nested terms sometimes reuse one.
 genName :: Gen Name
 genName = Gen.element ["gather", "plan", "review", "ci", "round"]
+
+-- | The root or a nesting of up to three scopes from 'genName''s pool.
+genScopePath :: Gen ScopePath
+genScopePath = foldMap scopePath <$> Gen.list (Range.linear 0 3) genName
 
 genSkips :: Gen (PerFuel SkipWhen)
 genSkips = PerFuel <$> skip <*> skip <*> skip

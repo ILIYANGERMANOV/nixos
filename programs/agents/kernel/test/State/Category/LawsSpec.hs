@@ -14,8 +14,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, scoped, unqualify, (|||))
-import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, redrawn)
+import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, qualify, qualifyText, scoped, unqualify, (|||))
+import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, redrawn)
 import State.Category.Fuel (PerFuel, SkipWhen, monotone, skipsAtMost)
 import State.Category.Graph (Arrow (..), Clash, Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (Limit, limitAtMost, meterName)
@@ -59,11 +59,13 @@ spec = describe "laws" $ do
 
         {- @x@ ends in @(Diff + Plan) + Plan@; the associator moves it to
         @Diff + (Plan + Plan)@, so both cases see the same three branches.
+        Over terms that build: with two clashes, the one a side names first
+        follows its nesting, and 'Clash' has its own cases.
         -}
         it "case_is_associative" . hedgehog $ do
-            (f, g, h) <- forAll ((,,) <$> genBranching <*> genPlanned <*> genPlanned)
             let x = Do Triage :> (Do Triage :> inl ||| inr)
                 associator = (inl ||| inl :> inr) ||| inr :> inr
+            (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph (x :> ((f ||| g) ||| h)))) ((,,) <$> genBranching <*> genPlanned <*> genPlanned))
             drawn (x :> ((f ||| g) ||| h)) === drawn (x :> associator :> (f ||| (g ||| h)))
 
     describe "Catch, the codiagonal" $ do
@@ -97,6 +99,15 @@ spec = describe "laws" $ do
         it "nested_scopes_are_one_scope_of_both_names" . hedgehog $ do
             f <- forAll genFlow
             graph (Scope "outer" (Scope "inner" f)) === graph (Scope (scoped "outer" "inner") f)
+
+        it "unqualify_inverts_qualify_on_a_slash_free_name" . hedgehog $ do
+            scope <- forAll genScopePath
+            name <- forAll (Gen.element ["review", "review.rows", "engineers_merge.done"])
+            unqualify (qualifyText scope name) === (scope, name)
+
+        it "qualify_is_an_action_of_the_scope_monoid" . hedgehog $ do
+            (s, t) <- forAll ((,) <$> genScopePath <*> genScopePath)
+            qualify (s <> t) (StateName "review") === qualify s (qualify t (StateName "review"))
 
         it "names_the_states_around_a_scope_as_bare" . hedgehog $ do
             (f, g) <- forAll (Gen.filter (\(f, g) -> isRight (graph (f :> Scope "inner" g))) ((,) <$> genExiting diffKit <*> genBranching))
