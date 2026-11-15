@@ -71,7 +71,7 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts tenXStarted `shouldBe` choosing 0 0
 
         it "waits for an open researcher before enough" $
-            next noFacts (runAt (knobs Balanced <> researched)) `shouldBe` Run "Researchers: 1 of 5: spawn a researcher in the background | Interview questions: 0 of 30: state ask each question | await the 1 open to hand back, then state record gather.enough"
+            next noFacts (runAt (knobs Balanced <> researched)) `shouldBe` Run "Interview questions: 0 of 30: state ask each question | Researchers: 1 of 5: spawn a researcher in the background | await the 1 open to hand back, then state record gather.enough"
 
         it "offers enough again once every researcher handed back" $
             next noFacts (runAt (knobs Balanced <> researched <> [stepTook ResearchHandedBack])) `shouldBe` choosing 1 0
@@ -310,7 +310,7 @@ spec = describe "State.Protocol.Advice" $ do
     questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) gathering Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
     goOn = Question (QId run 100) Stuck (oneLine "go on?")
     choosing :: Int -> Int -> Action
-    choosing researchers asks = Run ("Researchers: " <> Text.show researchers <> " of 5: spawn a researcher in the background | Interview questions: " <> Text.show asks <> " of 30: state ask each question | state record gather.enough")
+    choosing researchers asks = Run ("Interview questions: " <> Text.show asks <> " of 30: state ask each question | Researchers: " <> Text.show researchers <> " of 5: spawn a researcher in the background | state record gather.enough")
     atReady = runAt (knobs Balanced <> map (Took mempty) (take 13 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]

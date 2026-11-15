@@ -43,8 +43,9 @@ spec = Hspec.describe "State.Flow.Library" $ do
                     ]
                 )
 
-    it "leaves research, the plan's simplify and the refactor skippable at Low only" $
+    -- Research is no skip: the gather's agent chooses it, or enough.
+    it "leaves the plan's simplify and the refactor skippable at Low only" $
         [(level, skippable level <$> graph engineer) | level <- [minBound .. maxBound]]
-            `shouldBe` [(Low, Right (Set.fromList ["refactor", "research", "simplify_plan"])), (Balanced, Right Set.empty), (Max, Right Set.empty)]
+            `shouldBe` [(Low, Right (Set.fromList ["refactor", "simplify_plan"])), (Balanced, Right Set.empty), (Max, Right Set.empty)]
   where
     skippable level g = Set.fromList [name | Edge {arrow = Skip name when} <- Map.elems g.edges, atFuel level when == Skippable]

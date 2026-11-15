@@ -29,10 +29,23 @@ spec = describe "State.Cli.Render.Mermaid" $ do
             `shouldBe` Text.unlines
                 [ "stateDiagram-v2"
                 , "  direction LR"
+                , "  state \"simplify_pr\" as simplify_pr_0"
+                , "  state \"simplify_pr\" as simplify_pr_1_1"
                 , "  [*] --> simplify_pr_0"
                 , "  simplify_pr_0 --> fix_pr: done"
                 , "  fix_pr --> simplify_pr_1_1: done"
                 , "  simplify_pr_1_1 --> [*]: done"
+                ]
+
+    it "declares a scoped state by an id Mermaid takes, labelled with its name" $
+        render (Scope "s" (Do SimplifyPR) :> Do FixPR)
+            `shouldBe` Text.unlines
+                [ "stateDiagram-v2"
+                , "  direction LR"
+                , "  state \"s/simplify_pr\" as s__simplify_pr"
+                , "  [*] --> s__simplify_pr"
+                , "  s__simplify_pr --> fix_pr: done"
+                , "  fix_pr --> [*]: done"
                 ]
 
 render :: (NotSum i, NotSum o) => Flow i e o -> Text

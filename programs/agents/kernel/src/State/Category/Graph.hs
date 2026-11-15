@@ -21,6 +21,7 @@ module State.Category.Graph (
     places,
     innermost,
     leaving,
+    eventLabel,
 ) where
 
 import Control.Monad (foldM)
@@ -31,10 +32,11 @@ import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text (Text)
 import State.Category.Flow (FanEvent (..), Flow (..), Name (..), ScopePath, choiceName, enoughOutcome, fanEvent, fanName, qualify, qualifyEvent, scopePath, scoped)
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
-import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName, Outcomes (..), Sig, Sing, StateName (..), StepSet, handedBackOutcome, outcomes, skippedOutcome, spawnedOutcome, stepName)
+import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), Sig, Sing, StateName (..), StepSet, eventText, handedBackOutcome, outcomes, skippedOutcome, spawnedOutcome, stepName)
 import State.Category.Ty (IsSum, KnownTy (..), NotSum, Ty (..))
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
@@ -67,8 +69,9 @@ data Edge n = Edge {to :: n, arrow :: Arrow, back :: Maybe Name}
     deriving stock (Eq, Show, Functor)
 
 {- | A loop's first state, where each round starts, and the states of its
-body. Nested loops can share an entry (gather and plan both start at
-@research@), so the body, not the entry, tells whether a run is inside a loop.
+body. Nested loops can share an entry (the plan's loop and the gather's
+choice both start at @gather@), so the body, not the entry, tells whether a
+run is inside a loop.
 -}
 data LoopAt = LoopAt {entry :: Place, body :: Set Place}
     deriving stock (Eq, Show)
@@ -451,6 +454,14 @@ leaving g place = [(event, edge) | ((from, event), edge) <- Map.toList g.edges, 
         At to -> maybe False (Set.member to . (.body)) (innermost g place)
         Out -> False
         Exit -> False
+
+{- | An event as drawn beside the state it leaves: its outcome, or the
+whole event where another step's event stays there, as a choice's actions' do.
+-}
+eventLabel :: Place -> EventName -> Text
+eventLabel place event@(EventName step (OutcomeName outcome))
+    | step == placeName place = outcome
+    | otherwise = eventText event
 
 -- | The states these edges leave.
 sources :: Map (Place, EventName) a -> Set Place

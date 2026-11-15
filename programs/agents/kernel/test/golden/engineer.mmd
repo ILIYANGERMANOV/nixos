@@ -1,14 +1,13 @@
 stateDiagram-v2
   direction LR
-  [*] --> research
-  research --> interview: done
-  research --> interview: skipped
-  interview --> plan: enough
-  interview --> research: more
+  [*] --> gather
+  gather --> plan: enough
+  gather --> gather: research.handed_back
+  gather --> gather: research.spawned
   plan --> simplify_plan: done
   simplify_plan --> confirm: done
   simplify_plan --> confirm: skipped
-  confirm --> research: adjusted
+  confirm --> gather: adjusted
   confirm --> draft: confirmed
   draft --> implement: done
   implement --> refactor: done

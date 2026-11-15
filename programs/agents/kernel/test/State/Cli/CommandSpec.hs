@@ -130,13 +130,13 @@ spec = describe "State.Cli.Command" $ do
             (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (FuelSetOnce Max))
                 `shouldBe` ("it is max already, set once", "state show")
 
-        it "fixes a question past the gather's questions by extending or ending the interview" $
+        it "fixes a question past the gather's questions by extending or ending the gather" $
             (explain g Balanced (runAt researched).at (OutOfBudget (capOf "Interview questions") 30)).fix
-                `shouldBe` "state record extend <why> when the user goes on | state record interview.enough"
+                `shouldBe` "state record extend <why> when the user goes on | state record gather.enough"
 
-        it "fixes a researcher past the cap by extending, else by the research's own outcomes" $
+        it "fixes a researcher past the cap by extending or ending the gather" $
             (explain g Balanced (runAt []).at (OutOfBudget (capOf "Researchers") 5)).fix
-                `shouldBe` "state record extend <why> when the user goes on | state record research.done <n> | state record research.skipped"
+                `shouldBe` "state record extend <why> when the user goes on | state record gather.enough"
 
         it "fixes a plan round past the cap by confirming or stopping" $
             (explain g Balanced (runAt planned).at (OutOfBudget (capOf "Plan rounds") 3)).fix
@@ -150,10 +150,10 @@ spec = describe "State.Cli.Command" $ do
             (explain g Balanced (runAt []).at NothingToExtend).fix `shouldBe` "state next"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
-            [ (explain g fuel (runAt []).at (NoEdge (runAt []).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            [ (explain g fuel (runAt simplifying).at (NoEdge (runAt simplifying).at (outcomeEvent (outcome (ReviewClean sha))))).fix
             | fuel <- [Balanced, Low]
             ]
-                `shouldBe` ["state record research.done <n>", "state record research.done <n> | state record research.skipped"]
+                `shouldBe` ["state record simplify_plan.done", "state record simplify_plan.done | state record simplify_plan.skipped"]
 
     describe "help" $ do
         it "record's help lists every event the flow's arrows take" $
@@ -172,8 +172,9 @@ spec = describe "State.Cli.Command" $ do
         it "of an unknown event" $ golden "usage/state-record-nope.txt" (usageError "state" (parseCommand steps ["record", "nope"]))
         it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
-    -- At interview, at confirm and at the fix loop's pick, past the happy path's first steps.
+    -- At the gather, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
     researched = map (Took mempty) (take 1 happyPath)
+    simplifying = map (Took mempty) (take 4 happyPath)
     planned = map (Took mempty) (take 5 happyPath)
     picking = map (Took mempty) (take 9 happyPath) <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.

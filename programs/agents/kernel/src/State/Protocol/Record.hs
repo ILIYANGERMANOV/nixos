@@ -112,41 +112,42 @@ recordables =
         _ -> Left "one level"
     , nothing ResearchSpawned
     , nothing ResearchHandedBack
-    , extend
-    , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
-        [path] -> Right (Plain (tookIn a.scope (PlanDone (Text.unpack path))))
-        _ -> Left "the plan's path"
-    , nothing SimplifyPlanDone
-    , nothing SimplifyPlanSkipped
-    , nothing ConfirmConfirmed
-    , nothing ConfirmAdjusted
-    , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
-        [link, base, branch] -> Right (Plain (tookIn a.scope (DraftDone (DraftPr (Url link) (Branch base) (Branch branch)))))
-        _ -> Left "the PR's url, base and branch"
-    , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
-      commitAt Implement ImplementDone (Set.fromList [minBound .. maxBound])
-    , atHead Refactor RefactorDone
-    , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (\a -> Plain . tookIn a.scope . RefactorSkipped <$> because a.positional)
-    , atHead Review ReviewClean
-    , atHead Review ReviewRows
-    , picks Pick PickFinal
-    , picks Pick PickLoop
-    , -- A fixer's hand-back with no Touches line touches no area.
-      commitAt Fix FixDone Set.empty
-    , atHead ReReview ReReviewClean
-    , atHead ReReview ReReviewRows
-    , atHead Describe DescribeDone
-    , atHead SimplifyPR SimplifyPrDone
-    , atHead SimplifyPR SimplifyPrSkipped
-    , atHead AwaitCi AwaitCiGreen
-    , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of
-        check : more -> Right (AtHead (\sha -> tookIn a.scope (AwaitCiRed sha (fmap Check (check :| more)))))
-        [] -> Left "the failing checks"
-    , atHead FixPR FixPrDone
-    , url Ready ReadyDone
-    , url Ready ReadySkipped
     ]
         <> [nothing (Enough choice) | choice <- Choice.choices]
+        <> [ extend
+           , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
+                [path] -> Right (Plain (tookIn a.scope (PlanDone (Text.unpack path))))
+                _ -> Left "the plan's path"
+           , nothing SimplifyPlanDone
+           , nothing SimplifyPlanSkipped
+           , nothing ConfirmConfirmed
+           , nothing ConfirmAdjusted
+           , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
+                [link, base, branch] -> Right (Plain (tookIn a.scope (DraftDone (DraftPr (Url link) (Branch base) (Branch branch)))))
+                _ -> Left "the PR's url, base and branch"
+           , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
+             commitAt Implement ImplementDone (Set.fromList [minBound .. maxBound])
+           , atHead Refactor RefactorDone
+           , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (\a -> Plain . tookIn a.scope . RefactorSkipped <$> because a.positional)
+           , atHead Review ReviewClean
+           , atHead Review ReviewRows
+           , picks Pick PickFinal
+           , picks Pick PickLoop
+           , -- A fixer's hand-back with no Touches line touches no area.
+             commitAt Fix FixDone Set.empty
+           , atHead ReReview ReReviewClean
+           , atHead ReReview ReReviewRows
+           , atHead Describe DescribeDone
+           , atHead SimplifyPR SimplifyPrDone
+           , atHead SimplifyPR SimplifyPrSkipped
+           , atHead AwaitCi AwaitCiGreen
+           , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of
+                check : more -> Right (AtHead (\sha -> tookIn a.scope (AwaitCiRed sha (fmap Check (check :| more)))))
+                [] -> Left "the failing checks"
+           , atHead FixPR FixPrDone
+           , url Ready ReadyDone
+           , url Ready ReadySkipped
+           ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
         <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))

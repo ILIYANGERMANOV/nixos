@@ -10,7 +10,7 @@ module State.Category.FlowSpec (spec) where
 import Control.Exception (TypeError (..), evaluate, try)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (Flow (..), inl, inr, (|||))
+import State.Category.Flow (Flow (..), inl, inr, spawn, (|||))
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -59,14 +59,19 @@ spec = describe "State.Category.Flow" $ do
                 "Could not deduce ‘State.Category.Meter.Meter State.Step.Build.Implement’"
                 (graph (Capped (always (UpTo 1)) Stop Implement))
 
-        {- The loop's out is pinned: left free, the 'NotSum' 'Loop' asks of its exit
-        is ambiguous, and GHC reports that before the clash of the exits. 'Ty'
-        is imported qualified, so GHC still prints every type in full.
+        {- The exit is pinned: left free, nothing asks GHC to reduce the
+        clashing 'Join'. 'Ty' is imported qualified, so GHC still prints every
+        type in full.
         -}
         it "a series whose two sides exit with different types" $
             rejected
-                "Both sides of :> exit, with different types: State.Category.Ty.Ctx and State.Category.Ty.Plan"
-                (Loop "plan" (Do Interview :> Do PlanS :> Do Confirm) :: Flow 'State.Category.Ty.Ctx 'Nothing 'State.Category.Ty.Ctx)
+                "Both sides of :> exit, with different types: State.Category.Ty.PR and State.Category.Ty.Plan"
+                (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
+
+        it "spawning a step whose events open no child" $
+            rejectedShown
+                "Couldn't match type ‘False’ with ‘True’"
+                (graph (spawn (always (UpTo 1)) Extend Interview))
 
         it "a fan-out's state drawn as a step" $
             rejected

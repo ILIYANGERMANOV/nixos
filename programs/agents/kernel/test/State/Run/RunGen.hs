@@ -37,10 +37,10 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), ScopePath, scopePath)
+import State.Category.Flow (Flow (..), ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
-import State.Category.Step (EventName (..))
+import State.Category.Step (EventName (..), stateNameText)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
@@ -157,8 +157,8 @@ genAcceptedOn on = do
     go k state n = case state.at of
         At place -> do
             name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList on.edges, from == place]
-            -- The edge is named in the place's scope; the outcome is its step's own.
-            took <- Took place.scope <$> outcomeOf (EventName place.name name.outcome)
+            -- The edge is named in the place's scope; the outcome is its step's own, a choice's action's at a choice.
+            took <- Took place.scope <$> outcomeOf (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
             case append on state (line n took) of
                 Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
                 Right AlreadyLogged -> go (k - 1) state n

@@ -5,6 +5,7 @@ import Data.Foldable (for_)
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (isJust)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -30,7 +31,7 @@ import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, securityGraph, securityScope, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), gathering)
+import State.Step.Choice (Outcome (..), choiceNamed, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers, researchers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
@@ -42,7 +43,8 @@ import Test.Hspec.Hedgehog (hedgehog)
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
     it "names every edge of the engineer and 10x flows by exactly one kind of outcome" $
-        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph, twoFans], ((_, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay]
+        -- A fan-out's stays are its children's events; a choice's are its actions' outcomes.
+        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph, twoFans], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
 
     describe "the 10x's fan-out" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))

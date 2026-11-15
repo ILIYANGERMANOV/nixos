@@ -14,6 +14,7 @@ import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, Ty (..))
+import State.Step.Build (Sing (..))
 import State.Step.Gather (Sing (..))
 import State.Step.Ship (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -82,8 +83,25 @@ spec = describe "State.Category.Graph" $ do
             `shouldBe` Left (SameFan "engineers")
 
     it "refuses two skips of one state: a log could not say which was skipped" $
-        graph (Opt "research" (always Skippable) (Opt "simplify" (always Skippable) (Do Research)))
-            `shouldBe` Left (SameEvent (Place [] mempty (StateName "research")) (EventName (StateName "research") (OutcomeName "skipped")))
+        graph (Opt "refactor" (always Skippable) (Opt "simplify" (always Skippable) (Do Refactor)))
+            `shouldBe` Left (SameEvent (Place [] mempty (StateName "refactor")) (EventName (StateName "refactor") (OutcomeName "skipped")))
+
+    describe "a choice" $ do
+        it "refuses a branch that is not a capped action: it would leave the choice" $
+            graph (Choice "gather" [Do Interview])
+                `shouldBe` Left (NotAnAction "gather")
+
+        it "refuses one action twice: their meters would be one" $
+            graph (Choice "gather" [questions, questions])
+                `shouldBe` Left (SameAction "gather" (StateName "interview"))
+
+        it "refuses an action outside a choice: its events would stay nowhere" $
+            graph questions
+                `shouldBe` Left (StaysOutside (Place [] mempty (StateName "interview")))
+
+-- | The gather's questions, capped as an action of its choice.
+questions :: Flow 'Ctx 'Nothing 'Ctx
+questions = Capped (always (UpTo 3)) Extend Interview
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
 seqGraphs :: (NotSum a, NotSum b, NotSum c) => Gen (Flow a e1 b) -> Gen (Flow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)

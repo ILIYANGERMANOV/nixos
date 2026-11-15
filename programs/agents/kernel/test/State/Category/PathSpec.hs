@@ -12,7 +12,8 @@ import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), P
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..))
 import State.Category.Ty (Ty (..))
-import State.Step.Gather (Sing (..))
+import State.Step.Build (Sing (..))
+import State.Step.Review (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldNotBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -29,13 +30,13 @@ spec = describe "State.Category.Path" $ do
         ends path === Just (Ctx, PR)
 
     it "takes a skip to where running the skipped step goes" $ do
-        let built = graph (Opt "research" (always Skippable) (Do Research) :> Do Interview)
+        let built = graph (Opt "refactor" (always Skippable) (Do Refactor) :> Do Review)
             from event = do
                 g <- either (const Nothing) Just built
                 edge <- step g g.inPort event
                 Just edge.to
-        from (EventName (StateName "research") (OutcomeName "skipped")) `shouldBe` from (EventName (StateName "research") (OutcomeName "done"))
-        from (EventName (StateName "research") (OutcomeName "skipped")) `shouldNotBe` Nothing
+        from (EventName (StateName "refactor") (OutcomeName "skipped")) `shouldBe` from (EventName (StateName "refactor") (OutcomeName "done"))
+        from (EventName (StateName "refactor") (OutcomeName "skipped")) `shouldNotBe` Nothing
 
 -- | A built flow and one of its skip edges.
 genSkip :: Gen (OpenGraph, (Place, EventName, Edge Node))

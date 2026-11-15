@@ -14,17 +14,18 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, qualify, qualifyText, scoped, unqualify, (|||))
+import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, qualify, qualifyText, scoped, spawn, unqualify, (|||))
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, redrawn)
-import State.Category.Fuel (PerFuel, SkipWhen, monotone, skipsAtMost)
+import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
 import State.Category.Graph (Arrow (..), Cap, Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
-import State.Category.Meter (Limit, limitAtMost, meterName)
+import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
 import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..), stateNameText)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
+import State.Step.Gather (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -113,6 +114,12 @@ spec = describe "laws" $ do
             (f, g) <- forAll (Gen.filter (\(f, g) -> isRight (graph (f :> Scope "inner" g))) ((,) <$> genExiting diffKit <*> genBranching))
             (stateNames <$> graph (f :> Scope "inner" g)) === liftA2 (<>) (stateNames <$> graph f) (stateNames <$> graph (Scope "inner" g))
 
+    describe "Choice, the Kleene star of a sum" $
+        it "the_order_of_the_actions_does_not_matter" . hedgehog $ do
+            actions <- forAll genActions
+            shuffled <- forAll (Gen.shuffle actions)
+            drawn (Choice "gather" shuffled) === drawn (Choice "gather" actions)
+
     describe "PerFuel" $
         it "allows each level at least the spends and runs of the level below, in every named flow" $
             [(flow, name) | (flow, budgets) <- [("engineer" :: String, budgetsOf engineer), ("tenX", budgetsOf tenX)], (name, False) <- budgets]
@@ -156,6 +163,15 @@ genOnSum =
             Gen.choice
             [genEndo diffKit]
             [(Do Triage :>) <$> genOnSum]
+
+-- | Some of the gather's actions, each with a cap of its own.
+genActions :: Gen [Flow 'Ctx 'Nothing 'Ctx]
+genActions = do
+    let genLimit = Gen.element [UpTo 1, UpTo 5, PerGroup]
+        genCap = Gen.element [Refuse, Stop, Extend]
+    research <- spawn <$> (PerFuel <$> genLimit <*> genLimit <*> genLimit) <*> genCap <*> pure Research
+    interview <- Capped <$> (always <$> genLimit) <*> genCap <*> pure Interview
+    Gen.subsequence [research, interview]
 
 -- | A loop body with an exit.
 genBody :: Gen (Flow 'Diff ('Just 'Diff) 'Diff)

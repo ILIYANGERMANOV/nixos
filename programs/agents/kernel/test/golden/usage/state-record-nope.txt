@@ -9,10 +9,9 @@ Available options:
 
 Available commands:
   fuel                     <low|balanced|max>
-  research.done            <n>
-  research.skipped         no arguments
-  interview.enough         no arguments
-  interview.more           no arguments
+  research.spawned         no arguments
+  research.handed_back     no arguments
+  gather.enough            no arguments
   extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments

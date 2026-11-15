@@ -18,15 +18,16 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
-import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName, StepSet (stepName), stateNameText)
+import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
 import State.Show (tshow)
 import State.Step.Build (Sing (Refactor))
 import State.Step.Catalog (AnyStep (..), stepNamed)
+import State.Step.Choice (choiceNamed)
 import State.Step.Gather (Sing (Research))
 import State.Step.Review (Sing (Pick))
 import State.Table (Row (runner), Runner (..), Steps, row)
@@ -41,14 +42,14 @@ states g steps =
         ["State", "Run by", "Arrows out"]
         [[stateNameText (placeName place), runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
   where
-    runBy name = case stepNamed name of
-        Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
+    runBy name = case (stepNamed name, choiceNamed name) of
+        (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
             Agent agent _ -> roleText agent
             Inline -> "you"
-        Nothing -> "fan-out"
+        (Nothing, Just _) -> "you"
+        (Nothing, Nothing) -> "fan-out"
     arrowsOut place =
-        Text.intercalate "; " [outcomeText event <> ": " <> target edge.to | ((from, event), edge) <- Map.toList g.edges, from == place]
-    outcomeText (EventName _ (OutcomeName outcome)) = outcome
+        Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | ((from, event), edge) <- Map.toList g.edges, from == place]
     target = \case
         At place -> stateNameText (placeName place)
         Out -> "end"
@@ -57,9 +58,10 @@ states g steps =
 {- | The engineer's rows of the Fuel table: the meters a level caps
 differently, the steps it lets the agent skip, read off the flow's graph,
 which carries its term's budgets, and 'cfg', with each level's depth prose
-after it. A meter is a row by its name, in the flow's order; one capped
-alike at every level is no row. A step the flow draws as optional ('Skip'
-arrow) is skippable by its state's name.
+after it. A meter is a row by its name, in the flow's order; a choice's
+actions by their steps' names, as a choice's order means nothing. One
+capped alike at every level is no row. A step the flow draws as optional
+('Skip' arrow) is skippable by its state's name.
 -}
 fuel :: OpenGraph -> Text
 fuel g =
