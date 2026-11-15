@@ -34,4 +34,6 @@ Reply phone-short:
      charger or its cable
    - Bat health: the battery is worn; plan a replacement
 
-A row the machine has no sensor for is simply absent: do not mention it.
+A row the machine has no sensor for is simply absent: do not mention it. A
+virtual machine, such as the Hetzner factory, has no temperature, fan,
+slowdown or battery rows at all; that is expected, never a problem.
