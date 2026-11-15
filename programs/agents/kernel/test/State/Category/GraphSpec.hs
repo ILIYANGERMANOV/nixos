@@ -73,6 +73,10 @@ spec = describe "State.Category.Graph" $ do
         graph (Loop "outer" (Do AwaitCi :> Loop "ci" (Do AwaitCi :> fixCapped)))
             `shouldBe` Left (Unbounded "outer")
 
+    it "refuses a Refuse cap on a step whose every outcome stays in its loop: past the cap nothing is left to record" $
+        graph (Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Refuse FixPR))
+            `shouldBe` Left (RefuseWithoutWayOut (Place [1] (StateName "fix_pr")))
+
     it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
         graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))
             `shouldBe` Left (SameFan "engineers")

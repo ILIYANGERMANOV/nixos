@@ -30,7 +30,7 @@ import Data.Ord (comparing)
 import Data.Set qualified as Set
 import State.Category.Flow (FanEvent (..), Flow (..), Name (..), fanEvent, fanName, nameText, scoped)
 import State.Category.Fuel (PerFuel, SkipWhen)
-import State.Category.Meter (AtCap, Limit, Meter, SomeMeter (..))
+import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName, Outcomes (..), Sig, Sing, StateName (..), StepSet, outcomes, skippedOutcome, stepName)
 import State.Category.Ty (IsSum, KnownTy (..), NotSum, Ty (..))
 
@@ -91,6 +91,10 @@ data Clash
       NoStep
     | -- | A loop whose body caps no step of its own: nothing bounds its rounds.
       Unbounded Name
+    | {- | A step capped by 'Refuse' with no edge out of its innermost loop:
+      past the cap its spend is refused and nothing is left to record.
+      -}
+      RefuseWithoutWayOut Place
     deriving stock (Eq, Show)
 
 {- | A whole flow starts from one type and ends in one, so it has one in port
@@ -105,14 +109,21 @@ whole p = do
     inPort <- entryOf p
     let edges = fmap (fmap node) p.edges
         reached = reachable inPort edges
-    pure
-        OpenGraph
-            { inPort
-            , edges = Map.filterWithKey (\(from, _) _ -> Set.member from reached) edges
-            , loops = Map.mapMaybe (\at -> if Set.member at.entry reached then Just at {body = Set.intersection at.body reached} else Nothing) p.loops
-            , caps = Map.restrictKeys p.caps reached
-            }
+        g =
+            OpenGraph
+                { inPort
+                , edges = Map.filterWithKey (\(from, _) _ -> Set.member from reached) edges
+                , loops = Map.mapMaybe (\at -> if Set.member at.entry reached then Just at {body = Set.intersection at.body reached} else Nothing) p.loops
+                , caps = Map.restrictKeys p.caps reached
+                }
+    case [place | (place, cap) <- Map.toList g.caps, refuses cap.atCap, null (leaving g place)] of
+        [] -> pure g
+        place : _ -> Left (RefuseWithoutWayOut place)
   where
+    refuses = \case
+        Refuse -> True
+        Stop -> False
+        Extend -> False
     node = \case
         ToState place -> At place
         ToOut _ -> Out
