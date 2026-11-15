@@ -43,6 +43,7 @@ spec = describe "State.Run.Fold" $ do
         let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
             toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
+            rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t2" [] :| [])))]
         it "refuses a child's spawn outside the fan-out" $
             tenXRun [Spawned child] `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
@@ -62,10 +63,10 @@ spec = describe "State.Run.Fold" $ do
             let allParked = Stop Blocked "all tasks parked"
             (.stopped) <$> tenXRun (toEngineers <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), stepTook (FanDone FEngineers), Stopped allParked])
                 `shouldBe` Right (Just allParked)
-        it "refuses a new breakdown while a child is at work, and starts a fresh fan-out after it handed back" $ do
-            let again = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone FEngineers (tasksOf (plainTask "t2" [] :| [])))]
-            tenXRun (toEngineers <> [Spawned child] <> again) `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
-            fmap (.id) . (.tasks) . currentFan <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))] <> again)
+        it "refuses a new breakdown while a child is at work" $
+            tenXRun (toEngineers <> [Spawned child] <> rePlan) `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
+        it "starts a fresh fan-out at a new breakdown once every child handed back" $
+            fmap (.id) . (.tasks) . currentFan <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))] <> rePlan)
                 `shouldBe` Right [TaskId "t2"]
         it "adds a task mid-run, one the merge then awaits" $ do
             let fix = plainTask "fix" []

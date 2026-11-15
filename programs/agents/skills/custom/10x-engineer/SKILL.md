@@ -159,7 +159,7 @@ test holds, as a ruling; a real trade-off is the user's.
 Confirm once, phone-sized: the breakdown with a file tree of what each task
 adds or changes and, per task, the options with their trade-offs. One
 `AskUserQuestion` ("Yes, start (Recommended)" / "No, adjust"), repeating until
-clear. No engineer starts before this, except a base fix (Failures).
+clear. No engineer starts before this, a base fix included (Failures).
 
 ### Breakdown
 
@@ -309,9 +309,11 @@ run it, then triage it as any question. No retry spawns before.
    Dependents park with it unless the user re-plans them.
 
 **Base.** A check red on the head of the repo's default branch, unless the PR
-is the base fix itself: a fresh fixer opens `base-fix-<repo>-<n>`, an
-independent PR to that branch, `Heavy` as the red check builds, at once,
-ahead of the queue, with no confirmation. No check runs there
+is the base fix itself: an engineer opens `base-fix-<repo>-<n>`, an
+independent PR to that branch, `Heavy` as the red check builds, ahead of the
+queue, with no confirmation. Add it with `state record task add` after
+`breakdown.done`, as a breakdown starts a fresh fan-out without it; `state
+next` spawns it at once. No check runs there
 means CI does not run on push, so the base is unknown: treat it as not red.
 Push the user what broke and each PR it holds. Merges on that repo hold until
 the base is green; other repos go on. The base fix takes CI, the queue and

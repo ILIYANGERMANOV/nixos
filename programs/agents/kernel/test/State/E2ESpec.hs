@@ -185,14 +185,14 @@ spec = describe "the state binary" $ do
                 resume <- succeeded =<< state bin repo ["next"]
                 take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1"]
 
-            it "adds a task mid-run and spawns it, refusing a malformed task file with the breakdown's error" $ \repo -> do
+            it "refuses a malformed task file with the breakdown's error" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
-                let fix = repo.root </> "fix.json"
-                Text.writeFile fix "{\"id\": \"fix\"}"
-                malformed <- state bin repo ["record", "task", "add", fix]
+                malformed <- taskAdded bin repo "{\"id\": \"fix\"}"
                 (malformed.code, malformed.err) `shouldSatisfy` \(code, err) -> code == 2 && mentions "key \"deps\" not found" err
-                Text.writeFile fix (taskFileJson (plainTask "fix" []))
-                _ <- succeeded =<< state bin repo ["record", "task", "add", fix]
+
+            it "adds a task mid-run and spawns it" $ \repo -> do
+                _ <- tenXAtFanOut bin repo
+                _ <- succeeded =<< taskAdded bin repo (taskFileJson (plainTask "fix" []))
                 _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task fix background: yes"]
@@ -372,16 +372,21 @@ spec = describe "the state binary" $ do
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
                 said `shouldSatisfy` mentions "line 2 is not read"
 
-            it "records a restart of the lead's session, so its lost child is sent again, and nothing at a compaction" $ \repo -> do
-                parent <- tenXAtFanOut bin repo
-                w1 <- worktree repo "w1"
-                c1 <- childRun bin w1 parent "n1" "t1"
-                compacted <- succeeded =<< hook hookBin repo "resume" (sessionFrom "compact" repo)
-                compacted `shouldSatisfy` (not . mentions "restarted")
+            it "records a restart of the lead's resumed session, so its lost child is sent again" $ \repo -> do
+                c1 <- childAtWork bin repo
                 resumed <- succeeded =<< hook hookBin repo "resume" (sessionFrom "resume" repo)
                 resumed `shouldSatisfy` mentions "restarted"
                 lost <- succeeded =<< state bin repo ["next"]
                 take 1 lost `shouldBe` ["RESUME " <> c1 <> " lost at a restart: a fresh engineer with its spawn prompt"]
+
+            it "records no restart at a compaction, which keeps the lead's child" $ \repo -> do
+                _ <- childAtWork bin repo
+                compacted <- succeeded =<< hook hookBin repo "resume" (sessionFrom "compact" repo)
+                compacted `shouldSatisfy` (not . mentions "restarted")
+
+            it "records no second restart at a startup, once no child is at work" $ \repo -> do
+                _ <- childAtWork bin repo
+                _ <- succeeded =<< hook hookBin repo "resume" (sessionFrom "resume" repo)
                 again <- succeeded =<< hook hookBin repo "resume" (sessionFrom "startup" repo)
                 again `shouldSatisfy` (not . mentions "restarted")
 
@@ -473,6 +478,20 @@ tenXAtFanOut bin repo = do
 -- | The child run a parent's brief starts for this task, its notes in @dir@ under the repo's root; its id.
 childRun :: FilePath -> Repo -> Text -> FilePath -> Text -> IO Text
 childRun bin repo parent dir task = startedIn bin repo ["--notes", repo.root </> dir, "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", Text.unpack task]
+
+-- | A 10x run at its fan-out with task t1's child started in its own worktree; the child's run id.
+childAtWork :: FilePath -> Repo -> IO Text
+childAtWork bin repo = do
+    parent <- tenXAtFanOut bin repo
+    w1 <- worktree repo "w1"
+    childRun bin w1 parent "n1" "t1"
+
+-- | @state record task add@ on a task file holding these contents.
+taskAdded :: FilePath -> Repo -> Text -> IO Ran
+taskAdded bin repo contents = do
+    let file = repo.root </> "task.json"
+    Text.writeFile file contents
+    state bin repo ["record", "task", "add", file]
 
 -- | A worktree of its own on a new branch, as a child runs in; the repo as seen from it.
 worktree :: Repo -> String -> IO Repo
