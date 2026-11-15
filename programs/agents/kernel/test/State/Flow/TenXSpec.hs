@@ -26,8 +26,9 @@ spec = describe "State.Flow.TenX" $ do
     it "runs the registry's engineer flow at its fan-out" $
         lookup FEngineers (parBodies tenX) `shouldBe` fmap (show . (.flow) . role) (fanFlow FEngineers)
 
-{- | Each fan-out's body, shown: a 'Par' hides its body's types, so no two
-bodies share one to compare by 'graph', which also draws a 'Par' as one state.
+{- | Each fan-out's body, shown. Compared by 'show', not 'graph': 'graph'
+draws a 'Par' as one state, and a 'Par' hides the types 'graph' needs of its
+body.
 -}
 parBodies :: Flow i e o -> [(FanId, String)]
 parBodies = \case
