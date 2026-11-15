@@ -247,7 +247,7 @@ fan_row() {
 # Every CPU of a package reports the same package count, and hyperthread
 # siblings the same core count, so each is taken once per package or core.
 throttle_row() {
-  local cpu="$1" dir count package_id core package=0 cores=0 found=0 times=times
+  local cpu="$1" dir count package_id core package=0 cores=0 found=0 times=times previous rise
   local -A counted=()
   for dir in "$kernel_root"/sys/devices/system/cpu/cpu*/thermal_throttle; do
     [ -d "$dir" ] || continue
@@ -266,7 +266,28 @@ throttle_row() {
   [ "$found" -eq 1 ] || return 0
   count=$((package + cores))
   [ "$count" -ne 1 ] || times="time"
-  stat_row Throttled "$count $times" "since boot" throttle_state "$count" "$cpu"
+  previous=$(reading "$throttle_file")
+  rise=$(throttle_rise "$previous" "$count")
+  save_throttle_count "$count"
+  stat_row Throttled "$count $times" "since boot${rise:+, +$rise since last check}" throttle_state "${rise:-none}" "$cpu"
+}
+
+# The count the last stats run saw, so a slowdown warns once, when it happens,
+# not for the rest of the boot. Kept beside the enabled set.
+throttle_file="${state_file%/*}/throttle-count"
+
+# throttle_rise <previous count> <current count>: the rise since the last run,
+# or nothing without a baseline - the first run, garbage in the file, or a
+# lower count, which means a reboot reset the counters.
+throttle_rise() {
+  [ -n "$1" ] && (($2 >= $1)) && echo $(($2 - $1)) || true
+}
+
+# Atomic, and silent on failure: losing the baseline only repeats a warning.
+save_throttle_count() {
+  local tmp
+  { mkdir -p "${throttle_file%/*}" && tmp=$(mktemp "$throttle_file.XXXXXX"); } 2>/dev/null || return 0
+  { echo "$1" >"$tmp" && mv -fT "$tmp" "$throttle_file"; } 2>/dev/null || rm -f "$tmp"
 }
 
 # The first battery only: the factories have one at most.
@@ -365,9 +386,10 @@ fan_state() {
   esac
 }
 
+# throttle_state <rise since the last run, or none> <CPU temp, or none>
 throttle_state() {
   case "$1/$2" in
-    0/*) echo normal ;;
+    none/* | 0/*) echo normal ;;
     */none) echo warning ;;
     *) at_or_above "$2" 0 95000 ;;
   esac

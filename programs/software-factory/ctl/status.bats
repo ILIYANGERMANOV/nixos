@@ -280,13 +280,99 @@ is_state() {
   done
 }
 
-@test "stats: any heat slowdown warns, and is critical while the CPU is at 95 C" {
+# throttled <count>: the heat slowdowns since boot, all on one core.
+throttled() { sensor devices/system/cpu/cpu0/thermal_throttle/core_throttle_count "$1"; }
+
+throttle_file() { echo "$HOME/.local/state/factory/throttle-count"; }
+
+@test "stats: the first run shows the slowdowns since boot as normal and keeps the count" {
   thinkpad_kernel
-  is_state Throttled normal
-  sensor devices/system/cpu/cpu1/thermal_throttle/core_throttle_count 1
+  throttled 8763
+
+  stats_cleanly
+  grep -Eq '^Throttled +8763 times +since boot +normal$' "$work/out" || fail_showing "$work/out" "the first run is not a normal total"
+  [ "$(cat "$(throttle_file)")" = 8763 ] || fail "the count was not kept"
+}
+
+@test "stats: no new slowdown since the last run is normal" {
+  thinkpad_kernel
+  throttled 8763
+  stats_cleanly
+
+  stats_cleanly
+  grep -Eq '^Throttled +8763 times +since boot, \+0 since last check +normal$' "$work/out" ||
+    fail_showing "$work/out" "an unchanged count is not normal"
+}
+
+@test "stats: a slowdown since the last run warns, and is critical while the CPU is at 95 C" {
+  thinkpad_kernel
+  throttled 8751
+  stats_cleanly
+  throttled 8763
+
+  stats_cleanly
+  grep -Eq '^Throttled +8763 times +since boot, \+12 since last check +warning$' "$work/out" ||
+    fail_showing "$work/out" "a rise does not warn"
+  throttled 8764
+  sensor class/hwmon/hwmon2/temp1_input 94999
   is_state Throttled warning
+  throttled 8765
   sensor class/hwmon/hwmon2/temp1_input 95000
   is_state Throttled critical
+  is_state Throttled normal
+}
+
+@test "stats: a slowdown since the last run warns without a CPU temperature" {
+  thinkpad_kernel
+  rm -r "$FACTORY_KERNEL_ROOT/sys/class/hwmon/hwmon2"
+  stats_cleanly
+  throttled 2
+
+  is_state Throttled warning
+}
+
+@test "stats: a count lower than the last run's is a reboot and a fresh baseline" {
+  thinkpad_kernel
+  throttled 8763
+  stats_cleanly
+  throttled 3
+
+  stats_cleanly
+  grep -Eq '^Throttled +3 times +since boot +normal$' "$work/out" || fail_showing "$work/out" "a reboot is not a normal baseline"
+  throttled 4
+  is_state Throttled warning
+}
+
+@test "stats: a garbled or unreadable kept count is a fresh baseline" {
+  thinkpad_kernel
+  throttled 5
+  for break in emptied not_a_number unreadable; do
+    rm -rf "$(throttle_file)"
+    mkdir -p "$(dirname "$(throttle_file)")"
+    echo 1 >"$(throttle_file)"
+    "$break" "$(throttle_file)"
+
+    stats_cleanly "$break"
+    grep -Eq '^Throttled +5 times +since boot +normal$' "$work/out" || fail_showing "$work/out" "$break count is not a baseline"
+  done
+}
+
+@test "stats: a state directory that cannot be made keeps no count and still runs cleanly" {
+  thinkpad_kernel
+  throttled 5
+  mkdir -p "$HOME/.local/state"
+  touch "$HOME/.local/state/factory"
+
+  stats_cleanly
+  stats_cleanly
+  grep -Eq '^Throttled +5 times +since boot +normal$' "$work/out" || fail_showing "$work/out" "a missing baseline is not normal"
+}
+
+@test "stats: a VM without slowdown counters keeps no count" {
+  vm_kernel
+
+  stats_cleanly
+  [ ! -e "$(throttle_file)" ] || fail "a count was kept without counters"
 }
 
 @test "stats: a single heat slowdown reads 1 time" {
@@ -295,14 +381,6 @@ is_state() {
 
   stats_cleanly
   grep -Eq '^Throttled +1 time ' "$work/out" || fail_showing "$work/out" "the count is not 1 time"
-}
-
-@test "stats: a heat slowdown warns without a CPU temperature" {
-  thinkpad_kernel
-  rm -r "$FACTORY_KERNEL_ROOT/sys/class/hwmon/hwmon2"
-  sensor devices/system/cpu/cpu0/thermal_throttle/core_throttle_count 2
-
-  is_state Throttled warning
 }
 
 @test "stats: a discharging battery warns under 60% and is critical under 20%; not charging only warns" {

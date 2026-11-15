@@ -29,7 +29,9 @@ Reply phone-short:
    - CPU load: terminate-sessions or stop-repo for the busiest repository
    - CPU temp, NVMe temp, Fan or Throttled: check the airflow - a hard
      surface, room around the vents, nothing on the lid; a stopped fan under
-     load is a hardware fault, so ease the load until it is looked at
+     load is a hardware fault, so ease the load until it is looked at.
+     Throttled warns only when the CPU slowed for heat since the last stats
+     run (`+N since last check`); a large total since boot alone is history
    - Battery: plug in the AC; `not charging` while plugged in means the
      charger or its cable
    - Bat health: the battery is worn; plan a replacement
