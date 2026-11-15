@@ -1,6 +1,5 @@
 # What every setup gets. agent.md reaches every agent, subagent roles included;
-# lead.md is the lead's own role, and the lead also gets the trivial and
-# quality topics.
+# lead.md is the lead's own role, and the lead also gets the Fuel topic.
 {
   mkFragment,
   mkInstructions,
@@ -44,8 +43,7 @@
         layer = "role";
         file = ../../instructions/lead.md;
       })
-      topics.trivial
-      topics.quality
+      topics.fuel
     ];
   };
   # On PATH in every session, whatever the project: /qa's `qa-node` (Playwright,
@@ -59,8 +57,9 @@
   # /qa's wallet key, handed out as the decrypted file's PATH for qa-wallet to
   # read, never as a value. A host without the secret gets no variable.
   secretFiles.QA_EVM_KEY_FILE = "qa-sepolia-key";
-  # The state hooks keep the engineer flow's record as the agents work; a
-  # worktree with no `state` run sees none of them. The guards stop large
+  # The state hooks (the kernel's hooks.nix, as `state.hooks`) keep the
+  # engineer flow's record as the agents work; a worktree with no `state` run,
+  # or whose run is over, hears nothing from them. The guards stop large
   # reads, foreground waits, secret reads and a context past its budget.
   hooks = [
     state.hooks

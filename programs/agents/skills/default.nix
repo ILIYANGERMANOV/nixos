@@ -44,7 +44,7 @@ let
   # Custom skills committed under ./custom. Only names listed here are installed;
   # any other directory stays committed as a draft. See ./custom/README.md.
   custom = [
-    "10x-engineer" # /10x-engineer - run delegated engineers across issues and repos, merge what the user approved, factory only
+    "10x-engineer" # /10x-engineer - run engineers across issues and repos, merge what the user approved, factory only
     "android" # Android and Kotlin Multiplatform builds on the factory's global toolchain, factory only
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
     "architect" # /architect - read-only design partner led in free text, hands changes to /engineer, explicit invocation only

@@ -1,17 +1,16 @@
 # A guard over the prompt sources, not a transformer: it returns the files
-# unchanged, or throws if one still holds a mode rule of its own. The Quality
-# table in instructions/topics/quality.md is the one place a mode changes a
-# step, and only the engineer sets Size, so a skill, role or instruction that
-# repeats a mode row, the old `, Trivial` suffix or a self-activation phrase has
-# drifted from it. Prose branches count too: a line opening `POC:`, `Balanced:`
-# or `Max:`, or a `**<mode> row.**` paragraph.
+# unchanged, or throws if one still holds a Fuel rule of its own. The Fuel
+# table in instructions/topics/fuel.md is the one place a Fuel changes a step,
+# so a skill, role or instruction that repeats a Fuel row or a self-activation
+# phrase has drifted from it. Prose branches count too: a line opening `Low:`,
+# `Balanced:` or `Max:`, or a `**<level> row.**` paragraph.
 {
   pkgs,
   lib,
   # The directories whose files may only read the table: skills, roles and
   # instructions.
   roots,
-  # Files under `roots` that may hold a mode rule: the table itself, and
+  # Files under `roots` that may hold a Fuel rule: the table itself, and
   # self-improve, whose analyzer and metrics explain transcripts written before
   # the table.
   exempt,
@@ -22,20 +21,17 @@
 
 let
   phrases = [
-    "| POC |"
+    "| Low |"
     "| Balanced |"
     "| Max |"
-    ", Trivial"
-    "not Trivial"
     "unless your input says"
-    "qualifies by the Trivial rule"
   ];
 
   # The label a prose branch opens with, or null.
   branch =
     line:
     let
-      m = builtins.match "[[:space:]]*((POC|Balanced|Max):|\\*\\*(POC|Balanced|Max) row\\.\\*\\*).*" line;
+      m = builtins.match "[[:space:]]*((Low|Balanced|Max):|\\*\\*(Low|Balanced|Max) row\\.\\*\\*).*" line;
     in
     if m == null then null else builtins.head m;
 
@@ -66,7 +62,7 @@ let
     if found == [ ] then
       files
     else
-      throw "modes: a mode rule outside the Quality table: ${lib.concatStringsSep ", " found}";
+      throw "modes: a Fuel rule outside the Fuel table: ${lib.concatStringsSep ", " found}";
 
   sources = lib.filter (file: !lib.any (dir: lib.hasPrefix (toString dir) (toString file)) exempt) (
     lib.concatMap lib.filesystem.listFilesRecursive roots
@@ -74,19 +70,17 @@ let
 
   check =
     let
-      clean = [ (builtins.toFile "clean.md" "Your row in the Quality table says how deep.\n") ];
+      clean = [ (builtins.toFile "clean.md" "Your row in the Fuel table says how deep.\n") ];
       dirty = [
-        (builtins.toFile "dirty.md" "| Mode | Refactor |\n|---|---|\n| POC | one quick pass |\n")
+        (builtins.toFile "dirty.md" "| Fuel | Refactor |\n|---|---|\n| Low | one quick pass |\n")
       ];
-      suffix = [ (builtins.toFile "suffix.md" "Brief it `Quality: <mode>, Trivial`.\n") ];
-      prose = [ (builtins.toFile "prose.md" "Refactor the diff.\nPOC: skip it.\n") ];
+      prose = [ (builtins.toFile "prose.md" "Refactor the diff.\nLow: skip it.\n") ];
       row = [ (builtins.toFile "row.md" "**Max row.** Run every agent.\n") ];
       throws = import ../throws.nix;
     in
     assert lib.assertMsg (modes clean == clean) "modes: refused a file that only reads the table";
-    assert lib.assertMsg (throws (modes dirty)) "modes: let a mode table row through";
-    assert lib.assertMsg (throws (modes suffix)) "modes: let the old `, Trivial` suffix through";
-    assert lib.assertMsg (throws (modes prose)) "modes: let a `POC:` prose branch through";
+    assert lib.assertMsg (throws (modes dirty)) "modes: let a Fuel table row through";
+    assert lib.assertMsg (throws (modes prose)) "modes: let a `Low:` prose branch through";
     assert lib.assertMsg (throws (modes row)) "modes: let a `**Max row.**` prose branch through";
     builtins.seq (modes sources) (pkgs.writeText "modes-check" "");
 in

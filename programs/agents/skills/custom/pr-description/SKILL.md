@@ -70,7 +70,7 @@ flowchart TD
 <details><summary>Feedback log</summary> ... </details>
 <details><summary>QA: <verdict> ...</summary> ... </details>
 
-Quality: <mode> · Size: <size>
+Fuel: <level>
 ````
 
 - **What & Why** - no comma chains, no `Label: a, "x" vs "y"` fragments.
@@ -91,14 +91,12 @@ Quality: <mode> · Size: <size>
 - **After merge**, **Follow-ups** (each with its reason), **Feedback log**,
   **QA** - only when they have content. QA stays last: `qa` writes it. QA on
   an older head says so in its summary: `(on <short sha>, before <change>)`.
-- **Bottom line** - `Quality: <mode> · Size: <size>`, plus
+- **Bottom line** - `Fuel: <level>`, plus
   ` · Security-sensitive: <topics>` when set.
 - **Drop** - rename tables, acceptance-criteria checklists (they live in the
   plan), "found in review / QA" lists, internal ids (projects, deployments,
   dashboards), out-of-scope lists, file names.
-- **Trivial short form** - a brief saying `Size: Trivial`: What & Why, then
-  the Tests and Merge danger blocks. No How.
-- A POC PR opens with `POC - not merge-ready.`, and its proof is the one run.
+- **Short form** - a brief saying `Fuel: Low`: What & Why, then the Tests and Merge danger blocks. No How.
 
 ### Budget
 

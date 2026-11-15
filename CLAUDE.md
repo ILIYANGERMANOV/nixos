@@ -87,14 +87,15 @@ program needs a flake input.
 `nix flake check` evaluates every host: never iterate with it.
 
 1. A skill, subagent role or instruction `.md` edit: `nix build --no-link .#checks.x86_64-linux.agents`,
-   `.#checks.x86_64-linux.claude-config` (size ceilings, `just skill-budget` prints them)
-   and `.#checks.x86_64-linux.typos`, plus `python-tests` when the analyzer under
-   its skill changed.
+   `.#checks.x86_64-linux.claude-config` (size ceilings: `just skill-budget`)
+   and `.#checks.x86_64-linux.typos`, plus `python-tests` when its skill's
+   analyzer changed.
 2. A `programs/<x>` edit: build that program's check - `claude-code`, `claude-config`,
    `python-tests` and `shell-embedded` for `programs/claude-code`, `shell-tests` for `programs/skills-link`, every
    `nvim-*` and `just tech lua` for `programs/nvim`, `nvim-kotlin` plus
    a `software-factory` host eval for `programs/kotlin`, `shell-tests`,
-   `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
+   `playwright`, `qa` (Linux only) and `just tech ts` for `programs/playwright`,
+   `.claude/rules/haskell.md` for Haskell, `typos` - as `nix build --no-link .#checks.x86_64-linux.<name>`.
 3. A `modules/` or `hosts/` edit: evaluate the touched host only, with
    `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`
    (`lenovo-old` or a factory) or
@@ -108,8 +109,8 @@ program needs a flake input.
    `checks` derivation for this system. On Linux that evaluates each factory
    (`<factory>-activation`).
 7. `just check` once on the final state, run as the Checks rules in
-   `programs/agents/instructions/lead.md` say. Never after a docs-only edit, and never
-   with a build, lint or test chained in front of it.
+   `programs/agents/instructions/lead.md` say. Never after a docs-only edit or
+   behind a chained build, lint or test.
 
 ## Dependency Updates
 

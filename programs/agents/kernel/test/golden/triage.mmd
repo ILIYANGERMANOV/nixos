@@ -1,0 +1,9 @@
+stateDiagram-v2
+  direction LR
+  [*] --> triage
+  triage --> implement: big
+  triage --> describe_1_0: small
+  describe_1_0 --> [*]: done
+  implement --> fix: done
+  fix --> describe_1_1_1_1: done
+  describe_1_1_1_1 --> [*]: done

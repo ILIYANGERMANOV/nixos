@@ -14,6 +14,9 @@ effect to the edge, and state the laws the core obeys so tests can prove them.
 These are the same principles `engineering` applies to all code here; this ADR
 applies them to the flows that drive the agents themselves.
 
+Amended by ADR 0018: the principles hold, and the Haskell kernel is now their
+instance, its thin shell built on `effectful` effects.
+
 - **Pure core.** The functions that decide what a flow does are pure: same
   input, same output, no clock, no file, no network. They are the only place
   the flow's logic lives.

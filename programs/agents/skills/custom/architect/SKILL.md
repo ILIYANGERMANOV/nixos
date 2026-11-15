@@ -23,7 +23,7 @@ Read the current checkout unless told otherwise.
 - **Small lookup**: read the code yourself.
 - **Design question, broad question or several outside sources**: research
   before proposing. Spawn `researcher` agents in parallel over the local code
-  and the vendor docs, `Quality: Balanced` unless the user names one. Brief them from `## Callers`
+  and the vendor docs, `Fuel: Balanced` unless the user names one. Brief them from `## Callers`
   in `~/.claude/skills/researcher/SKILL.md`, that section only. A question that only feeds understanding counts: name "the user's
   understanding" as its decision.
 - **External facts** (libraries, APIs, products, versions, standards): verify

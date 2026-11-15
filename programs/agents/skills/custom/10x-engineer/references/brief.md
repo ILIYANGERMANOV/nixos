@@ -26,13 +26,15 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 ## Brief
 
 `~/.10x/<run>/briefs/<task>.md`, with every field. No pasted research: paths.
+Its head is what `state brief engineer --task <id>` prints in the run
+directory, its last line the child's `state init` with `<dir>` filled:
+`/tmp/engineer-<owner>-<repo>-<branch>/`, or a fresh one on a retry or a new
+round: `state init` refuses a finished run's directory.
 
 ```markdown
 # <task>
 
-Mode: delegated.
-Quality: <mode>
-Size: <Trivial | Normal>
+<`state brief engineer --task <id>`: the task's fields, then its `state init` line>
 
 ## The user's words
 
@@ -46,17 +48,14 @@ Size: <Trivial | Normal>
 
 - <input to observable outcome>
 
-Security-sensitive: <topics, or none>
-
 ## Where
 
 - Repo: <owner>/<repo>
-- Base branch: <main or epic/<name>>
 - Worktree: <absolute path>; every command uses it, by `git -C` or an absolute
   path, and every `gh` command by `--repo <owner>/<repo>`. Never touch `~/repos/<repo>`.
 - Repo rules: read the worktree's `CLAUDE.md` or `AGENTS.md` and follow them.
 - Issues: <#n each, closed by `Closes #n` in the PR body, or none>
-- Existing PR: <URL and the step to start from, or none>
+- Existing PR: <URL and the step to start from, `draft` at the latest so the run records the PR, or none>
 - Report file: ~/.10x/<run>/reports/<task>.md
 - Requirements file: ~/.10x/<run>/reports/<task>-requirements.md
 
@@ -75,12 +74,13 @@ Security-sensitive: <topics, or none>
 
 ## Spawn prompt
 
-A fresh `subagent_type: engineer` agent, which has `engineer` preloaded:
+A fresh background `subagent_type: engineer` agent, which has `engineer`
+preloaded and runs its whole flow:
 
 ```text
 <the data line from SKILL.md's Rules>
-Quality: <the task's>. You are delegated: your brief is <path>. Read it first and
-follow the preloaded `engineer` skill's `## Delegated` section.
+Fuel: <the task's>. Your brief is <path>. Read it first; its `state init`
+line is your first command.
 ```
 
 ## Fixer prompt
@@ -90,7 +90,7 @@ For CI failures, requested changes and rebases, a fresh background
 
 ```text
 <the data line from SKILL.md's Rules>
-Quality: <the task's>. Size: <the task's>. Worktree: <path>, use it for every command. PR: <URL>, base <base>. Fix: <the failing
+Fuel: <the task's>. Worktree: <path>, use it for every command. PR: <URL>, base <base>. Fix: <the failing
 check and its log, the review comments, or the rebase>. Run <targeted checks>, commit, push with `git push -u origin
 HEAD`. Hand back in about 250 words, never over 300, starting with exactly one
 of `READY <PR URL>`, `NEEDS_DECISION <question>`, `BLOCKED <reason>` or

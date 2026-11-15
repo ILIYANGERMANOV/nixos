@@ -82,7 +82,7 @@ SPAWN: JsonObject = {
     "tool_name": "Agent",
     "tool_input": {
         "description": "Implement slice 1",
-        "prompt": "Quality: Max",
+        "prompt": "Fuel: Max",
         "subagent_type": "implementer",
     },
     "tool_use_id": "toolu_01",
@@ -309,7 +309,7 @@ def test_a_lead_tool_call_has_no_agent() -> None:
         Tool.DELEGATE,
         {
             "description": "Implement slice 1",
-            "prompt": "Quality: Max",
+            "prompt": "Fuel: Max",
             "subagent_type": "implementer",
         },
     )
@@ -478,11 +478,11 @@ def test_a_note_becomes_claudes_output(
     [
         pytest.param(Allow(), {}, id="nothing to say"),
         pytest.param(
-            Allow("advice", {"prompt": "Quality: Max\nDiff: /tmp/d"}),
+            Allow("advice", {"prompt": "Fuel: Max\nDiff: /tmp/d"}),
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "updatedInput": {"prompt": "Quality: Max\nDiff: /tmp/d"},
+                    "updatedInput": {"prompt": "Fuel: Max\nDiff: /tmp/d"},
                     "additionalContext": "advice",
                 }
             },
@@ -557,7 +557,7 @@ def test_the_built_adapter_runs_an_events_hooks_and_answers_claude(
             "hookEventName": "PreToolUse",
             "updatedInput": {
                 "description": "Implement slice 1",
-                "prompt": "Quality: Max\nDiff: /tmp/d",
+                "prompt": "Fuel: Max\nDiff: /tmp/d",
                 "subagent_type": "implementer",
             },
             "additionalContext": "hook broken: exit 2: \n\nlead spawns",

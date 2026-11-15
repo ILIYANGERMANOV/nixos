@@ -3,6 +3,10 @@
 #
 # Only documented fields, and every one is checked in config-check.nix: Claude
 # Code ignores what it does not know.
+#
+# `operations` is not written: Claude Code has no per-agent list of what it may
+# call. Spawning is the `delegate` tools, which come from a `spawn:` operation;
+# asking, awaiting and notifying are the role's prose.
 {
   pkgs,
   lib,

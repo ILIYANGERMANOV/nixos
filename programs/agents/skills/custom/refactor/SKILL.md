@@ -1,7 +1,7 @@
 ---
 name: refactor
 description: Refactors the code a diff touches against the user's engineering and ui-coding rules - DRY first, then derivable state and data modeling, rule violations, deep modules, minimal parameters, needless complexity and tests that fall short of the test rules - without changing behaviour. Plans first, asks before any big item, a schema or stored-data change included, when run by the user (delegated, big items come back as proposals), then applies, checks, commits and pushes. Use after implementing a change and before review, or when asked to clean up or refactor a branch or a PR.
-argument-hint: "[Quality: <mode>] [scope notes] [PR number or base ref]"
+argument-hint: "[Fuel: <level>] [scope notes] [PR number or base ref]"
 ---
 
 # Refactor
@@ -14,10 +14,10 @@ behaviour is a bug hiding in a cleanup commit.
 invoked this skill, or a `refactorer` agent runs it preloaded, so there is
 nobody to ask. Your input is `$ARGUMENTS`, or your prompt when preloaded.
 
-**Quality.** Delegated, your row in the Quality table says whether this runs
+**Fuel.** Delegated, your row in the Fuel table says whether this runs
 and how deep: a skipped diff gets one line saying so, then stop. A quick pass is
 step 3's items 1-3, item 3 as one read of the diff, without
-`references/tests.md`. Invoked by the user, it runs in full in any mode.
+`references/tests.md`. Invoked by the user, it runs in full at any Fuel.
 
 ## 1. Load the rules
 
@@ -29,7 +29,7 @@ directory, and a `..` path does not resolve between installed skills.
 
 ## 2. Read the diff
 
-Your input may carry `Quality: <mode>`, scope notes (anything else that is
+Your input may carry `Fuel: <level>`, scope notes (anything else that is
 not a ref) and a target:
 
 - `Diff: run ctx diff <ref>...` - run it: it wins.

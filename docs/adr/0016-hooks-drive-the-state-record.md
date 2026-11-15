@@ -6,7 +6,9 @@ violations. This ADR amends that. Advisory hooks now write every event a
 program can derive, and inject `state` and `ctx` context where it is used. The
 lead records only what it decides. Design and implementation: #335, PR #339.
 ADR 0017 amends it: PR state is read from GitHub, not from shell commands,
-and the `pr` hook is gone.
+and the `pr` hook is gone. ADR 0018 amends it: the Haskell `state-hook`
+replaces the Python hooks, and keys each event on a content hash, so a hook
+that fires twice appends once.
 
 ## Evidence
 
@@ -27,14 +29,14 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
 - **Advisory, fail open and tell.** No hook denies. A hook that fails, or a
   `state` refusal, lets the call go on and adds `state hook <name>: <error>`
   and the refusal's `fix:` line to the agent's context.
-- **The hooks** (`programs/agents/state/hooks.nix`, `state-hook <name>`). Each
+- **The hooks** (`programs/agents/kernel/hooks.nix`, `state-hook <name>`). Each
   does nothing in a worktree with no run, or with a run at `Done`.
 
   | Hook | When | Does |
   |---|---|---|
   | resume | session start, resume, compact | adds `state show` and `state next` |
   | spawn | before the lead delegates | adds `state next` and a warning when a flow role off the advised one is spawned; never rewrites the prompt: auto mode refuses a rewritten spawn once, so `state brief` gives a refactorer, review-lead or fixer a `Diff:` line to run `ctx diff` itself |
-  | handback | before a worker hands back | records it, and appends what it recorded, or the refusal and `fix:`, to the report |
+  | handback | before a worker hands back | records it, and adds what it recorded, or the refusal and `fix:`, as context: auto mode refuses a rewritten report. A child run's own `state` records its hand-back in the parent's run |
   | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
   | asked | after the lead asks, in Ctx | records `asked` |
 

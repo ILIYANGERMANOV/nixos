@@ -2,7 +2,6 @@
 {
   pkgs,
   claude,
-  state,
   guards,
 }:
 let
@@ -22,16 +21,12 @@ let
       (root + "/just/cache-check/expensive-builds.deny")
       # By name, not by path: a path into another program breaks Deslop's
       # programs-are-isolated. test_statusline.py holds the statusline to what
-      # the old scripts printed; test_flow.py holds the engineer's SKILL.md to
-      # `state render`, its blockers.md to the stop rule and quality.md to the rows.
+      # the old scripts printed.
       (lib.fileset.fileFilter (
         file:
         file.hasExt "py"
         || builtins.elem file.name [
           "statusline-corpus.json"
-          "SKILL.md"
-          "blockers.md"
-          "quality.md"
           # test_agent_hook.py holds the enums to the vocabulary Nix reads.
           "vocabulary.json"
           # test_guards.py shapes Claude's payloads as the contract recorded them.
@@ -89,9 +84,6 @@ in
       );
       AGENT_HOOK_CLAUDE_TOOLS = claude.hookAdapter.toolsFile;
       STATUSLINE = lib.getExe claude.statusline;
-      # test_e2e.py runs the wrapped `state` and `state-hook`, as the agents get them.
-      STATE = lib.getExe state;
-      STATE_HOOK = "${state}/bin/state-hook";
       PYTHON_SOURCE = pythonSource;
     }
   ) (builtins.readFile ./python-tests.sh);
