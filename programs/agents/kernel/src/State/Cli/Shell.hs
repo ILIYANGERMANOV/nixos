@@ -16,6 +16,7 @@ import Data.Either (fromRight)
 import Data.Foldable (traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -48,7 +49,7 @@ import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), Ini
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
-import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, ownAsk, pullRequestOf, skippable)
+import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, explained, deliverPrompt, due, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
@@ -140,7 +141,7 @@ hookAnswer steps call want =
                 -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
                 (facts, told) <- readFacts
                 onHook facts.pr $ \stamp run -> case commit stamp run [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
-                    Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
+                    Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
                     Right (restart, after) ->
                         let (new, _, out) = adviceOf steps facts told stamp after
                          in (restart <> new, recordedLines after.state restart <> showRun after.g after.state <> out.text)
@@ -149,7 +150,7 @@ hookAnswer steps call want =
                 onHook facts.pr $ \stamp run ->
                     -- At a choice, the spawn of an action's worker opens a child; elsewhere it records nothing.
                     case commit stamp run [(Cli, event) | Just role <- [spawned], Just event <- [spawnedAt steps run.state.at role]] of
-                        Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
+                        Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
                         Right (opened, after) ->
                             let (new, action, out) = adviceOf steps facts told stamp after
                                 warning = case (action, spawned) of
@@ -311,7 +312,8 @@ handbackPlan steps worktreeHead state role child message = do
 {- | What @state next@ records and prints, and the advice's action: what GitHub
 and the run's Fuel already decide is recorded first, then the advice: its line, the
 last refusal until the next event, its facts indented, the step's lead and
-task text. The advice leads, so a refusal never reads as the next action.
+task text. The advice leads, so a refusal never reads as the next action;
+under it, where the run is and each option, one per line.
 -}
 adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Output)
 adviceOf steps facts told stamp run = (new, advice.action, out)
@@ -323,14 +325,14 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
-                    <> Text.concat ["  " <> line <> "\n" | line <- told <> unsynced <> advice.facts <> skippable settled.g settled.state]
+                    <> Text.concat ["  " <> line <> "\n" | line <- explained advice <> told <> unsynced <> advice.facts <> skippable settled.g settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
     settle current = case due current.g facts current.state of
         Nothing -> ([], current, [])
         Just event -> case commit stamp current [(Cli, event)] of
             -- Nobody asked for it, so it is told and not stored.
-            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at refusal).why])
+            Left refusal -> ([], current, ["PR sync refused: " <> (explain current.g (Fold.fuelOf current.state) current.state.at current.state.meters refusal).why])
             Right (lines', after) -> let (more, final, notes) = settle after in (lines' <> more, final, notes)
 
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
@@ -370,7 +372,7 @@ record stamp run sources = \case
     Right plan -> case commit stamp run (zip sources plan.events) of
         Right (new, after) -> (new, Right (plan.say after.state new))
         Left refusal ->
-            let failure = explain run.g (Fold.fuelOf run.state) run.state.at refusal
+            let failure = explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal
              in ([stamped stamp Cli run.state.run (nextSeq run) (Refused (noteOf failure))], Left failure)
 
 -- | Lines are numbered from 1 in the order written, @started@ first.
@@ -451,7 +453,7 @@ replayed path logged@(first :| _) = case Fold.runStart first.event of
     Just start ->
         let g = graphOf start.flow
          in -- Balanced, the Fuel until recorded: only what and why are read.
-            either (Left . unreplayed path . explain g Balanced Out) (Right . (g,)) (replay g logged)
+            either (Left . unreplayed path . explain g Balanced Out Map.empty) (Right . (g,)) (replay g logged)
 
 {- | @state init@: idempotent, as a retried brief runs it again. A child names
 its parent's log, which is checked to hold that run before this one starts.

@@ -12,13 +12,13 @@ module State.Cli.Render (
     planWrong,
 ) where
 
-import Data.List (nub)
+import Data.List (nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Cfg (..), Fuel (..), PerFuel, SkipWhen (..), atFuel, cfg)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
@@ -26,7 +26,7 @@ import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
 import State.Show (tshow)
 import State.Step.Build (Sing (Refactor))
-import State.Step.Catalog (AnyStep (..), stepNamed)
+import State.Step.Catalog (AnyStep (..), shownEdges, stepNamed)
 import State.Step.Choice (choiceNamed)
 import State.Step.Gather (Sing (Research))
 import State.Step.Review (Sing (Pick))
@@ -49,7 +49,7 @@ states g steps =
         (Nothing, Just _) -> "you"
         (Nothing, Nothing) -> "fan-out"
     arrowsOut place =
-        Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | ((from, event), edge) <- Map.toList g.edges, from == place]
+        Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | (event, edge) <- shownEdges g place]
     target = \case
         At place -> stateNameText (placeName place)
         Out -> "end"
@@ -58,15 +58,15 @@ states g steps =
 {- | The engineer's rows of the Fuel table: the meters a level caps
 differently, the steps it lets the agent skip, read off the flow's graph,
 which carries its term's budgets, and 'cfg', with each level's depth prose
-after it. A meter is a row by its name, in the flow's order; a choice's
-actions by their steps' names, as a choice's order means nothing. One
+after it. A meter is a row by its name, in the flow's order, a choice's
+actions in the order the term declares them. One
 capped alike at every level is no row. A step the flow draws as optional
 ('Skip' arrow) is skippable by its state's name.
 -}
 fuel :: OpenGraph -> Text
 fuel g =
     rows $
-        [someMeterName cap.meter : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels | cap <- Map.elems g.caps, varies cap.limit]
+        [someMeterName cap.meter : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels | (_, cap) <- sortOn (uncurry shownOrder) (Map.toList g.caps), varies cap.limit]
             <> [ "Skippable when trivial" : map skippable levels
                , "Refactor" : map (\level -> refactor (skipAt level (stepName Refactor)) <> refactorDepth level) levels
                , "Full review of a fix to" : map (areasText . (.areas) . cfg) levels

@@ -26,6 +26,7 @@ module State.Cli.Command (
 import Control.Applicative (many, optional, some, (<**>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -35,18 +36,19 @@ import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), placeName, places)
 import State.Category.Meter (someMeterName)
-import State.Category.Step (eventText, stateNameText)
+import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
-import State.Protocol.Record (Args (..), Arity (..), Flag (..), Recordable (..), Recording (..), capRecords, choices, recordCommand, recordables, usageOf)
+import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, recordCommand, recordables, usageOf)
+import State.Step.Catalog (shownEdges)
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, kindName, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), childRole, parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Refusal (..))
+import State.Run.Fold (Refusal (..), Spent (..))
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
 import State.Table (Steps, agentRoles)
@@ -350,10 +352,11 @@ notStarted = Failure BadInput "the log" "its first line is not started" "state i
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
-run's Fuel would take.
+run's Fuel would take, and the run's meters: a hand-back is named only while
+a child it closes is open.
 -}
-explain :: OpenGraph -> Fuel -> Node -> Refusal -> Failure
-explain g fuel at = \case
+explain :: OpenGraph -> Fuel -> Node -> Map Metered Spent -> Refusal -> Failure
+explain g fuel at meters = \case
     NotStarted -> notStarted
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
@@ -364,7 +367,7 @@ explain g fuel at = \case
         refused
             ("the spend at " <> atText)
             (someMeterName cap.meter <> " allows " <> tshow allowed <> " at this Fuel, all spent")
-            (atPlace (\place -> capRecords g place cap.atCap))
+            (atPlace (\place -> Text.intercalate " | " (map (.command) (capRecords g place cap.atCap))))
     NoneOpen (StateName step) -> refused ("the hand-back to " <> step) "no child it spawned is open" "state show"
     StillOpen open -> refused ("leaving " <> atText) (tshow open <> " spawned here have yet to hand back") "state next"
     NothingToExtend -> refused "extend" ("the run is at " <> atText <> ", where no budget asks the user to go on") "state next"
@@ -403,7 +406,7 @@ explain g fuel at = \case
         At place -> stateNameText (placeName place)
         Out -> "the end"
         Exit -> "the end"
-    records keep = atPlace $ \place -> case [recordCommand event | ((from, event), edge) <- Map.toList g.edges, from == place, keep edge] of
+    records keep = atPlace $ \place -> case [recordCommand event | (event, edge) <- shownEdges g place, keep edge, closesOpen place event] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
     atPlace fix = case at of
@@ -414,6 +417,9 @@ explain g fuel at = \case
         Skip _ _ -> True
         Along _ -> False
         Stay -> False
+    closesOpen place event
+        | event.outcome == handedBackOutcome = maybe False ((> 0) . (.open)) (Map.lookup (Metered place event.step) meters)
+        | otherwise = True
     taken edge = case edge.arrow of
         Skip _ when -> atFuel fuel when /= Never
         Along _ -> True

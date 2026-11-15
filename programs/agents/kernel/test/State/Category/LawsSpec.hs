@@ -7,6 +7,7 @@ the copy sits under @Scope "u"@, so a copied loop keeps a name of its own.
 module State.Category.LawsSpec (spec) where
 
 import Data.Either (isRight)
+import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -17,9 +18,9 @@ import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, qualify, qualifyText, scoped, spawn, unqualify, (|||))
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, redrawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
-import State.Category.Graph (Arrow (..), Cap, Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places, shownOrder)
 import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
-import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..), stateNameText)
+import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..), StepSet (stepName), stateNameText)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
@@ -114,11 +115,15 @@ spec = describe "laws" $ do
             (f, g) <- forAll (Gen.filter (\(f, g) -> isRight (graph (f :> Scope "inner" g))) ((,) <$> genExiting diffKit <*> genBranching))
             (stateNames <$> graph (f :> Scope "inner" g)) === liftA2 (<>) (stateNames <$> graph f) (stateNames <$> graph (Scope "inner" g))
 
-    describe "Choice, the Kleene star of a sum" $
-        it "the_order_of_the_actions_does_not_matter" . hedgehog $ do
-            actions <- forAll genActions
+    describe "Choice, the Kleene star of a sum" $ do
+        it "the_order_of_the_actions_changes_only_the_order_they_are_shown_in" . hedgehog $ do
+            actions <- map snd <$> forAll genActions
             shuffled <- forAll (Gen.shuffle actions)
-            drawn (Choice "gather" shuffled) === drawn (Choice "gather" actions)
+            fmap unranked (drawn (Choice "gather" shuffled)) === fmap unranked (drawn (Choice "gather" actions))
+
+        it "shows_the_actions_in_the_order_the_term_declares_them" . hedgehog $ do
+            actions <- forAll genActions
+            fmap shown (graph (Choice "gather" (map snd actions))) === Right (map fst actions)
 
     describe "PerFuel" $
         it "allows each level at least the spends and runs of the level below, in every named flow" $
@@ -164,14 +169,14 @@ genOnSum =
             [genEndo diffKit]
             [(Do Triage :>) <$> genOnSum]
 
--- | Some of the gather's actions, each with a cap of its own.
-genActions :: Gen [Flow 'Ctx 'Nothing 'Ctx]
+-- | Some of the gather's actions, each with a cap of its own, by its step's name.
+genActions :: Gen [(StateName, Flow 'Ctx 'Nothing 'Ctx)]
 genActions = do
     let genLimit = Gen.element [UpTo 1, UpTo 5, PerGroup]
         genCap = Gen.element [Refuse, Stop, Extend]
     research <- spawn <$> (PerFuel <$> genLimit <*> genLimit <*> genLimit) <*> genCap <*> pure Research
     interview <- Capped . always <$> genLimit <*> genCap <*> pure Interview
-    Gen.subsequence [research, interview]
+    Gen.subsequence [(stepName Research, research), (stepName Interview, interview)]
 
 -- | A loop body with an exit.
 genBody :: Gen (Flow 'Diff ('Just 'Diff) 'Diff)
@@ -279,6 +284,14 @@ budgetsOf = \case
     capped = monotone limitAtMost
     skipped :: PerFuel SkipWhen -> Bool
     skipped = monotone (flip skipsAtMost)
+
+-- | The graph with every cap's rank, its presentation, forgotten.
+unranked :: OpenGraph -> OpenGraph
+unranked g = g {caps = fmap (\cap -> cap {rank = 0}) g.caps}
+
+-- | The steps the caps meter, in the order they are shown.
+shown :: OpenGraph -> [StateName]
+shown g = [metered.step | (metered, _) <- sortOn (uncurry shownOrder) (Map.toList g.caps)]
 
 -- | The caps spent at a state, by the step each meters.
 capsAt :: Place -> OpenGraph -> [(StateName, Cap)]

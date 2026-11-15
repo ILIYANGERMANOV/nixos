@@ -16,6 +16,7 @@ module State.Category.Graph (
     LoopAt (..),
     Cap (..),
     Metered (..),
+    shownOrder,
     Clash (..),
     graph,
     places,
@@ -76,8 +77,13 @@ run is inside a loop.
 data LoopAt = LoopAt {entry :: Place, body :: Set Place}
     deriving stock (Eq, Show)
 
--- | A 'Capped' step's budget at its state: its step's meter, the limit at each Fuel, and what a spend past it does.
-data Cap = Cap {meter :: SomeMeter, limit :: PerFuel Limit, atCap :: AtCap}
+{- | A 'Capped' step's budget at its state: its step's meter, the limit at
+each Fuel, what a spend past it does, and its rank among the caps at that
+state as the term declares them: a choice's actions are shown in that order
+(0 for a step's own cap). The rank is presentation only: the choice's
+law says the actions' order changes nothing else.
+-}
+data Cap = Cap {meter :: SomeMeter, limit :: PerFuel Limit, atCap :: AtCap, rank :: Int}
     deriving stock (Eq, Show)
 
 {- | Where a 'Capped' step's budget is spent: at its own state, or, as a
@@ -85,6 +91,10 @@ choice's action, at the choice's, beside its other actions.
 -}
 data Metered = Metered {place :: Place, step :: StateName}
     deriving stock (Eq, Ord, Show)
+
+-- | The order caps are shown in: by state, in the term's order, then by rank.
+shownOrder :: Metered -> Cap -> (Place, Int)
+shownOrder metered cap = (metered.place, cap.rank)
 
 -- | A whole flow's graph: it starts at one state, and its edges end at a state, its end or its exit.
 data OpenGraph = OpenGraph
@@ -338,17 +348,18 @@ stepPart s = do
 cappedPart :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Either Clash (Part i o)
 cappedPart limit atCap s = do
     p <- stepPart s
-    Right Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Metered (Place [] mempty (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap)}
+    Right Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Metered (Place [] mempty (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0)}
 
 {- | One state, the hub: each action's events stay there, each action's
 meter is spent there, and @enough@ goes on to the out. The hub is a loop of
 its own, its body the hub alone, so its meters last while the run stays and
 start afresh each time it comes back (law Kleene star). Branches are a set:
-the drawing names each by its step, never by its position.
+the drawing names each by its step, and its position is only its cap's
+rank, the order it is shown in.
 -}
 choicePart :: forall a. (KnownTy a, NotSum a) => Name -> [Flow a 'Nothing a] -> Either Clash (Part a a)
 choicePart name branches = do
-    actions <- traverse action branches
+    actions <- traverse (uncurry action) (zip [0 ..] branches)
     edges <- foldM (\drawn (key, edge) -> insertNew key edge drawn) (Map.singleton (hub, enough) leave) (concatMap fst actions)
     caps <- foldM capOnce Map.empty (map snd actions)
     Right Part {inPorts = \Here -> Enters hub, edges, loops = Map.singleton name LoopAt {entry = hub, body = Set.singleton hub}, fans = Set.empty, caps}
@@ -358,10 +369,10 @@ choicePart name branches = do
     leave = Edge (ToOut Here) (Along (OutcomeEdge enough (tyVal @a) (tyVal @a))) Nothing
     stays :: (StepSet k) => Sing (s :: k) -> OutcomeName -> ((Place, EventName), Edge (To a))
     stays s outcome = ((hub, EventName (stepName s) outcome), Edge (ToState hub) Stay Nothing)
-    action :: Flow a 'Nothing a -> Either Clash ([((Place, EventName), Edge (To a))], (Metered, Cap))
-    action = \case
+    action :: Int -> Flow a 'Nothing a -> Either Clash ([((Place, EventName), Edge (To a))], (Metered, Cap))
+    action rank = \case
         Capped limit atCap s ->
-            let metered = (Metered hub (stepName s), Cap (SomeMeter s) limit atCap)
+            let metered = (Metered hub (stepName s), Cap (SomeMeter s) limit atCap rank)
              in case outcomes s of
                     OpensChildren -> Right ([stays s spawnedOutcome, stays s handedBackOutcome], metered)
                     AsksOnly -> Right ([], metered)

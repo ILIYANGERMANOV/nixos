@@ -10,7 +10,10 @@ module State.Protocol.Record (
     recordables,
     usageOf,
     recordCommand,
-    extendCommand,
+    Option (..),
+    recordOption,
+    goes,
+    extendOption,
     capRecords,
     Args (..),
     option,
@@ -23,11 +26,11 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Flow (ScopePath, unqualify)
+import State.Category.Flow (ScopePath, nameText, unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
-import State.Category.Graph (OpenGraph (..), Place, leaving)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, placeName)
 import State.Category.Meter (AtCap (..))
-import State.Category.Step (EventName, builtEvent, eventText)
+import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
@@ -56,23 +59,45 @@ recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usag
     name = eventText event
     step = snd (unqualify name)
 
--- | The @state record@ line that extends the gather loop, on the user's yes.
-extendCommand :: Text
-extendCommand = Text.unwords ["state record", extend.name, usageOf extend, "when the user goes on"]
+{- | One way on from where the run is: the exact command, and what taking
+it means, where the run goes next among it.
+-}
+data Option = Option {command :: Text, means :: Text}
+    deriving stock (Eq, Show)
+
+-- | The record of an event along its edge, saying where the run goes.
+recordOption :: EventName -> Edge Node -> Option
+recordOption event edge = Option (recordCommand event) (goes edge)
+
+-- | Where an edge takes the run, in words.
+goes :: Edge Node -> Text
+goes edge = case (edge.arrow, edge.to, edge.back) of
+    (Stay, _, _) -> "the run stays here"
+    (Skip _ _, to, _) -> "skips the step: " <> onTo to
+    (Along _, At place, Just loop) -> "back to " <> stateNameText (placeName place) <> ", the " <> nameText loop <> " loop's next round"
+    (Along _, to, _) -> onTo to
+  where
+    onTo = \case
+        At place -> "on to " <> stateNameText (placeName place)
+        Out -> "the flow ends"
+        Exit -> "the flow ends at its exit"
+
+-- | The @state record@ line that extends a used-up budget, on the user's yes.
+extendOption :: Option
+extendOption = Option (Text.unwords ["state record", extend.name, usageOf extend]) "when the user goes on: the used-up budgets here start afresh"
 
 {- | What the run may record at a used-up budget of the step at this state:
 the ways out of its loop, then as its 'AtCap' says - nothing more, a stop,
 or an @extend@ (with the step's own outcomes when no way leaves).
 -}
-capRecords :: OpenGraph -> Place -> AtCap -> Text
-capRecords g place atCap =
-    Text.intercalate " | " $ case atCap of
-        Refuse -> exits
-        Stop -> exits <> ["state stop rounds <why>"]
-        Extend -> extendCommand : if null exits then outs else exits
+capRecords :: OpenGraph -> Place -> AtCap -> [Option]
+capRecords g place atCap = case atCap of
+    Refuse -> exits
+    Stop -> exits <> [Option "state stop rounds <why>" "stops the run: the budget is used up"]
+    Extend -> extendOption : if null exits then outs else exits
   where
-    exits = [recordCommand event | (event, _) <- leaving g place]
-    outs = [recordCommand event | ((from, event), _) <- Map.toList g.edges, from == place]
+    exits = [recordOption event edge | (event, edge) <- leaving g place]
+    outs = [recordOption event edge | ((from, event), edge) <- Map.toList g.edges, from == place]
 
 -- | The user's yes to one more interview round, and why.
 extend :: Recordable

@@ -16,13 +16,16 @@ module State.Step.Catalog (
     outcomeSteps,
     stepNamed,
     nodeStep,
+    shownEdges,
 ) where
 
 import Data.Aeson (Object)
 import Data.Aeson.Types (Parser, Series)
+import Data.List (sortOn)
+import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Graph (Node (..), Place (..))
-import State.Category.Step (Decoder, EventName, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
+import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Step (Decoder, EventName (..), SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
 import State.Step.Build (BuildStep)
 import State.Step.Choice (ChoiceStep, Sing (Hub), choices)
@@ -151,3 +154,18 @@ nodeStep = \case
     At place -> stepNamed place.name
     Out -> Nothing
     Exit -> Nothing
+
+{- | The edges out of a state in the order they are shown: a choice's
+actions' first, in the order the term declares them, each one's outcomes as
+its step declares them; then the state's own, by name.
+-}
+shownEdges :: OpenGraph -> Place -> [(EventName, Edge Node)]
+shownEdges g place = sortOn (shown . fst) [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place]
+  where
+    ranks = Map.fromList [(metered.step, cap.rank) | (metered, cap) <- Map.toList g.caps, metered.place == place, metered.step /= place.name]
+    shown event = case Map.lookup event.step ranks of
+        Just rank -> (0 :: Int, rank, declared event)
+        Nothing -> (1, 0, 0)
+    declared event = case stepNamed event.step of
+        Just (AnyStep _ (SomeStep s)) -> length (takeWhile (/= event.outcome) (Step.outcomeNames (outcomes s)))
+        Nothing -> 0
