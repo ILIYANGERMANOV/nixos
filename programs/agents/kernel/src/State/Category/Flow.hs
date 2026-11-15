@@ -1,6 +1,7 @@
 {- | #351's category @Flow@: typed terms over the steps of "State.Category.Step"'s layers. The
 indexes make an ill-typed gluing a compile error (law Typed gluing), and 'Opt'
-and 'Loop' exist only on the shapes #351 allows (law Skip is endo). A flow
+and 'Loop' exist only on the shapes #351 allows (law Skip is endo). Every
+budget is a 'Capped' step's meter (decision 13). A flow
 is built by composing small flows ("State.Flow.Library"), each reusable in
 any flow.
 -}
@@ -11,7 +12,6 @@ module State.Category.Flow (
     (|||),
     alternateLoop,
     Join,
-    OnEmpty (..),
     Name (..),
     nameText,
     scoped,
@@ -20,13 +20,12 @@ module State.Category.Flow (
     fanEvent,
 ) where
 
-import Data.Kind (Type)
 import Data.List.NonEmpty (NonEmpty)
 import Data.String (IsString)
 import Data.Text (Text)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import Numeric.Natural (Natural)
 import State.Category.Fuel (PerFuel, SkipWhen)
+import State.Category.Meter (AtCap, Limit, Meter)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..))
 import State.Category.Ty (KnownTy, NotSum, Ty (..))
 
@@ -47,20 +46,10 @@ type family Join a b where
                 ':<>: 'ShowType b
             )
 
--- | What a 'Loop' does when its rounds run out.
-type OnEmpty :: Ty -> Ty -> Type
-data OnEmpty a b where
-    -- | Stop the run: out of rounds is a @stop rounds@.
-    StopOut :: OnEmpty a b
-    -- | Take the exit, as Review does: only when the exit is the loop's in type.
-    ExitOut :: OnEmpty a a
-
-deriving stock instance Show (OnEmpty a b)
-
 {- | @i@: in. @e@: the exit, if any. @o@: continue. Each constructor's
 comment states its law, read off the graph a run walks ("State.Category.Graph").
-A loop, skip or fan-out is known by its 'Name' and carries its budgets as
-'PerFuel' data: no global table of ids.
+A loop, skip or fan-out is known by its 'Name'; a budget is a 'Capped'
+step, carrying its limits as 'PerFuel' data: no global table of ids.
 -}
 data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     {- | One step, of any layer: its signature is the term's type. A step takes
@@ -73,13 +62,19 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     @(f :> g) :> h = f :> (g :> h)@.
     -}
     (:>) :: Flow a e1 b -> Flow b e2 c -> Flow a (Join e1 e2) c
-    {- | Repeat the body while it continues, at most its rounds at the run's
-    Fuel; its exit is the loop's out. Over one type only: a loop over a sum
-    would start each round at one of several states, and the exit of a sum
-    would not say which summand. Law, Elgot's fixpoint: the loop is its body
-    unrolled once, @Loop n r e f = Catch (f :> Loop n r e f)@, rounds aside.
+    {- | One step whose events spend a budget, its step's 'Meter': at most
+    the limit at the run's Fuel, then what 'AtCap' says. A step with no
+    'Meter' cannot be capped. Law: it walks as @Do s@, one state with a cap.
     -}
-    Loop :: (NotSum a, NotSum b) => Name -> PerFuel Natural -> OnEmpty a b -> Flow a ('Just b) a -> Flow a 'Nothing b
+    Capped :: (StepSet k, Meter s, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Flow i e o
+    {- | Repeat the body while it continues; its exit is the loop's out. Over
+    one type only: a loop over a sum would start each round at one of
+    several states, and the exit of a sum would not say which summand. Its
+    body holds a 'Capped' step of its own, which bounds it ('graph' refuses
+    one that does not). Law, Elgot's fixpoint: the loop is its body unrolled
+    once, @Loop n f = Catch (f :> Loop n f)@.
+    -}
+    Loop :: (NotSum a, NotSum b) => Name -> Flow a ('Just b) a -> Flow a 'Nothing b
     {- | A mark: the level may skip the body, so it must keep the type. Over
     one type only: a skip is one edge, and a sum would need one per summand.
     Law: a skip walks as 'Id'; at a level that never skips, the body alone.
@@ -128,10 +123,10 @@ inr = InR
 infixr 4 |||
 
 {- | The steps in a fixed order, round after round: a loop over their series.
-Law: @alternateLoop n r e (f :| [g]) = Loop n r e (f :> g)@.
+Law: @alternateLoop n (f :| [g]) = Loop n (f :> g)@.
 -}
-alternateLoop :: (NotSum a, NotSum b) => Name -> PerFuel Natural -> OnEmpty a b -> NonEmpty (Flow a ('Just b) a) -> Flow a 'Nothing b
-alternateLoop name rounds onEmpty = Loop name rounds onEmpty . foldr1 (:>)
+alternateLoop :: (NotSum a, NotSum b) => Name -> NonEmpty (Flow a ('Just b) a) -> Flow a 'Nothing b
+alternateLoop name = Loop name . foldr1 (:>)
 
 deriving stock instance Show (Flow i e o)
 

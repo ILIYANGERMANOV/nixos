@@ -13,7 +13,7 @@ module State.Category.Graph (
     Edge (..),
     Arrow (..),
     LoopAt (..),
-    Empty (..),
+    Cap (..),
     Clash (..),
     graph,
     places,
@@ -23,9 +23,9 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), Flow (..), Name (..), OnEmpty (..), fanEvent, fanName, nameText, scoped)
+import State.Category.Flow (FanEvent (..), Flow (..), Name (..), fanEvent, fanName, nameText, scoped)
 import State.Category.Fuel (PerFuel, SkipWhen)
+import State.Category.Meter (AtCap, Limit, SomeMeter (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName, Outcomes (..), Sig, Sing, StateName (..), StepSet, outcomes, skippedOutcome, stepName)
 import State.Category.Ty (IsSum, KnownTy (..), NotSum, Ty (..))
 
@@ -53,16 +53,15 @@ data Arrow
 data Edge n = Edge {to :: n, arrow :: Arrow, back :: Maybe Name}
     deriving stock (Eq, Show, Functor)
 
--- | The untyped 'OnEmpty'.
-data Empty = Stops | Exits
+{- | A loop's first state, where each round starts, and the states of its
+body. Nested loops can share an entry (gather and plan both start at
+@research@), so the body, not the entry, tells whether a run is inside a loop.
+-}
+data LoopAt = LoopAt {entry :: Place, body :: Set Place}
     deriving stock (Eq, Show)
 
-{- | A loop's first state, where each round starts, its rounds at each Fuel,
-and the states of its body. Nested loops can share an entry (gather and plan
-both start at @research@), so the body, not the entry, tells whether a run is
-inside a loop.
--}
-data LoopAt = LoopAt {entry :: Place, onEmpty :: Empty, rounds :: PerFuel Natural, body :: Set Place}
+-- | A 'Capped' step's budget at its state: its step's meter, the limit at each Fuel, and what a spend past it does.
+data Cap = Cap {meter :: SomeMeter, limit :: PerFuel Limit, atCap :: AtCap}
     deriving stock (Eq, Show)
 
 -- | A whole flow's graph: it starts at one state, and its edges end at a state, its end or its exit.
@@ -70,6 +69,7 @@ data OpenGraph = OpenGraph
     { inPort :: Place
     , edges :: Map (Place, EventName) (Edge Node)
     , loops :: Map Name LoopAt
+    , caps :: Map Place Cap
     }
     deriving stock (Eq, Show)
 
@@ -84,6 +84,8 @@ data Clash
       have no state to start at, or a round none to end at.
       -}
       NoStep
+    | -- | A loop whose body caps no step of its own: nothing bounds its rounds.
+      Unbounded Name
     deriving stock (Eq, Show)
 
 {- | A whole flow starts from one type and ends in one, so it has one in port
@@ -103,6 +105,7 @@ whole p = do
             { inPort
             , edges = Map.filterWithKey (\(from, _) _ -> Set.member from reached) edges
             , loops = Map.mapMaybe (\at -> if Set.member at.entry reached then Just at {body = Set.intersection at.body reached} else Nothing) p.loops
+            , caps = Map.restrictKeys p.caps reached
             }
   where
     node = \case
@@ -145,17 +148,19 @@ data Part i o = Part
     , loops :: Map Name LoopAt
     , fans :: Set Name
     -- ^ The fan-outs drawn: each once, as a run keeps one fan-out's tasks per name.
+    , caps :: Map Place Cap
     }
 
 part :: Flow i e o -> Either Clash (Part i o)
 part = \case
     Do s -> Right (stepPart s)
+    Capped limit atCap s -> Right (stepPart s) {caps = Map.singleton (Place [] (stepName s)) (Cap (SomeMeter s) limit atCap)}
     Id -> Right (passing id)
     f :> g -> do
         left <- part f
         right <- part g
         glue left right
-    Loop name rounds onEmpty body -> closeLoop name rounds (empty onEmpty) =<< part body
+    Loop name body -> closeLoop name =<< part body
     Opt name skips body -> skippable name skips =<< part body
     Par fan body -> Right (fanOut fan body)
     InL -> Right (passing SL)
@@ -184,6 +189,7 @@ glue left right = do
             , edges = Map.union (fmap (fmap into) first.edges) second.edges
             , loops
             , fans
+            , caps = Map.union first.caps second.caps
             }
   where
     first = within 0 left
@@ -208,6 +214,7 @@ copair left right = do
             , edges = Map.union first.edges second.edges
             , loops
             , fans
+            , caps = Map.union first.caps second.caps
             }
   where
     first = within 0 left
@@ -215,11 +222,11 @@ copair left right = do
 
 -- | An injection or 'Id': no state, each summand of its in passes on to its summand of the out.
 passing :: (Sel i -> Sel o) -> Part i o
-passing inject = Part {inPorts = Passes . inject, edges = Map.empty, loops = Map.empty, fans = Set.empty}
+passing inject = Part {inPorts = Passes . inject, edges = Map.empty, loops = Map.empty, fans = Set.empty, caps = Map.empty}
 
 -- | The codiagonal: the body's exit edges go on as its out.
 caught :: (NotSum b) => Part a b -> Part a b
-caught body = Part {inPorts = body.inPorts, edges = fmap out body.edges, loops = body.loops, fans = body.fans}
+caught body = Part {inPorts = body.inPorts, edges = fmap out body.edges, loops = body.loops, fans = body.fans, caps = body.caps}
   where
     out edge = case edge.to of
         ToExit -> edge {to = ToOut Here}
@@ -238,6 +245,7 @@ inScope scope p =
         , edges = Map.fromList [((renamed from, eventIn event), edgeIn edge) | ((from, event), edge) <- Map.toList p.edges]
         , loops = Map.fromList [(scoped scope name, at {entry = renamed at.entry, body = Set.map renamed at.body}) | (name, at) <- Map.toList p.loops]
         , fans = Set.map (scoped scope) p.fans
+        , caps = Map.mapKeys renamed p.caps
         }
   where
     stateIn (StateName name) = StateName (nameText (scoped scope (Name name)))
@@ -271,6 +279,7 @@ stepPart s =
                  in [edge left (ToOut (SL Here)) leftTy, edge right (ToOut (SR Here)) rightTy]
         , loops = Map.empty
         , fans = Set.empty
+        , caps = Map.empty
         }
   where
     place = Place [] (stepName s)
@@ -285,21 +294,22 @@ exitTy (ExitsOr _ _) = tyVal @x
 summandTys :: forall a b. Outcomes 'Nothing (a ':+ b) -> (Ty, Ty)
 summandTys (Branches _ _) = (tyVal @a, tyVal @b)
 
--- | The body's continue goes back to its in port; its exit is the loop's out.
-closeLoop :: (NotSum a, NotSum b) => Name -> PerFuel Natural -> Empty -> Part a a -> Either Clash (Part a b)
-closeLoop name rounds onEmpty body = do
+{- | The body's continue goes back to its in port; its exit is the loop's
+out. A body that caps no step outside its nested loops is refused: a nested
+loop's caps start afresh each time the run enters it, so they bound nothing here.
+-}
+closeLoop :: (NotSum a, NotSum b) => Name -> Part a a -> Either Clash (Part a b)
+closeLoop name body = do
     entry <- entryOf body
-    loops <- unionLoops body.loops (Map.singleton name LoopAt {entry, onEmpty, rounds, body = sources body.edges})
-    let closed edge = case edge.to of
+    loops <- unionLoops body.loops (Map.singleton name LoopAt {entry, body = sources body.edges})
+    let nested = foldMap (.body) body.loops
+        closed edge = case edge.to of
             ToOut _ -> Edge (ToState entry) edge.arrow (Just name)
             ToExit -> Edge (ToOut Here) edge.arrow edge.back
             ToState place -> Edge (ToState place) edge.arrow edge.back
-    pure Part {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops, fans = body.fans}
-
-empty :: OnEmpty a b -> Empty
-empty = \case
-    StopOut -> Stops
-    ExitOut -> Exits
+    if any (`Set.notMember` nested) (Map.keys body.caps)
+        then pure Part {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops, fans = body.fans, caps = body.caps}
+        else Left (Unbounded name)
 
 {- | A skip edge from the body's in port to its out, named after its first
 state. A body that runs no step is the identity already: it has nothing to skip.
@@ -309,7 +319,7 @@ skippable name skips body = case body.inPorts Here of
     Passes _ -> Right body
     Enters entry -> do
         edges <- insertNew (entry, EventName entry.name skippedOutcome) (Edge (ToOut Here) (Skip name skips) Nothing) body.edges
-        pure Part {inPorts = body.inPorts, edges, loops = body.loops, fans = body.fans}
+        pure Part {inPorts = body.inPorts, edges, loops = body.loops, fans = body.fans, caps = body.caps}
 
 -- | The state a part over one type starts at, if it runs a step before it ends.
 entryOf :: (NotSum a) => Part a o -> Either Clash Place
@@ -335,6 +345,7 @@ fanOut fan _ =
                 ]
         , loops = Map.empty
         , fans = Set.singleton fan
+        , caps = Map.empty
         }
   where
     place = Place [] (fanName fan)
@@ -358,6 +369,7 @@ within branch p =
         , edges = Map.fromList [((moved from, event), fmap node edge) | ((from, event), edge) <- Map.toList p.edges]
         , loops = fmap (\at -> at {entry = moved at.entry, body = Set.map moved at.body}) p.loops
         , fans = p.fans
+        , caps = Map.mapKeys moved p.caps
         }
   where
     moved place = place {path = branch : place.path}

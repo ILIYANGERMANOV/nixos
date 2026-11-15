@@ -43,6 +43,7 @@ library
     State.Category.Flow
     State.Category.Fuel
     State.Category.Graph
+    State.Category.Meter
     State.Category.Path
     State.Category.Step
     State.Category.Ty

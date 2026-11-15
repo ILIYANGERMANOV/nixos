@@ -46,6 +46,7 @@ import Data.Aeson.Types (Parser, Series)
 import Data.Kind (Type)
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
+import Data.Typeable (Typeable)
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import State.Category.Ty (KnownTy, NotSum, Ty (..))
 
@@ -69,12 +70,13 @@ type family CodOf sig where
 
 {- | A layer of steps. No method has a default, so a layer that leaves one
 out does not build, and each is total over the layer's steps or outcomes,
-so a new one breaks the build at every match. 'pack' guards the outcomes:
+so a new one breaks the build at every match. 'Typeable' lets a meter
+('State.Category.Meter') tell its own step's outcomes from another layer's. 'pack' guards the outcomes:
 GHC accepts an outcome whose leg does not fit its step where it is declared
 and refuses it only where it is packed, so 'pack' packs every one, and a
 missing arm is an incomplete match.
 -}
-class (forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
+class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
 
     {- | Whether 'State.Category.Flow.Do' draws the step: every one, but a
