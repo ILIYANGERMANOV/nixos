@@ -601,7 +601,7 @@ Starting work, running the box, adding repositories, status and logs.
   | `/restart-repo <name>` | restart a wedged server, or apply a deploy to it |
   | `/terminate-sessions [name]` | end live sessions; servers keep running |
   | `/status` | servers, sessions, local work, last deploy |
-  | `/stats` | RAM, disk, CPU, the agents' memory cap |
+  | `/stats` | RAM, disk, CPU, agents' memory, temperatures, fan, battery: each normal, warning or critical, then a health verdict |
   | `/free-disk` | plan, confirm, then prune pushed worktrees, caches and garbage |
   | `/deploy [rollback]` | Part 7 |
   | `/reboot`, `/gc` | root operations through fixed units |
@@ -785,7 +785,8 @@ or a box is compromised.
 - **ThinkPad does not come back after a power cut:** check **Power On with AC
   Attach** in the BIOS (step 15).
 - **ThinkPad gets hot or loud:** move it to a hard surface with room around
-  the vents (step 19); `/stats` shows the load.
+  the vents (step 19); `/stats` shows the load, temperatures, fan and any
+  heat slowdowns.
 
 </details>
 

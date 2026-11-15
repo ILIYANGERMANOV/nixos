@@ -22,9 +22,216 @@ load ../test_helper
   grep -q 'WARNING: the deploy token expires' "$work/out" || fail "no expiry warning"
 }
 
-@test "stats: reports RAM, disk, CPU and uptime" {
+# ─── stats ───────────────────────────────────────────────────────────────────
+
+# A fake /proc and /sys for stats, every row normal, with hwmon numbers out of
+# order so only the names find them.
+fake_kernel() {
+  export FACTORY_KERNEL_ROOT="$work/kernel"
+  mkdir -p "$FACTORY_KERNEL_ROOT/proc"
+  printf 'MemTotal: 10000 kB\nMemAvailable: 9000 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n' >"$FACTORY_KERNEL_ROOT/proc/meminfo"
+  echo "0.00 0.00 0.00 1/100 1234" >"$FACTORY_KERNEL_ROOT/proc/loadavg"
+  echo "4000.00 1000.00" >"$FACTORY_KERNEL_ROOT/proc/uptime"
+  sensor class/hwmon/hwmon2/name coretemp
+  sensor class/hwmon/hwmon2/temp1_label "Package id 0"
+  sensor class/hwmon/hwmon2/temp1_input 67000
+  sensor class/hwmon/hwmon2/temp1_crit 100000
+  sensor class/hwmon/hwmon2/temp2_label "Core 0"
+  sensor class/hwmon/hwmon2/temp2_input 58000
+  sensor class/hwmon/hwmon7/name nvme
+  sensor class/hwmon/hwmon7/temp1_label Composite
+  sensor class/hwmon/hwmon7/temp1_input 35000
+  sensor class/hwmon/hwmon7/temp1_max 77850
+  sensor class/hwmon/hwmon4/name thinkpad
+  sensor class/hwmon/hwmon4/fan1_input 1955
+  sensor class/hwmon/hwmon4/pwm1_enable 2
+  sensor devices/system/cpu/cpu0/thermal_throttle/core_throttle_count 0
+  sensor devices/system/cpu/cpu0/thermal_throttle/package_throttle_count 0
+  sensor class/power_supply/BAT0/type Battery
+  sensor class/power_supply/BAT0/status "Not charging"
+  sensor class/power_supply/BAT0/capacity 79
+  sensor class/power_supply/BAT0/energy_full 69310000
+  sensor class/power_supply/BAT0/energy_full_design 68000000
+  sensor class/power_supply/BAT0/cycle_count 106
+}
+
+# sensor <path under /sys> <value>
+sensor() {
+  mkdir -p "$(dirname "$FACTORY_KERNEL_ROOT/sys/$1")"
+  echo "$2" >"$FACTORY_KERNEL_ROOT/sys/$1"
+}
+
+# The state a stats row ends with; names are the first 10 columns.
+state_of() {
+  factory-ctl stats | awk -v row="$1" '{ name = substr($0, 1, 10); sub(/ +$/, "", name) } name == row { print $NF }'
+}
+
+is_state() {
+  local actual
+  actual=$(state_of "$1")
+  [ "$actual" = "$2" ] || fail "$1 is '$actual', expected $2"
+}
+
+@test "stats: an all-normal machine reads Health OK" {
+  fake_kernel
+  [ "$(state_of Disk)" = normal ] || skip "the build machine's own disk is not normal"
+
   factory-ctl stats >"$work/out"
 
-  { grep -q '^RAM ' "$work/out" && grep -q '^Disk ' "$work/out" && grep -q '^CPU ' "$work/out" && grep -Eq '^Up +[0-9]+d' "$work/out"; } ||
-    fail_showing "$work/out" "stats is missing a line"
+  for row in RAM Disk CPU "CPU temp" "NVMe temp" Fan Throttled Battery "Bat health"; do
+    grep -Eq "^$row +.* normal$" "$work/out" || fail_showing "$work/out" "no normal $row row"
+  done
+  grep -Eq '^Up +[0-9]+d [0-9]+h [0-9]+m$' "$work/out" || fail_showing "$work/out" "no uptime"
+  [ "$(tail -n 1 "$work/out")" = "Health     OK" ] || fail_showing "$work/out" "the verdict is not OK"
+}
+
+@test "stats: the worst state wins the verdict and every row that is not normal is a reason" {
+  fake_kernel
+  sensor class/hwmon/hwmon7/temp1_input 77850
+  sensor class/power_supply/BAT0/energy_full 50000000
+
+  factory-ctl stats >"$work/out"
+
+  # The build machine's own disk may add itself; nothing else may.
+  grep -Eq '^Health +CRITICAL - (Disk [0-9]+% used, )?NVMe temp 77 C, Bat health 73%$' "$work/out" ||
+    fail_showing "$work/out" "the verdict is not a critical naming exactly the two rows"
+}
+
+@test "stats: a warning alone makes the verdict a warning" {
+  fake_kernel
+  [ "$(state_of Disk)" = normal ] || skip "the build machine's own disk is not normal"
+  sensor class/hwmon/hwmon7/temp1_input 70000
+
+  factory-ctl stats >"$work/out"
+  grep -Eq '^Health +WARNING - NVMe temp 70 C$' "$work/out" || fail_showing "$work/out" "the verdict is not a warning"
+}
+
+@test "stats: a machine without sensors drops their rows" {
+  fake_kernel
+  rm -rf "$FACTORY_KERNEL_ROOT/sys"
+  mkdir -p "$FACTORY_KERNEL_ROOT/sys/class/hwmon/hwmon0"
+  echo coretemp >"$FACTORY_KERNEL_ROOT/sys/class/hwmon/hwmon0/name"
+
+  factory-ctl stats >"$work/out"
+
+  ! grep -Eq '^(Agents|CPU temp|NVMe temp|Fan|Throttled|Battery|Bat health) ' "$work/out" ||
+    fail_showing "$work/out" "a row without its sensor"
+  grep -Eq '^Health ' "$work/out" || fail_showing "$work/out" "stats stopped early"
+}
+
+@test "stats: RAM warns from 85% used and is critical from 95%" {
+  fake_kernel
+  for case in "1600 normal" "1500 warning" "600 warning" "500 critical"; do
+    read -r available state <<<"$case"
+    printf 'MemTotal: 10000 kB\nMemAvailable: %s kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n' "$available" >"$FACTORY_KERNEL_ROOT/proc/meminfo"
+    is_state RAM "$state"
+  done
+}
+
+@test "stats: swap warns from 50% used and is critical from 80%" {
+  fake_kernel
+  for case in "5100 normal" "5000 warning" "2100 warning" "2000 critical"; do
+    read -r free state <<<"$case"
+    printf 'MemTotal: 10000 kB\nMemAvailable: 9000 kB\nSwapTotal: 10000 kB\nSwapFree: %s kB\n' "$free" >"$FACTORY_KERNEL_ROOT/proc/meminfo"
+    is_state Swap "$state"
+  done
+}
+
+@test "stats: the agents' memory warns from 85% of the cap and is critical from 95%" {
+  fake_kernel
+  sensor "fs/cgroup/user.slice/user-$(id -u).slice/memory.max" 100
+  for case in "84 normal" "85 warning" "94 warning" "95 critical"; do
+    read -r used state <<<"$case"
+    sensor "fs/cgroup/user.slice/user-$(id -u).slice/memory.current" "$used"
+    is_state Agents "$state"
+  done
+  sensor "fs/cgroup/user.slice/user-$(id -u).slice/memory.max" max
+  is_state Agents normal
+}
+
+@test "stats: the load warns above the core count and is critical above twice it" {
+  fake_kernel
+  cores=$(nproc)
+  for case in "$cores.00 normal" "$cores.01 warning" "$((cores * 2)).00 warning" "$((cores * 2)).01 critical"; do
+    read -r load state <<<"$case"
+    echo "$load 0.50 0.25 1/100 1234" >"$FACTORY_KERNEL_ROOT/proc/loadavg"
+    is_state CPU "$state"
+  done
+}
+
+@test "stats: the CPU temperature warns from 85 C and is critical from 95 C or 5 C under its crit" {
+  fake_kernel
+  for case in "84999 100000 normal" "85000 100000 warning" "94999 100000 warning" "95000 100000 critical" \
+    "92999 98000 warning" "93000 98000 critical"; do
+    read -r temp crit state <<<"$case"
+    sensor class/hwmon/hwmon2/temp1_input "$temp"
+    sensor class/hwmon/hwmon2/temp1_crit "$crit"
+    is_state "CPU temp" "$state"
+  done
+}
+
+@test "stats: the NVMe temperature warns from 70 C and is critical from the drive's max" {
+  fake_kernel
+  for case in "69999 normal" "70000 warning" "77849 warning" "77850 critical"; do
+    read -r temp state <<<"$case"
+    sensor class/hwmon/hwmon7/temp1_input "$temp"
+    is_state "NVMe temp" "$state"
+  done
+  rm "$FACTORY_KERNEL_ROOT/sys/class/hwmon/hwmon7/temp1_max"
+  sensor class/hwmon/hwmon7/temp1_input 90000
+  is_state "NVMe temp" warning
+}
+
+@test "stats: a stopped fan warns from a 60 C CPU and is critical from 80 C; a spinning one never" {
+  fake_kernel
+  for case in "0 59999 normal" "0 60000 warning" "0 79999 warning" "0 80000 critical" "1 99000 normal"; do
+    read -r rpm temp state <<<"$case"
+    sensor class/hwmon/hwmon4/fan1_input "$rpm"
+    sensor class/hwmon/hwmon2/temp1_input "$temp"
+    is_state Fan "$state"
+  done
+}
+
+@test "stats: any heat slowdown warns, and is critical while the CPU is at 95 C" {
+  fake_kernel
+  is_state Throttled normal
+  sensor devices/system/cpu/cpu1/thermal_throttle/core_throttle_count 1
+  is_state Throttled warning
+  grep -Eq '^Throttled +1 times' <(factory-ctl stats) || fail "the count is not 1"
+  sensor class/hwmon/hwmon2/temp1_input 95000
+  is_state Throttled critical
+}
+
+@test "stats: a discharging battery warns under 50% and is critical under 20%; not charging only warns" {
+  fake_kernel
+  for case in "Discharging 50 normal" "Discharging 49 warning" "Discharging 20 warning" "Discharging 19 critical" \
+    "Not_charging 50 normal" "Not_charging 49 warning" "Not_charging 5 warning" "Charging 5 normal"; do
+    read -r status capacity state <<<"$case"
+    sensor class/power_supply/BAT0/status "${status/_/ }"
+    sensor class/power_supply/BAT0/capacity "$capacity"
+    is_state Battery "$state"
+  done
+}
+
+@test "stats: a core's slowdowns count once, though each of its hyperthreads reports them" {
+  fake_kernel
+  for cpu in cpu0 cpu1; do
+    sensor "devices/system/cpu/$cpu/thermal_throttle/core_throttle_count" 3
+    sensor "devices/system/cpu/$cpu/thermal_throttle/package_throttle_count" 2
+    sensor "devices/system/cpu/$cpu/topology/physical_package_id" 0
+    sensor "devices/system/cpu/$cpu/topology/core_id" 0
+  done
+
+  factory-ctl stats >"$work/out"
+  grep -Eq '^Throttled +5 times' "$work/out" || fail_showing "$work/out" "not 2 package plus 3 core slowdowns"
+}
+
+@test "stats: battery health warns under 80% of design and is critical under 60%" {
+  fake_kernel
+  sensor class/power_supply/BAT0/energy_full_design 100
+  for case in "80 normal" "79 warning" "60 warning" "59 critical"; do
+    read -r full state <<<"$case"
+    sensor class/power_supply/BAT0/energy_full "$full"
+    is_state "Bat health" "$state"
+  done
 }
