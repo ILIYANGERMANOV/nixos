@@ -15,8 +15,8 @@ import State.Category.Step (SomeStep (..), stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
-import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
+import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
 import State.Step.Catalog (AnyStep (..), allSteps)
@@ -27,7 +27,7 @@ showRun :: RunState -> Text
 showRun state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
-            <> ["task: " <> taskIdText parent.task | ByRole parent <- [state.start.principal]]
+            <> ["task: " <> taskIdText parent.task | ByRole parent _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines (Facts Nothing Nothing []) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]
@@ -95,6 +95,9 @@ brief steps state agent@(AgentRole role) task
         , "QA: " <> yesNo found.qa
         , "Heavy: " <> yesNo found.heavy
         , "Security-sensitive: " <> listed (map topicText (Set.toList found.security))
+        , "Existing PR: " <> case found.shape of
+            OwnPr -> "none"
+            RoundOn url -> urlText url <> " (a round: it stays open, ready is skipped)"
         ]
     listed = \case
         [] -> "none"

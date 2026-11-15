@@ -45,11 +45,14 @@ let
     };
     merge = {
       dom = "[PR]";
-      cod = "PR";
-      exit = null;
-      outcomes = [ "done" ];
+      cod = "Ctx";
+      exit = "PR";
+      outcomes = [
+        "done"
+        "next_round"
+      ];
       runner = "inline";
-      task = "Merge: the review queue, the merge loop and the final audit, as the 10x skill's Merge says.";
+      task = "Merge: the review queue, the merge loop and the final audit, or a next round, as the 10x skill's Merge says.";
       tools = [ "shell" ];
       skills = [ "10x-engineer" ];
       prose = [ ];

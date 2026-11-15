@@ -84,6 +84,7 @@ cfg fuel =
             LGather -> 1 + reResearches fuel
             LPlan -> 4
             LCi -> 6
+            LRound -> 10
         , areas = fullReview fuel
         , asks = case fuel of
             Low -> 15

@@ -61,6 +61,7 @@ import Numeric.Natural (Natural)
 import State.Category.Fuel (parseByName)
 import State.Role (Rung (..))
 import State.Run.Id (EventId, RunId, TaskId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
+import State.Step.Artifact (Shape)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
 above every other kind and the rest are not ordered, so no 'Ord': only
@@ -300,8 +301,10 @@ andThen first next question =
         Ruled ruling -> Right (Ruled ruling)
         Forward forwarded -> next forwarded
 
--- | Who started the run: the user, or a parent run, which gave it a task.
-data Principal = ByUser | ByRole Parent
+{- | Who started the run: the user, or a parent run, which gave it a task of
+this shape, read from the parent's breakdown when the run started.
+-}
+data Principal = ByUser | ByRole Parent Shape
     deriving stock (Eq, Show)
 
 -- | The parent run, its log and the task of its breakdown it gave this run.
@@ -350,7 +353,7 @@ ask principal role kind = case authority role kind of
 deliver :: Principal -> Above
 deliver = \case
     ByUser -> TheUser
-    ByRole parent -> ParentRun parent.run
+    ByRole parent _ -> ParentRun parent.run
 
 -- | The hand-back's first line for a forwarded question (#360's wire format).
 needsDecision :: Question -> Text

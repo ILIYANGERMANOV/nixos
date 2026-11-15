@@ -28,7 +28,7 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, stepTook)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), fanRole, parseRunId, runIdText, stepTook)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
 import State.Run.Fold (RunState (..), askedAt, fanIn, nextQId)
@@ -225,10 +225,13 @@ fromChild state fan handback = case handback.run of
         Just token@(Failed _) -> ended token
       where
         said = HandedBack child
-        -- A READY naming its PR first puts the task in review.
-        prMoved summary = case (Text.words (oneLineText summary), childTask fan child) of
-            (pr : _, Just task) | "https://" `Text.isPrefixOf` pr -> [TaskMoved task.id (InReview (Url pr))]
-            _ -> []
+        -- A round's READY keeps its PR; any other naming its PR first puts the task in review.
+        prMoved summary = case childTask fan child of
+            Just task -> case (task.shape, Text.words (oneLineText summary)) of
+                (RoundOn pr, _) -> [TaskMoved task.id (Kept pr)]
+                (OwnPr, pr : _) | "https://" `Text.isPrefixOf` pr -> [TaskMoved task.id (InReview (Url pr))]
+                (OwnPr, _) -> []
+            Nothing -> []
         -- Read back as the log reads it, so an out-of-rounds stop stays one.
         ended token = case parseStopLine (tokenLine token) of
             Just stop -> Typed [said (Ended stop)] . Just <$> oneLine (tokenLine token)
