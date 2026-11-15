@@ -107,7 +107,8 @@ arrows, never adds any.
 | refactor | refactorer | done: review; skipped: review |
 | review | review-lead | clean: describe; rows: pick |
 | pick | you | final: describe; loop: fix |
-| fix | fixer | done: review |
+| fix | fixer | done: re_review |
+| re_review | review-lead | clean: describe; rows: pick |
 | describe | fixer | done: simplify_pr |
 | simplify_pr | fixer | done: await_ci; skipped: await_ci |
 | await_ci | you | green: ready; red: fix_pr |
