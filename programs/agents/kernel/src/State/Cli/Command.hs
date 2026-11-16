@@ -19,6 +19,7 @@ module State.Cli.Command (
     optparseText,
     failureText,
     initFix,
+    tenXInitFix,
     noteOf,
     explain,
     unknownEvent,
@@ -118,7 +119,7 @@ data Raise = AsAsked | ToSecurity
     deriving stock (Eq, Show)
 
 -- | What @state render@ prints: each a block the skills paste.
-data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong
+data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong | InitLine
     deriving stock (Eq, Show, Enum, Bounded)
 
 {- | Why a command did nothing, as @state <sub>: what - why@ and a @fix:@
@@ -136,7 +137,11 @@ failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> fa
 
 -- | The fix where a run is missing: start one, its notes dir as the skills name it.
 initFix :: Text
-initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
+initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"
+
+-- | The 10x lead's @state init@ line, run in the run directory its skill names.
+tenXInitFix :: Text
+tenXInitFix = "state init --notes \"$PWD\" --flow 10x"
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
 noteOf :: Failure -> Note
@@ -179,8 +184,11 @@ runCli pinfo argv = case Opt.execParserPure cliPrefs pinfo (map Text.unpack argv
     Opt.Failure failure -> Left (Usage failure)
     Opt.CompletionInvoked _ -> Left (Usage (Opt.parserFailure cliPrefs pinfo (Opt.ErrorMsg "shell completion is not offered") []))
 
+{- | No backtracking: a surplus argument fails in the subcommand it follows,
+so its help, not the top-level one, follows the error.
+-}
 cliPrefs :: Opt.ParserPrefs
-cliPrefs = Opt.prefs Opt.showHelpOnError
+cliPrefs = Opt.prefs (Opt.showHelpOnError <> Opt.noBacktrack)
 
 -- | optparse's text, less the trailing spaces it leaves where it wraps a usage line.
 optparseText :: String -> Text
@@ -409,6 +417,7 @@ blockName = \case
     Kinds -> "kinds"
     StopRule -> "stop-rule"
     PlanWrong -> "plan-wrong"
+    InitLine -> "init"
 
 -- | A log whose first line starts no run: it has no flow to explain against.
 notStarted :: Failure

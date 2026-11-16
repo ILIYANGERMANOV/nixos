@@ -44,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
@@ -347,7 +347,11 @@ runAnswer steps call bound found want = case want of
                         warning = case (action, spawned) of
                             (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
                             _ -> Nothing
-                     in (opened <> new, recordedLines after.state opened <> out.text <> foldMap (<> "\n") warning)
+                        -- A recorded spawn tells only its line: parallel spawns would each repeat the advice.
+                        adviceText = case opened of
+                            [] -> out.text
+                            _ : _ -> ""
+                     in (opened <> new, recordedLines after.state opened <> adviceText <> foldMap (<> "\n") warning)
     Hook.HandedBack message agent role ->
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
@@ -1009,6 +1013,9 @@ rendered steps block flow = case block of
     Kinds -> Render.kinds
     StopRule -> Render.stopRule
     PlanWrong -> Render.planWrong
+    InitLine -> case flow of
+        EngineerFlow -> initFix <> "\n"
+        TenXFlow -> tenXInitFix <> "\n"
   where
     g = graphOf flow
 

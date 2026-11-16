@@ -26,7 +26,7 @@ import Data.Char (isDigit, isSpace)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Cli.Command (Command (..), Exit (..), Failure (..), failureText, initFix, parseCommand)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), RunCommand (ShowRun), failureText, initFix, parseCommand, tenXInitFix)
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (leads)
@@ -40,7 +40,7 @@ data StateCall = StateCall {dir :: FilePath, sub :: Text, written :: Text}
     deriving stock (Eq, Show)
 
 {- | The calls of a command run in this directory that read a run, in order.
-@init@, @help@, @render@ and argv @state@ refuses read none, so never route.
+@init@, @help@, @render@, @show@ and argv @state@ refuses never route.
 -}
 stateCalls :: Steps -> FilePath -> Text -> [StateCall]
 stateCalls steps cwd command = maybe [] (walk (Just cwd)) (segments command)
@@ -74,6 +74,8 @@ readsRun steps argv = case parseCommand steps argv of
         Next -> True
         HandbackOf _ _ -> True
         Move _ -> True
+        -- It opens with the run's id, so it reads another run's state safely (#432).
+        OnRun ShowRun -> False
         OnRun _ -> True
 
 {- | Why the first call aimed at another worktree than the bound run's is
@@ -121,7 +123,7 @@ gate :: Lead -> Gate -> Maybe Text
 gate lead call = case lead of
     NotLead -> Nothing
     SkillLead EngineerSkill -> denial initFix <$> writeOf call
-    SkillLead TenXSkill -> denial "state init --notes \"$PWD\" --flow 10x, in the run directory Intake or Resume names" <$> writeOf call
+    SkillLead TenXSkill -> denial (tenXInitFix <> ", in the run directory Intake or Resume names") <$> writeOf call
     RoleLead -> denial "run the `state init` line in your prompt, as written" <$> writeOf call
   where
     denial fix act =
