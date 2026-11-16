@@ -63,8 +63,8 @@ A full check (`just check`, the whole test suite) takes minutes. Spend it once.
 
 - Stay under the budget the context guard names (300k-400k by role). Past
   it, commit, push if the branch is pushed, hand back a short note - files
-  touched, decisions, what remains, how to verify - and stop. The orchestrator continues with a fresh agent
-  briefed from that note.
+  touched, decisions, what remains, how to verify - and stop. The
+  orchestrator continues with a fresh agent briefed from that note.
 - Subagents never wait on or poll CI or deploys: they hand back, the parent
   waits, and a guard enforces it. A check they run is still theirs to wait for.
 - `CLAUDE.md` is already in your context: read it only to edit it or for
