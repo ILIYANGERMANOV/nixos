@@ -15,7 +15,7 @@ import State.Category.Step (stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), slotOf)
 import State.Protocol.Hook
-import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped, WorkerSpawned), SessionId (..), Stop (..), StopReason (..), Url (..), stepTook)
+import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped, Voided, WorkerSpawned), SessionId (..), Stop (..), StopReason (..), Url (..), stepTook)
 import State.Run.EventGen (line, logOf, run, runId, started)
 import State.Run.RunGen (childOf, commit, loadSteps, plainTask, runAt, tenXAt)
 import State.Step.Build (Outcome (..), Sing (Refactor))
@@ -159,6 +159,9 @@ spec = describe "the hooks" $ do
         it "is silent when HEAD is off the branch the draft PR bound the run to" $
             [silent branch Nothing (logOf (started :| [drafted])) (runAt []) | branch <- [Just (Branch "feat"), Just (Branch "other"), Nothing]]
                 `shouldBe` [False, True, True]
+
+        it "speaks off the branch of a voided draft PR" $
+            silent (Just (Branch "other")) Nothing (logOf (started :| [drafted, Voided 1 "wrong branch"])) (runAt []) `shouldBe` False
 
         it "is silent once GitHub reports the drafted PR merged or closed" $
             [silent (Just (Branch "feat")) (Just readiness) (logOf (started :| [drafted])) (runAt []) | readiness <- [IsDraft, IsReady, IsMerged, IsClosed]]

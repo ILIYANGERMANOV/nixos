@@ -20,6 +20,7 @@ module State.Run.Fold (
     Refusal (..),
     Append (..),
     replay,
+    unvoided,
     runStart,
     fold,
     append,

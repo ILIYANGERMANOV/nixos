@@ -74,7 +74,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
-import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty (NonEmpty, toList)
 import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -88,7 +88,7 @@ import State.Role (leads)
 import State.Run.Ask (Principal (..), Question (..), qidText)
 import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
-import State.Run.Fold (Pending (..), RunState (..), Waits (..), over)
+import State.Run.Fold (Pending (..), RunState (..), Waits (..), over, unvoided)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
@@ -486,9 +486,9 @@ silent headBranch readiness envelopes state = over state || maybe False (\bound 
         Just IsReady -> False
         Nothing -> False
 
--- | The branch of the run's latest draft PR, as GitHub reported it.
+-- | The branch of the run's latest draft PR not voided, as GitHub reported it.
 boundBranch :: NonEmpty Envelope -> Maybe Branch
-boundBranch envelopes = case [draft.branch | Envelope {event = Took _ (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (foldr (:) [] envelopes)] of
+boundBranch envelopes = case [draft.branch | Envelope {event = Took _ (AnyOutcome BuildLayer (SomeOutcome _ _ (DraftDone draft)))} <- reverse (fst (unvoided (toList envelopes)))] of
     branch : _ -> Just branch
     [] -> Nothing
 
