@@ -4,6 +4,7 @@ import Data.Either (fromRight)
 import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (Gen, assert, cover, forAll, (===))
@@ -29,6 +30,7 @@ spec = describe "State.Run.Fan" $ do
             assert (task.id `notElem` map (.id) busy)
             assert (all (merged fan) task.deps)
             assert (task.id `notElem` map ((.task) . fst) (untriaged fan))
+            assert (not (awaitsCi fan task.id))
 
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
         fan <- forAll genFan
@@ -44,6 +46,13 @@ spec = describe "State.Run.Fan" $ do
 
     it "settles a task whose child finished" $
         settledAfter [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1"))] `shouldBe` Right True
+
+    it "keeps a finished task open while its PR is in CI, awaits that CI, and builds it no more" $ do
+        let fan = applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1")), moved t1 (InCi (Url "pr"))]
+        (\f -> (settled f t1, map (.id) (spawnable [] f), ciAwaited f)) <$> fan `shouldBe` Right (False, [], [Url "pr"])
+
+    it "settles a task in CI once it is recorded in review" $
+        settledAfter [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1")), moved t1 (InCi (Url "pr")), moved t1 (InReview (Url "pr"))] `shouldBe` Right True
 
     it "leaves a task open after its child stops, to spawn again once the stop is triaged, and counts both tries" $ do
         let fan = applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access"))]
@@ -214,6 +223,12 @@ merged fan task = case Map.lookup task fan.moves of
     Just (Kept _) -> False
     Just (Round _) -> False
     Nothing -> False
+
+-- | The task's PR is in CI after its latest child finished: CI is awaited, nothing built again.
+awaitsCi :: Fan -> TaskId -> Bool
+awaitsCi fan task = case (Map.lookup task fan.moves, latest =<< listToMaybe (reverse (childrenOf fan task))) of
+    (Just (InCi _), Just (Finished _)) -> True
+    _ -> False
 
 tshow :: Int -> Text.Text
 tshow = Text.pack . show

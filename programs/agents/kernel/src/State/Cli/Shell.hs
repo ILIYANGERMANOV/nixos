@@ -50,7 +50,7 @@ import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
 import State.Cli.Route qualified as Route
 import State.Cli.View (beginText, brief, pendingLines, showRun)
-import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, explained, ownAsk, pullRequestOf, skippable)
+import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
@@ -503,7 +503,8 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
         recorded settled.state new
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
-                ( foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
+                ( foldMap (<> "\n") (deliverMore settled.state.start advice)
+                    <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
                     <> Text.concat ["  " <> line <> "\n" | line <- explained settled.state.start advice <> told <> unsynced <> advice.facts <> skippable settled.g settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
@@ -517,7 +518,7 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
 delivered :: RunState -> Text -> Output
 delivered state line
-    | "HANDBACK " `Text.isPrefixOf` line = let handback = Ask.handback line state.run state.rulings in Output handback (Just handback) Nothing
+    | handsBack line = let handback = Ask.handback line state.run state.rulings in Output handback (Just handback) Nothing
     | otherwise = printed (line <> "\n")
 
 -- | A line per event written, each with where the run is now.

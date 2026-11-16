@@ -254,6 +254,17 @@ spec = describe "State.Protocol.Advice" $ do
             let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (stepTook (FanDone engineers))
+        it "waits on a finished task's CI, so the fan-out leaves only once it is recorded in review" $ do
+            let inCi = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi prUrl)]
+            (next noFacts (tenXAt (t1 :| []) inCi), due tenXGraph noFacts (tenXAt (t1 :| []) inCi)) `shouldBe` (AwaitOn Ci "https://pr/1", Nothing)
+            due tenXGraph noFacts (tenXAt (t1 :| []) (inCi <> [TaskMoved (TaskId "t1") (InReview prUrl)])) `shouldBe` Just (stepTook (FanDone engineers))
+        it "advises each other task's own action beside the most urgent, one per task" $ do
+            let ruled = fromChild <> [RuledOn asks.qid ruling]
+                advice = advise steps tenXGraph noFacts (tenXAt (t1 :| [t2, plainTask "t3" []]) ruled)
+            (advice.action, advice.more)
+                `shouldBe` (Resume (runId "c1") "with the answer to c1:1: confirmed", [Spawn (AgentRole "engineer") (Just (TaskId "t2")), Spawn (AgentRole "engineer") (Just (TaskId "t3"))])
+        it "advises nothing beside a task's action when no other task has one" $
+            (advise steps tenXGraph noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [])).more `shouldBe` []
         it "states each task's child, PR and tries" $
             filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
                 `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
@@ -294,6 +305,11 @@ spec = describe "State.Protocol.Advice" $ do
         it "waits on CI or a merge itself only where the interface can" $
             [deliver from (AwaitOn on "u") | on <- [Ci, Merge], from <- [start {interface = Set.singleton Await}, start]]
                 `shouldBe` ["AWAIT ci u", "HANDBACK AWAIT ci u", "AWAIT merge u", "HANDBACK AWAIT merge u"]
+
+        it "delivers the other tasks' actions under the first, never under a hand-back" $ do
+            let beside first = Advice first [Spawn (AgentRole "engineer") (Just (TaskId "t2"))] "" [] [] "" False
+            [deliverMore from (beside first) | (from, first) <- [(start, AwaitAnswer which), (child, AwaitAnswer which), (child, Resume (runId "c1") "go")]]
+                `shouldBe` [["SPAWN engineer --task t2 background: no"], [], ["SPAWN engineer --task t2 background: no"]]
 
         it "notifies at ready only where the interface can, so a child run leaves it to its parent" $ do
             let ready = advise steps g noFacts atReady

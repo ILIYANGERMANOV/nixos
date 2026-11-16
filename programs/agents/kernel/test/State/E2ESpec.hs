@@ -410,6 +410,28 @@ spec = describe "the state binary" $ do
                 take 1 done `shouldBe` ["RUN one option below"]
                 done `shouldContain` ["  options:", "    state record merge.done <url> - the flow ends", "    state record merge.next_round - back to gather, the round loop's next round"]
 
+            it "awaits a finished task's CI after a fixer's push, and leaves the fan-out only once it is in review" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                _ <- succeeded =<< stateIn bin repo (Text.unpack (Text.unlines ["READY " <> prUrl, "Run: " <> c1])) ["handback", "engineer"]
+                for_ [["task", "t2", "parked", "out", "of", "scope"], ["task", "t1", "ci", prUrlString]] (succeeded <=< state bin repo . ("record" :))
+                waits <- succeeded =<< state bin repo ["next"]
+                (recorded waits, take 1 waits) `shouldBe` ([], ["AWAIT ci " <> prUrl])
+                _ <- succeeded =<< state bin repo ["record", "task", "t1", "review", prUrlString]
+                left <- succeeded =<< state bin repo ["next"]
+                recorded left `shouldBe` ["engineers.done -> merge"]
+
+            it "prints a line per task it can act on: the resume first, then a free task's spawn" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                _ <- succeeded =<< taskAdded bin repo (taskFileJson (plainTask "fix" []))
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                _ <- succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
+                _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
+                advice <- succeeded =<< state bin repo ["next"]
+                take 3 advice `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed", "SPAWN engineer --task fix background: yes", "  at engineers: a fan-out - its tasks run as child runs; do what each unindented line says, then state next"]
+
             it "runs from init to done, its child through the engineer flow" $ \repo -> do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 let tasks = repo.root </> "tasks.json"
