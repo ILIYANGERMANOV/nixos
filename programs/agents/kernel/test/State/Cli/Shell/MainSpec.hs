@@ -272,6 +272,14 @@ spec = describe "state over the doubles" $ do
                 take 1 blocked `shouldBe` ["RUN state ask --kind <kind> --from implementer <question> - triage: BLOCKED no access"]
                 ruled `shouldSatisfy` (not . any ("triage: BLOCKED no access" `Text.isInfixOf`))
 
+            it "refuses a hand-back with no token on line 1, its fix piping it again with one" $ \world -> do
+                _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
+
+                ran <- stateIn world "Done, all green.\n" ["handback", "implementer"]
+
+                ran.code `shouldBe` 2
+                drop 1 ran.err `shouldBe` ["fix: state handback implementer < <the hand-back, a token added as line 1>"]
+
             it "refuses a hand-back that is not UTF-8, with exit 2" $ \world -> do
                 _ <- startedRun world
 
@@ -564,7 +572,7 @@ spec = describe "state over the doubles" $ do
                 again `shouldSatisfy` (not . any ("parent: " `Text.isPrefixOf`))
                 loggedEvents world `shouldReturn` once
 
-            for_ [(ChildConfirms, ["plan.done -> simplify_plan"]), (ParentDecided, ["plan.done -> simplify_plan", "simplify_plan.skipped -> draft", "confirm.confirmed -> draft"])] $ \(plan, transcript) ->
+            for_ [(ChildConfirms, ["plan.done -> simplify_plan"]), (ParentDecided, ["plan.done -> simplify_plan", "simplify_plan.skipped -> confirm", "confirm.confirmed -> draft"])] $ \(plan, transcript) ->
                 it ("passes a child's plan per its task's plan call, asking its parent nothing: " <> show plan) $ \world -> do
                     parent <- tenXAtFanOutOf world [(plainTask "t1" []) {plan}]
                     _ <- childRun world parent "/child" "t1"

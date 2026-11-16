@@ -151,11 +151,13 @@ engineerNotes rounds tried branch repo =
     trySuffix = if tried > rounds then "-t" <> tshow (tried + 1) else ""
 
 {- | A role's brief wherever a run is: the task text of each step it runs,
-then the rule its hand-back follows. 'brief' gives it at a step the role
+then the rules its hand-back follows. 'brief' gives it at a step the role
 does not run.
 -}
 briefOf :: Steps -> AgentRole -> Text
-briefOf steps agent = sections (runsOf steps agent) <> ruleOf agent
+briefOf steps agent = case runsOf steps agent of
+    [] -> ""
+    runs -> sections runs <> Render.handbackRule <> "\n" <> ruleOf agent
 
 -- | Each step a role runs, by name, with its row.
 runsOf :: Steps -> AgentRole -> [(StateName, Row)]

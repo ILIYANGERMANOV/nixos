@@ -4,6 +4,7 @@ import Data.Foldable (for_)
 import Data.Text qualified as Text
 import State.Cli.Render qualified as Render
 import State.Cli.View (beginText, brief, briefOf)
+import State.Protocol.Handback (tokenWords)
 import State.Protocol.Hook (Begin (..), LeadSkill (..))
 import State.Run.Event (AgentRole (..))
 import State.Run.RunGen (loadSteps, runAt)
@@ -18,6 +19,10 @@ spec = describe "the texts that need no run" $ do
         it "is what state brief gives at a step the role does not run, for every step runner" $
             for_ (agentRoles steps) $ \role ->
                 brief steps (runAt []) role Nothing `shouldBe` Right (briefOf steps role)
+
+        it "names every hand-back token for line 1, for every step runner" $
+            for_ (agentRoles steps) $ \role ->
+                briefOf steps role `shouldSatisfy` \text -> all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
 
         it "gives an implementer its step's task, then the stop rule" $ do
             let text = briefOf steps (AgentRole "implementer")

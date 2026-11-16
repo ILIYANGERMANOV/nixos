@@ -8,6 +8,8 @@ module State.Protocol.Handback (
     Token (..),
     Need (..),
     Waiting (..),
+    tokenWords,
+    noToken,
     parseHandback,
     parseTouches,
     renderHandback,
@@ -70,6 +72,26 @@ data Token
     | Failed OneLine
     deriving stock (Eq, Show)
 
+-- | Why a hand-back whose line 1 opens with no 'TokenWord' is refused.
+noToken :: Text
+noToken = "line 1 is no token: one of " <> Text.intercalate ", " tokenWords
+
+-- | The word line 1 opens with, one per 'Token' case.
+data TokenWord = ReadyWord | NeedsDecisionWord | AwaitWord | BlockedWord | FailedWord
+    deriving stock (Bounded, Enum)
+
+tokenWordText :: TokenWord -> Text
+tokenWordText = \case
+    ReadyWord -> "READY"
+    NeedsDecisionWord -> "NEEDS_DECISION"
+    AwaitWord -> "AWAIT"
+    BlockedWord -> "BLOCKED"
+    FailedWord -> "FAILED"
+
+-- | Every word line 1 may open with, in 'Token''s order.
+tokenWords :: [Text]
+tokenWords = map tokenWordText [minBound .. maxBound]
+
 data Need
     = -- | Asked already by a flow role's @state ask@, under its id.
       Asks Question
@@ -101,15 +123,15 @@ parseHandback message = do
         named -> Right (Sha named)
 
 parseToken :: Text -> Either Text (Maybe Token)
-parseToken line = case word of
-    "READY" -> Just . Ready <$> oneLine payload
-    "NEEDS_DECISION" -> Just . NeedsDecision <$> parseNeed payload
-    "AWAIT" -> case parseByName waitingText what of
+parseToken line = case parseByName tokenWordText word of
+    Just ReadyWord -> Just . Ready <$> oneLine payload
+    Just NeedsDecisionWord -> Just . NeedsDecision <$> parseNeed payload
+    Just AwaitWord -> case parseByName waitingText what of
         Just waiting -> Just . Await waiting <$> oneLine refs
         Nothing -> Left ("AWAIT " <> what <> ": only " <> Text.intercalate " or " (map waitingText [minBound .. maxBound]) <> " is awaited")
-    "BLOCKED" -> Just . Blocked <$> oneLine payload
-    "FAILED" -> Just . Failed <$> oneLine payload
-    _ -> Right Nothing
+    Just BlockedWord -> Just . Blocked <$> oneLine payload
+    Just FailedWord -> Just . Failed <$> oneLine payload
+    Nothing -> Right Nothing
   where
     (word, payload) = Text.drop 1 <$> Text.breakOn " " line
     (what, refs) = Text.drop 1 <$> Text.breakOn " " payload
@@ -165,17 +187,17 @@ renderHandback handback =
 -- | Line 1 of a hand-back.
 tokenLine :: Token -> Text
 tokenLine = \case
-    Ready ref -> spaced "READY" (oneLineText ref)
+    Ready ref -> spaced (tokenWordText ReadyWord) (oneLineText ref)
     NeedsDecision need -> case need of
         Asks question -> needsDecision question
         StuckOn why -> needing ("stuck: " <> oneLineText why)
         PlanWrong finding -> needing (planWrong (oneLineText finding))
         Untyped question -> needing (oneLineText question)
-    Await waiting ref -> spaced ("AWAIT " <> waitingText waiting) (oneLineText ref)
-    Blocked why -> spaced "BLOCKED" (oneLineText why)
-    Failed why -> spaced "FAILED" (oneLineText why)
+    Await waiting ref -> spaced (tokenWordText AwaitWord <> " " <> waitingText waiting) (oneLineText ref)
+    Blocked why -> spaced (tokenWordText BlockedWord) (oneLineText why)
+    Failed why -> spaced (tokenWordText FailedWord) (oneLineText why)
   where
-    needing = spaced "NEEDS_DECISION"
+    needing = spaced (tokenWordText NeedsDecisionWord)
 
 -- | The hand-back line a run stopped under a parent sends it.
 stopLine :: Stop -> Text
@@ -214,7 +236,7 @@ fromChild :: RunState -> Fan -> Handback -> Either Text Typed
 fromChild state fan handback = case handback.run of
     Nothing -> Left "a child's hand-back names its run: add Run: <run id> as line 2"
     Just child -> case handback.token of
-        Nothing -> Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, BLOCKED, FAILED"
+        Nothing -> Left noToken
         Just (Ready summary) -> Right (Typed (said (Finished summary) : prMoved summary) Nothing)
         Just token@(NeedsDecision need) -> case need of
             Asks question -> Right (Typed [said (AsksUp question.qid), Asked (Asking question (askedAt state) (ChildRun child))] Nothing)
@@ -276,7 +298,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Agent (AgentRole runner) _ -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
             Inline -> Left (label <> " runs inline, not by " <> roleName)
         if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview]
-            then Left "line 1 is no token: one of READY, NEEDS_DECISION, AWAIT, BLOCKED, FAILED"
+            then Left noToken
             else doneOf place.scope step
     -- One arm per layer, each total over its steps; the outcome is in the step's scope.
     doneOf :: ScopePath -> AnyStep -> Either Text [Event]
