@@ -5,11 +5,11 @@ each measured at the time. Suggested options, not verdicts.
 
 ## Context and tokens (nixos#212: 5 `/engineer` runs, 249M input tokens)
 
-- **Context budget**: past about 220k an agent commits, hands back a note and
+- **Context budget**: past the then 220k an agent commits, hands back a note and
   stops; a fresh one continues. One implementer had reached 479k and 73M.
 - **Leaf implementers**: the engineer slices a large task up front and spawns
-  each implementer; an implementer spawns none and hands back at the 150k
-  warning. Implementers that spawned children waited past the cache: 29
+  each implementer; an implementer spawns none and hands back at the then
+  150k warning. Implementers that spawned children waited past the cache: 29
   rewrites, $12 in 30 days (nixos#325).
 - **Bounded reads**: `rg -n`, then a `sed -n` range; a hook blocks reads over
   16KB. File reads were 38% of implementer cost.

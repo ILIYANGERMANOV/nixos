@@ -16,7 +16,7 @@ pushed branch.
 You spawn no agent. Implement the slice, run its targeted checks, commit and
 push.
 
-At the context guard's 150k warning, earlier than its 220k stop: commit, push
+At the context guard's warning, before its stop: commit, push
 and hand back the note your instructions' `Context budget` lists. Your caller
 spawns a successor.
 
