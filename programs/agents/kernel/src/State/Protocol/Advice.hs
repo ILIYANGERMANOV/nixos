@@ -24,7 +24,7 @@ module State.Protocol.Advice (
     deliverPrompt,
     ownAsk,
     factLines,
-    openBudgets,
+    childBudget,
 ) where
 
 import Control.Applicative ((<|>))
@@ -46,7 +46,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
-import State.Category.Meter (AtCap (Extend), someMeterName)
+import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
@@ -63,7 +63,7 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
-import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
@@ -384,11 +384,33 @@ one command means = commandOption command means :| []
 shownBudgets :: OpenGraph -> RunState -> [(Metered, Budget)]
 shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.cap) (Map.toList (budgets g state))
 
-{- | @ (2 open, Researchers: 3 of 5 used, 2 left)@ for each budget with
-children open: what a recorded spawn tells in place of the advice.
+{- | What a child's spawn or hand-back tells under its line in place of the
+advice, which parallel spawns would each repeat:
+
+> researchers: 2 running, 3 of 5 left
+> next: spawn more, or end your turn until they hand back
+
+None for an event that opens or closes no child.
 -}
-openBudgets :: OpenGraph -> RunState -> Text
-openBudgets g state = foldMap (\budget -> " (" <> tshow budget.ledger.open <> " open, " <> spentText budget <> ")") [budget | (_, budget) <- shownBudgets g state, budget.ledger.open > 0]
+childBudget :: OpenGraph -> RunState -> Event -> Maybe [Text]
+childBudget g state event =
+    listToMaybe
+        [ [Text.toLower (someMeterName budget.cap.meter) <> ": " <> running <> left, "next: " <> next owed]
+        | Event.Took _ (AnyOutcome _ some) <- [event]
+        , (_, budget) <- shownBudgets g state
+        , Just owed <- [owedBy budget.cap.meter (RecordedOutcome some)]
+        , let open = budget.ledger.open
+              running = if open == 0 then "none running" else tshow open <> " running"
+              left = foldMap (\allows -> ", " <> howMany (allows - min allows budget.ledger.spent) <> " of " <> tshow allows <> " left") budget.allows
+              await = "end your turn until " <> if open == 1 then "it hands back" else "they hand back"
+              next = \case
+                Opens | usedUp budget -> await
+                Opens -> "spawn more, or " <> await
+                Closes | open == 0 -> "state next"
+                Closes -> await
+        ]
+  where
+    howMany n = if n == 0 then "none" else tshow n
 
 -- | @Re-reviews: 1 of 3 used, 2 left@: what a budget spent of what the run's Fuel allows.
 spentText :: Budget -> Text

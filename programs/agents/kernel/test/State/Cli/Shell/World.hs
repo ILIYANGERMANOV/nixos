@@ -371,8 +371,7 @@ driveOut world acts = do
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]
 recorded = concatMap $ \line -> case Text.words line of
-    -- A recorded spawn's line ends with its open children: not part of the move.
-    "recorded" : _ : event : "->" : at : _ -> [event <> " -> " <> at]
+    ["recorded", _, event, "->", at] -> [event <> " -> " <> at]
     _ -> []
 
 ready, reviewed, simplified :: Text -> Text

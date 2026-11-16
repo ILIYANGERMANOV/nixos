@@ -166,17 +166,76 @@ spec = describe "state-hook over the doubles" $ do
 
                 (contextOf spawn, early.code, contextOf back, enough.code)
                     `shouldSatisfy` \case
-                        (Just opened, 2, Just closed, 0) -> "recorded 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded 6 research.handed_back -> gather" `Text.isInfixOf` closed
+                        (Just opened, 2, Just closed, 0) -> "recorded event 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 6 research.handed_back -> gather" `Text.isInfixOf` closed
                         _ -> False
 
-            it "tells only the line a recorded spawn wrote, with the open researchers and their budget, not the advice" $ \world -> do
+            it "tells a recorded spawn's line, the researchers running and left, and to spawn more or wait, not the advice" $ \world -> do
                 _ <- drive world [Record ["fuel", "balanced"]]
                 _ <- hook world "spawn" (spawned "researcher")
 
                 said <- hook world "spawn" (spawned "researcher")
 
                 run <- runOf world
-                fmap Text.lines (contextOf said) `shouldBe` Just ["run " <> run <> ": recorded 4 research.spawned -> gather (2 open, Researchers: 2 of 5 used, 3 left)"]
+                contextOf said
+                    `shouldBe` Just
+                        ( Text.unlines
+                            [ "run " <> run <> ": recorded event 4 research.spawned -> gather"
+                            , "  researchers: 2 running, 3 of 5 left"
+                            , "  next: spawn more, or end your turn until they hand back"
+                            ]
+                        )
+
+            it "tells a spawn that spends the researchers' budget only to wait for the one running" $ \world -> do
+                _ <- drive world [Record ["fuel", "low"]]
+
+                said <- hook world "spawn" (spawned "researcher")
+
+                run <- runOf world
+                contextOf said
+                    `shouldBe` Just
+                        ( Text.unlines
+                            [ "run " <> run <> ": recorded event 3 research.spawned -> gather"
+                            , "  researchers: 1 running, none of 1 left"
+                            , "  next: end your turn until it hands back"
+                            ]
+                        )
+
+            it "tells a researcher's hand-back with another still running to wait for it" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- hook world "spawn" (spawned "researcher")
+                _ <- hook world "spawn" (spawned "researcher")
+                _ <- hook world "bind" (spawnResult "researcher")
+
+                said <- hook world "handback" (handedBack "researcher")
+
+                run <- runOf world
+                contextOf said
+                    `shouldBe` Just
+                        ( Text.unlines
+                            [ "run " <> run <> ": recorded event 6 research.handed_back -> gather"
+                            , "  researchers: 1 running, 3 of 5 left"
+                            , "  next: end your turn until it hands back"
+                            , "state: recorded 7 worker_returned -> gather"
+                            ]
+                        )
+
+            it "tells the last researcher's hand-back to ask state next" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"]]
+                _ <- hook world "spawn" (spawned "researcher")
+                _ <- hook world "bind" (spawnResult "researcher")
+
+                said <- hook world "handback" (handedBack "researcher")
+
+                run <- runOf world
+                contextOf said
+                    `shouldBe` Just
+                        ( Text.unlines
+                            [ "run " <> run <> ": recorded event 5 research.handed_back -> gather"
+                            , "  researchers: none running, 4 of 5 left"
+                            , "  next: state next"
+                            , "state: recorded 6 worker_returned -> gather"
+                            ]
+                        )
 
             it "opens no child for a spawn past the researchers' cap, and tells the refusal" $ \world -> do
                 _ <- drive world [Record ["fuel", "low"]]
