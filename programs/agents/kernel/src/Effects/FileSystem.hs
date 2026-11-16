@@ -8,6 +8,7 @@ module Effects.FileSystem (
     WrFileSystem (..),
     readBytes,
     readText,
+    listDirectory,
     inDirectory,
     writeText,
     writeTextAtomic,
@@ -32,6 +33,7 @@ import System.IO.Error (isDoesNotExistError)
 data RoFileSystem :: Effect where
     ReadBytes :: FilePath -> RoFileSystem m ByteString
     ReadText :: FilePath -> RoFileSystem m (Maybe Text)
+    ListDirectory :: FilePath -> RoFileSystem m [FilePath]
     InDirectory :: FilePath -> m a -> RoFileSystem m a
 
 data WrFileSystem :: Effect where
@@ -50,6 +52,10 @@ readBytes = send . ReadBytes
 -- | A file's text in the locale's encoding, 'Nothing' when it does not exist.
 readText :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe Text)
 readText = send . ReadText
+
+-- | The names in a directory, none when it does not exist.
+listDirectory :: (RoFileSystem :> es) => FilePath -> Eff es [FilePath]
+listDirectory = send . ListDirectory
 
 -- | Run the action with this as the current directory, which git and gh read.
 inDirectory :: (RoFileSystem :> es) => FilePath -> Eff es a -> Eff es a
@@ -84,6 +90,7 @@ runRoFileSystemIO = interpret $ \env -> \case
             doesFileExist path >>= \case
                 False -> pure Nothing
                 True -> Just <$> Text.readFile path
+    ListDirectory dir -> liftIO (catchJust (\e -> if isDoesNotExistError e then Just () else Nothing) (Directory.listDirectory dir) (const (pure [])))
     InDirectory dir act -> localSeqUnliftIO env $ \unlift -> withCurrentDirectory dir (unlift act)
 
 runWrFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : es) a -> Eff es a

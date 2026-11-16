@@ -12,7 +12,7 @@ import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight)
-import Data.Foldable (toList, traverse_)
+import Data.Foldable (for_, toList, traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -52,7 +52,7 @@ import State.Cli.Route qualified as Route
 import State.Cli.View (beginText, brief, pendingLines, showRun)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
@@ -185,7 +185,7 @@ hookError name e = "state hook " <> hookName name <> ": " <> tshow e
 callerBinding :: (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe Slot, Maybe Binding)
 callerBinding call = do
     slot <- slotFor call.session (keyOf call.agent)
-    (slot,) <$> maybe (pure Nothing) readBinding slot
+    (slot,) <$> maybe (pure Nothing) (readBinding . bindingFile) slot
 
 -- | A binding, and whether its worktree stands: git finds none there once it is removed.
 standing :: (Git :> es, RoFileSystem :> es) => Binding -> Eff es (Binding, Worktree)
@@ -211,13 +211,13 @@ wantAnswer steps name input call want slot bound = case delivery want (keyOf cal
         -- Stashed before the binding is read again, as the spawner's hook binds before it
         -- reads the stash: whichever runs second sees the other's file.
         writeWhole (stashFile at) (decodeUtf8Lenient input)
-        readBinding at >>= maybe (pure "") (replayStash steps name at)
+        readBinding (bindingFile at) >>= maybe (pure "") (replayStash steps name at)
     ToRun -> atRun steps name call want bound
 
 -- | A bind: the caller to the run its init printed, or a worker it spawned to the caller's run.
 bindAnswer :: (Shell es) => Steps -> HookName -> Call -> Bind -> Maybe Slot -> Maybe Binding -> Eff es Text
 bindAnswer steps name call bind slot bound = case bind of
-    BindSelf binding -> telling name (Just binding.run) ("" <$ traverse_ (`writeBinding` binding) slot)
+    BindSelf binding -> telling name (Just binding.run) ("" <$ traverse_ ((`writeBinding` binding) . bindingFile) slot)
     BindChild child role -> do
         -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
         spawner <- case bound of
@@ -227,7 +227,7 @@ bindAnswer steps name call bind slot bound = case bind of
         childSlot <- slotFor call.session (AgentKey child)
         case (worktree, childSlot) of
             (Just (binding, Standing), Just at) -> telling name (Just binding.run) $ do
-                writeBinding at binding
+                writeBinding (bindingFile at) binding
                 -- Logged before a stashed hand-back replays, so that hand-back returns it.
                 logged <- if Hook.tracked steps role then workerSpawned binding call.session child role else pure ""
                 stashed <- replayStash steps name at binding
@@ -272,16 +272,17 @@ atRun steps name call want bound = do
 
 -- | A key's slot in the session's bindings; none without a store root.
 slotFor :: (Environment :> es) => SessionId -> Key -> Eff es (Maybe Slot)
-slotFor session key = do
-    root <- storeRoot <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
-    pure (root >>= \at -> slotOf at session key)
+slotFor session key = (>>= \at -> slotOf at session key) <$> bindingsRoot
 
--- | A slot's binding; a file that holds none is no binding.
-readBinding :: (RoFileSystem :> es) => Slot -> Eff es (Maybe Binding)
-readBinding slot = (>>= bindingIn) <$> FileSystem.readText (bindingFile slot)
+bindingsRoot :: (Environment :> es) => Eff es (Maybe FilePath)
+bindingsRoot = storeRoot <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
 
-writeBinding :: (WrFileSystem :> es) => Slot -> Binding -> Eff es ()
-writeBinding slot binding = writeWhole (bindingFile slot) (renderBinding binding <> "\n")
+-- | A binding file's binding; a file that holds none is no binding.
+readBinding :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe Binding)
+readBinding path = (>>= bindingIn) <$> FileSystem.readText path
+
+writeBinding :: (WrFileSystem :> es) => FilePath -> Binding -> Eff es ()
+writeBinding path binding = writeWhole path (renderBinding binding <> "\n")
 
 -- | A file of the bindings' store, whole, as hooks of one session may run at once.
 writeWhole :: (WrFileSystem :> es) => FilePath -> Text -> Eff es ()
@@ -395,6 +396,7 @@ execute steps = \case
     Help -> pure (Right (help steps))
     Render block flow -> pure (Right (rendered steps block flow))
     Init args -> inWorktree (`initRun` args)
+    Move target -> inWorktree (`moveRun` target)
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
@@ -422,6 +424,7 @@ execute steps = \case
         Brief _ _ -> Nothing
         ShowRun -> Nothing
         Override _ _ -> Nothing
+        Void _ _ -> Nothing
         AskQuestion {} -> Nothing
         RuleOn {} -> Nothing
         Forward _ _ -> Nothing
@@ -465,6 +468,7 @@ planOf steps worktreeHead file g state = \case
         Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
         Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
     Override target why -> Right (Plan [Overridden target why] recorded)
+    Void n why -> Right (Plan [Voided n why] recorded)
     AskQuestion kind Itself text ->
         let (question, events, line) = ownAsk state kind text
          in Right (Plan events (\after _ -> asked question <> delivered after line))
@@ -557,7 +561,7 @@ commit stamp = go []
         [] -> Right (reverse written, run)
         (source, event) : rest -> do
             let envelope = stamped stamp source run.state.run (nextSeq run) event
-            Fold.append run.g run.state envelope >>= \case
+            Fold.appendTo run.g run.state run.logged envelope >>= \case
                 Appended next -> go (envelope : written) run {state = next, logged = run.logged <> pure envelope} rest
                 AlreadyLogged -> go written run rest
 
@@ -778,6 +782,62 @@ initRun gd args = do
         ByRole _ _ -> Set.empty
     initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
 
+{- | @state move@: the worktree's run moves to the worktree the directory is
+in, as a run started in the wrong worktree must. Its notes stay, so the
+parent's and the children's logs still name them; the parent's record of the
+child's worktree goes stale, which only a fix hint reads. The target's
+pointer is written first and this one removed last: a retry finishes a move
+cut short.
+-}
+moveRun :: (Shell es) => FilePath -> FilePath -> Eff es (Either Failure Text)
+moveRun gd target = do
+    -- Every read before the first write, the first refusal told.
+    here <- readPointer gd
+    from <- worktreeTop
+    to <- worktreeAt target
+    case (,,) <$> maybe (Left noRun) Right here <*> from <*> (to >>= elsewhere) of
+        Left failure -> pure (Left failure)
+        Right (notes, fromTop, (toGd, toTop)) -> do
+            run <- onLog (\_ loaded -> ([], Right loaded.state.run)) (logOf notes)
+            held <- unfinishedOther toGd notes
+            case (,) <$> run <*> maybe (Right ()) (Left . holding) held of
+                Left failure -> pure (Left failure)
+                Right (moved, ()) -> do
+                    writePointer toGd notes
+                    rebind moved fromTop toTop
+                    FileSystem.removeFile (pointerOf gd)
+                    pure (Right ("moved " <> runIdText moved <> " to " <> Text.pack toTop <> "\n"))
+  where
+    elsewhere (toGd, toTop)
+        | equalFilePath toGd gd = Left (Failure BadInput (Text.pack target) "it is this worktree, which holds the run already" "state next")
+        | otherwise = Right (toGd, toTop)
+    holding (run, held) =
+        Failure
+            BadInput
+            (Text.pack target)
+            ("its worktree holds unfinished run " <> runIdText run <> " in " <> Text.pack held)
+            "state stop <reason> <why> there ends it, or state move <another worktree>"
+
+-- | The git dir and the top of the worktree a directory is in.
+worktreeAt :: (Git :> es, RoFileSystem :> es) => FilePath -> Eff es (Either Failure (FilePath, FilePath))
+worktreeAt dir =
+    toplevelAt dir >>= \case
+        Nothing -> pure (Left (noWorktree "git finds none there"))
+        Just top -> Bifunctor.bimap noWorktree (,top) <$> FileSystem.inDirectory top Git.gitDir
+  where
+    noWorktree why = Failure BadInput (Text.pack dir <> " is in no git worktree") why "git worktree add <dir> <branch>, then state move <dir>"
+
+{- | Each binding of the run to the old worktree, in every session, bound to
+the new one: hooks route an agent by its binding's worktree.
+-}
+rebind :: (Environment :> es, RoFileSystem :> es, WrFileSystem :> es) => RunId -> FilePath -> FilePath -> Eff es ()
+rebind run from to = bindingsRoot >>= traverse_ inStore
+  where
+    inStore root = do
+        sessions <- map (root </>) <$> FileSystem.listDirectory root
+        files <- concat <$> traverse (\session -> map (session </>) <$> FileSystem.listDirectory session) sessions
+        for_ files $ \file -> readBinding file >>= traverse_ (writeBinding file) . (>>= rebound run from to)
+
 -- | The worktree's top, which a child's @spawned@ and init's @run@ line name.
 worktreeTop :: (Git :> es) => Eff es (Either Failure FilePath)
 worktreeTop = Bifunctor.first (\why -> Failure BadInput "not inside a git work tree" why "cd <worktree>") <$> Git.toplevel
@@ -788,26 +848,30 @@ ended, or whose log is gone or does not read or replay, holds the worktree no
 more.
 -}
 unfinishedHere :: (Shell es) => FilePath -> FilePath -> Eff es (Either Failure ())
-unfinishedHere gd notes =
+unfinishedHere gd notes = maybe (Right ()) (Left . holding) <$> unfinishedOther gd notes
+  where
+    holding (run, held) =
+        Failure
+            BadInput
+            ("--notes " <> Text.pack notes)
+            ("the worktree holds unfinished run " <> runIdText run <> " in " <> Text.pack held)
+            ("state init --notes " <> Text.pack held <> " resumes it, or state stop <reason> <why> ends it")
+
+-- | The unfinished run, and its notes dir, that the worktree's pointer names in another notes dir than this.
+unfinishedOther :: (Shell es) => FilePath -> FilePath -> Eff es (Maybe (RunId, FilePath))
+unfinishedOther gd notes =
     readPointer gd >>= \case
-        Nothing -> pure (Right ())
+        Nothing -> pure Nothing
         Just held
             -- A pointer an older init wrote may end in a separator.
-            | equalFilePath held notes -> pure (Right ())
-            | otherwise -> holding held <$> onLog (\_ run -> ([], Right run.state)) (logOf held)
+            | equalFilePath held notes -> pure Nothing
+            | otherwise -> fmap (,held) . live <$> onLog (\_ run -> ([], Right run.state)) (logOf held)
   where
-    holding held = \case
-        Left _ -> Right ()
+    live = \case
+        Left _ -> Nothing
         Right state -> case liveness state of
-            Ended _ -> Right ()
-            Live ->
-                Left
-                    ( Failure
-                        BadInput
-                        ("--notes " <> Text.pack notes)
-                        ("the worktree holds unfinished run " <> runIdText state.run <> " in " <> Text.pack held)
-                        ("state init --notes " <> Text.pack held <> " resumes it, or state stop <reason> <why> ends it")
-                    )
+            Ended _ -> Nothing
+            Live -> Just state.run
 
 {- | The child's @spawned@, appended to its parent's log under the parent's
 lock, by an id hashed from both runs: a retried init appends it once.

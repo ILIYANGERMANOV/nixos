@@ -202,6 +202,42 @@ spec = describe "the state binary" $ do
                                ]
                            )
 
+        it "voids a line, the run replaying as if it was never logged, and refuses it voided again" $ \repo -> do
+            _ <- drive bin repo []
+            _ <- succeeded =<< state bin repo ["override", "review", "resume", "after", "a", "crash"]
+            voided <- succeeded =<< state bin repo ["void", "2", "overridden", "in", "error"]
+            shown <- succeeded =<< state bin repo ["show"]
+            again <- state bin repo ["void", "2", "again"]
+            (voided, "step: review" `elem` shown, again.code, again.err)
+                `shouldBe` ( ["recorded 3 voided -> gather"]
+                           , False
+                           , 2
+                           , ["state void: seq 2 - no line the run replays has it: none does, it is voided, or it is a void", "fix: state void <seq of a line in events.jsonl> <why>"]
+                           )
+
+        it "moves a run started in the wrong worktree: next and the agent's calls go there, not to the old one" $ \repo -> do
+            run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+            target <- worktree repo "target"
+            top <- Text.strip . Text.pack <$> gitOut target ["rev-parse", "--show-toplevel"]
+            moved <- succeeded =<< state bin repo ["move", target.work]
+            old <- state bin repo ["next"]
+            there <- succeeded =<< state bin target ["show"]
+            routedOld <- succeeded =<< hook hookBin repo "route" (ranIn repo Null "state next")
+            routedThere <- succeeded =<< hook hookBin repo "route" (ranIn repo Null ("cd " <> Text.pack target.work <> " && state next"))
+            (moved, old.code, take 1 there, replyField "decision" routedOld, routedThere)
+                `shouldBe` (["moved " <> run <> " to " <> top], 2, ["run: " <> run <> " (engineer)"], Just "deny", [])
+
+        it "refuses a move to no worktree, to this worktree, and to one holding an unfinished run" $ \repo -> do
+            _ <- startedRun bin repo
+            target <- worktree repo "target"
+            other <- startedIn bin target ["--notes", repo.root </> "other"]
+            refused <- traverse (\dir -> state bin repo ["move", dir]) [repo.root, repo.work, target.work]
+            map (\ran -> (ran.code, take 1 ran.err)) refused
+                `shouldBe` [ (2, ["state move: " <> Text.pack repo.root <> " is in no git worktree - git finds none there"])
+                           , (2, ["state move: " <> Text.pack repo.work <> " - it is this worktree, which holds the run already"])
+                           , (2, ["state move: " <> Text.pack target.work <> " - its worktree holds unfinished run " <> other <> " in " <> Text.pack (repo.root </> "other")])
+                           ]
+
         it "names a hand-edited bad line and appends nothing after it" $ \repo -> do
             _ <- drive bin repo []
             appendFile (eventsOf repo) "{\"v\":3,broken\n"

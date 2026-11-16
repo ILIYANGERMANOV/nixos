@@ -11,6 +11,7 @@ module Doubles.FileSystem (
 ) where
 
 import Data.ByteString (ByteString)
+import Data.List (stripPrefix)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -21,7 +22,7 @@ import Effectful.Dispatch.Dynamic (interpret, localSeqUnlift)
 import Effectful.Exception (finally, throwIO)
 import Effectful.State.Static.Local (State, gets, modify)
 import Effects.FileSystem (RoFileSystem (..), WrFileSystem (..))
-import System.FilePath (normalise, takeDirectory, (</>))
+import System.FilePath (normalise, splitDirectories, takeDirectory, (</>))
 import System.IO.Error (IOErrorType, doesNotExistErrorType, mkIOError, userErrorType)
 
 -- | Paths in it are absolute and normalised.
@@ -38,6 +39,10 @@ runRoFileSystemInMemory = interpret $ \env -> \case
             gets @Disk (Map.member file . (.files)) >>= \case
                 False -> pure Nothing
                 True -> readFile' file >>= either (const (failure userErrorType "invalid byte sequence" file)) (pure . Just) . decodeUtf8'
+    -- A file's directories hold it, made or not, as one written outside the shell's makes them.
+    ListDirectory path ->
+        absolute path >>= \dir ->
+            gets @Disk (\d -> Set.toList (Set.fromList [next | entry <- Map.keys d.files <> Set.toList d.dirs, Just (next : _) <- [stripPrefix (splitDirectories dir) (splitDirectories entry)]]))
     InDirectory path act -> do
         dir <- absolute path
         gets @Disk (Set.member dir . (.dirs)) >>= \case

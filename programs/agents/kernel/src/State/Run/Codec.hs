@@ -229,6 +229,7 @@ eventType = \case
     WorkerHandedBack _ _ -> "worker_handed_back"
     WorkerSpawned _ _ -> "worker_spawned"
     WorkerReturned _ _ -> "worker_returned"
+    Voided _ _ -> "voided"
 
 eventData :: Event -> Series
 eventData = \case
@@ -275,6 +276,7 @@ eventData = \case
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
     WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
     WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
+    Voided n why -> "seq" .= n <> "why" .= why
   where
     qidData qid = "qid" .= qidText qid
 
@@ -303,6 +305,7 @@ eventOf kind obj = case kind of
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
     "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
     "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
+    "voided" -> Voided <$> obj .: "seq" <*> obj .: "why"
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)

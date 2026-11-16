@@ -13,6 +13,8 @@ Available commands:
   brief                    Print a role's brief, a child engineer's task too
   show                     Print where the run is and what it holds
   override                 Move the run to a state by hand, saying why
+  void                     Void a line logged in error, by its seq, saying why
+  move                     Move the run to another worktree; its notes stay
   render                   Print a block of the flow, as the skills paste it
   ask                      Ask a question: the run's, a worker's or a child's
   rule                     Rule on a question: the answer, why and its cost

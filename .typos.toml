@@ -25,3 +25,6 @@ noice = "noice"
 # Scoped to this repo on purpose: allowing `nd` globally would hide a genuine
 # `nd` -> `and` in prose everywhere, forever.
 nd = "nd"
+
+# Haskell's Data.Bifunctor.bimap, not a misspelt `bitmap`.
+bimap = "bimap"

@@ -1,5 +1,6 @@
 module State.Run.FoldSpec (spec) where
 
+import Data.Bifunctor (bimap)
 import Data.Either (isRight)
 import Data.Foldable (for_)
 import Data.List (intercalate)
@@ -99,6 +100,8 @@ spec = describe "State.Run.Fold" $ do
             atWork [spawn fixer "a1", WorkerReturned fixer (Just (AgentId "a9")), WorkerReturned (AgentRole "implementer") Nothing] `shouldBe` Right [(AgentId "a1", 1)]
         it "forgets every worker at a restart" $
             atWork [spawn fixer "a1", Restarted] `shouldBe` Right []
+        it "forgets a worker whose spawn is voided, so its lead may hand back" $
+            atWork [spawn fixer "a1", spawn fixer "a2", Voided 1 "lost at a crash"] `shouldBe` Right [(AgentId "a2", 2)]
         it "a_worker_returned_by_its_id_is_at_work_no_more" . hedgehog $ do
             -- A hook logs each worker's spawn once: ids are distinct.
             ids <- forAll (Gen.shuffle =<< Gen.subsequence ["a1", "a2", "a3", "a4", "a5"])
@@ -232,6 +235,28 @@ spec = describe "State.Run.Fold" $ do
     it "logs a hook record fired twice once" $ do
         let hook n = hookLine "ab12" n (stepTook ResearchSpawned)
         (.at) <$> replay g (line 0 started :| [hook 1, hook 2]) `shouldBe` (.at) <$> replay g (line 0 started :| [hook 1])
+
+    describe "a void" $ do
+        it "a_void_replays_as_the_line_never_logged" . hedgehog $ do
+            events <- forAll genAccepted
+            let logged = logOf (started :| events)
+                lastSeq = fromIntegral (length events)
+            target <- forAll (Gen.integral (Range.linear 0 lastSeq))
+            state <- evalEither (replay g logged)
+            let without = maybe (Left NotStarted) (replay g) (NonEmpty.nonEmpty (NonEmpty.filter ((/= target) . (.seq)) logged))
+                voided = appendTo g state logged (line (lastSeq + 1) (Voided target "logged in error"))
+            cover 5 "the log without it replays" (isRight without)
+            cover 5 "the log without it does not" (not (isRight without))
+            (unseenIn <$> voided) === bimap (VoidBreaks target) (Appended . unseen) without
+        it "refuses a seq no line the run replays has: none, a voided one, a void" $ do
+            let logged = line 0 started :| [line 1 (FuelSet Max), line 2 (Voided 1 "set by mistake")]
+            state <- either (fail . show) pure (replay g logged)
+            [appendTo g state logged (line 3 (Voided n "why")) | n <- [9, 1, 2]] `shouldBe` map (Left . NotVoidable) [9, 1, 2]
+        it "keeps a voided hook line's id, so the hook fired again logs nothing" $ do
+            let hooked = hookLine "ab12" 1 (stepTook ResearchSpawned)
+                logged = line 0 started :| [hooked, line 2 (Voided 1 "fired at the wrong run")]
+            state <- either (fail . show) pure (replay g logged)
+            (Right state.at, append g state hooked {seq = 3}) `shouldBe` ((.at) <$> replay g (line 0 started :| []), Right AlreadyLogged)
 
     it "state_is_a_fold" . hedgehog $ do
         events <- forAll genAccepted
@@ -653,3 +678,12 @@ climb from question = \case
 
 runLog :: Rung -> [Event] -> NonEmpty Envelope
 runLog rung events = NonEmpty.zipWith (lineOf rung.run) (0 :| [1 ..]) (Started rung.start :| events)
+
+-- | The state less the ids it has seen, which a void keeps.
+unseen :: RunState -> RunState
+unseen state = state {seen = Set.empty}
+
+unseenIn :: Append -> Append
+unseenIn = \case
+    Appended state -> Appended (unseen state)
+    AlreadyLogged -> AlreadyLogged

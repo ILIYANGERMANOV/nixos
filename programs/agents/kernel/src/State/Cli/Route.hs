@@ -73,6 +73,7 @@ readsRun steps argv = case parseCommand steps argv of
         Render _ _ -> False
         Next -> True
         HandbackOf _ _ -> True
+        Move _ -> True
         OnRun _ -> True
 
 {- | Why the first call aimed at another worktree than the bound run's is

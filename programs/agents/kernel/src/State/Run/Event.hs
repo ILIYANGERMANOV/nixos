@@ -5,7 +5,8 @@ step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A qu
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
 'ActedOn') as stay events. A lead logs the workers it has at work
-('WorkerSpawned', 'WorkerReturned'), which it hands back after.
+('WorkerSpawned', 'WorkerReturned'), which it hands back after. A line
+logged in error is 'Voided', never edited out: replay drops both lines.
 -}
 module State.Run.Event (
     Envelope (..),
@@ -166,6 +167,10 @@ data Event
       it is at work no more.
       -}
       WorkerReturned AgentRole (Maybe AgentId)
+    | {- | The line of this seq is void, and why: replay drops it and this
+      line, as if neither was logged ("State.Run.Fold").
+      -}
+      Voided Natural Text
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.

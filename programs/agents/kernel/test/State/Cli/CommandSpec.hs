@@ -107,6 +107,16 @@ spec = describe "State.Cli.Command" $ do
                 Right (OnRun (StopRun stop)) -> stop `shouldBe` Stop Blocked "no access"
                 _ -> expectationFailure "not a stop"
 
+        it "takes a void's seq and the rest as why" $
+            case (parse ["void", "4", "spawned", "-in", "error"], parse ["void", "four", "why"]) of
+                (Right (OnRun (Void n why)), Left refused) -> (n, why, refused) `shouldBe` (4, "spawned -in error", "seq four")
+                _ -> expectationFailure "not a void"
+
+        it "takes a move's worktree" $
+            case parse ["move", "/work/other"] of
+                Right (Move target) -> target `shouldBe` "/work/other"
+                _ -> expectationFailure "not a move"
+
         it "keeps free words that start with a dash, an option it takes aside" $
             case (parse ["stop", "blocked", "-x", "--force", "failed"], parse ["ask", "--kind", "Scope", "-v", "or", "--verbose?"], parse ["answer", "r1:1", "use", "-f", "--by", "user"]) of
                 (Right (OnRun (StopRun stop)), Right (OnRun (AskQuestion _ _ question)), Right (OnRun (Answer _ answer by))) ->
@@ -192,6 +202,10 @@ spec = describe "State.Cli.Command" $ do
         it "prints what, why and the fix as the analyzer parses them" $
             failureText "record" (Failure BadInput "fuel" "set once" "state show")
                 `shouldBe` "state record: fuel - set once\nfix: state show\n"
+
+        it "explains a void that breaks the replay by what breaks, fixing it by voiding the later line first" $
+            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (runAt []).meters (VoidBreaks 0 NotStarted))
+                `shouldBe` ("the log without it does not replay: the log - its first line is not started", "state void <the later line that needs it> <why>, then this one")
 
         it "explains a second Fuel by the one set" $
             (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt []).at (runAt []).meters (FuelSetOnce Max))

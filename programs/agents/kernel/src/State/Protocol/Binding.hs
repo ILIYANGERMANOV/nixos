@@ -30,6 +30,7 @@ module State.Protocol.Binding (
     Worktree (..),
     resolve,
     staleNote,
+    rebound,
 ) where
 
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -37,7 +38,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Run.Event (SessionId (..))
 import State.Run.Id (AgentId (..), RunId, parseRunId, runIdText)
-import System.FilePath (isAbsolute, (</>))
+import System.FilePath (equalFilePath, isAbsolute, (</>))
 
 -- | A run, its notes dir and the top of the worktree it is at, both absolute.
 data Binding = Binding {run :: RunId, notes :: FilePath, toplevel :: FilePath}
@@ -139,3 +140,9 @@ staleNote binding here
                 <> runIdText here
                 <> " now; the hook recorded nothing\n"
             )
+
+-- | A binding of the run to the worktree it moved from, bound to the one it moved to; none for another.
+rebound :: RunId -> FilePath -> FilePath -> Binding -> Maybe Binding
+rebound run from to binding
+    | binding.run == run, equalFilePath binding.toplevel from = Just binding {toplevel = to}
+    | otherwise = Nothing

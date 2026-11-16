@@ -1,9 +1,10 @@
 module Effects.FileSystemSpec (spec) where
 
 import Control.Exception (try)
+import Data.List (sort)
 import Effectful (runEff)
-import Effects.FileSystem (createDirectory, inDirectory, readBytes, readText, removeFile, runFileSystemIO, writeText, writeTextAtomic)
-import System.Directory (listDirectory)
+import Effects.FileSystem (createDirectory, inDirectory, listDirectory, readBytes, readText, removeFile, runFileSystemIO, writeText, writeTextAtomic)
+import System.Directory qualified as Directory
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (withSystemTempDirectory)
@@ -39,14 +40,20 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
         text <- runEff . runFileSystemIO $ writeText file "old" >> writeTextAtomic file "run ünïcode\n" >> readText file
 
         text `shouldBe` Just "run ünïcode\n"
-        listDirectory dir `shouldReturn` ["binding"]
+        Directory.listDirectory dir `shouldReturn` ["binding"]
 
     it "removes a file, and one already absent" $ \dir -> do
         let file = dir </> "stash"
 
         runEff . runFileSystemIO $ writeText file "x" >> removeFile file >> removeFile file
 
-        listDirectory dir `shouldReturn` []
+        Directory.listDirectory dir `shouldReturn` []
+
+    it "lists a directory's names, and none of an absent one" $ \dir -> do
+        names <- runEff . runFileSystemIO $ createDirectory (dir </> "s1") >> writeText (dir </> "main") "x" >> listDirectory dir
+        absent <- runEff . runFileSystemIO $ listDirectory (dir </> "absent")
+
+        (sort names, absent) `shouldBe` (["main", "s1"], [])
 
     it "resolves relative paths against the directory it runs in" $ \dir -> do
         runEff . runFileSystemIO $ createDirectory (dir </> "work")

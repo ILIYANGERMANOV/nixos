@@ -23,6 +23,7 @@ module State.Run.Fold (
     runStart,
     fold,
     append,
+    appendTo,
     fuelOf,
     onRound,
     Stuck (..),
@@ -48,7 +49,7 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
-import Data.List (find)
+import Data.List (find, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
@@ -187,6 +188,10 @@ data Refusal
     | FanRefused Fan.Refusal
     | -- | A child's or a task's event where the run is at no fan-out's breakdown, own state or merge.
       NotAtFan
+    | -- | A void naming no line the run replays: no such seq, a line voided already, or a void.
+      NotVoidable Natural
+    | -- | A void of this seq leaves a log that does not replay, for this refusal.
+      VoidBreaks Natural Refusal
     deriving stock (Eq, Show)
 
 {- | An id already in the log, or an answer the run holds already, is not
@@ -195,11 +200,36 @@ appended twice: the append is a no-op.
 data Append = Appended RunState | AlreadyLogged
     deriving stock (Eq, Show)
 
--- | A whole log, from its @started@ line.
+{- | A whole log, from its @started@ line, less each void and the line it
+names. Their ids stay seen, so a hook fired again does not log its voided
+line anew.
+-}
 replay :: OpenGraph -> NonEmpty Envelope -> Either Refusal RunState
-replay g (first :| rest) = do
-    state <- begin g first
-    fold g state rest
+replay g logged = case unvoided (NonEmpty.toList logged) of
+    ([], _) -> Left NotStarted
+    (first : rest, dropped) -> do
+        state <- begin g first
+        after <- fold g state rest
+        Right after {seen = after.seen <> Set.fromList (map eventId dropped)}
+
+-- | The lines a replay keeps, and those it drops: each void and the line it names.
+unvoided :: [Envelope] -> ([Envelope], [Envelope])
+unvoided logged = partition (\envelope -> Set.notMember envelope.seq voided) logged
+  where
+    voided = Set.fromList (concat [[envelope.seq, n] | envelope <- logged, Voided n _ <- [envelope.event]])
+
+{- | One more line to the log the state replays. A void is no step of the
+fold, so the log is replayed with it: it must name a line the replay keeps,
+and the log without that line must still replay.
+-}
+appendTo :: OpenGraph -> RunState -> NonEmpty Envelope -> Envelope -> Either Refusal Append
+appendTo g state logged envelope
+    | Voided n _ <- envelope.event = voiding n
+    | otherwise = append g state envelope
+  where
+    voiding n
+        | n `notElem` map (.seq) (fst (unvoided (NonEmpty.toList logged))) = Left (NotVoidable n)
+        | otherwise = Appended <$> Bifunctor.first (VoidBreaks n) (replay g (logged <> pure envelope))
 
 -- | The log's events after a state: @fold (a <> b) = fold a >=> fold b@.
 fold :: OpenGraph -> RunState -> [Envelope] -> Either Refusal RunState
@@ -273,6 +303,7 @@ runStart = \case
     WorkerHandedBack _ _ -> Nothing
     WorkerSpawned _ _ -> Nothing
     WorkerReturned _ _ -> Nothing
+    Voided _ _ -> Nothing
 
 -- | A refusal is logged whatever the run's state; anything else needs a run going. @n@ is the event's seq.
 applyEvent :: OpenGraph -> RunState -> Natural -> Event -> Either Refusal RunState
@@ -304,6 +335,8 @@ applyEvent g state n = \case
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
     WorkerSpawned role agent -> going (Right state {live = state.live <> [Worker role agent n]})
     WorkerReturned role agent -> going (Right state {live = returned role agent state.live})
+    -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
+    Voided target _ -> Left (NotVoidable target)
   where
     -- A question asked from a stopped child is its stop, triaged.
     fromChild from after = case from of
