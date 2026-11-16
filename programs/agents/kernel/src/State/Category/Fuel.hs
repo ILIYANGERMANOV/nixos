@@ -40,7 +40,7 @@ fuelName = \case
 fuelLabel :: Fuel -> Text
 fuelLabel = Text.toTitle . fuelName
 
--- | Any case, as a brief's @Fuel: Balanced@ spells it, but exact spelling: a misspelled level is not silently a default.
+-- | Any case, as a brief writes @Fuel: Balanced@, but a misspelled level is not silently a default.
 parseFuel :: Text -> Maybe Fuel
 parseFuel = parseByName fuelName . Text.toLower
 

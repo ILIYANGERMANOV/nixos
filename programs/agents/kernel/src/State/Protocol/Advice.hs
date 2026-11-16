@@ -274,12 +274,14 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (Nothing, [], At place, AwaitOn _ _) -> stepLeads place
         _ -> []
     stepLeads place = case stepNamed place.name of
-        Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
-            Agent _ _ -> [commandOption (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge] <> stuckLeads place
-            Inline -> [recordOption event edge | (event, edge) <- shownEdges g place, along edge] <> stuckLeads place
+        Just (AnyStep _ (SomeStep s)) ->
+            ( case (row steps s).runner of
+                Agent _ _ -> [commandOption (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge]
+                Inline -> [recordOption event edge | (event, edge) <- shownEdges g place, along edge]
+            )
+                -- The run records a stuck loop's exit itself: no worker's hand-back takes it.
+                <> [recordOption event edge | (event, edge) <- stuckExits g state place, along edge]
         Nothing -> []
-    -- The run records a stuck loop's exit itself: no worker's hand-back takes it.
-    stuckLeads place = [recordOption event edge | (event, edge) <- stuckExits g state place, along edge]
     along edge = case edge.arrow of
         Along _ -> True
         Skip _ _ -> False
