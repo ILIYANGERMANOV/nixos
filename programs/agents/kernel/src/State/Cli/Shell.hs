@@ -334,7 +334,7 @@ runAnswer steps call bound found want = case want of
         onHook facts.pr $ \stamp run -> case commit stamp run [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
             Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
             Right (restart, after) ->
-                let (new, _, _, out) = adviceOf steps facts told stamp after
+                let (new, _, out) = adviceOf steps facts told stamp after
                  in (restart <> new, recordedLines after.state restart <> showRun after.g after.state <> out.text)
     SpawnRole spawned -> do
         (facts, told) <- readFacts
@@ -343,15 +343,15 @@ runAnswer steps call bound found want = case want of
             case commit stamp run [(Cli, event) | Just role <- [spawned], Just event <- [spawnedAt steps run.state.at role]] of
                 Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
                 Right (opened, after) ->
-                    let (new, action, settledText, out) = adviceOf steps facts told stamp after
+                    let (new, action, out) = adviceOf steps facts told stamp after
                         warning = case (action, spawned) of
                             (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
                             _ -> Nothing
-                        -- A recorded spawn tells what it and the PR sync wrote, not the advice: parallel spawns would each repeat it.
-                        body = case opened of
+                        -- A recorded spawn tells only its line: parallel spawns would each repeat the advice.
+                        adviceText = case opened of
                             [] -> out.text
-                            _ : _ -> settledText
-                     in (opened <> new, recordedLines after.state opened <> body <> foldMap (<> "\n") warning)
+                            _ : _ -> ""
+                     in (opened <> new, recordedLines after.state opened <> adviceText <> foldMap (<> "\n") warning)
     Hook.HandedBack message agent role ->
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
@@ -404,7 +404,7 @@ execute steps = \case
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
-        orNoRun <$> handingBack steps (\stamp run -> let (new, _, _, out) = adviceOf steps facts told stamp run in (new, Right out))
+        orNoRun <$> handingBack steps (\stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out))
     HandbackOf role child -> do
         input <- Console.readStdin
         case decodeUtf8' input of
@@ -527,10 +527,9 @@ and the run's Fuel already decide is recorded first, then the advice: its line, 
 last refusal until the next event, its facts indented, the step's lead and
 task text. The advice leads, so a refusal never reads as the next action;
 under it, where the run is and each option, one per line.
-Also returned alone: the lines the sync recorded and its refusal, if any.
 -}
-adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Text, Output)
-adviceOf steps facts told stamp run = (new, advice.action, recordedLines settled.state new <> foldMap (<> "\n") unsynced, out)
+adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Output)
+adviceOf steps facts told stamp run = (new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
     advice = Advice.heldBy settled.state.start settled.state.live (advise steps settled.g facts settled.state)
