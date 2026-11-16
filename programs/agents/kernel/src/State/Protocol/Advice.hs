@@ -395,22 +395,27 @@ None for an event that opens or closes no child.
 childBudget :: OpenGraph -> RunState -> Event -> Maybe [Text]
 childBudget g state event =
     listToMaybe
-        [ [Text.toLower (someMeterName budget.cap.meter) <> ": " <> running <> left, "next: " <> next owed]
+        [ childLines owed budget
         | Event.Took _ (AnyOutcome _ some) <- [event]
         , (_, budget) <- shownBudgets g state
         , Just owed <- [owedBy budget.cap.meter (RecordedOutcome some)]
-        , let open = budget.ledger.open
-              running = if open == 0 then "none running" else tshow open <> " running"
-              left = foldMap (\allows -> ", " <> howMany (allows - min allows budget.ledger.spent) <> " of " <> tshow allows <> " left") budget.allows
-              await = "end your turn until " <> if open == 1 then "it hands back" else "they hand back"
-              next = \case
-                Opens | usedUp budget -> await
-                Opens -> "spawn more, or " <> await
-                Closes | open == 0 -> "state next"
-                Closes -> await
         ]
+
+childLines :: Owed -> Budget -> [Text]
+childLines owed budget =
+    [ Text.toLower (someMeterName budget.cap.meter) <> ": " <> howMany open <> " running" <> foldMap left budget.allows
+    , "next: " <> next
+    ]
   where
+    open = budget.ledger.open
+    left allows = ", " <> howMany (allows - min allows budget.ledger.spent) <> " of " <> tshow allows <> " left"
     howMany n = if n == 0 then "none" else tshow n
+    await = "end your turn until " <> if open == 1 then "it hands back" else "they hand back"
+    next = case owed of
+        Opens | usedUp budget -> await
+        Opens -> "spawn more, or " <> await
+        Closes | open == 0 -> "state next"
+        Closes -> await
 
 -- | @Re-reviews: 1 of 3 used, 2 left@: what a budget spent of what the run's Fuel allows.
 spentText :: Budget -> Text
