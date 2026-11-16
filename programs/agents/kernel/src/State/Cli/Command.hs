@@ -184,8 +184,11 @@ runCli pinfo argv = case Opt.execParserPure cliPrefs pinfo (map Text.unpack argv
     Opt.Failure failure -> Left (Usage failure)
     Opt.CompletionInvoked _ -> Left (Usage (Opt.parserFailure cliPrefs pinfo (Opt.ErrorMsg "shell completion is not offered") []))
 
+{- | No backtracking: a surplus argument fails in the subcommand it follows,
+so its help, not the top-level one, follows the error.
+-}
 cliPrefs :: Opt.ParserPrefs
-cliPrefs = Opt.prefs Opt.showHelpOnError
+cliPrefs = Opt.prefs (Opt.showHelpOnError <> Opt.noBacktrack)
 
 -- | optparse's text, less the trailing spaces it leaves where it wraps a usage line.
 optparseText :: String -> Text
