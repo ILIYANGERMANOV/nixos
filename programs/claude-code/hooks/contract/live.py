@@ -515,13 +515,13 @@ def adapter_fields(events: Indexed, depth: int) -> str:
     return f"{len(at_depth)} events"
 
 
+def depth_of(event: Payload) -> int:
+    return DEPTHS.get(str(event.get("agent_type")), 0)
+
+
 def required(event: Payload, depth: int) -> Iterable[str]:
     fields = ADAPTER_FIELDS[str(event.get("hook_event_name"))]
     return (*fields, *SUBAGENT_FIELDS) if depth > 0 else fields
-
-
-def depth_of(event: Payload) -> int:
-    return DEPTHS.get(str(event.get("agent_type")), 0)
 
 
 def first(

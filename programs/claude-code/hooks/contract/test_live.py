@@ -12,10 +12,8 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from live import Check, checks, respond
-from model import Json
+from live import Check, Payload, checks, respond
 
-type Payload = dict[str, Json]
 type Run = tuple[list[Payload], dict[str, str]]
 
 FIXTURE = Path(__file__).parent / "fixtures" / "live-run.json"
@@ -99,7 +97,7 @@ def no_tool_use_id_at_depth_2(
             is_tool("PreToolUse", "SubagentHandback")(e)
             and e.get("agent_type") == "probe-grandchild"
         ),
-        lambda e: {k: v for k, v in e.items() if k != "tool_use_id"},
+        lambda e: omit(e, "tool_use_id"),
     ), transcripts
 
 
@@ -164,7 +162,7 @@ def test_the_hook_leaves_any_other_call_alone() -> None:
 
 
 def recorded() -> Run:
-    fixture = cast("dict[str, Json]", json.loads(FIXTURE.read_text()))
+    fixture = cast("Payload", json.loads(FIXTURE.read_text()))
     return (
         cast("list[Payload]", fixture["events"]),
         cast("dict[str, str]", fixture["transcripts"]),
@@ -240,15 +238,18 @@ def hook_lines(transcript: str) -> str:
 
 
 def drop_input(event: Payload, key: str) -> Payload:
-    return {
-        **event,
-        "tool_input": {k: v for k, v in tool_input(event).items() if k != key},
-    }
+    return {**event, "tool_input": omit(tool_input(event), key)}
 
 
 def drop_response(event: Payload, key: str) -> Payload:
-    response = cast("Payload", event["tool_response"])
-    return {**event, "tool_response": {k: v for k, v in response.items() if k != key}}
+    return {
+        **event,
+        "tool_response": omit(cast("Payload", event["tool_response"]), key),
+    }
+
+
+def omit(fields: Payload, key: str) -> Payload:
+    return {k: v for k, v in fields.items() if k != key}
 
 
 def tool_input(event: Payload) -> Payload:
