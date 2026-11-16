@@ -24,12 +24,12 @@ spec = describe "routing a shell command's state calls" $ do
             calls "state next" `shouldBe` [at "/work" "next" "state next"]
 
         it "moves the calls after a cd, absolute or relative to the directory before" $
-            [calls "cd /wt && state next", calls "cd wt && state show; state pending"]
-                `shouldBe` [[at "/wt" "next" "state next"], [at "/work/wt" "show" "state show", at "/work/wt" "pending" "state pending"]]
+            [calls "cd /wt && state next", calls "cd wt && state pending; state next"]
+                `shouldBe` [[at "/wt" "next" "state next"], [at "/work/wt" "pending" "state pending", at "/work/wt" "next" "state next"]]
 
         it "splits at every list and pipe operator" $
-            map (map (.sub) . calls) ["state next || state show", "state next | tail -5", "state next & state show", "state next\nstate show"]
-                `shouldBe` [["next", "show"], ["next"], ["next", "show"], ["next", "show"]]
+            map (map (.sub) . calls) ["state next || state pending", "state next | tail -5", "state next & state pending", "state next\nstate pending"]
+                `shouldBe` [["next", "pending"], ["next"], ["next", "pending"], ["next", "pending"]]
 
         it "reads quotes, so an operator in an argument splits nothing" $
             calls "state ask --kind Design 'a && b; c' \"d | e\""
@@ -45,6 +45,10 @@ spec = describe "routing a shell command's state calls" $ do
             map calls ["state init --notes /n", "state help", "state next --help", "state render stop-rule", "state nope"]
                 `shouldBe` replicate 5 []
 
+        it "routes no show, which names its run, but routes next, pending and a write" $
+            map (map (.sub) . calls) ["state show", "state next", "state pending", "state void 3 --why typo"]
+                `shouldBe` [[], ["next"], ["pending"], ["void"]]
+
         it "routes nothing it cannot read: a subshell, a substitution, a heredoc, an open quote" $
             map calls ["(cd /wt && state next)", "state record x --note \"$(date)\"", "state ask <<EOF\nhi\nEOF", "state next 'open"]
                 `shouldBe` replicate 4 []
@@ -58,7 +62,7 @@ spec = describe "routing a shell command's state calls" $ do
 
         it "a_call_after_cd_runs_in_that_directory" . hedgehog $ do
             dir <- forAll genDir
-            sub <- forAll (Gen.element ["next", "show", "pending"])
+            sub <- forAll (Gen.element ["next", "pending"])
             stateCalls steps "/work" ("cd " <> Text.pack dir <> " && state " <> sub) === [at dir sub ("state " <> sub)]
 
         it "a_single_quoted_directory_reads_back_whole" . hedgehog $ do
@@ -79,10 +83,10 @@ spec = describe "routing a shell command's state calls" $ do
                     )
 
         it "denies a call in no worktree" $
-            route bound [(at "/tmp" "show" "state show", Nothing)] `shouldSatisfy` maybe False ("state show: /tmp is in no git worktree" `Text.isPrefixOf`)
+            route bound [(at "/tmp" "pending" "state pending", Nothing)] `shouldSatisfy` maybe False ("state pending: /tmp is in no git worktree" `Text.isPrefixOf`)
 
         it "denies by the first call at another run" $
-            route bound [(next, Just "/repo/.claude/worktrees/child"), (at "/repo" "show" "state show", Just "/repo")] `shouldSatisfy` maybe False ("state show:" `Text.isPrefixOf`)
+            route bound [(next, Just "/repo/.claude/worktrees/child"), (at "/repo" "pending" "state pending", Just "/repo")] `shouldSatisfy` maybe False ("state pending:" `Text.isPrefixOf`)
 
         it "quotes a bound worktree a shell would split" $
             route bound {toplevel = "/home/me/my repo"} [(next, Just "/repo")] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
