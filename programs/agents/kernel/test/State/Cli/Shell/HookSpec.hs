@@ -201,6 +201,41 @@ spec = describe "state-hook over the doubles" $ do
 
                 contextOf said `shouldSatisfy` maybe False (("bound to run " <> old <> ", but /work holds run ") `Text.isInfixOf`)
 
+            it "names the run when it removes a stashed hand-back that is no step's" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                let stash = bindings <> "/handback-a1.json"
+                putFile world stash "{}"
+
+                said <- hook world "bind" (spawnResult "implementer")
+
+                contextOf said
+                    `shouldBe` Just
+                        ( Text.concat
+                            [ "run " <> run <> ": state: implementer a1 works in this run\n"
+                            , "run " <> run <> ": state: the hand-back stashed at " <> Text.pack stash <> " is no hand-back of a step; removed\n"
+                            ]
+                        )
+
+            it "names the run a bound worker's hand-back failed at, on a log line it does not read" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                _ <- hook world "bind" (spawnResult "implementer")
+                editLog world (<> "{\"v\":3,broken\n")
+
+                said <- hook world "handback" (handedBack "implementer")
+
+                contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": ") `Text.isPrefixOf`)
+
+            it "names the run a bound worker's hand-back failed at, on a disk failure" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                putFile world (bindings <> "/a1") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
+
+                said <- hook world "handback" (handedBack "implementer")
+
+                contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook handback: ") `Text.isPrefixOf`)
+
         describe "asked" $ do
             it "tells the lead how to record the answer to a question put to the user" $ \world -> do
                 _ <- drive world []
@@ -250,3 +285,7 @@ contextOf :: Ran -> Maybe Text
 contextOf said = case decodeStrictText (Text.concat said.out) of
     Just (Object reply) | Just (String context) <- KeyMap.lookup "context" reply -> Just context
     _ -> Nothing
+
+-- | Session @s1@'s bindings, under the world's @HOME@.
+bindings :: FilePath
+bindings = "/home/.local/state/state/bindings/s1"

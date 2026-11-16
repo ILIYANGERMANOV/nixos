@@ -42,6 +42,7 @@ from claude_adapter import (
     parse_tools,
     verdict_to_claude,
 )
+from recorded_events import recorded, recorded_all
 from transcript_fixtures import (
     THINKING,
     assistant,
@@ -100,21 +101,10 @@ HANDBACK: JsonObject = {
     "tool_input": {"message": "READY commit abc"},
     "tool_use_id": "toolu_02",
 }
-# One real live probe run (contract/live.py): what Claude Code sent.
-LIVE_RUN = cast(
-    "list[JsonObject]",
-    json.loads(
-        (
-            Path(__file__).parents[1] / "contract" / "fixtures" / "live-run.json"
-        ).read_text()
-    )["events"],
-)
-RECORDED_STARTS = [e for e in LIVE_RUN if e["hook_event_name"] == "SubagentStart"]
-RECORDED_EXPANSIONS = [
-    e for e in LIVE_RUN if e["hook_event_name"] == "UserPromptExpansion"
-]
-SUBAGENT_START = RECORDED_STARTS[0]
-TYPED_SKILL = RECORDED_EXPANSIONS[0]
+RECORDED_STARTS = recorded_all("SubagentStart")
+RECORDED_EXPANSIONS = recorded_all("UserPromptExpansion")
+SUBAGENT_START = recorded("SubagentStart")
+TYPED_SKILL = recorded("UserPromptExpansion")
 RAN: JsonObject = {
     **COMMON,
     **WORKER,

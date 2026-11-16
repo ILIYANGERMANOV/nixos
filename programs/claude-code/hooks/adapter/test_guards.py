@@ -13,17 +13,13 @@ from typing import cast
 
 import pytest
 from agent_hook import JsonObject
+from recorded_events import recorded
 from transcript_fixtures import bash, model_call, write_transcript
 
 # Flavor name -> its settings.json, as installed.
 SETTINGS = cast("dict[str, str]", json.loads(os.environ["CLAUDE_SETTINGS"]))
 CONTRACT = Path(__file__).parents[1] / "contract"
 SNAPSHOT = cast("JsonObject", json.loads((CONTRACT / "snapshot.json").read_text()))
-# The events the offline snapshot holds none of, as one live probe run sent them.
-LIVE_RUN = cast(
-    "list[JsonObject]",
-    json.loads((CONTRACT / "fixtures" / "live-run.json").read_text())["events"],
-)
 
 # The synthetic secret file every test build gives the base profile.
 QA_KEY_FILE = "/run/secrets/qa-sepolia-key"
@@ -315,11 +311,6 @@ def bound_engineer(flavor: str, tmp_path: Path) -> tuple[Path, Path]:
     )
     _ = answer(flavor, "PostToolUse", ran_init)
     return own, foreign
-
-
-def recorded(event: str) -> JsonObject:
-    """The first `event` the live probe recorded, as Claude Code sent it."""
-    return next(e for e in LIVE_RUN if e["hook_event_name"] == event)
 
 
 def mcp_result(root: Path) -> JsonObject:

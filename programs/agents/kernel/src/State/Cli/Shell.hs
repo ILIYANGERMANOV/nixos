@@ -51,10 +51,10 @@ import State.Cli.Route (StateCall (..), route, stateCalls)
 import State.Cli.View (beginText, brief, pendingLines, showRun)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, explained, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
-import State.Protocol.Binding (Binding (..), Key (..), Slot, bindingFile, bindingIn, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingFile, bindingIn, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), HookName (HandbackHook), Job (..), Reply (..), Want (..), aboutRun, awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), HookName (HandbackHook), Job (..), Reply (..), Want (..), aboutBound, aboutRun, awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -123,11 +123,11 @@ hook argv = case parseHook argv of
                         Left why -> usage why
                         Right Nothing -> pure ExitSuccess
                         Right (Just job) -> do
-                            said <- try (jobReply steps input (callOf event) job)
+                            said <- try (jobReply steps name input (callOf event) job)
                             -- aeson encodes UTF-8, so the reply decodes whole.
                             traverse_ (Console.out . decodeUtf8 . LBS.toStrict) . encodeReply $ case said of
                                 Right reply -> reply
-                                Left (e :: IOException) -> toldOf job ("state hook " <> hookName name <> ": " <> tshow e)
+                                Left e -> toldOf job (hookError name e)
                             pure ExitSuccess
   where
     usage line = Console.err (line <> "\n") $> ExitFailure 2
@@ -136,8 +136,8 @@ hook argv = case parseHook argv of
 denies a @state@ call at another run than the caller's; the rest is what the
 caller's run says.
 -}
-jobReply :: (Shell es) => Steps -> BS.ByteString -> Call -> Job -> Eff es Reply
-jobReply steps input call job = case job of
+jobReply :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Job -> Eff es Reply
+jobReply steps name input call job = case job of
     Begins begin -> pure (replyOf job (beginText steps begin))
     Routes command -> case stateCalls steps call.cwd command of
         [] -> pure Quiet
@@ -145,8 +145,19 @@ jobReply steps input call job = case job of
             readBound call >>= \case
                 Nothing -> pure Quiet
                 Just bound -> maybe Quiet Deny . route bound <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
-    Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> wantAnswer steps input call want slot bound
-    Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> bindAnswer steps call bind slot bound
+    Asks want -> callerBinding call >>= \(slot, bound) -> boundReply name job bound (wantAnswer steps input call want slot bound)
+    Binds bind -> callerBinding call >>= \(slot, bound) -> boundReply name job bound (bindAnswer steps call bind slot bound)
+
+-- | What the caller's run said, as its reply; a disk or git error is context, naming the run the caller is bound to.
+boundReply :: HookName -> Job -> Maybe Binding -> Eff es Text -> Eff es Reply
+boundReply name job bound act =
+    try act <&> \case
+        Right said -> replyOf job said
+        Left e -> toldOf job (aboutBound bound (hookError name e))
+
+-- | A disk or git error a hook tells as context: it never fails the agent.
+hookError :: HookName -> IOException -> Text
+hookError name e = "state hook " <> hookName name <> ": " <> tshow e
 
 -- | The caller's binding; none for an unbound caller or without a store.
 readBound :: (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe Binding)
@@ -196,7 +207,7 @@ bindAnswer steps call bind slot bound = case bind of
             (Just binding, Just at) -> do
                 writeBinding at binding
                 stashed <- replayStash steps at binding
-                pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child <> " works in this run\n") <> stashed)
+                pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child.agentIdText <> " works in this run\n") <> stashed)
             _ -> pure ""
 
 {- | The hand-back stashed in a worker's slot, recorded in the run it is bound
@@ -210,7 +221,7 @@ replayStash steps slot binding =
         Just stash -> do
             said <- case parseHookEvent (LBS.fromStrict (encodeUtf8 stash)) of
                 Right event | Right (Just (Asks want)) <- wants steps HandbackHook event -> atRun steps (callOf event) want (Just binding)
-                _ -> pure ("state: the hand-back stashed at " <> Text.pack (stashFile slot) <> " is no hand-back of a step; removed\n")
+                _ -> pure (aboutRun binding.run ("state: the hand-back stashed at " <> Text.pack (stashFile slot) <> " is no hand-back of a step; removed\n"))
             FileSystem.removeFile (stashFile slot)
             pure said
 
@@ -221,7 +232,7 @@ atRun steps call want bound = case resolve (keyOf call.agent) bound call.cwd of
     Just dir -> FileSystem.inDirectory dir (hookAnswer steps call bound want)
 
 -- | A key's slot in the session's bindings; none without a store root.
-slotFor :: (Environment :> es) => Text -> Key -> Eff es (Maybe Slot)
+slotFor :: (Environment :> es) => SessionId -> Key -> Eff es (Maybe Slot)
 slotFor session key = do
     root <- storeRoot <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
     pure (root >>= \at -> slotOf at session key)
@@ -299,8 +310,8 @@ hookAnswer steps call bound want =
             Just note -> ([], Right note)
             Nothing
                 | silent branch ((.readiness) <$> pr) run.logged run.state -> ([], Right "")
-                | otherwise -> Right . aboutRun run.state.run <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
-        pure (either (failureText "hook") id (orNoRun result))
+                | otherwise -> Right . aboutRun run.state.run <$> act (Stamp stamp.ts stamp.head (Just call.session)) run
+        pure (either (aboutBound bound . failureText "hook") id (orNoRun result))
     -- GitHub unread is no PR: the hook speaks.
     branchPr = fromRight Nothing . pullRequestOf <$> Gh.prView
     -- A log of another log version, as an older one: the hooks leave it be (#360).

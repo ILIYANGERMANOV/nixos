@@ -6,6 +6,7 @@ import Hedgehog (Gen, forAll, tripping, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Protocol.Binding
+import State.Run.Event (SessionId (..))
 import State.Run.EventGen (genRunId, runId)
 import State.Run.Id (runIdText)
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -33,13 +34,13 @@ spec = describe "the agent-to-run binding" $ do
     describe "resolving the directory a hook runs the run in" $ do
         let binding = Binding (runId "0a1b2c3d") "/notes" "/child-work"
         it "is the bound worktree, for the session's agent and a subagent alike" $
-            [resolve key (Just binding) "/work" | key <- [Main, AgentKey "a1"]] `shouldBe` [Just "/child-work", Just "/child-work"]
+            [resolve key (Just binding) "/work" | key <- [Main, AgentKey (AgentId "a1")]] `shouldBe` [Just "/child-work", Just "/child-work"]
 
         it "is the session's own directory for its unbound agent" $
             resolve Main Nothing "/work" `shouldBe` Just "/work"
 
         it "is none for an unbound subagent, whose directory is its spawner's" $
-            resolve (AgentKey "a1") Nothing "/work" `shouldBe` Nothing
+            resolve (AgentKey (AgentId "a1")) Nothing "/work" `shouldBe` Nothing
 
     describe "a stale binding" $ do
         let binding = Binding (runId "0a1b2c3d") "/notes" "/work"
@@ -56,11 +57,11 @@ spec = describe "the agent-to-run binding" $ do
                 `shouldBe` [Just "/xdg/state/bindings", Just "/home/me/.local/state/state/bindings", Just "/home/me/.local/state/state/bindings", Nothing]
 
         it "keeps a session's agents and their stashed hand-backs side by side" $
-            [(bindingFile <$> slotOf "/b" "s1" key, stashFile <$> slotOf "/b" "s1" key) | key <- [Main, AgentKey "a1"]]
+            [(bindingFile <$> slotOf "/b" (SessionId "s1") key, stashFile <$> slotOf "/b" (SessionId "s1") key) | key <- [Main, AgentKey (AgentId "a1")]]
                 `shouldBe` [(Just "/b/s1/main", Just "/b/s1/handback-main.json"), (Just "/b/s1/a1", Just "/b/s1/handback-a1.json")]
 
         it "writes nowhere outside the store for a session or agent id that is no file name" $
-            [slotOf "/b" session key | (session, key) <- [("..", Main), ("s/../..", Main), ("", Main), ("s1", AgentKey "../x"), ("s1", AgentKey ".")]]
+            [slotOf "/b" (SessionId session) key | (session, key) <- [("..", Main), ("s/../..", Main), ("", Main), ("s1", AgentKey (AgentId "../x")), ("s1", AgentKey (AgentId "."))]]
                 `shouldBe` replicate 5 Nothing
 
 {- | A binding init prints: its run id init's (no whitespace), a notes dir

@@ -18,6 +18,7 @@ module State.Protocol.Binding (
     renderBinding,
     parseBinding,
     bindingIn,
+    AgentId (..),
     Key (..),
     Slot,
     storeRoot,
@@ -31,6 +32,7 @@ module State.Protocol.Binding (
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Run.Event (SessionId (..))
 import State.Run.Id (RunId, parseRunId, runIdText)
 import System.FilePath (isAbsolute, (</>))
 
@@ -60,8 +62,12 @@ parseBinding line = do
 bindingIn :: Text -> Maybe Binding
 bindingIn = listToMaybe . mapMaybe parseBinding . Text.lines
 
+-- | A subagent's id, as its agent gives it: Claude Code's are hex.
+newtype AgentId = AgentId {agentIdText :: Text}
+    deriving stock (Eq, Show)
+
 -- | Whose binding: the session's own agent, or a subagent by its id.
-data Key = Main | AgentKey Text
+data Key = Main | AgentKey AgentId
     deriving stock (Eq, Show)
 
 -- | Where a key's files live: its session's directory and its own name there.
@@ -84,12 +90,12 @@ storeRoot xdgStateHome home = (</> "state" </> "bindings") <$> base
 is no single path component: a binding is never written outside the store.
 Claude Code's agent ids are hex, never @main@.
 -}
-slotOf :: FilePath -> Text -> Key -> Maybe Slot
-slotOf root session key = Slot . (root </>) <$> component session <*> component keyName
+slotOf :: FilePath -> SessionId -> Key -> Maybe Slot
+slotOf root (SessionId session) key = Slot . (root </>) <$> component session <*> component keyName
   where
     keyName = case key of
         Main -> "main"
-        AgentKey agent -> agent
+        AgentKey agent -> agent.agentIdText
     component text
         | Text.null text || text `elem` [".", ".."] || Text.elem '/' text || Text.elem '\0' text = Nothing
         | otherwise = Just (Text.unpack text)

@@ -43,6 +43,7 @@ module State.Protocol.Hook (
     wants,
     keyOf,
     aboutRun,
+    aboutBound,
     silent,
     offAdvice,
     followedAt,
@@ -64,7 +65,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -72,9 +73,9 @@ import State.Category.Flow (ScopePath)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
-import State.Protocol.Binding (Binding, Key (..), bindingIn)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), bindingIn)
 import State.Run.Ask (Principal (..), Question (..), qidText)
-import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, Source (..), Start (..), childRole, roleText, runIdText, tookIn)
+import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), childRole, roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
 import State.Run.Fold (Pending (..), RunState (..), Waits (..), over)
 import State.Run.Id (digestOf)
@@ -122,7 +123,7 @@ data HookEvent
       PromptExpansion Call Text
     deriving stock (Eq, Show)
 
-data Call = Call {session :: Text, cwd :: FilePath, agent :: Maybe Agent}
+data Call = Call {session :: SessionId, cwd :: FilePath, agent :: Maybe Agent}
     deriving stock (Eq, Show)
 
 callOf :: HookEvent -> Call
@@ -134,7 +135,7 @@ callOf = \case
     PromptExpansion call _ -> call
 
 -- | The subagent making the call; the lead is none. Either field is absent when its agent gives none.
-data Agent = Agent {agentId :: Maybe Text, role :: Maybe AgentRole}
+data Agent = Agent {agentId :: Maybe AgentId, role :: Maybe AgentRole}
     deriving stock (Eq, Show)
 
 -- | @vocabulary.json@'s tools, in its order.
@@ -150,7 +151,7 @@ parseHookEvent :: LBS.ByteString -> Either Text HookEvent
 parseHookEvent input = either (Left . Text.pack) Right $ do
     value <- eitherDecode input
     flip parseEither value $ withObject "hook event" $ \o -> do
-        call <- Call <$> o .: "session" <*> o .: "cwd" <*> (o .: "agent" >>= agentOf)
+        call <- Call . SessionId <$> o .: "session" <*> o .: "cwd" <*> (o .: "agent" >>= agentOf)
         (o .: "event" :: Parser Text) >>= \case
             "sessionStart" -> SessionStart call <$> (o .: "source" >>= named "source" startSourceName)
             "beforeTool" -> do
@@ -166,7 +167,7 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
     tool o = o .: "tool" >>= named "tool" toolName
     agentOf = \case
         Null -> pure Nothing
-        value -> withObject "agent" (\a -> Just <$> (Agent <$> a .: "id" <*> (fmap AgentRole <$> a .: "role"))) value
+        value -> withObject "agent" (\a -> Just <$> (Agent . fmap AgentId <$> a .: "id" <*> (fmap AgentRole <$> a .: "role"))) value
     named :: (Enum a, Bounded a) => String -> (a -> Text) -> Text -> Parser a
     named what name raw = maybe (fail ("no " <> what <> " " <> Text.unpack raw)) pure (lookup raw [(name x, x) | x <- [minBound .. maxBound]])
 
@@ -210,7 +211,7 @@ data Bind
     = -- | The caller to the run its @state init@ printed.
       BindSelf Binding
     | -- | A worker the caller spawned, by its agent id and role, to the caller's run.
-      BindChild Text AgentRole
+      BindChild AgentId AgentRole
     deriving stock (Eq, Show)
 
 -- | Whose work begins, and where its text goes.
@@ -297,6 +298,11 @@ spawnedBegin steps spawned
 
 {- | The skills a lead's run begins under, as the skill catalog names them
 (@programs/agents/skills/custom@): the engineer's and the 10x's.
+
+Typed here, as no source names them apart: the step table's @skills@ (which
+the kernel does not read) puts them on the leads' inline steps beside
+@engineering@, which begins no run, and a flow's name is not its skill's
+(the @10x@ flow runs under @10x-engineer@).
 -}
 isLeadSkill :: Text -> Bool
 isLeadSkill skill = skill `elem` ["engineer", "10x-engineer"]
@@ -314,7 +320,7 @@ bindOf steps tool input output = case tool of
             BindSelf <$> (bindingIn =<< textAt "stdout" =<< outputObject)
         | otherwise -> Nothing
     Delegate -> case (textAt "agentId" =<< outputObject, AgentRole <$> textAt "subagent_type" input) of
-        (Just child, Just role) | role `elem` flowRoles steps -> Just (BindChild child role)
+        (Just child, Just role) | role `elem` flowRoles steps -> Just (BindChild (AgentId child) role)
         _ -> Nothing
     Read -> Nothing
     Edit -> Nothing
@@ -342,6 +348,10 @@ aboutRun :: RunId -> Text -> Text
 aboutRun run said
     | Text.null said = said
     | otherwise = "run " <> runIdText run <> ": " <> said
+
+-- | A hook's text, naming the run its caller is bound to; an unbound caller's names none.
+aboutBound :: Maybe Binding -> Text -> Text
+aboutBound = maybe id (aboutRun . (.run))
 
 textAt :: Text -> Object -> Maybe Text
 textAt key input = case KeyMap.lookup (Key.fromText key) input of
@@ -455,7 +465,7 @@ appends once (#360 call 18).
 -}
 hookSources :: RunId -> Agent -> AgentRole -> Text -> [Source]
 hookSources run agent (AgentRole role) message =
-    [Hook (digestOf [runIdText run, fromMaybe "" agent.agentId, role, message, Text.pack (show n)]) | n <- [0 :: Int ..]]
+    [Hook (digestOf [runIdText run, maybe "" (.agentIdText) agent.agentId, role, message, Text.pack (show n)]) | n <- [0 :: Int ..]]
 
 {- | A hand-back the log holds already: its first record's id is logged. The
 hook then records nothing, not even a refusal of the step it moved past.
