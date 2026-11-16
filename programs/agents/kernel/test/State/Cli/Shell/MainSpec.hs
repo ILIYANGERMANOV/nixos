@@ -16,7 +16,6 @@ import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
 import State.Run.Event (Envelope (..), SessionId (..))
 import State.Run.RunGen (loadSteps, roundTask)
-import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
 
 spec :: Spec
@@ -96,7 +95,7 @@ spec = describe "state over the doubles" $ do
 
             for_ ["balanced", "max"] $ \fuel ->
                 it ("goes from the simplified plan straight to confirm at " <> Text.unpack fuel) $ \world -> do
-                    transcript <- drive world [Record ["fuel", fuel], Record ["gather.enough"], Record ["plan.done", "/notes/plan.md"], Handback "researcher" ready]
+                    transcript <- drive world [Record ["fuel", fuel], Record ["gather.enough"], Planned, Handback "researcher" ready]
 
                     drop 2 transcript `shouldBe` ["plan.done -> simplify_plan", "simplify_plan.done -> confirm"]
 
@@ -201,7 +200,7 @@ spec = describe "state over the doubles" $ do
 
         describe "handback" $ do
             it "records a role's hand-back from stdin" $ \world -> do
-                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Record ["plan.done", "/notes/plan.md"]]
+                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Planned]
 
                 ran <- stateIn world "READY\nDone.\n" ["handback", "researcher"]
 
@@ -536,7 +535,7 @@ trivialPath :: [Act]
 trivialPath =
     [ Record ["fuel", "low"]
     , Record ["gather.enough"]
-    , Record ["plan.done", Text.pack (notes </> "plan.md")]
+    , Planned
     , Record ["simplify_plan.skipped"]
     , Record ["confirm.confirmed"]
     , OpenPr

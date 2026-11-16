@@ -271,6 +271,8 @@ data Act
     | -- | The draft PR GitHub reports from now on: @next@ records @draft.done@ from it.
       OpenPr
     | Override Text
+    | -- | The lead writes its plan to the notes dir and records @plan.done@.
+      Planned
 
 {- | Starts the run, then each act and a @state next@ after it, every call
 exiting 0. The @recorded@ lines they print, without their sequence numbers.
@@ -295,6 +297,10 @@ driveOut world acts = do
         Commit -> [] <$ modifyIORef' world (\w -> w {commits = w.commits + 1})
         OpenPr -> [] <$ modifyIORef' world (\w -> w {pr = draftPr IsDraft})
         Override to -> succeeded =<< state world ["override", to, "the", "test", "starts", "here"]
+        Planned -> do
+            putFile world plan "the plan"
+            succeeded =<< state world ["record", "plan.done", Text.pack plan]
+    plan = notes </> "plan.md"
 
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]
@@ -313,7 +319,7 @@ toImplement =
     [ Record ["research.spawned"]
     , Handback "researcher" ready
     , Record ["gather.enough"]
-    , Record ["plan.done", Text.pack (notes </> "plan.md")]
+    , Planned
     , Handback "researcher" ready
     , Record ["confirm.confirmed"]
     , OpenPr

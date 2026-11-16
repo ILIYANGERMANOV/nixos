@@ -45,7 +45,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), defaultFlow, explain, failureText, help, notStarted, noteOf, optparseText, parseCommand, parseHook)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
@@ -223,13 +223,17 @@ execute steps = \case
     OnRun command -> do
         -- Read before the lock, as GitHub is.
         file <- traverse FileSystem.readText (fileOf command)
-        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.g run.state command))
+        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.g run.state command)) <&> \case
+            -- With no run, nothing says where the run is: every event is named.
+            Left failure | RecordUnknown name <- command, failure == noRun -> Left (anyEvent name)
+            result -> result
   where
     fileOf = \case
         Record recording -> case recording of
             FromFile path _ -> Just path
             Plain _ -> Nothing
             AtHead _ -> Nothing
+        RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
         Override _ _ -> Nothing
@@ -278,11 +282,12 @@ planOf steps worktreeHead file g state = \case
     AskQuestion kind from text ->
         let question = Question (nextQId state) kind text
          in Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
-    RuleOn qid raise proposal -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\_ _ -> printed ("ruled " <> qidText qid <> "\n")))
-    Forward qid raise ->
-        Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
+    RecordUnknown name -> Left (unknownEvent g state name)
+    RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\_ _ -> printed ("ruled " <> qidText qid <> "\n")))
+    Forward raw raise ->
+        open raw >>= \qid -> Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
-    Answer qid answer by -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
+    Answer raw answer by -> open raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
@@ -290,6 +295,7 @@ planOf steps worktreeHead file g state = \case
         Left unknown -> Left (Failure BadInput ("task " <> taskIdText unknown) "the breakdown has no such task" "state show")
         Right text -> Right (Plan [] (\_ _ -> printed text))
   where
+    open = openQid state
     asked question = printed ("asked " <> qidText question.qid <> "\n")
     raised raise qid = case raise of
         AsAsked -> []

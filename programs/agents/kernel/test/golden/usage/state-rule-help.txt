@@ -1,0 +1,13 @@
+Usage: state rule <qid> --answer <a> --why <w> --cost <c>
+                  [--basis <event-id>|obvious:<why>] [--raise security]
+
+  Rule on a question: the answer, why and its cost
+
+Available options:
+  --answer <a>             the answer
+  --why <w>                why it is the answer
+  --cost <c>               what the answer costs
+  --basis <event-id>|obvious:<why>
+                           the event that answered it, or why it is obvious
+  --raise security         raise the question to a Security one first
+  -h,--help                Show this help text
