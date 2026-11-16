@@ -40,7 +40,7 @@ import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), placeName, places)
-import State.Category.Meter (AtCap (Extend), someMeterName)
+import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
@@ -458,7 +458,7 @@ unknownEvent :: OpenGraph -> RunState -> Text -> Failure
 unknownEvent g state name =
     Failure BadInput ("no event " <> name) ("at " <> atText state.at <> " the run takes " <> listed (map fst events)) (closest name events)
   where
-    events = edgeEvents <> [(extend.name, extendOption.command) | any ((== Extend) . (.cap.atCap)) (Fold.budgets g state)]
+    events = edgeEvents <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
         At place -> [(eventText event, recordCommand event) | (event, edge) <- shownEdges g place, taken (Fold.fuelOf state) edge]
         Out -> []
