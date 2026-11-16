@@ -31,6 +31,7 @@ module State.Step.Artifact (
     shellPathText,
     shellPathRule,
     slugChar,
+    shellWord,
     taskIdText,
     topicText,
     judgementText,
@@ -75,7 +76,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
-import State.FlowName (FlowName (..), defaultFlow, flowText)
+import State.FlowName (FlowName, defaultFlow, flowText, namedFlowText)
 import System.FilePath (isAbsolute)
 
 -- | The draft PR, synced from GitHub.
@@ -181,6 +182,14 @@ shellPathRule = "an absolute path of ASCII letters, digits and ._/@+-"
 -- | A character a shell word holds unquoted, with no meaning to the shell: ASCII letters, digits, @.@, @_@ and @-@.
 slugChar :: Char -> Bool
 slugChar c = isAsciiLower c || isAsciiUpper c || isDigit c || c `elem` ("._-" :: String)
+
+{- | Text as one shell word: as it is when all 'slugChar's, else single-quoted
+with each @'@ written @'\\''@, so a printed line runs as it reads.
+-}
+shellWord :: Text -> Text
+shellWord text
+    | not (Text.null text), Text.all slugChar text = text
+    | otherwise = "'" <> Text.replace "'" "'\\''" text <> "'"
 
 {- | What the task's engineer does to its PR. A round on a PR that already
 exists leaves it open: its run skips @ready@, and the task settles kept.
@@ -289,9 +298,7 @@ taskEncoding task =
 
 -- | The default flow is omitted, so a breakdown older than flows encodes as it was written.
 flowData :: FlowName -> Series
-flowData = \case
-    EngineerFlow -> mempty
-    TenXFlow -> "flow" .= flowText TenXFlow
+flowData = maybe mempty ("flow" .=) . namedFlowText
 
 -- | Only a round names its PR: a log older than rounds reads as own PRs.
 shapeData :: Shape -> Series

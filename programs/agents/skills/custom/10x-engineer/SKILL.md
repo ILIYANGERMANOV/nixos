@@ -34,7 +34,8 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   `subscribe_pr_activity`, CI waits, `AskUserQuestion`, `PushNotification` and
   `gh pr merge` stay here.
 - **Under a parent**, your brief's `state init` line naming a `--parent`: no
-  wakes, no merges, no user questions. Spawn every subagent in the
+  wakes, no merges, no user questions, Confirm's included (`state next` hands
+  it up), no READY notify, no review queue. Spawn every subagent in the
   foreground, and end your turn with what `state next` hands back.
 - **One agent per task.** At most one agent per task, so any wake for a task
   with a live agent is held: `state record held <task> <url>`. Held wakes
@@ -61,10 +62,11 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   | Line | You |
   |---|---|
   | `SPAWN engineer --task <id> background: yes\|no` | Engineers: Spawn |
+  | `SPAWN 10x --task <id> background: yes\|no` | Engineers: Spawn, a 10x child |
   | `RESUME <child> with the answer to <qid>: <a>` | Engineers: Resume |
   | `AWAIT ci <PR>...` | Engineers: CI |
   | `AWAIT children <task>...` | end the turn: a hand-back wakes you |
-  | `AWAIT merge <task>...` | Merge: the merge loop on each approval wake |
+  | `AWAIT merge <task\|PR>...` | Merge: the merge loop on each approval wake; a PR is a child's |
   | `triage: <status>`, `RUN state ask ... - triage:` | Failures |
 
   A child's `state` records its hand-back in your run; `state next` names
@@ -96,7 +98,8 @@ links and free text, across repos. Touch only the PRs the user named.
 Create `~/.10x/<yyyy-mm-dd>-<slug>/`, `git init -q` it, and in it run
 `state init --notes "$PWD" --flow 10x`. Write the user's words verbatim to
 `intent.md` there, never edited. The run's own Fuel is Balanced: it sets the
-run's own research and proposals.
+run's own research and proposals. Under a parent, run your brief's
+`state init` line as written, in its worktree, instead; your Fuel is the task's.
 
 Once per repo, before anything reads it: `add_repo` with `access: "read"` as
 your instructions say, then, as this run's own step, `git clone` its SSH URL
@@ -109,7 +112,7 @@ leave that repo out and tell the user.
 
 List what you need to know, the standards that apply included, and group it
 into topics; you plan them yourself. One `subagent_type: researcher` agent
-per group, in the background, given each repo's clone path, with notes under
+per group, background as the SPAWN line says, given each repo's clone path, with notes under
 `/tmp/<unique-dir>/`, as many as your Fuel row's Researchers. Its prompt:
 `## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section only.
 As the engineer's, the gather is a choice of research and questions, in any
@@ -119,7 +122,7 @@ Check that each repo's CI runs on PRs to `epic/*` before planning an epic
 there; if it does not, say so in the breakdown.
 
 A technical unknown that could change the plan gets one quick spike, a
-researcher too: one question, a verdict, evidence. Background, in a throwaway
+researcher too: one question, a verdict, evidence. Spawned as the SPAWN line says, in a throwaway
 worktree (`git -C <clone> worktree add --detach /tmp/<unique-dir>/<spike>
 origin/main`, `<clone>` as `${CLAUDE_SKILL_DIR}/references/brief.md` defines
 it), nothing pushed. Remove the worktree when it hands back.
@@ -183,7 +186,10 @@ mid-run: one such object in a file, then `state record task add <file>`.
 free to start; run `state record spawning <id>`, then spawn, then `state next`
 for the next line. Spawn as many as it prints. Worktree, brief and spawn prompt:
 `${CLAUDE_SKILL_DIR}/references/brief.md`. The child's first command, the
-`state init` line in its brief, records `spawned` in your log.
+`state init` line in its brief, records `spawned` in your log. No `10x`
+subagent_type exists: `SPAWN 10x` spawns `subagent_type: claude`, its prompt
+the `state brief 10x --task <id>` output and an order to invoke the
+`10x-engineer` skill and begin with that `state init` line.
 
 **Triage.** A child hands back one line and `Run: <run>`; the hook records it,
 or pipe it in. Every open question is in `state pending`: `state rule` or
@@ -231,7 +237,9 @@ dropped or reshaped across tasks, is the user's: ask it, then
 subscription never arrive. Pending: end the turn. On the CI wake, `state next`
 prints no `RESUME`: resume the child as Resume does, `state record resumed`
 first: "CI finished on `<PR>`." It records green or red, fixes red itself
-and, green, runs `gh pr ready`. A refused subscription, or one saying another
+and, green, runs `gh pr ready`. Resumed with "CI finished" under a parent, do
+the same for the child that awaits it, in the foreground: unrecorded,
+`state next` hands back `AWAIT ci` again. A refused subscription, or one saying another
 agent already watches the PR, delivers no events: follow your instructions'
 fallback, and tell the user now and in the queue that this PR gives no
 approval wake. A check also red on the head of the default branch: Base.

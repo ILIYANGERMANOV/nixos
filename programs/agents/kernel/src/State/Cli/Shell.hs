@@ -68,7 +68,7 @@ import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, ne
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
-import State.Step.Artifact (shellPathText)
+import State.Step.Artifact (shellPathText, shellWord)
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -494,7 +494,7 @@ answeredDown down =
             <> "\nfix: state answer "
             <> qidText down.qid
             <> " "
-            <> down.answer
+            <> shellWord down.answer
             <> " --by "
             <> runIdText down.above
             <> ", in "

@@ -522,12 +522,12 @@ spec = describe "state over the doubles" $ do
                 climbed world qid
                 editLogIn world (logOf grandNotes) (<> broken)
 
-                failed <- succeeded =<< state world ["answer", qid, "postgres"]
+                failed <- succeeded =<< state world ["answer", qid, "it's postgres"]
                 editLogIn world (logOf grandNotes) (\bytes -> fromMaybe bytes (BS.stripSuffix broken bytes))
-                retried <- succeeded =<< state world ["answer", qid, "postgres"]
+                retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
 
                 drop 1 failed `shouldSatisfy` \case
-                    [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " postgres --by " <> mid <> ", in " <> Text.pack grandWorktree
+                    [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " 'it'\\''s postgres' --by " <> mid <> ", in " <> Text.pack grandWorktree
                     _ -> False
                 retried `shouldBe` ["answered " <> qid]
                 answersIn world `shouldReturn` [1, 1, 1]

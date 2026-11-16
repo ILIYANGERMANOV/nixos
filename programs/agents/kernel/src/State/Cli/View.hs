@@ -13,11 +13,12 @@ import State.Category.Fuel (fuelLabel)
 import State.Category.Graph (Node (..), OpenGraph, Place (..))
 import State.Category.Step (SomeStep (..), stateNameText, stepName)
 import State.Cli.Render qualified as Render
+import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName (..), Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
 import State.Step.Artifact (shellPathText, slugChar)
@@ -95,9 +96,7 @@ brief steps state agent@(AgentRole role) task = case (leads agent, task) of
             <> taskText
             <> "\n"
     -- The default flow is left out, so an engineer's line reads as it always has.
-    flowFlag = \case
-        EngineerFlow -> ""
-        TenXFlow -> " --flow " <> flowText TenXFlow
+    flowFlag = maybe "" (" --flow " <>) . namedFlowText
     taskLines found =
         [ "Task: " <> taskIdText found.id
         , "Fuel: " <> fuelLabel found.fuel

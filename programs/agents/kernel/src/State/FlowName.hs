@@ -6,6 +6,7 @@ module State.FlowName (
     FlowName (..),
     defaultFlow,
     flowText,
+    namedFlowText,
 ) where
 
 import Data.Text (Text)
@@ -23,3 +24,11 @@ flowText :: FlowName -> Text
 flowText = \case
     EngineerFlow -> "engineer"
     TenXFlow -> "10x"
+
+{- | Its wire name, unless it is 'defaultFlow', which a line or an encoding
+leaves out so it reads as it did before flows.
+-}
+namedFlowText :: FlowName -> Maybe Text
+namedFlowText flow
+    | flow == defaultFlow = Nothing
+    | otherwise = Just (flowText flow)
