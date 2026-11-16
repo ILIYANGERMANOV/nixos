@@ -29,5 +29,15 @@ in
       tools = [ "ask" ];
       command = command "asked";
     };
+    # Binds the agent to its run: after a shell that ran `state init`, and after
+    # a spawn, which binds the worker (State.Protocol.Binding).
+    state-bind = {
+      on = "afterTool";
+      tools = [
+        "shell"
+        "delegate"
+      ];
+      command = command "bind";
+    };
   };
 }

@@ -1,5 +1,6 @@
 {- | Files and directories other than the log, which "Effects.Log" owns: the
-step table, the notes pointer, the notes dir, and the directory a hook runs in.
+step table, the notes pointer, the notes dir, the hooks' bindings and the
+directory a hook runs in.
 Split read from write, so that code which only reads cannot change the disk.
 -}
 module Effects.FileSystem (
@@ -9,17 +10,24 @@ module Effects.FileSystem (
     readText,
     inDirectory,
     writeText,
+    writeTextAtomic,
+    removeFile,
     createDirectory,
     runFileSystemIO,
 ) where
 
+import Control.Exception (bracketOnError, catchJust)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text.IO qualified as Text
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, localSeqUnliftIO, send)
-import System.Directory (createDirectoryIfMissing, doesFileExist, withCurrentDirectory)
+import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile, withCurrentDirectory)
+import System.Directory qualified as Directory
+import System.FilePath (takeDirectory, takeFileName)
+import System.IO (hClose, openTempFile)
+import System.IO.Error (isDoesNotExistError)
 
 data RoFileSystem :: Effect where
     ReadBytes :: FilePath -> RoFileSystem m ByteString
@@ -28,6 +36,8 @@ data RoFileSystem :: Effect where
 
 data WrFileSystem :: Effect where
     WriteText :: FilePath -> Text -> WrFileSystem m ()
+    WriteTextAtomic :: FilePath -> Text -> WrFileSystem m ()
+    RemoveFile :: FilePath -> WrFileSystem m ()
     CreateDirectory :: FilePath -> WrFileSystem m ()
 
 type instance DispatchOf RoFileSystem = Dynamic
@@ -49,6 +59,16 @@ inDirectory dir = send . InDirectory dir
 writeText :: (WrFileSystem :> es) => FilePath -> Text -> Eff es ()
 writeText path = send . WriteText path
 
+{- | Replace a file's text as 'writeText' does, but whole or not at all: a
+reader running at the same time sees the old text or the new, never part.
+-}
+writeTextAtomic :: (WrFileSystem :> es) => FilePath -> Text -> Eff es ()
+writeTextAtomic path = send . WriteTextAtomic path
+
+-- | Remove a file; one already absent is no failure.
+removeFile :: (WrFileSystem :> es) => FilePath -> Eff es ()
+removeFile = send . RemoveFile
+
 -- | The directory and its parents, those missing.
 createDirectory :: (WrFileSystem :> es) => FilePath -> Eff es ()
 createDirectory = send . CreateDirectory
@@ -69,4 +89,12 @@ runRoFileSystemIO = interpret $ \env -> \case
 runWrFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : es) a -> Eff es a
 runWrFileSystemIO = interpret $ \_ -> \case
     WriteText path text -> liftIO (Text.writeFile path text)
+    -- A temp file in the same directory, so the rename stays on one file system.
+    WriteTextAtomic path text ->
+        liftIO $
+            bracketOnError
+                (openTempFile (takeDirectory path) (takeFileName path <> ".tmp"))
+                (\(temp, handle) -> hClose handle >> Directory.removeFile temp)
+                (\(temp, handle) -> Text.hPutStr handle text >> hClose handle >> renameFile temp path)
+    RemoveFile path -> liftIO (catchJust (\e -> if isDoesNotExistError e then Just () else Nothing) (Directory.removeFile path) pure)
     CreateDirectory path -> liftIO (createDirectoryIfMissing True path)

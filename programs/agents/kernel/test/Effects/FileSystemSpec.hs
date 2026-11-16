@@ -2,7 +2,8 @@ module Effects.FileSystemSpec (spec) where
 
 import Control.Exception (try)
 import Effectful (runEff)
-import Effects.FileSystem (createDirectory, inDirectory, readBytes, readText, runFileSystemIO, writeText)
+import Effects.FileSystem (createDirectory, inDirectory, readBytes, readText, removeFile, runFileSystemIO, writeText, writeTextAtomic)
+import System.Directory (listDirectory)
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (withSystemTempDirectory)
@@ -31,6 +32,21 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
         runEff . runFileSystemIO $ createDirectory deep >> createDirectory deep >> writeText (deep </> "f") "x"
 
         (runEff . runFileSystemIO $ readText (deep </> "f")) `shouldReturn` Just "x"
+
+    it "replaces a file's text whole, leaving no temp file beside it" $ \dir -> do
+        let file = dir </> "binding"
+
+        text <- runEff . runFileSystemIO $ writeText file "old" >> writeTextAtomic file "run ünïcode\n" >> readText file
+
+        text `shouldBe` Just "run ünïcode\n"
+        listDirectory dir `shouldReturn` ["binding"]
+
+    it "removes a file, and one already absent" $ \dir -> do
+        let file = dir </> "stash"
+
+        runEff . runFileSystemIO $ writeText file "x" >> removeFile file >> removeFile file
+
+        listDirectory dir `shouldReturn` []
 
     it "resolves relative paths against the directory it runs in" $ \dir -> do
         runEff . runFileSystemIO $ createDirectory (dir </> "work")

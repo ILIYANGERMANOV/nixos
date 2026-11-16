@@ -7,7 +7,12 @@ resume    sessionStart          a fresh or resumed session records restarted; co
 spawn     beforeTool delegate   context: next, and a warning off the advice
 handback  beforeTool handback   records a worker's hand-back; context: what it recorded
 asked     afterTool ask         the answer lines of questions awaiting the user
+bind      afterTool shell       binds the agent to the run its @state init@ started or resumed
+          afterTool delegate    binds a worker spawned to its spawner's run; records a hand-back it made first
 @
+
+Each finds the caller's run through its binding ("State.Protocol.Binding"),
+and its reply names the run it acted on.
 
 None denies or rewrites a call: what a hook says is context, a refusal or an
 error too (fail open and tell); auto mode denies a call a hook rewrote. Only
@@ -26,8 +31,12 @@ module State.Protocol.Hook (
     Tool (..),
     StartSource (..),
     parseHookEvent,
+    Job (..),
     Want (..),
+    Bind (..),
     wants,
+    keyOf,
+    aboutRun,
     silent,
     offAdvice,
     followedAt,
@@ -56,6 +65,7 @@ import State.Category.Flow (ScopePath)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
+import State.Protocol.Binding (Binding, Key (..), bindingIn)
 import State.Run.Ask (Principal (..), Question (..), qidText)
 import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, Source (..), Start (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
@@ -68,7 +78,7 @@ import State.Step.Choice (choiceNamed, nodeChoice)
 import State.Step.Gather qualified as Gather
 import State.Table (Steps, agentRoles, stepsRunBy)
 
-data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook
+data HookName = ResumeHook | SpawnHook | HandbackHook | AskedHook | BindHook
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | As @kernel/hooks.nix@ names them on the command line.
@@ -78,6 +88,7 @@ hookName = \case
     SpawnHook -> "spawn"
     HandbackHook -> "handback"
     AskedHook -> "asked"
+    BindHook -> "bind"
 
 -- | What the hook does, as @state-hook --help@ lists it.
 hookPurpose :: HookName -> Text
@@ -86,12 +97,14 @@ hookPurpose = \case
     SpawnHook -> "Before a delegate: next, and a warning off the advice"
     HandbackHook -> "Before a hand-back: records it, printing the record"
     AskedHook -> "After an ask: answer lines of questions to the user"
+    BindHook -> "After a shell or delegate: binds the agent to its run"
 
--- | One event of the neutral contract. @history@, @output@ and @context@ are required, never read.
+-- | One event of the neutral contract. @history@ and @context@ are required, never read.
 data HookEvent
     = SessionStart Call StartSource
     | BeforeTool Call Tool Object
-    | AfterTool Call Tool
+    | -- | The tool's input, and its output as the client gave it.
+      AfterTool Call Tool Object Value
     deriving stock (Eq, Show)
 
 data Call = Call {session :: Text, cwd :: FilePath, agent :: Maybe Agent}
@@ -101,7 +114,7 @@ callOf :: HookEvent -> Call
 callOf = \case
     SessionStart call _ -> call
     BeforeTool call _ _ -> call
-    AfterTool call _ -> call
+    AfterTool call _ _ _ -> call
 
 -- | The subagent making the call; the lead is none. Either field is absent when its agent gives none.
 data Agent = Agent {agentId :: Maybe Text, role :: Maybe AgentRole}
@@ -127,10 +140,8 @@ parseHookEvent input = either (Left . Text.pack) Right $ do
                 _ <- o .: "history" :: Parser [Text]
                 BeforeTool call <$> tool o <*> o .: "input"
             "afterTool" -> do
-                _ <- o .: "input" :: Parser Object
-                _ <- o .: "output" :: Parser Value
                 _ <- o .: "context" :: Parser Value
-                AfterTool call <$> tool o
+                AfterTool call <$> tool o <*> o .: "input" <*> o .: "output"
             other -> fail ("no event " <> Text.unpack other <> ": sessionStart, beforeTool or afterTool")
   where
     tool o = o .: "tool" >>= named "tool" toolName
@@ -159,6 +170,10 @@ startSourceName = \case
     Resumed -> "resume"
     Compact -> "compact"
 
+-- | What a hook does: ask the caller's run, or bind an agent to its run.
+data Job = Asks Want | Binds Bind
+    deriving stock (Eq, Show)
+
 -- | What a hook asks of the worktree's run.
 data Want
     = -- | Why the session started.
@@ -170,12 +185,19 @@ data Want
     | AskedUser
     deriving stock (Eq, Show)
 
+data Bind
+    = -- | The caller to the run its @state init@ printed.
+      BindSelf Binding
+    | -- | A worker the caller spawned, by its agent id and role, to the caller's run.
+      BindChild Text AgentRole
+    deriving stock (Eq, Show)
+
 {- | What the hook asks of the run, 'Nothing' when it has nothing to do: a
 subagent's spawn or question, or a hand-back the run does not follow (a
 reviewer's goes to its review-lead). A hook at an event it is not declared on
 is an error.
 -}
-wants :: Steps -> HookName -> HookEvent -> Either Text (Maybe Want)
+wants :: Steps -> HookName -> HookEvent -> Either Text (Maybe Job)
 wants steps hook event = case hook of
     ResumeHook -> case event of
         SessionStart call source -> Right (lead call (ResumeRun source))
@@ -187,21 +209,67 @@ wants steps hook event = case hook of
         AfterTool {} -> undeclared
     HandbackHook -> case event of
         BeforeTool call _ input -> Right $ case (call.agent, textAt "message" input) of
-            (Just agent@Agent {role = Just role}, Just message) | role `elem` agentRoles steps -> Just (HandedBack message agent role)
+            (Just agent@Agent {role = Just role}, Just message) | role `elem` agentRoles steps -> Just (Asks (HandedBack message agent role))
             _ -> Nothing
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
     AskedHook -> case event of
-        AfterTool call _ -> Right (lead call AskedUser)
+        AfterTool call _ _ _ -> Right (lead call AskedUser)
+        SessionStart {} -> undeclared
+        BeforeTool {} -> undeclared
+    BindHook -> case event of
+        AfterTool _ tool input output -> Right (Binds <$> bindOf steps tool input output)
         SessionStart {} -> undeclared
         BeforeTool {} -> undeclared
   where
-    lead call want = if isLead steps call.agent then Just want else Nothing
+    lead call want = if isLead steps call.agent then Just (Asks want) else Nothing
     undeclared = Left ("state-hook " <> hookName hook <> " does not run at " <> eventName)
     eventName = case event of
         SessionStart _ _ -> "sessionStart"
         BeforeTool {} -> "beforeTool"
-        AfterTool _ _ -> "afterTool"
+        AfterTool {} -> "afterTool"
+
+{- | What a tool's result binds: a shell command that ran @state init@ binds
+its caller to the run init printed, a rerun (a resume) again; a spawn of a
+flow role binds the worker, which never inits. A lead spawned (an engineer)
+binds itself by its own init, in its own worktree.
+-}
+bindOf :: Steps -> Tool -> Object -> Value -> Maybe Bind
+bindOf steps tool input output = case tool of
+    Shell
+        | Just command <- textAt "command" input
+        , "state init" `Text.isInfixOf` command ->
+            BindSelf <$> (bindingIn =<< textAt "stdout" =<< outputObject)
+        | otherwise -> Nothing
+    Delegate -> case (textAt "agentId" =<< outputObject, AgentRole <$> textAt "subagent_type" input) of
+        (Just child, Just role) | role `elem` flowRoles steps -> Just (BindChild child role)
+        _ -> Nothing
+    Read -> Nothing
+    Edit -> Nothing
+    Write -> Nothing
+    HandbackTool -> Nothing
+    Ask -> Nothing
+    Web -> Nothing
+    Skill -> Nothing
+    Other -> Nothing
+  where
+    outputObject = case output of
+        Object o -> Just o
+        _ -> Nothing
+
+-- | Whose binding a call reads: a subagent's own, else the session's.
+keyOf :: Maybe Agent -> Key
+keyOf = \case
+    Just Agent {agentId = Just agent} -> AgentKey agent
+    -- The adapter gives a lead started as an agent (@--agent@) no agent at all.
+    Just Agent {agentId = Nothing} -> Main
+    Nothing -> Main
+
+-- | A hook's text, naming the run it acted on; nothing said is nothing.
+aboutRun :: RunId -> Text -> Text
+aboutRun run said
+    | Text.null said = said
+    | otherwise = "run " <> runIdText run <> ": " <> said
 
 textAt :: Text -> Object -> Maybe Text
 textAt key input = case KeyMap.lookup (Key.fromText key) input of
@@ -335,18 +403,19 @@ data Reply
     deriving stock (Eq, Show)
 
 -- | The reply carrying what the run said; an empty text is nothing to say.
-replyOf :: Want -> Text -> Reply
-replyOf want said
+replyOf :: Job -> Text -> Reply
+replyOf job said
     | Text.null said = Quiet
-    | otherwise = toldOf want said
+    | otherwise = toldOf job said
 
 -- | Context only: what a refusal or an error says, never a deny.
-toldOf :: Want -> Text -> Reply
-toldOf want said = case want of
-    ResumeRun _ -> Note said
-    AskedUser -> Note said
-    SpawnRole _ -> Allow said
-    HandedBack {} -> Allow said
+toldOf :: Job -> Text -> Reply
+toldOf job said = case job of
+    Asks (ResumeRun _) -> Note said
+    Asks AskedUser -> Note said
+    Asks (SpawnRole _) -> Allow said
+    Asks (HandedBack {}) -> Allow said
+    Binds _ -> Note said
 
 -- | @agent_hook.py@'s @emit_result@: nothing when there is nothing to say.
 encodeReply :: Reply -> Maybe LBS.ByteString

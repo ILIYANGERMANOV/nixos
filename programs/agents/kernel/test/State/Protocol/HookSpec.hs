@@ -9,13 +9,16 @@ import Data.List (nub)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (stepName)
 import State.Protocol.Advice (Readiness (..))
+import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook
 import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped), Stop (..), StopReason (..), Url (..), stepTook)
 import State.Run.EventGen (line, logOf, run, started)
+import State.Run.Id (RunId, parseRunId)
 import State.Run.RunGen (childOf, commit, loadSteps, plainTask, runAt, tenXAt)
 import State.Step.Build (Outcome (..), Sing (Refactor))
 import State.Step.Review (Outcome (..))
@@ -50,26 +53,46 @@ spec = describe "the hooks" $ do
     describe "what a hook asks of the run" $ do
         it "resumes for the lead, and for an agent no flow knows" $
             map (\agent -> wants steps ResumeHook (SessionStart (Call "s" "/w" agent) Startup)) [Nothing, Just (Agent Nothing (Just (AgentRole "engineer")))]
-                `shouldBe` [Right (Just (ResumeRun Startup)), Right (Just (ResumeRun Startup))]
+                `shouldBe` [Right (Just (Asks (ResumeRun Startup))), Right (Just (Asks (ResumeRun Startup)))]
 
         it "ignores a subagent's spawn and question" $
             [ wants steps SpawnHook (BeforeTool (Call "s" "/w" (Just reviewLead)) Delegate KeyMap.empty)
-            , wants steps AskedHook (AfterTool (Call "s" "/w" (Just reviewLead)) Ask)
+            , wants steps AskedHook (AfterTool (Call "s" "/w" (Just reviewLead)) Ask KeyMap.empty (String "ok"))
             ]
                 `shouldBe` [Right Nothing, Right Nothing]
 
         it "reads the role the lead spawns" $
             wants steps SpawnHook (BeforeTool (Call "s" "/w" Nothing) Delegate (KeyMap.fromList [("subagent_type", String "implementer")]))
-                `shouldBe` Right (Just (SpawnRole (Just (AgentRole "implementer"))))
+                `shouldBe` Right (Just (Asks (SpawnRole (Just (AgentRole "implementer")))))
 
         it "records a step runner's hand-back, not a reviewer's or a child run's" $
             [ wants steps HandbackHook (BeforeTool (Call "s" "/w" (Just agent)) HandbackTool (message "READY"))
             | agent <- [reviewLead, Agent (Just "a2") (Just (AgentRole "reviewer")), Agent (Just "a3") (Just (AgentRole "engineer"))]
             ]
-                `shouldBe` [Right (Just (HandedBack "READY" reviewLead (AgentRole "review-lead"))), Right Nothing, Right Nothing]
+                `shouldBe` [Right (Just (Asks (HandedBack "READY" reviewLead (AgentRole "review-lead")))), Right Nothing, Right Nothing]
 
         it "refuses a hook at an event it is not declared on" $
             wants steps SpawnHook (SessionStart (Call "s" "/w" Nothing) Startup) `shouldBe` Left "state-hook spawn does not run at sessionStart"
+
+    describe "what a tool's result binds" $ do
+        let ran command stdout = wants steps BindHook (AfterTool (Call "s" "/w" Nothing) Shell (KeyMap.fromList [("command", String command)]) (object ["stdout" .= (stdout :: Text), "stderr" .= ("" :: Text)]))
+            spawnedOf role = wants steps BindHook (AfterTool (Call "s" "/w" Nothing) Delegate (KeyMap.fromList [("subagent_type", String role)]) (object ["status" .= ("completed" :: Text), "agentId" .= ("c1" :: Text)]))
+        it "binds the caller to the run its state init printed" $
+            ran "cd /wt && state init --notes /n" "started 0a1b2c3d\nrun 0a1b2c3d /n /wt\n"
+                `shouldBe` Right (Just (Binds (BindSelf (Binding (runId "0a1b2c3d") "/n" "/wt"))))
+
+        it "binds nothing off a command that ran no init, or an init that printed no run" $
+            [ran "cat log" "run 0a1b2c3d /n /wt\n", ran "state init --notes /n" ""] `shouldBe` [Right Nothing, Right Nothing]
+
+        it "binds a worker spawned, not a lead nor an agent no flow knows" $
+            map spawnedOf ["implementer", "engineer", "Explore"] `shouldBe` [Right (Just (Binds (BindChild "c1" (AgentRole "implementer")))), Right Nothing, Right Nothing]
+
+        it "reads an afterTool's input and output" $
+            parseHookEvent (encodeObject (afterToolFields "delegate"))
+                `shouldBe` Right (AfterTool (Call "s" "/w" (Just reviewLead)) Delegate KeyMap.empty (String "ok"))
+
+        it "names the run a hook's text is about, and says nothing for nothing" $
+            map (aboutRun (runId "0a1b2c3d")) ["state: recorded 9 implement.done -> refactor\n", ""] `shouldBe` ["run 0a1b2c3d: state: recorded 9 implement.done -> refactor\n", ""]
 
     describe "silence" $ do
         let drafted = stepTook (DraftDone (DraftPr (Url "https://github.com/o/r/pull/1") (Branch "main") (Branch "feat")))
@@ -135,23 +158,26 @@ spec = describe "the hooks" $ do
 
     describe "the reply" $ do
         it "prints nothing with nothing to say" $
-            encodeReply (replyOf (ResumeRun Startup) "") `shouldBe` Nothing
+            encodeReply (replyOf (Asks (ResumeRun Startup)) "") `shouldBe` Nothing
 
         it "tells what a hand-back recorded as context, never rewriting the call" $
-            decoded (replyOf (HandedBack "READY" reviewLead (AgentRole "review-lead")) "state: recorded 9 review.rows -> pick\n")
+            decoded (replyOf (Asks (HandedBack "READY" reviewLead (AgentRole "review-lead"))) "state: recorded 9 review.rows -> pick\n")
                 `shouldBe` Right (object ["decision" .= ("allow" :: Text), "context" .= ("state: recorded 9 review.rows -> pick\n" :: Text)])
 
         it "never denies: a spawn's error is context" $
-            decoded (toldOf (SpawnRole Nothing) "state hook spawn: disk full") `shouldBe` Right (object ["decision" .= ("allow" :: Text), "context" .= ("state hook spawn: disk full" :: Text)])
+            decoded (toldOf (Asks (SpawnRole Nothing)) "state hook spawn: disk full") `shouldBe` Right (object ["decision" .= ("allow" :: Text), "context" .= ("state hook spawn: disk full" :: Text)])
 
         it "gives sessionStart and afterTool context alone" $
-            decoded (replyOf AskedUser "state: record the user's answer") `shouldBe` Right (object ["context" .= ("state: record the user's answer" :: Text)])
+            decoded (replyOf (Asks AskedUser) "state: record the user's answer") `shouldBe` Right (object ["context" .= ("state: record the user's answer" :: Text)])
   where
     decoded reply = maybe (Left "nothing printed") eitherDecode (encodeReply reply) :: Either String Value
 
 fixer, reviewLeadJson :: Value
 fixer = object ["id" .= ("a1" :: Text), "role" .= ("fixer" :: Text)]
 reviewLeadJson = object ["id" .= ("a2" :: Text), "role" .= ("review-lead" :: Text)]
+
+runId :: Text -> RunId
+runId = fromMaybe (error "no run id") . parseRunId
 
 reviewLead :: Agent
 reviewLead = Agent (Just "a2") (Just (AgentRole "review-lead"))
@@ -192,19 +218,19 @@ eventOf :: HookEvent -> Text
 eventOf = \case
     SessionStart _ _ -> "sessionStart"
     BeforeTool {} -> "beforeTool"
-    AfterTool _ _ -> "afterTool"
+    AfterTool {} -> "afterTool"
 
 toolOf :: HookEvent -> Maybe Tool
 toolOf = \case
     BeforeTool _ tool _ -> Just tool
-    AfterTool _ tool -> Just tool
+    AfterTool _ tool _ _ -> Just tool
     SessionStart _ _ -> Nothing
 
 sourceOf :: HookEvent -> Maybe StartSource
 sourceOf = \case
     SessionStart _ source -> Just source
     BeforeTool {} -> Nothing
-    AfterTool _ _ -> Nothing
+    AfterTool {} -> Nothing
 
 -- | @vocabulary.json@: each list of names.
 type Vocabulary = Map Text [Text]

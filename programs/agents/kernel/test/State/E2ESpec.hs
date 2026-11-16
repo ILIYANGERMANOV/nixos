@@ -11,6 +11,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Either (rights)
 import Data.Foldable (for_)
 import Data.List (isSuffixOf)
 import Data.Maybe (fromMaybe)
@@ -18,7 +19,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import State.Category.Fuel (Fuel (Low))
-import State.Run.Event (FlowName (TenXFlow), Task (..))
+import State.Run.Codec (decodeLine, eventType)
+import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
@@ -517,6 +519,7 @@ spec = describe "the state binary" $ do
 
             it "record a hand-back seen twice once, appending what they recorded" $ \repo -> do
                 _ <- drive bin repo (init toImplement)
+                _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "implementer" "a1")
                 before <- logLines repo
                 first <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
                 once <- logLines repo
@@ -534,6 +537,7 @@ spec = describe "the state binary" $ do
 
             it "are silent once the drafted PR is merged or closed" $ \repo -> do
                 _ <- drive bin repo (init toImplement)
+                _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "implementer" "a1")
                 before <- logLines repo
                 for_ ["MERGED", "CLOSED"] $ \over -> do
                     writeFile repo.prJson (pullRequest False over)
@@ -577,6 +581,59 @@ spec = describe "the state binary" $ do
                 said <- hook hookBin repo "resume" "not json"
                 said.code `shouldBe` 2
 
+            describe "bind each agent to its run, wherever its hooks fire" $ do
+                it "record the main session's worker spawn and hand-back in the run its init bound it to" $ \repo -> do
+                    run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+                    _ <- succeeded =<< state bin repo ["record", "fuel", "balanced"]
+
+                    said <- workerAt hookBin repo Null "w1"
+
+                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    loggedTypes repo.notes `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+                it "record a 10x session's, whose run is outside the repo its hooks fire in" $ \repo -> do
+                    let tenX = repo.root </> "tenx"
+                    createDirectory tenX
+                    git repo {work = tenX} ["init", "-q"]
+                    run <- initBound bin hookBin repo Null repo {work = tenX} ["--notes", tenX, "--flow", "10x"]
+
+                    said <- workerAt hookBin repo Null "w1"
+
+                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    loggedTypes tenX `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+                it "record a child engineer's worker spawn in its own run, not its parent's, at depth 1" $ \repo -> do
+                    engineer <- childEngineer bin hookBin repo
+                    before <- logLines repo
+
+                    said <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+
+                    after <- logLines repo
+                    said `shouldSatisfy` mentions "research.spawned"
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned"]
+                    after `shouldBe` before
+
+                it "record a depth-2 worker's hand-back made before its spawner's hook bound it, as a foreground one is" $ \repo -> do
+                    engineer <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+
+                    early <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
+                    bound <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "w2")
+
+                    early `shouldBe` []
+                    bound `shouldSatisfy` mentions "state: recorded"
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+                it "record a depth-2 worker's hand-back made after its spawner's hook bound it, as a background one is" $ \repo -> do
+                    engineer <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+
+                    _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "w2")
+                    back <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
+
+                    back `shouldSatisfy` mentions "state: recorded"
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
             it "tell the lead how to record the answer to a question put to the user" $ \repo -> do
                 _ <- drive bin repo []
                 qid <- askedQid bin repo "Design" ["which", "store?"]
@@ -614,15 +671,95 @@ handedBack repo role = reportedBack repo role (ready "")
 
 -- | A subagent of this role hands back this message.
 reportedBack :: Repo -> Text -> Text -> String
-reportedBack repo role message =
-    hookEvent
-        repo
-        (object ["id" .= String "a1", "role" .= role])
-        ["event" .= String "beforeTool", "tool" .= String "handback", "input" .= object ["message" .= String message], "history" .= ([] :: [Text])]
+reportedBack repo role = reportedBy repo (worker "a1" role)
+
+-- | This subagent hands back this message, its hook firing in the repo's worktree.
+reportedBy :: Repo -> Value -> Text -> String
+reportedBy repo agent message =
+    hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "handback", "input" .= object ["message" .= String message], "history" .= ([] :: [Text])]
+
+-- | A subagent, by its id and role, as the hook payload names it.
+worker :: Text -> Text -> Value
+worker agentId role = object ["id" .= agentId, "role" .= role]
 
 -- | The lead spawns a subagent of this role.
 spawned :: Repo -> Text -> String
-spawned repo role = hookEvent repo Null ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
+spawned repo = spawned' repo Null
+
+-- | This agent (the lead: @Null@) spawns a subagent of this role.
+spawned' :: Repo -> Value -> Text -> String
+spawned' repo agent role = hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
+
+{- | This agent's spawn of a subagent of this role done, its result naming the
+subagent's id: a PostToolUse on Agent (contract/fixtures/live-run.json).
+-}
+spawnResult :: Repo -> Value -> Text -> Text -> String
+spawnResult repo agent role child =
+    hookEvent
+        repo
+        agent
+        [ "event" .= String "afterTool"
+        , "tool" .= String "delegate"
+        , "input" .= object ["description" .= String "a worker", "prompt" .= String "state brief", "subagent_type" .= role, "run_in_background" .= False]
+        , "output" .= object ["status" .= String "completed", "agentId" .= child, "agentType" .= role]
+        , "context" .= Null
+        ]
+
+{- | @cd <dir> && state init <args>@, run in @dir@ by this agent, whose hooks
+fire in @at@'s worktree; then its PostToolUse on Bash binds it. The run's id.
+-}
+initBound :: FilePath -> FilePath -> Repo -> Value -> Repo -> [String] -> IO Text
+initBound bin hookBin at agent dir argv = do
+    printed <- succeeded =<< state bin dir ("init" : argv)
+    let command = "cd " <> dir.work <> " && state init " <> unwords argv
+    _ <- succeeded =<< hook hookBin at "bind" (ranShell at agent command printed)
+    case printed of
+        [line, _] | Just run <- Text.stripPrefix "started " line -> pure run
+        other -> fail ("not started: " <> show other)
+
+-- | This agent's shell command done, printing these lines: a PostToolUse on Bash.
+ranShell :: Repo -> Value -> String -> [Text] -> String
+ranShell repo agent command printed =
+    hookEvent
+        repo
+        agent
+        [ "event" .= String "afterTool"
+        , "tool" .= String "shell"
+        , "input" .= object ["command" .= command, "description" .= String "start the run"]
+        , "output" .= object ["stdout" .= Text.unlines printed, "stderr" .= String "", "interrupted" .= False]
+        , "context" .= Null
+        ]
+
+{- | This agent spawns a researcher @w@, bound by the spawn's PostToolUse, which
+hands back its report; every hook fires in the repo's worktree. What the
+hand-back's hook replied.
+-}
+workerAt :: FilePath -> Repo -> Value -> Text -> IO [Text]
+workerAt hookBin repo agent w = do
+    _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo agent "researcher")
+    _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo agent "researcher" w)
+    succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker w "researcher") researched)
+
+{- | A 10x run at its fan-out in the repo's worktree, and the engineer @e1@ it
+spawned for task @t1@, whose hooks fire in the 10x's worktree: it ran its
+brief's @cd <w1> && state init ...@ there, its notes in @n1@. The engineer.
+-}
+childEngineer :: FilePath -> FilePath -> Repo -> IO Value
+childEngineer bin hookBin repo = do
+    parent <- tenXAtFanOut bin repo
+    w1 <- worktree repo "w1"
+    let engineer = worker "e1" "engineer"
+    _ <- initBound bin hookBin repo engineer w1 ["--notes", repo.root </> "n1", "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", "t1"]
+    _ <- succeeded =<< state bin w1 ["record", "fuel", "balanced"]
+    pure engineer
+
+-- | The event types a run's log holds, its notes dir given.
+loggedTypes :: FilePath -> IO [Text]
+loggedTypes dir = map (eventType . (.event)) . rights . map decodeLine . Text.lines <$> Text.readFile (dir </> "events.jsonl")
+
+-- | Each expected entry is in the list.
+shouldReturnContaining :: IO [Text] -> [Text] -> IO ()
+shouldReturnContaining act expected = act >>= \got -> for_ expected (\e -> got `shouldContain` [e])
 
 askedUser :: Repo -> String
 askedUser repo = hookEvent repo Null ["event" .= String "afterTool", "tool" .= String "ask", "input" .= object [], "output" .= String "ok", "context" .= Null]
@@ -798,7 +935,8 @@ driveOn bin repo acts = do
         Commit -> [] <$ commitLine repo
         OpenPr -> [] <$ writeFile repo.prJson (pullRequest True "OPEN")
         Override to -> succeeded =<< state bin repo ["override", to, "the", "test", "starts", "here"]
-        Spawn role -> hooked "spawn" (spawned repo role)
+        -- The spawn's PreToolUse, then its PostToolUse, which binds the worker.
+        Spawn role -> (<>) <$> hooked "spawn" (spawned repo role) <*> hooked "bind" (spawnResult repo Null role "a1")
         HandsBack role message -> hooked "handback" (reportedBack repo role message)
         AskUser kind question -> do
             asked <- succeeded =<< state bin repo (["ask", "--kind", kind] <> question)
@@ -814,8 +952,17 @@ driveOn bin repo acts = do
         said <- succeeded =<< hook hookBin repo name event
         pure (concatMap contextLines said)
     contextLines reply = case Aeson.decodeStrictText reply of
-        Just (Object fields) | Just (String context) <- KeyMap.lookup "context" fields -> map (\line -> fromMaybe line (Text.stripPrefix "state: " line)) (Text.lines context)
+        Just (Object fields) | Just (String context) <- KeyMap.lookup "context" fields -> map (unstated . aboutNoRun) (Text.lines context)
         _ -> []
+
+unstated :: Text -> Text
+unstated line = fromMaybe line (Text.stripPrefix "state: " line)
+
+-- | A hook's line without the run it names, @run <id>: @.
+aboutNoRun :: Text -> Text
+aboutNoRun line = case Text.stripPrefix "run " line of
+    Just rest | (_, after) <- Text.breakOn ": " rest, not (Text.null after) -> Text.drop 2 after
+    _ -> line
 
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]

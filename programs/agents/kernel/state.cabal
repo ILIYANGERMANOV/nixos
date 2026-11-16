@@ -57,6 +57,7 @@ library
     State.Flow.TenX
     State.FlowName
     State.Protocol.Advice
+    State.Protocol.Binding
     State.Protocol.Handback
     State.Protocol.Hook
     State.Protocol.Record
@@ -145,6 +146,7 @@ test-suite state-test
     State.Flow.Triage
     State.Golden
     State.Protocol.AdviceSpec
+    State.Protocol.BindingSpec
     State.Protocol.HandbackSpec
     State.Protocol.HookSpec
     State.Run.AskSpec

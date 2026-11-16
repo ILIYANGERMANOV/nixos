@@ -37,6 +37,7 @@ module State.Cli.Shell.World (
     handedBack,
     askedUser,
     spawned,
+    spawnResult,
     Act (..),
     drive,
     driveOut,
@@ -102,7 +103,7 @@ newWorld = do
     steps <- BS.readFile =<< getEnv "STATE_STEPS"
     newIORef
         World
-            { env = Map.fromList [("STATE_STEPS", stepsPath)]
+            { env = Map.fromList [("STATE_STEPS", stepsPath), ("HOME", "/home")]
             , disk = Disk {files = Map.singleton stepsPath steps, dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"], cwd = "/work"}
             , gitDir = Right "/work/.git"
             , branch = Just (Branch "feat")
@@ -290,6 +291,18 @@ askedUser = hookEvent Null ["event" .= String "afterTool", "tool" .= String "ask
 -- | The lead spawns a subagent of this role.
 spawned :: Text -> LBS.ByteString
 spawned role = hookEvent Null ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
+
+-- | The lead's spawn of a subagent @a1@ of this role, done: its result names the agent.
+spawnResult :: Text -> LBS.ByteString
+spawnResult role =
+    hookEvent
+        Null
+        [ "event" .= String "afterTool"
+        , "tool" .= String "delegate"
+        , "input" .= object ["subagent_type" .= role]
+        , "output" .= object ["status" .= String "completed", "agentId" .= String "a1", "agentType" .= role]
+        , "context" .= Null
+        ]
 
 -- | What a scenario does between two @state next@ calls.
 data Act

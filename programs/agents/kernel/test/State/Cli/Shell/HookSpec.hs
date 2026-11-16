@@ -7,13 +7,13 @@ module State.Cli.Shell.HookSpec (spec) where
 import Data.Aeson (Value (..), decodeStrictText)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Foldable (for_)
-import Data.IORef (modifyIORef')
+import Data.IORef (IORef, modifyIORef')
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Cli.Shell.World
 import State.Protocol.Advice (Readiness (..))
-import State.Run.Event (Branch (..))
-import Test.Hspec (Spec, before, describe, it, shouldBe, shouldReturn, shouldSatisfy)
+import State.Run.Event (Branch (..), Envelope (..), runIdText)
+import Test.Hspec (Spec, before, describe, expectationFailure, it, shouldBe, shouldReturn, shouldSatisfy)
 
 spec :: Spec
 spec = describe "state-hook over the doubles" $ do
@@ -68,7 +68,9 @@ spec = describe "state-hook over the doubles" $ do
         describe "handback" $ do
             it "records a hand-back seen twice once, telling what it recorded as context" $ \world -> do
                 _ <- drive world (init toImplement)
+                _ <- hook world "bind" (spawnResult "implementer")
                 before' <- logged world
+                run <- runOf world
 
                 first <- hook world "handback" (handedBack "implementer")
                 once <- logged world
@@ -76,7 +78,7 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 first.code `shouldBe` 0
-                contextOf first `shouldBe` Just "state: recorded 9 implement.done -> refactor\n"
+                contextOf first `shouldBe` Just ("run " <> run <> ": state: recorded 9 implement.done -> refactor\n")
                 first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
@@ -92,6 +94,7 @@ spec = describe "state-hook over the doubles" $ do
 
             it "is silent once the drafted PR is merged or closed" $ \world -> do
                 _ <- drive world (init toImplement)
+                _ <- hook world "bind" (spawnResult "implementer")
                 before' <- logged world
 
                 for_ [IsMerged, IsClosed] $ \over -> do
@@ -116,6 +119,7 @@ spec = describe "state-hook over the doubles" $ do
                 _ <- drive world [Record ["fuel", "balanced"]]
 
                 spawn <- hook world "spawn" (spawned "researcher")
+                _ <- hook world "bind" (spawnResult "researcher")
                 early <- state world ["record", "gather.enough"]
                 back <- hook world "handback" (handedBack "researcher")
                 enough <- state world ["record", "gather.enough"]
@@ -144,11 +148,58 @@ spec = describe "state-hook over the doubles" $ do
 
             it "leaves a researcher's hand-back off the gather to the lead" $ \world -> do
                 _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"]]
+                _ <- hook world "bind" (spawnResult "researcher")
 
                 said <- hook world "handback" (handedBack "researcher")
 
                 (said.code, said.out) `shouldBe` (0, [])
                 loggedEvents world `shouldReturn` ["started", "fuel", "gather.enough"]
+
+        describe "bind" $ do
+            it "leaves an unbound worker's hand-back unrecorded until its spawner's hook binds it, then records it once" $ \world -> do
+                _ <- drive world (init toImplement)
+                before' <- logged world
+
+                early <- hook world "handback" (handedBack "implementer")
+                unbound <- logged world
+                bound <- hook world "bind" (spawnResult "implementer")
+                once <- logged world
+                again <- hook world "bind" (spawnResult "implementer")
+                twice <- logged world
+
+                (early.code, early.out, length unbound) `shouldBe` (0, [], length before')
+                contextOf bound `shouldSatisfy` maybe False ("state: recorded 9 implement.done -> refactor" `Text.isInfixOf`)
+                (length once, length twice) `shouldBe` (length before' + 1, length once)
+                contextOf again `shouldSatisfy` maybe False (not . Text.isInfixOf "recorded")
+
+            it "records a worker's hand-back made after its spawner's hook bound it" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+
+                bound <- hook world "bind" (spawnResult "implementer")
+                back <- hook world "handback" (handedBack "implementer")
+
+                contextOf bound `shouldBe` Just ("run " <> run <> ": state: implementer a1 works in this run\n")
+                contextOf back `shouldBe` Just ("run " <> run <> ": state: recorded 9 implement.done -> refactor\n")
+
+            it "binds no subagent no flow knows, whose hand-back stays its own" $ \world -> do
+                _ <- drive world (init toImplement)
+
+                said <- hook world "bind" (spawnResult "Explore")
+
+                (said.code, said.out) `shouldBe` (0, [])
+
+            it "records nothing for a worker bound to a run its worktree no longer holds, and says so" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"]]
+                old <- runOf world
+                _ <- hook world "bind" (spawnResult "researcher")
+                _ <- succeeded =<< state world ["stop", "blocked", "moved", "on"]
+                _ <- succeeded =<< state world ["init", "--notes", "/notes2"]
+                _ <- hook world "spawn" (spawned "researcher")
+
+                said <- hook world "handback" (handedBack "researcher")
+
+                contextOf said `shouldSatisfy` maybe False (("bound to run " <> old <> ", but /work holds run ") `Text.isInfixOf`)
 
         describe "asked" $ do
             it "tells the lead how to record the answer to a question put to the user" $ \world -> do
@@ -186,6 +237,13 @@ spec = describe "state-hook over the doubles" $ do
 
                 after <- logBytes world
                 after `shouldBe` before'
+
+-- | The id of the run the worktree's log holds.
+runOf :: IORef World -> IO Text
+runOf world =
+    logged world >>= \case
+        first : _ -> pure (runIdText first.run)
+        [] -> "" <$ expectationFailure "no run logged"
 
 -- | The @context@ of the reply printed, if any.
 contextOf :: Ran -> Maybe Text

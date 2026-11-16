@@ -20,7 +20,7 @@ import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding (decodeUtf8, decodeUtf8')
+import Data.Text.Encoding (decodeUtf8, decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Data.Time (UTCTime)
 import Effectful (Eff, IOE, runEff, (:>))
 import Effectful.Exception (throwIO, try)
@@ -50,9 +50,10 @@ import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, explained, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
+import State.Protocol.Binding (Binding (..), Key (..), Slot, bindingFile, bindingIn, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Call (..), Want (..), awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), HookName (HandbackHook), Job (..), Want (..), aboutRun, awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -120,20 +121,112 @@ hook argv = case parseHook argv of
                     Right steps -> case wants steps name event of
                         Left why -> usage why
                         Right Nothing -> pure ExitSuccess
-                        Right (Just want) -> do
-                            let call = callOf event
-                            said <- try (FileSystem.inDirectory call.cwd (hookAnswer steps call want))
+                        Right (Just job) -> do
+                            said <- try (jobAnswer steps input (callOf event) job)
                             -- aeson encodes UTF-8, so the reply decodes whole.
                             traverse_ (Console.out . decodeUtf8 . LBS.toStrict) . encodeReply $ case said of
-                                Right text -> replyOf want text
-                                Left (e :: IOException) -> toldOf want ("state hook " <> hookName name <> ": " <> tshow e)
+                                Right text -> replyOf job text
+                                Left (e :: IOException) -> toldOf job ("state hook " <> hookName name <> ": " <> tshow e)
                             pure ExitSuccess
   where
     usage line = Console.err (line <> "\n") $> ExitFailure 2
 
+{- | What a hook's job says, at the run its caller is bound to
+("State.Protocol.Binding"). A worker's hand-back seen before its spawner's
+hook bound it is stashed, and recorded once the binding is there.
+-}
+jobAnswer :: (Shell es) => Steps -> BS.ByteString -> Call -> Job -> Eff es Text
+jobAnswer steps input call job = do
+    slot <- slotFor call.session key
+    bound <- maybe (pure Nothing) readBinding slot
+    case job of
+        Binds (BindSelf binding) -> "" <$ traverse_ (`writeBinding` binding) slot
+        Binds (BindChild child role) -> do
+            -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
+            spawner <- case bound of
+                Just binding -> pure (Just binding)
+                Nothing -> Monad.join <$> traverse runHere (resolve key Nothing call.cwd)
+            childSlot <- slotFor call.session (AgentKey child)
+            case (spawner, childSlot) of
+                (Just binding, Just at) -> do
+                    writeBinding at binding
+                    stashed <- replayStash steps at binding
+                    pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child <> " works in this run\n") <> stashed)
+                _ -> pure ""
+        Asks want@Hook.HandedBack {}
+            | Nothing <- bound
+            , AgentKey _ <- key
+            , Just at <- slot -> do
+                -- Stashed before the binding is read again, as the spawner's hook binds before it
+                -- reads the stash: whichever runs second sees the other's file.
+                writeWhole (stashFile at) (decodeUtf8Lenient input)
+                readBinding at >>= maybe (pure "") (replayStash steps at)
+            | otherwise -> atRun steps call want bound
+        Asks want -> atRun steps call want bound
+  where
+    key = keyOf call.agent
+
+{- | The hand-back stashed in a worker's slot, recorded in the run it is bound
+to now, then removed; nothing when none is. Recorded twice when both hooks
+replay it at once, it is logged once ('loggedAlready').
+-}
+replayStash :: (Shell es) => Steps -> Slot -> Binding -> Eff es Text
+replayStash steps slot binding =
+    FileSystem.readText (stashFile slot) >>= \case
+        Nothing -> pure ""
+        Just stash -> do
+            said <- case parseHookEvent (LBS.fromStrict (encodeUtf8 stash)) of
+                Right event | Right (Just (Asks want)) <- wants steps HandbackHook event -> atRun steps (callOf event) want (Just binding)
+                _ -> pure ("state: the hand-back stashed at " <> Text.pack (stashFile slot) <> " is no hand-back of a step; removed\n")
+            FileSystem.removeFile (stashFile slot)
+            pure said
+
+-- | What the caller's run says to a want, in the worktree it is bound to; nothing when it has none.
+atRun :: (Shell es) => Steps -> Call -> Want -> Maybe Binding -> Eff es Text
+atRun steps call want bound = case resolve (keyOf call.agent) bound call.cwd of
+    Nothing -> pure ""
+    Just dir -> FileSystem.inDirectory dir (hookAnswer steps call bound want)
+
+-- | A key's slot in the session's bindings; none without a store root.
+slotFor :: (Environment :> es) => Text -> Key -> Eff es (Maybe Slot)
+slotFor session key = do
+    root <- storeRoot <$> lookupEnv "XDG_STATE_HOME" <*> lookupEnv "HOME"
+    pure (root >>= \at -> slotOf at session key)
+
+-- | A slot's binding; a file that holds none is no binding.
+readBinding :: (RoFileSystem :> es) => Slot -> Eff es (Maybe Binding)
+readBinding slot = (>>= bindingIn) <$> FileSystem.readText (bindingFile slot)
+
+writeBinding :: (WrFileSystem :> es) => Slot -> Binding -> Eff es ()
+writeBinding slot binding = writeWhole (bindingFile slot) (renderBinding binding <> "\n")
+
+-- | A file of the bindings' store, whole, as hooks of one session may run at once.
+writeWhole :: (WrFileSystem :> es) => FilePath -> Text -> Eff es ()
+writeWhole path text = do
+    FileSystem.createDirectory (takeDirectory path)
+    FileSystem.writeTextAtomic path text
+
+{- | The run the worktree at this directory holds, as its init printed it:
+the session's own agent, unbound, spawns into it.
+-}
+runHere :: (Shell es) => FilePath -> Eff es (Maybe Binding)
+runHere dir =
+    FileSystem.inDirectory dir $
+        gitDir >>= \case
+            Left _ -> pure Nothing
+            Right gd ->
+                readPointer gd >>= \case
+                    Nothing -> pure Nothing
+                    Just notes -> do
+                        first <- Log.firstLine (logOf notes)
+                        top <- Git.toplevel
+                        pure $ case (decodeLine <$> first, top) of
+                            (Just (Right started), Right toplevel) -> Just (Binding started.run notes toplevel)
+                            _ -> Nothing
+
 -- | What the run says to a hook's want, recording what it must; empty when silent, a failure as its text.
-hookAnswer :: (Shell es) => Steps -> Call -> Want -> Eff es Text
-hookAnswer steps call want =
+hookAnswer :: (Shell es) => Steps -> Call -> Maybe Binding -> Want -> Eff es Text
+hookAnswer steps call bound want =
     hasRun >>= \case
         False -> pure ""
         True -> case want of
@@ -166,13 +259,14 @@ hookAnswer steps call want =
             AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
     -- A run that is over, bound to another branch or whose PR is merged or closed is
-    -- silent too; the hook's session stamps its lines.
+    -- silent too; the hook's session stamps its lines, and its text names the run.
     onHook pr act = do
         branch <- Git.headBranch
-        result <- onRun $ \stamp run ->
-            if silent branch ((.readiness) <$> pr) run.logged run.state
-                then ([], Right "")
-                else Right <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
+        result <- onRun $ \stamp run -> case bound >>= (`staleNote` run.state.run) of
+            Just note -> ([], Right note)
+            Nothing
+                | silent branch ((.readiness) <$> pr) run.logged run.state -> ([], Right "")
+                | otherwise -> Right . aboutRun run.state.run <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
         pure (either (failureText "hook") id (orNoRun result))
     -- GitHub unread is no PR: the hook speaks.
     branchPr = fromRight Nothing . pullRequestOf <$> Gh.prView
@@ -591,11 +685,7 @@ initRun gd args = do
     interfaceOf = \case
         ByUser -> Set.fromList [minBound .. maxBound]
         ByRole _ _ -> Set.empty
-    initLines verb run worktree =
-        Text.unlines
-            [ verb <> " " <> runIdText run
-            , Text.unwords ["run", runIdText run, Text.pack notes, Text.pack worktree]
-            ]
+    initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
 
 -- | The worktree's top, which a child's @spawned@ and init's @run@ line name.
 worktreeTop :: (Git :> es) => Eff es (Either Failure FilePath)
