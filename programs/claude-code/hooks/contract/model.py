@@ -18,6 +18,8 @@ from typing import cast, override
 
 # What `json.loads` can return, spelled out because typeshed says Any.
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
+# A JSON object: a hook's payload, a log line, a recorded run.
+type Payload = dict[str, Json]
 
 # The probe puts it in its subagent's prompt, which Claude Code sends as that
 # subagent's system prompt: the one way to tell its requests from the lead's.

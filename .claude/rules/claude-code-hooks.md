@@ -22,6 +22,16 @@ one mode that offers `SubagentHandback`. A Claude Code update must run it
 (`dependency-updates.md`). A new request kind the mock does not know fails
 with a 400 naming it: extend `model.py`, not the snapshot.
 
+`just probe-agents-hooks --live` (`live.py`) runs one real haiku session with
+the person's login: a typed skill, a Skill call, a denied Bash call and
+subagents at depth 1 and 2, one in the background. Pure `checks` over the hook
+payloads and the transcripts they name assert the events, their linked ids,
+and that additionalContext and the deny reason reach the model. A transcript
+line counts only through its `message`: the client also logs each hook's raw
+output there. `test_live.py` runs them over `fixtures/live-run.json`, one real
+run. Managed settings that allow only Anthropic's API refuse the mock, so a
+factory runs `--live` and the offline probe prints REFUSED.
+
 ### `adapter`
 
 `agent-hook-claude <tools.json> <manifest.json>` is what `codegen/hooks.nix`

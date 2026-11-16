@@ -7,11 +7,13 @@ let
   inherit (pkgs) lib;
   shellCheck = import ../../../shell-check { inherit pkgs; };
 
-  # probe.py imports model.py from beside it, and so does the hook it registers.
+  # probe.py imports the modules beside it, and so do the hooks it registers.
   src = lib.fileset.toSource {
     root = ./.;
     fileset = lib.fileset.unions [
       ./probe.py
+      ./client.py
+      ./live.py
       ./model.py
     ];
   };
