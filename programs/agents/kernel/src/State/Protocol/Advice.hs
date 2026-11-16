@@ -17,6 +17,7 @@ module State.Protocol.Advice (
     due,
     skippable,
     advise,
+    heldBy,
     deliver,
     deliverMore,
     handsBack,
@@ -54,11 +55,11 @@ import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
@@ -157,6 +158,8 @@ data Action
       TriageStop RunId Stop
     | -- | A worker's hand-back line 1, for @state ask --from@ before the run goes on.
       TriageHandback AgentRole OneLine
+    | -- | A worker still at work, before the run hands back: its hand-back wakes the run.
+      AwaitWorker AgentRole AgentId
     | -- | Tasks with an agent at work, none of them waiting on this run.
       AwaitChildren (NonEmpty TaskId)
     | {- | Tasks neither merged nor parked, each with its PR if one was
@@ -554,6 +557,23 @@ taskLine fan open task =
             Round url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
 
+{- | The advice held while a worker of the run is still at work and its line
+would hand the run back: a lead hands back only after its workers, as a
+structured-concurrency scope ends only after its children. Decided on the
+delivered line, so 'advise' stays principal-blind. Names the oldest worker.
+-}
+heldBy :: Start -> [Worker] -> Advice -> Advice
+heldBy start live advice = case live of
+    worker : _
+        | handsBack (deliver start advice.action) ->
+            advice {action = AwaitWorker worker.role worker.agent, more = [], leads = [], facts = stillAtWork worker <> advice.facts}
+    _ -> advice
+  where
+    stillAtWork worker =
+        [ "state handback: " <> roleText worker.role <> " " <> worker.agent.agentIdText <> " is still at work - its hand-back is not recorded"
+        , "fix: wait for it, or state handback " <> roleText worker.role <> " for its report, or state void " <> tshow worker.spawnedAt <> " \"<why>\" for a lost one"
+        ]
+
 {- | The advice as its first line, for this principal and interface: the only
 place either is read.
 -}
@@ -578,6 +598,7 @@ deliver start = \case
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
     TriageStop child stop -> triageFrom (runIdText child) (stopLine stop)
     TriageHandback (AgentRole role) line -> triageFrom role (oneLineText line)
+    AwaitWorker role agent -> "AWAIT worker " <> roleText role <> " " <> agent.agentIdText
     AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
     -- Task ids mean nothing above this run: it hands up the PRs.
     AwaitMerge tasks
@@ -686,6 +707,7 @@ runOptions = \case
     Resume _ _ -> []
     TriageStop _ _ -> []
     TriageHandback _ _ -> []
+    AwaitWorker _ _ -> []
     AwaitChildren _ -> []
     AwaitMerge _ -> []
     Stopped _ -> []

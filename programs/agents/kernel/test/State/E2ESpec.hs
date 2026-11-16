@@ -705,6 +705,24 @@ spec = describe "the state binary" $ do
                     back `shouldSatisfy` mentions "state: recorded"
                     loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
+                it "hold a child engineer's hand-back while its worker is at work, and hand it back once the worker returned" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< state bin w1 ["override", "await_ci", "the", "test", "starts", "here"]
+                    _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "r1")
+                    before <- logLines repo
+
+                    held <- succeeded =<< state bin w1 ["next"]
+                    heldUp <- logLines repo
+                    _ <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "r1" "researcher") researched)
+                    released <- succeeded =<< state bin w1 ["next"]
+                    after <- logLines repo
+
+                    take 1 held `shouldBe` ["AWAIT worker researcher r1"]
+                    held `shouldSatisfy` mentions "state handback: researcher r1 is still at work - its hand-back is not recorded"
+                    heldUp `shouldBe` before
+                    take 1 released `shouldSatisfy` mentions "HANDBACK AWAIT ci"
+                    after `shouldSatisfy` (> before)
+
                 it "record a child engineer's own hand-back in its parent's log by its state call, its hand-back hook adding nothing" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo
 
@@ -1195,6 +1213,7 @@ balancedTranscript =
     [ "fuel -> gather"
     , "research.spawned -> gather"
     , "research.handed_back -> gather"
+    , "worker_returned -> gather"
     , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.done -> confirm"
@@ -1222,6 +1241,7 @@ cleanTranscript =
     [ "fuel -> gather"
     , "research.spawned -> gather"
     , "research.handed_back -> gather"
+    , "worker_returned -> gather"
     , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.done -> confirm"

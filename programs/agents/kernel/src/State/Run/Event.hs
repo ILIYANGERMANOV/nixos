@@ -4,7 +4,8 @@ step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A qu
 'Asking' and the events on its id that close it. The 10x's fan-out logs its
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
-'ActedOn') as stay events.
+'ActedOn') as stay events. A lead logs the workers it has at work
+('WorkerSpawned', 'WorkerReturned'), which it hands back after.
 -}
 module State.Run.Event (
     Envelope (..),
@@ -12,6 +13,7 @@ module State.Run.Event (
     EventId (..),
     eventId,
     RunId,
+    AgentId (..),
     parseRunId,
     runIdText,
     SessionId (..),
@@ -68,7 +70,7 @@ import State.Category.Fuel (Fuel)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
-import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
+import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Repo (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 
@@ -156,6 +158,14 @@ data Event
       (@state ask --from <role>@) before it goes on: a stop, or a question with no kind.
       -}
       WorkerHandedBack AgentRole OneLine
+    | {- | The lead spawned a worker of this role, at work until it returns
+      (written by the spawn's hook).
+      -}
+      WorkerSpawned AgentRole AgentId
+    | {- | A worker of this role handed back, by its id when the hook knows it:
+      it is at work no more.
+      -}
+      WorkerReturned AgentRole (Maybe AgentId)
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.

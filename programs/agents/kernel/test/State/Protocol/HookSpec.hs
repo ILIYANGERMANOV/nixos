@@ -15,7 +15,7 @@ import State.Category.Step (stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), slotOf)
 import State.Protocol.Hook
-import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped), SessionId (..), Stop (..), StopReason (..), Url (..), stepTook)
+import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped, WorkerSpawned), SessionId (..), Stop (..), StopReason (..), Url (..), stepTook)
 import State.Run.EventGen (line, logOf, run, runId, started)
 import State.Run.RunGen (childOf, commit, loadSteps, plainTask, runAt, tenXAt)
 import State.Step.Build (Outcome (..), Sing (Refactor))
@@ -205,6 +205,9 @@ spec = describe "the hooks" $ do
 
         it "records nothing after a compaction, which keeps the agents" $
             restartOf Compact atWork `shouldBe` Nothing
+
+        it "records a restart when the lead lost a worker at work" $
+            restartOf Startup (runAt [WorkerSpawned (AgentRole "fixer") (AgentId "a1")]) `shouldBe` Just Restarted
 
         it "records nothing on a run with no agent at work" $
             map (`restartOf` runAt []) [Startup, Resumed] `shouldBe` [Nothing, Nothing]

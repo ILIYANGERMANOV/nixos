@@ -18,7 +18,7 @@ import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
-import State.Run.Fold (RunState (..), replay)
+import State.Run.Fold (RunState (..), Worker (..), replay)
 import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, securityGraph, securityScope, sha, tenXAt, tenXGraph)
 import State.Step.Build (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
@@ -322,6 +322,26 @@ spec = describe "State.Protocol.Advice" $ do
         it "stops for the user, or hands the stop back to a parent run" $
             map (`deliver` Stopped (Stop OutOfRounds "review")) [start, child]
                 `shouldBe` ["STOP rounds review", "HANDBACK BLOCKED out of rounds: review"]
+
+    describe "heldBy" $ do
+        let fixer = [Worker (AgentRole "fixer") (AgentId "a1") 7]
+            finished = Advice (Done (Just prUrl)) [] "at the end: the flow is done" [commandOption "state record x" ""] ["fuel: balanced"] "" False
+        it "holds a hand-back to a parent while a worker is at work, naming it in house format" $
+            heldBy child fixer finished
+                `shouldBe` finished
+                    { action = AwaitWorker (AgentRole "fixer") (AgentId "a1")
+                    , leads = []
+                    , facts =
+                        [ "state handback: fixer a1 is still at work - its hand-back is not recorded"
+                        , "fix: wait for it, or state handback fixer for its report, or state void 7 \"<why>\" for a lost one"
+                        , "fuel: balanced"
+                        ]
+                    }
+        it "lets the hand-back go with no worker at work, and holds a line that hands nothing back" $
+            [heldBy child [] finished, heldBy start fixer finished, heldBy child fixer finished {action = Spawn (AgentRole "fixer") Nothing}]
+                `shouldBe` [finished, finished, finished {action = Spawn (AgentRole "fixer") Nothing}]
+        it "awaits the worker by its role and id" $
+            deliver child (AwaitWorker (AgentRole "fixer") (AgentId "a1")) `shouldBe` "AWAIT worker fixer a1"
 
     describe "ownAsk" $ do
         it "forwards a Design question to the user" $

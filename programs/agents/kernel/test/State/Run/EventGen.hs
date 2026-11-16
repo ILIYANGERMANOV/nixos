@@ -96,6 +96,8 @@ genEvent =
         , TaskAdded <$> (Gen.int (Range.linear 1 6) >>= genTaskAt)
         , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
+        , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
+        , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
         ]
 
 genPath :: Gen FilePath

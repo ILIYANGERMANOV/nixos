@@ -36,7 +36,7 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Run.Event (SessionId (..))
-import State.Run.Id (RunId, parseRunId, runIdText)
+import State.Run.Id (AgentId (..), RunId, parseRunId, runIdText)
 import System.FilePath (isAbsolute, (</>))
 
 -- | A run, its notes dir and the top of the worktree it is at, both absolute.
@@ -64,10 +64,6 @@ parseBinding line = do
 -- | The binding among a text's lines: a successful @state init@'s output, or a binding's file.
 bindingIn :: Text -> Maybe Binding
 bindingIn = listToMaybe . mapMaybe parseBinding . Text.lines
-
--- | A subagent's id, as its agent gives it: Claude Code's are hex.
-newtype AgentId = AgentId {agentIdText :: Text}
-    deriving stock (Eq, Show)
 
 -- | Whose binding: the session's own agent, or a subagent by its id.
 data Key = Main | AgentKey AgentId

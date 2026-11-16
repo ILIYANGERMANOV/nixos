@@ -86,6 +86,26 @@ spec = describe "State.Run.Fold" $ do
         it "frees every agent at a restart, so its child waits on the run" $
             fmap (.child.run) . Fan.waiting . currentFan <$> tenXRun (toEngineers <> [Spawned child, Restarted]) `shouldBe` Right [runId "c1"]
 
+    describe "a lead's workers" $ do
+        let fixer = AgentRole "fixer"
+            atWork events = map (\worker -> (worker.agent, worker.spawnedAt)) . (.live) <$> replay g (logOf (Started start0 :| events))
+            start0 = startOf EngineerFlow (ByUser OwnPr)
+            spawn role agent = WorkerSpawned role (AgentId agent)
+        it "holds each worker spawned, by the seq of its spawn, until the one of its id returns" $
+            atWork [spawn fixer "a1", spawn fixer "a2", WorkerReturned fixer (Just (AgentId "a2"))] `shouldBe` Right [(AgentId "a1", 1)]
+        it "closes the oldest of the role when the return names no id" $
+            atWork [spawn fixer "a1", spawn (AgentRole "implementer") "b1", spawn fixer "a2", WorkerReturned fixer Nothing] `shouldBe` Right [(AgentId "b1", 2), (AgentId "a2", 3)]
+        it "changes nothing at the return of a worker not at work" $
+            atWork [spawn fixer "a1", WorkerReturned fixer (Just (AgentId "a9")), WorkerReturned (AgentRole "implementer") Nothing] `shouldBe` Right [(AgentId "a1", 1)]
+        it "forgets every worker at a restart" $
+            atWork [spawn fixer "a1", Restarted] `shouldBe` Right []
+        it "a_worker_returned_by_its_id_is_at_work_no_more" . hedgehog $ do
+            -- A hook logs each worker's spawn once: ids are distinct.
+            ids <- forAll (Gen.shuffle =<< Gen.subsequence ["a1", "a2", "a3", "a4", "a5"])
+            back <- forAll (Gen.shuffle =<< Gen.subsequence ids)
+            let left = map fst <$> atWork (map (spawn fixer) ids <> [WorkerReturned fixer (Just (AgentId agent)) | agent <- back])
+            fmap (filter (`elem` map AgentId back)) left === Right []
+
     describe "two fan-outs in one flow" $ do
         let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
             t1 = TaskId "t1"

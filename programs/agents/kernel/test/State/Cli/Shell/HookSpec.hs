@@ -118,7 +118,7 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 first.code `shouldBe` 0
-                contextOf first `shouldBe` Just ("run " <> run <> ": state: recorded 9 implement.done -> refactor\n")
+                contextOf first `shouldBe` Just ("run " <> run <> ": state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor\n")
                 first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
@@ -166,7 +166,7 @@ spec = describe "state-hook over the doubles" $ do
 
                 (contextOf spawn, early.code, contextOf back, enough.code)
                     `shouldSatisfy` \case
-                        (Just opened, 2, Just closed, 0) -> "recorded 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded 5 research.handed_back -> gather" `Text.isInfixOf` closed
+                        (Just opened, 2, Just closed, 0) -> "recorded 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded 6 research.handed_back -> gather" `Text.isInfixOf` closed
                         _ -> False
 
             it "opens no child for a spawn past the researchers' cap, and tells the refusal" $ \world -> do
@@ -186,14 +186,14 @@ spec = describe "state-hook over the doubles" $ do
 
                 loggedEvents world `shouldReturn` ["started", "fuel"]
 
-            it "leaves a researcher's hand-back off the gather to the lead" $ \world -> do
+            it "leaves a researcher's hand-back off the gather to the lead, logging only that it returned" $ \world -> do
                 _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"]]
                 _ <- hook world "bind" (spawnResult "researcher")
 
                 said <- hook world "handback" (handedBack "researcher")
 
                 (said.code, said.out) `shouldBe` (0, [])
-                loggedEvents world `shouldReturn` ["started", "fuel", "gather.enough"]
+                loggedEvents world `shouldReturn` ["started", "fuel", "gather.enough", "worker_spawned", "worker_returned"]
 
         describe "bind" $ do
             it "leaves an unbound worker's hand-back unrecorded until its spawner's hook binds it, then records it once" $ \world -> do
@@ -208,8 +208,8 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 (early.code, early.out, length unbound) `shouldBe` (0, [], length before')
-                contextOf bound `shouldSatisfy` maybe False ("state: recorded 9 implement.done -> refactor" `Text.isInfixOf`)
-                (length once, length twice) `shouldBe` (length before' + 1, length once)
+                contextOf bound `shouldSatisfy` maybe False ("state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor" `Text.isInfixOf`)
+                (length once, length twice) `shouldBe` (length before' + 3, length once)
                 contextOf again `shouldSatisfy` maybe False (not . Text.isInfixOf "recorded")
 
             it "records a worker's hand-back made after its spawner's hook bound it" $ \world -> do
@@ -220,7 +220,7 @@ spec = describe "state-hook over the doubles" $ do
                 back <- hook world "handback" (handedBack "implementer")
 
                 contextOf bound `shouldBe` Just ("run " <> run <> ": state: implementer a1 works in this run\n")
-                contextOf back `shouldBe` Just ("run " <> run <> ": state: recorded 9 implement.done -> refactor\n")
+                contextOf back `shouldBe` Just ("run " <> run <> ": state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor\n")
 
             it "binds no subagent no flow knows, whose hand-back stays its own" $ \world -> do
                 _ <- drive world (init toImplement)

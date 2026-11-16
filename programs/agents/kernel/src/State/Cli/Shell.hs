@@ -228,12 +228,24 @@ bindAnswer steps name call bind slot bound = case bind of
         case (worktree, childSlot) of
             (Just (binding, Standing), Just at) -> telling name (Just binding.run) $ do
                 writeBinding at binding
+                -- Logged before a stashed hand-back replays, so that hand-back returns it.
+                logged <- if Hook.tracked steps role then workerSpawned binding call.session child role else pure ""
                 stashed <- replayStash steps name at binding
-                pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child.agentIdText <> " works in this run\n") <> stashed)
+                pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child.agentIdText <> " works in this run\n" <> logged) <> stashed)
             -- A removed worktree's run is done: it takes no worker.
             (Just (_, Removed), _) -> pure ""
             (Nothing, _) -> pure ""
             (_, Nothing) -> pure ""
+
+{- | The worker's spawn, appended to its spawner's log under that run's lock
+by an id hashed from the run and the worker, so a bind seen twice appends it
+once: the run hands back only once the worker returned. A refusal is told.
+-}
+workerSpawned :: (Shell es) => Binding -> SessionId -> AgentId -> AgentRole -> Eff es Text
+workerSpawned binding session child role = either (failureText "bind") (const "") <$> onLog append (logOf binding.notes)
+  where
+    source = Hook (digestOf [runIdText binding.run, child.agentIdText, "worker_spawned"])
+    append stamp run = record (Stamp stamp.ts stamp.head (Just session)) run [source] (Right (Plan [WorkerSpawned role child] (\_ _ -> mempty)))
 
 {- | The hand-back stashed in a worker's slot, recorded in the run it is bound
 to now, then removed; nothing when none is. Recorded twice when both hooks
@@ -338,9 +350,13 @@ runAnswer steps call bound found want = case want of
     Hook.HandedBack message agent role ->
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
-             in if loggedAlready run.logged sources || not (followedAt run.state.at role)
-                    then ([], "")
-                    else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text)) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
+                said = either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text))
+             in case (loggedAlready run.logged sources, followedAt run.state.at role, Fold.returnOf run.state role agent.agentId) of
+                    (True, _, _) -> ([], "")
+                    (False, True, _) -> said <$> record stamp run sources (handbackPlan steps stamp.head run.state role agent.agentId Nothing message)
+                    -- A worker spawned beside the advice returns, its report its spawner's alone.
+                    (False, False, Just back) -> said <$> record stamp run sources (Right (Plan [back] (\_ _ -> mempty)))
+                    (False, False, Nothing) -> ([], "")
     AskedUser -> runPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
     -- A run that is over, bound to another branch or whose PR is merged or closed is
@@ -387,7 +403,7 @@ execute steps = \case
         input <- Console.readStdin
         case decodeUtf8' input of
             Left _ -> pure (Left (Failure BadInput "the hand-back" "stdin is not UTF-8" "state help"))
-            Right message -> fmap (.text) . orNoRun <$> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
+            Right message -> fmap (.text) . orNoRun <$> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role Nothing child message))
     OnRun command -> do
         -- Read before the lock, as GitHub is.
         file <- traverse FileSystem.readText (fileOf command)
@@ -477,11 +493,11 @@ planOf steps worktreeHead file g state = \case
 {- | A worker's hand-back as the run records it. One with no kind on its
 question, or a worker's BLOCKED or FAILED, is the run's to triage.
 -}
-handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe RunId -> Text -> Either Failure Plan
-handbackPlan steps worktreeHead state role child message = do
+handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe AgentId -> Maybe RunId -> Text -> Either Failure Plan
+handbackPlan steps worktreeHead state role agent child message = do
     parsed <- unread (parseHandback message)
     let run = parsed.run <|> child
-    typed <- unread (typeHandback steps state worktreeHead role parsed {Handback.run = run})
+    typed <- unread (typeHandback steps state worktreeHead role agent parsed {Handback.run = run})
     let from = maybe (roleText role) runIdText run
         triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> from <> " <question>\n"
     Right (Plan typed.events (\after new -> printed (recordedLines after new <> foldMap triage typed.untriaged)))
@@ -498,7 +514,7 @@ adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, 
 adviceOf steps facts told stamp run = (new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
-    advice = advise steps settled.g facts settled.state
+    advice = Advice.heldBy settled.state.start settled.state.live (advise steps settled.g facts settled.state)
     out =
         recorded settled.state new
             <> delivered settled.state (deliver settled.state.start advice.action)
@@ -619,7 +635,7 @@ handedUp steps up =
     sources = [Hook (digestOf [runIdText up.child, up.once, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
-        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state up.role (Just up.child) up.text) of
+        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state up.role Nothing (Just up.child) up.text) of
             -- The child tells its refusal; the parent's log does not keep it.
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())

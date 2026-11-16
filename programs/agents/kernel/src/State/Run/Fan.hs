@@ -445,7 +445,7 @@ mergesAwaited fan = [dep.id | dep <- fan.tasks, opened dep.id, any (elem dep.id 
 
 -- | The PRs in CI of the tasks with no agent at work, in the breakdown's order: the 10x waits for their CI.
 ciAwaited :: Fan -> [Url]
-ciAwaited fan = [url | task <- fan.tasks, Just (InCi url) <- [Map.lookup task.id fan.moves], task.id `notElem` map (.id) (busy fan)]
+ciAwaited fan = [url | task <- fan.tasks, task.id `notElem` map (.id) (busy fan), Just (InCi url) <- [Map.lookup task.id fan.moves]]
 
 -- | The tasks with an agent at work or a child running, in the breakdown's order.
 busy :: Fan -> [Task]

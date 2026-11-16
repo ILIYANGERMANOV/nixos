@@ -67,6 +67,7 @@ import State.Category.Step (eventText)
 import State.Role (flowText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
+    AgentId (..),
     AgentRole (..),
     AnyOutcome,
     Asker (..),
@@ -226,6 +227,8 @@ eventType = \case
     TaskAdded _ -> "task_added"
     Restarted -> "restarted"
     WorkerHandedBack _ _ -> "worker_handed_back"
+    WorkerSpawned _ _ -> "worker_spawned"
+    WorkerReturned _ _ -> "worker_returned"
 
 eventData :: Event -> Series
 eventData = \case
@@ -270,6 +273,8 @@ eventData = \case
     TaskAdded task -> pair "task" (taskEncoding task)
     Restarted -> mempty
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
+    WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
+    WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
   where
     qidData qid = "qid" .= qidText qid
 
@@ -296,6 +301,8 @@ eventOf kind obj = case kind of
     "task_added" -> TaskAdded <$> (obj .: "task" >>= Artifact.taskOf)
     "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
+    "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
+    "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)

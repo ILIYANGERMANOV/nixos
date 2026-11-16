@@ -4,6 +4,7 @@ the events carry, such as "State.Run.Ask", can name a run or an event too.
 module State.Run.Id (
     RunId,
     TaskId (..),
+    AgentId (..),
     parseRunId,
     runIdText,
     numberedText,
@@ -32,6 +33,10 @@ import State.Step.Artifact (TaskId (..))
 -}
 newtype RunId = RunId Text
     deriving stock (Eq, Ord, Show)
+
+-- | A subagent's id, as its agent gives it: Claude Code's are hex.
+newtype AgentId = AgentId {agentIdText :: Text}
+    deriving stock (Eq, Show)
 
 {- | A CLI record's id is @<run>:<seq>@ and a hook record's @h:<hash>@ (#360),
 so a run id is never @h@ and holds no @:@: either would let a CLI id spell a
