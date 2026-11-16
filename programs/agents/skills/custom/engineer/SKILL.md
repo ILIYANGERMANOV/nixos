@@ -37,8 +37,8 @@ who owns each decision.
   every implementer, refactorer and fixer brief, and the plan-wrong line into a
   review-lead's.
 - **`state` holds the record and the mechanics** (`state help`, `state <command> --help`). When your
-  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes <dir>`, plus `--pr <url>` on an existing PR, the notes directory being
-  `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug the branch name with each character but an ASCII letter, digit, `.`, `_` or `-` a `-`. Then loop:
+  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes /tmp/engineer-<owner>-<repo>-<slug>/`, plus `--pr <url>` on an existing PR,
+  the slug the branch name (on `--pr`, the PR's head branch), each character but `[A-Za-z0-9._-]` a `-`. Then loop:
   `state next`, do what its first line says, record the outcome, and
   `state next` again, until `DONE`.
 
@@ -193,7 +193,9 @@ the **acceptance criteria** - each goal as a checkable
 statement, input to observable outcome. A plan touching auth, sessions,
 authorization, databases, secrets or CI states `Security-sensitive: <topics>`
 from `ci`, `auth`, `database`, `secrets`. Attach the PR to the session when
-your instructions say how (`add_repo`, `subscribe_pr_activity`).
+your instructions say how (`add_repo`, `subscribe_pr_activity`). A round (`--pr`,
+a `Round on PR:` brief) stays on the PR's branch, opens no PR:
+`state next` records the draft.
 
 **Implement.** One implementer explores
 and implements a self-contained slice: splitting exploring from implementing
@@ -240,9 +242,9 @@ and CI runs.
   A missing secret is a `Security` question.
 - On green and simplified, `gh pr ready <n>`, then, in a run with no parent,
   notify, pasting the body's `## What & Why` and optional next
-  steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or
+  steps: `/qa <PR>` in a fresh session for a UI or
   runtime change, `/final-review --requirements <path> <PR>`,
   `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
   commented. Only the user runs them.
-- A `--pr` run or a `Round on PR:` brief is a round: `state` records
-  `ready.skipped <url>` itself and the PR stays as it is; never `gh pr ready`.
+- A round leaves its PR as is: `state` records `ready.skipped <url>`;
+  never `gh pr ready`.

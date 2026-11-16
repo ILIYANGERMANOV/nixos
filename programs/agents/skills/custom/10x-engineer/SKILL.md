@@ -232,9 +232,10 @@ body's Key decisions.
 dropped or reshaped across tasks, is the user's: ask it, then
 `state override plan <why>` and Propose again. Finished tasks stay.
 
-**Round on a PR.** More work on one task's PR in review, kept or merged:
-`state record task <id> round <url>`. `state next` spawns the task again, its
-brief on a fresh notes dir, and its READY keeps the PR.
+**Round on a PR.** More work on one task's PR in review or kept:
+`state record task <id> round <url>`, then rewrite `briefs/<id>.md` from
+`state brief engineer --task <id>` and spawn as `state next` says. Its READY
+keeps the PR.
 
 **CI.** A child's `AWAIT ci <PR>`: `subscribe_pr_activity`, then
 `gh pr checks <n> --repo <owner>/<repo>` once, since events before the
@@ -287,7 +288,7 @@ The user approves on GitHub. Push one line saying how many PRs wait.
 **Merge loop.** On an approval wake, follow
 `${CLAUDE_SKILL_DIR}/references/merge.md`.
 
-**Next round.** The user wants another round on a kept PR: Round on a PR.
+**Next round.** The user wants another round on a task's PR: Round on a PR.
 Work that needs a new plan: `state record merge.next_round` takes the run back
 to gather with fresh budgets.
 
