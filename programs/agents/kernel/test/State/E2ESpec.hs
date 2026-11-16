@@ -718,6 +718,42 @@ spec = describe "the state binary" $ do
 
                     said `shouldBe` []
 
+            describe "hold a lead's writes until its run starts" $ do
+                it "deny a typed /engineer's edit before its state init, naming the init" $ \repo -> do
+                    _ <- succeeded =<< hook hookBin repo "begin" (typed repo "engineer")
+
+                    said <- succeeded =<< hook hookBin repo "route" (edited repo Null)
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>\n" `Text.isSuffixOf`)
+
+                it "deny a typed /10x-engineer's commit before its state init, naming the 10x's init" $ \repo -> do
+                    _ <- succeeded =<< hook hookBin repo "begin" (typed repo "10x-engineer")
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo Null "git commit -m x")
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes \"$PWD\" --flow 10x" `Text.isInfixOf`)
+
+                it "let a typed /engineer edit and commit once its state init bound it" $ \repo -> do
+                    _ <- succeeded =<< hook hookBin repo "begin" (typed repo "engineer")
+                    _ <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+
+                    said <- traverse (succeeded <=< hook hookBin repo "route") [edited repo Null, ranIn repo Null "git add . && git commit -m x"]
+
+                    said `shouldBe` [[], []]
+
+                it "deny an unbound spawned engineer's push, pointing at its prompt's init line" $ \repo -> do
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo (worker "e9" "engineer") "git push -u origin HEAD")
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`)
+
+                it "never gate a plain session or an implementer" $ \repo -> do
+                    said <- traverse (succeeded <=< hook hookBin repo "route") [edited repo Null, ranIn repo Null "git commit -m x", edited repo (worker "i1" "implementer")]
+
+                    said `shouldBe` [[], [], []]
+
             describe "tell how work begins" $ do
                 it "tell a spawned engineer its run starts at its prompt's init line" $ \repo -> do
                     said <- succeeded =<< hook hookBin repo "begin" (agentStarted repo (worker "e1" "engineer"))
@@ -733,7 +769,7 @@ spec = describe "the state binary" $ do
                     replyField "context" said `shouldBe` Just (Text.unlines brief)
 
                 it "tell a typed /engineer it begins with state" $ \repo -> do
-                    said <- succeeded =<< hook hookBin repo "begin" (hookEvent repo Null ["event" .= String "promptExpansion", "skill" .= String "engineer"])
+                    said <- succeeded =<< hook hookBin repo "begin" (typed repo "engineer")
 
                     replyField "context" said `shouldSatisfy` maybe False ("`state init ...`" `Text.isInfixOf`)
 
@@ -869,6 +905,14 @@ shouldReturnContaining act expected = act >>= \got -> for_ expected (\e -> got `
 -- | This agent's shell command about to run, its hook firing in the repo's worktree.
 ranIn :: Repo -> Value -> Text -> String
 ranIn repo agent command = hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "shell", "input" .= object ["command" .= command], "history" .= ([] :: [Text])]
+
+-- | The lead typing @/<skill>@.
+typed :: Repo -> Text -> String
+typed repo skill = hookEvent repo Null ["event" .= String "promptExpansion", "skill" .= skill]
+
+-- | This agent (the lead: @Null@) about to edit a file.
+edited :: Repo -> Value -> String
+edited repo agent = hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "edit", "input" .= object ["file_path" .= String "README.md"], "history" .= ([] :: [Text])]
 
 -- | This subagent starting, its hook firing in the repo's worktree.
 agentStarted :: Repo -> Value -> String

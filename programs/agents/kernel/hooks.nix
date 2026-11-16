@@ -39,14 +39,22 @@ in
       ];
       command = command "bind";
     };
-    # Denies a `state` call aimed at another run than the agent is bound to.
+    # Denies a `state` call aimed at another run than the agent is bound to,
+    # and a lead's write (an edit, a commit, a push, a PR, a spawn) before its
+    # `state init` (State.Cli.Route.gate).
     state-route = {
       on = "beforeTool";
-      tools = [ "shell" ];
+      tools = [
+        "shell"
+        "edit"
+        "write"
+        "delegate"
+      ];
       command = command "route";
     };
-    # How work begins: a spawned engineer's run or a worker's brief, and a
-    # lead skill typed or called (State.Cli.View.beginText).
+    # How work begins: a spawned lead's run or a worker's brief, and a lead
+    # skill typed or called (State.Cli.View.beginText), which marks its agent
+    # a lead.
     state-begin-agent = {
       on = "agentStart";
       command = command "begin";

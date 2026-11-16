@@ -16,5 +16,5 @@ Available commands:
   handback                 Before a hand-back: records it, printing the record
   asked                    After an ask: answer lines of questions to the user
   bind                     After a shell or delegate: binds the agent to its run
-  route                    Before a shell: denies a state command at another run
+  route                    Denies a state call off its run, a write before init
   begin                    At a spawn or a lead skill: how its work begins

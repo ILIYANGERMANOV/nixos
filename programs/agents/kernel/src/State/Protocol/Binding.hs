@@ -6,6 +6,7 @@ is at, so each hook first reads the agent's binding to its run:
 <root>/<session>/main                       the session's own agent
 <root>/<session>/<agent id>                 a subagent
 <root>/<session>/handback-<agent id>.json   a hand-back seen before its agent was bound
+<root>/<session>/lead-<main|agent id>       the lead skill an agent began (@engineer@)
 @
 
 The root is @$XDG_STATE_HOME/state/bindings@. A binding's text is the @run@
@@ -25,6 +26,7 @@ module State.Protocol.Binding (
     slotOf,
     bindingFile,
     stashFile,
+    leadFile,
     Worktree (..),
     resolve,
     staleNote,
@@ -106,6 +108,10 @@ bindingFile slot = slot.dir </> slot.name
 
 stashFile :: Slot -> FilePath
 stashFile slot = slot.dir </> ("handback-" <> slot.name <> ".json")
+
+-- | Marks a key a lead: holds the lead skill its agent began, so its writes wait for its run. Never removed.
+leadFile :: Slot -> FilePath
+leadFile slot = slot.dir </> ("lead-" <> slot.name)
 
 -- | Whether a binding's worktree still stands: one is removed once its PR merged.
 data Worktree = Standing | Removed

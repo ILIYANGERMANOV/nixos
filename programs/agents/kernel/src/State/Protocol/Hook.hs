@@ -10,19 +10,21 @@ asked     afterTool ask         the answer lines of questions awaiting the user
 bind      afterTool shell       binds the agent to the run its @state init@ started or resumed
           afterTool delegate    binds a worker spawned to its spawner's run; records a hand-back it made first
 route     beforeTool shell      denies a @state@ command aimed at another run than the agent's
-begin     agentStart            context: how a spawned engineer begins, or a worker's brief
-          promptExpansion       context: how a typed lead skill begins
-          beforeTool skill      context: how a called lead skill begins
+          beforeTool edit,      denies an unbound lead's write: an edit, a commit, a push, a PR
+          write, delegate       opened or merged, a spawn
+begin     agentStart            context: how a spawned lead begins, or a worker's brief
+          promptExpansion       context: how a typed lead skill begins; marks the agent a lead
+          beforeTool skill      context: how a called lead skill begins; marks the agent a lead
 @
 
 Each finds the caller's run through its binding ("State.Protocol.Binding"),
 and its reply names the run it acted on; @begin@ reads no run.
 
-Only @route@ denies, and only a @state@ call at another run than the one the
-agent is bound to. None rewrites a call: what a hook says is context, a
-refusal or an error too (fail open and tell); auto mode denies a call a hook
-rewrote. Only the lead steers: a subagent's spawn or question is ignored, but
-a hand-back, which only a subagent makes. A child run's hand-back is its own
+Only @route@ denies: a @state@ call at another run than the one the agent is
+bound to, and a lead's write before its run exists. None rewrites a call:
+what a hook says is context, a refusal or an error too (fail open and tell);
+auto mode denies a call a hook rewrote. Only the lead steers: a subagent's
+spawn or question is ignored, but a hand-back, which only a subagent makes. A child run's hand-back is its own
 @state@'s to record in its parent's run, so the hook leaves it be.
 -}
 module State.Protocol.Hook (
@@ -40,6 +42,10 @@ module State.Protocol.Hook (
     Want (..),
     Bind (..),
     Begin (..),
+    LeadSkill (..),
+    leadSkill,
+    leadSkillName,
+    Gate (..),
     wants,
     keyOf,
     Delivery (..),
@@ -66,6 +72,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
@@ -111,7 +118,7 @@ hookPurpose = \case
     HandbackHook -> "Before a hand-back: records it, printing the record"
     AskedHook -> "After an ask: answer lines of questions to the user"
     BindHook -> "After a shell or delegate: binds the agent to its run"
-    RouteHook -> "Before a shell: denies a state command at another run"
+    RouteHook -> "Denies a state call off its run, a write before init"
     BeginHook -> "At a spawn or a lead skill: how its work begins"
 
 -- | One event of the neutral contract. @history@ and @context@ are required, never read.
@@ -194,9 +201,13 @@ startSourceName = \case
     Compact -> "compact"
 
 {- | What a hook does: ask the caller's run, bind an agent to its run, route
-a shell command (its text) to the agent's run, or tell how work begins.
+a call to the agent's run, or tell how work begins.
 -}
-data Job = Asks Want | Binds Bind | Routes Text | Begins Begin
+data Job = Asks Want | Binds Bind | Routes Gate | Begins Begin
+    deriving stock (Eq, Show)
+
+-- | A call @route@ weighs: a shell command (its text), or a write no run may miss.
+data Gate = RunsShell Text | Edits | Writes | Spawns
     deriving stock (Eq, Show)
 
 -- | What a hook asks of the worktree's run.
@@ -219,14 +230,14 @@ data Bind
 
 -- | Whose work begins, and where its text goes.
 data Begin
-    = -- | A spawned engineer, which leads a run of its own.
+    = -- | A spawned lead (an engineer, a 10x), which leads a run of its own.
       SpawnedLead
     | -- | A spawned step runner.
       SpawnedWorker AgentRole
     | -- | A lead skill typed as @/name@: context beside the prompt.
-      TypedSkill
+      TypedSkill LeadSkill
     | -- | A lead skill the agent called: context beside the call.
-      CalledSkill
+      CalledSkill LeadSkill
     deriving stock (Eq, Show)
 
 {- | What the hook asks of the run, 'Nothing' when it has nothing to do: a
@@ -269,15 +280,27 @@ wants steps hook event = case hook of
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
     RouteHook -> case event of
-        BeforeTool _ tool input -> Right (Routes <$> (guard (tool == Shell) *> textAt "command" input))
+        BeforeTool _ tool input ->
+            Right $
+                Routes <$> case tool of
+                    Shell -> RunsShell <$> textAt "command" input
+                    Edit -> Just Edits
+                    Write -> Just Writes
+                    Delegate -> Just Spawns
+                    Read -> Nothing
+                    HandbackTool -> Nothing
+                    Ask -> Nothing
+                    Web -> Nothing
+                    Skill -> Nothing
+                    Other -> Nothing
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
     BeginHook -> case event of
         AgentStart call -> Right (Begins <$> (spawnedBegin steps =<< (.role) =<< call.agent))
-        PromptExpansion _ skill -> Right (Begins TypedSkill <$ guard (isLeadSkill skill))
-        BeforeTool _ tool input -> Right (Begins CalledSkill <$ (guard (tool == Skill) *> textAt "skill" input >>= guard . isLeadSkill))
+        PromptExpansion _ skill -> Right (Begins . TypedSkill <$> leadSkill skill)
+        BeforeTool _ tool input -> Right (Begins . CalledSkill <$> (guard (tool == Skill) *> textAt "skill" input >>= leadSkill))
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
   where
@@ -308,8 +331,17 @@ the kernel does not read) puts them on the leads' inline steps beside
 @engineering@, which begins no run, and a flow's name is not its skill's
 (the @10x@ flow runs under @10x-engineer@).
 -}
-isLeadSkill :: Text -> Bool
-isLeadSkill skill = skill `elem` ["engineer", "10x-engineer"]
+data LeadSkill = EngineerSkill | TenXSkill
+    deriving stock (Eq, Show, Enum, Bounded)
+
+-- | The lead skill a name names; 'Nothing' for any other skill.
+leadSkill :: Text -> Maybe LeadSkill
+leadSkill name = find ((== name) . leadSkillName) [minBound ..]
+
+leadSkillName :: LeadSkill -> Text
+leadSkillName = \case
+    EngineerSkill -> "engineer"
+    TenXSkill -> "10x-engineer"
 
 {- | What a tool's result binds: a shell command that ran @state init@ binds
 its caller to the run init printed, a rerun (a resume) again; a spawn of a
@@ -525,8 +557,8 @@ toldOf job said = case job of
     Routes _ -> Allow said
     Begins SpawnedLead -> Note said
     Begins (SpawnedWorker _) -> Note said
-    Begins TypedSkill -> Note said
-    Begins CalledSkill -> Allow said
+    Begins (TypedSkill _) -> Note said
+    Begins (CalledSkill _) -> Allow said
 
 -- | @agent_hook.py@'s @emit_result@: nothing when there is nothing to say.
 encodeReply :: Reply -> Maybe LBS.ByteString

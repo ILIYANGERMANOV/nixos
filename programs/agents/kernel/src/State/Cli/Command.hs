@@ -18,6 +18,7 @@ module State.Cli.Command (
     parseHook,
     optparseText,
     failureText,
+    initFix,
     noteOf,
     explain,
     unknownEvent,
@@ -122,6 +123,10 @@ data Exit = BadInput | Outage
 
 failureText :: Text -> Failure -> Text
 failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> failure.why <> "\nfix: " <> failure.fix <> "\n"
+
+-- | The fix where a run is missing: start one, its notes dir as the skills name it.
+initFix :: Text
+initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
 noteOf :: Failure -> Note

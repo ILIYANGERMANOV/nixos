@@ -107,7 +107,7 @@ pkgs.runCommand "claude-config-check"
     entries='.hooks | to_entries[] | .key as $event | .value[]'
     check_hooks() {
       [ "$(jq -c "[$entries | {event: \$event, matcher}]" "$2")" = \
-        '[{"event":"PostToolUse","matcher":null},{"event":"PreToolUse","matcher":"Agent|Bash|Read|Skill|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"},{"event":"SubagentStart","matcher":null},{"event":"UserPromptExpansion","matcher":null}]' ] ||
+        '[{"event":"PostToolUse","matcher":null},{"event":"PreToolUse","matcher":"Agent|Bash|Edit|Read|Skill|SubagentHandback|Write"},{"event":"SessionStart","matcher":"startup|resume|compact"},{"event":"SubagentStart","matcher":null},{"event":"UserPromptExpansion","matcher":null}]' ] ||
         { echo "$1 settings: the hook entries differ" >&2; exit 1; }
       commands=$(jq -r "[$entries | .hooks[].command] | unique | .[]" "$2")
       case "$commands" in

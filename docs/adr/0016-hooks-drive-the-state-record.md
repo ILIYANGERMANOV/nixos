@@ -10,7 +10,8 @@ and the `pr` hook is gone. ADR 0018 amends it: the Haskell `state-hook`
 replaces the Python hooks, and keys each event on a content hash, so a hook
 that fires twice appends once. #402 and #403 amend it: hooks bind every agent
 to its run, so they reach subagents at any depth; the first deny, a `state`
-call aimed at another run; and context as work begins.
+call aimed at another run; and context as work begins. #378 amends it: a
+guard denies a lead's writes until its `state init`.
 
 ## Evidence
 
@@ -29,9 +30,10 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
 ## Decisions
 
 - **Advisory, fail open and tell.** One hook denies (below): `route`, a
-  `state` call aimed at another run than the agent's. A hook that fails, or a
-  `state` refusal, lets the call go on and adds `state hook <name>: <error>`
-  and the refusal's `fix:` line to the agent's context.
+  `state` call aimed at another run than the agent's, and an unbound lead's
+  writes. A hook that fails, or a `state` refusal, lets the call go on and
+  adds `state hook <name>: <error>` and the refusal's `fix:` line to the
+  agent's context.
 - **The hooks** (`programs/agents/kernel/hooks.nix`, `state-hook <name>`). Each
   does nothing in a worktree with no run, or with a run at `Done`.
 
@@ -43,8 +45,8 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
   | asked | after the lead asks, in Ctx | records `asked` |
   | bind | after a shell call ran `state init`; after a spawn of a flow role | binds the agent to the run init printed; binds the worker to its spawner's run |
-  | route | before a shell call | denies a `state` call aimed at another run than the agent is bound to, `fix: cd <its worktree> && state ...` |
-  | begin | a subagent starts; a typed `/engineer` or `/10x-engineer`, or a Skill call of one | tells a spawned engineer its run starts at its prompt's `state init` line, a worker its `state brief`, a lead skill to begin with `state` |
+  | route | before a shell call, an edit, a write or a spawn | denies a `state` call aimed at another run than the agent is bound to, `fix: cd <its worktree> && state ...`; denies an unbound lead's writes, `fix:` its `state init` |
+  | begin | a subagent starts; a typed `/engineer` or `/10x-engineer`, or a Skill call of one | marks a lead that typed or called a lead skill; tells a spawned lead its run starts at its prompt's `state init` line, a worker its `state brief`, a lead skill to begin with `state` |
 
 - **What stays manual** is what only the model decides: Size, Quality,
   `planned`, `proposed`, `confirmed`, `adjusted`, a review's `picked` rows and
@@ -104,11 +106,19 @@ link.
   would rewrite every hook.
 - **Hooks that deny** (a spawn out of order, a Stop hook refusing "done").
   Still out: ADR 0015's reason holds, and a refusal that blocks work costs
-  more than one that tells. The one deny is a `state` call aimed at another
-  run, whose effect is a wrong record, not a slower step, and whose fix is
-  one `cd`. Every run-reading command counts, `show`, `pending` and `brief`
-  too: a child's run is read by that child, in its own worktree. A guard on
-  a `state` call with no run may follow on the same deny.
+  more than one that tells. Two denies pass that bar: each prevents a wrong
+  or missing record, not a slower step, and its fix is one command. The
+  first is a `state` call aimed at another run, fixed by a `cd`. Every
+  run-reading command counts, `show`, `pending` and `brief` too: a child's
+  run is read by that child, in its own worktree. The second, the guard
+  (#378), is a lead's write before its run exists: an agent bound to no run
+  that began `/engineer` or `/10x-engineer`, or a spawned role that leads a
+  flow, is denied an edit, a write, a spawn, `git commit`, `git push`,
+  `gh pr create` and `gh pr merge`, fixed by its `state init`. Reads,
+  research and `state` pass, and every other agent is never guarded. A shell
+  command the simple reader cannot follow passes: the guard is a nudge, not
+  a sandbox. NotebookEdit is not guarded: naming it for the hook would grant
+  it to every editing role (`codegen/tools.nix`).
 
 ## Consequences
 

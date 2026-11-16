@@ -85,20 +85,23 @@ spec = describe "the hooks" $ do
         it "refuses a hook at an event it is not declared on" $
             wants steps SpawnHook (SessionStart (Call (SessionId "s") "/w" Nothing) Startup) `shouldBe` Left "state-hook spawn does not run at sessionStart"
 
-    describe "what a shell call routes" $ do
+    describe "what a call routes" $ do
         let shell agent tool command = wants steps RouteHook (BeforeTool (Call (SessionId "s") "/w" agent) tool (KeyMap.fromList [("command", String command)]))
         it "routes any agent's shell command" $
-            map (\agent -> shell agent Shell "state next") [Nothing, Just reviewLead] `shouldBe` replicate 2 (Right (Just (Routes "state next")))
+            map (\agent -> shell agent Shell "state next") [Nothing, Just reviewLead] `shouldBe` replicate 2 (Right (Just (Routes (RunsShell "state next"))))
 
-        it "routes no other tool's call" $
-            shell Nothing Read "state next" `shouldBe` Right Nothing
+        it "routes an edit, a write and a spawn, for the gate to weigh" $
+            map (\tool -> shell Nothing tool "") [Edit, Write, Delegate] `shouldBe` map (Right . Just . Routes) [Edits, Writes, Spawns]
+
+        it "routes no read, research or other call" $
+            map (\tool -> shell Nothing tool "state next") [Read, Web, Ask, Skill, Other] `shouldBe` replicate 5 (Right Nothing)
 
     describe "how work begins" $ do
         let startOf role = wants steps BeginHook (AgentStart (Call (SessionId "s") "/w" (Just (Agent (Just (AgentId "a1")) (AgentRole <$> role)))))
             called tool skill = wants steps BeginHook (BeforeTool (Call (SessionId "s") "/w" Nothing) tool (KeyMap.fromList [("skill", String skill)]))
-        it "begins a spawned engineer's run, and a step runner's brief" $
-            map (startOf . Just) ["engineer", "implementer", "review-lead"]
-                `shouldBe` map (Right . Just . Begins) [SpawnedLead, SpawnedWorker (AgentRole "implementer"), SpawnedWorker (AgentRole "review-lead")]
+        it "begins a spawned lead's run, and a step runner's brief" $
+            map (startOf . Just) ["engineer", "10x", "implementer", "review-lead"]
+                `shouldBe` map (Right . Just . Begins) [SpawnedLead, SpawnedLead, SpawnedWorker (AgentRole "implementer"), SpawnedWorker (AgentRole "review-lead")]
 
         it "says nothing to an agent the flows do not spawn, or one with no role" $
             map startOf [Just "reviewer", Just "Explore", Nothing] `shouldBe` replicate 3 (Right Nothing)
@@ -107,7 +110,7 @@ spec = describe "the hooks" $ do
             [ wants steps BeginHook (PromptExpansion (Call (SessionId "s") "/w" Nothing) "engineer")
             , called Skill "10x-engineer"
             ]
-                `shouldBe` [Right (Just (Begins TypedSkill)), Right (Just (Begins CalledSkill))]
+                `shouldBe` [Right (Just (Begins (TypedSkill EngineerSkill))), Right (Just (Begins (CalledSkill TenXSkill)))]
 
         it "says nothing at another skill, or another tool naming a lead skill" $
             [wants steps BeginHook (PromptExpansion (Call (SessionId "s") "/w" Nothing) "qa"), called Skill "refactor", called Shell "engineer"] `shouldBe` replicate 3 (Right Nothing)
@@ -227,7 +230,7 @@ spec = describe "the hooks" $ do
             decoded (Deny "state next: the run at /a is not this agent's") `shouldBe` Right (object ["decision" .= ("deny" :: Text), "reason" .= ("state next: the run at /a is not this agent's" :: Text)])
 
         it "gives a spawned agent's and a typed skill's begin context alone, a called skill's beside the call" $
-            map (\begin -> decoded (replyOf (Begins begin) "state: begins")) [SpawnedLead, TypedSkill, CalledSkill]
+            map (\begin -> decoded (replyOf (Begins begin) "state: begins")) [SpawnedLead, TypedSkill EngineerSkill, CalledSkill EngineerSkill]
                 `shouldBe` [ Right (object ["context" .= ("state: begins" :: Text)])
                            , Right (object ["context" .= ("state: begins" :: Text)])
                            , Right (object ["decision" .= ("allow" :: Text), "context" .= ("state: begins" :: Text)])

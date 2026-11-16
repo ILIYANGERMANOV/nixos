@@ -76,10 +76,21 @@ The kernel's (`kernel/hooks.nix`, ADR 0016); what Claude gives them:
   worktree than the bound run's is denied with `fix: cd <toplevel> && state
   ...`. Reading another run, `show`, `pending` or `brief` too, is that run's
   agent's job. A command the simple reader cannot follow passes.
-- **Begin.** `SubagentStart` tells an `engineer` its run starts at the
+- **Guard.** Part of `route`, which also runs `PreToolUse` on `Edit`,
+  `Write` and `Agent`. A lead bound to no run (a role that leads a flow, or
+  an agent that began a lead skill, marked by **Begin** in its slot's
+  `lead-<agent_id>`) is denied `Edit`, `Write`, `Agent` and a `Bash`
+  `git commit`, `git push`, `gh pr create` or `gh pr merge` (any command of a
+  compound, `git -C <dir>` too), with `fix: state init ...`; a spawned lead's
+  fix is its prompt's `state init` line. Reads, research, `state` and a
+  command the reader cannot follow pass; other agents are never guarded.
+  `NotebookEdit` is not guarded: naming it would grant it to every editing
+  role.
+- **Begin.** `SubagentStart` tells a lead role its run starts at the
   `state init` line in its prompt, and a worker role its `state brief`.
   `UserPromptExpansion` of a typed `/engineer` or `/10x-engineer`, and
-  `PreToolUse` on `Skill` naming one, tell it to begin with `state`.
+  `PreToolUse` on `Skill` naming one, tell it to begin with `state` and mark
+  it a lead.
 
 ### Secret files
 
