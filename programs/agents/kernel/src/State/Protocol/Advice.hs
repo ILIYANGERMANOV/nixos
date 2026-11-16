@@ -172,7 +172,7 @@ again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe Event
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (fromGitHub place.name <> kept place.name <> skipped place <> leaves place)
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> fromGitHub place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -182,7 +182,8 @@ due g facts state = case (state.stopped, state.at) of
             | name == stepName Draft, open pr.readiness -> [Catalog.outcome (DraftDone pr.draft)]
             | name == stepName Ready, IsReady <- pr.readiness -> [Catalog.outcome (ReadyDone pr.draft.url)]
         _ -> []
-    -- A round on an existing PR leaves it as it is, at every Fuel: the task's shape skips ready.
+    -- A round on an existing PR leaves it as it is, at every Fuel: the run's shape skips ready,
+    -- before GitHub's ready PR, which a round's PR in review is, would record it done.
     kept name = [Catalog.outcome (ReadySkipped url) | name == stepName Ready, onRound state.start.principal, Just url <- [prUrl facts state]]
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case

@@ -7,6 +7,7 @@ module State.Cli.Command (
     Command (..),
     RunCommand (..),
     InitArgs (..),
+    Origin (..),
     defaultFlow,
     Raise (..),
     Block (..),
@@ -57,7 +58,7 @@ import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
-import State.Step.Artifact (ShellPath, shellPath, shellPathRule)
+import State.Step.Artifact (Shape (..), ShellPath, parsePrUrl, prUrlRule, shellPath, shellPathRule)
 import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
 import System.FilePath (dropTrailingPathSeparator, isAbsolute, normalise, takeFileName)
@@ -93,7 +94,13 @@ data RunCommand
 {- | A child's flow, when not named, is its parent's fan-out's; a top run's
 is 'defaultFlow'.
 -}
-data InitArgs = InitArgs {notes :: ShellPath, flow :: Maybe FlowName, parent :: Maybe Parent}
+data InitArgs = InitArgs {notes :: ShellPath, flow :: Maybe FlowName, origin :: Origin}
+
+{- | Who starts the run: the user, on a PR of its own or a round on the one
+@--pr@ names, or a parent run, whose task gives the shape.
+-}
+data Origin = FromUser Shape | FromParent Parent
+    deriving stock (Eq, Show)
 
 -- | A question kept at its kind, or raised to 'Ask.Security' first.
 data Raise = AsAsked | ToSecurity
@@ -178,7 +185,7 @@ commandInfo steps scope =
   where
     commands =
         mconcat
-            [ sub "init" "Start a run, a child run when it names its parent" initArgs
+            [ sub "init" "Start a run: a child of --parent, a round on --pr" initArgs
             , Opt.command "record" (Opt.info (recordEvent scope) (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
             , sub "handback" "Record a role's hand-back, read from stdin" $
                 (\role child -> HandbackOf <$> knownRole anyRole role <*> traverse runId child)
@@ -264,15 +271,19 @@ initArgs =
         <*> optional (textOption "parent" "<run>" "a child run's parent run")
         <*> optional (textOption "parent-log" "<path>" "the parent's events.jsonl, an absolute path")
         <*> optional (textOption "task" "<id>" "the parent's task this child run takes")
+        <*> optional (textOption "pr" "<url>" "the open PR a user's run takes another round on")
   where
-    init' notesRaw flowRaw parentRaw logRaw taskRaw = do
+    init' notesRaw flowRaw parentRaw logRaw taskRaw prRaw = do
         notes <- notesDir notesRaw
         flow <- traverse flowNamed flowRaw
-        parent <- case (parentRaw, logRaw, taskRaw) of
-            (Nothing, Nothing, Nothing) -> Right Nothing
-            (Just run, Just logPath, Just task) -> (\r l -> Just (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
-            _ -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
-        Right (Init InitArgs {notes, flow, parent})
+        origin <- case (prRaw, parentRaw, logRaw, taskRaw) of
+            (Nothing, Nothing, Nothing, Nothing) -> Right (FromUser OwnPr)
+            (Just pr, Nothing, Nothing, Nothing) -> FromUser . RoundOn <$> roundPr pr
+            (Just _, _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
+            (Nothing, Just run, Just logPath, Just task) -> (\r l -> FromParent (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
+            (Nothing, _, _, _) -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
+        Right (Init InitArgs {notes, flow, origin})
+    roundPr raw = maybe (Left (Failure BadInput ("--pr " <> raw) ("the PR is " <> prUrlRule) "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>")) Right (parsePrUrl raw)
 
 -- | One subcommand per event the table holds, its flags its options.
 recordEvent :: ScopePath -> Opt.Parser (Either Failure Command)

@@ -165,6 +165,12 @@ spec = describe "State.Protocol.Advice" $ do
         it "records ready once GitHub says the PR is ready" $
             due g withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
 
+        it "records a user's round's PR in review as its draft, and skips ready though GitHub says it is ready" $
+            [ due g withPr {pr = Just (PullRequest draftPr IsReady)} (runUnder userRound (knobs Balanced <> map (Took mempty) (take n happyPath)))
+            | n <- [6, 13]
+            ]
+                `shouldBe` [Just (stepTook (DraftDone draftPr)), Just (stepTook (ReadySkipped prUrl))]
+
     describe "the 10x's fan-out" $ do
         let t1 = plainTask "t1" []
             t2 = plainTask "t2" []
@@ -325,6 +331,7 @@ spec = describe "State.Protocol.Advice" $ do
     withPr = noFacts {pr = Just (PullRequest draftPr IsDraft)}
     prUrl = Url "https://pr/1"
     draftPr = DraftPr prUrl (Branch "main") (Branch "b")
+    userRound = start {principal = ByUser (RoundOn prUrl)}
     parent = runId "p1"
     child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")) OwnPr, interface = Set.empty}
     which = Question (QId run 1) Design (oneLine "which store?")

@@ -42,6 +42,23 @@ spec = describe "the state binary" $ do
             take 5 done
                 `shouldBe` ["DONE " <> prUrl, "  at the end: the flow is done", "  fuel: balanced", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
 
+        it "runs a user's round on an existing PR: GitHub's PR is its draft, unasked, and ready is skipped" $ \repo -> do
+            _ <- startedIn bin repo ["--notes", repo.notes, "--pr", roundUrlString]
+            transcript <- driveOn bin repo roundPath
+            transcript `shouldBe` init trivialTranscript <> ["ready.skipped -> out"]
+            done <- succeeded =<< state bin repo ["next"]
+            take 1 done `shouldBe` ["DONE " <> Text.pack roundUrlString]
+
+        it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
+            refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]
+            (refused.code, refused.err)
+                `shouldBe` ( 2
+                           ,
+                               [ "state init: --pr https://github.com/o/r/issues/7 - the PR is a GitHub PR URL, https://github.com/<owner>/<repo>/pull/<n>"
+                               , "fix: state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>"
+                               ]
+                           )
+
         it "exits a clean review on to describe, and runs on to ready" $ \repo -> do
             transcript <- drive bin repo cleanPath
             transcript `shouldBe` cleanTranscript
@@ -1159,6 +1176,16 @@ trivialTranscript =
     , "ready.done -> out"
     ]
 
+{- | 'trivialPath' as a round on 'roundUrlString': no draft PR opened, as
+GitHub has the round's, and no ready, which the round skips.
+-}
+roundPath :: [Act]
+roundPath = take 5 trivialPath <> drop 6 (init trivialPath)
+
+-- | The PR a user's round names, which the scripted @gh@ reports by URL alone.
+roundUrlString :: String
+roundUrlString = "https://github.com/o/r/pull/7"
+
 -- | Balanced, moved to the review by override.
 atReview :: [Act]
 atReview = [Record ["fuel", "balanced"], Override "review"]
@@ -1209,9 +1236,11 @@ withRepo test = withSystemTempDirectory "state-e2e" $ \root -> do
                 , env = fixed <> [kv | kv@(name, _) <- inherited, name `notElem` map fst fixed]
                 }
     createDirectory bin
-    -- `gh pr view --json ...` as gh answers it: the PR, or no PR for the branch.
+    -- `gh pr view [<url>] --json ...` as gh answers it: the PR a URL names, open
+    -- for review on the branch; else the branch's PR, or none.
     writeExecutable (bin </> "gh") . unlines $
         [ "#!" <> sh
+        , "case \"$3\" in https://*) printf '{\"url\":\"%s\",\"baseRefName\":\"main\",\"headRefName\":\"feat\",\"isDraft\":false,\"state\":\"OPEN\"}' \"$3\"; exit 0;; esac"
         , "if [ -f '" <> prJson <> "' ]; then cat '" <> prJson <> "'"
         , "else echo 'no pull requests found for branch \"feat\"' >&2; exit 1; fi"
         ]

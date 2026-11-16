@@ -17,6 +17,8 @@ module State.Step.Artifact (
     Task (..),
     Shape (..),
     Repo (..),
+    parsePrUrl,
+    prUrlRule,
     ShellPath,
     Topic (..),
     Tasks,
@@ -157,6 +159,24 @@ parseRepo raw = case Text.splitOn "/" raw of
 
 repoText :: Repo -> Text
 repoText repo = repo.owner <> "/" <> repo.name
+
+{- | A pull request's URL as GitHub prints it,
+@https://github.com/OWNER/REPO/pull/N@: a 'parseRepo' repo and a number
+from 1, with no leading zero, so one PR has one spelling.
+-}
+parsePrUrl :: Text -> Maybe Url
+parsePrUrl raw = case Text.splitOn "/" <$> Text.stripPrefix "https://github.com/" raw of
+    Just [owner, name, "pull", number]
+        | Just _ <- parseRepo (owner <> "/" <> name)
+        , Just (lead, _) <- Text.uncons number
+        , lead /= '0'
+        , Text.all isDigit number ->
+            Just (Url raw)
+    _ -> Nothing
+
+-- | What 'parsePrUrl' accepts, as a refusal names it.
+prUrlRule :: Text
+prUrlRule = "a GitHub PR URL, https://github.com/<owner>/<repo>/pull/<n>"
 
 {- | A path a shell line prints unquoted, so it runs from any directory:
 absolute, of 'slugChar's, @/@, @\@@ and @+@ only - none a shell reads as

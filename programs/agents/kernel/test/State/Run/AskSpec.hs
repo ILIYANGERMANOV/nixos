@@ -114,19 +114,19 @@ spec = describe "State.Run.Ask" $ do
 
     describe "ask" $ do
         it "sends a role's own question its row forwards to the user who started the run" $
-            ask ByUser Lead Design `shouldBe` Up TheUser
+            ask (ByUser OwnPr) Lead Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
             ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1")) OwnPr) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
-            ask ByUser Lead Fact `shouldBe` AnswerSelf
+            ask (ByUser OwnPr) Lead Fact `shouldBe` AnswerSelf
 
         it "forwards the engineer's Confirm at every Fuel: its row never answers it" $
-            ask ByUser Lead Confirm `shouldBe` Up TheUser
+            ask (ByUser OwnPr) Lead Confirm `shouldBe` Up TheUser
 
         it "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit" $
-            ask ByUser Orchestrator Confirm `shouldBe` Up TheUser
+            ask (ByUser OwnPr) Orchestrator Confirm `shouldBe` Up TheUser
 
     it "spells the hand-back line as #360's wire format" $
         needsDecision (Question qid Design (oneLine "change the data model?"))

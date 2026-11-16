@@ -98,7 +98,7 @@ import State.Run.Event (
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, repoText, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, repoText, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
 import System.FilePath ((</>))
@@ -430,17 +430,24 @@ startOf obj =
         <*> (obj .: "principal" >>= principalOf)
         <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
 
--- | The user is a bare word; a parent run is its id, its log, the task it gave and a round's PR.
+{- | The user on its own PR is a bare word, as a log older than rounds wrote
+it; the user's round is its PR; a parent run is its id, its log, the task it
+gave and a round's PR.
+-}
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
-    ByUser -> text "user"
+    ByUser OwnPr -> text "user"
+    ByUser shape@(RoundOn _) -> pairs (shapeData shape)
     ByRole parent shape -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task <> shapeData shape)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
-    String "user" -> pure ByUser
-    Object obj -> ByRole <$> (Parent <$> (obj .: "run" >>= runIdOf) <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj
-    other -> fail ("a principal is \"user\" or {run, log}, not " <> show other)
+    String "user" -> pure (ByUser OwnPr)
+    Object obj ->
+        obj .:? "run" >>= \case
+            Nothing -> ByUser . RoundOn . Url <$> obj .: "pr"
+            Just run -> ByRole <$> (Parent <$> runIdOf run <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj
+    other -> fail ("a principal is \"user\", {pr} or {run, log}, not " <> show other)
 
 askingOf :: Object -> Parser Asking
 askingOf obj = do

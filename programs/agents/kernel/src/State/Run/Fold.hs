@@ -64,7 +64,7 @@ import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText)
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalShape)
 import State.Run.Ask qualified as Ask
 import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Url, eventId, tookEvent)
 import State.Run.Fan (Fan, emptyFan)
@@ -386,12 +386,11 @@ Fuel: the PR stays as it is, by the task's shape.
 skips :: RunState -> Place -> PerFuel SkipWhen -> Bool
 skips state from when = atFuel (fuelOf state) when /= Never || (from.name == stepName Ready && onRound state.start.principal)
 
--- | The run is a round on a PR that exists already, by its parent's breakdown.
+-- | The run is a round on a PR that exists already, named at init or by its parent's breakdown.
 onRound :: Principal -> Bool
-onRound = \case
-    ByUser -> False
-    ByRole _ OwnPr -> False
-    ByRole _ (RoundOn _) -> True
+onRound principal = case principalShape principal of
+    OwnPr -> False
+    RoundOn _ -> True
 
 {- | A task added at a fan-out's merge reopens the fan-out, where it is
 spawned as any task is; the fan-out is left again once every task is settled.

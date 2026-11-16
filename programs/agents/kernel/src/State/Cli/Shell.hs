@@ -44,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), route, stateCalls)
@@ -59,7 +59,7 @@ import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), QId, Question (..), oneLineText, qidText)
+import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), QId, Question (..), oneLineText, principalShape, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
@@ -70,7 +70,7 @@ import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, ne
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
-import State.Step.Artifact (shellPathText, shellWord)
+import State.Step.Artifact (Shape (..), shellPathText, shellWord)
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -320,12 +320,12 @@ runAnswer steps call bound found want = case want of
                             _ -> Nothing
                      in (opened <> new, recordedLines after.state opened <> out.text <> foldMap (<> "\n") warning)
     Hook.HandedBack message agent role ->
-        branchPr >>= \pr -> onHook pr $ \stamp run ->
+        runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
              in if loggedAlready run.logged sources || not (followedAt run.state.at role)
                     then ([], "")
                     else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text)) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
-    AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
+    AskedUser -> runPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
     -- A run that is over, bound to another branch or whose PR is merged or closed is
     -- silent too; the hook's session stamps its lines, and its text names the run.
@@ -338,7 +338,7 @@ runAnswer steps call bound found want = case want of
                 | otherwise -> Right . aboutRun run.state.run <$> act (Stamp stamp.ts stamp.head (Just call.session)) run
         pure (either (aboutKnown found . failureText "hook") id (orNoRun result))
     -- GitHub unread is no PR: the hook speaks.
-    branchPr = fromRight Nothing . pullRequestOf <$> Gh.prView
+    runPr = fromRight Nothing . pullRequestOf <$> (Gh.prView =<< runShape)
 
 -- | A disk or process error is the outage exit, never a crash.
 outageAware :: Eff es (Either Failure Text) -> Eff es (Either Failure Text)
@@ -572,7 +572,7 @@ resume is news.
 -}
 upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
 upOf run new text = case run.state.start.principal of
-    ByUser -> Nothing
+    ByUser _ -> Nothing
     ByRole parent _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name once text)
   where
     once = maybe (tshow (nextSeq run - 1 + fromIntegral (length new))) qidText (asks =<< either (const Nothing) (.token) (parseHandback text))
@@ -731,9 +731,9 @@ initRun gd args = do
                 Right [] -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
                 Right (first : rest) -> ([], ("resumed",) <$> joined notes (first :| rest))
             -- The pointer only once the parent took the child: a refused child has no run here.
-            accepted <- case (result, args.parent) of
-                (Right said@(_, run), Just parent) -> fmap (const said) <$> spawnedIn parent.run parent.log (Child run parent.task path worktree)
-                (Right said, Nothing) -> pure (Right said)
+            accepted <- case (result, args.origin) of
+                (Right said@(_, run), FromParent parent) -> fmap (const said) <$> spawnedIn parent.run parent.log (Child run parent.task path worktree)
+                (Right said, FromUser _) -> pure (Right said)
                 (Left failure, _) -> pure (Left failure)
             traverse (\(verb, run) -> writePointer gd notes $> initLines verb run worktree) accepted
   where
@@ -741,7 +741,7 @@ initRun gd args = do
     -- A subagent has no wakes, notifications or background of its own (#351 s4). Hooks
     -- run in it, but a child's hand-back is its own state's to record in the parent.
     interfaceOf = \case
-        ByUser -> Set.fromList [minBound .. maxBound]
+        ByUser _ -> Set.fromList [minBound .. maxBound]
         ByRole _ _ -> Set.empty
     initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
 
@@ -812,9 +812,9 @@ data Begin = Begin {principal :: Principal, flow :: FlowName, fuel :: Maybe Fuel
 task's Fuel, the task read from the parent's log.
 -}
 startOf :: (Shell es) => InitArgs -> Eff es (Either Failure Begin)
-startOf args = case args.parent of
-    Nothing -> pure (Right (Begin ByUser (fromMaybe defaultFlow args.flow) Nothing))
-    Just parent ->
+startOf args = case args.origin of
+    FromUser shape -> pure (Right (Begin (ByUser shape) (fromMaybe defaultFlow args.flow) Nothing))
+    FromParent parent ->
         parentStarts parent >>= \case
             Left failure -> pure (Left failure)
             Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
@@ -924,12 +924,24 @@ writePointer dir notes = FileSystem.writeText (pointerOf dir) (Text.pack notes <
 pointerOf :: FilePath -> FilePath
 pointerOf dir = dir </> "state-notes"
 
-{- | The branch's PR on GitHub and the lines it changes, each 'Nothing' when
+{- | What the worktree's run does to its PR, by its start: a round reads its
+PR by URL. No run, or a log that does not read, is a PR of its own, as
+before rounds.
+-}
+runShape :: (Shell es) => Eff es Shape
+runShape = do
+    path <- either (const (pure Nothing)) (fmap (fmap logOf) . readPointer) =<< gitDir
+    line <- maybe (pure Nothing) Log.firstLine path
+    pure $ case decodeLine <$> line of
+        Just (Right Envelope {event = Started start}) -> principalShape start.principal
+        _ -> OwnPr
+
+{- | The run's PR on GitHub and the lines it changes, each 'Nothing' when
 it cannot be read, with a line saying why, and the children that ended.
 -}
 readFacts :: (Shell es) => Eff es (Facts, [Text])
 readFacts = do
-    reply <- Gh.prView
+    reply <- Gh.prView =<< runShape
     ended <- endedChildren
     case pullRequestOf reply of
         Left why -> pure (Facts Nothing Nothing ended, ["PR sync skipped - " <> why])

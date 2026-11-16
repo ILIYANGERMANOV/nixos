@@ -10,14 +10,15 @@ import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Cap (..), OpenGraph (..))
 import State.Category.Meter (someMeterName)
 import State.Category.Step (eventText)
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
-import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook, tookIn)
+import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), TaskId (..), stepTook, tookIn)
+import State.Run.EventGen (runId)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, runAt, securityScope, sha)
-import State.Step.Artifact (shellPathText)
+import State.Step.Artifact (Shape (..), Url (..), shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Plan (Outcome (..))
@@ -140,7 +141,7 @@ spec = describe "State.Cli.Command" $ do
 
         it "keeps an absolute parent log" $
             case parse ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"] of
-                Right (Init args) -> fmap (.log) args.parent `shouldBe` Just "/p/events.jsonl"
+                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") "/p/events.jsonl" (TaskId "t1"))
                 _ -> expectationFailure "not an init"
 
         it "refuses a notes dir that is relative or holds what a shell reads" $
@@ -156,6 +157,36 @@ spec = describe "State.Cli.Command" $ do
                 (failureWhat . parse . (["init", "--notes", "/n"] <>))
                 [["--parent", "r1", "--task", "t1"], ["--parent", "r1", "--parent-log", "/p/events.jsonl"], ["--task", "t1"], ["--parent", "r1"]]
                 `shouldBe` replicate 4 (Just "--parent, --parent-log and --task go together")
+
+        it "takes --pr as a user's round on that PR" $
+            map (fmap originOf . parse . (["init", "--notes", "/n"] <>)) [[], ["--pr", "https://github.com/o-1/r.x/pull/12"]]
+                `shouldBe` [Right (Just (FromUser OwnPr)), Right (Just (FromUser (RoundOn (Url "https://github.com/o-1/r.x/pull/12"))))]
+
+        it "refuses a --pr that is no GitHub PR URL, its fix the URL's form" $ do
+            let bad =
+                    [ "github.com/o/r/pull/1"
+                    , "http://github.com/o/r/pull/1"
+                    , "https://gitlab.com/o/r/pull/1"
+                    , "https://github.com/o/r/issues/1"
+                    , "https://github.com/o/r/pull/1/files"
+                    , "https://github.com/o/r/pull/"
+                    , "https://github.com/o/r/pull/0"
+                    , "https://github.com/o/r/pull/01"
+                    , "https://github.com/o/r/pull/1x"
+                    , "https://github.com/o/r/pull/1?x=1"
+                    , "https://github.com/o r/r/pull/1"
+                    , "https://github.com//r/pull/1"
+                    ]
+            map (failureWhat . parse . (["init", "--notes", "/n", "--pr"] <>) . pure) bad `shouldBe` map (Just . ("--pr " <>)) bad
+            case parseCommand steps ["init", "--notes", "/n", "--pr", "https://github.com/o/r/pull/0"] of
+                Right (_, Left failure) -> failure.fix `shouldBe` "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>"
+                _ -> expectationFailure "not a refusal"
+
+        it "refuses --pr with any of --parent, its log or its task: a child's PR is its task's" $
+            map
+                (failureWhat . parse . (["init", "--notes", "/n", "--pr", "https://github.com/o/r/pull/1"] <>))
+                [["--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"], ["--parent", "r1"], ["--task", "t1"]]
+                `shouldBe` replicate 3 (Just "--pr with --parent")
 
     describe "failures" $ do
         it "prints what, why and the fix as the analyzer parses them" $
@@ -255,6 +286,10 @@ spec = describe "State.Cli.Command" $ do
         Right _ -> "no usage error"
     failureWhat :: Either Text a -> Maybe Text
     failureWhat = either Just (const Nothing)
+    originOf :: Command -> Maybe Origin
+    originOf = \case
+        Init args -> Just args.origin
+        _ -> Nothing
     notesOf :: Command -> Maybe FilePath
     notesOf = \case
         Init args -> Just (shellPathText args.notes)
