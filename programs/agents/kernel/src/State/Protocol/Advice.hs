@@ -59,7 +59,7 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
@@ -274,9 +274,11 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         _ -> []
     stepLeads place = case stepNamed place.name of
         Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
-            Agent _ _ -> [commandOption (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge]
-            Inline -> [recordOption event edge | (event, edge) <- shownEdges g place, along edge]
+            Agent _ _ -> [commandOption (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge] <> stuckLeads place
+            Inline -> [recordOption event edge | (event, edge) <- shownEdges g place, along edge] <> stuckLeads place
         Nothing -> []
+    -- The run records a stuck loop's exit itself: no worker's hand-back takes it.
+    stuckLeads place = [recordOption event edge | (event, edge) <- stuckExits g state place, along edge]
     along edge = case edge.arrow of
         Along _ -> True
         Skip _ _ -> False

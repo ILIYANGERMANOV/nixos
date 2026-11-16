@@ -123,6 +123,12 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts (atPick Low looped)
                 `shouldSatisfy` offers (all ("state record pick.final" `Text.isPrefixOf`))
 
+        it "offers pick.final beside the fixer at a stuck fix once Stuck was asked" $ do
+            let stuckAt asked = atPick Balanced (looped <> [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty))] <> asked)
+                finalLeads = filter ("pick.final" `Text.isInfixOf`) . explainedAt . stuckAt
+            map finalLeads [[], [Asked (Asking goOn (StateName "fix") Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "stop" TheUser]]
+                `shouldBe` [[], ["  state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe"]]
+
     describe "confirm" $ do
         it "asks Confirm at confirm" $
             next noFacts atConfirm `shouldSatisfy` \case

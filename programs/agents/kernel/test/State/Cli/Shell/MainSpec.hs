@@ -260,6 +260,14 @@ spec = describe "state over the doubles" $ do
                 (ran.code, ran.err) `shouldBe` (0, [])
                 recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
 
+            it "records a researcher's simplify report from stdin, which opens with no token" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Planned]
+
+                ran <- stateIn world "# Plan (simplify proposal)\n## Goals\n" ["handback", "researcher"]
+
+                (ran.code, ran.err) `shouldBe` (0, [])
+                recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
+
             it "advises a worker's BLOCKED for triage until the run asks it as its own" $ \world -> do
                 _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
                 _ <- succeeded =<< stateIn world "BLOCKED no access\n" ["handback", "implementer"]

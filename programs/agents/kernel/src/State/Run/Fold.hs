@@ -29,6 +29,7 @@ module State.Run.Fold (
     onRound,
     Stuck (..),
     stuck,
+    stuckExits,
     Budget (..),
     Spent (..),
     budgets,
@@ -402,7 +403,7 @@ took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunSt
 took g state scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
-        At place -> (place,) <$> step g place name
+        At place -> (place,) <$> (step g place name <|> lookup name (stuckExits g state place))
         Out -> Nothing
         Exit -> Nothing
     case edge.arrow of
@@ -813,6 +814,23 @@ fuelOf state = fromMaybe Balanced state.fuel
 -- | A loop making no progress: these problems were in both of its last two rounds.
 data Stuck = Stuck {loop :: Name, same :: Set Problem}
     deriving stock (Eq, Show)
+
+{- | Once a Stuck question was asked in a loop's body, the edges that leave
+the loop from its entry, which the run may take from where it is: a stuck
+review loop ends by @pick.final@ at @fix@ without an override. None at the
+entry itself, whose edges are its own.
+-}
+stuckExits :: OpenGraph -> RunState -> Place -> [(EventName, Edge Node)]
+stuckExits g state place = case innermost g place of
+    Just loop
+        | Ask.Stuck `elem` state.askedHere && loop.entry /= place ->
+            [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == loop.entry, not (inBody loop edge.to)]
+    _ -> []
+  where
+    inBody loop = \case
+        At to -> Set.member to loop.body
+        Out -> False
+        Exit -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses
 rows alternating A, B, A, B on purpose: no two rounds in a row share a row, and

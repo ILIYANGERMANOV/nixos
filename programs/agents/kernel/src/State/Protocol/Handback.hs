@@ -309,7 +309,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Agent runner _ | runner == agent -> Right ()
             Agent (AgentRole runner) _ -> Left (Why (label <> " is run by " <> runner <> ", not " <> roleName))
             Inline -> Left (Why (label <> " runs inline, not by " <> roleName))
-        if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview]
+        if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview, stepName Plan.SimplifyP]
             then Left NoToken
             else Bifunctor.first Why (doneOf place.scope step)
     -- One arm per layer, each total over its steps; the outcome is in the step's scope.

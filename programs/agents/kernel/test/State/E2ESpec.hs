@@ -256,6 +256,14 @@ spec = describe "the state binary" $ do
                 advice <- succeeded =<< state bin repo ["next"]
                 take 1 advice `shouldBe` ["ASK Stuck the fix loop repeats R1: go on, change course, or stop?"]
 
+            it "offers a stuck loop's exit once Stuck was asked, and takes it to describe with no override" $ \repo -> do
+                _ <- drive bin repo (atReview <> reviewRound "R1" [] <> [Handback "fixer" ready] <> reviewRound "R1" [] <> [AskUser "Stuck" ["stop?"]])
+                advice <- succeeded =<< state bin repo ["next"]
+                filter ("pick.final" `Text.isInfixOf`) advice
+                    `shouldBe` ["    state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe"]
+                exited <- succeeded =<< state bin repo ["record", "pick.final", "--row", "R1"]
+                recorded exited `shouldBe` ["pick.final -> describe"]
+
             it "refuses a pick.loop past Balanced's 3 re-reviews, then exits by pick.final" $ \repo -> do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]
                 _ <- drive bin repo (atReview <> rounds <> [Handback "review-lead" reviewed])
