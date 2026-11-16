@@ -210,9 +210,9 @@ commandInfo steps scope =
                     <*> optional (textOption "basis" "<event-id>|obvious:<why>" "the event that answered it, or why it is obvious")
                     <*> optional raiseOption
             , sub "forward" "Forward a question up, to the parent run or the user" $
-                (\qid raise -> OnRun <$> (Forward qid <$> raising raise)) <$> textArgument "<qid>" <*> optional raiseOption
+                (\qid raise -> OnRun . Forward qid <$> raising raise) <$> textArgument "<qid>" <*> optional raiseOption
             , freeText "answer" "Record the answer to a forwarded question" $
-                (\qid answer by -> OnRun <$> (Answer qid answer <$> traverse above by))
+                (\qid answer by -> OnRun . Answer qid answer <$> traverse above by)
                     <$> textArgument "<qid>"
                     <*> sentence "<answer>"
                     <*> optional (textOption "by" "user|<run>" "who answered, when not whoever started the run")
