@@ -53,6 +53,11 @@ NOTICE_CASES: list[Case[tuple[Agent | None, ContextSize], str]] = [
         "an agent naming no role warns at 220k",
         (NO_ROLE, ContextSize(220_600, 218_600)),
     ),
+    (
+        "over the 300k",
+        "an agent naming no role stops at 300k",
+        (NO_ROLE, ContextSize(300_600, 298_600)),
+    ),
 ]
 
 SILENT = Note()

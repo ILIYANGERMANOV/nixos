@@ -15,6 +15,7 @@ nothing: the guard fails open.
 """
 
 import sys
+from typing import NamedTuple
 
 from agent_hook import (
     AfterTool,
@@ -26,10 +27,18 @@ from agent_hook import (
     parse_event,
 )
 
-# Warn and stop limits in tokens. Orchestrators get more room for large tasks.
-LEAD = (300_000, 400_000)
-ROLE_LIMITS = {Role("engineer"): (260_000, 350_000)}
-OTHER = (220_000, 300_000)
+
+class Limits(NamedTuple):
+    """Context sizes in tokens: warn once at `warn`, stop at `stop`."""
+
+    warn: int
+    stop: int
+
+
+# Orchestrators get more room for large tasks.
+LEAD = Limits(warn=300_000, stop=400_000)
+ROLE_LIMITS = {Role("engineer"): Limits(warn=260_000, stop=350_000)}
+OTHER = Limits(warn=220_000, stop=300_000)
 STOP_STEP = 10_000
 WARN = (
     "Context {size}k, budget {stop}k: stop there. Until then, never run a check "
@@ -52,15 +61,14 @@ def main() -> None:
         case AfterTool(
             agent=agent, context=ContextSize(tokens=current, previous=previous)
         ):
-            warn, stop = limits(agent)
-            message = notice(previous or 0, current, warn, stop)
+            message = notice(previous or 0, current, limits(agent))
         case _:
             message = None
     if message is not None:
         print(emit_result(Note(message)))
 
 
-def limits(agent: Agent | None) -> tuple[int, int]:
+def limits(agent: Agent | None) -> Limits:
     """The warn and stop limits of the caller; a role-less agent gets OTHER."""
     match agent:
         case None:
@@ -69,9 +77,9 @@ def limits(agent: Agent | None) -> tuple[int, int]:
             return ROLE_LIMITS.get(role, OTHER) if role else OTHER
 
 
-def notice(previous: int, current: int, warn: int, stop: int) -> str | None:
+def notice(previous: int, current: int, limit: Limits) -> str | None:
     """What to say when the context moved from previous to current."""
-    before, after = band(previous, warn, stop), band(current, warn, stop)
+    before, after = band(previous, limit), band(current, limit)
     match (before < after, after):
         case (False, _):
             return None
@@ -79,16 +87,16 @@ def notice(previous: int, current: int, warn: int, stop: int) -> str | None:
             template = WARN
         case _:
             template = STOP
-    return template.format(size=current // 1000, stop=stop // 1000)
+    return template.format(size=current // 1000, stop=limit.stop // 1000)
 
 
-def band(size: int, warn: int, stop: int) -> int:
+def band(size: int, limit: Limits) -> int:
     """0 under budget, 1 warned, 2 and up one per STOP_STEP past stop."""
-    if size < warn:
+    if size < limit.warn:
         return 0
-    if size < stop:
+    if size < limit.stop:
         return 1
-    return 2 + (size - stop) // STOP_STEP
+    return 2 + (size - limit.stop) // STOP_STEP
 
 
 if __name__ == "__main__":
