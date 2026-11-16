@@ -30,9 +30,10 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
 ## Decisions
 
 - **Advisory, fail open and tell.** One hook denies (below): `route`, a
-  `state` call aimed at another run than the agent's. A hook that fails, or a
-  `state` refusal, lets the call go on and adds `state hook <name>: <error>`
-  and the refusal's `fix:` line to the agent's context.
+  `state` call aimed at another run than the agent's, and an unbound lead's
+  writes. A hook that fails, or a `state` refusal, lets the call go on and
+  adds `state hook <name>: <error>` and the refusal's `fix:` line to the
+  agent's context.
 - **The hooks** (`programs/agents/kernel/hooks.nix`, `state-hook <name>`). Each
   does nothing in a worktree with no run, or with a run at `Done`.
 
@@ -44,8 +45,8 @@ to write it. What it forgets is mechanical: a hand-back's status and head, a
   | pr | after `gh pr create`, `gh pr ready` run as a command | records `drafted`, `ready`; removed by ADR 0017 |
   | asked | after the lead asks, in Ctx | records `asked` |
   | bind | after a shell call ran `state init`; after a spawn of a flow role | binds the agent to the run init printed; binds the worker to its spawner's run |
-  | route | before a shell call | denies a `state` call aimed at another run than the agent is bound to, `fix: cd <its worktree> && state ...` |
-  | begin | a subagent starts; a typed `/engineer` or `/10x-engineer`, or a Skill call of one | tells a spawned engineer its run starts at its prompt's `state init` line, a worker its `state brief`, a lead skill to begin with `state` |
+  | route | before a shell call, an edit, a write or a spawn | denies a `state` call aimed at another run than the agent is bound to, `fix: cd <its worktree> && state ...`; denies an unbound lead's writes, `fix:` its `state init` |
+  | begin | a subagent starts; a typed `/engineer` or `/10x-engineer`, or a Skill call of one | marks a lead that typed or called a lead skill; tells a spawned lead its run starts at its prompt's `state init` line, a worker its `state brief`, a lead skill to begin with `state` |
 
 - **What stays manual** is what only the model decides: Size, Quality,
   `planned`, `proposed`, `confirmed`, `adjusted`, a review's `picked` rows and
