@@ -10,15 +10,16 @@ import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Cap (..), OpenGraph (..))
 import State.Category.Meter (someMeterName)
 import State.Category.Step (eventText)
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), explain, failureText, help, optparseText, parseCommand, parseHook)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
-import State.Run.Ask (Above (..), Kind (..), Parent (..), oneLineText)
+import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
 import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook, tookIn)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, runAt, securityScope, sha)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
+import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
 import System.Exit (ExitCode (..))
 import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldSatisfy)
@@ -56,8 +57,15 @@ spec = describe "State.Cli.Command" $ do
         it "reads an implementer's unstated touches as every area" $
             recorded ["implement.done"] `shouldBe` Right (stepTook (ImplementDone (Commit sha (Set.fromList [minBound .. maxBound]))))
 
-        it "refuses an event the table lacks, naming it" $
-            recorded ["deploy.done"] `shouldBe` Left "Invalid argument `deploy.done'"
+        it "leaves an event the table lacks, named as typed, to the run to refuse" $
+            case parse ["record", "security/deploy.done", "now"] of
+                Right (OnRun (RecordUnknown name)) -> name `shouldBe` "security/deploy.done"
+                _ -> expectationFailure "not an unknown event"
+
+        it "reads a plan's path to refuse a plan not written yet" $
+            case parse ["record", "plan.done", "/notes/plan.md"] of
+                Right (OnRun (Record (FromFile path parsed))) -> (path, parsed "") `shouldBe` ("/notes/plan.md", Right (stepTook (PlanDone "/notes/plan.md")))
+                _ -> expectationFailure "not a recording read from a file"
 
         it "refuses an option the event does not take" $
             recorded ["implement.done", "--row", "R1"] `shouldBe` Left "Invalid option `--row'"
@@ -102,6 +110,25 @@ spec = describe "State.Cli.Command" $ do
                 (Right (OnRun (StopRun stop)), Right (OnRun (AskQuestion _ _ question)), Right (OnRun (Answer _ answer by))) ->
                     (stop.why, oneLineText question, answer, by) `shouldBe` ("-x --force failed", "-v or --verbose?", "use -f", Just TheUser)
                 _ -> expectationFailure "not a stop, a question and an answer"
+
+        it "takes a question's kind in any case" $
+            [kind | kindName <- ["design", "DESIGN", "Design"], Right (OnRun (AskQuestion kind _ _)) <- [parse ["ask", "--kind", kindName, "q?"]]]
+                `shouldBe` [Design, Design, Design]
+
+        it "refuses an unknown kind, listing the kinds" $
+            case parseCommand steps ["ask", "--kind", "idea", "q?"] of
+                Right (_, Left failure) -> (failure.what, failure.why) `shouldBe` ("no kind idea", "one of Fact|Pick|Design|Scope|Confirm|Security|Stuck")
+                _ -> expectationFailure "not a refusal"
+
+        it "takes a ruling's quoted words as one answer, why and cost" $
+            case parse ["rule", "r1:1", "--answer", "use Y", "--why", "it is simpler", "--cost", "none"] of
+                Right (OnRun (RuleOn qid _ proposal)) -> (qid, oneLineText proposal.answer, oneLineText proposal.why) `shouldBe` ("r1:1", "use Y", "it is simpler")
+                _ -> expectationFailure "not a ruling"
+
+        it "refuses a ruling's unquoted words, its fix quoting them" $
+            case parseCommand steps ["rule", "r1:1", "--answer", "use", "Y", "--why", "it", "is", "simpler", "--cost", "none"] of
+                Right (_, Left failure) -> (failure.what, failure.fix) `shouldBe` ("--answer, --why and --cost", "state rule r1:1 --answer \"<a>\" --why \"<w>\" --cost \"<c>\"")
+                _ -> expectationFailure "not a refusal"
 
         it "needs the free words" $
             failureWhat (parse ["override", "review"]) `shouldBe` Just "Missing: <why>"
@@ -163,6 +190,24 @@ spec = describe "State.Cli.Command" $ do
                            , "state record research.spawned | state record research.handed_back | state record gather.enough"
                            ]
 
+    describe "input the run refuses" $ do
+        it "lists the events a gather takes for an unknown one, fixing it by its step's" $
+            (\failure -> (failure.what, failure.why, failure.fix)) (unknownEvent g (runAt []) "gather.bogus")
+                `shouldBe` ("no event gather.bogus", "at gather the run takes research.spawned, research.handed_back, gather.enough, extend", "state record gather.enough")
+
+        it "fixes an unknown event by the only one the run takes" $
+            (unknownEvent g (runAt simplifying) "nope").fix `shouldBe` "state record simplify_plan.done"
+
+        it "fixes an unknown event matching no step by state next" $
+            (unknownEvent g (runAt []) "nope").fix `shouldBe` "state next"
+
+        it "lists every event with no run, fixed by the help" $
+            (\failure -> (Text.isPrefixOf "the events are fuel, research.spawned, " failure.why, failure.fix)) (anyEvent "nope") `shouldBe` (True, "state help")
+
+        it "refuses a question id that is not open, malformed or not" $
+            [(failure.what, failure.why, failure.fix) | raw <- ["q1", "r1:99"], Left failure <- [openQid (runAt []) raw]]
+                `shouldBe` [(what, "no question is open", "state pending") | what <- ["question q1", "question r1:99"]]
+
     describe "help" $ do
         it "record's help lists every event the flow's arrows take" $
             [event | (_, event) <- Map.keys g.edges, not (eventText event `Text.isInfixOf` helpOf ["record", "--help"])] `shouldBe` []
@@ -177,7 +222,7 @@ spec = describe "State.Cli.Command" $ do
         it "of state" $ golden "usage/state.txt" (help steps)
         it "of state record" $ golden "usage/state-record-help.txt" (helpOf ["record", "--help"])
         it "of an unknown command" $ golden "usage/state-nope.txt" (usageError "state" (parseCommand steps ["nope"]))
-        it "of an unknown event" $ golden "usage/state-record-nope.txt" (usageError "state" (parseCommand steps ["record", "nope"]))
+        it "of state rule" $ golden "usage/state-rule-help.txt" (helpOf ["rule", "--help"])
         it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
     -- At the gather with a researcher open, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.

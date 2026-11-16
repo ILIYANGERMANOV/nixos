@@ -13,6 +13,7 @@ module State.Protocol.Record (
     Option (..),
     recordOption,
     goes,
+    extend,
     extendOption,
     capRecords,
     Args (..),
@@ -141,7 +142,8 @@ recordables =
         <> [nothing (Enough choice) | choice <- Choice.choices]
         <> [ extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
-                [path] -> Right (Plain (tookIn a.scope (PlanDone (Text.unpack path))))
+                -- Read as a file only to refuse a plan not written yet.
+                [path] -> Right (FromFile (Text.unpack path) (const (Right (tookIn a.scope (PlanDone (Text.unpack path))))))
                 _ -> Left "the plan's path"
            , nothing SimplifyPlanDone
            , nothing SimplifyPlanSkipped

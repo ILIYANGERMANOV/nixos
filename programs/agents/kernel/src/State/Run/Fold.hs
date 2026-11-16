@@ -28,6 +28,7 @@ module State.Run.Fold (
     Budget (..),
     Spent (..),
     budgets,
+    extendable,
     usedUp,
     flowRole,
     nextQId,
@@ -451,9 +452,13 @@ the run: their meters start afresh, and the run may ask whether to go on
 once more.
 -}
 extended :: OpenGraph -> RunState -> Either Refusal RunState
-extended g state = case Map.keys (Map.filter (\budget -> extends budget.cap.atCap) (budgets g state)) of
+extended g state = case extendable g state of
     [] -> Left NothingToExtend
     regranted -> Right state {meters = foldr (Map.update (\l -> ledger (Spent 0 l.open))) state.meters regranted, askedHere = []}
+
+-- | The budgets holding the run that the user may extend: what an @extend@ grants again.
+extendable :: OpenGraph -> RunState -> [Metered]
+extendable g state = Map.keys (Map.filter (\budget -> extends budget.cap.atCap) (budgets g state))
   where
     extends = \case
         Extend -> True

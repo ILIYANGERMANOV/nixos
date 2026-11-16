@@ -7,7 +7,6 @@ module State.Cli.Shell (Shell, main, hook, runShellIO) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
-import Control.Monad ((>=>))
 import Control.Monad qualified as Monad
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
@@ -45,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), defaultFlow, explain, failureText, help, notStarted, noteOf, optparseText, parseCommand, parseHook)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
@@ -173,7 +172,7 @@ hookAnswer steps call want =
             if silent branch ((.readiness) <$> pr) run.logged run.state
                 then ([], Right "")
                 else Right <$> act (Stamp stamp.ts stamp.head (Just (SessionId call.session))) run
-        pure (either (failureText "hook") id result)
+        pure (either (failureText "hook") id (orNoRun result))
     -- GitHub unread is no PR: the hook speaks.
     branchPr = fromRight Nothing . pullRequestOf <$> Gh.prView
     -- A log of another log version, as an older one: the hooks leave it be (#360).
@@ -214,22 +213,27 @@ execute steps = \case
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
-        handingBack steps (\stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out))
+        orNoRun <$> handingBack steps (\stamp run -> let (new, _, out) = adviceOf steps facts told stamp run in (new, Right out))
     HandbackOf role child -> do
         input <- Console.readStdin
         case decodeUtf8' input of
             Left _ -> pure (Left (Failure BadInput "the hand-back" "stdin is not UTF-8" "state help"))
-            Right message -> fmap (.text) <$> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
+            Right message -> fmap (.text) . orNoRun <$> onRun (\stamp run -> record stamp run (repeat Cli) (handbackPlan steps stamp.head run.state role child message))
     OnRun command -> do
         -- Read before the lock, as GitHub is.
         file <- traverse FileSystem.readText (fileOf command)
-        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.g run.state command))
+        handingBack steps (\stamp run -> record stamp run (repeat Cli) (planOf steps stamp.head (Monad.join file) run.g run.state command)) <&> \case
+            -- With no run, nothing says where the run is: every event is named.
+            NoRun | RecordUnknown name <- command -> Left (anyEvent name)
+            NoRun -> Left noRun
+            Ran result -> result
   where
     fileOf = \case
         Record recording -> case recording of
             FromFile path _ -> Just path
             Plain _ -> Nothing
             AtHead _ -> Nothing
+        RecordUnknown _ -> Nothing
         Brief _ _ -> Nothing
         ShowRun -> Nothing
         Override _ _ -> Nothing
@@ -278,11 +282,12 @@ planOf steps worktreeHead file g state = \case
     AskQuestion kind from text ->
         let question = Question (nextQId state) kind text
          in Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
-    RuleOn qid raise proposal -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\_ _ -> printed ("ruled " <> qidText qid <> "\n")))
-    Forward qid raise ->
-        Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
+    RecordUnknown name -> Left (unknownEvent g state name)
+    RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\_ _ -> printed ("ruled " <> qidText qid <> "\n")))
+    Forward raw raise ->
+        open raw >>= \qid -> Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
-    Answer qid answer by -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
+    Answer raw answer by -> open raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
@@ -290,6 +295,7 @@ planOf steps worktreeHead file g state = \case
         Left unknown -> Left (Failure BadInput ("task " <> taskIdText unknown) "the breakdown has no such task" "state show")
         Right text -> Right (Plan [] (\_ _ -> printed text))
   where
+    open = openQid state
     asked question = printed ("asked " <> qidText question.qid <> "\n")
     raised raise qid = case raise of
         AsAsked -> []
@@ -386,12 +392,13 @@ stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run
 a parent is recorded in the parent's run too, once this run's lock is
 released, as init's spawn is ('spawnedIn').
 -}
-handingBack :: (Shell es) => Steps -> (Stamp -> Loaded -> ([Envelope], Either Failure Output)) -> Eff es (Either Failure Text)
+handingBack :: (Shell es) => Steps -> (Stamp -> Loaded -> ([Envelope], Either Failure Output)) -> Eff es (Ran Text)
 handingBack steps act =
     onRun (\stamp run -> let (new, result) = act stamp run in (new, (\out -> (out.text, upOf run new =<< out.handback)) <$> result)) >>= \case
-        Left failure -> pure (Left failure)
-        Right (text, Nothing) -> pure (Right text)
-        Right (text, Just up) -> Right . (text <>) <$> handedUp steps up
+        NoRun -> pure NoRun
+        Ran (Left failure) -> pure (Ran (Left failure))
+        Ran (Right (text, Nothing)) -> pure (Ran (Right text))
+        Ran (Right (text, Just up)) -> Ran . Right . (text <>) <$> handedUp steps up
 
 -- | A child run's hand-back to its parent: the parent, the child's run and its last line, and the text.
 data Up = Up {parent :: Parent, child :: RunId, lastSeq :: Natural, text :: Text}
@@ -424,22 +431,36 @@ handedUp steps up =
     told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
 
 -- | The worktree's run, locked for one command.
-onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Either Failure a)
-onRun act = inWorktree (readPointer >=> maybe (pure (Left noRun)) (onLog act . logOf))
+onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Ran a)
+onRun act =
+    gitDir >>= \case
+        Left failure -> pure (Ran (Left failure))
+        Right gd -> readPointer gd >>= maybe (pure NoRun) (onRunLog act . logOf)
 
 -- | The run this log holds, locked for one command.
 onLog :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> FilePath -> Eff es (Either Failure a)
-onLog act path =
+onLog act path = orNoRun <$> onRunLog act path
+
+onRunLog :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> FilePath -> Eff es (Ran a)
+onRunLog act path =
     Log.exists path >>= \case
-        False -> pure (Left noRun)
+        False -> pure NoRun
         True -> do
             stamp <- now
             Log.locked path $ \case
-                Left bad -> ([], Left (unreadLine path bad))
-                Right [] -> ([], Left noRun)
+                Left bad -> ([], Ran (Left (unreadLine path bad)))
+                Right [] -> ([], NoRun)
                 Right (first : rest) -> case replayed path (first :| rest) of
-                    Left failure -> ([], Left failure)
-                    Right (g, state) -> act stamp (Loaded g state (first :| rest))
+                    Left failure -> ([], Ran (Left failure))
+                    Right (g, state) -> Ran <$> act stamp (Loaded g state (first :| rest))
+
+-- | A run command's outcome: no run to command, or the command's own.
+data Ran a = NoRun | Ran (Either Failure a)
+
+orNoRun :: Ran a -> Either Failure a
+orNoRun = \case
+    NoRun -> Left noRun
+    Ran result -> result
 
 noRun :: Failure
 noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
@@ -637,7 +658,8 @@ counts as running; the run's own failure is its command's to tell.
 endedChildren :: (Shell es) => Eff es [RunId]
 endedChildren =
     onRun (\_ run -> ([], Right (map (.child) (Fan.running (Fold.currentFan run.state))))) >>= \case
-        Left _ -> pure []
-        Right children -> concat <$> traverse ended children
+        NoRun -> pure []
+        Ran (Left _) -> pure []
+        Ran (Right children) -> concat <$> traverse ended children
   where
     ended child = fromRight [] <$> onLog (\_ run -> ([], Right [child.run | Fold.over run.state])) child.log
