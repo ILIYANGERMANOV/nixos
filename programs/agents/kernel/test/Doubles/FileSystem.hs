@@ -38,7 +38,6 @@ runRoFileSystemInMemory = interpret $ \env -> \case
             gets @Disk (Map.member file . (.files)) >>= \case
                 False -> pure Nothing
                 True -> readFile' file >>= either (const (failure userErrorType "invalid byte sequence" file)) (pure . Just) . decodeUtf8'
-    MakeAbsolute path -> absolute path
     InDirectory path act -> do
         dir <- absolute path
         gets @Disk (Set.member dir . (.dirs)) >>= \case

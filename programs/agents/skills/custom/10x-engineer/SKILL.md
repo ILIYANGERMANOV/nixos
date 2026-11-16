@@ -91,7 +91,7 @@ kept or parked.
 links and free text, across repos. Touch only the PRs the user named.
 
 Create `~/.10x/<yyyy-mm-dd>-<slug>/`, `git init -q` it, and in it run
-`state init --notes . --flow 10x`. Write the user's words verbatim to
+`state init --notes "$PWD" --flow 10x`. Write the user's words verbatim to
 `intent.md` there, never edited. The run's own Fuel is Balanced: it sets the
 run's own research and proposals.
 
@@ -167,7 +167,9 @@ clear. No engineer starts before this, a base fix included (Failures).
 
 Write `tasks.json` in the run directory, a JSON array in the plan's order of
 `{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
-"security": [topics]}`, `fuel` one of `low`, `balanced`, `max`, then `state record breakdown.done --tasks tasks.json`. A round task adds
+"security": [topics], "repo", "worktree"}`, `fuel` one of `low`, `balanced`, `max`,
+`repo` the task's `<owner>/<repo>`, `worktree` the absolute path of its worktree
+(`~` expanded), then `state record breakdown.done --tasks tasks.json`. A round task adds
 `"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
 settles it `kept`. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.

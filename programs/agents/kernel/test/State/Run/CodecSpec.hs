@@ -12,7 +12,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Review (Outcome (..))
@@ -102,6 +102,20 @@ spec = describe "State.Run.Codec" $ do
     it "reads a round task's existing PR from its pr key" $
         decodeTask (taskFileJson (roundTask "t1" "https://pr/1")) `shouldBe` Right (roundTask "t1" "https://pr/1")
 
+    it "reads a task's repo and worktree" $
+        decodeTask (taskFileJson placed) `shouldBe` Right placed
+
+    it "refuses a repo not OWNER/REPO and a worktree not absolute or with whitespace" $
+        map
+            (decodeTask . replacing (taskFileJson placed))
+            [("\"o/r\"", "\"o/r/x\""), ("\"o/r\"", "\"/r\""), ("\"o/r\"", "\"o /r\""), ("\"/wt\"", "\"wt\""), ("\"/wt\"", "\"/w t\"")]
+            `shouldBe` [ Left "Error in $: unknown repo \"o/r/x\""
+                       , Left "Error in $: unknown repo \"/r\""
+                       , Left "Error in $: unknown repo \"o /r\""
+                       , Left "Error in $: a worktree is an absolute path with no whitespace, not \"wt\""
+                       , Left "Error in $: a worktree is an absolute path with no whitespace, not \"/w t\""
+                       ]
+
     it "refuses a malformed task file as the breakdown's decoder does" $
         map decodeTask ["[]", taskFileJson (plainTask "fix" []) `replacing` ("\"fuel\":\"balanced\"", "\"fuel\":\"huge\"")]
             `shouldBe` [Left "Error in $: parsing task failed, expected Object, but encountered Array", Left "Error in $: unknown fuel \"huge\""]
@@ -161,3 +175,7 @@ malformed = \case
     Left (Malformed _) -> True
     Left (Unsupported _) -> False
     Right _ -> False
+
+-- | A task whose breakdown names its repo and worktree.
+placed :: Task
+placed = (plainTask "t1" []) {repo = Just (Repo "o" "r"), worktree = Just "/wt"}

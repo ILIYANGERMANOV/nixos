@@ -16,6 +16,7 @@ module State.Step.Artifact (
     TaskId (..),
     Task (..),
     Shape (..),
+    Repo (..),
     Topic (..),
     Tasks,
     BreakdownError (..),
@@ -24,6 +25,7 @@ module State.Step.Artifact (
     shaText,
     urlText,
     branchText,
+    repoText,
     taskIdText,
     topicText,
     judgementText,
@@ -56,6 +58,7 @@ import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject,
 import Data.Aeson.Encoding (Encoding, list, pair, pairs)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
+import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -66,6 +69,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
+import System.FilePath (isAbsolute)
 
 -- | The draft PR, synced from GitHub.
 data DraftPr = DraftPr {url :: Url, base :: Branch, branch :: Branch}
@@ -120,8 +124,27 @@ data Task = Task
     -- ^ Advisory: the kernel caps nothing on it; it stays on the wire for old breakdowns.
     , security :: Set Topic
     , shape :: Shape
+    , repo :: Maybe Repo
+    -- ^ The repo the task's work lands in, when the breakdown names it: its brief's notes dir.
+    , worktree :: Maybe FilePath
+    -- ^ An absolute path with no whitespace, when the breakdown names it: its brief's init line runs there.
     }
     deriving stock (Eq, Show)
+
+-- | A GitHub repository as @gh@ names it, @OWNER/REPO@.
+data Repo = Repo {owner :: Text, name :: Text}
+    deriving stock (Eq, Show)
+
+-- | @OWNER/REPO@: one slash, each side non-empty and free of whitespace.
+parseRepo :: Text -> Maybe Repo
+parseRepo raw = case Text.splitOn "/" raw of
+    [owner, name] | all part [owner, name] -> Just (Repo owner name)
+    _ -> Nothing
+  where
+    part text = not (Text.null text || Text.any isSpace text)
+
+repoText :: Repo -> Text
+repoText repo = repo.owner <> "/" <> repo.name
 
 {- | What the task's engineer does to its PR. A round on a PR that already
 exists leaves it open: its run skips @ready@, and the task settles kept.
@@ -224,6 +247,8 @@ taskEncoding task =
             <> "heavy" .= task.heavy
             <> "security" .= map topicText (Set.toList task.security)
             <> shapeData task.shape
+            <> maybe mempty (("repo" .=) . repoText) task.repo
+            <> maybe mempty ("worktree" .=) task.worktree
 
 -- | Only a round names its PR: a log older than rounds reads as own PRs.
 shapeData :: Shape -> Series
@@ -276,18 +301,26 @@ breakdownOf value = do
 taskOf :: Value -> Parser Task
 taskOf = withObject "task" taskFieldsOf
 
+-- | By name, as a field a later breakdown adds is one more line; an optional one is omitted when absent.
 taskFieldsOf :: Object -> Parser Task
-taskFieldsOf obj =
-    Task . TaskId
-        <$> obj .: "id"
-        <*> (map TaskId <$> obj .: "deps")
-        <*> (Branch <$> obj .: "base")
-        <*> (Branch <$> obj .: "branch")
-        <*> (obj .: "fuel" >>= named "fuel" parseFuel)
-        <*> obj .: "qa"
-        <*> obj .: "heavy"
-        <*> (obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic")
-        <*> shapeOf obj
+taskFieldsOf obj = do
+    taskId <- TaskId <$> obj .: "id"
+    deps <- map TaskId <$> obj .: "deps"
+    base <- Branch <$> obj .: "base"
+    branch <- Branch <$> obj .: "branch"
+    fuel <- obj .: "fuel" >>= named "fuel" parseFuel
+    qa <- obj .: "qa"
+    heavy <- obj .: "heavy"
+    security <- obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic"
+    shape <- shapeOf obj
+    repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
+    worktree <- obj .:? "worktree" >>= traverse worktreeOf
+    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree}
+  where
+    -- Printed unquoted in a shell line, so absolute and free of whitespace.
+    worktreeOf path
+        | isAbsolute path, not (any isSpace path) = pure path
+        | otherwise = fail ("a worktree is an absolute path with no whitespace, not " <> show path)
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"

@@ -142,6 +142,14 @@ spec = describe "State.Cli.Command" $ do
                 Right (Init args) -> fmap (.log) args.parent `shouldBe` Just "/p/events.jsonl"
                 _ -> expectationFailure "not an init"
 
+        it "refuses a notes dir that is relative or holds whitespace" $
+            map (failureWhat . parse . (["init", "--notes"] <>) . pure) ["rel/dir", ".", "/a b"]
+                `shouldBe` [Just "--notes rel/dir", Just "--notes .", Just "--notes /a b"]
+
+        it "keeps a notes dir in one spelling, with no trailing separator" $
+            map (fmap notesOf . parse . (["init", "--notes"] <>) . pure) ["/n/", "/n", "/./n//"]
+                `shouldBe` replicate 3 (Right (Just "/n"))
+
         it "refuses --parent, its log or its task without the other two" $
             map
                 (failureWhat . parse . (["init", "--notes", "/n"] <>))
@@ -246,3 +254,7 @@ spec = describe "State.Cli.Command" $ do
         Right _ -> "no usage error"
     failureWhat :: Either Text a -> Maybe Text
     failureWhat = either Just (const Nothing)
+    notesOf :: Command -> Maybe FilePath
+    notesOf = \case
+        Init args -> Just args.notes
+        _ -> Nothing

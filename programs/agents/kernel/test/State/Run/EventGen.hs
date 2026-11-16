@@ -30,6 +30,7 @@ module State.Run.EventGen (
     logOf,
 ) where
 
+import Data.Char (isSpace)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -144,8 +145,20 @@ genTaskAt i =
         <*> Gen.bool
         <*> genSet Gen.enumBounded
         <*> genShape
+        <*> Gen.maybe genRepo
+        <*> Gen.maybe genWorktree
   where
     taskNamed n = TaskId ("t" <> Text.pack (show n))
+
+-- | An @OWNER/REPO@, each side a word.
+genRepo :: Gen Repo
+genRepo = Repo <$> part <*> part
+  where
+    part = Gen.text (Range.linear 1 10) (Gen.element ['a', 'Z', '0', '-', '.', '_', '\233'])
+
+-- | An absolute path with no whitespace.
+genWorktree :: Gen FilePath
+genWorktree = ('/' :) <$> Gen.string (Range.linear 0 20) (Gen.filter (not . isSpace) Gen.unicode)
 
 genShape :: Gen Shape
 genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]
@@ -210,7 +223,7 @@ templates =
     , outcome (ReadySkipped (Url ""))
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr :| [])))
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr Nothing Nothing :| [])))
               , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)

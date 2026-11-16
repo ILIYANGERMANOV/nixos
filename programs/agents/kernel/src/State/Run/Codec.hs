@@ -34,6 +34,7 @@ module State.Run.Codec (
     urlText,
     taskIdText,
     branchText,
+    repoText,
     taskStateName,
     taskStateArgs,
     prStates,
@@ -97,7 +98,7 @@ import State.Run.Event (
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, repoText, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
 import System.FilePath ((</>))

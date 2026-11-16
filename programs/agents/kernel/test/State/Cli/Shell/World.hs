@@ -17,6 +17,8 @@ module State.Cli.Shell.World (
     tenXAtFanOut,
     tenXAtFanOutOf,
     childRun,
+    atWorktree,
+    childWorktree,
     logged,
     loggedEvents,
     headOf,
@@ -169,7 +171,7 @@ startedRun world = startedIn world []
 startedIn :: IORef World -> [Text] -> IO Text
 startedIn world argv =
     (succeeded =<< state world ("init" : (if "--notes" `elem` argv then argv else "--notes" : Text.pack notes : argv))) >>= \case
-        [line] | Just runId <- Text.stripPrefix "started " line -> pure runId
+        [line, _] | Just runId <- Text.stripPrefix "started " line -> pure runId
         other -> fail ("not started: " <> show other)
 
 notes :: FilePath
@@ -195,9 +197,22 @@ tenXAtFanOutOf world tasks = do
     _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
     pure tenX
 
--- | The child run a parent's brief starts for this task, in the notes dir given; its id.
+{- | The child run a parent's brief starts for this task, in the notes dir
+given, in 'childWorktree', where later calls run; its id.
+-}
 childRun :: IORef World -> Text -> FilePath -> Text -> IO Text
-childRun world parent dir task = startedIn world ["--notes", Text.pack dir, "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", task]
+childRun world parent dir task = do
+    atWorktree world childWorktree
+    startedIn world ["--notes", Text.pack dir, "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", task]
+
+-- | The worktree a child runs in, apart from the parent's at @/work@.
+childWorktree :: FilePath
+childWorktree = "/child-work"
+
+-- | Later calls run in this worktree, on the disk from now on: its git dir is its top's @.git@.
+atWorktree :: IORef World -> FilePath -> IO ()
+atWorktree world top = modifyIORef' world $ \w ->
+    let disk = w.disk in w {gitDir = Right (top </> ".git"), disk = disk {dirs = disk.dirs <> Set.fromList [top, top </> ".git"], cwd = top}}
 
 eventsPath :: FilePath
 eventsPath = logOf notes

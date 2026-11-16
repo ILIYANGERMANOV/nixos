@@ -7,7 +7,6 @@ module Effects.FileSystem (
     WrFileSystem (..),
     readBytes,
     readText,
-    makeAbsolute,
     inDirectory,
     writeText,
     createDirectory,
@@ -21,12 +20,10 @@ import Data.Text.IO qualified as Text
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, localSeqUnliftIO, send)
 import System.Directory (createDirectoryIfMissing, doesFileExist, withCurrentDirectory)
-import System.Directory qualified as Directory
 
 data RoFileSystem :: Effect where
     ReadBytes :: FilePath -> RoFileSystem m ByteString
     ReadText :: FilePath -> RoFileSystem m (Maybe Text)
-    MakeAbsolute :: FilePath -> RoFileSystem m FilePath
     InDirectory :: FilePath -> m a -> RoFileSystem m a
 
 data WrFileSystem :: Effect where
@@ -43,10 +40,6 @@ readBytes = send . ReadBytes
 -- | A file's text in the locale's encoding, 'Nothing' when it does not exist.
 readText :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe Text)
 readText = send . ReadText
-
--- | The path against the current directory.
-makeAbsolute :: (RoFileSystem :> es) => FilePath -> Eff es FilePath
-makeAbsolute = send . MakeAbsolute
 
 -- | Run the action with this as the current directory, which git and gh read.
 inDirectory :: (RoFileSystem :> es) => FilePath -> Eff es a -> Eff es a
@@ -71,7 +64,6 @@ runRoFileSystemIO = interpret $ \env -> \case
             doesFileExist path >>= \case
                 False -> pure Nothing
                 True -> Just <$> Text.readFile path
-    MakeAbsolute path -> liftIO (Directory.makeAbsolute path)
     InDirectory dir act -> localSeqUnliftIO env $ \unlift -> withCurrentDirectory dir (unlift act)
 
 runWrFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : es) a -> Eff es a

@@ -2,7 +2,7 @@ module Effects.FileSystemSpec (spec) where
 
 import Control.Exception (try)
 import Effectful (runEff)
-import Effects.FileSystem (createDirectory, inDirectory, makeAbsolute, readBytes, readText, runFileSystemIO, writeText)
+import Effects.FileSystem (createDirectory, inDirectory, readBytes, readText, runFileSystemIO, writeText)
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (withSystemTempDirectory)
@@ -35,6 +35,6 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
     it "resolves relative paths against the directory it runs in" $ \dir -> do
         runEff . runFileSystemIO $ createDirectory (dir </> "work")
 
-        (absolute, text) <- runEff . runFileSystemIO . inDirectory (dir </> "work") $ (,) <$> makeAbsolute "f" <*> (writeText "f" "x" >> readText (dir </> "work" </> "f"))
+        text <- runEff . runFileSystemIO . inDirectory (dir </> "work") $ writeText "f" "x" >> readText (dir </> "work" </> "f")
 
-        (absolute, text) `shouldBe` (dir </> "work" </> "f", Just "x")
+        text `shouldBe` Just "x"

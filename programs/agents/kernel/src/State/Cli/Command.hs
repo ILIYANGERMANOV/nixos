@@ -28,6 +28,7 @@ module State.Cli.Command (
 
 import Control.Applicative (many, optional, some, (<**>))
 import Data.Bifunctor (first)
+import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -56,7 +57,7 @@ import State.Run.Id (parseEventId)
 import State.Show (tshow)
 import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
-import System.FilePath (isAbsolute, takeFileName)
+import System.FilePath (dropTrailingPathSeparator, isAbsolute, normalise, takeFileName)
 
 data Command
     = Init InitArgs
@@ -255,19 +256,20 @@ commandInfo steps scope =
 initArgs :: Opt.Parser (Either Failure Command)
 initArgs =
     init'
-        <$> textOption "notes" "<dir>" "the directory of the run's notes"
+        <$> textOption "notes" "<dir>" "the directory of the run's notes, an absolute path"
         <*> optional flowOption
         <*> optional (textOption "parent" "<run>" "a child run's parent run")
         <*> optional (textOption "parent-log" "<path>" "the parent's events.jsonl, an absolute path")
         <*> optional (textOption "task" "<id>" "the parent's task this child run takes")
   where
-    init' notes flowRaw parentRaw logRaw taskRaw = do
+    init' notesRaw flowRaw parentRaw logRaw taskRaw = do
+        notes <- notesDir notesRaw
         flow <- traverse flowNamed flowRaw
         parent <- case (parentRaw, logRaw, taskRaw) of
             (Nothing, Nothing, Nothing) -> Right Nothing
             (Just run, Just logPath, Just task) -> (\r l -> Just (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
             _ -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
-        Right (Init InitArgs {notes = Text.unpack notes, flow, parent})
+        Right (Init InitArgs {notes, flow, parent})
 
 -- | One subcommand per event the table holds, its flags its options.
 recordEvent :: ScopePath -> Opt.Parser (Either Failure Command)
@@ -350,6 +352,18 @@ parentLog :: Text -> Either Failure FilePath
 parentLog raw
     | isAbsolute path, takeFileName path == logName = Right path
     | otherwise = Left (usage ("--parent-log " <> raw) ("the parent's log is an absolute path to its " <> Text.pack logName))
+  where
+    path = Text.unpack raw
+
+{- | A run's notes dir, one spelling of it: the pointer, the log's start, the
+same-dir check and init's @run@ line all hold this value. Absolute, as the
+directory init ran in is not the one a later reader runs in; no whitespace,
+as the @run@ line and the brief's init line print it unquoted.
+-}
+notesDir :: Text -> Either Failure FilePath
+notesDir raw
+    | isAbsolute path, not (Text.any isSpace raw) = Right (dropTrailingPathSeparator (normalise path))
+    | otherwise = Left (usage ("--notes " <> raw) "the notes dir is an absolute path with no whitespace")
   where
     path = Text.unpack raw
 
