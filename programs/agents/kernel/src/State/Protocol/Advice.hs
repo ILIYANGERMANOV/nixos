@@ -17,7 +17,10 @@ module State.Protocol.Advice (
     due,
     skippable,
     advise,
+    heldBy,
     deliver,
+    deliverMore,
+    handsBack,
     deliverPrompt,
     ownAsk,
     factLines,
@@ -27,6 +30,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (join, mfilter)
 import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
 import Data.Aeson.Types (parseEither)
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.Foldable (asum, toList)
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -51,11 +55,11 @@ import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
@@ -128,12 +132,13 @@ pullRequestOf = \case
                 ("CLOSED", _) -> pure IsClosed
                 _ -> fail ("unknown PR state " <> Text.unpack prState)
 
-{- | The action; where the run is and what that means; where the step's
+{- | The action; at a fan-out, each other task's action the run takes at
+once beside it; where the run is and what that means; where the step's
 outcomes lead, for an action that takes none of them itself (a spawn, a
 question, CI); the facts the reader weighs it by; the step's prompt text;
 and whether the step notifies the user ('deliverPrompt' decides who does).
 -}
-data Advice = Advice {action :: Action, at :: Text, leads :: [Option], facts :: [Text], prompt :: Text, notify :: Bool}
+data Advice = Advice {action :: Action, more :: [Action], at :: Text, leads :: [Option], facts :: [Text], prompt :: Text, notify :: Bool}
     deriving stock (Eq, Show)
 
 data Action
@@ -153,6 +158,8 @@ data Action
       TriageStop RunId Stop
     | -- | A worker's hand-back line 1, for @state ask --from@ before the run goes on.
       TriageHandback AgentRole OneLine
+    | -- | A worker still at work, before the run hands back: its hand-back wakes the run.
+      AwaitWorker AgentRole AgentId
     | -- | Tasks with an agent at work, none of them waiting on this run.
       AwaitChildren (NonEmpty TaskId)
     | {- | Tasks neither merged nor parked, each with its PR if one was
@@ -248,9 +255,13 @@ skipsHere g state = case (state.stopped, state.at) of
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
-advise steps g facts state = Advice action (atLine steps state) leads (factLines g facts state) prompt notify
+advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
   where
     plain next = (next, "")
+    more = case (state.stopped, fanHere) of
+        (Nothing, Just here) -> alsoAtFan here facts.ended state action
+        (Nothing, Nothing) -> []
+        (Just _, _) -> []
     -- Where the step's outcomes lead, for an action at a step that takes none of them itself.
     leads = case (state.stopped, state.pending, state.at, action) of
         (Nothing, [], At place, Spawn _ Nothing) -> stepLeads place
@@ -380,34 +391,65 @@ of a child whose log shows it @ended@ while this run counts it running,
 triage a question, then a child's stop, record a finished task's PR, resume
 a child its answer waits for or a restart lost, spawn a task - then ask the
 user what waits on them, then wait on the CI or merges children handed up,
-the children at work or a dependency's merge. A question the user holds blocks no other child (the 10x
-skill's "Other tasks keep moving"). A child the 10x resumed, or a task it spawned, has an agent at work
-and is advised no more. With none at work, none spawnable and no merge
+the children at work, the CI of a task's PR or a dependency's merge. A
+question the user holds blocks no other child (the 10x skill's "Other tasks
+keep moving"). A child the 10x resumed, or a task it spawned, has an agent at
+work and is advised no more. With none at work, none spawnable and no merge
 awaited, a task is left to park.
 -}
 atFan :: ScopedFan -> [RunId] -> RunState -> Action
-atFan at ended state = fromMaybe leave (asum ([unrecorded, question, triage, record, resume, spawn, awaitAnswer] <> map handedUp [minBound .. maxBound] <> [awaitChildren, awaitMerge]))
+atFan at ended state = fromMaybe leave (asum ([first now.unrecorded, question, first now.triage, first now.record, first now.resume, first now.spawn, awaitAnswer] <> map handedUp [minBound .. maxBound] <> [awaitChildren, awaitCi, awaitMerge]))
   where
+    now = atOnce at ended state
+    first = fmap snd . listToMaybe
     here = fanIn state.fans at
     fan = at.fan
-    unrecorded = listToMaybe [Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in")) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
     waiting = Fan.waiting here
     question = listToMaybe [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]
     awaitAnswer = listToMaybe [AwaitAnswer p.asking.question | p <- state.pending, p.waits == ForAnswer]
-    triage = listToMaybe [TriageStop child.run stop | (child, stop) <- Fan.untriaged here]
-    record = recordFinished here
-    resume = listToMaybe ([Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> answer) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost)
-    -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
-    lost = [Resume c.child.run ("lost at a restart: a fresh " <> roleText (taskRole task) <> " with its spawn prompt") | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
-    spawn = (\task -> Spawn (taskRole task) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) here)
-    taskRole task = (Role.role task.flow).name
     -- What the waiting children handed up, CI first: this run waits on it, or hands it up again.
     handedUp on = AwaitOn on . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (Awaits awaited ref) <- [Fan.latest c], awaited == on]
     awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList here.atWork)
+    -- A task's PR in CI, a fixer's push after its child finished: the 10x records it green or parks it.
+    awaitCi = AwaitOn Ci . Text.unwords . map urlText . NonEmpty.toList <$> NonEmpty.nonEmpty (Fan.ciAwaited here)
     awaitMerge = AwaitMerge <$> NonEmpty.nonEmpty (withPrs here (Fan.mergesAwaited here))
     leave = Run $ case Fan.unsettled here of
         task : _ -> one ("state record task " <> taskIdText task <> " parked <why>") "no agent works on it and none can start it: park it"
         [] -> one (recordCommand (fanEvent Leaves (qualify at.scope (namedState fan)))) "every task is settled: the fan-out ends"
+
+{- | Each task's first action the run takes at once at a fan-out, in
+'atFan''s order, but for the one 'atFan' advises: a task's line never
+waits on another task's.
+-}
+alsoAtFan :: ScopedFan -> [RunId] -> RunState -> Action -> [Action]
+alsoAtFan at ended state advised = filter (/= advised) (map snd (nubOrdOn fst (now.unrecorded <> now.triage <> now.record <> now.resume <> now.spawn)))
+  where
+    now = atOnce at ended state
+
+-- | What a fan-out takes at once, each source in the breakdown's order with the task it is for.
+data AtOnce = AtOnce
+    { unrecorded :: [(TaskId, Action)]
+    , triage :: [(TaskId, Action)]
+    , record :: [(TaskId, Action)]
+    , resume :: [(TaskId, Action)]
+    , spawn :: [(TaskId, Action)]
+    }
+
+atOnce :: ScopedFan -> [RunId] -> RunState -> AtOnce
+atOnce at ended state =
+    AtOnce
+        { unrecorded = [(c.child.task, Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in"))) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
+        , triage = [(child.task, TriageStop child.run stop) | (child, stop) <- Fan.untriaged here]
+        , record = recordsFinished here
+        , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> answer)) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
+        , spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here]
+        }
+  where
+    here = fanIn state.fans at
+    waiting = Fan.waiting here
+    -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
+    lost = [(c.child.task, Resume c.child.run ("lost at a restart: a fresh " <> roleText (taskRole task) <> " with its spawn prompt")) | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
+    taskRole task = (Role.role task.flow).name
 
 {- | At a fan-out's merge: record a finished task's PR, await the unmerged,
 then record the merge. With every task parked nothing merged, so the run
@@ -428,7 +470,11 @@ withPrs fan = fmap (\task -> (task, Fan.pullRequest fan task))
 ('State.Protocol.Handback' records the rest).
 -}
 recordFinished :: Fan -> Maybe Action
-recordFinished fan = listToMaybe [Run (one (recordTask task) "its child finished: record its PR") | task <- fan.tasks, Fan.unrecorded fan task.id]
+recordFinished = fmap snd . listToMaybe . recordsFinished
+
+-- | 'recordFinished' for each such task, in the breakdown's order.
+recordsFinished :: Fan -> [(TaskId, Action)]
+recordsFinished fan = [(task.id, Run (one (recordTask task) "its child finished: record its PR")) | task <- fan.tasks, Fan.unrecorded fan task.id]
 
 recordTask :: Task -> Text
 recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (InReview (Url "<url>"))
@@ -511,6 +557,23 @@ taskLine fan open task =
             Round url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
 
+{- | The advice held while a worker of the run is still at work and its line
+would hand the run back: a lead hands back only after its workers, as a
+structured-concurrency scope ends only after its children. Decided on the
+delivered line, so 'advise' stays principal-blind. Names the oldest worker.
+-}
+heldBy :: Start -> [Worker] -> Advice -> Advice
+heldBy start live advice = case live of
+    worker : _
+        | handsBack (deliver start advice.action) ->
+            advice {action = AwaitWorker worker.role worker.agent, more = [], leads = [], facts = stillAtWork worker <> advice.facts}
+    _ -> advice
+  where
+    stillAtWork worker =
+        [ "state handback: " <> roleText worker.role <> " " <> worker.agent.agentIdText <> " is still at work - its hand-back is not recorded"
+        , "fix: wait for it, or state handback " <> roleText worker.role <> " for its report, or state void " <> tshow worker.spawnedAt <> " \"<why>\" for a lost one"
+        ]
+
 {- | The advice as its first line, for this principal and interface: the only
 place either is read.
 -}
@@ -535,6 +598,7 @@ deliver start = \case
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
     TriageStop child stop -> triageFrom (runIdText child) (stopLine stop)
     TriageHandback (AgentRole role) line -> triageFrom role (oneLineText line)
+    AwaitWorker role agent -> "AWAIT worker " <> roleText role <> " " <> agent.agentIdText
     AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
     -- Task ids mean nothing above this run: it hands up the PRs.
     AwaitMerge tasks
@@ -554,6 +618,18 @@ deliver start = \case
     awaiting waiting refs = (if has Event.Await then "" else "HANDBACK ") <> "AWAIT " <> waitingText waiting <> " " <> refs
     triageFrom from line = "RUN state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
     asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
+
+{- | The unindented lines after the advice's first: each other action it
+takes at once, none when the first hands the run back, which ends its turn.
+-}
+deliverMore :: Start -> Advice -> [Text]
+deliverMore start advice
+    | handsBack (deliver start advice.action) = []
+    | otherwise = map (deliver start) advice.more
+
+-- | A delivered line that hands the run back to its parent.
+handsBack :: Text -> Bool
+handsBack = ("HANDBACK " `Text.isPrefixOf`)
 
 -- | What @state next@ prints for a step: an agent step's lead part, then the task.
 promptOf :: Row -> Text
@@ -600,7 +676,7 @@ atLine steps state = case state.at of
             Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
             Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
         (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
-        (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what the first line says, then state next"
+        (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
 
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.
@@ -631,6 +707,7 @@ runOptions = \case
     Resume _ _ -> []
     TriageStop _ _ -> []
     TriageHandback _ _ -> []
+    AwaitWorker _ _ -> []
     AwaitChildren _ -> []
     AwaitMerge _ -> []
     Stopped _ -> []

@@ -61,8 +61,9 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   question, ruling, hand-back and held wake are events in its log, and
   `state show` prints them. It keeps one run per git work tree, so the run
   directory is one: every `state` command runs in `~/.10x/<run>/`. Loop:
-  `state next`, do what its first line says, record the outcome, `state next`
-  again, until `DONE`. The line table in `~/.claude/skills/engineer/SKILL.md`
+  `state next`, do what each unindented line before the indented block says
+  (at a fan-out, one line per task that can move), record the outcome,
+  `state next` again, until `DONE`. The line table in `~/.claude/skills/engineer/SKILL.md`
   holds, but for these rows, which add to it or replace its own:
 
   | Line | You |

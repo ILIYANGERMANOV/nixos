@@ -54,6 +54,14 @@ spec = describe "the agent-to-run binding" $ do
             staleNote binding (runId "ffff0000")
                 `shouldBe` Just "state: this agent is bound to run 0a1b2c3d, but /work holds run ffff0000 now; the hook recorded nothing\n"
 
+    describe "a run's move to another worktree" $ do
+        let binding = Binding (runId "0a1b2c3d") "/notes" "/work"
+        it "rebinds a binding of the run at the old worktree to the new one, its notes kept" $
+            rebound (runId "0a1b2c3d") "/work/" "/other" binding `shouldBe` Just binding {toplevel = "/other"}
+
+        it "rebinds none of another run, or of the run at another worktree" $
+            [rebound (runId "ffff0000") "/work" "/other" binding, rebound (runId "0a1b2c3d") "/elsewhere" "/other" binding] `shouldBe` [Nothing, Nothing]
+
     describe "the store" $ do
         it "lives under XDG_STATE_HOME, else HOME's .local/state, a relative one unset" $
             [storeRoot (Just "/xdg") (Just "/home/me"), storeRoot Nothing (Just "/home/me"), storeRoot (Just "rel") (Just "/home/me"), storeRoot Nothing Nothing]

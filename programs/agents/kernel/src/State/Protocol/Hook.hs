@@ -55,6 +55,7 @@ module State.Protocol.Hook (
     silent,
     offAdvice,
     followedAt,
+    tracked,
     spawnedAt,
     hookSources,
     restartOf,
@@ -261,7 +262,7 @@ wants steps hook event = case hook of
         PromptExpansion _ _ -> undeclared
     HandbackHook -> case event of
         BeforeTool call _ input -> Right $ case (call.agent, textAt "message" input) of
-            (Just agent@Agent {role = Just role}, Just message) | role `elem` agentRoles steps -> Just (Asks (HandedBack message agent role))
+            (Just agent@Agent {role = Just role}, Just message) | tracked steps role -> Just (Asks (HandedBack message agent role))
             _ -> Nothing
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
@@ -425,6 +426,13 @@ isLead steps = \case
 flowRoles :: Steps -> [AgentRole]
 flowRoles steps = agentRoles steps <> beside
 
+{- | A role whose hand-back this hook reads: a step's runner. Its spawn is
+logged, so the lead hands back only once it returned; a reviewer or checker
+spawned beside reports to its spawner alone.
+-}
+tracked :: Steps -> AgentRole -> Bool
+tracked steps role = role `elem` agentRoles steps
+
 {- | Whether the run records this step runner's hand-back where it is: one
 also spawned beside the advice only at a choice, where it runs an action. A
 child run records its own in its parent's run.
@@ -502,8 +510,8 @@ offAdvice steps at advised spawned
         Exit -> False
 
 {- | What a session start records: a fresh or resumed session lost every
-agent the lead had at work, so the advice sends them again; a compacted one
-lost none. A run with no agent at work records nothing.
+agent the lead had at work, its workers too, so the advice sends them again;
+a compacted one lost none. A run with no agent at work records nothing.
 -}
 restartOf :: StartSource -> RunState -> Maybe Event
 restartOf source state = case source of
@@ -511,7 +519,7 @@ restartOf source state = case source of
     Resumed -> lost
     Compact -> Nothing
   where
-    lost = if all (Set.null . (.atWork)) state.fans then Nothing else Just Restarted
+    lost = if all (Set.null . (.atWork)) state.fans && null state.live then Nothing else Just Restarted
 
 {- | The ids of a hook's records, one per event it appends, in order: a hash
 of the run, the agent and its message, so the same hand-back seen twice

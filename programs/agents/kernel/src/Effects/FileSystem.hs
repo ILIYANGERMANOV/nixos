@@ -8,6 +8,7 @@ module Effects.FileSystem (
     WrFileSystem (..),
     readBytes,
     readText,
+    listDirectory,
     inDirectory,
     writeText,
     writeTextAtomic,
@@ -17,6 +18,7 @@ module Effects.FileSystem (
 ) where
 
 import Control.Exception (bracketOnError, catchJust)
+import Control.Monad (guard)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Text (Text)
@@ -32,6 +34,7 @@ import System.IO.Error (isDoesNotExistError)
 data RoFileSystem :: Effect where
     ReadBytes :: FilePath -> RoFileSystem m ByteString
     ReadText :: FilePath -> RoFileSystem m (Maybe Text)
+    ListDirectory :: FilePath -> RoFileSystem m [FilePath]
     InDirectory :: FilePath -> m a -> RoFileSystem m a
 
 data WrFileSystem :: Effect where
@@ -50,6 +53,10 @@ readBytes = send . ReadBytes
 -- | A file's text in the locale's encoding, 'Nothing' when it does not exist.
 readText :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe Text)
 readText = send . ReadText
+
+-- | The names in a directory, none when it does not exist.
+listDirectory :: (RoFileSystem :> es) => FilePath -> Eff es [FilePath]
+listDirectory = send . ListDirectory
 
 -- | Run the action with this as the current directory, which git and gh read.
 inDirectory :: (RoFileSystem :> es) => FilePath -> Eff es a -> Eff es a
@@ -84,6 +91,7 @@ runRoFileSystemIO = interpret $ \env -> \case
             doesFileExist path >>= \case
                 False -> pure Nothing
                 True -> Just <$> Text.readFile path
+    ListDirectory dir -> liftIO (orIfAbsent [] (Directory.listDirectory dir))
     InDirectory dir act -> localSeqUnliftIO env $ \unlift -> withCurrentDirectory dir (unlift act)
 
 runWrFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : es) a -> Eff es a
@@ -96,5 +104,9 @@ runWrFileSystemIO = interpret $ \_ -> \case
                 (openTempFile (takeDirectory path) (takeFileName path <> ".tmp"))
                 (\(temp, handle) -> hClose handle >> Directory.removeFile temp)
                 (\(temp, handle) -> Text.hPutStr handle text >> hClose handle >> renameFile temp path)
-    RemoveFile path -> liftIO (catchJust (\e -> if isDoesNotExistError e then Just () else Nothing) (Directory.removeFile path) pure)
+    RemoveFile path -> liftIO (orIfAbsent () (Directory.removeFile path))
     CreateDirectory path -> liftIO (createDirectoryIfMissing True path)
+
+-- | The action's result, or this when the path it names does not exist.
+orIfAbsent :: a -> IO a -> IO a
+orIfAbsent absent act = catchJust (guard . isDoesNotExistError) act (const (pure absent))

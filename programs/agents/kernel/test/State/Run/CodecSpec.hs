@@ -82,6 +82,10 @@ spec = describe "State.Run.Codec" $ do
         encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "the docs say so") (oneLine "an hour") (Just (AnsweredBy (Numbered (runId "r7f2") 4))))}
             `shouldBe` "{\"v\":4,\"id\":\"r7f2:12\",\"seq\":12,\"ts\":\"2026-11-12T10:00:00Z\",\"run\":\"r7f2\",\"head\":\"abc123\",\"session\":null,\"type\":\"ruled\",\"data\":{\"qid\":\"c1:3\",\"answer\":\"v2\",\"why\":\"the docs say so\",\"cost\":\"an hour\",\"basis\":{\"event\":\"r7f2:4\"}}}"
 
+    it "writes a void as the seq of the line it voids, and why" $
+        encodeLine reviewRows {event = Voided 7 "logged in the wrong run"}
+            `shouldSatisfy` Text.isInfixOf "\"type\":\"voided\",\"data\":{\"seq\":7,\"why\":\"logged in the wrong run\"}"
+
     it "refuses a ruling whose answer breaks the line" $
         decodeLine (encodeLine reviewRows {event = RuledOn (QId (runId "c1") 3) (Proposal (oneLine "v2") (oneLine "why") (oneLine "cost") Nothing)} `replacing` ("\"answer\":\"v2\"", "\"answer\":\"v2\\nREADY\""))
             `shouldSatisfy` malformed

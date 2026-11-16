@@ -323,6 +323,62 @@ spec = describe "state over the doubles" $ do
 
                 (ran.code, take 1 ran.err) `shouldBe` (2, ["Missing: <why>"])
 
+        describe "void" $ do
+            it "voids a line, the run replaying as if it was never logged" $ \world -> do
+                _ <- drive world []
+                _ <- succeeded =<< state world ["override", "review", "resume", "after", "a", "crash"]
+
+                voided <- succeeded =<< state world ["void", "2", "overridden", "in", "error"]
+                shown <- succeeded =<< state world ["show"]
+
+                (voided, "step: review" `elem` shown) `shouldBe` (["recorded 3 voided -> gather"], False)
+
+            it "refuses a seq no line the run replays has, and the started line, which the run needs" $ \world -> do
+                _ <- drive world []
+
+                unknown <- state world ["void", "9", "why"]
+                first <- state world ["void", "1", "why"]
+
+                map (\ran -> (ran.code, ran.err)) [unknown, first]
+                    `shouldBe` [ (2, ["state void: seq 9 - no line the run replays has it: none does, it is voided, or it is a void", "fix: state void <seq of a line in events.jsonl> <why>"])
+                               , (2, ["state void: the void of 1 - the log without it does not replay: the log - its first line is not started", "fix: state void <the later line that needs it> <why>, then this one"])
+                               ]
+
+        describe "move" $ do
+            let sessionBindings = "/home/.local/state/state/bindings/s1"
+            it "moves the run to another worktree, rebinding its agents there, its notes kept" $ \world -> do
+                run <- startedRun world
+                putFile world (sessionBindings </> "main") ("run " <> run <> " /notes /work\n")
+                putFile world (sessionBindings </> "a1") "run ffff0000 /elsewhere /work\n"
+                addWorktree world "/target"
+
+                moved <- succeeded =<< state world ["move", "/target"]
+                old <- state world ["show"]
+                atWorktree world "/target"
+                shown <- succeeded =<< state world ["show"]
+                rebound <- traverse (fileBytes world . (sessionBindings </>)) ["main", "a1"]
+
+                (moved, old.code, take 1 shown) `shouldBe` (["moved " <> run <> " to /target"], 2, ["run: " <> run <> " (engineer)"])
+                rebound
+                    `shouldBe` [Just (encodeUtf8 ("run " <> run <> " /notes /target\n")), Just "run ffff0000 /elsewhere /work\n"]
+
+            it "refuses a target in no worktree, this worktree, and one holding an unfinished run" $ \world -> do
+                run <- startedRun world
+                addWorktree world "/target"
+                atWorktree world "/target"
+                other <- startedIn world ["--notes", "/other"]
+                atWorktree world "/work"
+
+                refused <- traverse (\target -> state world ["move", target]) ["/nowhere", "/work", "/target"]
+                shown <- succeeded =<< state world ["show"]
+
+                map (\ran -> (ran.code, take 1 ran.err)) refused
+                    `shouldBe` [ (2, ["state move: /nowhere is in no git worktree - git finds none there"])
+                               , (2, ["state move: /work - it is this worktree, which holds the run already"])
+                               , (2, ["state move: /target - its worktree holds unfinished run " <> other <> " in /other"])
+                               ]
+                take 1 shown `shouldBe` ["run: " <> run <> " (engineer)"]
+
         describe "the review loop" $ do
             it "asks Stuck when rounds 1 and 2 pick the same row" $ \world -> do
                 _ <- drive world (atReview <> reviewRound "R1" [] <> [Handback "fixer" ready] <> reviewRound "R1" [])

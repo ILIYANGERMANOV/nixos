@@ -37,6 +37,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
@@ -63,6 +64,7 @@ import State.Step.Artifact (Shape (..), ShellPath, parsePrUrl, prUrlRule, shellP
 import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
 import System.FilePath (dropTrailingPathSeparator, isAbsolute, normalise, takeFileName)
+import Text.Read (readMaybe)
 
 data Command
     = Init InitArgs
@@ -71,6 +73,8 @@ data Command
     | Next
     | Render Block FlowName
     | Help
+    | -- | The worktree's run moves to the worktree at this directory; its notes stay.
+      Move FilePath
     | OnRun RunCommand
 
 -- | A command on the worktree's run, read and written under the log's lock.
@@ -82,6 +86,8 @@ data RunCommand
       Brief AgentRole (Maybe TaskId)
     | ShowRun
     | Override StateName Text
+    | -- | The line of this seq is void, and why.
+      Void Natural Text
     | -- | A question, the run's own or one a worker or child put to it.
       AskQuestion Kind Asker OneLine
     | -- | A question's id as typed, checked against the run's open ones ('openQid').
@@ -206,6 +212,11 @@ commandInfo steps scope =
                 (\target why -> Right (OnRun (Override (StateName target) why)))
                     <$> textArgument "<state>"
                     <*> sentence "<why>"
+            , freeText "void" "Void a line logged in error, by its seq, saying why" $
+                (\n why -> OnRun . (`Void` why) <$> seqOf n)
+                    <$> textArgument "<seq>"
+                    <*> sentence "<why>"
+            , sub "move" "Move the run to another worktree; its notes stay" (Right . Move . Text.unpack <$> textArgument "<worktree>")
             , sub "render" "Print a block of the flow, as the skills paste it" $
                 (\block flow -> Render <$> maybe (Right States) (named "block" (parseByName blockName)) block <*> flowOf flow)
                     <$> optional (textArgument (choices blockName))
@@ -343,6 +354,10 @@ named what parse raw = maybe (Left (usage ("no " <> what <> " " <> raw) ("see th
 runId :: Text -> Either Failure RunId
 runId = named "run id" parseRunId
 
+-- | A line's seq, as @recorded <seq>@ and the log print it.
+seqOf :: Text -> Either Failure Natural
+seqOf raw = maybe (Left (usage ("seq " <> raw) "a seq is a line's number in the log, from 1")) Right (readMaybe (Text.unpack raw))
+
 -- | A kind in any case: the hand-back's @NEEDS_DECISION <Kind>@ alone is spelled exactly.
 kindOf :: Text -> Either Failure Kind
 kindOf raw = maybe (Left (usage ("no kind " <> raw) ("one of " <> choices kindName))) Right (parseByName (Text.toLower . kindName) (Text.toLower raw))
@@ -442,6 +457,10 @@ explain g fuel at meters = \case
         Fan.NotItsRound task url -> refused ("task " <> Codec.taskIdText task <> " kept") ("its round is on " <> Codec.urlText url <> ": only that PR is kept") ("state record task " <> Codec.taskIdText task <> " " <> Codec.taskStateArgs (Kept url))
         Fan.TaskExists task -> refused ("task " <> Codec.taskIdText task) "the fan-out has a task of that id already" "state show"
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText at <> ", no fan-out's state") "state show"
+    NotVoidable n -> refused ("seq " <> tshow n) "no line the run replays has it: none does, it is voided, or it is a void" ("state void <seq of a line in " <> Text.pack logName <> "> <why>")
+    VoidBreaks n refusal ->
+        let broken = explain g fuel at meters refusal
+         in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"
   where
     refused = Failure BadInput
     records keep = atPlace $ \place -> case [recordCommand event | (event, edge) <- shownEdges g place, keep edge, closesOpen place event] of

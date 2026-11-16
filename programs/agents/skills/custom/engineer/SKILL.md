@@ -54,8 +54,9 @@ who owns each decision.
   | `ASK <Kind> <what>` | the Ask rule above |
   | `ASK <Kind> <qid>: <q>` | asked and the user's: the `ASK user` rule |
   | `RUN <command>` | do the step, then run the command, placeholders filled |
-  | `RUN one option below` | pick the one option under `options:` that fits and take it: run its command, placeholders filled, or the spawn it names; then `state next` |
-  | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions describe, then record green or red |
+  | `RUN one option below` | take the one option under `options:` that fits: run its command, placeholders filled, or the spawn it names |
+  | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions say, then record green or red |
+  | `AWAIT worker <role> <id>` | end the turn: its hand-back wakes you |
   | `HANDBACK <line>` | the Ask rule's `HANDBACK` |
   | `STOP <reason>` | the run is over, as `blockers.md`'s Stops says |
   | `recorded <n> <event> -> <state>` | logged for you: read on |

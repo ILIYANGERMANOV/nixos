@@ -19,6 +19,7 @@ module State.Cli.Shell.World (
     tenXAtFanOutOf,
     childRun,
     atWorktree,
+    addWorktree,
     childWorktree,
     logged,
     loggedEvents,
@@ -29,6 +30,7 @@ module State.Cli.Shell.World (
     editLog,
     editLogIn,
     logBytes,
+    fileBytes,
     prUrl,
     notes,
     eventsPath,
@@ -91,6 +93,8 @@ data World = World
     { env :: Map String String
     , disk :: Disk
     , gitDir :: Either Text FilePath
+    , others :: [FilePath]
+    -- ^ The tops of other worktrees, apart from the one calls run in.
     , gitOnPath :: Bool
     -- ^ Without it every git call throws, as a missing binary's spawn does.
     , branch :: Maybe Branch
@@ -109,6 +113,7 @@ newWorld = do
             { env = Map.fromList [("STATE_STEPS", stepsPath), ("HOME", "/home")]
             , disk = Disk {files = Map.singleton stepsPath steps, dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"], cwd = "/work"}
             , gitDir = Right "/work/.git"
+            , others = []
             , gitOnPath = True
             , branch = Just (Branch "feat")
             , commits = 0
@@ -159,6 +164,7 @@ worktreeOf w =
         , head = Just (headOf w.commits)
         , branch = w.branch
         , numstats = [(Branch "main", if w.commits == 0 then "" else Text.pack (show w.commits) <> "\t0\tchange.txt\n")]
+        , others = w.others
         }
 
 -- | HEAD after this many commits on @feat@; 0 is @main@'s.
@@ -222,6 +228,11 @@ atWorktree :: IORef World -> FilePath -> IO ()
 atWorktree world top = modifyIORef' world $ \w ->
     let disk = w.disk in w {gitDir = Right (top </> ".git"), disk = disk {dirs = disk.dirs <> Set.fromList [top, top </> ".git"], cwd = top}}
 
+-- | Another worktree at this top, its git dir its top's @.git@; calls run where they did.
+addWorktree :: IORef World -> FilePath -> IO ()
+addWorktree world top = modifyIORef' world $ \w ->
+    let disk = w.disk in w {others = top : w.others, disk = disk {dirs = disk.dirs <> Set.fromList [top, top </> ".git"]}}
+
 eventsPath :: FilePath
 eventsPath = logOf notes
 
@@ -266,7 +277,11 @@ editLogIn world path edit = modifyIORef' world $ \w ->
 
 -- | The worktree's log as the bytes on disk.
 logBytes :: IORef World -> IO (Maybe ByteString)
-logBytes world = Map.lookup eventsPath . (.disk.files) <$> readIORef world
+logBytes world = fileBytes world eventsPath
+
+-- | A file's bytes as written, if it exists.
+fileBytes :: IORef World -> FilePath -> IO (Maybe ByteString)
+fileBytes world path = Map.lookup path . (.disk.files) <$> readIORef world
 
 -- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
 hookEvent :: Value -> [Pair] -> LBS.ByteString

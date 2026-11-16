@@ -17,7 +17,7 @@ module State.Protocol.Handback (
     typeHandback,
 ) where
 
-import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -29,10 +29,10 @@ import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSe
 import State.Role (leads)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire, waitingText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
+import State.Run.Event (AgentId, AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId)
+import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId, returnOf)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -198,12 +198,13 @@ data Typed = Typed {events :: [Event], untriaged :: Maybe OneLine}
 step's done outcome, from the step's own runner only; a question is asked;
 @BLOCKED@, @FAILED@, a plan found wrong and a question with no kind are the
 run's own to triage (@state ask --from@): a worker's failure does not stop
-the run. The sha is the worktree's HEAD.
+the run. A worker's hand-back also says it returned, when it was logged at
+work ('returnOf'). The sha is the worktree's HEAD.
 -}
-typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
-typeHandback steps state worktreeHead agent handback = case [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
+typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Maybe AgentId -> Handback -> Either Text Typed
+typeHandback steps state worktreeHead agent agentId handback = case [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
     here : _ -> fromChild state (fanIn state.fans here) handback
-    [] -> fromWorker steps state worktreeHead agent handback
+    [] -> (\typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}) <$> fromWorker steps state worktreeHead agent handback
 
 {- | A child run's hand-back at the fan-out: what it said, under its run id,
 which it must name. A question it asked joins this run's pending; its stop

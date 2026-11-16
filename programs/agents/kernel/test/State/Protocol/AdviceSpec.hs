@@ -18,7 +18,7 @@ import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
-import State.Run.Fold (RunState (..), replay)
+import State.Run.Fold (RunState (..), Worker (..), replay)
 import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, securityGraph, securityScope, sha, tenXAt, tenXGraph)
 import State.Step.Build (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
@@ -254,6 +254,17 @@ spec = describe "State.Protocol.Advice" $ do
             let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (stepTook (FanDone engineers))
+        it "waits on a finished task's CI, so the fan-out leaves only once it is recorded in review" $ do
+            let inCi = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi prUrl)]
+            (next noFacts (tenXAt (t1 :| []) inCi), due tenXGraph noFacts (tenXAt (t1 :| []) inCi)) `shouldBe` (AwaitOn Ci "https://pr/1", Nothing)
+            due tenXGraph noFacts (tenXAt (t1 :| []) (inCi <> [TaskMoved (TaskId "t1") (InReview prUrl)])) `shouldBe` Just (stepTook (FanDone engineers))
+        it "advises each other task's own action beside the most urgent, one per task" $ do
+            let ruled = fromChild <> [RuledOn asks.qid ruling]
+                advice = advise steps tenXGraph noFacts (tenXAt (t1 :| [t2, plainTask "t3" []]) ruled)
+            (advice.action, advice.more)
+                `shouldBe` (Resume (runId "c1") "with the answer to c1:1: confirmed", [Spawn (AgentRole "engineer") (Just (TaskId "t2")), Spawn (AgentRole "engineer") (Just (TaskId "t3"))])
+        it "advises nothing beside a task's action when no other task has one" $
+            (advise steps tenXGraph noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [])).more `shouldBe` []
         it "states each task's child, PR and tries" $
             filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| [t2]) (fromChild <> [TaskMoved (TaskId "t1") (InCi prUrl)])))
                 `shouldBe` ["task t1: child c1 asks c1:1, PR ci https://pr/1, tries 1", "task t2: not started, tries 0"]
@@ -295,6 +306,11 @@ spec = describe "State.Protocol.Advice" $ do
             [deliver from (AwaitOn on "u") | on <- [Ci, Merge], from <- [start {interface = Set.singleton Await}, start]]
                 `shouldBe` ["AWAIT ci u", "HANDBACK AWAIT ci u", "AWAIT merge u", "HANDBACK AWAIT merge u"]
 
+        it "delivers the other tasks' actions under the first, never under a hand-back" $ do
+            let beside first = Advice first [Spawn (AgentRole "engineer") (Just (TaskId "t2"))] "" [] [] "" False
+            [deliverMore from (beside first) | (from, first) <- [(start, AwaitAnswer which), (child, AwaitAnswer which), (child, Resume (runId "c1") "go")]]
+                `shouldBe` [["SPAWN engineer --task t2 background: no"], [], ["SPAWN engineer --task t2 background: no"]]
+
         it "notifies at ready only where the interface can, so a child run leaves it to its parent" $ do
             let ready = advise steps g noFacts atReady
             map (`deliverPrompt` ready) [start {interface = Set.singleton Notify}, child]
@@ -306,6 +322,26 @@ spec = describe "State.Protocol.Advice" $ do
         it "stops for the user, or hands the stop back to a parent run" $
             map (`deliver` Stopped (Stop OutOfRounds "review")) [start, child]
                 `shouldBe` ["STOP rounds review", "HANDBACK BLOCKED out of rounds: review"]
+
+    describe "heldBy" $ do
+        let fixer = [Worker (AgentRole "fixer") (AgentId "a1") 7]
+            finished = Advice (Done (Just prUrl)) [] "at the end: the flow is done" [commandOption "state record x" ""] ["fuel: balanced"] "" False
+        it "holds a hand-back to a parent while a worker is at work, naming it in house format" $
+            heldBy child fixer finished
+                `shouldBe` finished
+                    { action = AwaitWorker (AgentRole "fixer") (AgentId "a1")
+                    , leads = []
+                    , facts =
+                        [ "state handback: fixer a1 is still at work - its hand-back is not recorded"
+                        , "fix: wait for it, or state handback fixer for its report, or state void 7 \"<why>\" for a lost one"
+                        , "fuel: balanced"
+                        ]
+                    }
+        it "lets the hand-back go with no worker at work, and holds a line that hands nothing back" $
+            [heldBy child [] finished, heldBy start fixer finished, heldBy child fixer finished {action = Spawn (AgentRole "fixer") Nothing}]
+                `shouldBe` [finished, finished, finished {action = Spawn (AgentRole "fixer") Nothing}]
+        it "awaits the worker by its role and id" $
+            deliver child (AwaitWorker (AgentRole "fixer") (AgentId "a1")) `shouldBe` "AWAIT worker fixer a1"
 
     describe "ownAsk" $ do
         it "forwards a Design question to the user" $
