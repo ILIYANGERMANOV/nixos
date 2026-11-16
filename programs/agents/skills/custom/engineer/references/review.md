@@ -39,7 +39,9 @@ left, goes on to describe, the final fixer. Record every requirement's verdict.
 A row's `--row <label>` is a short slug you give its finding, such as
 `null-email`, the same slug when that finding comes back: the stuck guard
 compares labels. A recorded review-lead hand-back is `review.rows` or
-`re_review.rows` even with no findings: then `pick.final` with no `--row`.
+`re_review.rows` even with no findings. An Unverified requirement is a
+verdict, never a row: with no surviving Major and no Not met, `pick.final`
+with no `--row`, each verdict recorded (`--verdict <req>=unverified`).
 `clean` is only for a review you record by hand that found nothing.
 
 A return that starts `NEEDS_DECISION plan wrong` is a question: fix and
