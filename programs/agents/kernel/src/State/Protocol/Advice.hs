@@ -24,6 +24,7 @@ module State.Protocol.Advice (
     deliverPrompt,
     ownAsk,
     factLines,
+    openBudgets,
 ) where
 
 import Control.Applicative ((<|>))
@@ -382,6 +383,12 @@ one command means = commandOption command means :| []
 -- | The budgets that hold the run, in the order they are shown.
 shownBudgets :: OpenGraph -> RunState -> [(Metered, Budget)]
 shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.cap) (Map.toList (budgets g state))
+
+{- | @ (2 open, Researchers: 3 of 5 used, 2 left)@ for each budget with
+children open: what a recorded spawn tells in place of the advice.
+-}
+openBudgets :: OpenGraph -> RunState -> Text
+openBudgets g state = foldMap (\budget -> " (" <> tshow budget.ledger.open <> " open, " <> spentText budget <> ")") [budget | (_, budget) <- shownBudgets g state, budget.ledger.open > 0]
 
 -- | @Re-reviews: 1 of 3 used, 2 left@: what a budget spent of what the run's Fuel allows.
 spentText :: Budget -> Text

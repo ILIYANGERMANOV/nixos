@@ -242,6 +242,13 @@ spec = describe "state over the doubles" $ do
                 (ran.code, ran.out, ran.err) `shouldBe` (0, ["recorded 2 fuel -> gather"], [])
                 loggedEvents world `shouldReturn` ["started", "fuel"]
 
+            it "refuses a surplus argument to an event with its own usage, not the whole help" $ \world -> do
+                _ <- startedRun world
+
+                ran <- state world ["record", "simplify_plan.done", "extra"]
+
+                (ran.code, take 3 ran.err) `shouldBe` (2, ["Invalid argument `extra'", "", "Usage: state record simplify_plan.done"])
+
             it "names a usage error with exit 2, lists the events and writes nothing" $ \world -> do
                 _ <- startedRun world
 

@@ -351,7 +351,9 @@ runAnswer steps call bound found want = case want of
                         adviceText = case opened of
                             [] -> out.text
                             _ : _ -> ""
-                     in (map (.envelope) opened <> new, recordedLines opened <> adviceText <> foldMap (<> "\n") warning)
+                        -- Its line tells the open children and what their budget leaves instead.
+                        recordedText = foldMap (\w -> recordedLine w <> Advice.openBudgets after.g after.state <> "\n") opened
+                     in (map (.envelope) opened <> new, recordedText <> adviceText <> foldMap (<> "\n") warning)
     Hook.HandedBack message agent role ->
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
@@ -564,7 +566,10 @@ delivered state line
 
 -- | A line per event written, each with where that event left the run.
 recordedLines :: [Written] -> Text
-recordedLines = foldMap (\w -> "recorded " <> tshow w.envelope.seq <> " " <> eventType w.envelope.event <> " -> " <> stateNameText w.reached <> "\n")
+recordedLines = foldMap ((<> "\n") . recordedLine)
+
+recordedLine :: Written -> Text
+recordedLine w = "recorded " <> tshow w.envelope.seq <> " " <> eventType w.envelope.event <> " -> " <> stateNameText w.reached
 
 -- | A line written, and where the run is just after it.
 data Written = Written {envelope :: Envelope, reached :: StateName}
