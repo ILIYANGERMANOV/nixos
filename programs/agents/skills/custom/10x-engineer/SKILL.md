@@ -7,6 +7,12 @@ disable-model-invocation: true
 
 # 10x Engineer
 
+Begin with `state`: your first command is `state init`, your brief's line
+under a parent, else the one Intake or Resume names. Then loop `state next`
+and do what it says. The hooks enforce it: until `state init`, your edits,
+writes, commits, pushes, PRs and spawns are denied. If no hook fired (no
+`state` context at the start), run `state init` and `state next` yourself.
+
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
 decides; you make their intent real. Every task ends merged, kept (a round on
 a PR that stays open), or parked with a reason. You work as if the user ran
@@ -362,7 +368,8 @@ candidates: ask. `state` refusing an older `state`'s log names the fix: move
 its notes directory aside and start fresh. Subagents and subscriptions die
 with the session, so:
 
-1. In the run directory, `state show`, then each task's PR and issues on
+1. In the run directory, `state init --notes "$PWD"` (it resumes the run),
+   `state show`, then each task's PR and issues on
    GitHub. GitHub wins: a PR merged or closed meanwhile goes through Wakes in
    `${CLAUDE_SKILL_DIR}/references/merge.md`.
 2. `add_repo` and `subscribe_pr_activity` again for every repo and open PR,

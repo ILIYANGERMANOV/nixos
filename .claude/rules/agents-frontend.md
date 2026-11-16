@@ -113,7 +113,8 @@ and reads no vendor file. Besides the tool events, `agentStart` (a subagent
 starts) and `promptExpansion` (a typed `/skill`) only add context, and name no
 tools. The state hooks are `kernel/hooks.nix`, run by the Haskell
 `state-hook`: each finds its run through the agent's binding, at any depth,
-and `route`, their one deny, refuses a `state` call aimed at another run.
+and `route`, their one denying hook, refuses a `state` call aimed at another
+run and a lead's write before its `state init`.
 Why: `docs/adr/0016-hooks-drive-the-state-record.md`, amended by ADR 0018.
 
 `hooks/guards/` holds the guards, Python programs on the contract that stop an

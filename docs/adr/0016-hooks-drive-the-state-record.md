@@ -10,7 +10,8 @@ and the `pr` hook is gone. ADR 0018 amends it: the Haskell `state-hook`
 replaces the Python hooks, and keys each event on a content hash, so a hook
 that fires twice appends once. #402 and #403 amend it: hooks bind every agent
 to its run, so they reach subagents at any depth; the first deny, a `state`
-call aimed at another run; and context as work begins.
+call aimed at another run; and context as work begins. #378 amends it: a
+guard denies a lead's writes until its `state init`.
 
 ## Evidence
 
@@ -104,11 +105,19 @@ link.
   would rewrite every hook.
 - **Hooks that deny** (a spawn out of order, a Stop hook refusing "done").
   Still out: ADR 0015's reason holds, and a refusal that blocks work costs
-  more than one that tells. The one deny is a `state` call aimed at another
-  run, whose effect is a wrong record, not a slower step, and whose fix is
-  one `cd`. Every run-reading command counts, `show`, `pending` and `brief`
-  too: a child's run is read by that child, in its own worktree. A guard on
-  a `state` call with no run may follow on the same deny.
+  more than one that tells. Two denies pass that bar: each prevents a wrong
+  or missing record, not a slower step, and its fix is one command. The
+  first is a `state` call aimed at another run, fixed by a `cd`. Every
+  run-reading command counts, `show`, `pending` and `brief` too: a child's
+  run is read by that child, in its own worktree. The second, the guard
+  (#378), is a lead's write before its run exists: an agent bound to no run
+  that began `/engineer` or `/10x-engineer`, or a spawned role that leads a
+  flow, is denied an edit, a write, a spawn, `git commit`, `git push`,
+  `gh pr create` and `gh pr merge`, fixed by its `state init`. Reads,
+  research and `state` pass, and every other agent is never guarded. A shell
+  command the simple reader cannot follow passes: the guard is a nudge, not
+  a sandbox. NotebookEdit is not guarded: naming it for the hook would grant
+  it to every editing role (`codegen/tools.nix`).
 
 ## Consequences
 
