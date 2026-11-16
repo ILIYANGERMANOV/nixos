@@ -52,10 +52,10 @@ import State.Protocol.Handback (stopLine)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (FlowName (..), RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
+import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, principalPlan, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), PlanCall (..), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
@@ -66,7 +66,7 @@ import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
-import State.Step.Plan (Outcome (..))
+import State.Step.Plan (Outcome (..), Sing (Confirm, SimplifyP))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
@@ -173,13 +173,13 @@ data Action
     deriving stock (Eq, Show)
 
 {- | The one outcome the shell records before advising, when the facts or the
-Fuel already decide it: the draft PR or its readiness seen on GitHub, or a
-skip the Fuel makes, at the step's scope. The shell records it and asks
+Fuel already decide it: the draft PR or its readiness seen on GitHub, a
+skip the Fuel makes, or the plan a parent decided, at the step's scope. The shell records it and asks
 again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe Event
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> fromGitHub place.name <> skipped place <> leaves place)
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> fromGitHub place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -192,6 +192,10 @@ due g facts state = case (state.stopped, state.at) of
     -- A round on an existing PR leaves it as it is, at every Fuel: the run's shape skips ready,
     -- before GitHub's ready PR, which a round's PR in review is, would record it done.
     kept name = [Catalog.outcome (ReadySkipped url) | name == stepName Ready, onRound state.start.principal, Just url <- [prUrl facts state]]
+    -- A plan its parent decided: the child neither simplifies nor confirms it again.
+    decided name = case principalPlan state.start.principal of
+        ParentDecided -> [Catalog.outcome SimplifyPlanSkipped | name == stepName SimplifyP] <> [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
+        ChildConfirms -> []
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case
         IsDraft -> True

@@ -582,4 +582,4 @@ still awaited. A run started by a parent asks it, not the user.
 awaitingUser :: RunState -> [Text]
 awaitingUser state = case state.start.principal of
     ByUser _ -> ["state: record the user's answer: state answer " <> qidText p.asking.question.qid <> " <answer>" | p <- state.pending, p.waits == ForAnswer]
-    ByRole _ _ -> []
+    ByRole {} -> []

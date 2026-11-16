@@ -38,7 +38,7 @@ showRun :: OpenGraph -> RunState -> Text
 showRun g state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
-            <> ["task: " <> taskIdText parent.task | ByRole parent _ <- [state.start.principal]]
+            <> ["task: " <> taskIdText parent.task | ByRole parent _ _ <- [state.start.principal]]
             <> ["step: " <> stateNameText (askedAt state)]
             <> factLines g (Facts Nothing Nothing []) state
             <> ["stopped: " <> reasonText stop.reason <> " " <> stop.why | Just stop <- [state.stopped]]

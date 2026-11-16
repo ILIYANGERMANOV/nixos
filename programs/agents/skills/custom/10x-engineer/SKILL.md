@@ -184,7 +184,9 @@ Write `tasks.json` in the run directory, a JSON array in the plan's order of
 `repo` the task's `<owner>/<repo>`, `worktree` the absolute path of its worktree
 (`~` expanded), then `state record breakdown.done --tasks tasks.json`. A round task adds
 `"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
-settles it `kept`. A task outside it, a base fix or an epic's final PR, joins
+settles it `kept`. A task whose plan is already settled adds
+`"planDecided": true`: its child skips `simplify_plan` and confirms without
+asking you. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.
 
 ### Engineers

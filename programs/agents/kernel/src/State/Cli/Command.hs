@@ -24,6 +24,7 @@ module State.Cli.Command (
     unknownEvent,
     anyEvent,
     openQid,
+    notOpenYet,
     retryOf,
     answeredQid,
     notStarted,
@@ -550,6 +551,15 @@ retryOf state task = case (Fan.lookupTask fan task, lookup task [(child.task, st
   where
     fan = Fold.currentFan state
     refused = Failure BadInput ("task " <> Codec.taskIdText task)
+
+{- | A question its asker has not open already: the same one again would
+wait twice on one answer. Checked when asked, never in the fold, so a log
+that repeated one still replays.
+-}
+notOpenYet :: RunState -> Asker -> OneLine -> Either Failure ()
+notOpenYet state from text = case [p.asking.question.qid | p <- state.pending, p.asking.from == from, p.asking.question.text == text] of
+    [] -> Right ()
+    qid : _ -> Left (Failure BadInput "the question" ("it is open already as " <> qidText qid) "state next")
 
 {- | A question to answer: one open, or one answered already, whose answer
 again the fold judges (the same one is no news).

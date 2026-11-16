@@ -44,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
@@ -471,11 +471,13 @@ planOf steps worktreeHead file g state = \case
     Override target why -> Right (Plan [Overridden target why] recorded)
     Void n why -> Right (Plan [Voided n why] recorded)
     AskQuestion kind Itself text ->
-        let (question, events, line) = ownAsk state kind text
-         in Right (Plan events (\after _ -> asked question <> delivered after line))
+        notOpenYet state Itself text >> do
+            let (question, events, line) = ownAsk state kind text
+            Right (Plan events (\after _ -> asked question <> delivered after line))
     AskQuestion kind from text ->
-        let question = Question (nextQId state) kind text
-         in Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
+        notOpenYet state from text >> do
+            let question = Question (nextQId state) kind text
+            Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
     RecordUnknown name -> Left (unknownEvent g state name)
     RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\after _ -> printed ("ruled " <> qidText qid <> "\n") <> writtenDown after qid))
     Retry task why ->
@@ -618,7 +620,7 @@ resume is news.
 upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
 upOf run new text = case run.state.start.principal of
     ByUser _ -> Nothing
-    ByRole parent _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name once text)
+    ByRole parent _ _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name once text)
   where
     once = maybe (tshow (nextSeq run - 1 + fromIntegral (length new))) qidText (asks =<< either (const Nothing) (.token) (parseHandback text))
     asks = \case
@@ -787,7 +789,7 @@ initRun gd args = do
     -- run in it, but a child's hand-back is its own state's to record in the parent.
     interfaceOf = \case
         ByUser _ -> Set.fromList [minBound .. maxBound]
-        ByRole _ _ -> Set.empty
+        ByRole {} -> Set.empty
     initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
 
 {- | @state move@: the worktree's run moves to the worktree the directory is
@@ -939,7 +941,7 @@ childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure Begin
 childStart parent named state = do
     task <- childTask parent state
     flow <- childFlow named task
-    Right (Begin (ByRole parent task.shape) flow (Just task.fuel))
+    Right (Begin (ByRole parent task.shape task.plan) flow (Just task.fuel))
 
 -- | The parent's task the child runs: the parent must be at a fan-out whose breakdown names it.
 childTask :: Parent -> RunState -> Either Failure Task

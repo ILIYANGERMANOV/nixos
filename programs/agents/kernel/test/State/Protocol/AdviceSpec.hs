@@ -39,7 +39,7 @@ spec = describe "State.Protocol.Advice" $ do
         facts <- forAll genFacts
         one <- forAll genStart
         other <- forAll genStart
-        let under from = runUnder start {principal = from.principal, interface = from.interface} events
+        let under from = runUnder start {principal = confirming from.principal, interface = from.interface} events
             decided state = (due g facts state, advise steps g facts state)
         decided (under one) === decided (under other)
 
@@ -376,7 +376,7 @@ spec = describe "State.Protocol.Advice" $ do
     draftPr = DraftPr prUrl (Branch "main") (Branch "b")
     userRound = start {principal = ByUser (RoundOn prUrl)}
     parent = runId "p1"
-    child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")) OwnPr, interface = Set.empty}
+    child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms, interface = Set.empty}
     which = Question (QId run 1) Design (oneLine "which store?")
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
@@ -433,3 +433,9 @@ genPullRequest =
     PullRequest
         <$> (DraftPr . Url <$> genText <*> pure (Branch "main") <*> pure (Branch "b"))
         <*> Gen.element [IsDraft, IsReady, IsMerged, IsClosed]
+
+-- | The principal with the plan left to its run: a plan its parent decided is advice of its own.
+confirming :: Principal -> Principal
+confirming = \case
+    ByRole parent shape _ -> ByRole parent shape ChildConfirms
+    ByUser shape -> ByUser shape

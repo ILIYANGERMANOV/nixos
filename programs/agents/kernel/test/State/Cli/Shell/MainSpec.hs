@@ -18,7 +18,7 @@ import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
 import State.Run.Codec (logOf)
-import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), Repo (..), SessionId (..), Task (..))
+import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), PlanCall (..), Repo (..), SessionId (..), Task (..))
 import State.Run.RunGen (breakdownJson, loadSteps, plainTask, roundTask)
 import State.Step.Artifact (shellPath)
 import System.FilePath ((</>))
@@ -427,6 +427,17 @@ spec = describe "state over the doubles" $ do
 
             shown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - postgres"]
 
+        it "refuses the same open question from the same asker, naming the open one" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            let qid = Text.drop (Text.length "asked ") asked
+
+            again <- state world ["ask", "--kind", "Design", "which", "store?"]
+            pending <- succeeded =<< state world ["pending"]
+
+            (again.code, again.err) `shouldBe` (2, ["state ask: the question - it is open already as " <> qid, "fix: state next"])
+            pending `shouldBe` [qid <> " Design forwarded from this run: which store?"]
+
         describe "the 10x" $ do
             it "spawns the first task, the second waiting on it" $ \world -> do
                 _ <- tenXAtFanOut world
@@ -552,6 +563,33 @@ spec = describe "state over the doubles" $ do
                 take 1 again `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
                 again `shouldSatisfy` (not . any ("parent: " `Text.isPrefixOf`))
                 loggedEvents world `shouldReturn` once
+
+            for_ [(ChildConfirms, ["plan.done -> simplify_plan"]), (ParentDecided, ["plan.done -> simplify_plan", "simplify_plan.skipped -> draft", "confirm.confirmed -> draft"])] $ \(plan, transcript) ->
+                it ("passes a child's plan per its task's plan call, asking its parent nothing: " <> show plan) $ \world -> do
+                    parent <- tenXAtFanOutOf world [(plainTask "t1" []) {plan}]
+                    _ <- childRun world parent "/child" "t1"
+                    _ <- succeeded =<< state world ["record", "gather.enough"]
+                    putFile world "/child/plan.md" "the plan"
+                    planned <- succeeded =<< state world ["record", "plan.done", "/child/plan.md"]
+                    advised <- succeeded =<< state world ["next"]
+
+                    recorded (planned <> advised) `shouldBe` transcript
+                    filter (== "asked") <$> loggedEvents world `shouldReturn` []
+
+            it "drops a parked task's forwarded question from pending and next" $ \world -> do
+                parent <- tenXAtFanOut world
+                _ <- childRun world parent "/child" "t1"
+                _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                atWorktree world "/work"
+                asked <- succeeded =<< state world ["pending"]
+
+                _ <- succeeded =<< state world ["record", "task", "t1", "parked", "out", "of", "scope"]
+                pending <- succeeded =<< state world ["pending"]
+                advised <- succeeded =<< state world ["next"]
+
+                asked `shouldSatisfy` any ("which store?" `Text.isSuffixOf`)
+                pending `shouldBe` []
+                advised `shouldSatisfy` (not . any ("which store?" `Text.isInfixOf`))
 
             it "writes the top's answer down to every run below, each resuming the next with it" $ \world -> do
                 (_, mid, grand) <- threeLevels world

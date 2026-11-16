@@ -99,7 +99,7 @@ import State.Run.Event (
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, repoText, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, planData, planOf, repoText, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
 import System.FilePath ((</>))
@@ -445,13 +445,13 @@ startOf obj =
 
 {- | The user on its own PR is a bare word, as a log older than rounds wrote
 it; the user's round is its PR; a parent run is its id, its log, the task it
-gave and a round's PR.
+gave, a round's PR and a decided plan.
 -}
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser OwnPr -> text "user"
     ByUser shape@(RoundOn _) -> pairs (shapeData shape)
-    ByRole parent shape -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task <> shapeData shape)
+    ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task <> shapeData shape <> planData plan)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
@@ -459,7 +459,7 @@ principalOf = \case
     Object obj ->
         obj .:? "run" >>= \case
             Nothing -> ByUser . RoundOn . Url <$> obj .: "pr"
-            Just run -> ByRole <$> (Parent <$> runIdOf run <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj
+            Just run -> ByRole <$> (Parent <$> runIdOf run <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj <*> planOf obj
     other -> fail ("a principal is \"user\", {pr} or {run, log}, not " <> show other)
 
 askingOf :: Object -> Parser Asking

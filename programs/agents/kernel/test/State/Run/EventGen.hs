@@ -149,6 +149,7 @@ genTaskAt i =
         <*> Gen.bool
         <*> genSet Gen.enumBounded
         <*> genShape
+        <*> Gen.enumBounded
         <*> Gen.maybe genRepo
         <*> Gen.maybe genWorktree
         <*> Gen.enumBounded
@@ -183,7 +184,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape <*> Gen.enumBounded]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -228,7 +229,7 @@ templates =
     , outcome (ReadySkipped (Url ""))
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr Nothing Nothing EngineerFlow :| [])))
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
               , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)

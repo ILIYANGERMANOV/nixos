@@ -417,11 +417,11 @@ tenXRounds :: Spec
 tenXRounds = describe "the 10x's rounds" $ do
     for_ [minBound .. maxBound] $ \fuel ->
         it ("lets a round on an existing PR skip ready at " <> show fuel) $
-            (.at) <$> engineerRun (ByRole parent (RoundOn pr)) fuel `shouldBe` Right Out
+            (.at) <$> engineerRun (ByRole parent (RoundOn pr) ChildConfirms) fuel `shouldBe` Right Out
 
     for_ [Balanced, Max] $ \fuel ->
         it ("refuses an ordinary task's skip of ready at " <> show fuel) $
-            engineerRun (ByRole parent OwnPr) fuel `shouldBe` Left (NotSkippable "ready")
+            engineerRun (ByRole parent OwnPr ChildConfirms) fuel `shouldBe` Left (NotSkippable "ready")
 
     it "ends a run whose tasks merged by merge done" $
         (.at) <$> tenXRun (settled (plainTask "t1" []) (Merged pr) <> [stepTook (MergeDone engineers pr)]) `shouldBe` Right Out
@@ -597,7 +597,7 @@ or a parent, keeping those the fold accepts: the run state and the events.
 genAskLog :: Gen (RunState, [Event])
 genAskLog = do
     flow <- Gen.enumBounded
-    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr]
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms]
     first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
     go tries first 1 0
@@ -643,7 +643,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow (ByUser OwnPr)]
             , [rung "x1" TenXFlow (ByUser OwnPr)]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr), rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

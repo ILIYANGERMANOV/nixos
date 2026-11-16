@@ -105,7 +105,7 @@ spec = describe "the state binary" $ do
 
         it "takes a question's kind in any case" $ \repo -> do
             _ <- startedRun bin repo
-            asked <- traverse (\kind -> state bin repo ["ask", "--kind", kind, "which", "store?"]) ["design", "DESIGN", "Design"]
+            asked <- traverse (\(kind, store) -> state bin repo ["ask", "--kind", kind, "which", store]) [("design", "store?"), ("DESIGN", "queue?"), ("Design", "cache?")]
             map (.code) asked `shouldBe` [0, 0, 0]
 
         it "refuses a ruling's unquoted words, telling to quote them" $ \repo -> do
