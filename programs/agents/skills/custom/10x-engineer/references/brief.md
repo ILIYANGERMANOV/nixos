@@ -15,8 +15,8 @@ git -C <clone> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<ba
 A named PR:
 
 ```sh
-git -C <clone> fetch origin <branch>
-git -C <clone> worktree add --track -b <branch> ~/.10x/<run>/worktrees/<task> origin/<branch>
+git -C <clone> fetch origin "<branch>"
+git -C <clone> worktree add --track -b "<branch>" ~/.10x/<run>/worktrees/<task> "origin/<branch>"
 ```
 
 Keep the worktree until the PR merges, since fixers use it too. A retry reuses
@@ -27,9 +27,10 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 
 `~/.10x/<run>/briefs/<task>.md`, with every field. No pasted research: paths.
 Its head is what `state brief engineer --task <id>` prints in the run
-directory, its last line the child's `state init` with `<dir>` filled:
-`/tmp/engineer-<owner>-<repo>-<branch>/`, or a fresh one on a retry or a new
-round: `state init` refuses a finished run's directory.
+directory, as printed: its last line the child's `state init`, run in the
+task's `worktree` with the notes dir its `repo` and `branch` give. On a retry or
+a new round, change that `--notes` to a fresh absolute dir: `state init`
+refuses a finished run's directory.
 
 ```markdown
 # <task>

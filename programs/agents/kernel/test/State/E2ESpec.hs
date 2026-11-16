@@ -87,15 +87,15 @@ spec = describe "the state binary" $ do
             map (.code) asked `shouldBe` [0, 0, 0]
 
         it "refuses a ruling's unquoted words, telling to quote them" $ \repo -> do
-            qid <- childQuestion bin repo
-            unquoted <- state bin repo ["rule", Text.unpack qid, "--answer", "use", "Y", "--why", "it", "is", "simpler", "--cost", "none"]
+            (w1, qid) <- childQuestion bin repo
+            unquoted <- state bin w1 ["rule", Text.unpack qid, "--answer", "use", "Y", "--why", "it", "is", "simpler", "--cost", "none"]
             (unquoted.code, unquoted.err)
                 `shouldBe` (2, ["state rule: --answer, --why and --cost - each takes one word: quote a longer one", "fix: state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\""])
 
         it "takes a ruling's quoted words as one answer, why and cost" $ \repo -> do
-            qid <- childQuestion bin repo
-            _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "use Y", "--why", "it is simpler", "--cost", "none"]
-            shown <- succeeded =<< state bin repo ["show"]
+            (w1, qid) <- childQuestion bin repo
+            _ <- succeeded =<< state bin w1 ["rule", Text.unpack qid, "--answer", "use Y", "--why", "it is simpler", "--cost", "none"]
+            shown <- succeeded =<< state bin w1 ["show"]
             shown `shouldContain` ["  Ruling " <> qid <> " Pick: use Y - it is simpler - none"]
 
         it "refuses a question id that is not open, listing the open ones" $ \repo -> do
@@ -125,10 +125,33 @@ spec = describe "the state binary" $ do
             advice <- succeeded =<< state bin repo ["next"]
             take 1 advice `shouldBe` ["RUN state record plan.done <path>"]
 
+        it "prints the run's id, notes dir and worktree top, one line a hook parses" $ \repo -> do
+            top <- Text.strip . Text.pack <$> gitOut repo ["rev-parse", "--show-toplevel"]
+            started@[said, _] <- succeeded =<< state bin repo ["init", "--notes", repo.notes <> "/"]
+            let run = Text.drop (Text.length "started ") said
+            resumed <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+            (started, resumed)
+                `shouldBe` (["started " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top], ["resumed " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top])
+
+        it "refuses another run over the worktree's unfinished one" $ \repo -> do
+            run <- startedRun bin repo
+            other <- state bin repo ["init", "--notes", repo.root </> "other"]
+            (other.code, other.err)
+                `shouldBe` ( 2
+                           ,
+                               [ "state init: --notes " <> Text.pack (repo.root </> "other") <> " - the worktree holds unfinished run " <> run <> " in " <> Text.pack repo.notes
+                               , "fix: state init --notes " <> Text.pack repo.notes <> " resumes it, or state stop <reason> <why> ends it"
+                               ]
+                           )
+
+        it "refuses a relative notes dir" $ \repo -> do
+            relative <- state bin repo ["init", "--notes", "notes"]
+            (relative.code, take 1 relative.err) `shouldBe` (2, ["state init: --notes notes - the notes dir is an absolute path of ASCII letters, digits and ._/@+-"])
+
         it "starts a run once per notes dir, and refuses one there after it stopped" $ \repo -> do
             run <- startedRun bin repo
             again <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
-            again `shouldBe` ["resumed " <> run]
+            take 1 again `shouldBe` ["resumed " <> run]
             _ <- succeeded =<< state bin repo ["stop", "replan", "the", "plan", "is", "wrong"]
             refused <- state bin repo ["init", "--notes", repo.notes]
             (refused.code, drop 1 refused.err) `shouldBe` (2, ["fix: state init --notes <a new dir>"])
@@ -190,16 +213,16 @@ spec = describe "the state binary" $ do
         describe "audit" $ do
             it "puts every ruling of a child run in show and in its hand-back" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
-                git repo ["checkout", "-q", "-b", "child"]
-                child <- childRun bin repo parent "child" "t1"
-                qid <- askedQid bin repo "Pick" ["which", "lib?"]
+                w1 <- worktree repo "w1"
+                child <- childRun bin w1 parent "child" "t1"
+                qid <- askedQid bin w1 "Pick" ["which", "lib?"]
                 let ruling = "Ruling " <> qid <> " Pick: zod - already used - none"
-                _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "zod", "--why", "already used", "--cost", "none"]
-                shown <- succeeded =<< state bin repo ["show"]
+                _ <- succeeded =<< state bin w1 ["rule", Text.unpack qid, "--answer", "zod", "--why", "already used", "--cost", "none"]
+                shown <- succeeded =<< state bin w1 ["show"]
                 shown `shouldContain` ["rulings:", "  " <> ruling]
-                forwarded <- succeeded =<< state bin repo ["ask", "--kind", "Design", "which", "store?"]
+                forwarded <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
                 forwarded `shouldContain` [ruling]
-                stopped <- succeeded =<< state bin repo ["stop", "failed", "no", "access"]
+                stopped <- succeeded =<< state bin w1 ["stop", "failed", "no", "access"]
                 stopped `shouldBe` ["stopped", "HANDBACK FAILED no access", "Run: " <> child, ruling]
 
         describe "the 10x" $ do
@@ -574,7 +597,7 @@ startedRun bin repo = startedIn bin repo ["--notes", repo.notes]
 startedIn :: FilePath -> Repo -> [String] -> IO Text
 startedIn bin repo argv =
     (succeeded =<< state bin repo ("init" : argv)) >>= \case
-        [line] | Just run <- Text.stripPrefix "started " line -> pure run
+        [line, _] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
@@ -599,13 +622,13 @@ childAtWork bin repo = do
     w1 <- worktree repo "w1"
     childRun bin w1 parent "n1" "t1"
 
--- | A child run of a 10x fan-out on its own branch, asking a Pick; the question's id.
-childQuestion :: FilePath -> Repo -> IO Text
+-- | A child run of a 10x fan-out in its own worktree, asking a Pick; that worktree and the question's id.
+childQuestion :: FilePath -> Repo -> IO (Repo, Text)
 childQuestion bin repo = do
     parent <- tenXAtFanOut bin repo
-    git repo ["checkout", "-q", "-b", "child"]
-    _ <- childRun bin repo parent "child" "t1"
-    askedQid bin repo "Pick" ["which", "lib?"]
+    w1 <- worktree repo "w1"
+    _ <- childRun bin w1 parent "n1" "t1"
+    (w1,) <$> askedQid bin w1 "Pick" ["which", "lib?"]
 
 -- | @state ask --kind <kind> <question>@; the id it prints.
 askedQid :: FilePath -> Repo -> String -> [String] -> IO Text

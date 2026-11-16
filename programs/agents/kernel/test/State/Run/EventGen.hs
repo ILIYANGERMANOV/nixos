@@ -50,6 +50,7 @@ import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
+import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), gathering)
@@ -144,8 +145,20 @@ genTaskAt i =
         <*> Gen.bool
         <*> genSet Gen.enumBounded
         <*> genShape
+        <*> Gen.maybe genRepo
+        <*> Gen.maybe genWorktree
   where
     taskNamed n = TaskId ("t" <> Text.pack (show n))
+
+-- | An @OWNER/REPO@, each side a word.
+genRepo :: Gen Repo
+genRepo = Repo <$> part <*> part
+  where
+    part = Gen.text (Range.linear 1 10) (Gen.element ['a', 'Z', '0', '-', '.', '_'])
+
+-- | An absolute path of the characters a shell reads as none of its syntax.
+genWorktree :: Gen ShellPath
+genWorktree = Gen.mapMaybe (shellPath . ('/' :)) (Gen.string (Range.linear 0 20) (Gen.element ("aZ09._/@+-" :: String)))
 
 genShape :: Gen Shape
 genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]
@@ -210,7 +223,7 @@ templates =
     , outcome (ReadySkipped (Url ""))
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr :| [])))
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr Nothing Nothing :| [])))
               , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)

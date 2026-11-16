@@ -17,6 +17,7 @@ import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLine
 import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), stepTook, tookIn)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, runAt, securityScope, sha)
+import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Plan (Outcome (..))
@@ -142,6 +143,14 @@ spec = describe "State.Cli.Command" $ do
                 Right (Init args) -> fmap (.log) args.parent `shouldBe` Just "/p/events.jsonl"
                 _ -> expectationFailure "not an init"
 
+        it "refuses a notes dir that is relative or holds what a shell reads" $
+            map (failureWhat . parse . (["init", "--notes"] <>) . pure) ["rel/dir", ".", "/a b", "/a;b", "/a$(b)"]
+                `shouldBe` [Just "--notes rel/dir", Just "--notes .", Just "--notes /a b", Just "--notes /a;b", Just "--notes /a$(b)"]
+
+        it "keeps a notes dir in one spelling, with no trailing separator" $
+            map (fmap notesOf . parse . (["init", "--notes"] <>) . pure) ["/n/", "/n", "/./n//"]
+                `shouldBe` replicate 3 (Right (Just "/n"))
+
         it "refuses --parent, its log or its task without the other two" $
             map
                 (failureWhat . parse . (["init", "--notes", "/n"] <>))
@@ -246,3 +255,7 @@ spec = describe "State.Cli.Command" $ do
         Right _ -> "no usage error"
     failureWhat :: Either Text a -> Maybe Text
     failureWhat = either Just (const Nothing)
+    notesOf :: Command -> Maybe FilePath
+    notesOf = \case
+        Init args -> Just (shellPathText args.notes)
+        _ -> Nothing

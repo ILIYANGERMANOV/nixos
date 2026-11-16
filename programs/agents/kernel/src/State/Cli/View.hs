@@ -16,9 +16,10 @@ import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Note (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
+import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, row, stepsRunBy)
 
@@ -66,20 +67,26 @@ pendingLines state = map line state.pending
 {- | A role's brief skeleton: the task text of the step the run is at, or,
 when the role runs no step there, of each step it runs; then the rule its
 hand-back follows. An engineer, a child flow, gets its task's fields and the
-line that starts its run under this one; a task the breakdown lacks is
-returned as the failure.
+line that starts its run under this one: in the task's worktree and notes
+dir when the breakdown names them; a task the breakdown lacks is returned as
+the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent@(AgentRole role) task
     | agent == childRole = case task of
-        Nothing -> Right (initLine "<id>")
+        Nothing -> Right (initLine "<dir>" "<id>")
         Just taskId -> case lookupTask (currentFan state) taskId of
             Nothing -> Left taskId
-            Just found -> Right (Text.unlines (taskLines found) <> "\n" <> initLine (taskIdText taskId))
+            Just found -> Right (Text.unlines (taskLines found) <> "\n" <> taskInit found)
     | otherwise = Right (Text.concat [section name r | (name, r) <- briefed] <> rule)
   where
-    initLine taskText =
-        "state init --notes <dir> --parent "
+    taskInit found =
+        maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
+            <> initLine (maybe "<dir>" (engineerNotes found.branch) found.repo) (taskIdText found.id)
+    initLine notesText taskText =
+        "state init --notes "
+            <> notesText
+            <> " --parent "
             <> runIdText state.run
             <> " --parent-log "
             <> Text.pack (logOf state.start.notes)
@@ -112,3 +119,12 @@ brief steps state agent@(AgentRole role) task
         | role `elem` ["implementer", "refactorer", "fixer"] = Render.stopRule
         | role == "review-lead" = Render.planWrong
         | otherwise = ""
+
+{- | The notes dir the engineer skill names for a task's run,
+@/tmp/engineer-<owner>-<repo>-<slug>/@, the slug its branch with each
+character but a 'slugChar' a @-@: a @/@, and whatever a shell would read.
+-}
+engineerNotes :: Branch -> Repo -> Text
+engineerNotes branch repo = "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.map slug (branchText branch) <> "/"
+  where
+    slug c = if slugChar c then c else '-'
