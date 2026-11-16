@@ -44,12 +44,12 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
 import State.Cli.Route qualified as Route
-import State.Cli.View (beginText, brief, pendingLines, showRun)
+import State.Cli.View (beginText, brief, pendingLines, showRun, taskBrief)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
@@ -60,7 +60,7 @@ import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), QId, Question (..), oneLineText, principalShape, qidText)
+import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, principalShape, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
@@ -427,6 +427,7 @@ execute steps = \case
         Void _ _ -> Nothing
         AskQuestion {} -> Nothing
         RuleOn {} -> Nothing
+        Retry _ _ -> Nothing
         Forward _ _ -> Nothing
         Answer {} -> Nothing
         StopRun _ -> Nothing
@@ -470,13 +471,22 @@ planOf steps worktreeHead file g state = \case
     Override target why -> Right (Plan [Overridden target why] recorded)
     Void n why -> Right (Plan [Voided n why] recorded)
     AskQuestion kind Itself text ->
-        let (question, events, line) = ownAsk state kind text
-         in Right (Plan events (\after _ -> asked question <> delivered after line))
+        notOpenYet state Itself text >> do
+            let (question, events, line) = ownAsk state kind text
+            Right (Plan events (\after _ -> asked question <> delivered after line))
     AskQuestion kind from text ->
-        let question = Question (nextQId state) kind text
-         in Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
+        notOpenYet state from text >> do
+            let question = Question (nextQId state) kind text
+            Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
     RecordUnknown name -> Left (unknownEvent g state name)
     RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\after _ -> printed ("ruled " <> qidText qid <> "\n") <> writtenDown after qid))
+    Retry task why ->
+        retryOf state task <&> \(found, child, stop) ->
+            let question = Question (nextQId state) Ask.Stuck (Ask.flattened ("retry task " <> taskIdText task <> "? child " <> runIdText child.run <> ": " <> Handback.stopLine stop))
+                ruling = Proposal (Ask.flattened "retry") why (Ask.flattened "another child run on the task") Nothing
+             in Plan
+                    [Asked (Asking question (askedAt state) (ChildRun child.run)), RuledOn question.qid ruling]
+                    (\after _ -> asked question <> printed ("ruled " <> qidText question.qid <> " retry\n\n" <> taskBrief after found))
     Forward raw raise ->
         open raw >>= \qid -> Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
@@ -610,7 +620,7 @@ resume is news.
 upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
 upOf run new text = case run.state.start.principal of
     ByUser _ -> Nothing
-    ByRole parent _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name once text)
+    ByRole parent _ _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name once text)
   where
     once = maybe (tshow (nextSeq run - 1 + fromIntegral (length new))) qidText (asks =<< either (const Nothing) (.token) (parseHandback text))
     asks = \case
@@ -779,7 +789,7 @@ initRun gd args = do
     -- run in it, but a child's hand-back is its own state's to record in the parent.
     interfaceOf = \case
         ByUser _ -> Set.fromList [minBound .. maxBound]
-        ByRole _ _ -> Set.empty
+        ByRole {} -> Set.empty
     initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
 
 {- | @state move@: the worktree's run moves to the worktree the directory is
@@ -931,7 +941,7 @@ childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure Begin
 childStart parent named state = do
     task <- childTask parent state
     flow <- childFlow named task
-    Right (Begin (ByRole parent task.shape) flow (Just task.fuel))
+    Right (Begin (ByRole parent task.shape task.plan) flow (Just task.fuel))
 
 -- | The parent's task the child runs: the parent must be at a fan-out whose breakdown names it.
 childTask :: Parent -> RunState -> Either Failure Task

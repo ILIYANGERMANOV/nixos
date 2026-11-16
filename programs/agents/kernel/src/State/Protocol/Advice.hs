@@ -52,10 +52,10 @@ import State.Protocol.Handback (stopLine)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (FlowName (..), RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
+import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, principalPlan, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), PlanCall (..), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
@@ -66,7 +66,7 @@ import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
-import State.Step.Plan (Outcome (..))
+import State.Step.Plan (Outcome (..), Sing (Confirm, SimplifyP))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
@@ -154,8 +154,8 @@ data Action
       AwaitOn Waiting Text
     | -- | A child to resume, and what with: the answer to its question, or its CI.
       Resume RunId Text
-    | -- | A stopped child's stop, for @state ask --from@ before any retry.
-      TriageStop RunId Stop
+    | -- | A stopped child's stop, for @state ask --from@ before any retry; its task while a retry is left, for @state retry@.
+      TriageStop RunId (Maybe TaskId) Stop
     | -- | A worker's hand-back line 1, for @state ask --from@ before the run goes on.
       TriageHandback AgentRole OneLine
     | -- | A worker still at work, before the run hands back: its hand-back wakes the run.
@@ -173,13 +173,13 @@ data Action
     deriving stock (Eq, Show)
 
 {- | The one outcome the shell records before advising, when the facts or the
-Fuel already decide it: the draft PR or its readiness seen on GitHub, or a
-skip the Fuel makes, at the step's scope. The shell records it and asks
+Fuel already decide it: the draft PR or its readiness seen on GitHub, a
+skip the Fuel makes, or the plan a parent decided, at the step's scope. The shell records it and asks
 again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe Event
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> fromGitHub place.name <> skipped place <> leaves place)
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> fromGitHub place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -192,6 +192,10 @@ due g facts state = case (state.stopped, state.at) of
     -- A round on an existing PR leaves it as it is, at every Fuel: the run's shape skips ready,
     -- before GitHub's ready PR, which a round's PR in review is, would record it done.
     kept name = [Catalog.outcome (ReadySkipped url) | name == stepName Ready, onRound state.start.principal, Just url <- [prUrl facts state]]
+    -- A plan its parent decided: the child neither simplifies nor confirms it again.
+    decided name = case principalPlan state.start.principal of
+        ParentDecided -> [Catalog.outcome SimplifyPlanSkipped | name == stepName SimplifyP] <> [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
+        ChildConfirms -> []
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case
         IsDraft -> True
@@ -439,7 +443,7 @@ atOnce :: ScopedFan -> [RunId] -> RunState -> AtOnce
 atOnce at ended state =
     AtOnce
         { unrecorded = [(c.child.task, Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in"))) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
-        , triage = [(child.task, TriageStop child.run stop) | (child, stop) <- Fan.untriaged here]
+        , triage = [(child.task, TriageStop child.run (retryable child.task) stop) | (child, stop) <- Fan.untriaged here]
         , record = recordsFinished here
         , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> answer)) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
         , spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here]
@@ -450,6 +454,7 @@ atOnce at ended state =
     -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
     lost = [(c.child.task, Resume c.child.run ("lost at a restart: a fresh " <> roleText (taskRole task) <> " with its spawn prompt")) | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
     taskRole task = (Role.role task.flow).name
+    retryable task = if Fan.retryLeft here task then Just task else Nothing
 
 {- | At a fan-out's merge: record a finished task's PR, await the unmerged,
 then record the merge. With every task parked nothing merged, so the run
@@ -596,8 +601,8 @@ deliver start = \case
         ParentRun _ -> "HANDBACK " <> needsDecision question
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
-    TriageStop child stop -> triageFrom (runIdText child) (stopLine stop)
-    TriageHandback (AgentRole role) line -> triageFrom role (oneLineText line)
+    TriageStop child task stop -> "RUN " <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task <> askFrom (runIdText child) (stopLine stop)
+    TriageHandback (AgentRole role) line -> "RUN " <> askFrom role (oneLineText line)
     AwaitWorker role agent -> "AWAIT worker " <> roleText role <> " " <> agent.agentIdText
     AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
     -- Task ids mean nothing above this run: it hands up the PRs.
@@ -616,7 +621,7 @@ deliver start = \case
     has op = Set.member op start.interface
     -- A run that cannot be woken hands the wait up to the run above (#360's AWAIT).
     awaiting waiting refs = (if has Event.Await then "" else "HANDBACK ") <> "AWAIT " <> waitingText waiting <> " " <> refs
-    triageFrom from line = "RUN state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
+    askFrom from line = "state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
     asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
 {- | The unindented lines after the advice's first: each other action it
@@ -705,7 +710,7 @@ runOptions = \case
     AwaitAnswer _ -> []
     AwaitOn _ _ -> []
     Resume _ _ -> []
-    TriageStop _ _ -> []
+    TriageStop {} -> []
     TriageHandback _ _ -> []
     AwaitWorker _ _ -> []
     AwaitChildren _ -> []
