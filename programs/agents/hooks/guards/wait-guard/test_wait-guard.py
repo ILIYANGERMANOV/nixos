@@ -339,6 +339,16 @@ AGENT_CASES: list[Case[tuple[Caller, str, bool]]] = [
     ),
     (
         BLOCKED,
+        "a watch of checks read before, set to true, is blocked",
+        ("polled", "gh pr checks 7 --watch=true", False),
+    ),
+    (
+        ALLOWED,
+        "a one-shot read of checks read before, its watch set to false, is allowed",
+        ("polled", "gh pr checks 7 --watch=false", False),
+    ),
+    (
+        BLOCKED,
         "a loop over checks read before is blocked",
         ("polled", POLL, False),
     ),

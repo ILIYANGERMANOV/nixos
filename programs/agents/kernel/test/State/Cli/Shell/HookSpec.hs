@@ -298,6 +298,25 @@ spec = describe "state-hook over the doubles" $ do
 
                 contextOf said `shouldBe` Just ("run " <> run <> ": state: implementer a1 works in this run\n")
 
+            it "binds no worker for a spawner bound to a worktree since removed, and stays silent" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
+
+                said <- hook world "bind" (spawnResult "implementer")
+
+                (said.code, said.out) `shouldBe` (0, [])
+
+            it "tells a git that cannot start as context naming the run, never as a removed worktree" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                _ <- hook world "bind" (spawnResult "implementer")
+                modifyIORef' world (\w -> w {gitOnPath = False})
+
+                said <- hook world "handback" (handedBack "implementer")
+
+                contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook handback: ") `Text.isPrefixOf`)
+
             it "records nothing and stays silent for a worker bound to a worktree since removed" $ \world -> do
                 _ <- drive world (init toImplement)
                 run <- runOf world

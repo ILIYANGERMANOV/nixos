@@ -69,7 +69,7 @@ import Doubles.Console (Streams (..), runConsoleCaptured)
 import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
-import Doubles.Git (Worktree (..), runGitScripted)
+import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
 import Doubles.Log (runLogInMemory)
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
@@ -91,6 +91,8 @@ data World = World
     { env :: Map String String
     , disk :: Disk
     , gitDir :: Either Text FilePath
+    , gitOnPath :: Bool
+    -- ^ Without it every git call throws, as a missing binary's spawn does.
     , branch :: Maybe Branch
     , commits :: Int
     , pr :: PrView
@@ -107,6 +109,7 @@ newWorld = do
             { env = Map.fromList [("STATE_STEPS", stepsPath), ("HOME", "/home")]
             , disk = Disk {files = Map.singleton stepsPath steps, dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"], cwd = "/work"}
             , gitDir = Right "/work/.git"
+            , gitOnPath = True
             , branch = Just (Branch "feat")
             , commits = 0
             , pr = PrViewFailed "no pull requests found for branch \"feat\"\n"
@@ -139,7 +142,7 @@ run world input program = atomicModifyIORef' world $ \w ->
                 . runState w.disk
                 . runFileSystemInMemory
                 . runGhScripted w.pr
-                . runGitScripted (worktreeOf w)
+                . (if w.gitOnPath then runGitScripted (worktreeOf w) else runGitMissing)
                 . runLogInMemory
                 . runRandomFixed w.entropy
                 $ program

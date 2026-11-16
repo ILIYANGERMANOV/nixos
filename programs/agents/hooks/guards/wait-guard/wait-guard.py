@@ -158,7 +158,7 @@ def ci_read(words: list[str]) -> CiRead:
         case ["gh", "run", "watch", *_]:
             return CiRead.WATCH
         case ["gh", "pr", "checks", *args]:
-            return CiRead.WATCH if "--watch" in args else CiRead.STATUS
+            return CiRead.WATCH if any(map(is_watch_flag, args)) else CiRead.STATUS
         case ["gh", "run", "view", *args]:
             logs = any(arg.startswith("--log") for arg in args)
             return CiRead.LOG if logs else CiRead.STATUS
@@ -170,6 +170,11 @@ def ci_read(words: list[str]) -> CiRead:
             return CiRead.NONE if read is CiRead.NONE else CiRead.WATCH
         case _:
             return CiRead.NONE
+
+
+def is_watch_flag(arg: str) -> bool:
+    """`--watch` in any spelling gh takes (`--watch=true`), but `--watch=false`."""
+    return arg.startswith("--watch") and arg != "--watch=false"
 
 
 def status_reads(steps: list[Step]) -> list[tuple[str, ...]]:

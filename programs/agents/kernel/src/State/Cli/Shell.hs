@@ -23,7 +23,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8, decodeUtf8', decodeUtf8Lenient, encodeUtf8)
 import Data.Time (UTCTime)
 import Effectful (Eff, IOE, runEff, (:>))
-import Effectful.Exception (throwIO, try)
+import Effectful.Exception (throwIO, try, tryJust)
 import Effects.Clock (Clock, runClockIO)
 import Effects.Clock qualified as Clock
 import Effects.Console (Console, runConsoleIO)
@@ -74,6 +74,7 @@ import State.Step.Artifact (shellPathText, shellWord)
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
+import System.IO.Error (isDoesNotExistError)
 
 -- | Every effect the shell runs on.
 type Shell es = (Clock :> es, Console :> es, Environment :> es, Gh :> es, Git :> es, Log :> es, Random :> es, RoFileSystem :> es, WrFileSystem :> es)
@@ -174,13 +175,18 @@ callerBinding call = do
 standing :: (Git :> es, RoFileSystem :> es) => Binding -> Eff es (Binding, Worktree)
 standing binding = (binding,) . maybe Removed (const Standing) <$> toplevelAt binding.toplevel
 
--- | The top of the git worktree a directory is in; none for one in no worktree, or no directory.
+{- | The top of the git worktree a directory is in; none for one in no
+worktree, or no directory. Only entering the directory may fail as gone: git
+failing to start throws too, a missing binary as does-not-exist, so it is
+caught apart and rethrown, a fault to tell, never a removed worktree.
+-}
 toplevelAt :: (Git :> es, RoFileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
 toplevelAt dir =
-    try (FileSystem.inDirectory dir Git.toplevel) <&> \case
-        Right (Right top) -> Just top
-        Right (Left _) -> Nothing
-        Left (_ :: IOException) -> Nothing
+    tryJust (Monad.guard . isDoesNotExistError) (FileSystem.inDirectory dir (try Git.toplevel)) >>= \case
+        Right (Right (Right top)) -> pure (Just top)
+        Right (Right (Left _)) -> pure Nothing
+        Right (Left (e :: IOException)) -> throwIO e
+        Left () -> pure Nothing
 
 -- | What a want says at the run its caller is bound to ("State.Protocol.Binding"), or where it waits ('delivery').
 wantAnswer :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Want -> Maybe Slot -> Maybe Binding -> Eff es Text
@@ -201,13 +207,17 @@ bindAnswer steps name call bind slot bound = case bind of
         spawner <- case bound of
             Just binding -> pure (Just binding)
             Nothing -> Monad.join <$> traverse runHere (resolve (keyOf call.agent) Nothing call.cwd)
+        worktree <- traverse standing spawner
         childSlot <- slotFor call.session (AgentKey child)
-        case (spawner, childSlot) of
-            (Just binding, Just at) -> telling name (Just binding.run) $ do
+        case (worktree, childSlot) of
+            (Just (binding, Standing), Just at) -> telling name (Just binding.run) $ do
                 writeBinding at binding
                 stashed <- replayStash steps name at binding
                 pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child.agentIdText <> " works in this run\n") <> stashed)
-            _ -> pure ""
+            -- A removed worktree's run is done: it takes no worker.
+            (Just (_, Removed), _) -> pure ""
+            (Nothing, _) -> pure ""
+            (_, Nothing) -> pure ""
 
 {- | The hand-back stashed in a worker's slot, recorded in the run it is bound
 to now, then removed; nothing when none is. Recorded twice when both hooks

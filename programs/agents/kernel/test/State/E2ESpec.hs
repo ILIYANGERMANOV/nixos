@@ -634,6 +634,17 @@ spec = describe "the state binary" $ do
                     back `shouldSatisfy` mentions "state: recorded"
                     loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
+                it "record a child engineer's own hand-back in its parent's log by its state call, its hand-back hook adding nothing" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+
+                    _ <- succeeded =<< state bin w1 ["stop", "failed", "no", "access"]
+                    once <- logLines repo
+                    hooked <- succeeded =<< hook hookBin repo "handback" (reportedBy repo engineer "FAILED no access\n")
+                    after <- logLines repo
+
+                    loggedTypes repo.notes `shouldReturnContaining` ["handed_back"]
+                    (hooked, after) `shouldBe` ([], once)
+
             describe "route each agent's state calls to its run" $ do
                 it "deny a child engineer's state call from its parent's checkout, naming the cd to its own worktree" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo
