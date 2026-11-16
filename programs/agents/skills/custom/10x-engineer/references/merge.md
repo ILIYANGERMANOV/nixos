@@ -99,4 +99,4 @@ yourself:
   What it needs goes to a fresh fixer, then SKILL.md's CI, then a new
   approval.
 - PR merged by hand: After each merge. Closed unmerged:
-  `state record task <id> parked closed unmerged --pr <url>`, notify.
+  `state record task <id> parked closed unmerged`, notify.
