@@ -86,34 +86,30 @@ spec = describe "the state binary" $ do
             asked <- traverse (\kind -> state bin repo ["ask", "--kind", kind, "which", "store?"]) ["design", "DESIGN", "Design"]
             map (.code) asked `shouldBe` [0, 0, 0]
 
-        it "refuses a ruling's unquoted words, telling to quote them, and takes them quoted" $ \repo -> do
-            parent <- tenXAtFanOut bin repo
-            git repo ["checkout", "-q", "-b", "child"]
-            _ <- childRun bin repo parent "child" "t1"
-            [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Pick", "which", "lib?"]
-            let qid = Text.drop (Text.length "asked ") asked
+        it "refuses a ruling's unquoted words, telling to quote them" $ \repo -> do
+            qid <- childQuestion bin repo
             unquoted <- state bin repo ["rule", Text.unpack qid, "--answer", "use", "Y", "--why", "it", "is", "simpler", "--cost", "none"]
             (unquoted.code, unquoted.err)
                 `shouldBe` (2, ["state rule: --answer, --why and --cost - each takes one word: quote a longer one", "fix: state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\""])
+
+        it "takes a ruling's quoted words as one answer, why and cost" $ \repo -> do
+            qid <- childQuestion bin repo
             _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "use Y", "--why", "it is simpler", "--cost", "none"]
             shown <- succeeded =<< state bin repo ["show"]
             shown `shouldContain` ["  Ruling " <> qid <> " Pick: use Y - it is simpler - none"]
 
         it "refuses a question id that is not open, listing the open ones" $ \repo -> do
             run <- startedRun bin repo
-            [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Design", "which", "store?"]
-            let qid = Text.drop (Text.length "asked ") asked
+            qid <- askedQid bin repo "Design" ["which", "store?"]
             refused <- traverse (\raw -> state bin repo ["forward", raw]) ["q1", Text.unpack run <> ":99"]
             [(ran.code, drop 1 (Text.splitOn " - " (Text.concat (take 1 ran.err))), drop 1 ran.err) | ran <- refused]
                 `shouldBe` replicate 2 (2, ["it is not open; open: " <> qid], ["fix: state pending"])
 
-        it "refuses a plan.done whose plan is not written, and takes a written one" $ \repo -> do
+        -- A written plan is taken on every path the transcripts below drive.
+        it "refuses a plan.done whose plan is not written" $ \repo -> do
             _ <- drive bin repo [Record ["fuel", "balanced"], Record ["gather.enough"]]
             missing <- state bin repo ["record", "plan.done", "/no/such"]
             (missing.code, missing.err) `shouldBe` (2, ["state record: /no/such - no such file", "fix: write it first"])
-            plan <- writtenPlan repo
-            written <- succeeded =<< state bin repo ["record", "plan.done", plan]
-            recorded written `shouldBe` ["plan.done -> simplify_plan"]
 
         it "closes a researcher's child on its report, which has no token, so the gather ends" $ \repo -> do
             _ <- drive bin repo [Record ["fuel", "balanced"], Spawn "researcher"]
@@ -607,6 +603,20 @@ childAtWork bin repo = do
     parent <- tenXAtFanOut bin repo
     w1 <- worktree repo "w1"
     childRun bin w1 parent "n1" "t1"
+
+-- | A child run of a 10x fan-out on its own branch, asking a Pick; the question's id.
+childQuestion :: FilePath -> Repo -> IO Text
+childQuestion bin repo = do
+    parent <- tenXAtFanOut bin repo
+    git repo ["checkout", "-q", "-b", "child"]
+    _ <- childRun bin repo parent "child" "t1"
+    askedQid bin repo "Pick" ["which", "lib?"]
+
+-- | @state ask --kind <kind> <question>@; the id it prints.
+askedQid :: FilePath -> Repo -> String -> [String] -> IO Text
+askedQid bin repo kind question = do
+    [asked, _] <- succeeded =<< state bin repo (["ask", "--kind", kind] <> question)
+    pure (Text.drop (Text.length "asked ") asked)
 
 -- | The plan the lead writes to the notes dir; its path.
 writtenPlan :: Repo -> IO FilePath
