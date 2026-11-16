@@ -53,7 +53,7 @@ import State.Cli.View (beginText, brief, pendingLines, showRun, taskBrief)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
-import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
+import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), parseHandback, refusalText, typeHandback)
 import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
@@ -513,18 +513,19 @@ question, or a worker's BLOCKED or FAILED, is the run's to triage.
 -}
 handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe AgentId -> Maybe RunId -> Text -> Either Failure Plan
 handbackPlan steps worktreeHead state role agent child message = do
-    parsed <- unread (parseHandback message)
+    parsed <- Bifunctor.first (unread "state help") (parseHandback message)
     let run = parsed.run <|> child
-    typed <- unread (typeHandback steps state worktreeHead role agent parsed {Handback.run = run})
+    typed <- Bifunctor.first refused (typeHandback steps state worktreeHead role agent parsed {Handback.run = run})
     let from = maybe (roleText role) runIdText run
         triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> from <> " <question>\n"
     Right (Plan typed.events (\_ new -> printed (recordedLines new <> foldMap triage typed.untriaged)))
   where
-    unread :: Either Text a -> Either Failure a
-    unread = either (\why -> Left (Failure BadInput "the hand-back" why (fixOf why))) Right
-    fixOf why
-        | why == Handback.noToken = "state handback " <> roleText role <> foldMap ((" --child " <>) . runIdText) child <> " < <the hand-back, a token added as line 1>"
-        | otherwise = "state help"
+    unread :: Text -> Text -> Failure
+    unread fix why = Failure BadInput "the hand-back" why fix
+    refused refusal = unread (fixOf refusal) (refusalText refusal)
+    fixOf = \case
+        NoToken -> "state handback " <> roleText role <> foldMap ((" --child " <>) . runIdText) child <> " < <the hand-back, a token added as line 1>"
+        Why _ -> "state help"
 
 {- | What @state next@ records and prints, and the advice's action: what GitHub
 and the run's Fuel already decide is recorded first, then the advice: its line, the

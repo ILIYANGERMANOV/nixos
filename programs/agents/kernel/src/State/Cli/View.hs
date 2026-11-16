@@ -87,7 +87,7 @@ brief steps state agent task = case (leads agent, task) of
     (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
     (Nothing, _) -> Right $ case [step | step@(name, _) <- runsOf steps agent, At place <- [state.at], place.name == name] of
         [] -> briefOf steps agent
-        here -> sections here <> ruleOf agent
+        here -> sections here <> rulesOf agent
 
 {- | A child engineer's brief head: its task's fields, then the line that
 starts its run under this one, on the task's flow: in the task's worktree and
@@ -157,7 +157,7 @@ does not run.
 briefOf :: Steps -> AgentRole -> Text
 briefOf steps agent = case runsOf steps agent of
     [] -> ""
-    runs -> sections runs <> Render.handbackRule <> "\n" <> ruleOf agent
+    runs -> sections runs <> rulesOf agent
 
 -- | Each step a role runs, by name, with its row.
 runsOf :: Steps -> AgentRole -> [(StateName, Row)]
@@ -165,6 +165,10 @@ runsOf steps agent = [(stepName s, row steps s) | AnyStep _ (SomeStep s) <- step
 
 sections :: [(StateName, Row)] -> Text
 sections steps = Text.concat ["## " <> stateNameText name <> "\n\n" <> r.task <> "\n\n" | (name, r) <- steps]
+
+-- | The rules every step runner's hand-back follows: the token line, then its role's 'ruleOf'.
+rulesOf :: AgentRole -> Text
+rulesOf agent = Render.handbackRule <> "\n" <> ruleOf agent
 
 -- | The rule a role's hand-back follows: the stop rule, or a review-lead's plan-wrong line.
 ruleOf :: AgentRole -> Text

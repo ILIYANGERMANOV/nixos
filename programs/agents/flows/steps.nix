@@ -178,7 +178,7 @@ in
       exit = null;
       outcomes = [ "done" ];
       runner = "inline";
-      task = "Build: branch from origin/<base>, or keep the worktree's task branch; an empty commit `Draft: <task> (plan only)`, push, and the draft PR with the plan as its body.";
+      task = "Build: branch from origin/<base>, or keep the worktree's task branch; an empty commit `Draft: <task> (plan only)`, push, and the draft PR against <base> (`gh pr create --draft --base <base>`) with the plan as its body.";
       tools = [ "shell" ];
       skills = [ "engineer" ];
       prose = leadProse;

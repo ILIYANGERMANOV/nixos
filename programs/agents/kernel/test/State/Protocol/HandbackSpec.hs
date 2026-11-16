@@ -86,7 +86,7 @@ typing = describe "typeHandback" $ do
         typed atReview "review-lead" "| # | Severity | What |" `shouldSatisfy` isLeft
 
     it "refuses a line 1 with no token from any other role" $
-        typed atImplement "implementer" "built it" `shouldSatisfy` isLeft
+        typed atImplement "implementer" "built it" `shouldBe` Left NoToken
 
     it "closes a researcher's child at the gather on its report, which opens with no token" $
         typed atGather "researcher" "The Index, ranked\n1. src/State.hs:12"
@@ -112,7 +112,7 @@ typing = describe "typeHandback" $ do
         let fromChild = typed atFanOut "engineer"
             c1 = runId "c1"
         it "refuses one that does not name its run" $
-            fromChild "READY https://pr/1" `shouldSatisfy` either (Text.isInfixOf "add Run: <run id> as line 2") (const False)
+            fromChild "READY https://pr/1" `shouldSatisfy` either (Text.isInfixOf "add Run: <run id> as line 2" . refusalText) (const False)
         it "records READY as the child finished, the PR it names in review" $
             fromChild "READY https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "https://pr/1")), TaskMoved (TaskId "t1") (InReview (Url "https://pr/1"))] Nothing)
         it "records only the finish of a READY that names no PR" $

@@ -8,8 +8,11 @@ module State.Protocol.Handback (
     Token (..),
     Need (..),
     Waiting (..),
+    TokenWord (..),
+    tokenWordText,
     tokenWords,
-    noToken,
+    Refusal (..),
+    refusalText,
     parseHandback,
     parseTouches,
     renderHandback,
@@ -19,6 +22,7 @@ module State.Protocol.Handback (
     typeHandback,
 ) where
 
+import Data.Bifunctor qualified as Bifunctor
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -29,7 +33,7 @@ import State.Category.Fuel (Area, parseByName)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Role (leads)
-import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
+import State.Run.Ask (Kind (Stuck), OneLine, Question (..), oneLineText, parseKind, parseOneLine, parseQId, questionLine)
 import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire, waitingText)
 import State.Run.Event (AgentId, AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
@@ -72,9 +76,14 @@ data Token
     | Failed OneLine
     deriving stock (Eq, Show)
 
--- | Why a hand-back whose line 1 opens with no 'TokenWord' is refused.
-noToken :: Text
-noToken = "line 1 is no token: one of " <> Text.intercalate ", " tokenWords
+-- | Why 'typeHandback' records nothing: line 1 opens with no 'TokenWord', or another reason.
+data Refusal = NoToken | Why Text
+    deriving stock (Eq, Show)
+
+refusalText :: Refusal -> Text
+refusalText = \case
+    NoToken -> "line 1 is no token: one of " <> Text.intercalate ", " tokenWords
+    Why why -> why
 
 -- | The word line 1 opens with, one per 'Token' case.
 data TokenWord = ReadyWord | NeedsDecisionWord | AwaitWord | BlockedWord | FailedWord
@@ -144,7 +153,7 @@ parseNeed payload = case (labelled "stuck:", labelled "plan wrong:", asks) of
     (Nothing, Nothing, Nothing) -> Untyped <$> oneLine payload
   where
     labelled label = (\after -> Text.stripPrefix " " after `orElse` after) <$> Text.stripPrefix label payload
-    -- needsDecision's shape: @<Kind> <qid>: <question>@.
+    -- questionLine's shape: @<Kind> <qid>: <question>@.
     asks = do
         let (kindWord, afterKind) = Text.breakOn " " payload
             (qidWord, afterQId) = Text.breakOn ": " (Text.drop 1 afterKind)
@@ -189,7 +198,7 @@ tokenLine :: Token -> Text
 tokenLine = \case
     Ready ref -> spaced (tokenWordText ReadyWord) (oneLineText ref)
     NeedsDecision need -> case need of
-        Asks question -> needsDecision question
+        Asks question -> needing (questionLine question)
         StuckOn why -> needing ("stuck: " <> oneLineText why)
         PlanWrong finding -> needing (planWrong (oneLineText finding))
         Untyped question -> needing (oneLineText question)
@@ -223,7 +232,7 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. A worker's hand-back also says it returned, when it was logged at
 work ('returnOf'). The sha is the worktree's HEAD.
 -}
-typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Maybe AgentId -> Handback -> Either Text Typed
+typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Maybe AgentId -> Handback -> Either Refusal Typed
 typeHandback steps state worktreeHead agent agentId handback = case [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
     here : _ -> fromChild state (fanIn state.fans here) handback
     [] -> (\typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}) <$> fromWorker steps state worktreeHead agent handback
@@ -232,11 +241,11 @@ typeHandback steps state worktreeHead agent agentId handback = case [ScopedFan p
 which it must name. A question it asked joins this run's pending; its stop
 leaves the task to another child or a park, and is this run's to triage.
 -}
-fromChild :: RunState -> Fan -> Handback -> Either Text Typed
+fromChild :: RunState -> Fan -> Handback -> Either Refusal Typed
 fromChild state fan handback = case handback.run of
-    Nothing -> Left "a child's hand-back names its run: add Run: <run id> as line 2"
+    Nothing -> Left (Why "a child's hand-back names its run: add Run: <run id> as line 2")
     Just child -> case handback.token of
-        Nothing -> Left noToken
+        Nothing -> Left NoToken
         Just (Ready summary) -> Right (Typed (said (Finished summary) : prMoved summary) Nothing)
         Just token@(NeedsDecision need) -> case need of
             Asks question -> Right (Typed [said (AsksUp question.qid), Asked (Asking question (askedAt state) (ChildRun child))] Nothing)
@@ -257,11 +266,11 @@ fromChild state fan handback = case handback.run of
             Nothing -> []
         -- Read back as the log reads it, so an out-of-rounds stop stays one.
         ended token = case parseStopLine (tokenLine token) of
-            Just stop -> Typed [said (Ended stop)] . Just <$> oneLine (tokenLine token)
-            Nothing -> Left ("line 1 is no stop: " <> tokenLine token)
-        unasked = Left "a child asks by state ask in its own run: hand back NEEDS_DECISION <Kind> <qid>: <question>"
+            Just stop -> Typed [said (Ended stop)] . Just <$> Bifunctor.first Why (oneLine (tokenLine token))
+            Nothing -> Left (Why ("line 1 is no stop: " <> tokenLine token))
+        unasked = Left $ Why "a child asks by state ask in its own run: hand back NEEDS_DECISION <Kind> <qid>: <question>"
 
-fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Text Typed
+fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Refusal Typed
 fromWorker steps state worktreeHead agent handback = case handback.token of
     -- A choice's worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
     Nothing -> recorded <$> done (not atChoice)
@@ -286,20 +295,20 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
     -- At a choice, the step is the action this worker runs.
     stepHere = listToMaybe ([(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]] <> [(place, step) | atChoice, At place <- [state.at], step <- stepsRunBy steps agent])
     -- Logged, so @state next@ advises the triage until the run asks it.
-    triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> oneLine (tokenLine token)
+    triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> Bifunctor.first Why (oneLine (tokenLine token))
     asked question = [Asked (Asking question (askedAt state) asker)]
     asker = maybe (Subagent agent) ChildRun handback.run
     done isReport = do
-        (place, step@(AnyStep _ (SomeStep s))) <- maybe (Left "the run is at no step a subagent runs") Right stepHere
+        (place, step@(AnyStep _ (SomeStep s))) <- maybe (Left (Why "the run is at no step a subagent runs")) Right stepHere
         let name@(StateName label) = stepName s
             AgentRole roleName = agent
         case (row steps s).runner of
             Agent runner _ | runner == agent -> Right ()
-            Agent (AgentRole runner) _ -> Left (label <> " is run by " <> runner <> ", not " <> roleName)
-            Inline -> Left (label <> " runs inline, not by " <> roleName)
+            Agent (AgentRole runner) _ -> Left (Why (label <> " is run by " <> runner <> ", not " <> roleName))
+            Inline -> Left (Why (label <> " runs inline, not by " <> roleName))
         if isReport && name `notElem` [stepName Review.Review, stepName Review.ReReview]
-            then Left noToken
-            else doneOf place.scope step
+            then Left NoToken
+            else Bifunctor.first Why (doneOf place.scope step)
     -- One arm per layer, each total over its steps; the outcome is in the step's scope.
     doneOf :: ScopePath -> AnyStep -> Either Text [Event]
     doneOf scope (AnyStep l (SomeStep s)) = case l of

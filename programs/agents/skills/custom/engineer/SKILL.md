@@ -196,7 +196,7 @@ decisions.
 **Draft.** Branch from `origin/<base>` (`main` unless your brief names one),
 or keep the current branch when the worktree already holds the task branch.
 Commit the first change or an empty commit `Draft: <task> (plan only)`, push,
-and open a **draft** PR
+and open a **draft** PR against `<base>` (`gh pr create --draft --base <base>`)
 whose body is the agreed plan: goals, decisions, out of scope, the `Fuel:` line and
 the **acceptance criteria** - each goal as a checkable
 statement, input to observable outcome. A plan touching auth, sessions,

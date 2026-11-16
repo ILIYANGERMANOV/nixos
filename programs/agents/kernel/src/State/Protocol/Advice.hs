@@ -48,11 +48,11 @@ import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node
 import State.Category.Meter (AtCap (Extend), someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
-import State.Protocol.Handback (stopLine)
+import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (FlowName (..), RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, principalPlan, qidText)
+import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, oneLineText, principalPlan, qidText, questionLine)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), PlanCall (..), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
@@ -595,16 +595,16 @@ deliver start = \case
             <> " | state forward "
             <> qidText question.qid
             <> " - "
-            <> asked question
+            <> questionLine question
     AwaitAnswer question -> case Ask.deliver start.principal of
-        TheUser -> "ASK " <> asked question
-        ParentRun _ -> "HANDBACK " <> needsDecision question
+        TheUser -> "ASK " <> questionLine question
+        ParentRun _ -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
     TriageStop child task stop -> "RUN " <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task <> askFrom (runIdText child) (stopLine stop)
     TriageHandback (AgentRole role) line -> "RUN " <> askFrom role (oneLineText line)
-    AwaitWorker role agent -> "AWAIT worker " <> roleText role <> " " <> agent.agentIdText
-    AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
+    AwaitWorker role agent -> await <> " worker " <> roleText role <> " " <> agent.agentIdText
+    AwaitChildren tasks -> await <> " children " <> Text.unwords (map taskIdText (toList tasks))
     -- Task ids mean nothing above this run: it hands up the PRs.
     AwaitMerge tasks
         | has Event.Await -> awaiting Merge (Text.unwords (map (taskIdText . fst) (toList tasks)))
@@ -616,13 +616,13 @@ deliver start = \case
         ParentRun _ -> "HANDBACK " <> stopLine stop
     Done url -> case Ask.deliver start.principal of
         TheUser -> "DONE" <> foldMap ((" " <>) . urlText) url
-        ParentRun _ -> "HANDBACK READY" <> foldMap ((" " <>) . urlText) url
+        ParentRun _ -> "HANDBACK " <> tokenWordText ReadyWord <> foldMap ((" " <>) . urlText) url
   where
     has op = Set.member op start.interface
     -- A run that cannot be woken hands the wait up to the run above (#360's AWAIT).
-    awaiting waiting refs = (if has Event.Await then "" else "HANDBACK ") <> "AWAIT " <> waitingText waiting <> " " <> refs
+    awaiting waiting refs = (if has Event.Await then "" else "HANDBACK ") <> await <> " " <> waitingText waiting <> " " <> refs
+    await = tokenWordText AwaitWord
     askFrom from line = "state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
-    asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
 {- | The unindented lines after the advice's first: each other action it
 takes at once, none when the first hands the run back, which ends its turn.
@@ -664,7 +664,7 @@ ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itsel
             ( [Forwarded question.qid above]
             , case above of
                 TheUser -> "ASK user"
-                ParentRun _ -> "HANDBACK " <> needsDecision question
+                ParentRun _ -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
             )
 
 {- | Where the run is, in one plain line: the state, and what it means to

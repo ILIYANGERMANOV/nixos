@@ -52,7 +52,7 @@ module State.Run.Ask (
     Above (..),
     ask,
     deliver,
-    needsDecision,
+    questionLine,
     handback,
     rulingLine,
 ) where
@@ -347,7 +347,7 @@ data Delivery
 data Above
     = -- | Ask the user.
       TheUser
-    | -- | Hand back with 'needsDecision' to the parent run.
+    | -- | Hand back with the question's @NEEDS_DECISION@ line to the parent run.
       ParentRun RunId
     deriving stock (Eq, Show)
 
@@ -375,10 +375,9 @@ deliver = \case
     ByUser _ -> TheUser
     ByRole parent _ _ -> ParentRun parent.run
 
--- | The hand-back's first line for a forwarded question (#360's wire format).
-needsDecision :: Question -> Text
-needsDecision question =
-    "NEEDS_DECISION " <> kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
+-- | A question on one line, @<Kind> <qid>: <question>@, as a hand-back's @NEEDS_DECISION@ carries it (#360's wire format).
+questionLine :: Question -> Text
+questionLine question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
 {- | A flow role's hand-back: its first line (#360's wire format), its run,
 then a line per ruling it made, so the reader sees each one (law Audit).
