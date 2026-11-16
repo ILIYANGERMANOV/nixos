@@ -76,8 +76,9 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingIn)
+import State.Role (leads)
 import State.Run.Ask (Principal (..), Question (..), qidText)
-import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), childRole, roleText, runIdText, tookIn)
+import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
 import State.Run.Fold (Pending (..), RunState (..), Waits (..), over)
 import State.Run.Id (digestOf)
@@ -289,14 +290,15 @@ wants steps hook event = case hook of
         AgentStart _ -> "agentStart"
         PromptExpansion _ _ -> "promptExpansion"
 
-{- | How a spawned agent begins: an engineer runs its own flow, a step
-runner its steps; any other agent is no business of the flows.
+{- | How a spawned agent begins: a role that leads a flow runs its own
+run, a step runner its steps; any other agent is no business of the flows.
 -}
 spawnedBegin :: Steps -> AgentRole -> Maybe Begin
-spawnedBegin steps spawned
-    | spawned == childRole = Just SpawnedLead
-    | spawned `elem` agentRoles steps = Just (SpawnedWorker spawned)
-    | otherwise = Nothing
+spawnedBegin steps spawned = case leads spawned of
+    Just _ -> Just SpawnedLead
+    Nothing
+        | spawned `elem` agentRoles steps -> Just (SpawnedWorker spawned)
+        | otherwise -> Nothing
 
 {- | The skills a lead's run begins under, as the skill catalog names them
 (@programs/agents/skills/custom@): the engineer's and the 10x's.
