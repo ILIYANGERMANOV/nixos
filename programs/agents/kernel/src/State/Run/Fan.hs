@@ -44,7 +44,6 @@ module State.Run.Fan (
     unsettled,
     unrecorded,
     spawnable,
-    unseen,
     mergesAwaited,
     ciAwaited,
     tries,
@@ -414,12 +413,6 @@ spawnable asking fan =
         Just (Kept _) -> False
         Just (Parked _ _) -> False
         Nothing -> False
-
-{- | The tasks recorded spawning whose child has not run @init@ yet, in the
-breakdown's order: the 10x may not have spawned their agent yet.
--}
-unseen :: Fan -> [Task]
-unseen fan = [task | task <- fan.tasks, Set.member task.id fan.atWork, isNothing (runningOn task.id fan)]
 
 {- | Merged: a dependent starts from the base the dependency merged into, as
 GitHub Actions' @needs@ waits for success. A dependency in review, kept or

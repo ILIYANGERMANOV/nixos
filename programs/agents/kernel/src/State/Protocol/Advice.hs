@@ -397,10 +397,9 @@ a child its answer waits for or a restart lost, spawn a task - then ask the
 user what waits on them, then wait on the CI or merges children handed up,
 the children at work, the CI of a task's PR or a dependency's merge. A
 question the user holds blocks no other child (the 10x skill's "Other tasks
-keep moving"). A child the 10x resumed has an agent at work and is advised
-no more; a task recorded spawning is advised after the free ones until its
-child's @init@ is seen, as the kernel cannot see the spawn itself. With none
-at work, none spawnable and no merge awaited, a task is left to park.
+keep moving"). A child the 10x resumed, or a task it spawned, has an agent at
+work and is advised no more. With none at work, none spawnable and no merge
+awaited, a task is left to park.
 -}
 atFan :: ScopedFan -> [RunId] -> RunState -> Action
 atFan at ended state = fromMaybe leave (asum ([first now.unrecorded, question, first now.triage, first now.record, first now.resume, first now.spawn, awaitAnswer] <> map handedUp [minBound .. maxBound] <> [awaitChildren, awaitCi, awaitMerge]))
@@ -447,8 +446,7 @@ atOnce at ended state =
         , triage = [(child.task, TriageStop child.run (retryable child.task) stop) | (child, stop) <- Fan.untriaged here]
         , record = recordsFinished here
         , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> answer)) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
-        , -- A free task first, so a spawn just recorded is not advised again while another waits (F3).
-          spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here <> Fan.unseen here]
+        , spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here]
         }
   where
     here = fanIn state.fans at
@@ -544,9 +542,7 @@ taskLine fan open task =
         Nothing -> ["not started"]
         Just c -> ["child " <> runIdText c.child.run <> " " <> maybe "running" saidText (Fan.latest c)]
     -- A child that never handed back says "running" already.
-    atWork
-        | task.id `elem` map (.id) (Fan.unseen fan) = ["spawning"]
-        | otherwise = ["agent at work" | Set.member task.id fan.atWork, maybe True (isJust . Fan.latest) latestChild]
+    atWork = ["agent at work" | Set.member task.id fan.atWork, maybe True (isJust . Fan.latest) latestChild]
     held = ["held " <> urlText url | (heldTask, url) <- fan.held, heldTask == task.id]
     saidText = \case
         Finished summary -> "finished: " <> oneLineText summary
