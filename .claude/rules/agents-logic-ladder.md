@@ -36,8 +36,7 @@ What follows:
 - Prose may repeat a kernel or hook rule as encouragement, context or
   confirmation, but never contradicts the kernel.
 - A rule never lives only in prose when it could be code.
-- When prose keeps getting broken, move the rule down the logic ladder, toward
-  the kernel.
+- When prose keeps getting broken, move the rule toward the kernel.
 - A hook is a thin adapter calling a kernel function, and never holds logic
   the kernel could hold.
 
