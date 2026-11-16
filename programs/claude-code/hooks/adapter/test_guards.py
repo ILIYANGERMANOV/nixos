@@ -136,15 +136,7 @@ def test_a_subagent_claude_names_no_id_still_runs_the_guards(
 def test_a_state_call_at_another_run_than_the_agents_is_denied_with_the_fix(
     flavor: str, tmp_path: Path
 ) -> None:
-    own, foreign = worktree(tmp_path / "own"), worktree(tmp_path / "foreign")
-    ran_init = shell_ran(
-        foreign,
-        f"cd {own} && state init --notes {tmp_path}/notes/ --task t2",
-        f"run 0a1b2c3d {tmp_path}/notes {own}\n",
-        agent=WORKER,
-        role="engineer",
-    )
-    _ = answer(flavor, "PostToolUse", ran_init)
+    own, foreign = bound_engineer(flavor, tmp_path)
 
     told = denied(
         flavor, shell_call(foreign, "state next", agent=WORKER, role="engineer")
@@ -157,15 +149,7 @@ def test_a_state_call_at_another_run_than_the_agents_is_denied_with_the_fix(
 def test_a_state_call_in_the_agents_own_worktree_is_allowed(
     flavor: str, tmp_path: Path
 ) -> None:
-    own, foreign = worktree(tmp_path / "own"), worktree(tmp_path / "foreign")
-    ran_init = shell_ran(
-        foreign,
-        f"cd {own} && state init --notes {tmp_path}/notes/ --task t2",
-        f"run 0a1b2c3d {tmp_path}/notes {own}\n",
-        agent=WORKER,
-        role="engineer",
-    )
-    _ = answer(flavor, "PostToolUse", ran_init)
+    own, foreign = bound_engineer(flavor, tmp_path)
 
     payload = shell_call(
         foreign, f"cd {own} && state next", agent=WORKER, role="engineer"
@@ -316,6 +300,21 @@ def shell_ran(
         "duration_ms": 120,
     }
     return snapshot_shaped(shell_call(root, command, agent, role) | ran)
+
+
+def bound_engineer(flavor: str, tmp_path: Path) -> tuple[Path, Path]:
+    """An engineer whose hooks fire in a foreign worktree, bound by its `state
+    init` to its own: the two worktrees, its own first."""
+    own, foreign = worktree(tmp_path / "own"), worktree(tmp_path / "foreign")
+    ran_init = shell_ran(
+        foreign,
+        f"cd {own} && state init --notes {tmp_path}/notes/ --task t2",
+        f"run 0a1b2c3d {tmp_path}/notes {own}\n",
+        agent=WORKER,
+        role="engineer",
+    )
+    _ = answer(flavor, "PostToolUse", ran_init)
+    return own, foreign
 
 
 def recorded(event: str) -> JsonObject:

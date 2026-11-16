@@ -145,12 +145,18 @@ jobReply steps input call job = case job of
             readBound call >>= \case
                 Nothing -> pure Quiet
                 Just bound -> maybe Quiet Deny . route bound <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
-    Asks want -> replyOf job <$> jobAnswer steps input call (Right want)
-    Binds bind -> replyOf job <$> jobAnswer steps input call (Left bind)
+    Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> wantAnswer steps input call want slot bound
+    Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> bindAnswer steps call bind slot bound
 
 -- | The caller's binding; none for an unbound caller or without a store.
 readBound :: (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe Binding)
-readBound call = slotFor call.session (keyOf call.agent) >>= maybe (pure Nothing) readBinding
+readBound call = snd <$> callerBinding call
+
+-- | The caller's slot in the session's bindings, and the binding it holds.
+callerBinding :: (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe Slot, Maybe Binding)
+callerBinding call = do
+    slot <- slotFor call.session (keyOf call.agent)
+    (slot,) <$> maybe (pure Nothing) readBinding slot
 
 -- | The top of the git worktree a directory is in; none for one in no worktree, or no directory.
 toplevelAt :: (Git :> es, RoFileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
@@ -160,40 +166,38 @@ toplevelAt dir =
         Right (Left _) -> Nothing
         Left (_ :: IOException) -> Nothing
 
-{- | What a bind or a want says, at the run its caller is bound to
+{- | What a want says at the run its caller is bound to
 ("State.Protocol.Binding"). A worker's hand-back seen before its spawner's
 hook bound it is stashed, and recorded once the binding is there.
 -}
-jobAnswer :: (Shell es) => Steps -> BS.ByteString -> Call -> Either Bind Want -> Eff es Text
-jobAnswer steps input call job = do
-    slot <- slotFor call.session key
-    bound <- maybe (pure Nothing) readBinding slot
-    case job of
-        Left (BindSelf binding) -> "" <$ traverse_ (`writeBinding` binding) slot
-        Left (BindChild child role) -> do
-            -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
-            spawner <- case bound of
-                Just binding -> pure (Just binding)
-                Nothing -> Monad.join <$> traverse runHere (resolve key Nothing call.cwd)
-            childSlot <- slotFor call.session (AgentKey child)
-            case (spawner, childSlot) of
-                (Just binding, Just at) -> do
-                    writeBinding at binding
-                    stashed <- replayStash steps at binding
-                    pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child <> " works in this run\n") <> stashed)
-                _ -> pure ""
-        Right want@Hook.HandedBack {}
-            | Nothing <- bound
-            , AgentKey _ <- key
-            , Just at <- slot -> do
-                -- Stashed before the binding is read again, as the spawner's hook binds before it
-                -- reads the stash: whichever runs second sees the other's file.
-                writeWhole (stashFile at) (decodeUtf8Lenient input)
-                readBinding at >>= maybe (pure "") (replayStash steps at)
-            | otherwise -> atRun steps call want bound
-        Right want -> atRun steps call want bound
-  where
-    key = keyOf call.agent
+wantAnswer :: (Shell es) => Steps -> BS.ByteString -> Call -> Want -> Maybe Slot -> Maybe Binding -> Eff es Text
+wantAnswer steps input call want slot bound = case want of
+    Hook.HandedBack {}
+        | Nothing <- bound
+        , AgentKey _ <- keyOf call.agent
+        , Just at <- slot -> do
+            -- Stashed before the binding is read again, as the spawner's hook binds before it
+            -- reads the stash: whichever runs second sees the other's file.
+            writeWhole (stashFile at) (decodeUtf8Lenient input)
+            readBinding at >>= maybe (pure "") (replayStash steps at)
+    _ -> atRun steps call want bound
+
+-- | A bind: the caller to the run its init printed, or a worker it spawned to the caller's run.
+bindAnswer :: (Shell es) => Steps -> Call -> Bind -> Maybe Slot -> Maybe Binding -> Eff es Text
+bindAnswer steps call bind slot bound = case bind of
+    BindSelf binding -> "" <$ traverse_ (`writeBinding` binding) slot
+    BindChild child role -> do
+        -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
+        spawner <- case bound of
+            Just binding -> pure (Just binding)
+            Nothing -> Monad.join <$> traverse runHere (resolve (keyOf call.agent) Nothing call.cwd)
+        childSlot <- slotFor call.session (AgentKey child)
+        case (spawner, childSlot) of
+            (Just binding, Just at) -> do
+                writeBinding at binding
+                stashed <- replayStash steps at binding
+                pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child <> " works in this run\n") <> stashed)
+            _ -> pure ""
 
 {- | The hand-back stashed in a worker's slot, recorded in the run it is bound
 to now, then removed; nothing when none is. Recorded twice when both hooks

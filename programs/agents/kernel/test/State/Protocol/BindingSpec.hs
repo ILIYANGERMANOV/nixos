@@ -1,14 +1,13 @@
 module State.Protocol.BindingSpec (spec) where
 
 import Data.Char (isSpace)
-import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, tripping, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Protocol.Binding
-import State.Run.EventGen (genRunId)
-import State.Run.Id (RunId, parseRunId, runIdText)
+import State.Run.EventGen (genRunId, runId)
+import State.Run.Id (runIdText)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -63,9 +62,6 @@ spec = describe "the agent-to-run binding" $ do
         it "writes nowhere outside the store for a session or agent id that is no file name" $
             [slotOf "/b" session key | (session, key) <- [("..", Main), ("s/../..", Main), ("", Main), ("s1", AgentKey "../x"), ("s1", AgentKey ".")]]
                 `shouldBe` replicate 5 Nothing
-
-runId :: Text.Text -> RunId
-runId = fromMaybe (error "no run id") . parseRunId
 
 {- | A binding init prints: its run id init's (no whitespace), a notes dir
 init's parser takes (no whitespace), and any toplevel on one line.

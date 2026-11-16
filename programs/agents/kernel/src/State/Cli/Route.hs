@@ -167,8 +167,9 @@ endWord acc = case acc.word of
 
 -- | The current simple command done; one with no words is none.
 close :: Acc -> Acc
-close acc = case reverse ended.ws of
-    [] -> Acc acc.done "" [] Nothing
-    found -> Acc (Segment (Text.strip (Text.pack (reverse ended.raw))) (map Text.pack found) : acc.done) "" [] Nothing
+close acc = Acc (segment <> acc.done) "" [] Nothing
   where
     ended = endWord acc
+    segment = case reverse ended.ws of
+        [] -> []
+        found -> [Segment (Text.strip (Text.pack (reverse ended.raw))) (map Text.pack found)]

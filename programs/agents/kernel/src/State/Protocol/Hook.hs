@@ -21,10 +21,9 @@ and its reply names the run it acted on; @begin@ reads no run.
 Only @route@ denies, and only a @state@ call at another run than the one the
 agent is bound to. None rewrites a call: what a hook says is context, a
 refusal or an error too (fail open and tell); auto mode denies a call a hook
-rewrote. Only
-the lead steers: a subagent's spawn or question is ignored, but a hand-back,
-which only a subagent makes. A child run's hand-back is its own @state@'s to
-record in its parent's run, so the hook leaves it be.
+rewrote. Only the lead steers: a subagent's spawn or question is ignored, but
+a hand-back, which only a subagent makes. A child run's hand-back is its own
+@state@'s to record in its parent's run, so the hook leaves it be.
 -}
 module State.Protocol.Hook (
     HookName (..),

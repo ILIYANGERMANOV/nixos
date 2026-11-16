@@ -1,14 +1,12 @@
 module State.Cli.RouteSpec (spec) where
 
-import Data.Maybe (fromMaybe)
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Cli.Route
 import State.Protocol.Binding (Binding (..))
-import State.Run.Id (RunId, parseRunId)
+import State.Run.EventGen (runId)
 import State.Run.RunGen (loadSteps)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -90,6 +88,3 @@ spec = describe "routing a shell command's state calls" $ do
 -- | An absolute directory of plain path words, which a shell reads as written.
 genDir :: Gen FilePath
 genDir = concatMap ('/' :) <$> Gen.list (Range.linear 1 4) (Gen.string (Range.linear 1 8) (Gen.element (['a' .. 'z'] <> ['0' .. '9'] <> "._-")))
-
-runId :: Text -> RunId
-runId = fromMaybe (error "no run id") . parseRunId

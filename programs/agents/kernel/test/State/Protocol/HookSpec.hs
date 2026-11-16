@@ -9,7 +9,6 @@ import Data.List (nub)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (stepName)
@@ -17,8 +16,7 @@ import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook
 import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped), Stop (..), StopReason (..), Url (..), stepTook)
-import State.Run.EventGen (line, logOf, run, started)
-import State.Run.Id (RunId, parseRunId)
+import State.Run.EventGen (line, logOf, run, runId, started)
 import State.Run.RunGen (childOf, commit, loadSteps, plainTask, runAt, tenXAt)
 import State.Step.Build (Outcome (..), Sing (Refactor))
 import State.Step.Review (Outcome (..))
@@ -50,6 +48,10 @@ spec = describe "the hooks" $ do
         it "refuses an unknown event, tool or source" $
             map parseHookEvent [withField "event" "teardown" (sessionStart "startup"), beforeTool "teleport" Null (object []), sessionStart "reboot"]
                 `shouldSatisfy` all isLeft
+
+        it "reads an afterTool's input and output" $
+            parseHookEvent (encodeObject (afterToolFields "delegate"))
+                `shouldBe` Right (AfterTool (Call "s" "/w" (Just reviewLead)) Delegate KeyMap.empty (String "ok"))
 
         it "refuses an afterTool with no output, as the contract requires one" $
             parseHookEvent (encodeObject (KeyMap.delete "output" (afterToolFields "ask"))) `shouldSatisfy` isLeft
@@ -123,13 +125,6 @@ spec = describe "the hooks" $ do
         it "binds a worker spawned, not a lead nor an agent no flow knows" $
             map spawnedOf ["implementer", "engineer", "Explore"] `shouldBe` [Right (Just (Binds (BindChild "c1" (AgentRole "implementer")))), Right Nothing, Right Nothing]
 
-        it "reads an afterTool's input and output" $
-            parseHookEvent (encodeObject (afterToolFields "delegate"))
-                `shouldBe` Right (AfterTool (Call "s" "/w" (Just reviewLead)) Delegate KeyMap.empty (String "ok"))
-
-        it "names the run a hook's text is about, and says nothing for nothing" $
-            map (aboutRun (runId "0a1b2c3d")) ["state: recorded 9 implement.done -> refactor\n", ""] `shouldBe` ["run 0a1b2c3d: state: recorded 9 implement.done -> refactor\n", ""]
-
     describe "silence" $ do
         let drafted = stepTook (DraftDone (DraftPr (Url "https://github.com/o/r/pull/1") (Branch "main") (Branch "feat")))
         it "speaks on a run at a step" $
@@ -193,6 +188,9 @@ spec = describe "the hooks" $ do
             map (`restartOf` runAt []) [Startup, Resumed] `shouldBe` [Nothing, Nothing]
 
     describe "the reply" $ do
+        it "names the run a hook's text is about, and says nothing for nothing" $
+            map (aboutRun (runId "0a1b2c3d")) ["state: recorded 9 implement.done -> refactor\n", ""] `shouldBe` ["run 0a1b2c3d: state: recorded 9 implement.done -> refactor\n", ""]
+
         it "prints nothing with nothing to say" $
             encodeReply (replyOf (Asks (ResumeRun Startup)) "") `shouldBe` Nothing
 
@@ -221,9 +219,6 @@ spec = describe "the hooks" $ do
 fixer, reviewLeadJson :: Value
 fixer = object ["id" .= ("a1" :: Text), "role" .= ("fixer" :: Text)]
 reviewLeadJson = object ["id" .= ("a2" :: Text), "role" .= ("review-lead" :: Text)]
-
-runId :: Text -> RunId
-runId = fromMaybe (error "no run id") . parseRunId
 
 reviewLead :: Agent
 reviewLead = Agent (Just "a2") (Just (AgentRole "review-lead"))

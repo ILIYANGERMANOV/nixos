@@ -1013,9 +1013,7 @@ driveOn bin repo acts = do
         hookBin <- getEnv "STATE_HOOK_BIN"
         said <- succeeded =<< hook hookBin repo name event
         pure (concatMap contextLines said)
-    contextLines reply = case Aeson.decodeStrictText reply of
-        Just (Object fields) | Just (String context) <- KeyMap.lookup "context" fields -> map (unstated . aboutNoRun) (Text.lines context)
-        _ -> []
+    contextLines reply = maybe [] (map (unstated . aboutNoRun) . Text.lines) (replyField "context" [reply])
 
 unstated :: Text -> Text
 unstated line = fromMaybe line (Text.stripPrefix "state: " line)
