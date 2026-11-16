@@ -347,7 +347,11 @@ runAnswer steps call bound found want = case want of
                         warning = case (action, spawned) of
                             (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
                             _ -> Nothing
-                     in (opened <> new, recordedLines after.state opened <> out.text <> foldMap (<> "\n") warning)
+                        -- A recorded spawn tells only its line: parallel spawns would each repeat the advice.
+                        adviceText = case opened of
+                            [] -> out.text
+                            _ : _ -> ""
+                     in (opened <> new, recordedLines after.state opened <> adviceText <> foldMap (<> "\n") warning)
     Hook.HandedBack message agent role ->
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message

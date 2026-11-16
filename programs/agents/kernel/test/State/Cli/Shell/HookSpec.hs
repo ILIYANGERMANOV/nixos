@@ -169,6 +169,14 @@ spec = describe "state-hook over the doubles" $ do
                         (Just opened, 2, Just closed, 0) -> "recorded 3 research.spawned -> gather" `Text.isInfixOf` opened && "recorded 6 research.handed_back -> gather" `Text.isInfixOf` closed
                         _ -> False
 
+            it "tells only the line a recorded spawn wrote, not the advice" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"]]
+
+                said <- hook world "spawn" (spawned "researcher")
+
+                run <- runOf world
+                fmap Text.lines (contextOf said) `shouldBe` Just ["run " <> run <> ": recorded 3 research.spawned -> gather"]
+
             it "opens no child for a spawn past the researchers' cap, and tells the refusal" $ \world -> do
                 _ <- drive world [Record ["fuel", "low"]]
                 _ <- hook world "spawn" (spawned "researcher")
