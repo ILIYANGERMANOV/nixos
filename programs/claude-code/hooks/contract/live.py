@@ -22,9 +22,7 @@ from pathlib import Path
 from typing import cast
 
 from client import ClaudeFailedError, claude, read_jsonl
-from model import Json
-
-type Payload = dict[str, Json]
+from model import Json, Payload
 
 CHILD = "probe-child"
 GRANDCHILD = "probe-grandchild"
@@ -247,8 +245,18 @@ def table(results: list[Check]) -> str:
     )
 
 
-class MissingError(Exception):
+@dataclass(frozen=True, slots=True)
+class Passed:
+    """What a check found: its row's detail."""
+
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class Missing:
     """What a check looked for and did not find: its failure's detail."""
+
+    detail: str
 
 
 def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
@@ -256,11 +264,20 @@ def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
     and the transcripts they name. Ids are matched by value across events."""
     indexed = list(enumerate(events))
 
-    def child() -> str:
-        return spawned(indexed, None, CHILD, background=False).agent_id
+    def child() -> str | Missing:
+        return then(
+            spawned(indexed, None, CHILD, background=False),
+            lambda spawn: spawn.agent_id,
+        )
 
-    def grandchild() -> str:
-        return spawned(indexed, child(), GRANDCHILD, background=False).agent_id
+    def grandchild() -> str | Missing:
+        return then(
+            child(),
+            lambda parent: then(
+                spawned(indexed, parent, GRANDCHILD, background=False),
+                lambda spawn: spawn.agent_id,
+            ),
+        )
 
     return [
         verdict(
@@ -275,7 +292,9 @@ def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
         verdict(
             "foreground spawn: Pre, SubagentStart, SubagentStop, Post",
             2,
-            lambda: foreground(indexed, child(), GRANDCHILD),
+            lambda: then(
+                child(), lambda parent: foreground(indexed, parent, GRANDCHILD)
+            ),
         ),
         verdict(
             "background spawn: Post at launch, before SubagentStop",
@@ -285,12 +304,18 @@ def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
         verdict(
             "SubagentStart additionalContext reaches the subagent",
             1,
-            lambda: delivered(indexed, transcripts, child(), CHILD),
+            lambda: then(
+                child(),
+                lambda agent_id: delivered(indexed, transcripts, agent_id, CHILD),
+            ),
         ),
         verdict(
             "SubagentStart additionalContext reaches the subagent",
             2,
-            lambda: delivered(indexed, transcripts, grandchild(), GRANDCHILD),
+            lambda: then(
+                grandchild(),
+                lambda agent_id: delivered(indexed, transcripts, agent_id, GRANDCHILD),
+            ),
         ),
         verdict(
             "PreToolUse deny reason reaches the agent",
@@ -308,50 +333,72 @@ def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
     ]
 
 
-def verdict(name: str, depth: int, verify: Callable[[], str]) -> Check:
-    try:
-        return Check(name, depth, passed=True, detail=verify())
-    except MissingError as missing:
-        return Check(name, depth, passed=False, detail=str(missing))
+def verdict(name: str, depth: int, verify: Callable[[], Passed | Missing]) -> Check:
+    match verify():
+        case Passed(detail):
+            return Check(name, depth, passed=True, detail=detail)
+        case Missing(detail):
+            return Check(name, depth, passed=False, detail=detail)
+
+
+def then[T, U](found: T | Missing, step: Callable[[T], U | Missing]) -> U | Missing:
+    """`step` on what a lookup found; what it did not find passes through."""
+    match found:
+        case Missing():
+            return found
+        case _:
+            return step(found)
 
 
 type Indexed = list[tuple[int, Payload]]
 
 
-def expansion(events: Indexed) -> str:
-    _, event = first(
+@dataclass(frozen=True, slots=True)
+class Found:
+    """An event and its position in firing order."""
+
+    index: int
+    event: Payload
+
+
+def expansion(events: Indexed) -> Passed | Missing:
+    match first(
         events,
         f"UserPromptExpansion with command_name {COMMAND_SKILL}",
         lambda event: (
             event.get("hook_event_name") == "UserPromptExpansion"
             and event.get("command_name") == COMMAND_SKILL
         ),
-    )
-    match event:
-        case {"expansion_type": str(kind), "prompt": str(prompt)} if (
+    ):
+        case Missing() as missing:
+            return missing
+        case Found(event={"expansion_type": str(kind), "prompt": str(prompt)}) if (
             f"/{COMMAND_SKILL}" in prompt
         ):
-            return f"expansion_type {kind}"
-        case _:
-            raise MissingError(
+            return Passed(f"expansion_type {kind}")
+        case Found():
+            return Missing(
                 f"UserPromptExpansion without expansion_type or a prompt naming /{COMMAND_SKILL}"
             )
 
 
-def skill(events: Indexed) -> str:
-    _, event = first(
+def skill(events: Indexed) -> Passed | Missing:
+    match first(
         events,
         f"PreToolUse Skill {CALLED_SKILL}",
         lambda event: (
             tool_event(event, "PreToolUse", "Skill")
             and field(event, "tool_input", "skill") == CALLED_SKILL
         ),
-    )
-    match field(event, "tool_input", "args"):
-        case str(args) if args:
-            return f"args {args}"
-        case _:
-            raise MissingError(f"PreToolUse Skill {CALLED_SKILL} without args")
+    ):
+        case Missing() as missing:
+            return missing
+        case Found(event=event):
+            match field(event, "tool_input", "args"):
+                case str(args) if args:
+                    return Passed(f"args {args}")
+                case _:
+                    return Missing(f"PreToolUse Skill {CALLED_SKILL} without args")
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,10 +413,10 @@ class Spawn:
 
 def spawned(
     events: Indexed, parent: str | None, agent_type: str, *, background: bool
-) -> Spawn:
+) -> Spawn | Missing:
     """The Agent call of `parent` (None: the lead) spawning `agent_type`."""
     what = f"PreToolUse Agent {agent_type}{' in the background' if background else ''} by {parent or 'the lead'}"
-    pre, call = first(
+    match first(
         events,
         what,
         lambda event: (
@@ -378,50 +425,74 @@ def spawned(
             and field(event, "tool_input", "subagent_type") == agent_type
             and (field(event, "tool_input", "run_in_background") is True) == background
         ),
-    )
-    post, result = first(
+    ):
+        case Missing() as missing:
+            return missing
+        case Found(pre, call):
+            pass
+    match first(
         events,
         f"PostToolUse for the {what}",
         lambda event: (
             tool_event(event, "PostToolUse", "Agent")
             and event.get("tool_use_id") == call.get("tool_use_id")
         ),
-    )
+    ):
+        case Missing() as missing:
+            return missing
+        case Found(post, result):
+            pass
     match field(result, "tool_response", "agentId"):
         case str(agent_id):
             return Spawn(pre, post, agent_id)
         case _:
-            raise MissingError(
-                f"PostToolUse for the {what} without tool_response.agentId"
+            return Missing(f"PostToolUse for the {what} without tool_response.agentId")
+
+
+def foreground(
+    events: Indexed, parent: str | None, agent_type: str
+) -> Passed | Missing:
+    match spawned(events, parent, agent_type, background=False):
+        case Missing() as missing:
+            return missing
+        case Spawn() as spawn:
+            pass
+    match lifetime(events, spawn.agent_id, agent_type):
+        case Missing() as missing:
+            return missing
+        case (start, stop) if spawn.pre < start < stop < spawn.post:
+            return Passed(f"agent {spawn.agent_id}")
+        case (start, stop):
+            return Missing(
+                f"out of order: Pre {spawn.pre}, Start {start}, Stop {stop}, Post {spawn.post}"
             )
 
 
-def foreground(events: Indexed, parent: str | None, agent_type: str) -> str:
-    spawn = spawned(events, parent, agent_type, background=False)
-    start, stop = lifetime(events, spawn.agent_id, agent_type)
-    if not spawn.pre < start < stop < spawn.post:
-        raise MissingError(
-            f"out of order: Pre {spawn.pre}, Start {start}, Stop {stop}, Post {spawn.post}"
-        )
-    return f"agent {spawn.agent_id}"
-
-
-def background(events: Indexed) -> str:
+def background(events: Indexed) -> Passed | Missing:
     # Post before Stop, not before Start: a background launch's PostToolUse
     # and SubagentStart hooks run at the same moment, so their order races.
-    spawn = spawned(events, None, CHILD, background=True)
-    start, stop = lifetime(events, spawn.agent_id, CHILD)
-    if not (spawn.pre < spawn.post < stop and start < stop):
-        raise MissingError(
-            f"out of order: Pre {spawn.pre}, Post {spawn.post}, Start {start}, Stop {stop}"
-        )
-    return f"agent {spawn.agent_id}"
+    match spawned(events, None, CHILD, background=True):
+        case Missing() as missing:
+            return missing
+        case Spawn() as spawn:
+            pass
+    match lifetime(events, spawn.agent_id, CHILD):
+        case Missing() as missing:
+            return missing
+        case (start, stop) if spawn.pre < spawn.post < stop and start < stop:
+            return Passed(f"agent {spawn.agent_id}")
+        case (start, stop):
+            return Missing(
+                f"out of order: Pre {spawn.pre}, Post {spawn.post}, Start {start}, Stop {stop}"
+            )
 
 
-def lifetime(events: Indexed, agent_id: str, agent_type: str) -> tuple[int, int]:
+def lifetime(
+    events: Indexed, agent_id: str, agent_type: str
+) -> tuple[int, int] | Missing:
     """The positions of an agent's SubagentStart, which must name its type,
     and of its first SubagentStop."""
-    start, _ = first(
+    match first(
         events,
         f"SubagentStart {agent_type} {agent_id}",
         lambda event: (
@@ -429,28 +500,34 @@ def lifetime(events: Indexed, agent_id: str, agent_type: str) -> tuple[int, int]
             and event.get("agent_id") == agent_id
             and event.get("agent_type") == agent_type
         ),
-    )
-    stop, _ = first(events, f"SubagentStop {agent_id}", stopped(agent_id))
-    return start, stop
+    ):
+        case Missing() as missing:
+            return missing
+        case Found(start):
+            return then(
+                first(events, f"SubagentStop {agent_id}", stopped(agent_id)),
+                lambda stop: (start, stop.index),
+            )
 
 
 def delivered(
     events: Indexed, transcripts: dict[str, str], agent_id: str, agent_type: str
-) -> str:
-    _, stop = first(events, f"SubagentStop {agent_id}", stopped(agent_id))
-    match stop.get("agent_transcript_path"):
-        case str(path) if any(
+) -> Passed | Missing:
+    match first(events, f"SubagentStop {agent_id}", stopped(agent_id)):
+        case Missing() as missing:
+            return missing
+        case Found(event={"agent_transcript_path": str(path)}) if any(
             marker(agent_type) in message for message in sent(transcripts.get(path, ""))
         ):
-            return f"{marker(agent_type)} sent to it"
-        case _:
-            raise MissingError(
+            return Passed(f"{marker(agent_type)} sent to it")
+        case Found():
+            return Missing(
                 f"{marker(agent_type)} in no message of {agent_id}'s transcript"
             )
 
 
-def denied(events: Indexed, transcripts: dict[str, str]) -> str:
-    _, call = first(
+def denied(events: Indexed, transcripts: dict[str, str]) -> Passed | Missing:
+    match first(
         events,
         f"the lead's PreToolUse Bash `echo {DENY_TAG}`",
         lambda event: (
@@ -458,22 +535,27 @@ def denied(events: Indexed, transcripts: dict[str, str]) -> str:
             and "agent_id" not in event
             and DENY_TAG in str(field(event, "tool_input", "command"))
         ),
-    )
+    ):
+        case Missing() as missing:
+            return missing
+        case Found(event=call):
+            pass
     tool_use_id = call.get("tool_use_id")
-    if any(
+    ran = any(
         tool_event(event, "PostToolUse", "Bash")
         and event.get("tool_use_id") == tool_use_id
         for _, event in events
-    ):
-        raise MissingError(f"the denied call {tool_use_id} ran: it has a PostToolUse")
+    )
     match call.get("transcript_path"):
+        case _ if ran:
+            return Missing(f"the denied call {tool_use_id} ran: it has a PostToolUse")
         case str(path) if any(
             DENY_REASON in message and f'"{tool_use_id}"' in message
             for message in sent(transcripts.get(path, ""))
         ):
-            return f"{DENY_REASON} in the result of {tool_use_id}"
+            return Passed(f"{DENY_REASON} in the result of {tool_use_id}")
         case _:
-            raise MissingError(
+            return Missing(
                 f"{DENY_REASON} in no message of the lead transcript holding {tool_use_id}"
             )
 
@@ -490,7 +572,7 @@ def sent(transcript: str) -> list[str]:
     ]
 
 
-def adapter_fields(events: Indexed, depth: int) -> str:
+def adapter_fields(events: Indexed, depth: int) -> Passed | Missing:
     """Every event the adapter parses, at `depth`, carries what it reads."""
     at_depth = [
         event
@@ -498,10 +580,6 @@ def adapter_fields(events: Indexed, depth: int) -> str:
         if str(event.get("hook_event_name")) in ADAPTER_FIELDS
         and depth_of(event) == depth
     ]
-    if not at_depth:
-        raise MissingError(
-            f"no SessionStart, PreToolUse or PostToolUse at depth {depth}"
-        )
     lacking = sorted(
         {
             f"{event.get('hook_event_name')} {event.get('tool_name', '')} lacks {key}"
@@ -510,9 +588,15 @@ def adapter_fields(events: Indexed, depth: int) -> str:
             if key not in event
         }
     )
-    if lacking:
-        raise MissingError("; ".join(lacking))
-    return f"{len(at_depth)} events"
+    match (at_depth, lacking):
+        case ([], _):
+            return Missing(
+                f"no SessionStart, PreToolUse or PostToolUse at depth {depth}"
+            )
+        case (_, []):
+            return Passed(f"{len(at_depth)} events")
+        case _:
+            return Missing("; ".join(lacking))
 
 
 def depth_of(event: Payload) -> int:
@@ -526,11 +610,11 @@ def required(event: Payload, depth: int) -> Iterable[str]:
 
 def first(
     events: Indexed, what: str, matches: Callable[[Payload], bool]
-) -> tuple[int, Payload]:
-    for index, event in events:
-        if matches(event):
-            return index, event
-    raise MissingError(f"no {what}")
+) -> Found | Missing:
+    return next(
+        (Found(index, event) for index, event in events if matches(event)),
+        Missing(f"no {what}"),
+    )
 
 
 def stopped(agent_id: str) -> Callable[[Payload], bool]:

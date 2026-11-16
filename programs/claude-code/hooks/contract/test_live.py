@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from live import Check, Payload, checks, respond
+from live import Check, checks, respond
+from model import Payload
 
 type Run = tuple[list[Payload], dict[str, str]]
 

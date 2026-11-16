@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from model import Json
+from model import Json, Payload
 
 
 class ClaudeFailedError(Exception):
@@ -46,15 +46,15 @@ def claude(argv: list[str], repo: Path, env: dict[str, str], timeout: int) -> st
             raise ClaudeFailedError(argv, code, result.stdout, result.stderr)
 
 
-def read_jsonl(path: Path) -> list[dict[str, Json]]:
+def read_jsonl(path: Path) -> list[Payload]:
     lines = path.read_text().splitlines() if path.exists() else []
-    return [cast("dict[str, Json]", json.loads(line)) for line in lines]
+    return [cast("Payload", json.loads(line)) for line in lines]
 
 
-def hook(log: Path, stdin: str, respond: Callable[[dict[str, Json]], Json]) -> int:
+def hook(log: Path, stdin: str, respond: Callable[[Payload], Json]) -> int:
     """The recording hook: logs the payload with the directory the hook ran
     in, and prints what `respond` answers it."""
-    payload = cast("dict[str, Json]", json.loads(stdin))
+    payload = cast("Payload", json.loads(stdin))
     with log.open("a") as out:
         _ = out.write(json.dumps({"pwd": str(Path.cwd()), **payload}) + "\n")
     print(json.dumps(respond(payload)))

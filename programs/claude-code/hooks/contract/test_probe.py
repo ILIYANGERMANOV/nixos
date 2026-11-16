@@ -7,7 +7,7 @@ from pathlib import Path
 
 from hypothesis import given
 from hypothesis import strategies as st
-from model import HANDBACK_TAG, ORIGINAL_COMMAND, REWRITE_TAG, SPAWN_TAG, Json
+from model import HANDBACK_TAG, ORIGINAL_COMMAND, REWRITE_TAG, SPAWN_TAG, Json, Payload
 from probe import Logs, diff, record, refused, rewrite
 
 LEAD_TOOLS: list[Json] = ["Agent", "Bash", "Read", "Write"]
@@ -37,7 +37,7 @@ def healthy_run(
         "ReportBack" if breaks is Breakage.RENAMED_HANDBACK else "SubagentHandback"
     )
     ran = f"echo {REWRITE_TAG}" if honours_updated_input else ORIGINAL_COMMAND
-    subagent: dict[str, Json] = (
+    subagent: Payload = (
         {}
         if breaks is Breakage.UNTAGGED_SUBAGENT
         else {"agent_id": agent_id, "agent_type": "probe"}
@@ -50,8 +50,8 @@ def healthy_run(
         cwd: str,
         response: Json = None,
         **extra: Json,
-    ) -> dict[str, Json]:
-        post: dict[str, Json] = (
+    ) -> Payload:
+        post: Payload = (
             {"tool_response": response, "duration_ms": duration}
             if event == "PostToolUse"
             else {}
@@ -69,7 +69,7 @@ def healthy_run(
             **extra,
         }
 
-    def start(source: str) -> dict[str, Json]:
+    def start(source: str) -> Payload:
         return {
             "hook_event_name": "SessionStart",
             "session_id": session,
@@ -116,7 +116,7 @@ def healthy_run(
         start("resume"),
         start("compact"),
     ]
-    requests: list[dict[str, Json]] = [
+    requests: list[Payload] = [
         {"speaker": "lead", "tools": LEAD_TOOLS, "witnesses": []},
         {
             "speaker": "lead",
@@ -180,7 +180,7 @@ def test_a_subagent_cwd_is_relative_to_the_repo() -> None:
 
 
 def test_the_hook_rewrites_the_probed_bash_command_keeping_its_other_fields() -> None:
-    payload: dict[str, Json] = {
+    payload: Payload = {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": ORIGINAL_COMMAND, "description": "say it"},
@@ -195,12 +195,12 @@ def test_the_hook_rewrites_the_probed_bash_command_keeping_its_other_fields() ->
 
 
 def test_the_hook_tags_the_spawn_prompt_and_the_handback_message() -> None:
-    spawn: dict[str, Json] = {
+    spawn: Payload = {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
         "tool_input": {"prompt": "go"},
     }
-    handback: dict[str, Json] = {
+    handback: Payload = {
         "hook_event_name": "PreToolUse",
         "tool_name": "SubagentHandback",
         "tool_input": {"message": "done"},
@@ -211,12 +211,12 @@ def test_the_hook_tags_the_spawn_prompt_and_the_handback_message() -> None:
 
 
 def test_the_hook_leaves_any_other_call_alone() -> None:
-    other: dict[str, Json] = {
+    other: Payload = {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "pwd"},
     }
-    after: dict[str, Json] = {
+    after: Payload = {
         "hook_event_name": "PostToolUse",
         "tool_name": "Agent",
         "tool_input": {"prompt": "go"},
@@ -238,7 +238,7 @@ def updated(output: Json) -> Json:
     return as_dict(as_dict(output)["hookSpecificOutput"])["updatedInput"]
 
 
-def as_dict(value: Json) -> dict[str, Json]:
+def as_dict(value: Json) -> Payload:
     assert isinstance(value, dict)
     return value
 

@@ -36,6 +36,7 @@ from model import (
     SUBAGENT_MARKER,
     SUBAGENT_TYPE,
     Json,
+    Payload,
     serve,
 )
 
@@ -52,8 +53,8 @@ class Logs:
     what the mock saw of every request."""
 
     repo: Path
-    hooks: list[dict[str, Json]]
-    requests: list[dict[str, Json]]
+    hooks: list[Payload]
+    requests: list[Payload]
 
 
 class UnscriptedCallError(Exception):
@@ -180,7 +181,7 @@ def run(work: Path) -> Logs:
     return Logs(repo, read_jsonl(hooks_log), read_jsonl(requests_log))
 
 
-def refuse_blocked(requests: list[dict[str, Json]]) -> None:
+def refuse_blocked(requests: list[Payload]) -> None:
     calls = [str(call) for request in requests if (call := request.get("blocked"))]
     if calls:
         raise UnscriptedCallError(calls)
@@ -210,7 +211,7 @@ def recording_settings(log: Path) -> Json:
     }
 
 
-def rewrite(payload: dict[str, Json]) -> Json:
+def rewrite(payload: Payload) -> Json:
     """The PreToolUse output that rewrites one of the three probed inputs."""
     match payload:
         case {
@@ -254,7 +255,7 @@ def record(logs: Logs) -> Json:
     }
 
 
-def offered(requests: list[dict[str, Json]], speaker: str) -> Json:
+def offered(requests: list[Payload], speaker: str) -> Json:
     return names(
         {
             str(name)
@@ -265,10 +266,10 @@ def offered(requests: list[dict[str, Json]], speaker: str) -> Json:
     )
 
 
-def event(payload: dict[str, Json], repo: Path) -> Json:
+def event(payload: Payload, repo: Path) -> Json:
     """One hook payload as its contract: which keys it has, where it ran, and
     the tool's input and output that our hooks read."""
-    shown: dict[str, Json] = {
+    shown: Payload = {
         "event": payload.get("hook_event_name"),
         "keys": names(key for key in payload if key != "pwd"),
         "cwd": relative(str(payload.get("cwd")), repo),
