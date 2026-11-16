@@ -47,7 +47,12 @@ spec = describe "State.Run.Fold" $ do
         outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
 
     describe "the 10x's fan-out" $ do
-        let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
+        let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
+            tenXRun = replay tenXGraph . tenXLog
+            -- The writer's path: one more line to the replayed log.
+            tenXAppend events event = do
+                state <- tenXRun events
+                appendTo tenXGraph state (tenXLog events) (line (fromIntegral (length events) + 1) event)
             toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
             rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone engineers (tasksOf (plainTask "t2" [] :| [])))]
@@ -58,9 +63,15 @@ spec = describe "State.Run.Fold" $ do
         it "logs a child's spawn and hand-back at the fan-out, staying there" $
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))])
                 `shouldBe` Right (Just (StateName "engineers"))
-        it "refuses to leave the fan-out while a task is unsettled" $
-            tenXRun (toEngineers <> [Spawned child, stepTook (FanDone engineers)])
+        it "refuses to write the fan-out's end while a task is unsettled" $
+            tenXAppend (toEngineers <> [Spawned child]) (stepTook (FanDone engineers))
                 `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
+        it "refuses to write the fan-out's end while a finished task's PR is in CI" $
+            tenXAppend (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi (Url "pr"))]) (stepTook (FanDone engineers))
+                `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
+        it "replays a v4 log's fan-out end with a finished task's PR in CI" $
+            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi (Url "pr")), stepTook (FanDone engineers)])
+                `shouldBe` Right (Just (StateName "merge"))
         it "leaves the fan-out for the merge once every task is settled" $
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), stepTook (FanDone engineers)])
                 `shouldBe` Right (Just (StateName "merge"))

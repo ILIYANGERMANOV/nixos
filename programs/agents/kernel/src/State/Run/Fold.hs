@@ -220,16 +220,29 @@ unvoided logged = partition (\envelope -> Set.notMember envelope.seq voided) log
 
 {- | One more line to the log the state replays. A void is no step of the
 fold, so the log is replayed with it: it must name a line the replay keeps,
-and the log without that line must still replay.
+and the log without that line must still replay. A fan-out's end is written
+only once every task is settled ('leaves').
 -}
 appendTo :: OpenGraph -> RunState -> NonEmpty Envelope -> Envelope -> Either Refusal Append
 appendTo g state logged envelope
     | Voided n _ <- envelope.event = voiding n
-    | otherwise = append g state envelope
+    | otherwise =
+        append g state envelope >>= \case
+            Appended next -> Appended next <$ leaves state envelope.event
+            AlreadyLogged -> Right AlreadyLogged
   where
     voiding n
         | n `notElem` map (.seq) (fst (unvoided (NonEmpty.toList logged))) = Left (NotVoidable n)
         | otherwise = Appended <$> Bifunctor.first (VoidBreaks n) (replay g (logged <> pure envelope))
+
+{- | A fan-out's end needs every task settled as it is written, not as it
+replays: what settles a task changes, and a logged end stays a fact. A v4 log
+left a fan-out with a finished task's PR still in CI, settled then.
+-}
+leaves :: RunState -> Event -> Either Refusal ()
+leaves state = \case
+    Took scope (AnyOutcome FanLayer (SomeOutcome _ _ (FanDone fan))) -> Bifunctor.first FanRefused (Fan.leave (fanIn state.fans (ScopedFan scope fan)))
+    _ -> Right ()
 
 -- | The log's events after a state: @fold (a <> b) = fold a >=> fold b@.
 fold :: OpenGraph -> RunState -> [Envelope] -> Either Refusal RunState
@@ -440,11 +453,11 @@ built = \case
     RefactorDone _ -> Nothing
     RefactorSkipped _ -> Nothing
 
--- | A breakdown sets its fan-out's tasks; the fan-out is left once they are settled.
+-- | A breakdown sets its fan-out's tasks; its end is checked as it is written ('leaves').
 fanOutcome :: ScopePath -> Outcome (s :: FanStep) l -> Map ScopedFan Fan -> Either Fan.Refusal (Map ScopedFan Fan)
 fanOutcome scope outcome fans = case outcome of
     BreakdownDone fan tasks -> (\fresh -> Map.insert (here fan) fresh fans) <$> Fan.broken tasks (fanIn fans (here fan))
-    FanDone fan -> fans <$ Fan.leave (fanIn fans (here fan))
+    FanDone _ -> Right fans
     MergeDone fan _ -> fans <$ Fan.closed (fanIn fans (here fan))
     MergeNextRound fan -> fans <$ Fan.closed (fanIn fans (here fan))
   where
