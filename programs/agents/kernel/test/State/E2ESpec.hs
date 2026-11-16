@@ -603,7 +603,7 @@ spec = describe "the state binary" $ do
                     loggedTypes tenX `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
                 it "record a child engineer's worker spawn in its own run, not its parent's, at depth 1" $ \repo -> do
-                    engineer <- childEngineer bin hookBin repo
+                    (engineer, _) <- childEngineer bin hookBin repo
                     before <- logLines repo
 
                     said <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
@@ -614,7 +614,7 @@ spec = describe "the state binary" $ do
                     after `shouldBe` before
 
                 it "record a depth-2 worker's hand-back made before its spawner's hook bound it, as a foreground one is" $ \repo -> do
-                    engineer <- childEngineer bin hookBin repo
+                    (engineer, _) <- childEngineer bin hookBin repo
                     _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
 
                     early <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
@@ -625,7 +625,7 @@ spec = describe "the state binary" $ do
                     loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
                 it "record a depth-2 worker's hand-back made after its spawner's hook bound it, as a background one is" $ \repo -> do
-                    engineer <- childEngineer bin hookBin repo
+                    (engineer, _) <- childEngineer bin hookBin repo
                     _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
 
                     _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "w2")
@@ -633,6 +633,49 @@ spec = describe "the state binary" $ do
 
                     back `shouldSatisfy` mentions "state: recorded"
                     loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+            describe "route each agent's state calls to its run" $ do
+                it "deny a child engineer's state call from its parent's checkout, naming the cd to its own worktree" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+                    top <- Text.strip . Text.pack <$> gitOut w1 ["rev-parse", "--show-toplevel"]
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo engineer "state next")
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False (("fix: cd " <> top <> " && state next\n") `Text.isSuffixOf`)
+
+                it "let a child engineer's state call run once it cds to its own worktree" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo engineer ("cd " <> Text.pack w1.work <> " && state next"))
+
+                    said `shouldBe` []
+
+                it "let an agent bound to no run call state anywhere" $ \repo -> do
+                    _ <- drive bin repo []
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo (worker "e9" "engineer") "state next")
+
+                    said `shouldBe` []
+
+            describe "tell how work begins" $ do
+                it "tell a spawned engineer its run starts at its prompt's init line" $ \repo -> do
+                    said <- succeeded =<< hook hookBin repo "begin" (agentStarted repo (worker "e1" "engineer"))
+
+                    replyField "context" said `shouldSatisfy` maybe False ("the `state init` line" `Text.isInfixOf`)
+
+                it "give a spawned implementer what state brief implementer gives" $ \repo -> do
+                    _ <- drive bin repo []
+                    brief <- succeeded =<< state bin repo ["brief", "implementer"]
+
+                    said <- succeeded =<< hook hookBin repo "begin" (agentStarted repo (worker "i1" "implementer"))
+
+                    replyField "context" said `shouldBe` Just (Text.unlines brief)
+
+                it "tell a typed /engineer it begins with state" $ \repo -> do
+                    said <- succeeded =<< hook hookBin repo "begin" (hookEvent repo Null ["event" .= String "promptExpansion", "skill" .= String "engineer"])
+
+                    replyField "context" said `shouldSatisfy` maybe False ("`state init ...`" `Text.isInfixOf`)
 
             it "tell the lead how to record the answer to a question put to the user" $ \repo -> do
                 _ <- drive bin repo []
@@ -742,16 +785,18 @@ workerAt hookBin repo agent w = do
 
 {- | A 10x run at its fan-out in the repo's worktree, and the engineer @e1@ it
 spawned for task @t1@, whose hooks fire in the 10x's worktree: it ran its
-brief's @cd <w1> && state init ...@ there, its notes in @n1@. The engineer.
+brief's @cd <w1> && state init ...@ there, its notes in @n1@. The engineer,
+and its worktree @w1@.
 -}
-childEngineer :: FilePath -> FilePath -> Repo -> IO Value
+childEngineer :: FilePath -> FilePath -> Repo -> IO (Value, Repo)
 childEngineer bin hookBin repo = do
     parent <- tenXAtFanOut bin repo
-    w1 <- worktree repo "w1"
+    -- Inside the parent's checkout, as Claude Code puts a worktree: a path prefix of none.
+    w1 <- worktreeAt repo (repo.work </> ".claude" </> "worktrees" </> "w1") "w1"
     let engineer = worker "e1" "engineer"
     _ <- initBound bin hookBin repo engineer w1 ["--notes", repo.root </> "n1", "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", "t1"]
     _ <- succeeded =<< state bin w1 ["record", "fuel", "balanced"]
-    pure engineer
+    pure (engineer, w1)
 
 -- | The event types a run's log holds, its notes dir given.
 loggedTypes :: FilePath -> IO [Text]
@@ -760,6 +805,20 @@ loggedTypes dir = map (eventType . (.event)) . rights . map decodeLine . Text.li
 -- | Each expected entry is in the list.
 shouldReturnContaining :: IO [Text] -> [Text] -> IO ()
 shouldReturnContaining act expected = act >>= \got -> for_ expected (\e -> got `shouldContain` [e])
+
+-- | This agent's shell command about to run, its hook firing in the repo's worktree.
+ranIn :: Repo -> Value -> Text -> String
+ranIn repo agent command = hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "shell", "input" .= object ["command" .= command], "history" .= ([] :: [Text])]
+
+-- | This subagent starting, its hook firing in the repo's worktree.
+agentStarted :: Repo -> Value -> String
+agentStarted repo agent = hookEvent repo agent ["event" .= String "agentStart"]
+
+-- | A text field of the reply a hook printed.
+replyField :: Aeson.Key -> [Text] -> Maybe Text
+replyField key said = case Aeson.decodeStrictText (Text.concat said) of
+    Just (Object fields) | Just (String value) <- KeyMap.lookup key fields -> Just value
+    _ -> Nothing
 
 askedUser :: Repo -> String
 askedUser repo = hookEvent repo Null ["event" .= String "afterTool", "tool" .= String "ask", "input" .= object [], "output" .= String "ok", "context" .= Null]
@@ -882,8 +941,11 @@ taskAdded bin repo contents = do
 
 -- | A worktree of its own on a new branch, as a child runs in; the repo as seen from it.
 worktree :: Repo -> String -> IO Repo
-worktree repo name = do
-    let path = repo.root </> name
+worktree repo name = worktreeAt repo (repo.root </> name) name
+
+-- | A worktree at this path, on a new branch of this name.
+worktreeAt :: Repo -> FilePath -> String -> IO Repo
+worktreeAt repo path name = do
     git repo ["worktree", "add", "-q", "-b", name, path]
     pure repo {work = path}
 

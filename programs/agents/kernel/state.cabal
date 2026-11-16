@@ -50,6 +50,7 @@ library
     State.Cli.Command
     State.Cli.Render
     State.Cli.Render.Mermaid
+    State.Cli.Route
     State.Cli.Shell
     State.Cli.View
     State.Flow.Engineer
@@ -136,9 +137,11 @@ test-suite state-test
     State.Cli.CommandSpec
     State.Cli.Render.MermaidSpec
     State.Cli.RenderSpec
+    State.Cli.RouteSpec
     State.Cli.Shell.HookSpec
     State.Cli.Shell.MainSpec
     State.Cli.Shell.World
+    State.Cli.ViewSpec
     State.E2ESpec
     State.Flow.EngineerSpec
     State.Flow.LibrarySpec

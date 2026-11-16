@@ -38,6 +38,15 @@ spec = describe "the hooks" $ do
         it "reads the lead, whose agent is null" $
             parseHookEvent (sessionStart "startup") `shouldBe` Right (SessionStart (Call "s" "/w" Nothing) Startup)
 
+        it "reads a subagent's start, by its agent" $
+            parseHookEvent (agentStart "engineer") `shouldBe` Right (AgentStart (Call "s" "/w" (Just (Agent (Just "a1") (Just (AgentRole "engineer"))))))
+
+        it "reads a typed prompt's expansion, by the skill it names" $
+            parseHookEvent (promptExpansion "10x-engineer") `shouldBe` Right (PromptExpansion (Call "s" "/w" Nothing) "10x-engineer")
+
+        it "refuses a prompt expansion that names no skill" $
+            parseHookEvent (encodeObject (common Null <> KeyMap.fromList [("event", "promptExpansion")])) `shouldSatisfy` isLeft
+
         it "refuses an unknown event, tool or source" $
             map parseHookEvent [withField "event" "teardown" (sessionStart "startup"), beforeTool "teleport" Null (object []), sessionStart "reboot"]
                 `shouldSatisfy` all isLeft
@@ -46,7 +55,7 @@ spec = describe "the hooks" $ do
             parseHookEvent (encodeObject (KeyMap.delete "output" (afterToolFields "ask"))) `shouldSatisfy` isLeft
 
         it "names the events, tools and sources of vocabulary.json, in its order" $ do
-            map (\name -> eventOf <$> parseHookEvent (event name)) (vocabulary Map.! "events") `shouldBe` map Right ["sessionStart", "beforeTool", "afterTool"]
+            map (\name -> eventOf <$> parseHookEvent (event name)) (vocabulary Map.! "events") `shouldBe` map Right ["sessionStart", "beforeTool", "afterTool", "agentStart", "promptExpansion"]
             map (\name -> toolOf <$> parseHookEvent (beforeTool name Null (object []))) (vocabulary Map.! "tools") `shouldBe` map (Right . Just) [minBound .. maxBound]
             map (\name -> sourceOf <$> parseHookEvent (sessionStart name)) (vocabulary Map.! "sources") `shouldBe` map (Right . Just) [minBound .. maxBound]
 
@@ -73,6 +82,33 @@ spec = describe "the hooks" $ do
 
         it "refuses a hook at an event it is not declared on" $
             wants steps SpawnHook (SessionStart (Call "s" "/w" Nothing) Startup) `shouldBe` Left "state-hook spawn does not run at sessionStart"
+
+    describe "what a shell call routes" $ do
+        let shell agent tool command = wants steps RouteHook (BeforeTool (Call "s" "/w" agent) tool (KeyMap.fromList [("command", String command)]))
+        it "routes any agent's shell command" $
+            map (\agent -> shell agent Shell "state next") [Nothing, Just reviewLead] `shouldBe` replicate 2 (Right (Just (Routes "state next")))
+
+        it "routes no other tool's call" $
+            shell Nothing Read "state next" `shouldBe` Right Nothing
+
+    describe "how work begins" $ do
+        let startOf role = wants steps BeginHook (AgentStart (Call "s" "/w" (Just (Agent (Just "a1") (AgentRole <$> role)))))
+            called tool skill = wants steps BeginHook (BeforeTool (Call "s" "/w" Nothing) tool (KeyMap.fromList [("skill", String skill)]))
+        it "begins a spawned engineer's run, and a step runner's brief" $
+            map (startOf . Just) ["engineer", "implementer", "review-lead"]
+                `shouldBe` map (Right . Just . Begins) [SpawnedLead, SpawnedWorker (AgentRole "implementer"), SpawnedWorker (AgentRole "review-lead")]
+
+        it "says nothing to an agent the flows do not spawn, or one with no role" $
+            map startOf [Just "reviewer", Just "Explore", Nothing] `shouldBe` replicate 3 (Right Nothing)
+
+        it "begins the engineer's and the 10x's skills, typed or called" $
+            [ wants steps BeginHook (PromptExpansion (Call "s" "/w" Nothing) "engineer")
+            , called Skill "10x-engineer"
+            ]
+                `shouldBe` [Right (Just (Begins TypedSkill)), Right (Just (Begins CalledSkill))]
+
+        it "says nothing at another skill, or another tool naming a lead skill" $
+            [wants steps BeginHook (PromptExpansion (Call "s" "/w" Nothing) "qa"), called Skill "refactor", called Shell "engineer"] `shouldBe` replicate 3 (Right Nothing)
 
     describe "what a tool's result binds" $ do
         let ran command stdout = wants steps BindHook (AfterTool (Call "s" "/w" Nothing) Shell (KeyMap.fromList [("command", String command)]) (object ["stdout" .= (stdout :: Text), "stderr" .= ("" :: Text)]))
@@ -167,6 +203,16 @@ spec = describe "the hooks" $ do
         it "never denies: a spawn's error is context" $
             decoded (toldOf (Asks (SpawnRole Nothing)) "state hook spawn: disk full") `shouldBe` Right (object ["decision" .= ("allow" :: Text), "context" .= ("state hook spawn: disk full" :: Text)])
 
+        it "denies a routed call, with why" $
+            decoded (Deny "state next: the run at /a is not this agent's") `shouldBe` Right (object ["decision" .= ("deny" :: Text), "reason" .= ("state next: the run at /a is not this agent's" :: Text)])
+
+        it "gives a spawned agent's and a typed skill's begin context alone, a called skill's beside the call" $
+            map (\begin -> decoded (replyOf (Begins begin) "state: begins")) [SpawnedLead, TypedSkill, CalledSkill]
+                `shouldBe` [ Right (object ["context" .= ("state: begins" :: Text)])
+                           , Right (object ["context" .= ("state: begins" :: Text)])
+                           , Right (object ["decision" .= ("allow" :: Text), "context" .= ("state: begins" :: Text)])
+                           ]
+
         it "gives sessionStart and afterTool context alone" $
             decoded (replyOf (Asks AskedUser) "state: record the user's answer") `shouldBe` Right (object ["context" .= ("state: record the user's answer" :: Text)])
   where
@@ -201,7 +247,17 @@ event :: Text -> LBS.ByteString
 event = \case
     "sessionStart" -> sessionStart "startup"
     "beforeTool" -> beforeTool "shell" Null (object [])
+    "agentStart" -> agentStart "implementer"
+    "promptExpansion" -> promptExpansion "engineer"
     _ -> encodeObject (afterToolFields "shell")
+
+-- | A subagent of this role starting.
+agentStart :: Text -> LBS.ByteString
+agentStart role = encodeObject (common (object ["id" .= ("a1" :: Text), "role" .= role]) <> KeyMap.fromList [("event", "agentStart")])
+
+-- | The lead's typed @/<skill>@ expanding.
+promptExpansion :: Text -> LBS.ByteString
+promptExpansion skill = encodeObject (common Null <> KeyMap.fromList [("event", "promptExpansion"), ("skill", String skill)])
 
 common :: Value -> Object
 common agent = KeyMap.fromList [("session", "s"), ("cwd", "/w"), ("agent", agent)]
@@ -219,18 +275,24 @@ eventOf = \case
     SessionStart _ _ -> "sessionStart"
     BeforeTool {} -> "beforeTool"
     AfterTool {} -> "afterTool"
+    AgentStart _ -> "agentStart"
+    PromptExpansion _ _ -> "promptExpansion"
 
 toolOf :: HookEvent -> Maybe Tool
 toolOf = \case
     BeforeTool _ tool _ -> Just tool
     AfterTool _ tool _ _ -> Just tool
     SessionStart _ _ -> Nothing
+    AgentStart _ -> Nothing
+    PromptExpansion _ _ -> Nothing
 
 sourceOf :: HookEvent -> Maybe StartSource
 sourceOf = \case
     SessionStart _ source -> Just source
     BeforeTool {} -> Nothing
     AfterTool {} -> Nothing
+    AgentStart _ -> Nothing
+    PromptExpansion _ _ -> Nothing
 
 -- | @vocabulary.json@: each list of names.
 type Vocabulary = Map Text [Text]

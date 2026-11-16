@@ -47,13 +47,14 @@ import State.Category.Step (stateNameText)
 import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
-import State.Cli.View (brief, pendingLines, showRun)
+import State.Cli.Route (StateCall (..), route, stateCalls)
+import State.Cli.View (beginText, brief, pendingLines, showRun)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, explained, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (Binding (..), Key (..), Slot, bindingFile, bindingIn, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), HookName (HandbackHook), Job (..), Want (..), aboutRun, awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), HookName (HandbackHook), Job (..), Reply (..), Want (..), aboutRun, awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -122,26 +123,54 @@ hook argv = case parseHook argv of
                         Left why -> usage why
                         Right Nothing -> pure ExitSuccess
                         Right (Just job) -> do
-                            said <- try (jobAnswer steps input (callOf event) job)
+                            said <- try (jobReply steps input (callOf event) job)
                             -- aeson encodes UTF-8, so the reply decodes whole.
                             traverse_ (Console.out . decodeUtf8 . LBS.toStrict) . encodeReply $ case said of
-                                Right text -> replyOf job text
+                                Right reply -> reply
                                 Left (e :: IOException) -> toldOf job ("state hook " <> hookName name <> ": " <> tshow e)
                             pure ExitSuccess
   where
     usage line = Console.err (line <> "\n") $> ExitFailure 2
 
-{- | What a hook's job says, at the run its caller is bound to
+{- | A hook's reply to its job: how work begins needs no run; a route
+denies a @state@ call at another run than the caller's; the rest is what the
+caller's run says.
+-}
+jobReply :: (Shell es) => Steps -> BS.ByteString -> Call -> Job -> Eff es Reply
+jobReply steps input call job = case job of
+    Begins begin -> pure (replyOf job (beginText steps begin))
+    Routes command -> case stateCalls steps call.cwd command of
+        [] -> pure Quiet
+        calls ->
+            readBound call >>= \case
+                Nothing -> pure Quiet
+                Just bound -> maybe Quiet Deny . route bound <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
+    Asks want -> replyOf job <$> jobAnswer steps input call (Right want)
+    Binds bind -> replyOf job <$> jobAnswer steps input call (Left bind)
+
+-- | The caller's binding; none for an unbound caller or without a store.
+readBound :: (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe Binding)
+readBound call = slotFor call.session (keyOf call.agent) >>= maybe (pure Nothing) readBinding
+
+-- | The top of the git worktree a directory is in; none for one in no worktree, or no directory.
+toplevelAt :: (Git :> es, RoFileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
+toplevelAt dir =
+    try (FileSystem.inDirectory dir Git.toplevel) <&> \case
+        Right (Right top) -> Just top
+        Right (Left _) -> Nothing
+        Left (_ :: IOException) -> Nothing
+
+{- | What a bind or a want says, at the run its caller is bound to
 ("State.Protocol.Binding"). A worker's hand-back seen before its spawner's
 hook bound it is stashed, and recorded once the binding is there.
 -}
-jobAnswer :: (Shell es) => Steps -> BS.ByteString -> Call -> Job -> Eff es Text
+jobAnswer :: (Shell es) => Steps -> BS.ByteString -> Call -> Either Bind Want -> Eff es Text
 jobAnswer steps input call job = do
     slot <- slotFor call.session key
     bound <- maybe (pure Nothing) readBinding slot
     case job of
-        Binds (BindSelf binding) -> "" <$ traverse_ (`writeBinding` binding) slot
-        Binds (BindChild child role) -> do
+        Left (BindSelf binding) -> "" <$ traverse_ (`writeBinding` binding) slot
+        Left (BindChild child role) -> do
             -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
             spawner <- case bound of
                 Just binding -> pure (Just binding)
@@ -153,7 +182,7 @@ jobAnswer steps input call job = do
                     stashed <- replayStash steps at binding
                     pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child <> " works in this run\n") <> stashed)
                 _ -> pure ""
-        Asks want@Hook.HandedBack {}
+        Right want@Hook.HandedBack {}
             | Nothing <- bound
             , AgentKey _ <- key
             , Just at <- slot -> do
@@ -162,7 +191,7 @@ jobAnswer steps input call job = do
                 writeWhole (stashFile at) (decodeUtf8Lenient input)
                 readBinding at >>= maybe (pure "") (replayStash steps at)
             | otherwise -> atRun steps call want bound
-        Asks want -> atRun steps call want bound
+        Right want -> atRun steps call want bound
   where
     key = keyOf call.agent
 

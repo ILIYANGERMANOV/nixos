@@ -107,7 +107,7 @@ pkgs.runCommand "claude-config-check"
     entries='.hooks | to_entries[] | .key as $event | .value[]'
     check_hooks() {
       [ "$(jq -c "[$entries | {event: \$event, matcher}]" "$2")" = \
-        '[{"event":"PostToolUse","matcher":null},{"event":"PreToolUse","matcher":"Agent|Bash|Read|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"}]' ] ||
+        '[{"event":"PostToolUse","matcher":null},{"event":"PreToolUse","matcher":"Agent|Bash|Read|Skill|SubagentHandback"},{"event":"SessionStart","matcher":"startup|resume|compact"},{"event":"SubagentStart","matcher":null},{"event":"UserPromptExpansion","matcher":null}]' ] ||
         { echo "$1 settings: the hook entries differ" >&2; exit 1; }
       commands=$(jq -r "[$entries | .hooks[].command] | unique | .[]" "$2")
       case "$commands" in
@@ -121,7 +121,7 @@ pkgs.runCommand "claude-config-check"
         secret='"secret-guard",'
       fi
       [ "$(jq -c 'map_values(map(.name))' "$(cut -d' ' -f3 <<<"$commands")")" = \
-        '{"afterTool":["context-guard","state-asked","state-bind"],"beforeTool":["state-handback","state-spawn",'"$secret"'"read-guard","wait-guard"],"sessionStart":["state-resume"]}' ] ||
+        '{"afterTool":["context-guard","state-asked","state-bind"],"agentStart":["state-begin-agent"],"beforeTool":["state-begin-skill","state-handback","state-route","state-spawn",'"$secret"'"read-guard","wait-guard"],"promptExpansion":["state-begin-prompt"],"sessionStart":["state-resume"]}' ] ||
         { echo "$1 settings: the hooks differ" >&2; exit 1; }
     }
     ${lib.concatStrings (

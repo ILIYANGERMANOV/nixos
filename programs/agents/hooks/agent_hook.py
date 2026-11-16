@@ -57,6 +57,8 @@ class EventName(StrEnum):
     SESSION_START = "sessionStart"
     BEFORE_TOOL = "beforeTool"
     AFTER_TOOL = "afterTool"
+    AGENT_START = "agentStart"
+    PROMPT_EXPANSION = "promptExpansion"
 
 
 class Tool(StrEnum):

@@ -1,8 +1,12 @@
--- | The read-only views of a run: @state show@, @state pending@ and @state brief@.
+{- | The read-only views of a run: @state show@, @state pending@ and @state
+brief@; and the texts that need no run: a role's brief and how work begins.
+-}
 module State.Cli.View (
     showRun,
     pendingLines,
     brief,
+    briefOf,
+    beginText,
 ) where
 
 import Data.Bool (bool)
@@ -11,10 +15,11 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (fuelLabel)
 import State.Category.Graph (Node (..), OpenGraph, Place (..))
-import State.Category.Step (SomeStep (..), stateNameText, stepName)
+import State.Category.Step (SomeStep (..), StateName, stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
+import State.Protocol.Hook (Begin (..))
 import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
@@ -74,12 +79,14 @@ in the task's worktree and notes dir when the breakdown names them; a task
 the breakdown lacks is returned as the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
-brief steps state agent@(AgentRole role) task = case (leads agent, task) of
+brief steps state agent task = case (leads agent, task) of
     (Just flow, Nothing) -> Right (initLine flow "<dir>" "<id>")
     (Just _, Just taskId) -> case lookupTask (currentFan state) taskId of
         Nothing -> Left taskId
         Just found -> Right (Text.unlines (taskLines found) <> "\n" <> taskInit found)
-    (Nothing, _) -> Right (Text.concat [section name r | (name, r) <- briefed] <> rule)
+    (Nothing, _) -> Right $ case [step | step@(name, _) <- runsOf steps agent, At place <- [state.at], place.name == name] of
+        [] -> briefOf steps agent
+        here -> sections here <> ruleOf agent
   where
     taskInit found =
         maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
@@ -114,15 +121,6 @@ brief steps state agent@(AgentRole role) task = case (leads agent, task) of
         [] -> "none"
         items -> Text.intercalate ", " items
     yesNo = bool "no" "yes"
-    runs = [(stepName s, row steps s) | AnyStep _ (SomeStep s) <- stepsRunBy steps agent]
-    briefed = case [step | step@(name, _) <- runs, At place <- [state.at], place.name == name] of
-        [] -> runs
-        here -> here
-    section name r = "## " <> stateNameText name <> "\n\n" <> r.task <> "\n\n"
-    rule
-        | role `elem` ["implementer", "refactorer", "fixer"] = Render.stopRule
-        | role == "review-lead" = Render.planWrong
-        | otherwise = ""
 
 {- | The notes dir the engineer skill names for a task's run,
 @/tmp/engineer-<owner>-<repo>-<slug>/@, the slug its branch with each
@@ -132,3 +130,39 @@ engineerNotes :: Branch -> Repo -> Text
 engineerNotes branch repo = "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.map slug (branchText branch) <> "/"
   where
     slug c = if slugChar c then c else '-'
+
+{- | A role's brief wherever a run is: the task text of each step it runs,
+then the rule its hand-back follows. 'brief' gives it at a step the role
+does not run.
+-}
+briefOf :: Steps -> AgentRole -> Text
+briefOf steps agent = sections (runsOf steps agent) <> ruleOf agent
+
+-- | Each step a role runs, by name, with its row.
+runsOf :: Steps -> AgentRole -> [(StateName, Row)]
+runsOf steps agent = [(stepName s, row steps s) | AnyStep _ (SomeStep s) <- stepsRunBy steps agent]
+
+sections :: [(StateName, Row)] -> Text
+sections steps = Text.concat ["## " <> stateNameText name <> "\n\n" <> r.task <> "\n\n" | (name, r) <- steps]
+
+-- | The rule a role's hand-back follows: the stop rule, or a review-lead's plan-wrong line.
+ruleOf :: AgentRole -> Text
+ruleOf (AgentRole role)
+    | role `elem` ["implementer", "refactorer", "fixer"] = Render.stopRule
+    | role == "review-lead" = Render.planWrong
+    | otherwise = ""
+
+{- | What a hook tells as work begins (#403): a spawned engineer and a lead
+skill how its run starts, a step runner its brief. Stated as facts, as
+imperative text in a hook's context can read as an injected order.
+-}
+beginText :: Steps -> Begin -> Text
+beginText steps = \case
+    SpawnedLead ->
+        "state: this engineer's run is driven by `state`. Its first command is the `state init` line in its prompt, as written; "
+            <> "then `state next`, until it prints DONE.\n"
+    SpawnedWorker role -> briefOf steps role
+    TypedSkill -> skillBegins
+    CalledSkill -> skillBegins
+  where
+    skillBegins = "state: this skill begins with `state`: `state init ...`, then `state next`.\n"
