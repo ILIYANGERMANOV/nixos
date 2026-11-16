@@ -128,9 +128,9 @@ spec = describe "State.Run.Ask" $ do
         it "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit" $
             ask (ByUser OwnPr) Orchestrator Confirm `shouldBe` Up TheUser
 
-    it "spells the hand-back line as #360's wire format" $
-        needsDecision (Question qid Design (oneLine "change the data model?"))
-            `shouldBe` "NEEDS_DECISION Design r7f2:3: change the data model?"
+    it "spells a question on one line as #360's wire format" $
+        questionLine (Question qid Design (oneLine "change the data model?"))
+            `shouldBe` "Design r7f2:3: change the data model?"
 
     it "writes a hand-back's first line, its run, then a line per ruling" $
         fmap (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling]) (rule Orchestrator Security (asking Security) based)
@@ -139,7 +139,7 @@ spec = describe "State.Run.Ask" $ do
     it "keeps every hand-back line one line" . hedgehog $ do
         question <- forAll genQuestion
         ruling <- forAll (Gen.mapMaybe (either (const Nothing) Just) (rule Orchestrator Pick <$> genQuestion <*> genProposal))
-        assert (not (Text.any breaksLine (needsDecision question)))
+        assert (not (Text.any breaksLine (questionLine question)))
         let handbackLines = Text.lines (handback "READY ref" (runId "r7f2") [ruling])
         length handbackLines === 3
         filter (Text.any breaksLine) handbackLines === []

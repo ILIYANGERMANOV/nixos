@@ -203,6 +203,11 @@ spec = describe "State.Run.Fold" $ do
         atName <$> replay g (logOf (started :| FuelSet Low : toReview <> reviewRounds [[]] <> [stepTook (FixDone commit), stepTook (ReReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty))]))
             `shouldBe` Right (Just (StateName "describe"))
 
+    -- An Unverified requirement is a verdict, never a row (#440).
+    it "takes a final pick with no row and an Unverified verdict to describe" $
+        atName <$> replay g (logOf (started :| toReview <> [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty (Map.singleton (Requirement "R1") Unverified)))]))
+            `shouldBe` Right (Just (StateName "describe"))
+
     it "stuck_after_two_same_rounds" . hedgehog $ do
         -- Up to Max's 5 re-reviews, each a pick of the loop.
         rows <- forAll (Gen.list (Range.linear 1 5) (Gen.subsequence ["A", "B", "C"]))

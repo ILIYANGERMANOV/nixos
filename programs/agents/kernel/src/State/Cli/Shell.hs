@@ -43,7 +43,7 @@ import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
-import State.Category.Step (stateNameText)
+import State.Category.Step (StateName, stateNameText)
 import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
@@ -53,7 +53,7 @@ import State.Cli.View (beginText, brief, pendingLines, showRun, taskBrief)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
-import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
+import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeHandback)
 import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
@@ -335,7 +335,7 @@ runAnswer steps call bound found want = case want of
             Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
             Right (restart, after) ->
                 let (new, _, out) = adviceOf steps facts told stamp after
-                 in (restart <> new, recordedLines after.state restart <> showRun after.g after.state <> out.text)
+                 in (map (.envelope) restart <> new, recordedLines restart <> showRun after.g after.state <> out.text)
     SpawnRole spawned -> do
         (facts, told) <- readFacts
         onHook facts.pr $ \stamp run ->
@@ -351,7 +351,7 @@ runAnswer steps call bound found want = case want of
                         adviceText = case opened of
                             [] -> out.text
                             _ : _ -> ""
-                     in (opened <> new, recordedLines after.state opened <> adviceText <> foldMap (<> "\n") warning)
+                     in (map (.envelope) opened <> new, recordedLines opened <> adviceText <> foldMap (<> "\n") warning)
     Hook.HandedBack message agent role ->
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
@@ -438,7 +438,7 @@ execute steps = \case
         Pending -> Nothing
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
-data Plan = Plan {events :: [Event], say :: RunState -> [Envelope] -> Output}
+data Plan = Plan {events :: [Event], say :: RunState -> [Written] -> Output}
 
 -- | What a command prints, the hand-back it delivers, and the answer it writes down, if any.
 data Output = Output {text :: Text, handback :: Maybe Text, down :: Maybe Down}
@@ -458,22 +458,22 @@ writtenDown :: RunState -> QId -> Output
 writtenDown state qid = Output "" Nothing (downOf state qid)
 
 -- | A line per event written, delivering no hand-back.
-recorded :: RunState -> [Envelope] -> Output
-recorded after = printed . recordedLines after
+recorded :: [Written] -> Output
+recorded = printed . recordedLines
 
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
 planOf :: Steps -> Maybe Sha -> Maybe Text -> OpenGraph -> RunState -> RunCommand -> Either Failure Plan
 planOf steps worktreeHead file g state = \case
-    Record (Plain event) -> Right (Plan [event] recorded)
+    Record (Plain event) -> Right (Plan [event] (const recorded))
     Record (AtHead event) -> case worktreeHead of
-        Just sha -> Right (Plan [event sha] recorded)
+        Just sha -> Right (Plan [event sha] (const recorded))
         Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
     Record (FromFile path parse) -> case parse <$> file of
-        Just (Right event) -> Right (Plan [event] recorded)
+        Just (Right event) -> Right (Plan [event] (const recorded))
         Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
         Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
-    Override target why -> Right (Plan [Overridden target why] recorded)
-    Void n why -> Right (Plan [Voided n why] recorded)
+    Override target why -> Right (Plan [Overridden target why] (const recorded))
+    Void n why -> Right (Plan [Voided n why] (const recorded))
     AskQuestion kind Itself text ->
         notOpenYet state Itself text >> do
             let (question, events, line) = ownAsk state kind text
@@ -513,14 +513,21 @@ question, or a worker's BLOCKED or FAILED, is the run's to triage.
 -}
 handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe AgentId -> Maybe RunId -> Text -> Either Failure Plan
 handbackPlan steps worktreeHead state role agent child message = do
-    parsed <- unread (parseHandback message)
+    parsed <- Bifunctor.first refused (parseHandback message)
     let run = parsed.run <|> child
-    typed <- unread (typeHandback steps state worktreeHead role agent parsed {Handback.run = run})
+    typed <- Bifunctor.first refused (typeHandback steps state worktreeHead role agent parsed {Handback.run = run})
     let from = maybe (roleText role) runIdText run
         triage line = "triage: " <> oneLineText line <> "\nfix: state ask --kind <kind> --from " <> from <> " <question>\n"
-    Right (Plan typed.events (\after new -> printed (recordedLines after new <> foldMap triage typed.untriaged)))
+    Right (Plan typed.events (\_ new -> printed (recordedLines new <> foldMap triage typed.untriaged)))
   where
-    unread = either (\why -> Left (Failure BadInput "the hand-back" why "state help")) Right
+    unread :: Text -> Text -> Failure
+    unread fix why = Failure BadInput "the hand-back" why fix
+    refused refusal = unread (fixOf refusal) (refusalText refusal)
+    fixOf = \case
+        NoToken -> again "a token added as line 1"
+        NoArea _ -> again ("its Touches: line bare names only, comma-separated: " <> areaNames)
+        Why _ -> "state help"
+    again what = "state handback " <> roleText role <> foldMap ((" --child " <>) . runIdText) child <> " < <the hand-back, " <> what <> ">"
 
 {- | What @state next@ records and prints, and the advice's action: what GitHub
 and the run's Fuel already decide is recorded first, then the advice: its line, the
@@ -529,12 +536,12 @@ task text. The advice leads, so a refusal never reads as the next action;
 under it, where the run is and each option, one per line.
 -}
 adviceOf :: Steps -> Facts -> [Text] -> Stamp -> Loaded -> ([Envelope], Action, Output)
-adviceOf steps facts told stamp run = (new, advice.action, out)
+adviceOf steps facts told stamp run = (map (.envelope) new, advice.action, out)
   where
     (new, settled, unsynced) = settle run
     advice = Advice.heldBy settled.state.start settled.state.live (advise steps settled.g facts settled.state)
     out =
-        recorded settled.state new
+        recorded new
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( foldMap (<> "\n") (deliverMore settled.state.start advice)
@@ -555,9 +562,12 @@ delivered state line
     | handsBack line = let handback = Ask.handback line state.run state.rulings in Output handback (Just handback) Nothing
     | otherwise = printed (line <> "\n")
 
--- | A line per event written, each with where the run is now.
-recordedLines :: RunState -> [Envelope] -> Text
-recordedLines after = foldMap (\e -> "recorded " <> tshow e.seq <> " " <> eventType e.event <> " -> " <> stateNameText (askedAt after) <> "\n")
+-- | A line per event written, each with where that event left the run.
+recordedLines :: [Written] -> Text
+recordedLines = foldMap (\w -> "recorded " <> tshow w.envelope.seq <> " " <> eventType w.envelope.event <> " -> " <> stateNameText w.reached <> "\n")
+
+-- | A line written, and where the run is just after it.
+data Written = Written {envelope :: Envelope, reached :: StateName}
 
 -- | The time, commit and session every line written now carries.
 data Stamp = Stamp {ts :: UTCTime, head :: Maybe Sha, session :: Maybe SessionId}
@@ -568,7 +578,7 @@ data Loaded = Loaded {g :: OpenGraph, state :: RunState, logged :: NonEmpty Enve
 {- | The lines for these events, each written by its source, in order, and the
 run they reach, or the first refusal. An id already logged appends nothing.
 -}
-commit :: Stamp -> Loaded -> [(Source, Event)] -> Either Fold.Refusal ([Envelope], Loaded)
+commit :: Stamp -> Loaded -> [(Source, Event)] -> Either Fold.Refusal ([Written], Loaded)
 commit stamp = go []
   where
     go written run = \case
@@ -576,7 +586,7 @@ commit stamp = go []
         (source, event) : rest -> do
             let envelope = stamped stamp source run.state.run (nextSeq run) event
             Fold.appendTo run.g run.state run.logged envelope >>= \case
-                Appended next -> go (envelope : written) run {state = next, logged = run.logged <> pure envelope} rest
+                Appended next -> go (Written envelope (askedAt next) : written) run {state = next, logged = run.logged <> pure envelope} rest
                 AlreadyLogged -> go written run rest
 
 -- | The plan written by these sources, or its refusal logged so the next read warns of it.
@@ -584,7 +594,7 @@ record :: Stamp -> Loaded -> [Source] -> Either Failure Plan -> ([Envelope], Eit
 record stamp run sources = \case
     Left failure -> ([], Left failure)
     Right plan -> case commit stamp run (zip sources plan.events) of
-        Right (new, after) -> (new, Right (plan.say after.state new))
+        Right (new, after) -> (map (.envelope) new, Right (plan.say after.state new))
         Left refusal ->
             let failure = explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal
              in ([stamped stamp Cli run.state.run (nextSeq run) (Refused (noteOf failure))], Left failure)
@@ -686,7 +696,7 @@ answeredDown down =
   where
     source = Hook (digestOf [runIdText down.above, qidText down.qid, runIdText down.child.run])
     write stamp run = case commit stamp run [(source, Answered down.qid down.answer (ParentRun down.above))] of
-        Right (new, after) -> (new, Right after.state)
+        Right (new, after) -> (map (.envelope) new, Right after.state)
         -- The answering run tells the refusal; the child's log does not keep it.
         Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
     told why =

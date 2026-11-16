@@ -178,7 +178,7 @@ in
       exit = null;
       outcomes = [ "done" ];
       runner = "inline";
-      task = "Build: branch, an empty commit, push, and the draft PR with the plan as its body.";
+      task = "Build: branch from origin/<base>, or keep the worktree's task branch; an empty commit `Draft: <task> (plan only)`, push, and the draft PR against <base> (`gh pr create --draft --base <base>`) with the plan as its body.";
       tools = [ "shell" ];
       skills = [ "engineer" ];
       prose = leadProse;
@@ -257,7 +257,7 @@ in
         "loop"
       ];
       runner = "inline";
-      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` goes on to describe, where the final fixer gets the chosen rows; `loop` sends them to a fixer, then a re-review, and spends one Re-review.";
+      task = "Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` goes on to describe, where the final fixer gets the chosen rows; `loop` sends them to a fixer, then a re-review, and spends one Re-review. An Unverified requirement is a verdict (`--verdict <req>=unverified`), never a row: with no surviving Major and no Not met, `final` with no `--row`.";
       tools = [ "read" ];
       skills = [ "engineer" ];
       prose = leadProse;

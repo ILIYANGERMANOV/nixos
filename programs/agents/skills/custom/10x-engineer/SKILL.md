@@ -193,7 +193,9 @@ mid-run: one such object in a file, then `state record task add <file>`.
 
 **Spawn.** `state next` prints `SPAWN engineer --task <id>` for each task
 free to start; run `state record spawning <id>`, then spawn, then `state next`
-for the next line. Spawn as many as it prints. Worktree, brief and spawn prompt:
+for the next line. Spawn as many as it prints, one at a time: never record
+`spawning` for several tasks in a batch, since a task recorded `spawning`
+leaves the SPAWN list, and a batch loses which ones still need a spawn. Worktree, brief and spawn prompt:
 `${CLAUDE_SKILL_DIR}/references/brief.md`. The child's first command, the
 `state init` line in its brief, records `spawned` in your log. No `10x`
 subagent_type exists: `SPAWN 10x` spawns `subagent_type: claude`, its prompt
