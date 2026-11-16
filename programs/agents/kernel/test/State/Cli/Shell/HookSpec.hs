@@ -8,8 +8,10 @@ import Data.Aeson (Value (..), decodeStrictText)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef')
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Doubles.FileSystem (Disk (..))
 import State.Cli.Shell.World
 import State.Protocol.Advice (Readiness (..))
 import State.Run.Event (Branch (..), Envelope (..), runIdText)
@@ -57,13 +59,51 @@ spec = describe "state-hook over the doubles" $ do
                 said.code `shouldBe` 0
                 contextOf said `shouldSatisfy` maybe False ("line 2 is not read" `Text.isInfixOf`)
 
-            it "tells a disk failure as context and still exits 0" $ \world -> do
+            it "tells a disk failure before any run is found as context naming none, and still exits 0" $ \world -> do
                 _ <- drive world []
 
                 said <- hook world "resume" (sessionStartIn "/gone")
 
                 said.code `shouldBe` 0
                 contextOf said `shouldSatisfy` maybe False ("state hook resume: " `Text.isPrefixOf`)
+
+            it "names the run of the session's own worktree in what resume, spawn and asked tell" $ \world -> do
+                _ <- drive world []
+                run <- runOf world
+                _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+
+                said <- traverse (uncurry (hook world)) [("resume", sessionStart), ("spawn", spawned "researcher"), ("asked", askedUser)]
+
+                map contextOf said `shouldSatisfy` all (maybe False (("run " <> run <> ": ") `Text.isPrefixOf`))
+
+            it "names the run of the session's own worktree on a log line it does not read" $ \world -> do
+                _ <- drive world []
+                run <- runOf world
+                editLog world (<> "{\"v\":3,broken\n")
+
+                said <- hook world "resume" sessionStart
+
+                contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": ") `Text.isPrefixOf`)
+
+            it "names the run of the session's own worktree on a disk failure" $ \world -> do
+                _ <- drive world []
+                run <- runOf world
+                unmount world notes
+
+                said <- hook world "resume" sessionStart
+
+                contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook resume: ") `Text.isPrefixOf`)
+
+            it "is silent for a session bound to a worktree since removed" $ \world -> do
+                _ <- drive world []
+                run <- runOf world
+                putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
+                before' <- logged world
+
+                said <- hook world "resume" sessionStart
+
+                after <- logged world
+                (said.code, said.out, length after) `shouldBe` (0, [], length before')
 
         describe "handback" $ do
             it "records a hand-back seen twice once, telling what it recorded as context" $ \world -> do
@@ -196,10 +236,12 @@ spec = describe "state-hook over the doubles" $ do
                 _ <- succeeded =<< state world ["stop", "blocked", "moved", "on"]
                 _ <- succeeded =<< state world ["init", "--notes", "/notes2"]
                 _ <- hook world "spawn" (spawned "researcher")
+                before' <- logged world
 
                 said <- hook world "handback" (handedBack "researcher")
 
                 contextOf said `shouldSatisfy` maybe False (("bound to run " <> old <> ", but /work holds run ") `Text.isInfixOf`)
+                (length <$> logged world) `shouldReturn` length before'
 
             it "names the run when it removes a stashed hand-back that is no step's" $ \world -> do
                 _ <- drive world (init toImplement)
@@ -230,11 +272,60 @@ spec = describe "state-hook over the doubles" $ do
             it "names the run a bound worker's hand-back failed at, on a disk failure" $ \world -> do
                 _ <- drive world (init toImplement)
                 run <- runOf world
-                putFile world (bindings <> "/a1") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
+                _ <- hook world "bind" (spawnResult "implementer")
+                unmount world notes
 
                 said <- hook world "handback" (handedBack "implementer")
 
                 contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook handback: ") `Text.isPrefixOf`)
+
+            it "names the spawner's run a stashed hand-back failed at, on a disk failure" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                _ <- hook world "handback" (handedBack "implementer")
+                unmount world notes
+
+                said <- hook world "bind" (spawnResult "implementer")
+
+                contextOf said `shouldSatisfy` maybe False (("run " <> run <> ": state hook bind: ") `Text.isInfixOf`)
+
+            it "names a bound spawner's run when it binds its worker" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
+
+                said <- hook world "bind" (spawnResult "implementer")
+
+                contextOf said `shouldBe` Just ("run " <> run <> ": state: implementer a1 works in this run\n")
+
+            it "records nothing and stays silent for a worker bound to a worktree since removed" $ \world -> do
+                _ <- drive world (init toImplement)
+                run <- runOf world
+                putFile world (bindings <> "/a1") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
+                before' <- logged world
+
+                said <- hook world "handback" (handedBack "implementer")
+
+                after <- logged world
+                (said.code, said.out, length after) `shouldBe` (0, [], length before')
+
+        describe "route" $ do
+            it "denies a bound session's state call at another run, naming its own" $ \world -> do
+                run <- startedRun world
+                putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /other\n")
+                modifyIORef' world (\w -> w {disk = w.disk {dirs = Set.insert "/other" w.disk.dirs}})
+
+                said <- succeeded =<< hook world "route" (stateCall "state next")
+
+                said `shouldSatisfy` any (Text.isInfixOf ("bound to run " <> run))
+
+            it "is silent for a session bound to a worktree since removed" $ \world -> do
+                run <- startedRun world
+                putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /gone\n")
+
+                said <- succeeded =<< hook world "route" (stateCall "state next")
+
+                said `shouldBe` []
 
         describe "asked" $ do
             it "tells the lead how to record the answer to a question put to the user" $ \world -> do
@@ -285,6 +376,12 @@ contextOf :: Ran -> Maybe Text
 contextOf said = case decodeStrictText (Text.concat said.out) of
     Just (Object reply) | Just (String context) <- KeyMap.lookup "context" reply -> Just context
     _ -> Nothing
+
+{- | A directory gone from under the files in it, as when a disk unmounts:
+they still read, but nothing writes there.
+-}
+unmount :: IORef World -> FilePath -> IO ()
+unmount world dir = modifyIORef' world (\w -> w {disk = w.disk {dirs = Set.delete dir w.disk.dirs}})
 
 -- | Session @s1@'s bindings, under the world's @HOME@.
 bindings :: FilePath

@@ -51,10 +51,10 @@ import State.Cli.Route (StateCall (..), route, stateCalls)
 import State.Cli.View (beginText, brief, pendingLines, showRun)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, explained, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingFile, bindingIn, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), HookName (HandbackHook), Job (..), Reply (..), Want (..), aboutBound, aboutRun, awaitingUser, callOf, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), HookName (HandbackHook), Job (..), Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -134,7 +134,9 @@ hook argv = case parseHook argv of
 
 {- | A hook's reply to its job: how work begins needs no run; a route
 denies a @state@ call at another run than the caller's; the rest is what the
-caller's run says.
+caller's run says. A disk or git error is context naming the run once one is
+known: the bound one, then the one found. One before either, such as reading
+the caller's binding, names none, as no run is known yet.
 -}
 jobReply :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Job -> Eff es Reply
 jobReply steps name input call job = case job of
@@ -142,18 +144,17 @@ jobReply steps name input call job = case job of
     Routes command -> case stateCalls steps call.cwd command of
         [] -> pure Quiet
         calls ->
-            readBound call >>= \case
+            readBound call >>= traverse standing >>= \case
+                Just (bound, Standing) -> maybe Quiet Deny . route bound <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
+                -- A removed worktree's run is done: no call strays from it.
+                Just (_, Removed) -> pure Quiet
                 Nothing -> pure Quiet
-                Just bound -> maybe Quiet Deny . route bound <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
-    Asks want -> callerBinding call >>= \(slot, bound) -> boundReply name job bound (wantAnswer steps input call want slot bound)
-    Binds bind -> callerBinding call >>= \(slot, bound) -> boundReply name job bound (bindAnswer steps call bind slot bound)
+    Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (wantAnswer steps name input call want slot bound)
+    Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (bindAnswer steps name call bind slot bound)
 
--- | What the caller's run said, as its reply; a disk or git error is context, naming the run the caller is bound to.
-boundReply :: HookName -> Job -> Maybe Binding -> Eff es Text -> Eff es Reply
-boundReply name job bound act =
-    try act <&> \case
-        Right said -> replyOf job said
-        Left e -> toldOf job (aboutBound bound (hookError name e))
+-- | What an act says; a disk or git error is its text too, naming the run when one is known.
+telling :: HookName -> Maybe RunId -> Eff es Text -> Eff es Text
+telling name run act = try act <&> either (aboutKnown run . hookError name) id
 
 -- | A disk or git error a hook tells as context: it never fails the agent.
 hookError :: HookName -> IOException -> Text
@@ -169,6 +170,10 @@ callerBinding call = do
     slot <- slotFor call.session (keyOf call.agent)
     (slot,) <$> maybe (pure Nothing) readBinding slot
 
+-- | A binding, and whether its worktree stands: git finds none there once it is removed.
+standing :: (Git :> es, RoFileSystem :> es) => Binding -> Eff es (Binding, Worktree)
+standing binding = (binding,) . maybe Removed (const Standing) <$> toplevelAt binding.toplevel
+
 -- | The top of the git worktree a directory is in; none for one in no worktree, or no directory.
 toplevelAt :: (Git :> es, RoFileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
 toplevelAt dir =
@@ -177,26 +182,20 @@ toplevelAt dir =
         Right (Left _) -> Nothing
         Left (_ :: IOException) -> Nothing
 
-{- | What a want says at the run its caller is bound to
-("State.Protocol.Binding"). A worker's hand-back seen before its spawner's
-hook bound it is stashed, and recorded once the binding is there.
--}
-wantAnswer :: (Shell es) => Steps -> BS.ByteString -> Call -> Want -> Maybe Slot -> Maybe Binding -> Eff es Text
-wantAnswer steps input call want slot bound = case want of
-    Hook.HandedBack {}
-        | Nothing <- bound
-        , AgentKey _ <- keyOf call.agent
-        , Just at <- slot -> do
-            -- Stashed before the binding is read again, as the spawner's hook binds before it
-            -- reads the stash: whichever runs second sees the other's file.
-            writeWhole (stashFile at) (decodeUtf8Lenient input)
-            readBinding at >>= maybe (pure "") (replayStash steps at)
-    _ -> atRun steps call want bound
+-- | What a want says at the run its caller is bound to ("State.Protocol.Binding"), or where it waits ('delivery').
+wantAnswer :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Want -> Maybe Slot -> Maybe Binding -> Eff es Text
+wantAnswer steps name input call want slot bound = case delivery want (keyOf call.agent) slot bound of
+    Stash at -> do
+        -- Stashed before the binding is read again, as the spawner's hook binds before it
+        -- reads the stash: whichever runs second sees the other's file.
+        writeWhole (stashFile at) (decodeUtf8Lenient input)
+        readBinding at >>= maybe (pure "") (replayStash steps name at)
+    ToRun -> atRun steps name call want bound
 
 -- | A bind: the caller to the run its init printed, or a worker it spawned to the caller's run.
-bindAnswer :: (Shell es) => Steps -> Call -> Bind -> Maybe Slot -> Maybe Binding -> Eff es Text
-bindAnswer steps call bind slot bound = case bind of
-    BindSelf binding -> "" <$ traverse_ (`writeBinding` binding) slot
+bindAnswer :: (Shell es) => Steps -> HookName -> Call -> Bind -> Maybe Slot -> Maybe Binding -> Eff es Text
+bindAnswer steps name call bind slot bound = case bind of
+    BindSelf binding -> telling name (Just binding.run) ("" <$ traverse_ (`writeBinding` binding) slot)
     BindChild child role -> do
         -- The spawner's binding as it is: a stale one is told at the worker's hand-back.
         spawner <- case bound of
@@ -204,9 +203,9 @@ bindAnswer steps call bind slot bound = case bind of
             Nothing -> Monad.join <$> traverse runHere (resolve (keyOf call.agent) Nothing call.cwd)
         childSlot <- slotFor call.session (AgentKey child)
         case (spawner, childSlot) of
-            (Just binding, Just at) -> do
+            (Just binding, Just at) -> telling name (Just binding.run) $ do
                 writeBinding at binding
-                stashed <- replayStash steps at binding
+                stashed <- replayStash steps name at binding
                 pure (aboutRun binding.run ("state: " <> roleText role <> " " <> child.agentIdText <> " works in this run\n") <> stashed)
             _ -> pure ""
 
@@ -214,22 +213,24 @@ bindAnswer steps call bind slot bound = case bind of
 to now, then removed; nothing when none is. Recorded twice when both hooks
 replay it at once, it is logged once ('loggedAlready').
 -}
-replayStash :: (Shell es) => Steps -> Slot -> Binding -> Eff es Text
-replayStash steps slot binding =
+replayStash :: (Shell es) => Steps -> HookName -> Slot -> Binding -> Eff es Text
+replayStash steps name slot binding =
     FileSystem.readText (stashFile slot) >>= \case
         Nothing -> pure ""
         Just stash -> do
             said <- case parseHookEvent (LBS.fromStrict (encodeUtf8 stash)) of
-                Right event | Right (Just (Asks want)) <- wants steps HandbackHook event -> atRun steps (callOf event) want (Just binding)
+                Right event | Right (Just (Asks want)) <- wants steps HandbackHook event -> atRun steps name (callOf event) want (Just binding)
                 _ -> pure (aboutRun binding.run ("state: the hand-back stashed at " <> Text.pack (stashFile slot) <> " is no hand-back of a step; removed\n"))
             FileSystem.removeFile (stashFile slot)
             pure said
 
--- | What the caller's run says to a want, in the worktree it is bound to; nothing when it has none.
-atRun :: (Shell es) => Steps -> Call -> Want -> Maybe Binding -> Eff es Text
-atRun steps call want bound = case resolve (keyOf call.agent) bound call.cwd of
-    Nothing -> pure ""
-    Just dir -> FileSystem.inDirectory dir (hookAnswer steps call bound want)
+-- | What the caller's run says to a want, in the worktree it resolves to; nothing when it has none.
+atRun :: (Shell es) => Steps -> HookName -> Call -> Want -> Maybe Binding -> Eff es Text
+atRun steps name call want bound = do
+    worktree <- traverse standing bound
+    case resolve (keyOf call.agent) worktree call.cwd of
+        Nothing -> pure ""
+        Just dir -> FileSystem.inDirectory dir (hookAnswer steps name call bound want)
 
 -- | A key's slot in the session's bindings; none without a store root.
 slotFor :: (Environment :> es) => SessionId -> Key -> Eff es (Maybe Slot)
@@ -256,51 +257,65 @@ the session's own agent, unbound, spawns into it.
 runHere :: (Shell es) => FilePath -> Eff es (Maybe Binding)
 runHere dir =
     FileSystem.inDirectory dir $
-        gitDir >>= \case
-            Left _ -> pure Nothing
-            Right gd ->
-                readPointer gd >>= \case
-                    Nothing -> pure Nothing
-                    Just notes -> do
-                        first <- Log.firstLine (logOf notes)
-                        top <- Git.toplevel
-                        pure $ case (decodeLine <$> first, top) of
-                            (Just (Right started), Right toplevel) -> Just (Binding started.run notes toplevel)
-                            _ -> Nothing
+        pointedRun >>= \case
+            Just (notes, Right started) -> either (const Nothing) (Just . Binding started.run notes) <$> Git.toplevel
+            Just (_, Left _) -> pure Nothing
+            Nothing -> pure Nothing
 
--- | What the run says to a hook's want, recording what it must; empty when silent, a failure as its text.
-hookAnswer :: (Shell es) => Steps -> Call -> Maybe Binding -> Want -> Eff es Text
-hookAnswer steps call bound want =
-    hasRun >>= \case
-        False -> pure ""
-        True -> case want of
-            ResumeRun source -> do
-                -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
-                (facts, told) <- readFacts
-                onHook facts.pr $ \stamp run -> case commit stamp run [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
-                    Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
-                    Right (restart, after) ->
-                        let (new, _, out) = adviceOf steps facts told stamp after
-                         in (restart <> new, recordedLines after.state restart <> showRun after.g after.state <> out.text)
-            SpawnRole spawned -> do
-                (facts, told) <- readFacts
-                onHook facts.pr $ \stamp run ->
-                    -- At a choice, the spawn of an action's worker opens a child; elsewhere it records nothing.
-                    case commit stamp run [(Cli, event) | Just role <- [spawned], Just event <- [spawnedAt steps run.state.at role]] of
-                        Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
-                        Right (opened, after) ->
-                            let (new, action, out) = adviceOf steps facts told stamp after
-                                warning = case (action, spawned) of
-                                    (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
-                                    _ -> Nothing
-                             in (opened <> new, recordedLines after.state opened <> out.text <> foldMap (<> "\n") warning)
-            Hook.HandedBack message agent role ->
-                branchPr >>= \pr -> onHook pr $ \stamp run ->
-                    let sources = hookSources run.state.run agent role message
-                     in if loggedAlready run.logged sources || not (followedAt run.state.at role)
-                            then ([], "")
-                            else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text)) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
-            AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
+-- | The run the worktree's pointer names: its notes dir and its log's first line, decoded; none without either.
+pointedRun :: (Git :> es, Log :> es, RoFileSystem :> es) => Eff es (Maybe (FilePath, Either LineError Envelope))
+pointedRun =
+    gitDir >>= \case
+        Left _ -> pure Nothing
+        Right gd ->
+            readPointer gd >>= \case
+                Nothing -> pure Nothing
+                Just notes -> fmap ((notes,) . decodeLine) <$> Log.firstLine (logOf notes)
+
+{- | What the worktree's run says to a hook's want, naming it, a disk or git
+error too. A log of another log version, as an older one, the hooks leave be
+(#360); one whose first line does not read names no run but the bound one.
+-}
+hookAnswer :: (Shell es) => Steps -> HookName -> Call -> Maybe Binding -> Want -> Eff es Text
+hookAnswer steps name call bound want =
+    pointedRun >>= \case
+        Nothing -> pure ""
+        Just (_, Left (Unsupported _)) -> pure ""
+        Just (_, Left (Malformed _)) -> at ((.run) <$> bound)
+        Just (_, Right started) -> at (Just started.run)
+  where
+    at found = telling name found (runAnswer steps call bound found want)
+
+-- | What the run found says to a hook's want, recording what it must; empty when silent, a failure as its text.
+runAnswer :: (Shell es) => Steps -> Call -> Maybe Binding -> Maybe RunId -> Want -> Eff es Text
+runAnswer steps call bound found want = case want of
+    ResumeRun source -> do
+        -- Read before the lock, as @state next@ does: GitHub may take its whole timeout.
+        (facts, told) <- readFacts
+        onHook facts.pr $ \stamp run -> case commit stamp run [(Cli, event) | event <- maybeToList (restartOf source run.state)] of
+            Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
+            Right (restart, after) ->
+                let (new, _, out) = adviceOf steps facts told stamp after
+                 in (restart <> new, recordedLines after.state restart <> showRun after.g after.state <> out.text)
+    SpawnRole spawned -> do
+        (facts, told) <- readFacts
+        onHook facts.pr $ \stamp run ->
+            -- At a choice, the spawn of an action's worker opens a child; elsewhere it records nothing.
+            case commit stamp run [(Cli, event) | Just role <- [spawned], Just event <- [spawnedAt steps run.state.at role]] of
+                Left refusal -> ([], failureText "spawn" (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
+                Right (opened, after) ->
+                    let (new, action, out) = adviceOf steps facts told stamp after
+                        warning = case (action, spawned) of
+                            (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
+                            _ -> Nothing
+                     in (opened <> new, recordedLines after.state opened <> out.text <> foldMap (<> "\n") warning)
+    Hook.HandedBack message agent role ->
+        branchPr >>= \pr -> onHook pr $ \stamp run ->
+            let sources = hookSources run.state.run agent role message
+             in if loggedAlready run.logged sources || not (followedAt run.state.at role)
+                    then ([], "")
+                    else either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text)) <$> record stamp run sources (handbackPlan steps stamp.head run.state role Nothing message)
+    AskedUser -> branchPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
     -- A run that is over, bound to another branch or whose PR is merged or closed is
     -- silent too; the hook's session stamps its lines, and its text names the run.
@@ -311,20 +326,9 @@ hookAnswer steps call bound want =
             Nothing
                 | silent branch ((.readiness) <$> pr) run.logged run.state -> ([], Right "")
                 | otherwise -> Right . aboutRun run.state.run <$> act (Stamp stamp.ts stamp.head (Just call.session)) run
-        pure (either (aboutBound bound . failureText "hook") id (orNoRun result))
+        pure (either (aboutKnown found . failureText "hook") id (orNoRun result))
     -- GitHub unread is no PR: the hook speaks.
     branchPr = fromRight Nothing . pullRequestOf <$> Gh.prView
-    -- A log of another log version, as an older one: the hooks leave it be (#360).
-    hasRun =
-        gitDir >>= \case
-            Left _ -> pure False
-            Right gd -> readPointer gd >>= maybe (pure False) (fmap ours . Log.firstLine . logOf)
-    ours = \case
-        Nothing -> False
-        Just line -> case decodeLine line of
-            Left (Unsupported _) -> False
-            Left (Malformed _) -> True
-            Right _ -> True
 
 -- | A disk or process error is the outage exit, never a crash.
 outageAware :: Eff es (Either Failure Text) -> Eff es (Either Failure Text)

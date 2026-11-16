@@ -67,8 +67,10 @@ The kernel's (`kernel/hooks.nix`, ADR 0016); what Claude gives them:
   hand-back for a foreground one, so a hand-back seen first is stashed in
   `handback-<agent_id>.json` and recorded at the bind.
 - **Resolution.** A hook acts on the caller's bound run; only the lead falls
-  back to its `cwd`, which for a subagent is its spawner's. A reply about a
-  run starts `run <id>: `.
+  back to its `cwd`, which for a subagent is its spawner's. Once the bound
+  worktree is removed (its PR merged), the caller's hooks stay quiet. A reply
+  about a run starts `run <id>: `, an error too; only an error before any
+  run is known names none.
 - **Deny.** `PreToolUse` on `Bash`: a `state` call that reads a run (not
   `init` or help) whose directory, the `cwd` or a `cd <dir>` before it, is in another git
   worktree than the bound run's is denied with `fix: cd <toplevel> && state

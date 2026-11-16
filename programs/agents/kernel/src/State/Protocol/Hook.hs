@@ -42,8 +42,10 @@ module State.Protocol.Hook (
     Begin (..),
     wants,
     keyOf,
+    Delivery (..),
+    delivery,
     aboutRun,
-    aboutBound,
+    aboutKnown,
     silent,
     offAdvice,
     followedAt,
@@ -73,7 +75,7 @@ import State.Category.Flow (ScopePath)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), bindingIn)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingIn)
 import State.Run.Ask (Principal (..), Question (..), qidText)
 import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), childRole, roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
@@ -343,15 +345,33 @@ keyOf = \case
     Just Agent {agentId = Nothing} -> Main
     Nothing -> Main
 
+-- | Where a want goes: to the caller's run, or into its slot's stash to wait for its binding.
+data Delivery = ToRun | Stash Slot
+    deriving stock (Eq, Show)
+
+{- | A worker's hand-back seen before its spawner's hook bound it waits in the
+worker's stash, which that hook replays; every other want goes to the caller's
+run. A subagent with no slot (no store) has nowhere to wait: its run is none.
+-}
+delivery :: Want -> Key -> Maybe Slot -> Maybe Binding -> Delivery
+delivery want key slot bound = case want of
+    HandedBack {} -> case (key, bound) of
+        (AgentKey _, Nothing) -> maybe ToRun Stash slot
+        (AgentKey _, Just _) -> ToRun
+        (Main, _) -> ToRun
+    ResumeRun _ -> ToRun
+    SpawnRole _ -> ToRun
+    AskedUser -> ToRun
+
 -- | A hook's text, naming the run it acted on; nothing said is nothing.
 aboutRun :: RunId -> Text -> Text
 aboutRun run said
     | Text.null said = said
     | otherwise = "run " <> runIdText run <> ": " <> said
 
--- | A hook's text, naming the run its caller is bound to; an unbound caller's names none.
-aboutBound :: Maybe Binding -> Text -> Text
-aboutBound = maybe id (aboutRun . (.run))
+-- | A hook's text, naming the run when one is known: none is before the hook found it.
+aboutKnown :: Maybe RunId -> Text -> Text
+aboutKnown = maybe id aboutRun
 
 textAt :: Text -> Object -> Maybe Text
 textAt key input = case KeyMap.lookup (Key.fromText key) input of

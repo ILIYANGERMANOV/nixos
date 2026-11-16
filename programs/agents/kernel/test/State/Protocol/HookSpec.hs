@@ -13,7 +13,7 @@ import Data.Text (Text)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (stepName)
 import State.Protocol.Advice (Readiness (..))
-import State.Protocol.Binding (AgentId (..), Binding (..))
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), slotOf)
 import State.Protocol.Hook
 import State.Run.Event (AgentRole (..), Branch (..), DraftPr (..), Envelope (..), Event (Restarted, Spawned, Stopped), SessionId (..), Stop (..), StopReason (..), Url (..), stepTook)
 import State.Run.EventGen (line, logOf, run, runId, started)
@@ -21,7 +21,7 @@ import State.Run.RunGen (childOf, commit, loadSteps, plainTask, runAt, tenXAt)
 import State.Step.Build (Outcome (..), Sing (Refactor))
 import State.Step.Review (Outcome (..))
 import System.Environment (getEnv)
-import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldNotBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldNotBe, shouldSatisfy)
 
 spec :: Spec
 spec = describe "the hooks" $ do
@@ -125,6 +125,25 @@ spec = describe "the hooks" $ do
         it "binds a worker spawned, not a lead nor an agent no flow knows" $
             map spawnedOf ["implementer", "engineer", "Explore"] `shouldBe` [Right (Just (Binds (BindChild (AgentId "c1") (AgentRole "implementer")))), Right Nothing, Right Nothing]
 
+    describe "where a want goes" $ do
+        let worker = AgentKey (AgentId "a2")
+            slot = slotOf "/bindings" (SessionId "s") worker
+            binding = Binding (runId "0a1b2c3d") "/n" "/wt"
+            handedBack = HandedBack "READY" reviewLead (AgentRole "review-lead")
+        it "stashes an unbound worker's hand-back in its slot" $
+            case slot of
+                Just at -> delivery handedBack worker slot Nothing `shouldBe` Stash at
+                Nothing -> expectationFailure "no slot for the worker"
+
+        it "sends a bound worker's hand-back, and the session's own agent's, to the run" $
+            [delivery handedBack worker slot (Just binding), delivery handedBack Main slot Nothing] `shouldBe` [ToRun, ToRun]
+
+        it "sends an unbound worker's hand-back with no store to the run, which has none for it" $
+            delivery handedBack worker Nothing Nothing `shouldBe` ToRun
+
+        it "never stashes a want that is no hand-back" $
+            [delivery want worker slot Nothing | want <- [ResumeRun Startup, SpawnRole Nothing, AskedUser]] `shouldBe` [ToRun, ToRun, ToRun]
+
     describe "silence" $ do
         let drafted = stepTook (DraftDone (DraftPr (Url "https://github.com/o/r/pull/1") (Branch "main") (Branch "feat")))
         it "speaks on a run at a step" $
@@ -190,6 +209,9 @@ spec = describe "the hooks" $ do
     describe "the reply" $ do
         it "names the run a hook's text is about, and says nothing for nothing" $
             map (aboutRun (runId "0a1b2c3d")) ["state: recorded 9 implement.done -> refactor\n", ""] `shouldBe` ["run 0a1b2c3d: state: recorded 9 implement.done -> refactor\n", ""]
+
+        it "names a run when one is known, and none before" $
+            [aboutKnown run' "state hook resume: gone\n" | run' <- [Just (runId "0a1b2c3d"), Nothing]] `shouldBe` ["run 0a1b2c3d: state hook resume: gone\n", "state hook resume: gone\n"]
 
         it "prints nothing with nothing to say" $
             encodeReply (replyOf (Asks (ResumeRun Startup)) "") `shouldBe` Nothing

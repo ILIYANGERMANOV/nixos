@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import bash_commands
+import pytest
 from agent_hook import Agent
 from guard_harness import (
     ALLOWED,
@@ -279,8 +280,8 @@ BACKGROUND_CASES: list[Case[str]] = [
     ),
 ]
 
-# Who calls: the lead, a subagent that read the checks once already, or one
-# that has not.
+# Who calls: the lead, a subagent that read the checks and a run once already,
+# or one that has not.
 type Caller = Literal["lead", "polled", "fresh"]
 # A subagent's wait on CI that needs no `sleep` to be one.
 POLL = "for i in 1 2 3; do gh pr checks 7; done"
@@ -300,6 +301,46 @@ AGENT_CASES: list[Case[tuple[Caller, str, bool]]] = [
         ALLOWED,
         "a one-shot read with other flags of checks read before is allowed",
         ("polled", "gh pr checks 7 --json state", False),
+    ),
+    (
+        BLOCKED,
+        "a second read of the same run is blocked",
+        ("polled", "gh run view 12", False),
+    ),
+    (
+        BLOCKED,
+        "a second read of the same run with other flags is blocked",
+        ("polled", "gh run view 12 --json status", False),
+    ),
+    (
+        BLOCKED,
+        "a repeated run read behind a value flag is blocked",
+        ("polled", "gh run view --repo o/r 12", False),
+    ),
+    (
+        BLOCKED,
+        "a read of checks read before beside another status read is blocked",
+        ("polled", "gh pr checks 7; gh run view 13", False),
+    ),
+    (
+        ALLOWED,
+        "another run's status is allowed",
+        ("polled", "gh run view 13", False),
+    ),
+    (
+        ALLOWED,
+        "a repeated command that is not CI is allowed",
+        ("polled", "git status", False),
+    ),
+    (
+        BLOCKED,
+        "a watch of checks read before is blocked",
+        ("polled", "gh pr checks 7 --watch", False),
+    ),
+    (
+        BLOCKED,
+        "a loop over checks read before is blocked",
+        ("polled", POLL, False),
     ),
     (
         BLOCKED,
@@ -492,6 +533,23 @@ def test_raw_input(want: Decision, given: str) -> None:
     assert decision(judge([GUARD], given)) == want
 
 
+@pytest.mark.parametrize(
+    "earlier",
+    [
+        "cd sub && gh run view 12 | tail -5",
+        "gh run \\\n  view 12",
+        "bash -c 'gh run view 12'",
+        'echo "$(gh run view 12)"',
+        "nix develop -c gh run view 12",
+    ],
+)
+def test_an_earlier_status_read_counts_among_other_commands(earlier: str) -> None:
+    history = ["ls", earlier, "git status"]
+    event = shell_event("gh run view 12", agent=SUBAGENT, history=history)
+
+    assert decision(judge([GUARD], event)) == BLOCKED
+
+
 def test_a_subagent_with_no_id_never_waits_on_ci() -> None:
     event = shell_event("gh pr checks 7 --watch", agent=Agent(None, None))
 
@@ -543,8 +601,8 @@ def test_a_polling_loop_says_a_subagent_never_waits_on_ci() -> None:
 
 def call_by(caller: Caller, command: str, *, background: bool = False) -> str:
     """A shell call by `caller`, whose history holds one read of PR 7's checks
-    unless it is `fresh`."""
-    read_once = ["gh pr checks 7"]
+    and one of run 12 unless it is `fresh`."""
+    read_once = ["gh pr checks 7", "gh run view 12"]
     match caller:
         case "lead":
             agent, history = None, read_once

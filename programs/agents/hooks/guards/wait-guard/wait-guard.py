@@ -14,18 +14,19 @@ fails open.
 A subagent never waits on CI: its caller does. In a subagent, backgrounded or
 not, the guard also blocks `gh pr checks --watch`, `gh run watch`, `watch` over
 a CI read, a status read (`gh pr checks`, `gh run view`, `gh run list`) in a
-`while`, `until` or `for` loop, and one command reading the same status twice.
-A one-shot status read stays allowed, an earlier one in the agent's history or
-not: review agents read CI as evidence, and a subagent resumed after its
-caller waited reads the result once. So does a log read, in a loop too:
-`gh run view --log` of a finished run returns the same log, and only the
-filter after it changes. This guards accidents, not an adversary: `gh api`
-goes unseen.
+`while`, `until` or `for` loop, and a status read the agent already made, in
+this command or an earlier one of the event's `history`. One status read stays
+allowed, because review agents read CI as evidence. So does a one-shot
+`gh pr checks <n>`, a call holding no other status read, an earlier one in the
+history or not: a subagent resumed after its caller waited reads the result
+once. So does a log read, in a loop too: `gh run view --log` of a finished run
+returns the same log, and only the filter after it changes. This guards
+accidents, not an adversary: `gh api` goes unseen.
 """
 
 import re
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from enum import Enum, auto
 from itertools import dropwhile, pairwise
@@ -71,6 +72,10 @@ GH_VALUE_FLAGS = {
     "-i",
     "--interval",
 }
+# Parsing an earlier command spawns shfmt, so 500 of them cost seconds on each status
+# read. No command without this holds one, but for a `gh` split by a quote or a
+# continuation, which stays unseen: this guards accidents, not an adversary.
+MAY_READ_CI = re.compile(r"\bgh\b")
 # GNU tail: `-f` or `-F`, alone or after flags that take no value.
 TAIL_FOLLOW = re.compile(r"-[\dqvz]*[fF]\w*|--follow(=.*)?")
 
@@ -82,10 +87,11 @@ def main() -> None:
                 tool=Tool.SHELL,
                 agent=agent,
                 input={"command": str(command)} as shell,
+                history=history,
             ):
                 background = shell.get("run_in_background") is True
                 waits = is_wait(command)
-                polls = agent is not None and polls_ci(command)
+                polls = agent is not None and polls_ci(command, history)
             case _:
                 return
     except Exception:  # noqa: BLE001 - any failure must let the call through
@@ -115,8 +121,8 @@ class CiRead(Enum):
     WATCH = auto()
 
 
-def polls_ci(command: str) -> bool:
-    """Whether a subagent's command waits on CI."""
+def polls_ci(command: str, earlier: Iterable[str]) -> bool:
+    """Whether a subagent's command waits on CI. Only a status read reads earlier."""
     steps = parsed(command)
     kinds = [ci_read(step.words) for step in steps]
     looped = any(
@@ -124,7 +130,27 @@ def polls_ci(command: str) -> bool:
         for step, kind in zip(steps, kinds, strict=True)
     )
     statuses = status_reads(steps)
-    return CiRead.WATCH in kinds or looped or len(set(statuses)) < len(statuses)
+    if CiRead.WATCH in kinds or looped or len(set(statuses)) < len(statuses):
+        return True
+    return (
+        bool(statuses)
+        and not is_one_shot_pr_checks(statuses)
+        and any(
+            status in statuses
+            for earlier_command in earlier
+            if MAY_READ_CI.search(earlier_command)
+            for status in status_reads(parsed(earlier_command))
+        )
+    )
+
+
+def is_one_shot_pr_checks(statuses: list[tuple[str, ...]]) -> bool:
+    """A call whose only status read is `gh pr checks`, `--watch` being a watch."""
+    match statuses:
+        case [("gh", "pr", "checks", *_)]:
+            return True
+        case _:
+            return False
 
 
 def ci_read(words: list[str]) -> CiRead:

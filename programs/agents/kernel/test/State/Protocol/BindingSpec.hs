@@ -33,8 +33,11 @@ spec = describe "the agent-to-run binding" $ do
 
     describe "resolving the directory a hook runs the run in" $ do
         let binding = Binding (runId "0a1b2c3d") "/notes" "/child-work"
-        it "is the bound worktree, for the session's agent and a subagent alike" $
-            [resolve key (Just binding) "/work" | key <- [Main, AgentKey (AgentId "a1")]] `shouldBe` [Just "/child-work", Just "/child-work"]
+        it "is the bound worktree while it stands, for the session's agent and a subagent alike" $
+            [resolve key (Just (binding, Standing)) "/work" | key <- [Main, AgentKey (AgentId "a1")]] `shouldBe` [Just "/child-work", Just "/child-work"]
+
+        it "is none once the bound worktree is removed, never the session's own directory" $
+            [resolve key (Just (binding, Removed)) "/work" | key <- [Main, AgentKey (AgentId "a1")]] `shouldBe` [Nothing, Nothing]
 
         it "is the session's own directory for its unbound agent" $
             resolve Main Nothing "/work" `shouldBe` Just "/work"

@@ -25,6 +25,7 @@ module State.Protocol.Binding (
     slotOf,
     bindingFile,
     stashFile,
+    Worktree (..),
     resolve,
     staleNote,
 ) where
@@ -106,13 +107,19 @@ bindingFile slot = slot.dir </> slot.name
 stashFile :: Slot -> FilePath
 stashFile slot = slot.dir </> ("handback-" <> slot.name <> ".json")
 
-{- | The directory a hook runs the caller's run in: its binding's worktree;
-with none, the session's own agent's directory; an unbound subagent has none,
-as its directory is its spawner's and may hold another run.
+-- | Whether a binding's worktree still stands: one is removed once its PR merged.
+data Worktree = Standing | Removed
+    deriving stock (Eq, Show)
+
+{- | The directory a hook runs the caller's run in: its binding's worktree
+while it stands, none once it is removed (its run is done); with no binding,
+the session's own agent's directory; an unbound subagent has none, as its
+directory is its spawner's and may hold another run.
 -}
-resolve :: Key -> Maybe Binding -> FilePath -> Maybe FilePath
+resolve :: Key -> Maybe (Binding, Worktree) -> FilePath -> Maybe FilePath
 resolve key bound cwd = case (bound, key) of
-    (Just binding, _) -> Just binding.toplevel
+    (Just (binding, Standing), _) -> Just binding.toplevel
+    (Just (_, Removed), _) -> Nothing
     (Nothing, Main) -> Just cwd
     (Nothing, AgentKey _) -> Nothing
 
