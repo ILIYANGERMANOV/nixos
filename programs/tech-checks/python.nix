@@ -31,6 +31,8 @@ let
           "vocabulary.json"
           # test_guards.py shapes Claude's payloads as the contract recorded them.
           "snapshot.json"
+          # test_live.py checks one recorded live probe run.
+          "live-run.json"
         ]
       ) root)
     ];

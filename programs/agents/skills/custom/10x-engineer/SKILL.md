@@ -7,6 +7,12 @@ disable-model-invocation: true
 
 # 10x Engineer
 
+Begin with `state`: your first command is `state init`, your brief's line
+under a parent, else the one Intake or Resume names. Then loop `state next`
+and do what it says. The hooks enforce it: until `state init`, your edits,
+writes, commits, pushes, PRs and spawns are denied. If no hook fired (no
+`state` context at the start), run `state init` and `state next` yourself.
+
 You are the principal engineer for `$ARGUMENTS`. The user is the captain who
 decides; you make their intent real. Every task ends merged, kept (a round on
 a PR that stays open), or parked with a reason. You work as if the user ran
@@ -33,6 +39,10 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 - **Only you own wakes.** A subagent cannot receive one. `add_repo`,
   `subscribe_pr_activity`, CI waits, `AskUserQuestion`, `PushNotification` and
   `gh pr merge` stay here.
+- **Under a parent**, your brief's `state init` line naming a `--parent`: no
+  wakes, no merges, no user questions, Confirm's included (`state next` hands
+  it up), no READY notify, no review queue. Spawn every subagent in the
+  foreground, and end your turn with what `state next` hands back.
 - **One agent per task.** At most one agent per task, so any wake for a task
   with a live agent is held: `state record held <task> <url>`. Held wakes
   stay on the task's line in `state next`; once its agent hands back, re-read
@@ -51,17 +61,19 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   question, ruling, hand-back and held wake are events in its log, and
   `state show` prints them. It keeps one run per git work tree, so the run
   directory is one: every `state` command runs in `~/.10x/<run>/`. Loop:
-  `state next`, do what its first line says, record the outcome, `state next`
-  again, until `DONE`. The line table in `~/.claude/skills/engineer/SKILL.md`
+  `state next`, do what each unindented line before the indented block says
+  (at a fan-out, one line per task that can move), record the outcome,
+  `state next` again, until `DONE`. The line table in `~/.claude/skills/engineer/SKILL.md`
   holds, but for these rows, which add to it or replace its own:
 
   | Line | You |
   |---|---|
-  | `SPAWN engineer --task <id> background: yes` | Engineers: Spawn |
-  | `RESUME <child> with the answer to <qid>` | Engineers: Resume |
+  | `SPAWN engineer --task <id> background: yes\|no` | Engineers: Spawn |
+  | `SPAWN 10x --task <id> background: yes\|no` | Engineers: Spawn, a 10x child |
+  | `RESUME <child> with the answer to <qid>: <a>` | Engineers: Resume |
   | `AWAIT ci <PR>...` | Engineers: CI |
   | `AWAIT children <task>...` | end the turn: a hand-back wakes you |
-  | `AWAIT merge <task>...` | Merge: the merge loop on each approval wake |
+  | `AWAIT merge <task\|PR>...` | Merge: the merge loop on each approval wake; a PR is a child's |
   | `triage: <status>`, `RUN state ask ... - triage:` | Failures |
 
   A child's `state` records its hand-back in your run; `state next` names
@@ -91,9 +103,10 @@ kept or parked.
 links and free text, across repos. Touch only the PRs the user named.
 
 Create `~/.10x/<yyyy-mm-dd>-<slug>/`, `git init -q` it, and in it run
-`state init --notes . --flow 10x`. Write the user's words verbatim to
+`state init --notes "$PWD" --flow 10x`. Write the user's words verbatim to
 `intent.md` there, never edited. The run's own Fuel is Balanced: it sets the
-run's own research and proposals.
+run's own research and proposals. Under a parent, run your brief's
+`state init` line as written, in its worktree, instead; your Fuel is the task's.
 
 Once per repo, before anything reads it: `add_repo` with `access: "read"` as
 your instructions say, then, as this run's own step, `git clone` its SSH URL
@@ -106,7 +119,7 @@ leave that repo out and tell the user.
 
 List what you need to know, the standards that apply included, and group it
 into topics; you plan them yourself. One `subagent_type: researcher` agent
-per group, in the background, given each repo's clone path, with notes under
+per group, background as the SPAWN line says, given each repo's clone path, with notes under
 `/tmp/<unique-dir>/`, as many as your Fuel row's Researchers. Its prompt:
 `## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section only.
 As the engineer's, the gather is a choice of research and questions, in any
@@ -116,7 +129,7 @@ Check that each repo's CI runs on PRs to `epic/*` before planning an epic
 there; if it does not, say so in the breakdown.
 
 A technical unknown that could change the plan gets one quick spike, a
-researcher too: one question, a verdict, evidence. Background, in a throwaway
+researcher too: one question, a verdict, evidence. Spawned as the SPAWN line says, in a throwaway
 worktree (`git -C <clone> worktree add --detach /tmp/<unique-dir>/<spike>
 origin/main`, `<clone>` as `${CLAUDE_SKILL_DIR}/references/brief.md` defines
 it), nothing pushed. Remove the worktree when it hands back.
@@ -167,7 +180,9 @@ clear. No engineer starts before this, a base fix included (Failures).
 
 Write `tasks.json` in the run directory, a JSON array in the plan's order of
 `{"id", "deps": [ids], "base", "branch", "fuel", "qa", "heavy",
-"security": [topics]}`, `fuel` one of `low`, `balanced`, `max`, then `state record breakdown.done --tasks tasks.json`. A round task adds
+"security": [topics], "repo", "worktree"}`, `fuel` one of `low`, `balanced`, `max`,
+`repo` the task's `<owner>/<repo>`, `worktree` the absolute path of its worktree
+(`~` expanded), then `state record breakdown.done --tasks tasks.json`. A round task adds
 `"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
 settles it `kept`. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.
@@ -178,7 +193,10 @@ mid-run: one such object in a file, then `state record task add <file>`.
 free to start; run `state record spawning <id>`, then spawn, then `state next`
 for the next line. Spawn as many as it prints. Worktree, brief and spawn prompt:
 `${CLAUDE_SKILL_DIR}/references/brief.md`. The child's first command, the
-`state init` line in its brief, records `spawned` in your log.
+`state init` line in its brief, records `spawned` in your log. No `10x`
+subagent_type exists: `SPAWN 10x` spawns `subagent_type: claude`, its prompt
+the `state brief 10x --task <id>` output and an order to invoke the
+`10x-engineer` skill and begin with that `state init` line.
 
 **Triage.** A child hands back one line and `Run: <run>`; the hook records it,
 or pipe it in. Every open question is in `state pending`: `state rule` or
@@ -214,19 +232,26 @@ Never relay worker text verbatim.
 
 **Resume.** On `RESUME`: `state record resumed <child>`, then `SendMessage` the child, or past about 5 idle
 minutes a fresh `engineer` with its spawn prompt, saying "Answer to `<qid>`:
-`<a>`. Run `state answer <qid> <a> --by <your run>`, then `state next`." A
-ruling also goes into its PR body's Key decisions.
+`<a>`, in your run already. Run `state next`." A ruling also goes into its PR
+body's Key decisions.
 
 **Re-plan.** An answer that changes the breakdown itself, a task added,
 dropped or reshaped across tasks, is the user's: ask it, then
 `state override plan <why>` and Propose again. Finished tasks stay.
+
+**Round on a PR.** More work on one task's PR in review or kept:
+`state record task <id> round <url>`, then rewrite `briefs/<id>.md` from
+`state brief engineer --task <id>` and spawn as `state next` says. Its READY
+keeps the PR.
 
 **CI.** A child's `AWAIT ci <PR>`: `subscribe_pr_activity`, then
 `gh pr checks <n> --repo <owner>/<repo>` once, since events before the
 subscription never arrive. Pending: end the turn. On the CI wake, `state next`
 prints no `RESUME`: resume the child as Resume does, `state record resumed`
 first: "CI finished on `<PR>`." It records green or red, fixes red itself
-and, green, runs `gh pr ready`. A refused subscription, or one saying another
+and, green, runs `gh pr ready`. Resumed with "CI finished" under a parent, do
+the same for the child that awaits it, in the foreground: unrecorded,
+`state next` hands back `AWAIT ci` again. A refused subscription, or one saying another
 agent already watches the PR, delivers no events: follow your instructions'
 fallback, and tell the user now and in the queue that this PR gives no
 approval wake. A check also red on the head of the default branch: Base.
@@ -270,10 +295,9 @@ The user approves on GitHub. Push one line saying how many PRs wait.
 **Merge loop.** On an approval wake, follow
 `${CLAUDE_SKILL_DIR}/references/merge.md`.
 
-**Next round.** The user wants another round on a kept PR:
-`state record merge.next_round` takes the run back to gather with fresh
-budgets. The new breakdown may name the same task again: it respawns, with a
-fresh notes directory in its brief's `state init` line.
+**Next round.** The user wants another round on a task's PR: Round on a PR.
+Work that needs a new plan: `state record merge.next_round` takes the run back
+to gather with fresh budgets.
 
 **Finish.** When every task is `merged`, `kept` or `parked`, spawn a
 fresh-context audit, a `subagent_type: reviewer` agent, given the run
@@ -345,7 +369,8 @@ candidates: ask. `state` refusing an older `state`'s log names the fix: move
 its notes directory aside and start fresh. Subagents and subscriptions die
 with the session, so:
 
-1. In the run directory, `state show`, then each task's PR and issues on
+1. In the run directory, `state init --notes "$PWD"` (it resumes the run),
+   `state show`, then each task's PR and issues on
    GitHub. GitHub wins: a PR merged or closed meanwhile goes through Wakes in
    `${CLAUDE_SKILL_DIR}/references/merge.md`.
 2. `add_repo` and `subscribe_pr_activity` again for every repo and open PR,

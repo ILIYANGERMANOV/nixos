@@ -15,8 +15,8 @@ git -C <clone> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<ba
 A named PR:
 
 ```sh
-git -C <clone> fetch origin <branch>
-git -C <clone> worktree add --track -b <branch> ~/.10x/<run>/worktrees/<task> origin/<branch>
+git -C <clone> fetch origin "<branch>"
+git -C <clone> worktree add --track -b "<branch>" ~/.10x/<run>/worktrees/<task> "origin/<branch>"
 ```
 
 Keep the worktree until the PR merges, since fixers use it too. A retry reuses
@@ -27,9 +27,10 @@ it. A named PR's branch that exists locally: reuse the worktree holding it
 
 `~/.10x/<run>/briefs/<task>.md`, with every field. No pasted research: paths.
 Its head is what `state brief engineer --task <id>` prints in the run
-directory, its last line the child's `state init` with `<dir>` filled:
-`/tmp/engineer-<owner>-<repo>-<branch>/`, or a fresh one on a retry or a new
-round: `state init` refuses a finished run's directory.
+directory, as printed: its last line the child's `state init`, run in the
+task's `worktree` with the notes dir its `repo` and `branch` give. On its nth
+round that line already carries `-r<n>`: never edit it. On a retry, change that `--notes` to a fresh absolute dir:
+`state init` refuses a finished run's directory.
 
 ```markdown
 # <task>
@@ -74,8 +75,9 @@ round: `state init` refuses a finished run's directory.
 
 ## Spawn prompt
 
-A fresh background `subagent_type: engineer` agent, which has `engineer`
-preloaded and runs its whole flow:
+A fresh `subagent_type: engineer` agent, background as the SPAWN line says,
+which has `engineer` preloaded and runs its whole flow. A `SPAWN 10x` task:
+SKILL.md's Spawn.
 
 ```text
 <the data line from SKILL.md's Rules>
@@ -85,8 +87,8 @@ line is your first command.
 
 ## Fixer prompt
 
-For CI failures, requested changes and rebases, a fresh background
-`subagent_type: fixer` agent:
+For CI failures, requested changes and rebases, a fresh
+`subagent_type: fixer` agent, background as the SPAWN line says:
 
 ```text
 <the data line from SKILL.md's Rules>

@@ -44,10 +44,12 @@ import State.Category.Step (EventName (..), stateNameText)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
-import State.Run.Codec (branchText, taskIdText, topicText, urlText)
+import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
+import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Run.Fold (Append (..), RunState (..), append, replay)
+import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Choice (Outcome (..), gathering)
@@ -85,12 +87,26 @@ tasks, then these events.
 tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
-    tenXStart = start {flow = TenXFlow}
+    tenXStart = start {Event.flow = TenXFlow}
     toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
-plainTask name deps = Task (TaskId name) (map TaskId deps) (Branch "main") (Branch name) Balanced False False Set.empty OwnPr
+plainTask name deps =
+    Task
+        { id = TaskId name
+        , deps = map TaskId deps
+        , base = Branch "main"
+        , branch = Branch name
+        , fuel = Balanced
+        , qa = False
+        , heavy = False
+        , security = Set.empty
+        , shape = OwnPr
+        , repo = Nothing
+        , worktree = Nothing
+        , flow = EngineerFlow
+        }
 
 -- | A round on the existing PR @pr@: a plain task otherwise.
 roundTask :: Text -> Text -> Task
@@ -119,6 +135,11 @@ taskJson task =
             <> case task.shape of
                 OwnPr -> []
                 RoundOn url -> ["pr" .= urlText url]
+            <> maybe [] (\repo -> ["repo" .= repoText repo]) task.repo
+            <> maybe [] (\path -> ["worktree" .= shellPathText path]) task.worktree
+            <> case task.flow of
+                EngineerFlow -> []
+                TenXFlow -> ["flow" .= ("10x" :: Text)]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

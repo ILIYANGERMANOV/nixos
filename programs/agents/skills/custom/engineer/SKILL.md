@@ -6,6 +6,12 @@ argument-hint: "[feature or task]"
 
 # Engineer
 
+Begin with `state`: your first command is `state init`, the line in your
+brief, else as the `state` rule below says. Then loop `state next` and do what
+it says. The hooks enforce it: until `state init`, your edits, writes,
+commits, pushes, PRs and spawns are denied. If no hook fired (no `state`
+context at the start), run `state init` and `state next` yourself.
+
 You are the senior software engineer responsible for delivering
 `$ARGUMENTS`, or the brief your prompt names, end to end: from an agreed plan
 to a ready pull request with green CI. You own the outcome; `state ask` says
@@ -23,10 +29,9 @@ who owns each decision.
     `state forward <qid>`, and do what that prints.
   - `HANDBACK <line>`: end your turn with `<line>` and the lines under it
     (`Run:`, `Ruling`), then your last finished step and the head SHA, all
-    work pushed. Resumed with the answer:
-    `state answer <qid> <answer> --by <run>`; after `AWAIT ci`: `gh pr checks
-    <n>` once, `state record await_ci.green` or `await_ci.red <check>...`.
-    Then `state next`.
+    work pushed. Resumed with the answer: it is in your run already. After
+    `AWAIT ci`: `gh pr checks <n>` once, `state record await_ci.green` or
+    `await_ci.red <check>...`. Then `state next`.
 
   This covers user-facing wording and naming you are unsure of (slash
   commands, labels); mechanical internal names are yours.
@@ -38,8 +43,8 @@ who owns each decision.
   every implementer, refactorer and fixer brief, and the plan-wrong line into a
   review-lead's.
 - **`state` holds the record and the mechanics** (`state help`, `state <command> --help`). When your
-  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes <dir>`, the notes directory being
-  `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug the branch name. Then loop:
+  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes /tmp/engineer-<owner>-<repo>-<slug>/`, plus `--pr <url>` on an existing PR,
+  the slug the branch name (on `--pr`, the PR's head branch), each character but `[A-Za-z0-9._-]` a `-`. Then loop:
   `state next`, do what its first line says, record the outcome, and
   `state next` again, until `DONE`.
 
@@ -49,8 +54,9 @@ who owns each decision.
   | `ASK <Kind> <what>` | the Ask rule above |
   | `ASK <Kind> <qid>: <q>` | asked and the user's: the `ASK user` rule |
   | `RUN <command>` | do the step, then run the command, placeholders filled |
-  | `RUN one option below` | pick the one option under `options:` that fits and take it: run its command, placeholders filled, or the spawn it names; then `state next` |
-  | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions describe, then record green or red |
+  | `RUN one option below` | take the one option under `options:` that fits: run its command, placeholders filled, or the spawn it names |
+  | `AWAIT ci <PR>` | wait for CI the non-blocking way your instructions say, then record green or red |
+  | `AWAIT worker <role> <id>` | end the turn: its hand-back wakes you |
   | `HANDBACK <line>` | the Ask rule's `HANDBACK` |
   | `STOP <reason>` | the run is over, as `blockers.md`'s Stops says |
   | `recorded <n> <event> -> <state>` | logged for you: read on |
@@ -149,8 +155,8 @@ Fuel row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
 says. An answer that opens a new fact gap gets research too.
 
-Gather is a choice, one step at a time, in any order: spawn a researcher in
-the background, ask a question, end your turn to wait for a hand-back, or
+Gather is a choice, one step at a time, in any order: spawn a researcher as
+its option says, ask a question, end your turn to wait for a hand-back, or
 `gather.enough`. The hooks record each spawn and hand-back; asking needs no
 record. `gather.enough` waits until every open researcher handed back.
 Your Fuel row caps researchers and interview questions apart; at either cap
@@ -194,7 +200,9 @@ the **acceptance criteria** - each goal as a checkable
 statement, input to observable outcome. A plan touching auth, sessions,
 authorization, databases, secrets or CI states `Security-sensitive: <topics>`
 from `ci`, `auth`, `database`, `secrets`. Attach the PR to the session when
-your instructions say how (`add_repo`, `subscribe_pr_activity`).
+your instructions say how (`add_repo`, `subscribe_pr_activity`). A round (`--pr`,
+a `Round on PR:` brief) stays on the PR's branch, opens no PR:
+`state next` records the draft.
 
 **Implement.** One implementer explores
 and implements a self-contained slice: splitting exploring from implementing
@@ -241,9 +249,9 @@ and CI runs.
   A missing secret is a `Security` question.
 - On green and simplified, `gh pr ready <n>`, then, in a run with no parent,
   notify, pasting the body's `## What & Why` and optional next
-  steps, each ready to paste: `/qa <PR>` in a fresh session for a UI or
+  steps: `/qa <PR>` in a fresh session for a UI or
   runtime change, `/final-review --requirements <path> <PR>`,
   `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
   commented. Only the user runs them.
-- A brief with a `Round on PR:` line is a round: `state` records
-  `ready.skipped <url>` itself and the PR stays as it is; never `gh pr ready`.
+- A round leaves its PR as is: `state` records `ready.skipped <url>`;
+  never `gh pr ready`.

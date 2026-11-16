@@ -11,12 +11,17 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Either (rights)
 import Data.Foldable (for_)
 import Data.List (isSuffixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
+import State.Category.Fuel (Fuel (Low))
+import State.Run.Codec (decodeLine, eventType)
+import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
+import State.Run.Event qualified as Event
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
@@ -32,20 +37,37 @@ spec = describe "the state binary" $ do
     hookBin <- runIO (getEnv "STATE_HOOK_BIN")
     around withRepo $ do
         it "runs the engineer flow at Balanced from init to ready" $ \repo -> do
-            transcript <- drive bin repo (balancedPath repo)
+            transcript <- drive bin repo balancedPath
             transcript `shouldBe` balancedTranscript
             done <- succeeded =<< state bin repo ["next"]
             take 5 done
                 `shouldBe` ["DONE " <> prUrl, "  at the end: the flow is done", "  fuel: balanced", "  changed lines: 1", "  PR: " <> prUrl <> " (draft)"]
 
+        it "runs a user's round on an existing PR: GitHub's PR is its draft, unasked, and ready is skipped" $ \repo -> do
+            _ <- startedIn bin repo ["--notes", repo.notes, "--pr", roundUrlString]
+            transcript <- driveOn bin repo roundPath
+            transcript `shouldBe` init trivialTranscript <> ["ready.skipped -> out"]
+            done <- succeeded =<< state bin repo ["next"]
+            take 1 done `shouldBe` ["DONE " <> Text.pack roundUrlString]
+
+        it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
+            refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]
+            (refused.code, refused.err)
+                `shouldBe` ( 2
+                           ,
+                               [ "state init: --pr https://github.com/o/r/issues/7 - the PR is a GitHub PR URL, https://github.com/<owner>/<repo>/pull/<n>"
+                               , "fix: state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>"
+                               ]
+                           )
+
         it "exits a clean review on to describe, and runs on to ready" $ \repo -> do
-            transcript <- drive bin repo (cleanPath repo)
+            transcript <- drive bin repo cleanPath
             transcript `shouldBe` cleanTranscript
             done <- succeeded =<< state bin repo ["next"]
             take 1 done `shouldBe` ["DONE " <> prUrl]
 
         it "logs the skips a Low run's agent records for a trivial task" $ \repo -> do
-            transcript <- drive bin repo (trivialPath repo)
+            transcript <- drive bin repo trivialPath
             transcript `shouldBe` trivialTranscript
             done <- succeeded =<< state bin repo ["next"]
             take 1 done `shouldBe` ["DONE " <> prUrl]
@@ -62,6 +84,55 @@ spec = describe "the state binary" $ do
             moved <- succeeded =<< state bin repo ["next"]
             moved `shouldSatisfy` (not . mentions "refused:")
 
+        it "refuses an unknown event, listing the gather's events and fixing it by its step's, unlogged" $ \repo -> do
+            _ <- drive bin repo [Record ["fuel", "balanced"]]
+            before <- logLines repo
+            refused <- state bin repo ["record", "gather.bogus"]
+            after <- logLines repo
+            (refused.code, refused.err, after - before)
+                `shouldBe` ( 2
+                           ,
+                               [ "state record: no event gather.bogus - at gather the run takes research.spawned, research.handed_back, gather.enough, extend"
+                               , "fix: state record gather.enough"
+                               ]
+                           , 0
+                           )
+
+        it "refuses an unknown event with no run, listing every event and fixing it by the help" $ \repo -> do
+            refused <- state bin repo ["record", "bogus"]
+            (refused.code, map (Text.isPrefixOf "state record: no event bogus - the events are fuel, research.spawned, ") (take 1 refused.err), drop 1 refused.err)
+                `shouldBe` (2, [True], ["fix: state help"])
+
+        it "takes a question's kind in any case" $ \repo -> do
+            _ <- startedRun bin repo
+            asked <- traverse (\kind -> state bin repo ["ask", "--kind", kind, "which", "store?"]) ["design", "DESIGN", "Design"]
+            map (.code) asked `shouldBe` [0, 0, 0]
+
+        it "refuses a ruling's unquoted words, telling to quote them" $ \repo -> do
+            (w1, qid) <- childQuestion bin repo
+            unquoted <- state bin w1 ["rule", Text.unpack qid, "--answer", "use", "Y", "--why", "it", "is", "simpler", "--cost", "none"]
+            (unquoted.code, unquoted.err)
+                `shouldBe` (2, ["state rule: --answer, --why and --cost - each takes one word: quote a longer one", "fix: state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\""])
+
+        it "takes a ruling's quoted words as one answer, why and cost" $ \repo -> do
+            (w1, qid) <- childQuestion bin repo
+            _ <- succeeded =<< state bin w1 ["rule", Text.unpack qid, "--answer", "use Y", "--why", "it is simpler", "--cost", "none"]
+            shown <- succeeded =<< state bin w1 ["show"]
+            shown `shouldContain` ["  Ruling " <> qid <> " Pick: use Y - it is simpler - none"]
+
+        it "refuses a question id that is not open, listing the open ones" $ \repo -> do
+            run <- startedRun bin repo
+            qid <- askedQid bin repo "Design" ["which", "store?"]
+            refused <- traverse (\raw -> state bin repo ["forward", raw]) ["q1", Text.unpack run <> ":99"]
+            [(ran.code, drop 1 (Text.splitOn " - " (Text.concat (take 1 ran.err))), drop 1 ran.err) | ran <- refused]
+                `shouldBe` replicate 2 (2, ["it is not open; open: " <> qid], ["fix: state pending"])
+
+        -- A written plan is taken on every path the transcripts below drive.
+        it "refuses a plan.done whose plan is not written" $ \repo -> do
+            _ <- drive bin repo [Record ["fuel", "balanced"], Record ["gather.enough"]]
+            missing <- state bin repo ["record", "plan.done", "/no/such"]
+            (missing.code, missing.err) `shouldBe` (2, ["state record: /no/such - no such file", "fix: write it first"])
+
         it "closes a researcher's child on its report, which has no token, so the gather ends" $ \repo -> do
             _ <- drive bin repo [Record ["fuel", "balanced"], Spawn "researcher"]
             early <- state bin repo ["record", "gather.enough"]
@@ -76,16 +147,39 @@ spec = describe "the state binary" $ do
             advice <- succeeded =<< state bin repo ["next"]
             take 1 advice `shouldBe` ["RUN state record plan.done <path>"]
 
+        it "prints the run's id, notes dir and worktree top, one line a hook parses" $ \repo -> do
+            top <- Text.strip . Text.pack <$> gitOut repo ["rev-parse", "--show-toplevel"]
+            started@[said, _] <- succeeded =<< state bin repo ["init", "--notes", repo.notes <> "/"]
+            let run = Text.drop (Text.length "started ") said
+            resumed <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
+            (started, resumed)
+                `shouldBe` (["started " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top], ["resumed " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top])
+
+        it "refuses another run over the worktree's unfinished one" $ \repo -> do
+            run <- startedRun bin repo
+            other <- state bin repo ["init", "--notes", repo.root </> "other"]
+            (other.code, other.err)
+                `shouldBe` ( 2
+                           ,
+                               [ "state init: --notes " <> Text.pack (repo.root </> "other") <> " - the worktree holds unfinished run " <> run <> " in " <> Text.pack repo.notes
+                               , "fix: state init --notes " <> Text.pack repo.notes <> " resumes it, or state stop <reason> <why> ends it"
+                               ]
+                           )
+
+        it "refuses a relative notes dir" $ \repo -> do
+            relative <- state bin repo ["init", "--notes", "notes"]
+            (relative.code, take 1 relative.err) `shouldBe` (2, ["state init: --notes notes - the notes dir is an absolute path of ASCII letters, digits and ._/@+-"])
+
         it "starts a run once per notes dir, and refuses one there after it stopped" $ \repo -> do
             run <- startedRun bin repo
             again <- succeeded =<< state bin repo ["init", "--notes", repo.notes]
-            again `shouldBe` ["resumed " <> run]
+            take 1 again `shouldBe` ["resumed " <> run]
             _ <- succeeded =<< state bin repo ["stop", "replan", "the", "plan", "is", "wrong"]
             refused <- state bin repo ["init", "--notes", repo.notes]
             (refused.code, drop 1 refused.err) `shouldBe` (2, ["fix: state init --notes <a new dir>"])
 
         it "fixes a refused event by the arrows this Fuel takes, never a skip it refuses" $ \repo -> do
-            _ <- drive bin repo (toSimplifyPr repo)
+            _ <- drive bin repo toSimplifyPr
             refused <- state bin repo ["record", "await_ci.green"]
             (refused.code, refused.err)
                 `shouldBe` (2, ["state record: await_ci.green - no such arrow out of simplify_pr", "fix: state record simplify_pr.done"])
@@ -107,6 +201,42 @@ spec = describe "the state binary" $ do
                                , "fix: state override <gather|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                ]
                            )
+
+        it "voids a line, the run replaying as if it was never logged, and refuses it voided again" $ \repo -> do
+            _ <- drive bin repo []
+            _ <- succeeded =<< state bin repo ["override", "review", "resume", "after", "a", "crash"]
+            voided <- succeeded =<< state bin repo ["void", "2", "overridden", "in", "error"]
+            shown <- succeeded =<< state bin repo ["show"]
+            again <- state bin repo ["void", "2", "again"]
+            (voided, "step: review" `elem` shown, again.code, again.err)
+                `shouldBe` ( ["recorded 3 voided -> gather"]
+                           , False
+                           , 2
+                           , ["state void: seq 2 - no line the run replays has it: none does, it is voided, or it is a void", "fix: state void <seq of a line in events.jsonl> <why>"]
+                           )
+
+        it "moves a run started in the wrong worktree: next and the agent's calls go there, not to the old one" $ \repo -> do
+            run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+            target <- worktree repo "target"
+            top <- Text.strip . Text.pack <$> gitOut target ["rev-parse", "--show-toplevel"]
+            moved <- succeeded =<< state bin repo ["move", target.work]
+            old <- state bin repo ["next"]
+            there <- succeeded =<< state bin target ["show"]
+            routedOld <- succeeded =<< hook hookBin repo "route" (ranIn repo Null "state next")
+            routedThere <- succeeded =<< hook hookBin repo "route" (ranIn repo Null ("cd " <> Text.pack target.work <> " && state next"))
+            (moved, old.code, take 1 there, replyField "decision" routedOld, routedThere)
+                `shouldBe` (["moved " <> run <> " to " <> top], 2, ["run: " <> run <> " (engineer)"], Just "deny", [])
+
+        it "refuses a move to no worktree, to this worktree, and to one holding an unfinished run" $ \repo -> do
+            _ <- startedRun bin repo
+            target <- worktree repo "target"
+            other <- startedIn bin target ["--notes", repo.root </> "other"]
+            refused <- traverse (\dir -> state bin repo ["move", dir]) [repo.root, repo.work, target.work]
+            map (\ran -> (ran.code, take 1 ran.err)) refused
+                `shouldBe` [ (2, ["state move: " <> Text.pack repo.root <> " is in no git worktree - git finds none there"])
+                           , (2, ["state move: " <> Text.pack repo.work <> " - it is this worktree, which holds the run already"])
+                           , (2, ["state move: " <> Text.pack target.work <> " - its worktree holds unfinished run " <> other <> " in " <> Text.pack (repo.root </> "other")])
+                           ]
 
         it "names a hand-edited bad line and appends nothing after it" $ \repo -> do
             _ <- drive bin repo []
@@ -141,17 +271,16 @@ spec = describe "the state binary" $ do
         describe "audit" $ do
             it "puts every ruling of a child run in show and in its hand-back" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
-                git repo ["checkout", "-q", "-b", "child"]
-                child <- childRun bin repo parent "child" "t1"
-                [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Pick", "which", "lib?"]
-                let qid = Text.unpack (Text.drop (Text.length "asked ") asked)
-                    ruling = "Ruling " <> Text.pack qid <> " Pick: zod - already used - none"
-                _ <- succeeded =<< state bin repo ["rule", qid, "--answer", "zod", "--why", "already used", "--cost", "none"]
-                shown <- succeeded =<< state bin repo ["show"]
+                w1 <- worktree repo "w1"
+                child <- childRun bin w1 parent "child" "t1"
+                qid <- askedQid bin w1 "Pick" ["which", "lib?"]
+                let ruling = "Ruling " <> qid <> " Pick: zod - already used - none"
+                _ <- succeeded =<< state bin w1 ["rule", Text.unpack qid, "--answer", "zod", "--why", "already used", "--cost", "none"]
+                shown <- succeeded =<< state bin w1 ["show"]
                 shown `shouldContain` ["rulings:", "  " <> ruling]
-                forwarded <- succeeded =<< state bin repo ["ask", "--kind", "Design", "which", "store?"]
+                forwarded <- succeeded =<< state bin w1 ["ask", "--kind", "Design", "which", "store?"]
                 forwarded `shouldContain` [ruling]
-                stopped <- succeeded =<< state bin repo ["stop", "failed", "no", "access"]
+                stopped <- succeeded =<< state bin w1 ["stop", "failed", "no", "access"]
                 stopped `shouldBe` ["stopped", "HANDBACK FAILED no access", "Run: " <> child, ruling]
 
         describe "the 10x" $ do
@@ -170,17 +299,25 @@ spec = describe "the state binary" $ do
                 unfounded.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["forward", q2]
                 first <- succeeded =<< state bin repo ["next"]
-                take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1]
+                take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1 <> ": postgres"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c1]
                 userHolds <- succeeded =<< state bin repo ["next"]
                 take 1 userHolds `shouldBe` ["ASK Security " <> Text.pack q2 <> ": token in env?"]
                 _ <- succeeded =<< state bin repo ["answer", q2, "use", "a", "vault"]
                 second <- succeeded =<< state bin repo ["next"]
-                take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2]
+                take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2 <> ": use a vault"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c2]
                 twice <- state bin repo ["record", "resumed", Text.unpack c2]
                 twice.code `shouldBe` 2
+                -- Each answer was written down to the child that asked it.
+                shown1 <- succeeded =<< state bin w1 ["show"]
+                shown2 <- succeeded =<< state bin w2 ["show"]
+                shown1 `shouldSatisfy` mentions (Text.pack q1 <> " Design: which store? - postgres")
+                shown2 `shouldSatisfy` mentions (Text.pack q2 <> " Security: token in env? - use a vault")
+                -- The child's own answer, the same, adds nothing; another is refused.
                 _ <- succeeded =<< state bin w1 ["answer", q1, "postgres", "--by", Text.unpack parent]
+                other <- state bin w1 ["answer", q1, "sqlite", "--by", Text.unpack parent]
+                other.code `shouldBe` 2
                 relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
                 third <- succeeded =<< state bin repo ["next"]
                 take 1 third `shouldBe` ["AWAIT children t2"]
@@ -200,7 +337,7 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
                 _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
                 resume <- succeeded =<< state bin repo ["next"]
-                take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1"]
+                take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed"]
 
             it "refuses a malformed task file with the breakdown's error" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
@@ -271,11 +408,8 @@ spec = describe "the state binary" $ do
                 relay bin repo ["HANDBACK BLOCKED no access to the registry", "Run: " <> c1]
                 triage <- succeeded =<< state bin repo ["next"]
                 take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c1 <> " <question> - triage: BLOCKED no access to the registry"]
-                asked <- succeeded =<< state bin repo ["ask", "--kind", "Stuck", "--from", Text.unpack c1, "retry", "with", "a", "token?"]
-                qid <- case asked of
-                    line : _ | Just found <- Text.stripPrefix "asked " line -> pure (Text.unpack found)
-                    other -> fail ("not asked: " <> show other)
-                _ <- succeeded =<< state bin repo ["rule", qid, "--answer", "retry", "--why", "first try", "--cost", "one try"]
+                qid <- askedQid bin repo "Stuck" ["--from", Text.unpack c1, "retry", "with", "a", "token?"]
+                _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "retry", "--why", "first try", "--cost", "one try"]
                 retry <- succeeded =<< state bin repo ["next"]
                 take 1 retry `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
@@ -312,17 +446,41 @@ spec = describe "the state binary" $ do
                 take 1 done `shouldBe` ["RUN one option below"]
                 done `shouldContain` ["  options:", "    state record merge.done <url> - the flow ends", "    state record merge.next_round - back to gather, the round loop's next round"]
 
+            it "awaits a finished task's CI after a fixer's push, and leaves the fan-out only once it is in review" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                _ <- succeeded =<< stateIn bin repo (Text.unpack (Text.unlines ["READY " <> prUrl, "Run: " <> c1])) ["handback", "engineer"]
+                for_ [["task", "t2", "parked", "out", "of", "scope"], ["task", "t1", "ci", prUrlString]] (succeeded <=< state bin repo . ("record" :))
+                waits <- succeeded =<< state bin repo ["next"]
+                (recorded waits, take 1 waits) `shouldBe` ([], ["AWAIT ci " <> prUrl])
+                _ <- succeeded =<< state bin repo ["record", "task", "t1", "review", prUrlString]
+                left <- succeeded =<< state bin repo ["next"]
+                recorded left `shouldBe` ["engineers.done -> merge"]
+
+            it "prints a line per task it can act on: the resume first, then a free task's spawn" $ \repo -> do
+                parent <- tenXAtFanOut bin repo
+                _ <- succeeded =<< taskAdded bin repo (taskFileJson (plainTask "fix" []))
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                _ <- succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
+                _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
+                advice <- succeeded =<< state bin repo ["next"]
+                take 3 advice `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed", "SPAWN engineer --task fix background: yes", "  at engineers: a fan-out - its tasks run as child runs; do what each unindented line says, then state next"]
+
             it "runs from init to done, its child through the engineer flow" $ \repo -> do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 let tasks = repo.root </> "tasks.json"
-                Text.writeFile tasks (breakdownJson [plainTask "t1" []])
-                for_ [["fuel", "balanced"], ["gather.enough"], ["plan.done", repo.notes </> "plan.md"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
+                Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {fuel = Low}])
+                plan <- writtenPlan repo
+                for_ [["fuel", "balanced"], ["gather.enough"], ["plan.done", plan], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
-                child <- driveOn bin w1 (trivialPath w1)
-                child `shouldBe` trivialTranscript
+                -- The task's Fuel is the child's from init: it records none.
+                child <- driveOn bin w1 (drop 1 trivialPath)
+                child `shouldBe` drop 1 trivialTranscript
                 merging <- succeeded =<< state bin repo ["next"]
                 recorded merging `shouldBe` ["engineers.done -> merge"]
                 for_ [["task", "t1", "merged", prUrlString], ["merge.done", prUrlString]] (succeeded <=< state bin repo . ("record" :))
@@ -334,7 +492,8 @@ spec = describe "the state binary" $ do
                 writeFile repo.prJson (pullRequest True "OPEN")
                 let tasks = repo.root </> "tasks.json"
                     gathered = concat (replicate 5 [["research.spawned"], ["research.handed_back"]])
-                    agreed = [["gather.enough"], ["plan.done", repo.notes </> "plan.md"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
+                plan <- writtenPlan repo
+                let agreed = [["gather.enough"], ["plan.done", plan], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
                 Text.writeFile tasks (breakdownJson [roundTask "t1" prUrl])
                 for_ (gathered <> agreed) (succeeded <=< state bin repo . ("record" :))
                 w1 <- worktree repo "w1"
@@ -351,6 +510,80 @@ spec = describe "the state binary" $ do
                 for_ agreed (succeeded <=< state bin repo . ("record" :))
                 respawn <- succeeded =<< state bin repo ["next"]
                 take 1 respawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+
+            it "runs another round on a task in review: spawns it under a fresh notes dir, refused while its child runs, kept on READY" $ \repo -> do
+                parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                writeFile repo.prJson (pullRequest True "OPEN")
+                let tasks = repo.root </> "tasks.json"
+                Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {repo = Just (Event.Repo "o" "r")}])
+                for_ [["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo)
+                w1 <- worktree repo "w1"
+                _ <- childRun bin w1 parent "n1" "t1"
+                for_ [["record", "fuel", "balanced"], ["override", "ready", "the", "test", "starts", "here"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
+                _ <- succeeded =<< state bin w1 ["next"]
+                inReview <- succeeded =<< state bin repo ["next"]
+                recorded inReview `shouldBe` ["engineers.done -> merge"]
+                notPr <- state bin repo ["record", "task", "t1", "round", "https://example.com/o/r/pull/1"]
+                notPr.code `shouldBe` 2
+                _ <- succeeded =<< state bin repo ["record", "task", "t1", "round", prUrlString]
+                spawn <- succeeded =<< state bin repo ["next"]
+                take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+                brief <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
+                brief `shouldSatisfy` mentions ("state init --notes /tmp/engineer-o-r-t1-r1/ --parent " <> parent)
+                w2 <- worktree repo "w2"
+                _ <- childRun bin w2 parent "n2" "t1"
+                running <- state bin repo ["record", "task", "t1", "round", prUrlString]
+                running.code `shouldBe` 2
+                for_ [["record", "fuel", "balanced"], ["override", "ready", "the", "test", "starts", "here"]] (succeeded <=< state bin w2)
+                skipped <- succeeded =<< state bin w2 ["next"]
+                recorded skipped `shouldBe` ["ready.skipped -> out"]
+                kept <- succeeded =<< state bin repo ["next"]
+                recorded kept `shouldBe` ["engineers.done -> merge"]
+                shown <- succeeded =<< state bin repo ["show"]
+                shown `shouldSatisfy` mentions ("PR kept " <> prUrl)
+
+        describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
+            it "climbs a question to the top and writes its one answer down to every run" $ \repo -> do
+                Tree {mid, midRun, grand, grandRun} <- treeOfRuns bin repo
+                let qid = grandRun <> ":1"
+                    q = Text.unpack qid
+                asked <- succeeded =<< state bin grand ["ask", "--kind", "Design", "which", "store?"]
+                midAsked <- succeeded =<< state bin mid ["next"]
+                _ <- succeeded =<< state bin mid ["forward", q]
+                topAsked <- succeeded =<< state bin repo ["next"]
+                _ <- succeeded =<< state bin repo ["rule", q, "--answer", "postgres", "--why", "already used", "--cost", "none"]
+                topResume <- succeeded =<< state bin repo ["next"]
+                midResume <- succeeded =<< state bin mid ["next"]
+                shown <- traverse (succeeded <=< \run -> state bin run ["show"]) [repo, mid, grand]
+                -- The grandchild's own answer, the same, is taken and changes nothing.
+                _ <- succeeded =<< state bin grand ["answer", q, "postgres", "--by", Text.unpack midRun]
+                again <- succeeded =<< state bin grand ["show"]
+                take 1 asked `shouldBe` ["asked " <> qid]
+                take 1 midAsked `shouldSatisfy` mentions ("state forward " <> qid)
+                take 1 topAsked `shouldSatisfy` mentions ("state rule " <> qid)
+                take 1 topResume `shouldBe` ["RESUME " <> midRun <> " with the answer to " <> qid <> ": postgres"]
+                take 1 midResume `shouldBe` ["RESUME " <> grandRun <> " with the answer to " <> qid <> ": postgres"]
+                map (mentions (qid <> " Design")) shown `shouldBe` [True, True, True]
+                map (mentions "postgres") shown `shouldBe` [True, True, True]
+                Just again `shouldBe` lastMaybe shown
+
+            it "starts the 10x child by a --flow 10x line, spawns in the foreground below the top, and climbs a grandchild's AWAIT ci to it" $ \repo -> do
+                Tree {mid, midSpawn, grand, grandFirst} <- treeOfRuns bin repo
+                brief <- succeeded =<< state bin repo ["brief", "10x", "--task", "t1"]
+                writeFile repo.prJson (pullRequest True "OPEN")
+                _ <- succeeded =<< state bin grand ["override", "simplify_plan", "the", "test", "starts", "here"]
+                grandSpawn <- succeeded =<< state bin grand ["next"]
+                _ <- succeeded =<< state bin grand ["override", "await_ci", "the", "test", "starts", "here"]
+                grandAwait <- succeeded =<< state bin grand ["next"]
+                midAwait <- succeeded =<< state bin mid ["next"]
+                topAwait <- succeeded =<< state bin repo ["next"]
+                lastMaybe brief `shouldSatisfy` any (" --flow 10x " `Text.isInfixOf`)
+                -- The task's Fuel is the grandchild's from init: it gathers at once, its researchers in the foreground.
+                take 1 grandFirst `shouldBe` ["RUN one option below"]
+                grandFirst `shouldSatisfy` mentions "spawn a researcher in the foreground"
+                map (take 1) [midSpawn, grandSpawn] `shouldBe` [["SPAWN engineer --task g1 background: no"], ["SPAWN researcher background: no"]]
+                map (take 1) [grandAwait, midAwait] `shouldBe` replicate 2 ["HANDBACK AWAIT ci " <> prUrl]
+                take 1 topAwait `shouldBe` ["AWAIT ci " <> prUrl]
 
         describe "brief" $ do
             it "gives a refactorer its step's task and the stop rule" $ \repo -> do
@@ -392,7 +625,8 @@ spec = describe "the state binary" $ do
                 said `shouldSatisfy` mentions "step: gather"
 
             it "record a hand-back seen twice once, appending what they recorded" $ \repo -> do
-                _ <- drive bin repo (init (toImplement repo))
+                _ <- drive bin repo (init toImplement)
+                _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "implementer" "a1")
                 before <- logLines repo
                 first <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
                 once <- logLines repo
@@ -403,13 +637,14 @@ spec = describe "the state binary" $ do
                 (again, twice) `shouldBe` ([], once)
 
             it "are silent off the branch the draft PR bound the run to" $ \repo -> do
-                _ <- drive bin repo (init (toImplement repo))
+                _ <- drive bin repo (init toImplement)
                 git repo ["checkout", "-q", "-b", "other"]
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
                 said `shouldBe` []
 
             it "are silent once the drafted PR is merged or closed" $ \repo -> do
-                _ <- drive bin repo (init (toImplement repo))
+                _ <- drive bin repo (init toImplement)
+                _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "implementer" "a1")
                 before <- logLines repo
                 for_ ["MERGED", "CLOSED"] $ \over -> do
                     writeFile repo.prJson (pullRequest False over)
@@ -453,10 +688,170 @@ spec = describe "the state binary" $ do
                 said <- hook hookBin repo "resume" "not json"
                 said.code `shouldBe` 2
 
+            describe "bind each agent to its run, wherever its hooks fire" $ do
+                it "record the main session's worker spawn and hand-back in the run its init bound it to" $ \repo -> do
+                    run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+                    _ <- succeeded =<< state bin repo ["record", "fuel", "balanced"]
+
+                    said <- workerAt hookBin repo Null "w1"
+
+                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    loggedTypes repo.notes `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+                it "record a 10x session's, whose run is outside the repo its hooks fire in" $ \repo -> do
+                    let tenX = repo.root </> "tenx"
+                    createDirectory tenX
+                    git repo {work = tenX} ["init", "-q"]
+                    run <- initBound bin hookBin repo Null repo {work = tenX} ["--notes", tenX, "--flow", "10x"]
+
+                    said <- workerAt hookBin repo Null "w1"
+
+                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    loggedTypes tenX `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+                it "record a child engineer's worker spawn in its own run, not its parent's, at depth 1" $ \repo -> do
+                    (engineer, _) <- childEngineer bin hookBin repo
+                    before <- logLines repo
+
+                    said <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+
+                    after <- logLines repo
+                    said `shouldSatisfy` mentions "research.spawned"
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned"]
+                    after `shouldBe` before
+
+                it "record a depth-2 worker's hand-back made before its spawner's hook bound it, as a foreground one is" $ \repo -> do
+                    (engineer, _) <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+
+                    early <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
+                    bound <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "w2")
+
+                    early `shouldBe` []
+                    bound `shouldSatisfy` mentions "state: recorded"
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+                it "record a depth-2 worker's hand-back made after its spawner's hook bound it, as a background one is" $ \repo -> do
+                    (engineer, _) <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
+
+                    _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "w2")
+                    back <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
+
+                    back `shouldSatisfy` mentions "state: recorded"
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+
+                it "hold a child engineer's hand-back while its worker is at work, and hand it back once the worker returned" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< state bin w1 ["override", "await_ci", "the", "test", "starts", "here"]
+                    _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "r1")
+                    before <- logLines repo
+
+                    held <- succeeded =<< state bin w1 ["next"]
+                    heldUp <- logLines repo
+                    _ <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "r1" "researcher") researched)
+                    released <- succeeded =<< state bin w1 ["next"]
+                    after <- logLines repo
+
+                    take 1 held `shouldBe` ["AWAIT worker researcher r1"]
+                    held `shouldSatisfy` mentions "state handback: researcher r1 is still at work - its hand-back is not recorded"
+                    heldUp `shouldBe` before
+                    take 1 released `shouldSatisfy` mentions "HANDBACK AWAIT ci"
+                    after `shouldSatisfy` (> before)
+
+                it "record a child engineer's own hand-back in its parent's log by its state call, its hand-back hook adding nothing" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+
+                    _ <- succeeded =<< state bin w1 ["stop", "failed", "no", "access"]
+                    once <- logLines repo
+                    hooked <- succeeded =<< hook hookBin repo "handback" (reportedBy repo engineer "FAILED no access\n")
+                    after <- logLines repo
+
+                    loggedTypes repo.notes `shouldReturnContaining` ["handed_back"]
+                    (hooked, after) `shouldBe` ([], once)
+
+            describe "route each agent's state calls to its run" $ do
+                it "deny a child engineer's state call from its parent's checkout, naming the cd to its own worktree" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+                    top <- Text.strip . Text.pack <$> gitOut w1 ["rev-parse", "--show-toplevel"]
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo engineer "state next")
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False (("fix: cd " <> top <> " && state next\n") `Text.isSuffixOf`)
+
+                it "let a child engineer's state call run once it cds to its own worktree" $ \repo -> do
+                    (engineer, w1) <- childEngineer bin hookBin repo
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo engineer ("cd " <> Text.pack w1.work <> " && state next"))
+
+                    said `shouldBe` []
+
+                it "let an agent bound to no run call state anywhere" $ \repo -> do
+                    _ <- drive bin repo []
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo (worker "e9" "engineer") "state next")
+
+                    said `shouldBe` []
+
+            describe "hold a lead's writes until its run starts" $ do
+                it "deny a typed /engineer's edit before its state init, naming the init" $ \repo -> do
+                    _ <- succeeded =<< hook hookBin repo "begin" (typed repo "engineer")
+
+                    said <- succeeded =<< hook hookBin repo "route" (edited repo Null)
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>\n" `Text.isSuffixOf`)
+
+                it "deny a typed /10x-engineer's commit before its state init, naming the 10x's init" $ \repo -> do
+                    _ <- succeeded =<< hook hookBin repo "begin" (typed repo "10x-engineer")
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo Null "git commit -m x")
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes \"$PWD\" --flow 10x" `Text.isInfixOf`)
+
+                it "let a typed /engineer edit and commit once its state init bound it" $ \repo -> do
+                    _ <- succeeded =<< hook hookBin repo "begin" (typed repo "engineer")
+                    _ <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
+
+                    said <- traverse (succeeded <=< hook hookBin repo "route") [edited repo Null, ranIn repo Null "git add . && git commit -m x"]
+
+                    said `shouldBe` [[], []]
+
+                it "deny an unbound spawned engineer's push, pointing at its prompt's init line" $ \repo -> do
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo (worker "e9" "engineer") "git push -u origin HEAD")
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`)
+
+                it "never gate a plain session or an implementer" $ \repo -> do
+                    said <- traverse (succeeded <=< hook hookBin repo "route") [edited repo Null, ranIn repo Null "git commit -m x", edited repo (worker "i1" "implementer")]
+
+                    said `shouldBe` [[], [], []]
+
+            describe "tell how work begins" $ do
+                it "tell a spawned engineer its run starts at its prompt's init line" $ \repo -> do
+                    said <- succeeded =<< hook hookBin repo "begin" (agentStarted repo (worker "e1" "engineer"))
+
+                    replyField "context" said `shouldSatisfy` maybe False ("the `state init` line" `Text.isInfixOf`)
+
+                it "give a spawned implementer what state brief implementer gives" $ \repo -> do
+                    _ <- drive bin repo []
+                    brief <- succeeded =<< state bin repo ["brief", "implementer"]
+
+                    said <- succeeded =<< hook hookBin repo "begin" (agentStarted repo (worker "i1" "implementer"))
+
+                    replyField "context" said `shouldBe` Just (Text.unlines brief)
+
+                it "tell a typed /engineer it begins with state" $ \repo -> do
+                    said <- succeeded =<< hook hookBin repo "begin" (typed repo "engineer")
+
+                    replyField "context" said `shouldSatisfy` maybe False ("`state init ...`" `Text.isInfixOf`)
+
             it "tell the lead how to record the answer to a question put to the user" $ \repo -> do
                 _ <- drive bin repo []
-                [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Design", "which", "store?"]
-                let qid = Text.drop (Text.length "asked ") asked
+                qid <- askedQid bin repo "Design" ["which", "store?"]
                 said <- succeeded =<< hook hookBin repo "asked" (askedUser repo)
                 said `shouldSatisfy` mentions ("state answer " <> qid <> " <answer>")
 
@@ -491,15 +886,119 @@ handedBack repo role = reportedBack repo role (ready "")
 
 -- | A subagent of this role hands back this message.
 reportedBack :: Repo -> Text -> Text -> String
-reportedBack repo role message =
-    hookEvent
-        repo
-        (object ["id" .= String "a1", "role" .= role])
-        ["event" .= String "beforeTool", "tool" .= String "handback", "input" .= object ["message" .= String message], "history" .= ([] :: [Text])]
+reportedBack repo role = reportedBy repo (worker "a1" role)
+
+-- | This subagent hands back this message, its hook firing in the repo's worktree.
+reportedBy :: Repo -> Value -> Text -> String
+reportedBy repo agent message =
+    hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "handback", "input" .= object ["message" .= String message], "history" .= ([] :: [Text])]
+
+-- | A subagent, by its id and role, as the hook payload names it.
+worker :: Text -> Text -> Value
+worker agentId role = object ["id" .= agentId, "role" .= role]
 
 -- | The lead spawns a subagent of this role.
 spawned :: Repo -> Text -> String
-spawned repo role = hookEvent repo Null ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
+spawned repo = spawned' repo Null
+
+-- | This agent (the lead: @Null@) spawns a subagent of this role.
+spawned' :: Repo -> Value -> Text -> String
+spawned' repo agent role = hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
+
+{- | This agent's spawn of a subagent of this role done, its result naming the
+subagent's id: a PostToolUse on Agent (contract/fixtures/live-run.json).
+-}
+spawnResult :: Repo -> Value -> Text -> Text -> String
+spawnResult repo agent role child =
+    hookEvent
+        repo
+        agent
+        [ "event" .= String "afterTool"
+        , "tool" .= String "delegate"
+        , "input" .= object ["description" .= String "a worker", "prompt" .= String "state brief", "subagent_type" .= role, "run_in_background" .= False]
+        , "output" .= object ["status" .= String "completed", "agentId" .= child, "agentType" .= role]
+        , "context" .= Null
+        ]
+
+{- | @cd <dir> && state init <args>@, run in @dir@ by this agent, whose hooks
+fire in @at@'s worktree; then its PostToolUse on Bash binds it. The run's id.
+-}
+initBound :: FilePath -> FilePath -> Repo -> Value -> Repo -> [String] -> IO Text
+initBound bin hookBin at agent dir argv = do
+    printed <- succeeded =<< state bin dir ("init" : argv)
+    let command = "cd " <> dir.work <> " && state init " <> unwords argv
+    _ <- succeeded =<< hook hookBin at "bind" (ranShell at agent command printed)
+    case printed of
+        [line, _] | Just run <- Text.stripPrefix "started " line -> pure run
+        other -> fail ("not started: " <> show other)
+
+-- | This agent's shell command done, printing these lines: a PostToolUse on Bash.
+ranShell :: Repo -> Value -> String -> [Text] -> String
+ranShell repo agent command printed =
+    hookEvent
+        repo
+        agent
+        [ "event" .= String "afterTool"
+        , "tool" .= String "shell"
+        , "input" .= object ["command" .= command, "description" .= String "start the run"]
+        , "output" .= object ["stdout" .= Text.unlines printed, "stderr" .= String "", "interrupted" .= False]
+        , "context" .= Null
+        ]
+
+{- | This agent spawns a researcher @w@, bound by the spawn's PostToolUse, which
+hands back its report; every hook fires in the repo's worktree. What the
+hand-back's hook replied.
+-}
+workerAt :: FilePath -> Repo -> Value -> Text -> IO [Text]
+workerAt hookBin repo agent w = do
+    _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo agent "researcher")
+    _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo agent "researcher" w)
+    succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker w "researcher") researched)
+
+{- | A 10x run at its fan-out in the repo's worktree, and the engineer @e1@ it
+spawned for task @t1@, whose hooks fire in the 10x's worktree: it ran its
+brief's @cd <w1> && state init ...@ there, its notes in @n1@. The engineer,
+and its worktree @w1@.
+-}
+childEngineer :: FilePath -> FilePath -> Repo -> IO (Value, Repo)
+childEngineer bin hookBin repo = do
+    parent <- tenXAtFanOut bin repo
+    -- Inside the parent's checkout, as Claude Code puts a worktree: a path prefix of none.
+    w1 <- worktreeAt repo (repo.work </> ".claude" </> "worktrees" </> "w1") "w1"
+    let engineer = worker "e1" "engineer"
+    _ <- initBound bin hookBin repo engineer w1 ["--notes", repo.root </> "n1", "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", "t1"]
+    _ <- succeeded =<< state bin w1 ["record", "fuel", "balanced"]
+    pure (engineer, w1)
+
+-- | The event types a run's log holds, its notes dir given.
+loggedTypes :: FilePath -> IO [Text]
+loggedTypes dir = map (eventType . (.event)) . rights . map decodeLine . Text.lines <$> Text.readFile (dir </> "events.jsonl")
+
+-- | Each expected entry is in the list.
+shouldReturnContaining :: IO [Text] -> [Text] -> IO ()
+shouldReturnContaining act expected = act >>= \got -> for_ expected (\e -> got `shouldContain` [e])
+
+-- | This agent's shell command about to run, its hook firing in the repo's worktree.
+ranIn :: Repo -> Value -> Text -> String
+ranIn repo agent command = hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "shell", "input" .= object ["command" .= command], "history" .= ([] :: [Text])]
+
+-- | The lead typing @/<skill>@.
+typed :: Repo -> Text -> String
+typed repo skill = hookEvent repo Null ["event" .= String "promptExpansion", "skill" .= skill]
+
+-- | This agent (the lead: @Null@) about to edit a file.
+edited :: Repo -> Value -> String
+edited repo agent = hookEvent repo agent ["event" .= String "beforeTool", "tool" .= String "edit", "input" .= object ["file_path" .= String "README.md"], "history" .= ([] :: [Text])]
+
+-- | This subagent starting, its hook firing in the repo's worktree.
+agentStarted :: Repo -> Value -> String
+agentStarted repo agent = hookEvent repo agent ["event" .= String "agentStart"]
+
+-- | A text field of the reply a hook printed.
+replyField :: Aeson.Key -> [Text] -> Maybe Text
+replyField key said = case Aeson.decodeStrictText (Text.concat said) of
+    Just (Object fields) | Just (String value) <- KeyMap.lookup key fields -> Just value
+    _ -> Nothing
 
 askedUser :: Repo -> String
 askedUser repo = hookEvent repo Null ["event" .= String "afterTool", "tool" .= String "ask", "input" .= object [], "output" .= String "ok", "context" .= Null]
@@ -528,7 +1027,7 @@ startedRun bin repo = startedIn bin repo ["--notes", repo.notes]
 startedIn :: FilePath -> Repo -> [String] -> IO Text
 startedIn bin repo argv =
     (succeeded =<< state bin repo ("init" : argv)) >>= \case
-        [line] | Just run <- Text.stripPrefix "started " line -> pure run
+        [line, _] | Just run <- Text.stripPrefix "started " line -> pure run
         other -> fail ("not started: " <> show other)
 
 {- | A 10x run at its fan-out with tasks @t1@ and @t2@, @t2@ depending on
@@ -553,6 +1052,66 @@ childAtWork bin repo = do
     w1 <- worktree repo "w1"
     childRun bin w1 parent "n1" "t1"
 
+-- | A child run of a 10x fan-out in its own worktree, asking a Pick; that worktree and the question's id.
+childQuestion :: FilePath -> Repo -> IO (Repo, Text)
+childQuestion bin repo = do
+    parent <- tenXAtFanOut bin repo
+    w1 <- worktree repo "w1"
+    _ <- childRun bin w1 parent "n1" "t1"
+    (w1,) <$> askedQid bin w1 "Pick" ["which", "lib?"]
+
+{- | Three runs, each in its own worktree and notes: the top 10x at its
+fan-out, a 10x child on its task t1, at its own fan-out, and an engineer
+grandchild on the child's task g1. Each child starts by its parent's brief
+line.
+-}
+data Tree = Tree {top :: Text, mid :: Repo, midRun :: Text, midSpawn :: [Text], grand :: Repo, grandRun :: Text, grandFirst :: [Text]}
+
+treeOfRuns :: FilePath -> Repo -> IO Tree
+treeOfRuns bin repo = do
+    top <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+    _ <- brokenDown bin repo [(plainTask "t1" []) {flow = TenXFlow}]
+    w1 <- worktree repo "w1"
+    let mid = w1 {notes = repo.root </> "n1"}
+    midRun <- briefedRun bin repo "10x" "t1" mid
+    midSpawn <- brokenDown bin mid [plainTask "g1" []]
+    w2 <- worktree repo "w2"
+    let grand = w2 {notes = repo.root </> "n2"}
+    grandRun <- briefedRun bin mid "engineer" "g1" grand
+    grandFirst <- succeeded =<< state bin grand ["next"]
+    pure Tree {top, mid, midRun, midSpawn, grand, grandRun, grandFirst}
+
+-- | A 10x run's breakdown of these tasks, agreed and recorded; the @next@ after it.
+brokenDown :: FilePath -> Repo -> [Task] -> IO [Text]
+brokenDown bin repo tasks = do
+    let file = repo.notes </> "tasks.json"
+    Text.writeFile file (breakdownJson tasks)
+    for_ [["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", file]] (succeeded <=< state bin repo)
+    succeeded =<< state bin repo ["next"]
+
+-- | The child run the parent's brief for this role and task starts in the child's notes, by the brief's init line; its id.
+briefedRun :: FilePath -> Repo -> String -> String -> Repo -> IO Text
+briefedRun bin parent role task child = do
+    brief <- succeeded =<< state bin parent ["brief", role, "--task", task]
+    case map Text.unpack . Text.words <$> lastMaybe brief of
+        Just ("state" : "init" : flags) -> startedIn bin child [if flag == "<dir>" then child.notes else flag | flag <- flags]
+        other -> fail ("no init line: " <> show other)
+
+lastMaybe :: [a] -> Maybe a
+lastMaybe = foldl (\_ line -> Just line) Nothing
+
+-- | @state ask --kind <kind> <question>@; the id it prints.
+askedQid :: FilePath -> Repo -> String -> [String] -> IO Text
+askedQid bin repo kind question = do
+    [asked, _] <- succeeded =<< state bin repo (["ask", "--kind", kind] <> question)
+    pure (Text.drop (Text.length "asked ") asked)
+
+-- | The plan the lead writes to the notes dir; its path.
+writtenPlan :: Repo -> IO FilePath
+writtenPlan repo = plan <$ writeFile plan "the plan"
+  where
+    plan = repo.notes </> "plan.md"
+
 -- | @state record task add@ on a task file holding these contents.
 taskAdded :: FilePath -> Repo -> Text -> IO Ran
 taskAdded bin repo contents = do
@@ -562,8 +1121,11 @@ taskAdded bin repo contents = do
 
 -- | A worktree of its own on a new branch, as a child runs in; the repo as seen from it.
 worktree :: Repo -> String -> IO Repo
-worktree repo name = do
-    let path = repo.root </> name
+worktree repo name = worktreeAt repo (repo.root </> name) name
+
+-- | A worktree at this path, on a new branch of this name.
+worktreeAt :: Repo -> FilePath -> String -> IO Repo
+worktreeAt repo path name = do
     git repo ["worktree", "add", "-q", "-b", name, path]
     pure repo {work = path}
 
@@ -589,6 +1151,8 @@ data Act
       HandsBack Text Text
     | -- | The lead asks the user a question of this kind, and the user answers it.
       AskUser String [String]
+    | -- | The lead writes its plan to the notes dir and records @plan.done@.
+      Planned
 
 {- | Starts the run, then each act and a @state next@ after it, every call
 exiting 0. The @recorded@ lines they print, without their sequence numbers:
@@ -613,21 +1177,32 @@ driveOn bin repo acts = do
         Commit -> [] <$ commitLine repo
         OpenPr -> [] <$ writeFile repo.prJson (pullRequest True "OPEN")
         Override to -> succeeded =<< state bin repo ["override", to, "the", "test", "starts", "here"]
-        Spawn role -> hooked "spawn" (spawned repo role)
+        -- The spawn's PreToolUse, then its PostToolUse, which binds the worker.
+        Spawn role -> (<>) <$> hooked "spawn" (spawned repo role) <*> hooked "bind" (spawnResult repo Null role "a1")
         HandsBack role message -> hooked "handback" (reportedBack repo role message)
         AskUser kind question -> do
             asked <- succeeded =<< state bin repo (["ask", "--kind", kind] <> question)
             case concatMap Text.words (take 1 asked) of
                 ["asked", qid] -> succeeded =<< state bin repo ["answer", Text.unpack qid, "yes"]
                 _ -> [] <$ expectationFailure ("no question asked: " <> show asked)
+        Planned -> do
+            path <- writtenPlan repo
+            succeeded =<< state bin repo ["record", "plan.done", path]
     -- The context a hook replies with, line by line, as the CLI prints it.
     hooked name event = do
         hookBin <- getEnv "STATE_HOOK_BIN"
         said <- succeeded =<< hook hookBin repo name event
         pure (concatMap contextLines said)
-    contextLines reply = case Aeson.decodeStrictText reply of
-        Just (Object fields) | Just (String context) <- KeyMap.lookup "context" fields -> map (\line -> fromMaybe line (Text.stripPrefix "state: " line)) (Text.lines context)
-        _ -> []
+    contextLines reply = maybe [] (map (unstated . aboutNoRun) . Text.lines) (replyField "context" [reply])
+
+unstated :: Text -> Text
+unstated line = fromMaybe line (Text.stripPrefix "state: " line)
+
+-- | A hook's line without the run it names, @run <id>: @.
+aboutNoRun :: Text -> Text
+aboutNoRun line = case Text.stripPrefix "run " line of
+    Just rest | (_, after) <- Text.breakOn ": " rest, not (Text.null after) -> Text.drop 2 after
+    _ -> line
 
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]
@@ -645,13 +1220,13 @@ reviewed sha = "| # | Finding |\n|---|---|\nReviewed head: " <> sha <> "\n"
 simplified sha = "READY\nSimplified: " <> sha <> "\n"
 
 -- | From the start to the draft PR and a first commit on it.
-toImplement :: Repo -> [Act]
-toImplement repo =
+toImplement :: [Act]
+toImplement =
     [ Spawn "researcher"
     , AskUser "Scope" ["which", "scope?"]
     , HandsBack "researcher" researched
     , Record ["gather.enough"]
-    , Record ["plan.done", repo.notes </> "plan.md"]
+    , Planned
     , Handback "researcher" ready
     , Record ["confirm.confirmed"]
     , OpenPr
@@ -660,20 +1235,21 @@ toImplement repo =
     ]
 
 -- | A Balanced run to its first Simplify of the PR.
-toSimplifyPr :: Repo -> [Act]
-toSimplifyPr repo =
+toSimplifyPr :: [Act]
+toSimplifyPr =
     Record ["fuel", "balanced"]
-        : toImplement repo
+        : toImplement
             <> [Handback "review-lead" reviewed, Record ["pick.final"], Handback "fixer" ready]
 
-balancedPath :: Repo -> [Act]
-balancedPath repo = toSimplifyPr repo <> [Handback "fixer" simplified, Record ["await_ci.green"], Record ["ready.done", prUrlString]]
+balancedPath :: [Act]
+balancedPath = toSimplifyPr <> [Handback "fixer" simplified, Record ["await_ci.green"], Record ["ready.done", prUrlString]]
 
 balancedTranscript :: [Text]
 balancedTranscript =
     [ "fuel -> gather"
     , "research.spawned -> gather"
     , "research.handed_back -> gather"
+    , "worker_returned -> gather"
     , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.done -> confirm"
@@ -690,10 +1266,10 @@ balancedTranscript =
     ]
 
 -- | Balanced, its review clean: no pick and no fix loop.
-cleanPath :: Repo -> [Act]
-cleanPath repo =
+cleanPath :: [Act]
+cleanPath =
     Record ["fuel", "balanced"]
-        : toImplement repo
+        : toImplement
             <> [Record ["review.clean"], Handback "fixer" ready, Handback "fixer" simplified, Record ["await_ci.green"], Record ["ready.done", prUrlString]]
 
 cleanTranscript :: [Text]
@@ -701,6 +1277,7 @@ cleanTranscript =
     [ "fuel -> gather"
     , "research.spawned -> gather"
     , "research.handed_back -> gather"
+    , "worker_returned -> gather"
     , "gather.enough -> plan"
     , "plan.done -> simplify_plan"
     , "simplify_plan.done -> confirm"
@@ -716,11 +1293,11 @@ cleanTranscript =
     ]
 
 -- | Low, a trivial task: the agent gathers nothing, skips the proposal and the refactor, so no hand-back of theirs.
-trivialPath :: Repo -> [Act]
-trivialPath repo =
+trivialPath :: [Act]
+trivialPath =
     [ Record ["fuel", "low"]
     , Record ["gather.enough"]
-    , Record ["plan.done", repo.notes </> "plan.md"]
+    , Planned
     , Record ["simplify_plan.skipped"]
     , Record ["confirm.confirmed"]
     , OpenPr
@@ -752,6 +1329,16 @@ trivialTranscript =
     , "await_ci.green -> ready"
     , "ready.done -> out"
     ]
+
+{- | 'trivialPath' as a round on 'roundUrlString': no draft PR opened, as
+GitHub has the round's, and no ready, which the round skips.
+-}
+roundPath :: [Act]
+roundPath = take 5 trivialPath <> drop 6 (init trivialPath)
+
+-- | The PR a user's round names, which the scripted @gh@ reports by URL alone.
+roundUrlString :: String
+roundUrlString = "https://github.com/o/r/pull/7"
 
 -- | Balanced, moved to the review by override.
 atReview :: [Act]
@@ -803,9 +1390,11 @@ withRepo test = withSystemTempDirectory "state-e2e" $ \root -> do
                 , env = fixed <> [kv | kv@(name, _) <- inherited, name `notElem` map fst fixed]
                 }
     createDirectory bin
-    -- `gh pr view --json ...` as gh answers it: the PR, or no PR for the branch.
+    -- `gh pr view [<url>] --json ...` as gh answers it: the PR a URL names, open
+    -- for review on the branch; else the branch's PR, or none.
     writeExecutable (bin </> "gh") . unlines $
         [ "#!" <> sh
+        , "case \"$3\" in https://*) printf '{\"url\":\"%s\",\"baseRefName\":\"main\",\"headRefName\":\"feat\",\"isDraft\":false,\"state\":\"OPEN\"}' \"$3\"; exit 0;; esac"
         , "if [ -f '" <> prJson <> "' ]; then cat '" <> prJson <> "'"
         , "else echo 'no pull requests found for branch \"feat\"' >&2; exit 1; fi"
         ]

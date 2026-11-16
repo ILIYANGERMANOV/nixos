@@ -85,6 +85,8 @@ let
       ])
     ];
     afterTool = [ ];
+    agentStart = [ ];
+    promptExpansion = [ ];
   };
   # When: the flavor runs them.
   hooked = hookSettings.withHooks adapter profileHooks flavorSettings;
@@ -174,6 +176,31 @@ let
       expected = [ { hooks = [ adapter ]; } ];
     }
     {
+      name = "a subagent's start and a typed skill each add one entry with no matcher";
+      actual =
+        (hookSettings.withHooks adapter {
+          agentStart = [ (declared "begin" null) ];
+          promptExpansion = [ (declared "begin" null) ];
+        } { }).hooks;
+      expected = {
+        SubagentStart = [ { hooks = [ adapter ]; } ];
+        UserPromptExpansion = [ { hooks = [ adapter ]; } ];
+      };
+    }
+    {
+      name = "a hook on the skill tool matches Claude's Skill";
+      actual =
+        (hookSettings.withHooks adapter {
+          beforeTool = [ (declared "begin" [ "skill" ]) ];
+        } { }).hooks.PreToolUse;
+      expected = [
+        {
+          matcher = "Skill";
+          hooks = [ adapter ];
+        }
+      ];
+    }
+    {
       name = "hooks leave the flavor's other settings as they are";
       actual = removeAttrs hooked [ "hooks" ];
       expected = removeAttrs flavorSettings [ "hooks" ];
@@ -184,6 +211,8 @@ let
         sessionStart = [ ];
         beforeTool = [ ];
         afterTool = [ ];
+        agentStart = [ ];
+        promptExpansion = [ ];
       } flavorSettings;
       expected = flavorSettings;
     }

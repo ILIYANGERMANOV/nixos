@@ -24,6 +24,8 @@ let
 
   # The names an event, tool and session start take, shared with agent_hook.py.
   vocabulary = lib.importJSON ./vocabulary.json;
+  # The events around a tool call; every other event has no tool to name.
+  toolless = lib.subtractLists [ "beforeTool" "afterTool" ] vocabulary.events;
 
   hook = {
     options = {
@@ -34,7 +36,7 @@ let
       tools = mkOption {
         type = types.uniq (types.nullOr (types.nonEmptyListOf (types.enum vocabulary.tools)));
         default = null;
-        description = "The tools whose calls it sees; null for every tool. None at sessionStart.";
+        description = "The tools whose calls it sees; null for every tool. None at an event with no tool call.";
       };
       command = mkOption {
         type = types.uniq (types.nonEmptyListOf types.str);
@@ -67,15 +69,15 @@ let
           ]
           ++ modules;
         }).config.hooks;
-      toolsAtStart = lib.attrNames (
-        lib.filterAttrs (_: h: h.on == "sessionStart" && h.tools != null) declared
+      toolsWithout = lib.attrNames (
+        lib.filterAttrs (_: h: lib.elem h.on toolless && h.tools != null) declared
       );
       ordered = lib.sort (a: b: if a.order == b.order then a.name < b.name else a.order < b.order) (
         lib.mapAttrsToList (name: h: h // { inherit name; }) declared
       );
     in
-    if toolsAtStart != [ ] then
-      throw "hooks: ${toString toolsAtStart} name tools, but run at sessionStart, which calls none"
+    if toolsWithout != [ ] then
+      throw "hooks: ${toString toolsWithout} name tools, but run at an event with no tool call"
     else
       lib.genAttrs vocabulary.events (
         event: map (h: { inherit (h) name tools command; }) (lib.filter (h: h.on == event) ordered)
@@ -164,6 +166,11 @@ let
         (declare "a" (resume // { tools = [ "shell" ]; }))
       ]
     )) "hooks: a sessionStart hook naming tools did not throw";
+    assert lib.assertMsg (throws (
+      eval { } [
+        (declare "a" (spawn // { on = "agentStart"; }))
+      ]
+    )) "hooks: an agentStart hook naming tools did not throw";
     assert lib.assertMsg (
       names guarded.beforeTool == [
         "secret-guard"

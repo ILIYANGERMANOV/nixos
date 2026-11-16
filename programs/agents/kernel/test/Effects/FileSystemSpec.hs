@@ -1,8 +1,10 @@
 module Effects.FileSystemSpec (spec) where
 
 import Control.Exception (try)
+import Data.List (sort)
 import Effectful (runEff)
-import Effects.FileSystem (createDirectory, inDirectory, makeAbsolute, readBytes, readText, runFileSystemIO, writeText)
+import Effects.FileSystem (createDirectory, inDirectory, listDirectory, readBytes, readText, removeFile, runFileSystemIO, writeText, writeTextAtomic)
+import System.Directory qualified as Directory
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (withSystemTempDirectory)
@@ -32,9 +34,30 @@ spec = describe "Effects.FileSystem" $ around (withSystemTempDirectory "state-fs
 
         (runEff . runFileSystemIO $ readText (deep </> "f")) `shouldReturn` Just "x"
 
+    it "replaces a file's text whole, leaving no temp file beside it" $ \dir -> do
+        let file = dir </> "binding"
+
+        text <- runEff . runFileSystemIO $ writeText file "old" >> writeTextAtomic file "run ünïcode\n" >> readText file
+
+        text `shouldBe` Just "run ünïcode\n"
+        Directory.listDirectory dir `shouldReturn` ["binding"]
+
+    it "removes a file, and one already absent" $ \dir -> do
+        let file = dir </> "stash"
+
+        runEff . runFileSystemIO $ writeText file "x" >> removeFile file >> removeFile file
+
+        Directory.listDirectory dir `shouldReturn` []
+
+    it "lists a directory's names, and none of an absent one" $ \dir -> do
+        names <- runEff . runFileSystemIO $ createDirectory (dir </> "s1") >> writeText (dir </> "main") "x" >> listDirectory dir
+        absent <- runEff . runFileSystemIO $ listDirectory (dir </> "absent")
+
+        (sort names, absent) `shouldBe` (["main", "s1"], [])
+
     it "resolves relative paths against the directory it runs in" $ \dir -> do
         runEff . runFileSystemIO $ createDirectory (dir </> "work")
 
-        (absolute, text) <- runEff . runFileSystemIO . inDirectory (dir </> "work") $ (,) <$> makeAbsolute "f" <*> (writeText "f" "x" >> readText (dir </> "work" </> "f"))
+        text <- runEff . runFileSystemIO . inDirectory (dir </> "work") $ writeText "f" "x" >> readText (dir </> "work" </> "f")
 
-        (absolute, text) `shouldBe` (dir </> "work" </> "f", Just "x")
+        text `shouldBe` Just "x"

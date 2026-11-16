@@ -13,17 +13,24 @@ module State.Cli.Shell.World (
     hook,
     succeeded,
     startedRun,
+    startedIn,
     putFile,
     tenXAtFanOut,
     tenXAtFanOutOf,
     childRun,
+    atWorktree,
+    addWorktree,
+    childWorktree,
     logged,
     loggedEvents,
+    loggedEventsIn,
     headOf,
     draftPr,
     prOn,
     editLog,
+    editLogIn,
     logBytes,
+    fileBytes,
     prUrl,
     notes,
     eventsPath,
@@ -32,6 +39,8 @@ module State.Cli.Shell.World (
     handedBack,
     askedUser,
     spawned,
+    stateCall,
+    spawnResult,
     Act (..),
     drive,
     driveOut,
@@ -62,7 +71,7 @@ import Doubles.Console (Streams (..), runConsoleCaptured)
 import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
-import Doubles.Git (Worktree (..), runGitScripted)
+import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
 import Doubles.Log (runLogInMemory)
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
@@ -84,6 +93,10 @@ data World = World
     { env :: Map String String
     , disk :: Disk
     , gitDir :: Either Text FilePath
+    , others :: [FilePath]
+    -- ^ The tops of other worktrees, apart from the one calls run in.
+    , gitOnPath :: Bool
+    -- ^ Without it every git call throws, as a missing binary's spawn does.
     , branch :: Maybe Branch
     , commits :: Int
     , pr :: PrView
@@ -97,9 +110,11 @@ newWorld = do
     steps <- BS.readFile =<< getEnv "STATE_STEPS"
     newIORef
         World
-            { env = Map.fromList [("STATE_STEPS", stepsPath)]
+            { env = Map.fromList [("STATE_STEPS", stepsPath), ("HOME", "/home")]
             , disk = Disk {files = Map.singleton stepsPath steps, dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"], cwd = "/work"}
             , gitDir = Right "/work/.git"
+            , others = []
+            , gitOnPath = True
             , branch = Just (Branch "feat")
             , commits = 0
             , pr = PrViewFailed "no pull requests found for branch \"feat\"\n"
@@ -132,7 +147,7 @@ run world input program = atomicModifyIORef' world $ \w ->
                 . runState w.disk
                 . runFileSystemInMemory
                 . runGhScripted w.pr
-                . runGitScripted (worktreeOf w)
+                . (if w.gitOnPath then runGitScripted (worktreeOf w) else runGitMissing)
                 . runLogInMemory
                 . runRandomFixed w.entropy
                 $ program
@@ -149,6 +164,7 @@ worktreeOf w =
         , head = Just (headOf w.commits)
         , branch = w.branch
         , numstats = [(Branch "main", if w.commits == 0 then "" else Text.pack (show w.commits) <> "\t0\tchange.txt\n")]
+        , others = w.others
         }
 
 -- | HEAD after this many commits on @feat@; 0 is @main@'s.
@@ -169,7 +185,7 @@ startedRun world = startedIn world []
 startedIn :: IORef World -> [Text] -> IO Text
 startedIn world argv =
     (succeeded =<< state world ("init" : (if "--notes" `elem` argv then argv else "--notes" : Text.pack notes : argv))) >>= \case
-        [line] | Just runId <- Text.stripPrefix "started " line -> pure runId
+        [line, _] | Just runId <- Text.stripPrefix "started " line -> pure runId
         other -> fail ("not started: " <> show other)
 
 notes :: FilePath
@@ -195,23 +211,49 @@ tenXAtFanOutOf world tasks = do
     _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]
     pure tenX
 
--- | The child run a parent's brief starts for this task, in the notes dir given; its id.
+{- | The child run a parent's brief starts for this task, in the notes dir
+given, in 'childWorktree', where later calls run; its id.
+-}
 childRun :: IORef World -> Text -> FilePath -> Text -> IO Text
-childRun world parent dir task = startedIn world ["--notes", Text.pack dir, "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", task]
+childRun world parent dir task = do
+    atWorktree world childWorktree
+    startedIn world ["--notes", Text.pack dir, "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", task]
+
+-- | The worktree a child runs in, apart from the parent's at @/work@.
+childWorktree :: FilePath
+childWorktree = "/child-work"
+
+-- | Later calls run in this worktree, on the disk from now on: its git dir is its top's @.git@.
+atWorktree :: IORef World -> FilePath -> IO ()
+atWorktree world top = modifyIORef' world $ \w ->
+    let disk = w.disk in w {gitDir = Right (top </> ".git"), disk = disk {dirs = disk.dirs <> Set.fromList [top, top </> ".git"], cwd = top}}
+
+-- | Another worktree at this top, its git dir its top's @.git@; calls run where they did.
+addWorktree :: IORef World -> FilePath -> IO ()
+addWorktree world top = modifyIORef' world $ \w ->
+    let disk = w.disk in w {others = top : w.others, disk = disk {dirs = disk.dirs <> Set.fromList [top, top </> ".git"]}}
 
 eventsPath :: FilePath
 eventsPath = logOf notes
 
 -- | The worktree's log as written, decoded line by line; it must read.
 logged :: IORef World -> IO [Envelope]
-logged world = do
+logged world = loggedIn world eventsPath
+
+-- | The log at this path as written, decoded line by line; it must read.
+loggedIn :: IORef World -> FilePath -> IO [Envelope]
+loggedIn world path = do
     w <- readIORef world
-    case decodeLogBytes (Map.findWithDefault "" eventsPath w.disk.files) of
+    case decodeLogBytes (Map.findWithDefault "" path w.disk.files) of
         Right lines' -> pure lines'
         Left bad -> [] <$ expectationFailure ("the log does not read: " <> show bad.line)
 
 loggedEvents :: IORef World -> IO [Text]
-loggedEvents world = map (eventType . (.event)) <$> logged world
+loggedEvents world = loggedEventsIn world eventsPath
+
+-- | The event types of the log at this path.
+loggedEventsIn :: IORef World -> FilePath -> IO [Text]
+loggedEventsIn world path = map (eventType . (.event)) <$> loggedIn world path
 
 prUrl :: Text
 prUrl = "https://github.com/o/r/pull/1"
@@ -226,12 +268,20 @@ prOn base = printedPr . PullRequest (DraftPr (Url prUrl) (Branch base) (Branch "
 
 -- | Edit the worktree's log by hand, as the bytes on disk.
 editLog :: IORef World -> (ByteString -> ByteString) -> IO ()
-editLog world edit = modifyIORef' world $ \w ->
-    let disk = w.disk in w {disk = disk {files = Map.alter (Just . edit . fromMaybe "") eventsPath disk.files}}
+editLog world = editLogIn world eventsPath
+
+-- | Edit the log at this path by hand, as the bytes on disk.
+editLogIn :: IORef World -> FilePath -> (ByteString -> ByteString) -> IO ()
+editLogIn world path edit = modifyIORef' world $ \w ->
+    let disk = w.disk in w {disk = disk {files = Map.alter (Just . edit . fromMaybe "") path disk.files}}
 
 -- | The worktree's log as the bytes on disk.
 logBytes :: IORef World -> IO (Maybe ByteString)
-logBytes world = Map.lookup eventsPath . (.disk.files) <$> readIORef world
+logBytes world = fileBytes world eventsPath
+
+-- | A file's bytes as written, if it exists.
+fileBytes :: IORef World -> FilePath -> IO (Maybe ByteString)
+fileBytes world path = Map.lookup path . (.disk.files) <$> readIORef world
 
 -- | The neutral hook event of the lead's (a @Null@ agent) or a subagent's session in the worktree.
 hookEvent :: Value -> [Pair] -> LBS.ByteString
@@ -261,6 +311,22 @@ askedUser = hookEvent Null ["event" .= String "afterTool", "tool" .= String "ask
 spawned :: Text -> LBS.ByteString
 spawned role = hookEvent Null ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
 
+-- | The lead about to run this shell command in the worktree.
+stateCall :: Text -> LBS.ByteString
+stateCall command = hookEvent Null ["event" .= String "beforeTool", "tool" .= String "shell", "input" .= object ["command" .= command], "history" .= ([] :: [Text])]
+
+-- | The lead's spawn of a subagent @a1@ of this role, done: its result names the agent.
+spawnResult :: Text -> LBS.ByteString
+spawnResult role =
+    hookEvent
+        Null
+        [ "event" .= String "afterTool"
+        , "tool" .= String "delegate"
+        , "input" .= object ["subagent_type" .= role]
+        , "output" .= object ["status" .= String "completed", "agentId" .= String "a1", "agentType" .= role]
+        , "context" .= Null
+        ]
+
 -- | What a scenario does between two @state next@ calls.
 data Act
     = Record [Text]
@@ -271,6 +337,8 @@ data Act
     | -- | The draft PR GitHub reports from now on: @next@ records @draft.done@ from it.
       OpenPr
     | Override Text
+    | -- | The lead writes its plan to the notes dir and records @plan.done@.
+      Planned
 
 {- | Starts the run, then each act and a @state next@ after it, every call
 exiting 0. The @recorded@ lines they print, without their sequence numbers.
@@ -295,6 +363,10 @@ driveOut world acts = do
         Commit -> [] <$ modifyIORef' world (\w -> w {commits = w.commits + 1})
         OpenPr -> [] <$ modifyIORef' world (\w -> w {pr = draftPr IsDraft})
         Override to -> succeeded =<< state world ["override", to, "the", "test", "starts", "here"]
+        Planned -> do
+            putFile world plan "the plan"
+            succeeded =<< state world ["record", "plan.done", Text.pack plan]
+    plan = notes </> "plan.md"
 
 -- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
 recorded :: [Text] -> [Text]
@@ -313,7 +385,7 @@ toImplement =
     [ Record ["research.spawned"]
     , Handback "researcher" ready
     , Record ["gather.enough"]
-    , Record ["plan.done", Text.pack (notes </> "plan.md")]
+    , Planned
     , Handback "researcher" ready
     , Record ["confirm.confirmed"]
     , OpenPr

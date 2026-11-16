@@ -73,7 +73,7 @@ in
         "handed_back"
       ];
       runner = "researcher";
-      lead = "Gather: spawn a researcher in the background per open fact group, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task:";
+      lead = "Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task:";
       task = "Research the open fact group your prompt names, as the researcher skill says.";
       tools = [
         "read"

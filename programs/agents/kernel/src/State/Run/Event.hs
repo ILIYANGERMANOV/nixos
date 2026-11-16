@@ -4,7 +4,9 @@ step it ends ("State.Step.Catalog"), so a log is read off the flow's graph. A qu
 'Asking' and the events on its id that close it. The 10x's fan-out logs its
 children ('Spawned', 'HandedBack'), the agents it sends ('Spawning',
 'Resumed', 'Restarted') and its tasks ('TaskAdded', 'TaskMoved', 'Held',
-'ActedOn') as stay events.
+'ActedOn') as stay events. A lead logs the workers it has at work
+('WorkerSpawned', 'WorkerReturned'), which it hands back after. A line
+logged in error is 'Voided', never edited out: replay drops both lines.
 -}
 module State.Run.Event (
     Envelope (..),
@@ -12,6 +14,7 @@ module State.Run.Event (
     EventId (..),
     eventId,
     RunId,
+    AgentId (..),
     parseRunId,
     runIdText,
     SessionId (..),
@@ -26,8 +29,6 @@ module State.Run.Event (
     Asker (..),
     AgentRole (..),
     roleText,
-    fanFlow,
-    childRole,
     Stop (..),
     StopReason (..),
     Note (..),
@@ -49,6 +50,7 @@ module State.Run.Event (
     TaskId (..),
     Task (..),
     Shape (..),
+    Repo (..),
     Topic (..),
     Tasks,
     BreakdownError (..),
@@ -56,6 +58,7 @@ module State.Run.Event (
     taskList,
     Child (..),
     Said (..),
+    Waiting (..),
     TaskState (..),
 ) where
 
@@ -66,10 +69,10 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Fuel (Fuel)
 import State.Category.Step (EventName, Outcome, StateName (..))
-import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
+import State.Role (AgentRole (..), FlowName (..), roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
-import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
-import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
+import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
+import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Repo (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
@@ -156,6 +159,18 @@ data Event
       (@state ask --from <role>@) before it goes on: a stop, or a question with no kind.
       -}
       WorkerHandedBack AgentRole OneLine
+    | {- | The lead spawned a worker of this role, at work until it returns
+      (written by the spawn's hook).
+      -}
+      WorkerSpawned AgentRole AgentId
+    | {- | A worker of this role handed back, by its id when the hook knows it:
+      it is at work no more.
+      -}
+      WorkerReturned AgentRole (Maybe AgentId)
+    | {- | The line of this seq is void, and why: replay drops it and this
+      line, as if neither was logged ("State.Run.Fold").
+      -}
+      Voided Natural Text
     deriving stock (Eq, Show)
 
 -- | The event a step's outcome appends, at a step in no scope.
@@ -189,14 +204,6 @@ data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
 data Asker = Itself | Subagent AgentRole | ChildRun RunId
     deriving stock (Eq, Show)
 
--- | The flow a fan-out's children each run, as its @Par@ body: an engineer leads a whole engineer flow.
-fanFlow :: FlowName
-fanFlow = EngineerFlow
-
--- | The role a fan-out's children run as: the lead of their flow, the registry's name.
-childRole :: AgentRole
-childRole = (role fanFlow).name
-
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)
 
@@ -212,15 +219,19 @@ data Note = Note {message :: Text, fix :: Text}
 data Child = Child {run :: RunId, task :: TaskId, log :: FilePath, worktree :: FilePath}
     deriving stock (Eq, Show)
 
--- | A child's hand-back, typed: only 'AsksUp' and 'AwaitsCi' leave it running.
+-- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.
 data Said
     = Finished OneLine
     | -- | A question it forwarded up, now pending in this run.
       AsksUp QId
-    | -- | CI on its PR, which this run waits on, then resumes the child.
-      AwaitsCi OneLine
+    | -- | What it cannot wait on itself, on these refs: this run waits, then resumes the child.
+      Awaits Waiting OneLine
     | Ended Stop
     deriving stock (Eq, Show)
+
+-- | What a run with no wakes of its own hands up for a run above to wait on.
+data Waiting = Ci | Merge
+    deriving stock (Eq, Show, Enum, Bounded)
 
 -- | Where a task's PR stands; the child's own hand-back settles it otherwise.
 data TaskState
@@ -229,6 +240,8 @@ data TaskState
     | Merged Url
     | -- | A round's PR, left open on purpose: settled, and no merge awaited.
       Kept Url
+    | -- | Another round on this PR, asked of a task in review, kept or merged: open until its child's READY keeps it.
+      Round Url
     | -- | Set aside, and why: a parked task counts as settled.
       Parked Text (Maybe Url)
     deriving stock (Eq, Show)

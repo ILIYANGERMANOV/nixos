@@ -1,5 +1,8 @@
 Invalid argument `bad'
 
+Did you mean this?
+    bind
+
 Usage: state-hook COMMAND
 
   One hook event on stdin, its reply on stdout.
@@ -12,3 +15,6 @@ Available commands:
   spawn                    Before a delegate: next, and a warning off the advice
   handback                 Before a hand-back: records it, printing the record
   asked                    After an ask: answer lines of questions to the user
+  bind                     After a shell or delegate: binds the agent to its run
+  route                    Denies a state call off its run, a write before init
+  begin                    At a spawn or a lead skill: how its work begins

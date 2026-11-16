@@ -4,11 +4,13 @@ import Data.Either (fromRight)
 import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Hedgehog (Gen, assert, cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Run.Ask (QId (..))
 import State.Run.Event
 import State.Run.EventGen (genSaid, genTaskAt, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
 import State.Run.Fan
@@ -28,6 +30,7 @@ spec = describe "State.Run.Fan" $ do
             assert (task.id `notElem` map (.id) busy)
             assert (all (merged fan) task.deps)
             assert (task.id `notElem` map ((.task) . fst) (untriaged fan))
+            assert (not (awaitsCi fan task.id))
 
     it "spawning_or_starting_every_spawnable_task_leaves_none_to_spawn" . hedgehog $ do
         fan <- forAll genFan
@@ -43,6 +46,13 @@ spec = describe "State.Run.Fan" $ do
 
     it "settles a task whose child finished" $
         settledAfter [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1"))] `shouldBe` Right True
+
+    it "keeps a finished task open while its PR is in CI, awaits that CI, and builds it no more" $ do
+        let fan = applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1")), moved t1 (InCi (Url "pr"))]
+        (\f -> (settled f t1, map (.id) (spawnable [] f), ciAwaited f)) <$> fan `shouldBe` Right (False, [], [Url "pr"])
+
+    it "settles a task in CI once it is recorded in review" $
+        settledAfter [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR #1")), moved t1 (InCi (Url "pr")), moved t1 (InReview (Url "pr"))] `shouldBe` Right True
 
     it "leaves a task open after its child stops, to spawn again once the stop is triaged, and counts both tries" $ do
         let fan = applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Ended (Stop Blocked "no access"))]
@@ -66,20 +76,26 @@ spec = describe "State.Run.Fan" $ do
         applied [spawning [] t1, spawning [] t1] `shouldBe` Left (AtWork t1)
 
     it "refuses to resume a child twice before it hands back" $
-        applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), resumed (runId "c1"), resumed (runId "c1")]
+        applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Awaits Ci (oneLine "PR #1")), resumed (runId "c1"), resumed (runId "c1")]
             `shouldBe` Left (AtWork t1)
 
     it "closes only once every task is merged or parked" $
         map (\state -> applied [moved t1 state] >>= closed) [InReview (Url "pr"), Merged (Url "pr")] `shouldBe` [Left (Unmerged (t1 :| [])), Right ()]
 
     it "keeps a child running while it asks up or awaits CI" $
-        length . running <$> applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1"))] `shouldBe` Right 1
+        length . running <$> applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Awaits Ci (oneLine "PR #1"))] `shouldBe` Right 1
+
+    it "finds the child a question came from while that question is its latest word" $ do
+        let asks = QId (runId "c1") 1
+            asked = [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AsksUp asks)]
+        map (fmap (fmap (.child.run) . (`askedBy` asks)) . applied) [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
+            `shouldBe` [Right (Just (runId "c1")), Right Nothing]
 
     it "settles a parked task, so the fan-out may leave" $
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave) `shouldBe` Right ()
 
     it "does not leave while a child runs on a task already in review" $
-        (applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), moved t1 (InReview (Url "pr"))] >>= leave)
+        (applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Awaits Ci (oneLine "PR #1")), moved t1 (InReview (Url "pr"))] >>= leave)
             `shouldBe` Left (Unsettled (t1 :| []))
 
     it "does not settle a task whose PR is in CI" $
@@ -133,6 +149,27 @@ spec = describe "State.Run.Fan" $ do
         it "is refused depending on a task the fan-out lacks" $
             added (plainTask "fix" ["t9"]) oneTask `shouldBe` Left (UnknownTask (TaskId "t9"))
 
+    describe "a round on a task's PR" $ do
+        let finishedInReview = applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR")), moved t1 (InReview (Url "pr"))]
+            round1 = finishedInReview >>= moved t1 (Round (Url "pr"))
+
+        it "un-settles the task in review, so it is spawned again" $ do
+            ((`settled` t1) <$> round1, map (.id) . spawnable [] <$> round1) `shouldBe` (Right False, Right [t1])
+
+        it "makes the task a round on that PR, so its child's READY keeps it" $ do
+            fmap (.shape) . (`lookupTask` t1) <$> round1 `shouldBe` Right (Just (RoundOn (Url "pr")))
+            ((`settled` t1) <$> (round1 >>= spawned [] (childFor "c2" t1) >>= handedBack (runId "c2") (Finished (oneLine "READY")) >>= moved t1 (Kept (Url "pr"))))
+                `shouldBe` Right True
+
+        it "counts the rounds asked of each task" $
+            Map.lookup t1 . (.rounds) <$> (round1 >>= moved t1 (Round (Url "pr"))) `shouldBe` Right (Just 2)
+
+        it "is refused while a child runs the task" $
+            applied [spawned [] (childFor "c1" t1), moved t1 (Round (Url "pr"))] `shouldBe` Left (StillRunning t1 (runId "c1"))
+
+        it "is refused while an agent is at work on the task" $
+            applied [spawning [] t1, moved t1 (Round (Url "pr"))] `shouldBe` Left (AtWork t1)
+
     describe "a restart" $ do
         it "leaves no agent at work, so each running child waits on the 10x" . hedgehog $ do
             fan <- forAll genFan
@@ -184,7 +221,14 @@ merged fan task = case Map.lookup task fan.moves of
     Just (InReview _) -> False
     Just (InCi _) -> False
     Just (Kept _) -> False
+    Just (Round _) -> False
     Nothing -> False
+
+-- | The task's PR is in CI after its latest child finished: CI is awaited, nothing built again.
+awaitsCi :: Fan -> TaskId -> Bool
+awaitsCi fan task = case (Map.lookup task fan.moves, latest =<< listToMaybe (reverse (childrenOf fan task))) of
+    (Just (InCi _), Just (Finished _)) -> True
+    _ -> False
 
 tshow :: Int -> Text.Text
 tshow = Text.pack . show

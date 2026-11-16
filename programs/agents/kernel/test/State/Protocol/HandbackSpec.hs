@@ -12,7 +12,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Area (..))
 import State.Protocol.Handback
 import State.Run.Ask (Kind (..), QId (..), Question (..))
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook)
 import State.Run.Event qualified as Event
 import State.Run.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runId)
 import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
@@ -33,6 +33,9 @@ spec = describe "State.Protocol.Handback" $ do
         for_ tokens $ \(first, token) ->
             (.token) <$> parseHandback first `shouldBe` Right token
 
+    it "refuses an AWAIT on anything but CI or a merge" $
+        parseHandback "AWAIT deploy prod" `shouldBe` Left "AWAIT deploy: only ci or merge is awaited"
+
     it "reads line 1 pasted with the HANDBACK delivery prefix as the bare token" $
         for_ tokens $ \(first, token) ->
             (.token) <$> parseHandback ("HANDBACK " <> first) `shouldBe` Right token
@@ -52,7 +55,7 @@ spec = describe "State.Protocol.Handback" $ do
 typing :: Spec
 typing = describe "typeHandback" $ do
     steps <- runIO loadSteps
-    let typed at role = typeHandback steps at (Just sha) (AgentRole role) . parsed
+    let typed at role = typeHandback steps at (Just sha) (AgentRole role) Nothing . parsed
 
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
@@ -65,6 +68,12 @@ typing = describe "typeHandback" $ do
     it "reads a fixer's hand-back with no Touches line as touching none" $
         typed atFix "fixer" "READY fixed"
             `shouldBe` Right (Typed [stepTook (FixDone (Commit sha Set.empty))] Nothing)
+
+    it "says a worker logged at work returned, by its id or else its role, and no other" $ do
+        let fixing = runAt (map (Took mempty) (take 9 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]) <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
+            returns agent = drop 1 . (.events) <$> typeHandback steps fixing (Just sha) (AgentRole "fixer") agent (parsed "READY fixed")
+        map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
+            `shouldBe` [Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))], Right [Event.WorkerReturned (AgentRole "fixer") Nothing], Right []]
 
     it "refuses a READY from a role that does not run the step" $
         typed atImplement "fixer" "READY fixed" `shouldSatisfy` isLeft
@@ -111,8 +120,9 @@ typing = describe "typeHandback" $ do
         it "records a question as asked up by the child, which joins this run's pending" $
             fromChild "NEEDS_DECISION Design c1:2: which store?\nRun: c1"
                 `shouldBe` Right (Typed [HandedBack c1 (AsksUp (QId c1 2)), Asked (Asking (Question (QId c1 2) Design (oneLine "which store?")) engineers (ChildRun c1))] Nothing)
-        it "records AWAIT ci as the child awaiting CI" $
-            fromChild "AWAIT ci https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (AwaitsCi (oneLine "https://pr/1"))] Nothing)
+        it "records AWAIT ci or merge as the child awaiting it" $
+            map fromChild ["AWAIT ci https://pr/1\nRun: c1", "AWAIT merge https://pr/1 https://pr/2\nRun: c1"]
+                `shouldBe` [Right (Typed [HandedBack c1 (Awaits Ci (oneLine "https://pr/1"))] Nothing), Right (Typed [HandedBack c1 (Awaits Merge (oneLine "https://pr/1 https://pr/2"))] Nothing)]
         it "records a stop as the child ended, for this run to triage" $
             map fromChild ["BLOCKED no access\nRun: c1", "NEEDS_DECISION plan wrong: no such table\nRun: c1"]
                 `shouldBe` [ Right (Typed [HandedBack c1 (Ended (Event.Stop Event.Blocked "no access"))] (Just (oneLine "BLOCKED no access")))
@@ -141,6 +151,7 @@ tokens =
     , ("NEEDS_DECISION plan wrong: no such table", Just (NeedsDecision (PlanWrong (oneLine "no such table"))))
     , ("NEEDS_DECISION should I?", Just (NeedsDecision (Untyped (oneLine "should I?"))))
     , ("AWAIT ci https://pr/1", Just (Await Ci (oneLine "https://pr/1")))
+    , ("AWAIT merge https://pr/1 https://pr/2", Just (Await Merge (oneLine "https://pr/1 https://pr/2")))
     , ("BLOCKED no access", Just (Blocked (oneLine "no access")))
     , ("FAILED tests red", Just (Failed (oneLine "tests red")))
     , ("| # | Severity | What |", Nothing)
@@ -166,7 +177,7 @@ genToken =
     Gen.choice
         [ Ready <$> genOneLine
         , NeedsDecision <$> genNeed
-        , Await Ci <$> genOneLine
+        , Await <$> Gen.enumBounded <*> genOneLine
         , Blocked <$> genOneLine
         , Failed <$> genOneLine
         ]

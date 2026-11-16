@@ -11,8 +11,10 @@ module State.Protocol.Record (
     usageOf,
     recordCommand,
     Option (..),
+    commandOption,
     recordOption,
     goes,
+    extend,
     extendOption,
     capRecords,
     Args (..),
@@ -35,6 +37,7 @@ import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
+import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (Outcome (..))
@@ -60,14 +63,20 @@ recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usag
     step = snd (unqualify name)
 
 {- | One way on from where the run is: the exact command, and what taking
-it means, where the run goes next among it.
+it means, where the run goes next among it. A spawn's command names the
+agent, not how it runs: whether in the background is the run's interface's
+to say, told when the option is printed.
 -}
-data Option = Option {command :: Text, means :: Text}
+data Option = Option {command :: Text, means :: Text, spawns :: Bool}
     deriving stock (Eq, Show)
+
+-- | An option taken by running its command.
+commandOption :: Text -> Text -> Option
+commandOption command means = Option command means False
 
 -- | The record of an event along its edge, saying where the run goes.
 recordOption :: EventName -> Edge Node -> Option
-recordOption event edge = Option (recordCommand event) (goes edge)
+recordOption event edge = commandOption (recordCommand event) (goes edge)
 
 -- | Where an edge takes the run, in words.
 goes :: Edge Node -> Text
@@ -84,7 +93,7 @@ goes edge = case (edge.arrow, edge.to, edge.back) of
 
 -- | The @state record@ line that extends a used-up budget, on the user's yes.
 extendOption :: Option
-extendOption = Option (Text.unwords ["state record", extend.name, usageOf extend]) "when the user goes on: the used-up budgets here start afresh"
+extendOption = commandOption (Text.unwords ["state record", extend.name, usageOf extend]) "when the user goes on: the used-up budgets here start afresh"
 
 {- | What the run may record at a used-up budget of the step at this state:
 the ways out of its loop, then as its 'AtCap' says - nothing more, a stop,
@@ -93,7 +102,7 @@ or an @extend@ (with the step's own outcomes when no way leaves).
 capRecords :: OpenGraph -> Place -> AtCap -> [Option]
 capRecords g place atCap = case atCap of
     Refuse -> exits
-    Stop -> exits <> [Option "state stop rounds <why>" "stops the run: the budget is used up"]
+    Stop -> exits <> [commandOption "state stop rounds <why>" "stops the run: the budget is used up"]
     Extend -> extendOption : if null exits then outs else exits
   where
     exits = [recordOption event edge | (event, edge) <- leaving g place]
@@ -141,7 +150,8 @@ recordables =
         <> [nothing (Enough choice) | choice <- Choice.choices]
         <> [ extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
-                [path] -> Right (Plain (tookIn a.scope (PlanDone (Text.unpack path))))
+                -- Read as a file only to refuse a plan not written yet.
+                [path] -> Right (FromFile (Text.unpack path) (const (Right (tookIn a.scope (PlanDone (Text.unpack path))))))
                 _ -> Left "the plan's path"
            , nothing SimplifyPlanDone
            , nothing SimplifyPlanSkipped
@@ -174,12 +184,13 @@ recordables =
            , url Ready ReadySkipped
            ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
-        <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+        <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+                [task, "round", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Plain . TaskMoved (TaskId task) . Round) (parsePrUrl pr)
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
                 task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
                 -- Two words never move a task, so a task named add stays recordable.
                 ["add", path] -> Right (FromFile (Text.unpack path) (fmap TaskAdded . Codec.decodeTask))
-                _ -> Left "the task, then ci, review, merged or kept and its PR, or parked and why; or add and a task file"
+                _ -> Left "the task, then ci, review, merged, kept or round and its PR, or parked and why; or add and a task file"
            , stay "held" "<task> <url>" $ \case
                 [task, link] -> Right (Held (TaskId task) (Url link))
                 _ -> Left "the task and the url"

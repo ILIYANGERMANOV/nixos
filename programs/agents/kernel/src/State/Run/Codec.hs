@@ -30,10 +30,12 @@ module State.Run.Codec (
     judgementText,
     flowText,
     opText,
+    waitingText,
     shaText,
     urlText,
     taskIdText,
     branchText,
+    repoText,
     taskStateName,
     taskStateArgs,
     prStates,
@@ -62,10 +64,10 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Step (eventText)
-import State.Role (RoleDef (..), roleText)
-import State.Role qualified as Role
+import State.Role (flowText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
+    AgentId (..),
     AgentRole (..),
     AnyOutcome,
     Asker (..),
@@ -74,7 +76,6 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     EventId (..),
-    FlowName (..),
     Note (..),
     Op (..),
     Parent (..),
@@ -91,13 +92,14 @@ import State.Run.Event (
     TaskId (..),
     TaskState (..),
     Url (..),
+    Waiting (..),
     eventId,
     parseRunId,
     runIdText,
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, repoText, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
 import System.FilePath ((</>))
@@ -225,6 +227,9 @@ eventType = \case
     TaskAdded _ -> "task_added"
     Restarted -> "restarted"
     WorkerHandedBack _ _ -> "worker_handed_back"
+    WorkerSpawned _ _ -> "worker_spawned"
+    WorkerReturned _ _ -> "worker_returned"
+    Voided _ _ -> "voided"
 
 eventData :: Event -> Series
 eventData = \case
@@ -269,6 +274,9 @@ eventData = \case
     TaskAdded task -> pair "task" (taskEncoding task)
     Restarted -> mempty
     WorkerHandedBack (AgentRole role) line -> "role" .= role <> "line" .= oneLineText line
+    WorkerSpawned (AgentRole role) agent -> "role" .= role <> "agent" .= agent.agentIdText
+    WorkerReturned (AgentRole role) agent -> "role" .= role <> "agent" .= fmap (.agentIdText) agent
+    Voided n why -> "seq" .= n <> "why" .= why
   where
     qidData qid = "qid" .= qidText qid
 
@@ -295,6 +303,9 @@ eventOf kind obj = case kind of
     "task_added" -> TaskAdded <$> (obj .: "task" >>= Artifact.taskOf)
     "restarted" -> pure Restarted
     "worker_handed_back" -> WorkerHandedBack . AgentRole <$> obj .: "role" <*> oneLineAt "line" obj
+    "worker_spawned" -> WorkerSpawned . AgentRole <$> obj .: "role" <*> (AgentId <$> obj .: "agent")
+    "worker_returned" -> WorkerReturned . AgentRole <$> obj .: "role" <*> (fmap AgentId <$> obj .: "agent")
+    "voided" -> Voided <$> obj .: "seq" <*> obj .: "why"
     _ -> case Map.lookup step outcomeParsers of
         Just parser -> Took scope <$> parser obj
         Nothing -> fail ("unknown event type " <> show kind)
@@ -318,19 +329,26 @@ taskOf obj = TaskId <$> obj .: "task"
 sent it, a stop's as 'stopWire' spells it.
 -}
 saidData :: Said -> Series
-saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid
+saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid <> waits
   where
     (token, ref, qid) = case said of
         Finished summary -> ("READY", Just (oneLineText summary), Nothing)
         AsksUp asked -> ("NEEDS_DECISION", Nothing, Just asked)
-        AwaitsCi on -> ("AWAIT", Just (oneLineText on), Nothing)
+        Awaits _ on -> ("AWAIT", Just (oneLineText on), Nothing)
         Ended stop -> let (word, payload) = stopWire stop in (word, Just payload, Nothing)
+    -- Only a merge is named: a log from before merges climbed awaits CI.
+    waits = case said of
+        Awaits Merge _ -> "on" .= waitingText Merge
+        Awaits Ci _ -> mempty
+        Finished _ -> mempty
+        AsksUp _ -> mempty
+        Ended _ -> mempty
 
 saidOf :: Object -> Parser Said
 saidOf obj =
     obj .: "token" >>= \case
         "READY" -> Finished <$> oneLineAt "ref" obj
-        "AWAIT" -> AwaitsCi <$> oneLineAt "ref" obj
+        "AWAIT" -> Awaits <$> (obj .:? "on" >>= maybe (pure Ci) (named "awaited" (parseByName waitingText))) <*> oneLineAt "ref" obj
         token ->
             obj .:? "ref" >>= \case
                 Nothing | token == "NEEDS_DECISION" -> AsksUp <$> qidOf obj
@@ -379,6 +397,7 @@ taskStateData moved = "state" .= taskStateName moved <> "why" .= why <> "pr" .= 
         InReview url -> (Nothing, Just url)
         Merged url -> (Nothing, Just url)
         Kept url -> (Nothing, Just url)
+        Round url -> (Nothing, Just url)
         Parked reason parkedPr -> (Just reason, parkedPr)
 
 taskStateOf :: Object -> Parser TaskState
@@ -392,7 +411,7 @@ taskStateOf obj = do
 
 -- | The states that name their PR, by the name 'taskStateName' gives each: @state record task@'s and the log's.
 prStates :: [(Text, Url -> TaskState)]
-prStates = [("ci", InCi), ("review", InReview), ("merged", Merged), ("kept", Kept)]
+prStates = [("ci", InCi), ("review", InReview), ("merged", Merged), ("kept", Kept), ("round", Round)]
 
 -- | As @state record task@ names it.
 taskStateName :: TaskState -> Text
@@ -401,6 +420,7 @@ taskStateName = \case
     InReview _ -> "review"
     Merged _ -> "merged"
     Kept _ -> "kept"
+    Round _ -> "round"
     Parked _ _ -> "parked"
 
 -- | The arguments @state record task@ takes after the task's id for this state.
@@ -412,6 +432,7 @@ taskStateArgs moved =
             InReview pr -> [urlText pr]
             Merged pr -> [urlText pr]
             Kept pr -> [urlText pr]
+            Round pr -> [urlText pr]
             Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
 
 startOf :: Object -> Parser Start
@@ -422,17 +443,24 @@ startOf obj =
         <*> (obj .: "principal" >>= principalOf)
         <*> (Set.fromList <$> (obj .: "interface" >>= traverse (named "operation" (parseByName opText))))
 
--- | The user is a bare word; a parent run is its id, its log, the task it gave and a round's PR.
+{- | The user on its own PR is a bare word, as a log older than rounds wrote
+it; the user's round is its PR; a parent run is its id, its log, the task it
+gave and a round's PR.
+-}
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
-    ByUser -> text "user"
+    ByUser OwnPr -> text "user"
+    ByUser shape@(RoundOn _) -> pairs (shapeData shape)
     ByRole parent shape -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task <> shapeData shape)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
-    String "user" -> pure ByUser
-    Object obj -> ByRole <$> (Parent <$> (obj .: "run" >>= runIdOf) <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj
-    other -> fail ("a principal is \"user\" or {run, log}, not " <> show other)
+    String "user" -> pure (ByUser OwnPr)
+    Object obj ->
+        obj .:? "run" >>= \case
+            Nothing -> ByUser . RoundOn . Url <$> obj .: "pr"
+            Just run -> ByRole <$> (Parent <$> runIdOf run <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj
+    other -> fail ("a principal is \"user\", {pr} or {run, log}, not " <> show other)
 
 askingOf :: Object -> Parser Asking
 askingOf obj = do
@@ -497,8 +525,11 @@ oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneL
 runIdOf :: Text -> Parser RunId
 runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break")) pure (parseRunId raw)
 
-flowText :: FlowName -> Text
-flowText = roleText . (.name) . Role.role
+-- | #360's @AWAIT <what> <refs>@: what a run hands up to be waited on.
+waitingText :: Waiting -> Text
+waitingText = \case
+    Ci -> "ci"
+    Merge -> "merge"
 
 opText :: Op -> Text
 opText = \case

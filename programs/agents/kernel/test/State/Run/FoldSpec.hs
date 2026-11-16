@@ -24,7 +24,7 @@ import State.Flow.Engineer (engineer)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
-import State.Run.Event
+import State.Run.Event hiding (Merge)
 import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
@@ -47,7 +47,12 @@ spec = describe "State.Run.Fold" $ do
         outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
 
     describe "the 10x's fan-out" $ do
-        let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
+        let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
+            tenXRun = replay tenXGraph . tenXLog
+            -- The writer's path: one more line to the replayed log.
+            tenXAppend events event = do
+                state <- tenXRun events
+                appendTo tenXGraph state (tenXLog events) (line (fromIntegral (length events) + 1) event)
             toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
             rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone engineers (tasksOf (plainTask "t2" [] :| [])))]
@@ -58,9 +63,15 @@ spec = describe "State.Run.Fold" $ do
         it "logs a child's spawn and hand-back at the fan-out, staying there" $
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))])
                 `shouldBe` Right (Just (StateName "engineers"))
-        it "refuses to leave the fan-out while a task is unsettled" $
-            tenXRun (toEngineers <> [Spawned child, stepTook (FanDone engineers)])
+        it "refuses to write the fan-out's end while a task is unsettled" $
+            tenXAppend (toEngineers <> [Spawned child]) (stepTook (FanDone engineers))
                 `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
+        it "refuses to write the fan-out's end while a finished task's PR is in CI" $
+            tenXAppend (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi (Url "pr"))]) (stepTook (FanDone engineers))
+                `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
+        it "replays a v4 log's fan-out end with a finished task's PR in CI" $
+            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi (Url "pr")), stepTook (FanDone engineers)])
+                `shouldBe` Right (Just (StateName "merge"))
         it "leaves the fan-out for the merge once every task is settled" $
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), stepTook (FanDone engineers)])
                 `shouldBe` Right (Just (StateName "merge"))
@@ -86,8 +97,30 @@ spec = describe "State.Run.Fold" $ do
         it "frees every agent at a restart, so its child waits on the run" $
             fmap (.child.run) . Fan.waiting . currentFan <$> tenXRun (toEngineers <> [Spawned child, Restarted]) `shouldBe` Right [runId "c1"]
 
+    describe "a lead's workers" $ do
+        let fixer = AgentRole "fixer"
+            atWork events = map (\worker -> (worker.agent, worker.spawnedAt)) . (.live) <$> replay g (logOf (Started start0 :| events))
+            start0 = startOf EngineerFlow (ByUser OwnPr)
+            spawn role agent = WorkerSpawned role (AgentId agent)
+        it "holds each worker spawned, by the seq of its spawn, until the one of its id returns" $
+            atWork [spawn fixer "a1", spawn fixer "a2", WorkerReturned fixer (Just (AgentId "a2"))] `shouldBe` Right [(AgentId "a1", 1)]
+        it "closes the oldest of the role when the return names no id" $
+            atWork [spawn fixer "a1", spawn (AgentRole "implementer") "b1", spawn fixer "a2", WorkerReturned fixer Nothing] `shouldBe` Right [(AgentId "b1", 2), (AgentId "a2", 3)]
+        it "changes nothing at the return of a worker not at work" $
+            atWork [spawn fixer "a1", WorkerReturned fixer (Just (AgentId "a9")), WorkerReturned (AgentRole "implementer") Nothing] `shouldBe` Right [(AgentId "a1", 1)]
+        it "forgets every worker at a restart" $
+            atWork [spawn fixer "a1", Restarted] `shouldBe` Right []
+        it "forgets a worker whose spawn is voided, so its lead may hand back" $
+            atWork [spawn fixer "a1", spawn fixer "a2", Voided 1 "lost at a crash"] `shouldBe` Right [(AgentId "a2", 2)]
+        it "a_worker_returned_by_its_id_is_at_work_no_more" . hedgehog $ do
+            -- A hook logs each worker's spawn once: ids are distinct.
+            ids <- forAll (Gen.shuffle =<< Gen.subsequence ["a1", "a2", "a3", "a4", "a5"])
+            back <- forAll (Gen.shuffle =<< Gen.subsequence ids)
+            let left = map fst <$> atWork (map (spawn fixer) ids <> [WorkerReturned fixer (Just (AgentId agent)) | agent <- back])
+            fmap (filter (`elem` map AgentId back)) left === Right []
+
     describe "two fan-outs in one flow" $ do
-        let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow ByUser) :| events))
+        let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
             t1 = TaskId "t1"
             firstDone =
                 [ stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
@@ -118,7 +151,7 @@ spec = describe "State.Run.Fold" $ do
                 _ -> False
 
     describe "two scoped copies of one fan-out" $ do
-        let copiesRun events = replay scopedFans (logOf (Started (startOf TenXFlow ByUser) :| events))
+        let copiesRun events = replay scopedFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
             inA = tookIn (scopePath "a")
             settled =
                 [ inA (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
@@ -212,6 +245,28 @@ spec = describe "State.Run.Fold" $ do
     it "logs a hook record fired twice once" $ do
         let hook n = hookLine "ab12" n (stepTook ResearchSpawned)
         (.at) <$> replay g (line 0 started :| [hook 1, hook 2]) `shouldBe` (.at) <$> replay g (line 0 started :| [hook 1])
+
+    describe "a void" $ do
+        it "a_void_replays_as_the_line_never_logged" . hedgehog $ do
+            events <- forAll genAccepted
+            let logged = logOf (started :| events)
+                lastSeq = fromIntegral (length events)
+            target <- forAll (Gen.integral (Range.linear 0 lastSeq))
+            state <- evalEither (replay g logged)
+            let without = maybe (Left NotStarted) (replay g) (NonEmpty.nonEmpty (NonEmpty.filter ((/= target) . (.seq)) logged))
+                voided = appendTo g state logged (line (lastSeq + 1) (Voided target "logged in error"))
+            cover 5 "the log without it replays" (isRight without)
+            cover 5 "the log without it does not" (not (isRight without))
+            (unseenIn <$> voided) === either (Left . VoidBreaks target) (Right . Appended . unseen) without
+        it "refuses a seq no line the run replays has: none, a voided one, a void" $ do
+            let logged = line 0 started :| [line 1 (FuelSet Max), line 2 (Voided 1 "set by mistake")]
+            state <- either (fail . show) pure (replay g logged)
+            [appendTo g state logged (line 3 (Voided n "why")) | n <- [9, 1, 2]] `shouldBe` map (Left . NotVoidable) [9, 1, 2]
+        it "keeps a voided hook line's id, so the hook fired again logs nothing" $ do
+            let hooked = hookLine "ab12" 1 (stepTook ResearchSpawned)
+                logged = line 0 started :| [hooked, line 2 (Voided 1 "fired at the wrong run")]
+            state <- either (fail . show) pure (replay g logged)
+            (Right state.at, append g state hooked {seq = 3}) `shouldBe` ((.at) <$> replay g (line 0 started :| []), Right AlreadyLogged)
 
     it "state_is_a_fold" . hedgehog $ do
         events <- forAll genAccepted
@@ -401,7 +456,7 @@ tenXRounds = describe "the 10x's rounds" $ do
     t1 = TaskId "t1"
     parent = Parent (runId "p1") "p1/events.jsonl" t1
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map (Took mempty) (init happyPath) <> [stepTook (ReadySkipped pr)]))
-    tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
+    tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
     agreed = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough gathering), stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
     onPr = roundTask "t1" "https://pr/1"
     toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (task :| [])))]
@@ -435,7 +490,7 @@ questions = describe "questions" $ do
         replay g (logOf (started :| [ask 1 Fact, Forwarded (q 1) TheUser])) `shouldBe` Left (NotAllowed (MustAnswer Role.Lead Fact))
 
     it "refuses a ruling on a question retagged Security that names no basis" $
-        replay g (logOf (Started (startOf TenXFlow ByUser) :| [ask 1 Design, RetaggedSecurity (q 1), RuledOn (q 1) proposal]))
+        replay g (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| [ask 1 Design, RetaggedSecurity (q 1), RuledOn (q 1) proposal]))
             `shouldBe` Left (NotAllowed (NoBasis (q 1)))
 
     it "refuses a forward to another than whoever started the run" $
@@ -455,6 +510,12 @@ questions = describe "questions" $ do
 
     it "refuses asking a ruled question again, so a retried relay is ruled once" $
         replay g (logOf (started :| [ask 1 Pick, RuledOn (q 1) proposal, ask 1 Pick])) `shouldBe` Left (AskedTwice (q 1))
+
+    it "takes an answer it holds again as no news, and refuses another" $ do
+        let answered = [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser]
+        map (\more -> (.answers) <$> replay g (logOf (started :| answered <> more))) [[], [Answered (q 1) "yes" TheUser]]
+            `shouldBe` replicate 2 (Right [Fold.Answer (Question (q 1) Design (oneLine "a question")) "yes"])
+        replay g (logOf (started :| answered <> [Answered (q 1) "no" TheUser])) `shouldBe` Left (AnsweredOtherwise (q 1) "yes")
 
     it "refuses asking an answered question again" $
         replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser, ask 1 Design]))
@@ -489,6 +550,11 @@ questions = describe "questions" $ do
         for_ (zip rungs logs) $ \(rung, events) -> do
             state <- evalEither (replay g (runLog rung events))
             state.pending === []
+            -- An answer that came down, given again, is no news; another is refused.
+            for_ [(qid, answer, by) | Answered qid answer by <- events] $ \(qid, answer, by) -> do
+                again <- evalEither (replay g (runLog rung (events <> [Answered qid answer by])))
+                (again.answers, again.pending) === (state.answers, state.pending)
+                replay g (runLog rung (events <> [Answered qid (answer <> " or not") by])) === Left (AnsweredOtherwise qid answer)
   where
     q = QId run
     ask n kind = Asked (Asking (Question (q n) kind (oneLine "a question")) (StateName "implement") Itself)
@@ -531,7 +597,7 @@ or a parent, keeping those the fold accepts: the run state and the events.
 genAskLog :: Gen (RunState, [Event])
 genAskLog = do
     flow <- Gen.enumBounded
-    principal <- Gen.element [ByUser, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr]
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr]
     first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
     go tries first 1 0
@@ -575,9 +641,9 @@ genChain =
     (,)
         <$> Gen.element [Itself, Subagent (AgentRole "implementer")]
         <*> Gen.element
-            [ [rung "e1" EngineerFlow ByUser]
-            , [rung "x1" TenXFlow ByUser]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr), rung "x1" TenXFlow ByUser]
+            [ [rung "e1" EngineerFlow (ByUser OwnPr)]
+            , [rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)
@@ -622,3 +688,12 @@ climb from question = \case
 
 runLog :: Rung -> [Event] -> NonEmpty Envelope
 runLog rung events = NonEmpty.zipWith (lineOf rung.run) (0 :| [1 ..]) (Started rung.start :| events)
+
+-- | The state less the ids it has seen, which a void keeps.
+unseen :: RunState -> RunState
+unseen state = state {seen = Set.empty}
+
+unseenIn :: Append -> Append
+unseenIn = \case
+    Appended state -> Appended (unseen state)
+    AlreadyLogged -> AlreadyLogged

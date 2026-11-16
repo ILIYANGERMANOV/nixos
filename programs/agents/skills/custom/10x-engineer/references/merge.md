@@ -2,6 +2,10 @@
 
 One merge at a time. A wake only says where to look: re-read everything live.
 
+Under a parent, `state next` at merge hands back `AWAIT merge <PR>...`. The
+top merges each by this loop, then resumes that child with "Merged `<PR>`.":
+the child runs `state record task <id> merged <PR>`, then `state next`.
+
 ## Read
 
 ```sh
@@ -71,7 +75,8 @@ Either way, SKILL.md's CI, whose green reruns the gates.
 GitHub sends no webhook when a base advance makes a PR conflict, so check it
 yourself:
 
-1. Confirm `state` is `MERGED`. `state record task <id> merged <url>`, notify.
+1. Confirm `state` is `MERGED`. `state record task <id> merged <url>`, notify;
+   a PR from a child's `AWAIT merge`: resume that child, as above.
 2. `git -C <clone> worktree remove <path>`, then
    `git -C <clone> branch -D <branch>`, with `<clone>` as `references/brief.md`
    defines it.

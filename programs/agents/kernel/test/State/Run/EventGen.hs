@@ -50,6 +50,7 @@ import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
+import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), gathering)
@@ -95,6 +96,9 @@ genEvent =
         , TaskAdded <$> (Gen.int (Range.linear 1 6) >>= genTaskAt)
         , pure Restarted
         , WorkerHandedBack . AgentRole <$> genText <*> genOneLine
+        , WorkerSpawned . AgentRole <$> genText <*> (AgentId <$> genText)
+        , WorkerReturned . AgentRole <$> genText <*> Gen.maybe (AgentId <$> genText)
+        , Voided <$> Gen.integral (Range.linear 0 100000) <*> genText
         ]
 
 genPath :: Gen FilePath
@@ -105,7 +109,7 @@ genSaid =
     Gen.choice
         [ Finished <$> genOneLine
         , AsksUp <$> genQId
-        , AwaitsCi <$> genOneLine
+        , Awaits <$> Gen.enumBounded <*> genOneLine
         , Ended <$> (Stop <$> Gen.enumBounded <*> genText)
         ]
 
@@ -116,6 +120,7 @@ genTaskState =
         , InReview . Url <$> genText
         , Merged . Url <$> genText
         , Kept . Url <$> genText
+        , Round . Url <$> genText
         , Parked <$> genText <*> Gen.maybe (Url <$> genText)
         ]
 
@@ -144,8 +149,21 @@ genTaskAt i =
         <*> Gen.bool
         <*> genSet Gen.enumBounded
         <*> genShape
+        <*> Gen.maybe genRepo
+        <*> Gen.maybe genWorktree
+        <*> Gen.enumBounded
   where
     taskNamed n = TaskId ("t" <> Text.pack (show n))
+
+-- | An @OWNER/REPO@, each side a word.
+genRepo :: Gen Repo
+genRepo = Repo <$> part <*> part
+  where
+    part = Gen.text (Range.linear 1 10) (Gen.element ['a', 'Z', '0', '-', '.', '_'])
+
+-- | An absolute path of the characters a shell reads as none of its syntax.
+genWorktree :: Gen ShellPath
+genWorktree = Gen.mapMaybe (shellPath . ('/' :)) (Gen.string (Range.linear 0 20) (Gen.element ("aZ09._/@+-" :: String)))
 
 genShape :: Gen Shape
 genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]
@@ -165,7 +183,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [pure ByUser, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -210,7 +228,7 @@ templates =
     , outcome (ReadySkipped (Url ""))
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr :| [])))
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr Nothing Nothing EngineerFlow :| [])))
               , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)
@@ -344,7 +362,7 @@ run = runId "r7f2"
 
 -- | A user's engineer run, in a session that can ask the user.
 start :: Start
-start = Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hooks])
+start = Start EngineerFlow "notes" (ByUser OwnPr) (Set.fromList [AskUser, Hooks])
 
 started :: Event
 started = Started start

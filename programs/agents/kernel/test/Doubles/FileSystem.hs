@@ -11,6 +11,7 @@ module Doubles.FileSystem (
 ) where
 
 import Data.ByteString (ByteString)
+import Data.List (stripPrefix)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -21,7 +22,7 @@ import Effectful.Dispatch.Dynamic (interpret, localSeqUnlift)
 import Effectful.Exception (finally, throwIO)
 import Effectful.State.Static.Local (State, gets, modify)
 import Effects.FileSystem (RoFileSystem (..), WrFileSystem (..))
-import System.FilePath (normalise, takeDirectory, (</>))
+import System.FilePath (normalise, splitDirectories, takeDirectory, (</>))
 import System.IO.Error (IOErrorType, doesNotExistErrorType, mkIOError, userErrorType)
 
 -- | Paths in it are absolute and normalised.
@@ -38,7 +39,10 @@ runRoFileSystemInMemory = interpret $ \env -> \case
             gets @Disk (Map.member file . (.files)) >>= \case
                 False -> pure Nothing
                 True -> readFile' file >>= either (const (failure userErrorType "invalid byte sequence" file)) (pure . Just) . decodeUtf8'
-    MakeAbsolute path -> absolute path
+    -- A file's directories hold it, made or not, as one written outside the shell's makes them.
+    ListDirectory path ->
+        absolute path >>= \dir ->
+            gets @Disk (\d -> Set.toList (Set.fromList [next | entry <- Map.keys d.files <> Set.toList d.dirs, Just (next : _) <- [stripPrefix (splitDirectories dir) (splitDirectories entry)]]))
     InDirectory path act -> do
         dir <- absolute path
         gets @Disk (Set.member dir . (.dirs)) >>= \case
@@ -52,11 +56,16 @@ runRoFileSystemInMemory = interpret $ \env -> \case
 
 runWrFileSystemInMemory :: (State Disk :> es) => Eff (WrFileSystem : es) a -> Eff es a
 runWrFileSystemInMemory = interpret $ \_ -> \case
-    WriteText path text -> do
+    WriteText path text -> written path text
+    -- One call is one step here: no reader runs between, so whole is all it can be.
+    WriteTextAtomic path text -> written path text
+    RemoveFile path -> absolute path >>= \file -> modify @Disk (\d -> d {files = Map.delete file d.files})
+    CreateDirectory path -> absolute path >>= \dir -> modify @Disk (\d -> d {dirs = d.dirs <> Set.fromList (ancestors dir)})
+  where
+    written path text = do
         file <- absolute path
         existingDirectory file
         modify @Disk (\d -> d {files = Map.insert file (encodeUtf8 text) d.files})
-    CreateDirectory path -> absolute path >>= \dir -> modify @Disk (\d -> d {dirs = d.dirs <> Set.fromList (ancestors dir)})
 
 -- | The path against the current directory.
 absolute :: (State Disk :> es) => FilePath -> Eff es FilePath

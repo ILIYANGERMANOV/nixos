@@ -16,6 +16,10 @@ module State.Step.Artifact (
     TaskId (..),
     Task (..),
     Shape (..),
+    Repo (..),
+    parsePrUrl,
+    prUrlRule,
+    ShellPath,
     Topic (..),
     Tasks,
     BreakdownError (..),
@@ -24,6 +28,12 @@ module State.Step.Artifact (
     shaText,
     urlText,
     branchText,
+    repoText,
+    shellPath,
+    shellPathText,
+    shellPathRule,
+    slugChar,
+    shellWord,
     taskIdText,
     topicText,
     judgementText,
@@ -56,16 +66,20 @@ import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject,
 import Data.Aeson.Encoding (Encoding, list, pair, pairs)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
+import State.FlowName (FlowName, defaultFlow, flowText, namedFlowText)
+import System.FilePath (isAbsolute)
 
 -- | The draft PR, synced from GitHub.
 data DraftPr = DraftPr {url :: Url, base :: Branch, branch :: Branch}
@@ -120,8 +134,82 @@ data Task = Task
     -- ^ Advisory: the kernel caps nothing on it; it stays on the wire for old breakdowns.
     , security :: Set Topic
     , shape :: Shape
+    , repo :: Maybe Repo
+    -- ^ The repo the task's work lands in, when the breakdown names it: its brief's notes dir.
+    , worktree :: Maybe ShellPath
+    -- ^ When the breakdown names it: its brief's init line runs there.
+    , flow :: FlowName
+    -- ^ The flow its child run follows: an engineer's unless the breakdown names another.
     }
     deriving stock (Eq, Show)
+
+-- | A GitHub repository as @gh@ names it, @OWNER/REPO@.
+data Repo = Repo {owner :: Text, name :: Text}
+    deriving stock (Eq, Show)
+
+{- | @OWNER/REPO@: one slash, each side non-empty and of 'slugChar's, as
+GitHub allows, so a brief prints it in a shell line unquoted.
+-}
+parseRepo :: Text -> Maybe Repo
+parseRepo raw = case Text.splitOn "/" raw of
+    [owner, name] | all part [owner, name] -> Just (Repo owner name)
+    _ -> Nothing
+  where
+    part text = not (Text.null text) && Text.all slugChar text
+
+repoText :: Repo -> Text
+repoText repo = repo.owner <> "/" <> repo.name
+
+{- | A pull request's URL as GitHub prints it,
+@https://github.com/OWNER/REPO/pull/N@: a 'parseRepo' repo and a number
+from 1, with no leading zero, so one PR has one spelling.
+-}
+parsePrUrl :: Text -> Maybe Url
+parsePrUrl raw = case Text.splitOn "/" <$> Text.stripPrefix "https://github.com/" raw of
+    Just [owner, name, "pull", number]
+        | Just _ <- parseRepo (owner <> "/" <> name)
+        , Just (lead, _) <- Text.uncons number
+        , lead /= '0'
+        , Text.all isDigit number ->
+            Just (Url raw)
+    _ -> Nothing
+
+-- | What 'parsePrUrl' accepts, as a refusal names it.
+prUrlRule :: Text
+prUrlRule = "a GitHub PR URL, https://github.com/<owner>/<repo>/pull/<n>"
+
+{- | A path a shell line prints unquoted, so it runs from any directory:
+absolute, of 'slugChar's, @/@, @\@@ and @+@ only - none a shell reads as
+syntax. Built by 'shellPath' alone.
+-}
+newtype ShellPath = ShellPath FilePath
+    deriving stock (Eq, Show)
+
+shellPath :: FilePath -> Maybe ShellPath
+shellPath path
+    | isAbsolute path, all pathChar path = Just (ShellPath path)
+    | otherwise = Nothing
+  where
+    pathChar c = slugChar c || c `elem` ("/@+" :: String)
+
+shellPathText :: ShellPath -> FilePath
+shellPathText (ShellPath path) = path
+
+-- | What 'shellPath' accepts, as a refusal names it.
+shellPathRule :: String
+shellPathRule = "an absolute path of ASCII letters, digits and ._/@+-"
+
+-- | A character a shell word holds unquoted, with no meaning to the shell: ASCII letters, digits, @.@, @_@ and @-@.
+slugChar :: Char -> Bool
+slugChar c = isAsciiLower c || isAsciiUpper c || isDigit c || c `elem` ("._-" :: String)
+
+{- | Text as one shell word: as it is when all 'slugChar's, else single-quoted
+with each @'@ written @'\\''@, so a printed line runs as it reads.
+-}
+shellWord :: Text -> Text
+shellWord text
+    | not (Text.null text), Text.all slugChar text = text
+    | otherwise = "'" <> Text.replace "'" "'\\''" text <> "'"
 
 {- | What the task's engineer does to its PR. A round on a PR that already
 exists leaves it open: its run skips @ready@, and the task settles kept.
@@ -224,6 +312,13 @@ taskEncoding task =
             <> "heavy" .= task.heavy
             <> "security" .= map topicText (Set.toList task.security)
             <> shapeData task.shape
+            <> maybe mempty (("repo" .=) . repoText) task.repo
+            <> maybe mempty (("worktree" .=) . shellPathText) task.worktree
+            <> flowData task.flow
+
+-- | The default flow is omitted, so a breakdown older than flows encodes as it was written.
+flowData :: FlowName -> Series
+flowData = maybe mempty ("flow" .=) . namedFlowText
 
 -- | Only a round names its PR: a log older than rounds reads as own PRs.
 shapeData :: Shape -> Series
@@ -276,18 +371,24 @@ breakdownOf value = do
 taskOf :: Value -> Parser Task
 taskOf = withObject "task" taskFieldsOf
 
+-- | By name, as a field a later breakdown adds is one more line; an optional one is omitted when absent.
 taskFieldsOf :: Object -> Parser Task
-taskFieldsOf obj =
-    Task . TaskId
-        <$> obj .: "id"
-        <*> (map TaskId <$> obj .: "deps")
-        <*> (Branch <$> obj .: "base")
-        <*> (Branch <$> obj .: "branch")
-        <*> (obj .: "fuel" >>= named "fuel" parseFuel)
-        <*> obj .: "qa"
-        <*> obj .: "heavy"
-        <*> (obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic")
-        <*> shapeOf obj
+taskFieldsOf obj = do
+    taskId <- TaskId <$> obj .: "id"
+    deps <- map TaskId <$> obj .: "deps"
+    base <- Branch <$> obj .: "base"
+    branch <- Branch <$> obj .: "branch"
+    fuel <- obj .: "fuel" >>= named "fuel" parseFuel
+    qa <- obj .: "qa"
+    heavy <- obj .: "heavy"
+    security <- obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic"
+    shape <- shapeOf obj
+    repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
+    worktree <- obj .:? "worktree" >>= traverse worktreeOf
+    flow <- fromMaybe defaultFlow <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
+    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree, flow}
+  where
+    worktreeOf path = maybe (fail ("a worktree is " <> shellPathRule <> ", not " <> show path)) pure (shellPath path)
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"
