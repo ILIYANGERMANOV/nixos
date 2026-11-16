@@ -929,11 +929,9 @@ PR by URL. No run, or a log that does not read, is a PR of its own, as
 before rounds.
 -}
 runShape :: (Shell es) => Eff es Shape
-runShape = do
-    path <- either (const (pure Nothing)) (fmap (fmap logOf) . readPointer) =<< gitDir
-    line <- maybe (pure Nothing) Log.firstLine path
-    pure $ case decodeLine <$> line of
-        Just (Right Envelope {event = Started start}) -> principalShape start.principal
+runShape =
+    pointedRun <&> \case
+        Just (_, Right Envelope {event = Started start}) -> principalShape start.principal
         _ -> OwnPr
 
 {- | The run's PR on GitHub and the lines it changes, each 'Nothing' when

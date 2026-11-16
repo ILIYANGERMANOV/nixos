@@ -52,7 +52,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isNothing, listToMaybe)
+import Data.Maybe (isJust, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import State.Run.Ask (QId)
@@ -158,7 +158,7 @@ spawned asking child fan = do
 stop is triaged, and no question of its children is open (@asking@).
 -}
 free :: [RunId] -> Task -> Fan -> Either Refusal ()
-free asking task fan = case (find ((== task.id) . (.child.task)) (running fan), find ((== task.id) . (.task) . fst) (untriaged fan), askingUp) of
+free asking task fan = case (runningOn task.id fan, find ((== task.id) . (.task) . fst) (untriaged fan), askingUp) of
     (Just other, _, _) -> Left (StillRunning task.id other.child.run)
     (Nothing, Just (stopped, _), _) -> Left (StopUntriaged stopped.run)
     (Nothing, Nothing, Just run) -> Left (AwaitsUser run)
@@ -214,7 +214,7 @@ moved task state fan = do
         (Merged _, _) -> Right ()
     Right (rounded fan {moves = Map.insert task state fan.moves, atWork = working})
   where
-    idle = case (find ((== task) . (.child.task)) (running fan), Set.member task fan.atWork) of
+    idle = case (runningOn task fan, Set.member task fan.atWork) of
         (Just child, _) -> Left (StillRunning task child.child.run)
         (Nothing, True) -> Left (AtWork task)
         (Nothing, False) -> Right ()
@@ -291,6 +291,10 @@ childTask fan run = lookupTask fan . (.child.task) =<< find ((== run) . (.child.
 -- | The children not yet finished or stopped, oldest first.
 running :: Fan -> [ChildRun]
 running fan = filter live fan.children
+
+-- | The task's running child, if one runs.
+runningOn :: TaskId -> Fan -> Maybe ChildRun
+runningOn task fan = find ((== task) . (.child.task)) (running fan)
 
 -- | The running children no agent works for: each waits on the 10x.
 waiting :: Fan -> [ChildRun]
@@ -425,7 +429,7 @@ mergesAwaited fan = [dep.id | dep <- fan.tasks, opened dep.id, any (elem dep.id 
 
 -- | The tasks with an agent at work or a child running, in the breakdown's order.
 busy :: Fan -> [Task]
-busy fan = [task | task <- fan.tasks, Set.member task.id fan.atWork || task.id `elem` map (.child.task) (running fan)]
+busy fan = [task | task <- fan.tasks, Set.member task.id fan.atWork || isJust (runningOn task.id fan)]
 
 -- | The children spawned for the task so far.
 tries :: Fan -> TaskId -> Int
