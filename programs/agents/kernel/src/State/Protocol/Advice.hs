@@ -602,7 +602,7 @@ deliver start = \case
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
     TriageStop child task stop -> "RUN " <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task <> askFrom (runIdText child) (stopLine stop)
-    TriageHandback (AgentRole role) line -> triageFrom role (oneLineText line)
+    TriageHandback (AgentRole role) line -> "RUN " <> askFrom role (oneLineText line)
     AwaitWorker role agent -> "AWAIT worker " <> roleText role <> " " <> agent.agentIdText
     AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
     -- Task ids mean nothing above this run: it hands up the PRs.
@@ -621,7 +621,6 @@ deliver start = \case
     has op = Set.member op start.interface
     -- A run that cannot be woken hands the wait up to the run above (#360's AWAIT).
     awaiting waiting refs = (if has Event.Await then "" else "HANDBACK ") <> "AWAIT " <> waitingText waiting <> " " <> refs
-    triageFrom from line = "RUN " <> askFrom from line
     askFrom from line = "state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
     asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
