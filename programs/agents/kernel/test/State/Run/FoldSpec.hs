@@ -245,6 +245,14 @@ spec = describe "State.Run.Fold" $ do
         stuck <$> replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red]))
             `shouldBe` Right [Stuck "ci" (Set.singleton (Failing (Check "lint")))]
 
+    -- Green is CI's own outcome: a stuck CI loop never claims it without CI.
+    it "refuses await_ci.green at fix_pr once Stuck was asked there" $ do
+        let red = stepTook (AwaitCiRed sha (Check "lint" :| []))
+            askStuck = Asked (Asking (Question (QId run 1) Ask.Stuck (oneLine "the ci loop repeats lint")) (StateName "fix_pr") Itself)
+        replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red, askStuck, stepTook (AwaitCiGreen sha)])) `shouldSatisfy` \case
+            Left (NoEdge _ _) -> True
+            _ -> False
+
     it "forgets a loop's rounds once the run leaves it" $
         stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReReviewClean sha)]))
             `shouldBe` Right []

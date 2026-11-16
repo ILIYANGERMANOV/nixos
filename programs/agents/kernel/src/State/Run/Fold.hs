@@ -66,7 +66,7 @@ import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
-import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
+import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName))
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
@@ -76,7 +76,7 @@ import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
-import State.Step.Catalog (AnyOutcome (..), Layer (..))
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
 import State.Step.Plan (Sing (SimplifyP))
 import State.Step.Review (Outcome (..), ReviewStep)
@@ -818,12 +818,13 @@ data Stuck = Stuck {loop :: Name, same :: Set Problem}
 {- | Once a Stuck question was asked in a loop's body, the edges that leave
 the loop from its entry, which the run may take from where it is: a stuck
 review loop ends by @pick.final@ at @fix@ without an override. None at the
-entry itself, whose edges are its own.
+entry itself, whose edges are its own, and none from an entry that awaits
+something outside the run: a stuck CI loop never claims @await_ci.green@.
 -}
 stuckExits :: OpenGraph -> RunState -> Place -> [(EventName, Edge Node)]
 stuckExits g state place = case innermost g place of
     Just loop
-        | Ask.Stuck `elem` state.askedHere && loop.entry /= place ->
+        | Ask.Stuck `elem` state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
             [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == loop.entry, not (inBody loop edge.to)]
     _ -> []
   where
@@ -831,6 +832,13 @@ stuckExits g state place = case innermost g place of
         At to -> Set.member to loop.body
         Out -> False
         Exit -> False
+    awaits entry = case stepNamed entry.name of
+        Just (AnyStep _ (SomeStep s)) -> case special s of
+            AwaitsCi -> True
+            AwaitsMerge -> True
+            Ordinary -> False
+            AsksConfirm -> False
+        Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses
 rows alternating A, B, A, B on purpose: no two rounds in a row share a row, and
