@@ -85,20 +85,23 @@ spec = describe "the hooks" $ do
         it "refuses a hook at an event it is not declared on" $
             wants steps SpawnHook (SessionStart (Call (SessionId "s") "/w" Nothing) Startup) `shouldBe` Left "state-hook spawn does not run at sessionStart"
 
-    describe "what a shell call routes" $ do
+    describe "what a call routes" $ do
         let shell agent tool command = wants steps RouteHook (BeforeTool (Call (SessionId "s") "/w" agent) tool (KeyMap.fromList [("command", String command)]))
         it "routes any agent's shell command" $
-            map (\agent -> shell agent Shell "state next") [Nothing, Just reviewLead] `shouldBe` replicate 2 (Right (Just (Routes "state next")))
+            map (\agent -> shell agent Shell "state next") [Nothing, Just reviewLead] `shouldBe` replicate 2 (Right (Just (Routes (RunsShell "state next"))))
 
-        it "routes no other tool's call" $
-            shell Nothing Read "state next" `shouldBe` Right Nothing
+        it "routes an edit, a write and a spawn, for the gate to weigh" $
+            map (\tool -> shell Nothing tool "") [Edit, Write, Delegate] `shouldBe` map (Right . Just . Routes) [Edits, Writes, Spawns]
+
+        it "routes no read, research or other call" $
+            map (\tool -> shell Nothing tool "state next") [Read, Web, Ask, Skill, Other] `shouldBe` replicate 5 (Right Nothing)
 
     describe "how work begins" $ do
         let startOf role = wants steps BeginHook (AgentStart (Call (SessionId "s") "/w" (Just (Agent (Just (AgentId "a1")) (AgentRole <$> role)))))
             called tool skill = wants steps BeginHook (BeforeTool (Call (SessionId "s") "/w" Nothing) tool (KeyMap.fromList [("skill", String skill)]))
-        it "begins a spawned engineer's run, and a step runner's brief" $
-            map (startOf . Just) ["engineer", "implementer", "review-lead"]
-                `shouldBe` map (Right . Just . Begins) [SpawnedLead, SpawnedWorker (AgentRole "implementer"), SpawnedWorker (AgentRole "review-lead")]
+        it "begins a spawned lead's run, and a step runner's brief" $
+            map (startOf . Just) ["engineer", "10x", "implementer", "review-lead"]
+                `shouldBe` map (Right . Just . Begins) [SpawnedLead, SpawnedLead, SpawnedWorker (AgentRole "implementer"), SpawnedWorker (AgentRole "review-lead")]
 
         it "says nothing to an agent the flows do not spawn, or one with no role" $
             map startOf [Just "reviewer", Just "Explore", Nothing] `shouldBe` replicate 3 (Right Nothing)

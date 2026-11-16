@@ -10,16 +10,18 @@ asked     afterTool ask         the answer lines of questions awaiting the user
 bind      afterTool shell       binds the agent to the run its @state init@ started or resumed
           afterTool delegate    binds a worker spawned to its spawner's run; records a hand-back it made first
 route     beforeTool shell      denies a @state@ command aimed at another run than the agent's
-begin     agentStart            context: how a spawned engineer begins, or a worker's brief
-          promptExpansion       context: how a typed lead skill begins
-          beforeTool skill      context: how a called lead skill begins
+          beforeTool edit,      denies an unbound lead's write: an edit, a commit, a push, a PR
+          write, delegate       opened or merged, a spawn
+begin     agentStart            context: how a spawned lead begins, or a worker's brief
+          promptExpansion       context: how a typed lead skill begins; marks the agent a lead
+          beforeTool skill      context: how a called lead skill begins; marks the agent a lead
 @
 
 Each finds the caller's run through its binding ("State.Protocol.Binding"),
 and its reply names the run it acted on; @begin@ reads no run.
 
-Only @route@ denies, and only a @state@ call at another run than the one the
-agent is bound to. None rewrites a call: what a hook says is context, a
+Only @route@ denies: a @state@ call at another run than the one the agent is
+bound to, and a lead's write before its run exists. None rewrites a call: what a hook says is context, a
 refusal or an error too (fail open and tell); auto mode denies a call a hook
 rewrote. Only the lead steers: a subagent's spawn or question is ignored, but
 a hand-back, which only a subagent makes. A child run's hand-back is its own
@@ -40,6 +42,7 @@ module State.Protocol.Hook (
     Want (..),
     Bind (..),
     Begin (..),
+    Gate (..),
     wants,
     keyOf,
     Delivery (..),
@@ -111,7 +114,7 @@ hookPurpose = \case
     HandbackHook -> "Before a hand-back: records it, printing the record"
     AskedHook -> "After an ask: answer lines of questions to the user"
     BindHook -> "After a shell or delegate: binds the agent to its run"
-    RouteHook -> "Before a shell: denies a state command at another run"
+    RouteHook -> "Denies a state call off its run, a write before init"
     BeginHook -> "At a spawn or a lead skill: how its work begins"
 
 -- | One event of the neutral contract. @history@ and @context@ are required, never read.
@@ -194,9 +197,13 @@ startSourceName = \case
     Compact -> "compact"
 
 {- | What a hook does: ask the caller's run, bind an agent to its run, route
-a shell command (its text) to the agent's run, or tell how work begins.
+a call to the agent's run, or tell how work begins.
 -}
-data Job = Asks Want | Binds Bind | Routes Text | Begins Begin
+data Job = Asks Want | Binds Bind | Routes Gate | Begins Begin
+    deriving stock (Eq, Show)
+
+-- | A call @route@ weighs: a shell command (its text), or a write no run may miss.
+data Gate = RunsShell Text | Edits | Writes | Spawns
     deriving stock (Eq, Show)
 
 -- | What a hook asks of the worktree's run.
@@ -219,7 +226,7 @@ data Bind
 
 -- | Whose work begins, and where its text goes.
 data Begin
-    = -- | A spawned engineer, which leads a run of its own.
+    = -- | A spawned lead (an engineer, a 10x), which leads a run of its own.
       SpawnedLead
     | -- | A spawned step runner.
       SpawnedWorker AgentRole
@@ -269,7 +276,19 @@ wants steps hook event = case hook of
         AgentStart _ -> undeclared
         PromptExpansion _ _ -> undeclared
     RouteHook -> case event of
-        BeforeTool _ tool input -> Right (Routes <$> (guard (tool == Shell) *> textAt "command" input))
+        BeforeTool _ tool input ->
+            Right $
+                Routes <$> case tool of
+                    Shell -> RunsShell <$> textAt "command" input
+                    Edit -> Just Edits
+                    Write -> Just Writes
+                    Delegate -> Just Spawns
+                    Read -> Nothing
+                    HandbackTool -> Nothing
+                    Ask -> Nothing
+                    Web -> Nothing
+                    Skill -> Nothing
+                    Other -> Nothing
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
         AgentStart _ -> undeclared

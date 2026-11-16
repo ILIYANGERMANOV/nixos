@@ -156,14 +156,14 @@ ruleOf (AgentRole role)
     | role == "review-lead" = Render.planWrong
     | otherwise = ""
 
-{- | What a hook tells as work begins (#403): a spawned engineer and a lead
+{- | What a hook tells as work begins (#403): a spawned lead and a lead
 skill how its run starts, a step runner its brief. Stated as facts, as
 imperative text in a hook's context can read as an injected order.
 -}
 beginText :: Steps -> Begin -> Text
 beginText steps = \case
     SpawnedLead ->
-        "state: this engineer's run is driven by `state`. Its first command is the `state init` line in its prompt, as written; "
+        "state: this lead's run is driven by `state`. Its first command is the `state init` line in its prompt, as written; "
             <> "then `state next`, until it prints DONE.\n"
     SpawnedWorker role -> briefOf steps role
     TypedSkill -> skillBegins

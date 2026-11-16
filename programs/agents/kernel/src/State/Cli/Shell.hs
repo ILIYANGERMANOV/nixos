@@ -16,7 +16,7 @@ import Data.Foldable (toList, traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -44,17 +44,18 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
-import State.Cli.Route (StateCall (..), route, stateCalls)
+import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
+import State.Cli.Route qualified as Route
 import State.Cli.View (beginText, brief, pendingLines, showRun)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverPrompt, due, explained, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
-import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
+import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), HookName (HandbackHook), Job (..), Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -133,25 +134,45 @@ hook argv = case parseHook argv of
   where
     usage line = Console.err (line <> "\n") $> ExitFailure 2
 
-{- | A hook's reply to its job: how work begins needs no run; a route
-denies a @state@ call at another run than the caller's; the rest is what the
-caller's run says. A disk or git error is context naming the run once one is
+{- | A hook's reply to its job: how work begins needs no run, a lead skill
+marking its agent a lead; a route denies a @state@ call at another run than
+the caller's, and an unbound lead's write; the rest is what the caller's run
+says. A disk or git error is context naming the run once one is
 known: the bound one, then the one found. One before either, such as reading
 the caller's binding, names none, as no run is known yet.
 -}
 jobReply :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Job -> Eff es Reply
 jobReply steps name input call job = case job of
-    Begins begin -> pure (replyOf job (beginText steps begin))
-    Routes command -> case stateCalls steps call.cwd command of
-        [] -> pure Quiet
-        calls ->
-            readBound call >>= traverse standing >>= \case
-                Just (bound, Standing) -> maybe Quiet Deny . route bound <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
-                -- A removed worktree's run is done: no call strays from it.
-                Just (_, Removed) -> pure Quiet
-                Nothing -> pure Quiet
+    Begins begin -> do
+        marked <- case begin of
+            Hook.TypedSkill -> markLead call
+            Hook.CalledSkill -> markLead call
+            Hook.SpawnedLead -> pure ""
+            Hook.SpawnedWorker _ -> pure ""
+        pure (replyOf job (beginText steps begin <> marked))
+    Routes gate ->
+        callerBinding call >>= \(slot, bound) -> case (bound, gate) of
+            (Just binding, RunsShell command) -> case stateCalls steps call.cwd command of
+                [] -> pure Quiet
+                calls ->
+                    standing binding >>= \case
+                        (_, Standing) -> maybe Quiet Deny . route binding <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
+                        -- A removed worktree's run is done: no call strays from it.
+                        (_, Removed) -> pure Quiet
+            (Just _, _) -> pure Quiet
+            (Nothing, _) -> do
+                -- The marker's text is never read: that it is there is the fact.
+                beganLeadSkill <- maybe (pure False) (fmap isJust . FileSystem.readText . leadFile) slot
+                pure (maybe Quiet Deny (Route.gate (leadOf ((.role) =<< call.agent) beganLeadSkill) gate))
     Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (wantAnswer steps name input call want slot bound)
     Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (bindAnswer steps name call bind slot bound)
+
+-- | Marks the caller a lead, as it began a lead skill; a disk error is told, the skill begins regardless.
+markLead :: (Shell es) => Call -> Eff es Text
+markLead call =
+    slotFor call.session (keyOf call.agent) >>= \case
+        Just slot -> telling BeginHook Nothing ("" <$ writeWhole (leadFile slot) "lead\n")
+        Nothing -> pure ""
 
 -- | What an act says; a disk or git error is its text too, naming the run when one is known.
 telling :: HookName -> Maybe RunId -> Eff es Text -> Eff es Text
@@ -160,10 +181,6 @@ telling name run act = try act <&> either (aboutKnown run . hookError name) id
 -- | A disk or git error a hook tells as context: it never fails the agent.
 hookError :: HookName -> IOException -> Text
 hookError name e = "state hook " <> hookName name <> ": " <> tshow e
-
--- | The caller's binding; none for an unbound caller or without a store.
-readBound :: (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe Binding)
-readBound call = snd <$> callerBinding call
 
 -- | The caller's slot in the session's bindings, and the binding it holds.
 callerBinding :: (Environment :> es, RoFileSystem :> es) => Call -> Eff es (Maybe Slot, Maybe Binding)
@@ -686,7 +703,7 @@ orNoRun = \case
     Ran result -> result
 
 noRun :: Failure
-noRun = Failure BadInput "no run in this worktree" "no state init ran here" "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
+noRun = Failure BadInput "no run in this worktree" "no state init ran here" initFix
 
 -- | A log replayed under the flow its first line starts.
 replayed :: FilePath -> NonEmpty Envelope -> Either Failure (OpenGraph, RunState)

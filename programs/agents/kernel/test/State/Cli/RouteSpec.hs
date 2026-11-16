@@ -6,6 +6,8 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Cli.Route
 import State.Protocol.Binding (Binding (..))
+import State.Protocol.Hook (Gate (..))
+import State.Run.Event (AgentRole (..))
 import State.Run.EventGen (runId)
 import State.Run.RunGen (loadSteps)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
@@ -84,6 +86,46 @@ spec = describe "routing a shell command's state calls" $ do
 
         it "quotes a bound worktree a shell would split" $
             route bound {toplevel = "/home/me/my repo"} [(next, Just "/repo")] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
+
+    gateSpec
+
+gateSpec :: Spec
+gateSpec = describe "the gate of an agent bound to no run" $ do
+    let denied lead = map (gate lead)
+        writes = [Edits, Writes, Spawns] <> map RunsShell recordedCommands
+        initFix = "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>\n"
+    it "denies a skill lead's edit, naming the init that starts its run" $
+        gate SkillLead Edits
+            `shouldBe` Just
+                ( "state init: this lead has no run, so its edit waits - a lead's writes go in its run's record, which `state init` starts\n"
+                    <> initFix
+                )
+
+    it "denies a skill lead's every write, spawn, commit, push and PR opened or merged" $
+        denied SkillLead writes `shouldSatisfy` all (maybe False (initFix `Text.isSuffixOf`))
+
+    it "points a spawned lead at the init line in its prompt" $
+        denied RoleLead writes `shouldSatisfy` all (maybe False ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`))
+
+    it "names the command it denies, found among a compound's simple commands" $
+        gate SkillLead (RunsShell "git add . && git commit -m x") `shouldSatisfy` maybe False ("state init: this lead has no run, so `git commit -m x` waits" `Text.isPrefixOf`)
+
+    it "lets a lead read, research and run state" $
+        denied SkillLead (map RunsShell readCommands) `shouldBe` map (const Nothing) readCommands
+
+    it "lets a command it cannot read go on" $
+        denied RoleLead (map RunsShell ["(git commit -m x)", "echo \"$(git push)\"", "git commit -m 'open"]) `shouldBe` replicate 3 Nothing
+
+    it "never_gates_an_agent_that_leads_nothing" . hedgehog $ do
+        call <- forAll (Gen.element (writes <> map RunsShell readCommands))
+        gate NotLead call === Nothing
+
+    it "leads by a role that leads a flow, else by a lead skill begun" $
+        [leadOf (Just (AgentRole "engineer")) False, leadOf (Just (AgentRole "10x")) False, leadOf (Just (AgentRole "implementer")) False, leadOf Nothing False, leadOf Nothing True]
+            `shouldBe` [RoleLead, RoleLead, NotLead, NotLead, SkillLead]
+  where
+    recordedCommands = ["git commit -m x", "git push", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash", "git add . && git commit -m x"]
+    readCommands = ["git status", "git log --oneline -3", "gh pr view 7", "state next", "state init --notes /tmp/n --task t", "echo git commit"]
 
 -- | An absolute directory of plain path words, which a shell reads as written.
 genDir :: Gen FilePath

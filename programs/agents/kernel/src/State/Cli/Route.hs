@@ -8,11 +8,17 @@ commands split at @&&@, @||@, @;@, @|@, @&@ and newlines, quotes and
 redirections read, and a @cd <dir>@ moving the calls after it. What this
 reader leaves be (a subshell, a substitution, a heredoc, an open quote, a
 @cd@ to a variable) routes nothing: the call goes on.
+
+An agent bound to no run is gated instead (#378): a lead's write waits for
+its run ('gate'), so its record starts before its work does.
 -}
 module State.Cli.Route (
     StateCall (..),
     stateCalls,
     route,
+    Lead (..),
+    leadOf,
+    gate,
 ) where
 
 import Control.Monad (guard)
@@ -20,9 +26,11 @@ import Data.Char (isDigit, isSpace)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Cli.Command (Command (..), Exit (..), Failure (..), failureText, parseCommand)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), failureText, initFix, parseCommand)
 import State.Protocol.Binding (Binding (..))
-import State.Run.Event (runIdText)
+import State.Protocol.Hook (Gate (..))
+import State.Role (leads)
+import State.Run.Event (AgentRole, runIdText)
 import State.Step.Artifact (shellPath)
 import State.Table (Steps)
 import System.FilePath ((</>))
@@ -83,6 +91,62 @@ route bound calls = listToMaybe [denial call top | (call, top) <- calls, top /= 
                 , why = "this agent is bound to run " <> runIdText bound.run <> " at " <> Text.pack bound.toplevel
                 , fix = "cd " <> shellWord bound.toplevel <> " && " <> call.written
                 }
+
+-- | Whether an agent leads a run, and so where its @state init@ line is.
+data Lead
+    = NotLead
+    | -- | It began a lead skill (@/engineer@): its init is the skill's.
+      SkillLead
+    | -- | A role that leads a flow, spawned: its prompt holds its init line.
+      RoleLead
+    deriving stock (Eq, Show)
+
+{- | An agent by its role and whether it began a lead skill. A role leads
+by 'leads', whatever skill it began; any other agent leads only by a skill.
+-}
+leadOf :: Maybe AgentRole -> Bool -> Lead
+leadOf role beganLeadSkill = case (leads =<< role, beganLeadSkill) of
+    (Just _, _) -> RoleLead
+    (Nothing, True) -> SkillLead
+    (Nothing, False) -> NotLead
+
+{- | Why an unbound agent's call is denied: a lead edits, writes, commits,
+pushes, opens or merges a PR and spawns only once its run exists. Reads,
+research and @state@ itself go on, as does every call of an agent that leads
+nothing. A command this reader leaves be goes on: the gate is a nudge, not a
+sandbox.
+-}
+gate :: Lead -> Gate -> Maybe Text
+gate lead call = case lead of
+    NotLead -> Nothing
+    SkillLead -> denial initFix <$> writeOf call
+    RoleLead -> denial "run the `state init` line in your prompt, as written" <$> writeOf call
+  where
+    denial fix act =
+        failureText
+            "init"
+            Failure
+                { exit = BadInput
+                , what = "this lead has no run, so " <> act <> " waits"
+                , why = "a lead's writes go in its run's record, which `state init` starts"
+                , fix
+                }
+
+-- | A write a run must see, as a denial names it; 'Nothing' for any other call.
+writeOf :: Gate -> Maybe Text
+writeOf = \case
+    Edits -> Just "its edit"
+    Writes -> Just "its write"
+    Spawns -> Just "its spawn"
+    RunsShell command -> listToMaybe ["`" <> segment.written <> "`" | segment <- fromMaybe [] (segments command), recorded segment.tokens]
+
+-- | A command a run records: a commit, a push, a PR opened or merged. @git -C <dir>@ is git still.
+recorded :: [Text] -> Bool
+recorded = \case
+    "git" : "-C" : _ : rest -> recorded ("git" : rest)
+    "git" : sub : _ -> sub `elem` ["commit", "push"]
+    "gh" : "pr" : sub : _ -> sub `elem` ["create", "merge"]
+    _ -> False
 
 -- | A path as a shell line reads it back: bare when it can be, else single-quoted.
 shellWord :: FilePath -> Text
