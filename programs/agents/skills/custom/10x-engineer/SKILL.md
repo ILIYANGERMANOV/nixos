@@ -33,6 +33,9 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 - **Only you own wakes.** A subagent cannot receive one. `add_repo`,
   `subscribe_pr_activity`, CI waits, `AskUserQuestion`, `PushNotification` and
   `gh pr merge` stay here.
+- **Under a parent**, your brief's `state init` line naming a `--parent`: no
+  wakes, no merges, no user questions. Spawn every subagent in the
+  foreground, and end your turn with what `state next` hands back.
 - **One agent per task.** At most one agent per task, so any wake for a task
   with a live agent is held: `state record held <task> <url>`. Held wakes
   stay on the task's line in `state next`; once its agent hands back, re-read
@@ -57,8 +60,8 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 
   | Line | You |
   |---|---|
-  | `SPAWN engineer --task <id> background: yes` | Engineers: Spawn |
-  | `RESUME <child> with the answer to <qid>` | Engineers: Resume |
+  | `SPAWN engineer --task <id> background: yes\|no` | Engineers: Spawn |
+  | `RESUME <child> with the answer to <qid>: <a>` | Engineers: Resume |
   | `AWAIT ci <PR>...` | Engineers: CI |
   | `AWAIT children <task>...` | end the turn: a hand-back wakes you |
   | `AWAIT merge <task>...` | Merge: the merge loop on each approval wake |
@@ -216,8 +219,8 @@ Never relay worker text verbatim.
 
 **Resume.** On `RESUME`: `state record resumed <child>`, then `SendMessage` the child, or past about 5 idle
 minutes a fresh `engineer` with its spawn prompt, saying "Answer to `<qid>`:
-`<a>`. Run `state answer <qid> <a> --by <your run>`, then `state next`." A
-ruling also goes into its PR body's Key decisions.
+`<a>`, in your run already. Run `state next`." A ruling also goes into its PR
+body's Key decisions.
 
 **Re-plan.** An answer that changes the breakdown itself, a task added,
 dropped or reshaped across tasks, is the user's: ask it, then
