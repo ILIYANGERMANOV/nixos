@@ -1,5 +1,6 @@
 module State.Run.CodecSpec (spec) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -13,8 +14,10 @@ import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
 import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList, tookIn)
-import State.Run.EventGen (genEnvelope, oneLine, runId)
+import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
+import State.Step.Artifact (shellPath)
+import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -102,19 +105,26 @@ spec = describe "State.Run.Codec" $ do
     it "reads a round task's existing PR from its pr key" $
         decodeTask (taskFileJson (roundTask "t1" "https://pr/1")) `shouldBe` Right (roundTask "t1" "https://pr/1")
 
-    it "reads a task's repo and worktree" $
-        decodeTask (taskFileJson placed) `shouldBe` Right placed
-
-    it "refuses a repo not OWNER/REPO and a worktree not absolute or with whitespace" $
+    it "reads a task's repo and worktree, each without the other" $
         map
-            (decodeTask . replacing (taskFileJson placed))
-            [("\"o/r\"", "\"o/r/x\""), ("\"o/r\"", "\"/r\""), ("\"o/r\"", "\"o /r\""), ("\"/wt\"", "\"wt\""), ("\"/wt\"", "\"/w t\"")]
-            `shouldBe` [ Left "Error in $: unknown repo \"o/r/x\""
-                       , Left "Error in $: unknown repo \"/r\""
-                       , Left "Error in $: unknown repo \"o /r\""
-                       , Left "Error in $: a worktree is an absolute path with no whitespace, not \"wt\""
-                       , Left "Error in $: a worktree is an absolute path with no whitespace, not \"/w t\""
-                       ]
+            (\task -> decodeTask (taskFileJson task) == Right task)
+            [placed, placed {worktree = Nothing}, placed {repo = Nothing}]
+            `shouldBe` [True, True, True]
+
+    it "writes no repo or worktree key for a task the breakdown places nowhere" $
+        encodeLine reviewRows {event = stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))}
+            `shouldSatisfy` (\line -> not (any (`Text.isInfixOf` line) ["\"repo\"", "\"worktree\""]))
+
+    it "refuses a repo not OWNER/REPO of shell-inert characters" $
+        [decodeTask (taskFileJson placed `replacing` ("\"o/r\"", hostile)) | hostile <- ["\"o/r/x\"", "\"/r\"", "\"o /r\"", "\"o;x/r\"", "\"o/$(x)\"", "\"o/r|x\"", "\"o/\\u00e9\""]]
+            `shouldBe` map
+                (\raw -> Left ("Error in $: unknown repo " <> raw))
+                ["\"o/r/x\"", "\"/r\"", "\"o /r\"", "\"o;x/r\"", "\"o/$(x)\"", "\"o/r|x\"", "\"o/\\233\""]
+
+    it "refuses a worktree not absolute or of characters a shell reads" $ do
+        let hostile = ["\"wt\"", "\"/w t\"", "\"/w;x\"", "\"/w$(x)\"", "\"/w`x`\"", "\"/w|x\""]
+        map (\raw -> decodeTask (taskFileJson placed `replacing` ("\"/wt\"", raw))) hostile
+            `shouldBe` map (\raw -> Left ("Error in $: a worktree is an absolute path of ASCII letters, digits and ._/@+-, not " <> raw)) hostile
 
     it "refuses a malformed task file as the breakdown's decoder does" $
         map decodeTask ["[]", taskFileJson (plainTask "fix" []) `replacing` ("\"fuel\":\"balanced\"", "\"fuel\":\"huge\"")]
@@ -178,4 +188,4 @@ malformed = \case
 
 -- | A task whose breakdown names its repo and worktree.
 placed :: Task
-placed = (plainTask "t1" []) {repo = Just (Repo "o" "r"), worktree = Just "/wt"}
+placed = (plainTask "t1" []) {repo = Just (Repo "o" "r"), worktree = shellPath "/wt"}

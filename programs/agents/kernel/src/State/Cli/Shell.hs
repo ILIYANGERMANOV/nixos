@@ -68,6 +68,7 @@ import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, ne
 import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
+import State.Step.Artifact (shellPathText)
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -491,28 +492,29 @@ comes last and is the rest of the line, as git may name a path with spaces.
 initRun :: (Shell es) => FilePath -> InitArgs -> Eff es (Either Failure Text)
 initRun gd args = do
     -- Every read before the first write, the first refusal told.
-    free <- unfinishedHere gd args.notes
+    free <- unfinishedHere gd notes
     began <- startOf args
     top <- worktreeTop
     case (,,) <$> free <*> began <*> top of
         Left failure -> pure (Left failure)
         Right ((), (principal, flow), worktree) -> do
-            FileSystem.createDirectory args.notes
+            FileSystem.createDirectory notes
             stamp <- now
             fresh <- newRunId
-            let path = logOf args.notes
-                start = Start {flow, notes = args.notes, principal, interface = interfaceOf principal}
+            let path = logOf notes
+                start = Start {flow, notes = notes, principal, interface = interfaceOf principal}
             result <- Log.locked path $ \case
                 Left bad -> ([], Left (unreadLine path bad))
                 Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right ("started", fresh))
-                Right (first : rest) -> ([], ("resumed",) <$> joined args.notes (first :| rest))
+                Right (first : rest) -> ([], ("resumed",) <$> joined notes (first :| rest))
             -- The pointer only once the parent took the child: a refused child has no run here.
             accepted <- case (result, args.parent) of
                 (Right said@(_, run), Just parent) -> fmap (const said) <$> spawnedIn parent.run parent.log (Child run parent.task path worktree)
                 (Right said, Nothing) -> pure (Right said)
                 (Left failure, _) -> pure (Left failure)
-            traverse (\(verb, run) -> writePointer gd args.notes $> initLines verb run worktree) accepted
+            traverse (\(verb, run) -> writePointer gd notes $> initLines verb run worktree) accepted
   where
+    notes = shellPathText args.notes
     -- A subagent has no wakes, notifications or background of its own (#351 s4). Hooks
     -- run in it, but a child's hand-back is its own state's to record in the parent.
     interfaceOf = \case
@@ -521,7 +523,7 @@ initRun gd args = do
     initLines verb run worktree =
         Text.unlines
             [ verb <> " " <> runIdText run
-            , Text.unwords ["run", runIdText run, Text.pack args.notes, Text.pack worktree]
+            , Text.unwords ["run", runIdText run, Text.pack notes, Text.pack worktree]
             ]
 
 -- | The worktree's top, which a child's @spawned@ and init's @run@ line name.

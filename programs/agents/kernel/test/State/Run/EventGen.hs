@@ -30,7 +30,6 @@ module State.Run.EventGen (
     logOf,
 ) where
 
-import Data.Char (isSpace)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -51,6 +50,7 @@ import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
+import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), gathering)
@@ -154,11 +154,11 @@ genTaskAt i =
 genRepo :: Gen Repo
 genRepo = Repo <$> part <*> part
   where
-    part = Gen.text (Range.linear 1 10) (Gen.element ['a', 'Z', '0', '-', '.', '_', '\233'])
+    part = Gen.text (Range.linear 1 10) (Gen.element ['a', 'Z', '0', '-', '.', '_'])
 
--- | An absolute path with no whitespace.
-genWorktree :: Gen FilePath
-genWorktree = ('/' :) <$> Gen.string (Range.linear 0 20) (Gen.filter (not . isSpace) Gen.unicode)
+-- | An absolute path of the characters a shell reads as none of its syntax.
+genWorktree :: Gen ShellPath
+genWorktree = Gen.mapMaybe (shellPath . ('/' :)) (Gen.string (Range.linear 0 20) (Gen.element ("aZ09._/@+-" :: String)))
 
 genShape :: Gen Shape
 genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]

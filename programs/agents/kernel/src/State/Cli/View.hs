@@ -19,6 +19,7 @@ import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, top
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
+import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, row, stepsRunBy)
 
@@ -80,7 +81,7 @@ brief steps state agent@(AgentRole role) task
     | otherwise = Right (Text.concat [section name r | (name, r) <- briefed] <> rule)
   where
     taskInit found =
-        maybe "" (\path -> "cd " <> Text.pack path <> " && ") found.worktree
+        maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
             <> initLine (maybe "<dir>" (engineerNotes found.branch) found.repo) (taskIdText found.id)
     initLine notesText taskText =
         "state init --notes "
@@ -120,7 +121,10 @@ brief steps state agent@(AgentRole role) task
         | otherwise = ""
 
 {- | The notes dir the engineer skill names for a task's run,
-@/tmp/engineer-<owner>-<repo>-<slug>/@, the slug its branch with each @/@ a @-@.
+@/tmp/engineer-<owner>-<repo>-<slug>/@, the slug its branch with each
+character but a 'slugChar' a @-@: a @/@, and whatever a shell would read.
 -}
 engineerNotes :: Branch -> Repo -> Text
-engineerNotes branch repo = "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.replace "/" "-" (branchText branch) <> "/"
+engineerNotes branch repo = "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.map slug (branchText branch) <> "/"
+  where
+    slug c = if slugChar c then c else '-'

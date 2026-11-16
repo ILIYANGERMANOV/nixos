@@ -17,6 +17,7 @@ module State.Step.Artifact (
     Task (..),
     Shape (..),
     Repo (..),
+    ShellPath,
     Topic (..),
     Tasks,
     BreakdownError (..),
@@ -26,7 +27,10 @@ module State.Step.Artifact (
     urlText,
     branchText,
     repoText,
-    unquotedPath,
+    shellPath,
+    shellPathText,
+    shellPathRule,
+    slugChar,
     taskIdText,
     topicText,
     judgementText,
@@ -59,7 +63,7 @@ import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject,
 import Data.Aeson.Encoding (Encoding, list, pair, pairs)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
-import Data.Char (isSpace)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -127,8 +131,8 @@ data Task = Task
     , shape :: Shape
     , repo :: Maybe Repo
     -- ^ The repo the task's work lands in, when the breakdown names it: its brief's notes dir.
-    , worktree :: Maybe FilePath
-    -- ^ An absolute path with no whitespace, when the breakdown names it: its brief's init line runs there.
+    , worktree :: Maybe ShellPath
+    -- ^ When the breakdown names it: its brief's init line runs there.
     }
     deriving stock (Eq, Show)
 
@@ -136,20 +140,43 @@ data Task = Task
 data Repo = Repo {owner :: Text, name :: Text}
     deriving stock (Eq, Show)
 
--- | @OWNER/REPO@: one slash, each side non-empty and free of whitespace.
+{- | @OWNER/REPO@: one slash, each side non-empty and of 'slugChar's, as
+GitHub allows, so a brief prints it in a shell line unquoted.
+-}
 parseRepo :: Text -> Maybe Repo
 parseRepo raw = case Text.splitOn "/" raw of
     [owner, name] | all part [owner, name] -> Just (Repo owner name)
     _ -> Nothing
   where
-    part text = not (Text.null text || Text.any isSpace text)
+    part text = not (Text.null text) && Text.all slugChar text
 
 repoText :: Repo -> Text
 repoText repo = repo.owner <> "/" <> repo.name
 
--- | A path a shell line prints unquoted, so it runs from any directory: absolute, with no whitespace.
-unquotedPath :: FilePath -> Bool
-unquotedPath path = isAbsolute path && not (any isSpace path)
+{- | A path a shell line prints unquoted, so it runs from any directory:
+absolute, of 'slugChar's, @/@, @\@@ and @+@ only - none a shell reads as
+syntax. Built by 'shellPath' alone.
+-}
+newtype ShellPath = ShellPath FilePath
+    deriving stock (Eq, Show)
+
+shellPath :: FilePath -> Maybe ShellPath
+shellPath path
+    | isAbsolute path, all pathChar path = Just (ShellPath path)
+    | otherwise = Nothing
+  where
+    pathChar c = slugChar c || c `elem` ("/@+" :: String)
+
+shellPathText :: ShellPath -> FilePath
+shellPathText (ShellPath path) = path
+
+-- | What 'shellPath' accepts, as a refusal names it.
+shellPathRule :: String
+shellPathRule = "an absolute path of ASCII letters, digits and ._/@+-"
+
+-- | A character a shell word holds unquoted, with no meaning to the shell: ASCII letters, digits, @.@, @_@ and @-@.
+slugChar :: Char -> Bool
+slugChar c = isAsciiLower c || isAsciiUpper c || isDigit c || c `elem` ("._-" :: String)
 
 {- | What the task's engineer does to its PR. A round on a PR that already
 exists leaves it open: its run skips @ready@, and the task settles kept.
@@ -253,7 +280,7 @@ taskEncoding task =
             <> "security" .= map topicText (Set.toList task.security)
             <> shapeData task.shape
             <> maybe mempty (("repo" .=) . repoText) task.repo
-            <> maybe mempty ("worktree" .=) task.worktree
+            <> maybe mempty (("worktree" .=) . shellPathText) task.worktree
 
 -- | Only a round names its PR: a log older than rounds reads as own PRs.
 shapeData :: Shape -> Series
@@ -322,9 +349,7 @@ taskFieldsOf obj = do
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
     pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree}
   where
-    worktreeOf path
-        | unquotedPath path = pure path
-        | otherwise = fail ("a worktree is an absolute path with no whitespace, not " <> show path)
+    worktreeOf path = maybe (fail ("a worktree is " <> shellPathRule <> ", not " <> show path)) pure (shellPath path)
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"

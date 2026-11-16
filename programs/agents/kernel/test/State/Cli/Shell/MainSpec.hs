@@ -16,6 +16,7 @@ import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
 import State.Run.Event (Branch (..), Envelope (..), Repo (..), SessionId (..), Task (..))
 import State.Run.RunGen (loadSteps, plainTask, roundTask)
+import State.Step.Artifact (shellPath)
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
 
 spec :: Spec
@@ -36,6 +37,14 @@ spec = describe "state over the doubles" $ do
                 dotted <- succeeded =<< state world ["init", "--notes", "/./notes"]
 
                 (again, dotted) `shouldBe` (["resumed " <> run, "run " <> run <> " /notes /work"], ["resumed " <> run, "run " <> run <> " /notes /work"])
+
+            it "resumes the run whose pointer an older init wrote with a trailing slash" $ \world -> do
+                run <- startedRun world
+                putFile world "/work/.git/state-notes" "/notes/\n"
+
+                again <- succeeded =<< state world ["init", "--notes", "/notes"]
+
+                again `shouldBe` ["resumed " <> run, "run " <> run <> " /notes /work"]
 
             it "refuses another run over the worktree's unfinished one, keeping the pointer" $ \world -> do
                 run <- startedRun world
@@ -466,12 +475,20 @@ spec = describe "state over the doubles" $ do
                                ]
 
             it "briefs an engineer to init in its task's worktree and its repo's notes dir" $ \world -> do
-                run <- tenXAtFanOutOf world [(plainTask "t1" []) {branch = Branch "feat/x", repo = Just (Repo "o" "r"), worktree = Just "/wt/t1"}]
+                run <- tenXAtFanOutOf world [(plainTask "t1" []) {branch = Branch "feat/x", repo = Just (Repo "o" "r"), worktree = shellPath "/wt/t1"}]
 
                 brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
                 drop 9 brief
                     `shouldBe` ["cd /wt/t1 && state init --notes /tmp/engineer-o-r-feat-x/ --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
+
+            it "briefs an engineer a notes dir whose branch slug holds nothing a shell reads" $ \world -> do
+                run <- tenXAtFanOutOf world [(plainTask "t1" []) {branch = Branch "feat/x;rm -rf $(y)`z`|w", repo = Just (Repo "o" "r")}]
+
+                brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
+
+                drop 9 brief
+                    `shouldBe` ["state init --notes /tmp/engineer-o-r-feat-x-rm--rf---y--z--w/ --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
 
             it "briefs a round task with the PR it stays on" $ \world -> do
                 _ <- tenXAtFanOutOf world [roundTask "t1" "https://pr/1"]

@@ -15,8 +15,8 @@ git -C <clone> worktree add -b <branch> ~/.10x/<run>/worktrees/<task> origin/<ba
 A named PR:
 
 ```sh
-git -C <clone> fetch origin <branch>
-git -C <clone> worktree add --track -b <branch> ~/.10x/<run>/worktrees/<task> origin/<branch>
+git -C <clone> fetch origin "<branch>"
+git -C <clone> worktree add --track -b "<branch>" ~/.10x/<run>/worktrees/<task> "origin/<branch>"
 ```
 
 Keep the worktree until the PR merges, since fixers use it too. A retry reuses

@@ -146,7 +146,7 @@ spec = describe "the state binary" $ do
 
         it "refuses a relative notes dir" $ \repo -> do
             relative <- state bin repo ["init", "--notes", "notes"]
-            (relative.code, take 1 relative.err) `shouldBe` (2, ["state init: --notes notes - the notes dir is an absolute path with no whitespace"])
+            (relative.code, take 1 relative.err) `shouldBe` (2, ["state init: --notes notes - the notes dir is an absolute path of ASCII letters, digits and ._/@+-"])
 
         it "starts a run once per notes dir, and refuses one there after it stopped" $ \repo -> do
             run <- startedRun bin repo

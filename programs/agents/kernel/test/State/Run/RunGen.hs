@@ -48,6 +48,7 @@ import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Run.Fold (Append (..), RunState (..), append, replay)
+import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Choice (Outcome (..), gathering)
@@ -133,7 +134,7 @@ taskJson task =
                 OwnPr -> []
                 RoundOn url -> ["pr" .= urlText url]
             <> maybe [] (\repo -> ["repo" .= repoText repo]) task.repo
-            <> maybe [] (\path -> ["worktree" .= path]) task.worktree
+            <> maybe [] (\path -> ["worktree" .= shellPathText path]) task.worktree
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

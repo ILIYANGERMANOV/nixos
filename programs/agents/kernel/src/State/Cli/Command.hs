@@ -54,7 +54,7 @@ import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
-import State.Step.Artifact (unquotedPath)
+import State.Step.Artifact (ShellPath, shellPath, shellPathRule)
 import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
 import System.FilePath (dropTrailingPathSeparator, isAbsolute, normalise, takeFileName)
@@ -90,7 +90,7 @@ data RunCommand
 {- | A child's flow, when not named, is its parent's fan-out's; a top run's
 is 'defaultFlow'.
 -}
-data InitArgs = InitArgs {notes :: FilePath, flow :: Maybe FlowName, parent :: Maybe Parent}
+data InitArgs = InitArgs {notes :: ShellPath, flow :: Maybe FlowName, parent :: Maybe Parent}
 
 -- | A question kept at its kind, or raised to 'Ask.Security' first.
 data Raise = AsAsked | ToSecurity
@@ -360,12 +360,8 @@ same-dir check and init's @run@ line all hold this value. Unquoted, as the
 @run@ line and the brief's init line print it, and a later reader runs in
 another directory than init did.
 -}
-notesDir :: Text -> Either Failure FilePath
-notesDir raw
-    | unquotedPath path = Right (dropTrailingPathSeparator (normalise path))
-    | otherwise = Left (usage ("--notes " <> raw) "the notes dir is an absolute path with no whitespace")
-  where
-    path = Text.unpack raw
+notesDir :: Text -> Either Failure ShellPath
+notesDir raw = maybe (Left (usage ("--notes " <> raw) ("the notes dir is " <> Text.pack shellPathRule))) Right (shellPath (dropTrailingPathSeparator (normalise (Text.unpack raw))))
 
 blockName :: Block -> Text
 blockName = \case
