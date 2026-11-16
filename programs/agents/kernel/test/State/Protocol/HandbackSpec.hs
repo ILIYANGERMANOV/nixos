@@ -34,7 +34,7 @@ spec = describe "State.Protocol.Handback" $ do
             (.token) <$> parseHandback first `shouldBe` Right token
 
     it "refuses an AWAIT on anything but CI or a merge" $
-        parseHandback "AWAIT deploy prod" `shouldBe` Left "AWAIT deploy: only ci or merge is awaited"
+        parseHandback "AWAIT deploy prod" `shouldBe` Left (Why "AWAIT deploy: only ci or merge is awaited")
 
     it "reads line 1 pasted with the HANDBACK delivery prefix as the bare token" $
         for_ tokens $ \(first, token) ->
@@ -48,7 +48,7 @@ spec = describe "State.Protocol.Handback" $ do
         stopLine (Event.Stop Event.Replan "no such table") `shouldBe` "NEEDS_DECISION plan wrong: no such table"
 
     it "refuses a Touches line naming no area" $
-        parseHandback "READY\nTouches: auth, the parser" `shouldSatisfy` either (Text.isInfixOf "the parser") (const False)
+        parseHandback "READY\nTouches: auth, the parser" `shouldBe` Left (NoArea "the parser")
 
     typing
 
@@ -158,7 +158,7 @@ tokens =
     ]
 
 parsed :: Text -> Handback
-parsed = either (error . Text.unpack) id . parseHandback
+parsed = either (error . Text.unpack . refusalText) id . parseHandback
 
 blank :: Maybe Token -> Handback
 blank token = Handback token Nothing Nothing Nothing Nothing

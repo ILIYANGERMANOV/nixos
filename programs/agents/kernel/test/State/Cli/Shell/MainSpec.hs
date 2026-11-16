@@ -280,6 +280,15 @@ spec = describe "state over the doubles" $ do
                 ran.code `shouldBe` 2
                 drop 1 ran.err `shouldBe` ["fix: state handback implementer < <the hand-back, a token added as line 1>"]
 
+            it "refuses a Touches line with words after its areas, its fix piping it again with bare names" $ \world -> do
+                _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
+                untouched <- loggedEvents world
+
+                ran <- stateIn world "READY\nTouches: interface (the parser)\n" ["handback", "implementer"]
+
+                (ran.code, drop 1 ran.err) `shouldBe` (2, ["fix: state handback implementer < <the hand-back, its Touches: line bare names only, comma-separated: interface, data-model, auth or none>"])
+                loggedEvents world `shouldReturn` untouched
+
             it "refuses a hand-back that is not UTF-8, with exit 2" $ \world -> do
                 _ <- startedRun world
 

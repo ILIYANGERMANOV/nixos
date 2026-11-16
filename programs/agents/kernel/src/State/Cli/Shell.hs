@@ -53,7 +53,7 @@ import State.Cli.View (beginText, brief, pendingLines, showRun, taskBrief)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
-import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), parseHandback, refusalText, typeHandback)
+import State.Protocol.Handback (Handback (..), Refusal (..), Typed (..), areaNames, parseHandback, refusalText, typeHandback)
 import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
@@ -513,7 +513,7 @@ question, or a worker's BLOCKED or FAILED, is the run's to triage.
 -}
 handbackPlan :: Steps -> Maybe Sha -> RunState -> AgentRole -> Maybe AgentId -> Maybe RunId -> Text -> Either Failure Plan
 handbackPlan steps worktreeHead state role agent child message = do
-    parsed <- Bifunctor.first (unread "state help") (parseHandback message)
+    parsed <- Bifunctor.first refused (parseHandback message)
     let run = parsed.run <|> child
     typed <- Bifunctor.first refused (typeHandback steps state worktreeHead role agent parsed {Handback.run = run})
     let from = maybe (roleText role) runIdText run
@@ -524,8 +524,10 @@ handbackPlan steps worktreeHead state role agent child message = do
     unread fix why = Failure BadInput "the hand-back" why fix
     refused refusal = unread (fixOf refusal) (refusalText refusal)
     fixOf = \case
-        NoToken -> "state handback " <> roleText role <> foldMap ((" --child " <>) . runIdText) child <> " < <the hand-back, a token added as line 1>"
+        NoToken -> again "a token added as line 1"
+        NoArea _ -> again ("its Touches: line bare names only, comma-separated: " <> areaNames)
         Why _ -> "state help"
+    again what = "state handback " <> roleText role <> foldMap ((" --child " <>) . runIdText) child <> " < <the hand-back, " <> what <> ">"
 
 {- | What @state next@ records and prints, and the advice's action: what GitHub
 and the run's Fuel already decide is recorded first, then the advice: its line, the

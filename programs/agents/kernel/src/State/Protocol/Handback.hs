@@ -13,6 +13,7 @@ module State.Protocol.Handback (
     tokenWords,
     Refusal (..),
     refusalText,
+    areaNames,
     parseHandback,
     parseTouches,
     renderHandback,
@@ -76,13 +77,14 @@ data Token
     | Failed OneLine
     deriving stock (Eq, Show)
 
--- | Why 'typeHandback' records nothing: line 1 opens with no 'TokenWord', or another reason.
-data Refusal = NoToken | Why Text
+-- | Why a hand-back records nothing: line 1 opens with no 'TokenWord', a @Touches:@ name is no 'Area', or another reason.
+data Refusal = NoToken | NoArea Text | Why Text
     deriving stock (Eq, Show)
 
 refusalText :: Refusal -> Text
 refusalText = \case
     NoToken -> "line 1 is no token: one of " <> Text.intercalate ", " tokenWords
+    NoArea name -> "Touches: names " <> name <> ", not one of " <> areaNames
     Why why -> why
 
 -- | The word line 1 opens with, one per 'Token' case.
@@ -97,6 +99,10 @@ tokenWordText = \case
     BlockedWord -> "BLOCKED"
     FailedWord -> "FAILED"
 
+-- | Every area a @Touches:@ line may name, and none.
+areaNames :: Text
+areaNames = Text.intercalate ", " (map areaText [minBound .. maxBound]) <> " or none"
+
 -- | Every word line 1 may open with, in 'Token''s order.
 tokenWords :: [Text]
 tokenWords = map tokenWordText [minBound .. maxBound]
@@ -110,10 +116,10 @@ data Need
       Untyped OneLine
     deriving stock (Eq, Show)
 
-parseHandback :: Text -> Either Text Handback
+parseHandback :: Text -> Either Refusal Handback
 parseHandback message = do
     token <- parseToken first
-    run <- traverse (\raw -> maybe (Left ("Run: " <> raw <> " is no run id")) Right (parseRunId raw)) (trailer "Run: ")
+    run <- traverse (\raw -> maybe (Left (Why ("Run: " <> raw <> " is no run id"))) Right (parseRunId raw)) (trailer "Run: ")
     reviewedHead <- traverse (sha "Reviewed head:") (trailer "Reviewed head:")
     simplified <- traverse (sha "Simplified:") (trailer "Simplified:")
     touches <- traverse parseTouches (trailer "Touches:")
@@ -128,22 +134,23 @@ parseHandback message = do
         [] -> Nothing
         values -> Just (last values)
     sha label raw = case Text.strip raw of
-        "" -> Left (label <> " names no sha")
+        "" -> Left (Why (label <> " names no sha"))
         named -> Right (Sha named)
 
-parseToken :: Text -> Either Text (Maybe Token)
+parseToken :: Text -> Either Refusal (Maybe Token)
 parseToken line = case parseByName tokenWordText word of
-    Just ReadyWord -> Just . Ready <$> oneLine payload
-    Just NeedsDecisionWord -> Just . NeedsDecision <$> parseNeed payload
+    Just ReadyWord -> Just . Ready <$> line1 payload
+    Just NeedsDecisionWord -> Just . NeedsDecision <$> Bifunctor.first Why (parseNeed payload)
     Just AwaitWord -> case parseByName waitingText what of
-        Just waiting -> Just . Await waiting <$> oneLine refs
-        Nothing -> Left ("AWAIT " <> what <> ": only " <> Text.intercalate " or " (map waitingText [minBound .. maxBound]) <> " is awaited")
-    Just BlockedWord -> Just . Blocked <$> oneLine payload
-    Just FailedWord -> Just . Failed <$> oneLine payload
+        Just waiting -> Just . Await waiting <$> line1 refs
+        Nothing -> Left (Why (tokenWordText AwaitWord <> " " <> what <> ": only " <> Text.intercalate " or " (map waitingText [minBound .. maxBound]) <> " is awaited"))
+    Just BlockedWord -> Just . Blocked <$> line1 payload
+    Just FailedWord -> Just . Failed <$> line1 payload
     Nothing -> Right Nothing
   where
     (word, payload) = Text.drop 1 <$> Text.breakOn " " line
     (what, refs) = Text.drop 1 <$> Text.breakOn " " payload
+    line1 = Bifunctor.first Why . oneLine
 
 parseNeed :: Text -> Either Text Need
 parseNeed payload = case (labelled "stuck:", labelled "plan wrong:", asks) of
@@ -163,16 +170,12 @@ parseNeed payload = case (labelled "stuck:", labelled "plan wrong:", asks) of
         Just (Question qid kind text)
     orElse stripped whole = fromMaybe whole stripped
 
-parseTouches :: Text -> Either Text (Set Area)
+parseTouches :: Text -> Either Refusal (Set Area)
 parseTouches raw = case Text.strip raw of
     "none" -> Right Set.empty
     names -> Set.fromList <$> traverse (area . Text.strip) (Text.splitOn "," names)
   where
-    area name =
-        maybe
-            (Left ("Touches: names " <> name <> ", not one of " <> Text.intercalate ", " (map areaText [minBound .. maxBound]) <> " or none"))
-            Right
-            (parseByName areaText name)
+    area name = maybe (Left (NoArea name)) Right (parseByName areaText name)
 
 touchesText :: Set Area -> Text
 touchesText areas = case Set.toList areas of
@@ -268,7 +271,7 @@ fromChild state fan handback = case handback.run of
         ended token = case parseStopLine (tokenLine token) of
             Just stop -> Typed [said (Ended stop)] . Just <$> Bifunctor.first Why (oneLine (tokenLine token))
             Nothing -> Left (Why ("line 1 is no stop: " <> tokenLine token))
-        unasked = Left $ Why "a child asks by state ask in its own run: hand back NEEDS_DECISION <Kind> <qid>: <question>"
+        unasked = Left (Why ("a child asks by state ask in its own run: hand back " <> tokenWordText NeedsDecisionWord <> " <Kind> <qid>: <question>"))
 
 fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Refusal Typed
 fromWorker steps state worktreeHead agent handback = case handback.token of
