@@ -28,6 +28,7 @@ from agent_hook import (
     AfterTool,
     Agent,
     AgentId,
+    AgentStart,
     Allow,
     BeforeTool,
     ContextSize,
@@ -38,9 +39,11 @@ from agent_hook import (
     Manifest,
     Note,
     Observed,
+    PromptExpansion,
     Role,
     SessionId,
     SessionStart,
+    SkillName,
     Source,
     Tool,
     Verdict,
@@ -82,7 +85,7 @@ def answer(manifest: Manifest, event: Event) -> JsonObject:
     match event:
         case BeforeTool():
             return verdict_to_claude(dispatch_verdict(hooks, event, run_verdict_hook))
-        case SessionStart() | AfterTool():
+        case SessionStart() | AfterTool() | AgentStart() | PromptExpansion():
             return note_to_claude(event, dispatch_note(hooks, event, run_note_hook))
 
 
@@ -151,8 +154,29 @@ def parse_claude(payload: Json, tools: ToolNames, read: ReadLines) -> Event:
                 output,
                 context_size(transcript(payload.get("transcript_path"), agent, read)),
             )
+        case {
+            "hook_event_name": "SubagentStart",
+            "session_id": str(session),
+            "cwd": str(cwd),
+        }:
+            match parse_agent(payload):
+                case Agent() as agent:
+                    return AgentStart(SessionId(session), Path(cwd), agent)
+                case None:
+                    raise ValueError("a SubagentStart names no agent_id")
+        case {
+            "hook_event_name": "UserPromptExpansion",
+            "session_id": str(session),
+            "cwd": str(cwd),
+            "command_name": str(skill),
+        }:
+            return PromptExpansion(
+                SessionId(session), Path(cwd), parse_agent(payload), SkillName(skill)
+            )
         case _:
-            raise ValueError("not a SessionStart, PreToolUse or PostToolUse event")
+            raise ValueError(
+                "not a SessionStart, PreToolUse, PostToolUse, SubagentStart or UserPromptExpansion event"
+            )
 
 
 def parse_agent(payload: JsonObject) -> Agent | None:
@@ -359,6 +383,10 @@ def note_to_claude(event: Observed, note: Note) -> JsonObject:
             return specific("SessionStart", note.context, {})
         case AfterTool():
             return specific("PostToolUse", note.context, {})
+        case AgentStart():
+            return specific("SubagentStart", note.context, {})
+        case PromptExpansion():
+            return specific("UserPromptExpansion", note.context, {})
 
 
 def specific(event: str, context: str | None, fields: JsonObject) -> JsonObject:

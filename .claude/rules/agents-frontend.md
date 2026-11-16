@@ -109,9 +109,12 @@ event's hooks in order. `agent_hook.py` is the neutral contract and the
 dispatcher a backend's adapter calls once per event: deny wins, contexts join,
 rewritten input reaches the next hook. A hook fails open and tells. A backend
 fills `history` and `context` from what the agent did, so a hook keeps no state
-and reads no vendor file. The state hooks are `kernel/hooks.nix`, run by the
-Haskell `state-hook`, and cover the main session only. Why:
-`docs/adr/0016-hooks-drive-the-state-record.md`, amended by ADR 0018.
+and reads no vendor file. Besides the tool events, `agentStart` (a subagent
+starts) and `promptExpansion` (a typed `/skill`) only add context, and name no
+tools. The state hooks are `kernel/hooks.nix`, run by the Haskell
+`state-hook`: each finds its run through the agent's binding, at any depth,
+and `route`, their one deny, refuses a `state` call aimed at another run.
+Why: `docs/adr/0016-hooks-drive-the-state-record.md`, amended by ADR 0018.
 
 `hooks/guards/` holds the guards, Python programs on the contract that stop an
 agent's accidents: `secret-guard`, `read-guard` and `wait-guard` deny a shell

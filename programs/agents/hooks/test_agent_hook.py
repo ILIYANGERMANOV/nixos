@@ -12,6 +12,7 @@ from agent_hook import (
     AfterTool,
     Agent,
     AgentId,
+    AgentStart,
     Allow,
     BeforeTool,
     ContextSize,
@@ -23,9 +24,12 @@ from agent_hook import (
     HookName,
     Json,
     Note,
+    Observed,
+    PromptExpansion,
     Role,
     SessionId,
     SessionStart,
+    SkillName,
     Source,
     Tool,
     Verdict,
@@ -35,6 +39,7 @@ from agent_hook import (
     dispatch_verdict,
     emit_event,
     emit_result,
+    event_name,
     hooks_for,
     parse_event,
     parse_manifest,
@@ -54,6 +59,8 @@ WORKER = Agent(AgentId("a1"), Role("implementer"))
 START = SessionStart(SESSION, CWD, None, Source.RESUME)
 SPAWN = BeforeTool(SESSION, CWD, None, Tool.DELEGATE, {"prompt": "brief"})
 RAN = AfterTool(SESSION, CWD, WORKER, Tool.SHELL, {"command": "ls"}, "a\nb\n")
+STARTED = AgentStart(SESSION, CWD, WORKER)
+TYPED = PromptExpansion(SESSION, CWD, None, SkillName("engineer"))
 
 json_values = st.recursive(
     st.none() | st.booleans() | st.integers() | st.text(),
@@ -65,9 +72,10 @@ json_values = st.recursive(
 )
 json_objects = st.dictionaries(st.text(), json_values, max_size=3)
 texts = st.text(min_size=1)
-agents = st.none() | st.builds(
+subagents = st.builds(
     Agent, st.none() | st.text().map(AgentId), st.none() | st.text().map(Role)
 )
+agents = st.none() | subagents
 counts = st.integers(min_value=0)
 context_sizes = st.none() | st.builds(ContextSize, counts, st.none() | counts)
 paths = st.text(alphabet="abc/", min_size=1).map(lambda p: Path("/" + p))
@@ -93,6 +101,8 @@ events: st.SearchStrategy[Event] = st.one_of(
         json_values,
         context_sizes,
     ),
+    st.builds(AgentStart, sessions, paths, subagents),
+    st.builds(PromptExpansion, sessions, paths, agents, st.text().map(SkillName)),
 )
 contexts = st.none() | texts
 verdicts: st.SearchStrategy[Verdict] = st.one_of(
@@ -174,6 +184,14 @@ def test_an_emitted_event_parses_back_to_itself(event: Event) -> None:
             id="agent without a role",
         ),
         pytest.param(
+            {"event": "agentStart", "session": "s", "cwd": "/", "agent": None},
+            id="agent start with no agent",
+        ),
+        pytest.param(
+            {"event": "promptExpansion", "session": "s", "cwd": "/", "agent": None},
+            id="prompt expansion with no skill",
+        ),
+        pytest.param(
             {
                 "event": "beforeTool",
                 "session": "s",
@@ -219,6 +237,29 @@ def test_an_event_reads_as_the_wire_names_it() -> None:
     assert parse_event(json.dumps(wire)) == replace(
         RAN, context=ContextSize(150_000, None)
     )
+
+
+def test_a_subagent_start_reads_as_the_wire_names_it() -> None:
+    wire = {
+        "event": "agentStart",
+        "session": "s1",
+        "cwd": "/work/repo",
+        "agent": {"id": "a1", "role": "implementer"},
+    }
+
+    assert parse_event(json.dumps(wire)) == STARTED
+
+
+def test_a_typed_skill_reads_as_the_wire_names_it() -> None:
+    wire = {
+        "event": "promptExpansion",
+        "session": "s1",
+        "cwd": "/work/repo",
+        "agent": None,
+        "skill": "engineer",
+    }
+
+    assert parse_event(json.dumps(wire)) == TYPED
 
 
 def test_a_subagent_its_agent_names_no_role_reads_as_one_with_no_role() -> None:
@@ -402,9 +443,10 @@ def test_only_hooks_naming_the_tool_run() -> None:
     assert result == Allow("spawn\n\nevery")
 
 
-def test_every_hook_runs_at_session_start() -> None:
+@pytest.mark.parametrize("event", [START, STARTED, TYPED], ids=event_name)
+def test_every_hook_runs_at_an_event_with_no_tool(event: Observed) -> None:
     result = dispatch_note(
-        [hook("a"), hook("b")], START, lambda hook, _: Note(hook.name)
+        [hook("a"), hook("b")], event, lambda hook, _: Note(hook.name)
     )
 
     assert result == Note("a\n\nb")
@@ -473,6 +515,7 @@ def test_an_events_hooks_come_from_the_manifest_in_order() -> None:
                     {"name": "a", "tools": None, "command": ["a"]},
                 ],
                 "afterTool": [],
+                "agentStart": [{"name": "begin", "tools": None, "command": ["b"]}],
             }
         )
     )
@@ -482,6 +525,8 @@ def test_an_events_hooks_come_from_the_manifest_in_order() -> None:
     )
     assert [h.name for h in hooks_for(manifest, SPAWN)] == ["b", "a"]
     assert hooks_for(manifest, RAN) == ()
+    assert [h.name for h in hooks_for(manifest, STARTED)] == ["begin"]
+    assert hooks_for(manifest, TYPED) == ()
 
 
 @pytest.mark.parametrize(

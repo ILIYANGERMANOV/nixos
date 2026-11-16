@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Literal
 
 import bash_commands
-import pytest
 from agent_hook import Agent
 from guard_harness import (
     ALLOWED,
@@ -283,6 +282,8 @@ BACKGROUND_CASES: list[Case[str]] = [
 # Who calls: the lead, a subagent that read the checks once already, or one
 # that has not.
 type Caller = Literal["lead", "polled", "fresh"]
+# A subagent's wait on CI that needs no `sleep` to be one.
+POLL = "for i in 1 2 3; do gh pr checks 7; done"
 
 AGENT_CASES: list[Case[tuple[Caller, str, bool]]] = [
     (
@@ -291,39 +292,34 @@ AGENT_CASES: list[Case[tuple[Caller, str, bool]]] = [
         ("fresh", 'a="$(gh pr checks 7)"; b="$(gh pr checks 7)"', False),
     ),
     (
-        BLOCKED,
-        "a second read of the same checks is blocked",
+        ALLOWED,
+        "a one-shot read of checks read before is allowed",
         ("polled", "gh pr checks 7", False),
     ),
     (
-        BLOCKED,
-        "a second read with other flags is blocked",
+        ALLOWED,
+        "a one-shot read with other flags of checks read before is allowed",
         ("polled", "gh pr checks 7 --json state", False),
     ),
     (
         BLOCKED,
-        "a repeated read behind a value flag is blocked",
-        ("polled", "gh pr checks --repo o/r 7", False),
+        "a repeated read in one command with other flags is blocked",
+        ("fresh", "gh pr checks 7; gh pr checks 7 --json state", False),
+    ),
+    (
+        BLOCKED,
+        "a repeated read in one command behind a value flag is blocked",
+        ("fresh", "gh pr checks --repo o/r 7; gh pr checks 7", False),
     ),
     (
         ALLOWED,
-        "another pull request's checks are allowed",
-        ("polled", "gh pr checks 8", False),
+        "reads of two pull requests behind a value flag are allowed",
+        ("fresh", "gh pr checks --repo o/r 7; gh pr checks --repo o/r 8", False),
     ),
     (
         ALLOWED,
-        "another pull request behind a value flag is allowed",
-        ("polled", "gh pr checks --repo o/r 8", False),
-    ),
-    (
-        ALLOWED,
-        "another pull request behind a value flag with = is allowed",
-        ("polled", "gh pr checks --repo=o/r 8", False),
-    ),
-    (
-        ALLOWED,
-        "a repeated command that is not CI is allowed",
-        ("polled", "git status", False),
+        "reads of two pull requests behind a value flag with = are allowed",
+        ("fresh", "gh pr checks --repo=o/r 7; gh pr checks --repo=o/r 8", False),
     ),
     (
         ALLOWED,
@@ -496,27 +492,8 @@ def test_raw_input(want: Decision, given: str) -> None:
     assert decision(judge([GUARD], given)) == want
 
 
-@pytest.mark.parametrize(
-    "earlier",
-    [
-        "cd sub && gh pr checks 7 | tail -5",
-        "gh pr \\\n  checks 7",
-        "bash -c 'gh pr checks 7'",
-        'echo "$(gh pr checks 7)"',
-        "nix develop -c gh pr checks 7",
-    ],
-)
-def test_an_earlier_status_read_counts_among_other_commands(earlier: str) -> None:
-    history = ["ls", earlier, "git status"]
-    event = shell_event("gh pr checks 7", agent=SUBAGENT, history=history)
-
-    assert decision(judge([GUARD], event)) == BLOCKED
-
-
 def test_a_subagent_with_no_id_never_waits_on_ci() -> None:
-    event = shell_event(
-        "gh pr checks 7", agent=Agent(None, None), history=["gh pr checks 7"]
-    )
+    event = shell_event("gh pr checks 7 --watch", agent=Agent(None, None))
 
     assert decision(judge([GUARD], event)) == BLOCKED
 
@@ -536,19 +513,17 @@ def test_a_broken_shfmt_allows_a_wait(
     assert decision(verdict) == want
 
 
-def test_a_working_shfmt_blocks_a_repeated_read_on_that_runner() -> None:
+def test_a_working_shfmt_blocks_a_polling_loop_on_that_runner() -> None:
     argv = guard_on(SOURCE, bash_commands.SHFMT)
 
-    assert decision(judge(argv, call_by("polled", "gh pr checks 7"))) == BLOCKED
+    assert decision(judge(argv, call_by("fresh", POLL))) == BLOCKED
 
 
 @guard_cases(BROKEN_SHFMT)
-def test_a_broken_shfmt_allows_a_repeated_read(
+def test_a_broken_shfmt_allows_a_polling_loop(
     tmp_path: Path, want: Decision, given: BrokenShfmt
 ) -> None:
-    verdict = judge(
-        guard_on_broken(SOURCE, given, tmp_path), call_by("polled", "gh pr checks 7")
-    )
+    verdict = judge(guard_on_broken(SOURCE, given, tmp_path), call_by("fresh", POLL))
 
     assert decision(verdict) == want
 
@@ -560,8 +535,8 @@ def test_a_deny_says_to_background_and_when_to_hand_back() -> None:
     assert "about 60k context" in told
 
 
-def test_a_repeated_read_says_a_subagent_never_waits_on_ci() -> None:
-    told = reason(judge([GUARD], call_by("polled", "gh pr checks 7")))
+def test_a_polling_loop_says_a_subagent_never_waits_on_ci() -> None:
+    told = reason(judge([GUARD], call_by("fresh", POLL)))
 
     assert "never waits on CI" in told
 
