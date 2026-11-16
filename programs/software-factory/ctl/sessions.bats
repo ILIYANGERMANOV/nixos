@@ -31,7 +31,7 @@ load ../test_helper
 
   factory-ctl terminate origin
 
-  ended "$session" || fail "the session was refused"
+  ended "$session" || fail "the session survived"
 }
 
 @test "terminate: exits 2 when a session's worktree lost its .git, whose work is unknown" {
