@@ -6,7 +6,7 @@ Available options:
   -h,--help                Show this help text
 
 Available commands:
-  init                     Start a run, a child run when it names its parent
+  init                     Start a run: a child of --parent, a round on --pr
   record                   Record an event: 'state record --help' lists them
   handback                 Record a role's hand-back, read from stdin
   next                     Print the next action, its facts and the step's task

@@ -140,6 +140,27 @@ spec = describe "State.Run.Fan" $ do
         it "is refused depending on a task the fan-out lacks" $
             added (plainTask "fix" ["t9"]) oneTask `shouldBe` Left (UnknownTask (TaskId "t9"))
 
+    describe "a round on a task's PR" $ do
+        let finishedInReview = applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Finished (oneLine "PR")), moved t1 (InReview (Url "pr"))]
+            round1 = finishedInReview >>= moved t1 (Round (Url "pr"))
+
+        it "un-settles the task in review, so it is spawned again" $ do
+            ((`settled` t1) <$> round1, map (.id) . spawnable [] <$> round1) `shouldBe` (Right False, Right [t1])
+
+        it "makes the task a round on that PR, so its child's READY keeps it" $ do
+            fmap (.shape) . (`lookupTask` t1) <$> round1 `shouldBe` Right (Just (RoundOn (Url "pr")))
+            ((`settled` t1) <$> (round1 >>= spawned [] (childFor "c2" t1) >>= handedBack (runId "c2") (Finished (oneLine "READY")) >>= moved t1 (Kept (Url "pr"))))
+                `shouldBe` Right True
+
+        it "counts the rounds asked of each task" $
+            Map.lookup t1 . (.rounds) <$> (round1 >>= moved t1 (Round (Url "pr"))) `shouldBe` Right (Just 2)
+
+        it "is refused while a child runs the task" $
+            applied [spawned [] (childFor "c1" t1), moved t1 (Round (Url "pr"))] `shouldBe` Left (StillRunning t1 (runId "c1"))
+
+        it "is refused while an agent is at work on the task" $
+            applied [spawning [] t1, moved t1 (Round (Url "pr"))] `shouldBe` Left (AtWork t1)
+
     describe "a restart" $ do
         it "leaves no agent at work, so each running child waits on the 10x" . hedgehog $ do
             fan <- forAll genFan
@@ -191,6 +212,7 @@ merged fan task = case Map.lookup task fan.moves of
     Just (InReview _) -> False
     Just (InCi _) -> False
     Just (Kept _) -> False
+    Just (Round _) -> False
     Nothing -> False
 
 tshow :: Int -> Text.Text

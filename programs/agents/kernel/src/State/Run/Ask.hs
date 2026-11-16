@@ -43,6 +43,7 @@ module State.Run.Ask (
     forwardAll,
     andThen,
     Principal (..),
+    principalShape,
     Parent (..),
     Op (..),
     Delivery (..),
@@ -301,11 +302,18 @@ andThen first next question =
         Ruled ruling -> Right (Ruled ruling)
         Forward forwarded -> next forwarded
 
-{- | Who started the run: the user, or a parent run, which gave it a task of
-this shape, read from the parent's breakdown when the run started.
+{- | Who started the run, and the shape of its work: the user, who names a
+round's PR at init, or a parent run, which gave it a task of this shape,
+read from the parent's breakdown when the run started.
 -}
-data Principal = ByUser | ByRole Parent Shape
+data Principal = ByUser Shape | ByRole Parent Shape
     deriving stock (Eq, Show)
+
+-- | What the run does to its PR, whoever started it.
+principalShape :: Principal -> Shape
+principalShape = \case
+    ByUser shape -> shape
+    ByRole _ shape -> shape
 
 -- | The parent run, its log and the task of its breakdown it gave this run.
 data Parent = Parent {run :: RunId, log :: FilePath, task :: TaskId}
@@ -352,7 +360,7 @@ ask principal role kind = case authority role kind of
 -- | Where a forwarded question goes: up to whoever started the run.
 deliver :: Principal -> Above
 deliver = \case
-    ByUser -> TheUser
+    ByUser _ -> TheUser
     ByRole parent _ -> ParentRun parent.run
 
 -- | The hand-back's first line for a forwarded question (#360's wire format).

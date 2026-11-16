@@ -18,7 +18,7 @@ import Effectful.State.Static.Local (evalState)
 import Effects.Log (Log, exists, firstLine, locked, runLogIO)
 import State.Run.Ask (Principal (..))
 import State.Run.Codec (LogError (..), encodeLine)
-import State.Run.Event (Envelope (..), Event (..), FlowName (..), Source (..), Start (..), parseRunId)
+import State.Run.Event (Envelope (..), Event (..), FlowName (..), Shape (..), Source (..), Start (..), parseRunId)
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (withSystemTempDirectory)
@@ -97,5 +97,5 @@ started =
         , run = fromJust (parseRunId "00010203")
         , head = Nothing
         , session = Nothing
-        , event = Started Start {flow = EngineerFlow, notes = "/notes", principal = ByUser, interface = Set.empty}
+        , event = Started Start {flow = EngineerFlow, notes = "/notes", principal = ByUser OwnPr, interface = Set.empty}
         }

@@ -225,6 +225,8 @@ data TaskState
     | Merged Url
     | -- | A round's PR, left open on purpose: settled, and no merge awaited.
       Kept Url
+    | -- | Another round on this PR, asked of a task in review, kept or merged: open until its child's READY keeps it.
+      Round Url
     | -- | Set aside, and why: a parked task counts as settled.
       Parked Text (Maybe Url)
     deriving stock (Eq, Show)

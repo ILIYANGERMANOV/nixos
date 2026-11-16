@@ -47,7 +47,7 @@ spec = describe "State.Run.Fold" $ do
         outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
 
     describe "the 10x's fan-out" $ do
-        let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
+        let tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
             toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
             rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone engineers (tasksOf (plainTask "t2" [] :| [])))]
@@ -87,7 +87,7 @@ spec = describe "State.Run.Fold" $ do
             fmap (.child.run) . Fan.waiting . currentFan <$> tenXRun (toEngineers <> [Spawned child, Restarted]) `shouldBe` Right [runId "c1"]
 
     describe "two fan-outs in one flow" $ do
-        let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow ByUser) :| events))
+        let twoFansRun events = replay twoFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
             t1 = TaskId "t1"
             firstDone =
                 [ stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
@@ -118,7 +118,7 @@ spec = describe "State.Run.Fold" $ do
                 _ -> False
 
     describe "two scoped copies of one fan-out" $ do
-        let copiesRun events = replay scopedFans (logOf (Started (startOf TenXFlow ByUser) :| events))
+        let copiesRun events = replay scopedFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
             inA = tookIn (scopePath "a")
             settled =
                 [ inA (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
@@ -401,7 +401,7 @@ tenXRounds = describe "the 10x's rounds" $ do
     t1 = TaskId "t1"
     parent = Parent (runId "p1") "p1/events.jsonl" t1
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map (Took mempty) (init happyPath) <> [stepTook (ReadySkipped pr)]))
-    tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow ByUser) :| events))
+    tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
     agreed = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough gathering), stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
     onPr = roundTask "t1" "https://pr/1"
     toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (task :| [])))]
@@ -435,7 +435,7 @@ questions = describe "questions" $ do
         replay g (logOf (started :| [ask 1 Fact, Forwarded (q 1) TheUser])) `shouldBe` Left (NotAllowed (MustAnswer Role.Lead Fact))
 
     it "refuses a ruling on a question retagged Security that names no basis" $
-        replay g (logOf (Started (startOf TenXFlow ByUser) :| [ask 1 Design, RetaggedSecurity (q 1), RuledOn (q 1) proposal]))
+        replay g (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| [ask 1 Design, RetaggedSecurity (q 1), RuledOn (q 1) proposal]))
             `shouldBe` Left (NotAllowed (NoBasis (q 1)))
 
     it "refuses a forward to another than whoever started the run" $
@@ -542,7 +542,7 @@ or a parent, keeping those the fold accepts: the run state and the events.
 genAskLog :: Gen (RunState, [Event])
 genAskLog = do
     flow <- Gen.enumBounded
-    principal <- Gen.element [ByUser, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr]
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr]
     first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
     go tries first 1 0
@@ -586,9 +586,9 @@ genChain =
     (,)
         <$> Gen.element [Itself, Subagent (AgentRole "implementer")]
         <*> Gen.element
-            [ [rung "e1" EngineerFlow ByUser]
-            , [rung "x1" TenXFlow ByUser]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr), rung "x1" TenXFlow ByUser]
+            [ [rung "e1" EngineerFlow (ByUser OwnPr)]
+            , [rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

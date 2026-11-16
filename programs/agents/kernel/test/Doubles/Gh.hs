@@ -15,7 +15,7 @@ import State.Run.Event (Branch (..), DraftPr (..), Url (..))
 
 runGhScripted :: PrView -> Eff (Gh : es) a -> Eff es a
 runGhScripted reply = interpret $ \_ -> \case
-    PrView -> pure reply
+    PrView _ -> pure reply
 
 -- | What @gh pr view --json url,baseRefName,headRefName,isDraft,state@ prints for this PR.
 printedPr :: PullRequest -> PrView

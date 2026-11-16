@@ -117,6 +117,7 @@ genTaskState =
         , InReview . Url <$> genText
         , Merged . Url <$> genText
         , Kept . Url <$> genText
+        , Round . Url <$> genText
         , Parked <$> genText <*> Gen.maybe (Url <$> genText)
         ]
 
@@ -179,7 +180,7 @@ genStart =
     Start
         <$> Gen.enumBounded
         <*> Gen.string (Range.linear 1 30) Gen.unicode
-        <*> Gen.choice [pure ByUser, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape]
+        <*> Gen.choice [ByUser <$> genShape, ByRole <$> (Parent <$> genRunId <*> Gen.string (Range.linear 1 30) Gen.unicode <*> genTaskId) <*> genShape]
         <*> genSet Gen.enumBounded
 
 -- | An outcome taking this edge, if the edge is one of the engineer flow's.
@@ -358,7 +359,7 @@ run = runId "r7f2"
 
 -- | A user's engineer run, in a session that can ask the user.
 start :: Start
-start = Start EngineerFlow "notes" ByUser (Set.fromList [AskUser, Hooks])
+start = Start EngineerFlow "notes" (ByUser OwnPr) (Set.fromList [AskUser, Hooks])
 
 started :: Event
 started = Started start

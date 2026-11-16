@@ -13,7 +13,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
@@ -96,6 +96,16 @@ spec = describe "State.Run.Codec" $ do
                 [ci, merge] ->
                     "\"data\":{\"child\":\"c1\",\"token\":\"AWAIT\",\"ref\":\"https://pr/1\",\"qid\":null}" `Text.isInfixOf` ci
                         && "\"qid\":null,\"on\":\"merge\"}" `Text.isInfixOf` merge
+                _ -> False
+
+    it "writes the user on its own PR as the bare word older logs hold, and a user's round as its PR" $
+        [ encodeLine reviewRows {event = Started (Start EngineerFlow "/n" (ByUser shape) Set.empty)}
+        | shape <- [OwnPr, RoundOn (Url "https://github.com/o/r/pull/7")]
+        ]
+            `shouldSatisfy` \case
+                [own, round'] ->
+                    "\"principal\":\"user\"" `Text.isInfixOf` own
+                        && "\"principal\":{\"pr\":\"https://github.com/o/r/pull/7\"}" `Text.isInfixOf` round'
                 _ -> False
 
     it "reads an AWAIT an older log wrote, with no on, as awaiting CI" $
