@@ -21,10 +21,10 @@ Each finds the caller's run through its binding ("State.Protocol.Binding"),
 and its reply names the run it acted on; @begin@ reads no run.
 
 Only @route@ denies: a @state@ call at another run than the one the agent is
-bound to, and a lead's write before its run exists. None rewrites a call: what a hook says is context, a
-refusal or an error too (fail open and tell); auto mode denies a call a hook
-rewrote. Only the lead steers: a subagent's spawn or question is ignored, but
-a hand-back, which only a subagent makes. A child run's hand-back is its own
+bound to, and a lead's write before its run exists. None rewrites a call:
+what a hook says is context, a refusal or an error too (fail open and tell);
+auto mode denies a call a hook rewrote. Only the lead steers: a subagent's
+spawn or question is ignored, but a hand-back, which only a subagent makes. A child run's hand-back is its own
 @state@'s to record in its parent's run, so the hook leaves it be.
 -}
 module State.Protocol.Hook (
@@ -42,6 +42,9 @@ module State.Protocol.Hook (
     Want (..),
     Bind (..),
     Begin (..),
+    LeadSkill (..),
+    leadSkill,
+    leadSkillName,
     Gate (..),
     wants,
     keyOf,
@@ -69,6 +72,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (isJust, listToMaybe)
 import Data.Set qualified as Set
@@ -231,9 +235,9 @@ data Begin
     | -- | A spawned step runner.
       SpawnedWorker AgentRole
     | -- | A lead skill typed as @/name@: context beside the prompt.
-      TypedSkill
+      TypedSkill LeadSkill
     | -- | A lead skill the agent called: context beside the call.
-      CalledSkill
+      CalledSkill LeadSkill
     deriving stock (Eq, Show)
 
 {- | What the hook asks of the run, 'Nothing' when it has nothing to do: a
@@ -295,8 +299,8 @@ wants steps hook event = case hook of
         PromptExpansion _ _ -> undeclared
     BeginHook -> case event of
         AgentStart call -> Right (Begins <$> (spawnedBegin steps =<< (.role) =<< call.agent))
-        PromptExpansion _ skill -> Right (Begins TypedSkill <$ guard (isLeadSkill skill))
-        BeforeTool _ tool input -> Right (Begins CalledSkill <$ (guard (tool == Skill) *> textAt "skill" input >>= guard . isLeadSkill))
+        PromptExpansion _ skill -> Right (Begins . TypedSkill <$> leadSkill skill)
+        BeforeTool _ tool input -> Right (Begins . CalledSkill <$> (guard (tool == Skill) *> textAt "skill" input >>= leadSkill))
         SessionStart {} -> undeclared
         AfterTool {} -> undeclared
   where
@@ -327,8 +331,17 @@ the kernel does not read) puts them on the leads' inline steps beside
 @engineering@, which begins no run, and a flow's name is not its skill's
 (the @10x@ flow runs under @10x-engineer@).
 -}
-isLeadSkill :: Text -> Bool
-isLeadSkill skill = skill `elem` ["engineer", "10x-engineer"]
+data LeadSkill = EngineerSkill | TenXSkill
+    deriving stock (Eq, Show, Enum, Bounded)
+
+-- | The lead skill a name names; 'Nothing' for any other skill.
+leadSkill :: Text -> Maybe LeadSkill
+leadSkill name = find ((== name) . leadSkillName) [minBound ..]
+
+leadSkillName :: LeadSkill -> Text
+leadSkillName = \case
+    EngineerSkill -> "engineer"
+    TenXSkill -> "10x-engineer"
 
 {- | What a tool's result binds: a shell command that ran @state init@ binds
 its caller to the run init printed, a rerun (a resume) again; a spawn of a
@@ -544,8 +557,8 @@ toldOf job said = case job of
     Routes _ -> Allow said
     Begins SpawnedLead -> Note said
     Begins (SpawnedWorker _) -> Note said
-    Begins TypedSkill -> Note said
-    Begins CalledSkill -> Allow said
+    Begins (TypedSkill _) -> Note said
+    Begins (CalledSkill _) -> Allow said
 
 -- | @agent_hook.py@'s @emit_result@: nothing when there is nothing to say.
 encodeReply :: Reply -> Maybe LBS.ByteString

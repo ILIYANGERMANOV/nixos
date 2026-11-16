@@ -166,7 +166,7 @@ beginText steps = \case
         "state: this lead's run is driven by `state`. Its first command is the `state init` line in its prompt, as written; "
             <> "then `state next`, until it prints DONE.\n"
     SpawnedWorker role -> briefOf steps role
-    TypedSkill -> skillBegins
-    CalledSkill -> skillBegins
+    TypedSkill _ -> skillBegins
+    CalledSkill _ -> skillBegins
   where
     skillBegins = "state: this skill begins with `state`: `state init ...`, then `state next`.\n"

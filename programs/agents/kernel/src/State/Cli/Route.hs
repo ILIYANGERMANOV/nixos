@@ -28,7 +28,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Cli.Command (Command (..), Exit (..), Failure (..), failureText, initFix, parseCommand)
 import State.Protocol.Binding (Binding (..))
-import State.Protocol.Hook (Gate (..))
+import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (leads)
 import State.Run.Event (AgentRole, runIdText)
 import State.Step.Artifact (shellPath)
@@ -96,19 +96,19 @@ route bound calls = listToMaybe [denial call top | (call, top) <- calls, top /= 
 data Lead
     = NotLead
     | -- | It began a lead skill (@/engineer@): its init is the skill's.
-      SkillLead
+      SkillLead LeadSkill
     | -- | A role that leads a flow, spawned: its prompt holds its init line.
       RoleLead
     deriving stock (Eq, Show)
 
-{- | An agent by its role and whether it began a lead skill. A role leads
+{- | An agent by its role and the lead skill it began, if any. A role leads
 by 'leads', whatever skill it began; any other agent leads only by a skill.
 -}
-leadOf :: Maybe AgentRole -> Bool -> Lead
-leadOf role beganLeadSkill = case (leads =<< role, beganLeadSkill) of
+leadOf :: Maybe AgentRole -> Maybe LeadSkill -> Lead
+leadOf role began = case (leads =<< role, began) of
     (Just _, _) -> RoleLead
-    (Nothing, True) -> SkillLead
-    (Nothing, False) -> NotLead
+    (Nothing, Just skill) -> SkillLead skill
+    (Nothing, Nothing) -> NotLead
 
 {- | Why an unbound agent's call is denied: a lead edits, writes, commits,
 pushes, opens or merges a PR and spawns only once its run exists. Reads,
@@ -119,7 +119,8 @@ sandbox.
 gate :: Lead -> Gate -> Maybe Text
 gate lead call = case lead of
     NotLead -> Nothing
-    SkillLead -> denial initFix <$> writeOf call
+    SkillLead EngineerSkill -> denial initFix <$> writeOf call
+    SkillLead TenXSkill -> denial "state init --notes \"$PWD\" --flow 10x, in the run directory Intake or Resume names" <$> writeOf call
     RoleLead -> denial "run the `state init` line in your prompt, as written" <$> writeOf call
   where
     denial fix act =

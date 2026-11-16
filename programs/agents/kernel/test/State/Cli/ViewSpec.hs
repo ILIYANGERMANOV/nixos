@@ -4,7 +4,7 @@ import Data.Foldable (for_)
 import Data.Text qualified as Text
 import State.Cli.Render qualified as Render
 import State.Cli.View (beginText, brief, briefOf)
-import State.Protocol.Hook (Begin (..))
+import State.Protocol.Hook (Begin (..), LeadSkill (..))
 import State.Run.Event (AgentRole (..))
 import State.Run.RunGen (loadSteps, runAt)
 import State.Table (agentRoles)
@@ -38,5 +38,5 @@ spec = describe "the texts that need no run" $ do
             beginText steps SpawnedLead `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init` line", "`state next`"]
 
         it "tells a lead skill it begins with state init, then state next, typed or called alike" $ do
-            beginText steps TypedSkill `shouldBe` beginText steps CalledSkill
-            beginText steps TypedSkill `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init ...`", "`state next`"]
+            beginText steps (TypedSkill EngineerSkill) `shouldBe` beginText steps (CalledSkill TenXSkill)
+            beginText steps (TypedSkill EngineerSkill) `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init ...`", "`state next`"]

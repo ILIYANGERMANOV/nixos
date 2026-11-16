@@ -110,7 +110,7 @@ spec = describe "the hooks" $ do
             [ wants steps BeginHook (PromptExpansion (Call (SessionId "s") "/w" Nothing) "engineer")
             , called Skill "10x-engineer"
             ]
-                `shouldBe` [Right (Just (Begins TypedSkill)), Right (Just (Begins CalledSkill))]
+                `shouldBe` [Right (Just (Begins (TypedSkill EngineerSkill))), Right (Just (Begins (CalledSkill TenXSkill)))]
 
         it "says nothing at another skill, or another tool naming a lead skill" $
             [wants steps BeginHook (PromptExpansion (Call (SessionId "s") "/w" Nothing) "qa"), called Skill "refactor", called Shell "engineer"] `shouldBe` replicate 3 (Right Nothing)
@@ -230,7 +230,7 @@ spec = describe "the hooks" $ do
             decoded (Deny "state next: the run at /a is not this agent's") `shouldBe` Right (object ["decision" .= ("deny" :: Text), "reason" .= ("state next: the run at /a is not this agent's" :: Text)])
 
         it "gives a spawned agent's and a typed skill's begin context alone, a called skill's beside the call" $
-            map (\begin -> decoded (replyOf (Begins begin) "state: begins")) [SpawnedLead, TypedSkill, CalledSkill]
+            map (\begin -> decoded (replyOf (Begins begin) "state: begins")) [SpawnedLead, TypedSkill EngineerSkill, CalledSkill EngineerSkill]
                 `shouldBe` [ Right (object ["context" .= ("state: begins" :: Text)])
                            , Right (object ["context" .= ("state: begins" :: Text)])
                            , Right (object ["decision" .= ("allow" :: Text), "context" .= ("state: begins" :: Text)])

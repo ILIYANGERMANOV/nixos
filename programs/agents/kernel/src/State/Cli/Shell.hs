@@ -16,7 +16,7 @@ import Data.Foldable (toList, traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, maybeToList)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -55,7 +55,7 @@ import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
 import State.Protocol.Handback (Handback (..), Typed (..), parseHandback, typeHandback)
 import State.Protocol.Handback qualified as Handback
-import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
+import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
@@ -145,8 +145,8 @@ jobReply :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Job -> E
 jobReply steps name input call job = case job of
     Begins begin -> do
         marked <- case begin of
-            Hook.TypedSkill -> markLead call
-            Hook.CalledSkill -> markLead call
+            Hook.TypedSkill skill -> markLead call skill
+            Hook.CalledSkill skill -> markLead call skill
             Hook.SpawnedLead -> pure ""
             Hook.SpawnedWorker _ -> pure ""
         pure (replyOf job (beginText steps begin <> marked))
@@ -161,17 +161,16 @@ jobReply steps name input call job = case job of
                         (_, Removed) -> pure Quiet
             (Just _, _) -> pure Quiet
             (Nothing, _) -> do
-                -- The marker's text is never read: that it is there is the fact.
-                beganLeadSkill <- maybe (pure False) (fmap isJust . FileSystem.readText . leadFile) slot
-                pure (maybe Quiet Deny (Route.gate (leadOf ((.role) =<< call.agent) beganLeadSkill) gate))
+                began <- maybe (pure Nothing) (fmap (leadSkill . Text.strip =<<) . FileSystem.readText . leadFile) slot
+                pure (maybe Quiet Deny (Route.gate (leadOf ((.role) =<< call.agent) began) gate))
     Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (wantAnswer steps name input call want slot bound)
     Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (bindAnswer steps name call bind slot bound)
 
--- | Marks the caller a lead, as it began a lead skill; a disk error is told, the skill begins regardless.
-markLead :: (Shell es) => Call -> Eff es Text
-markLead call =
+-- | Marks the caller a lead of the skill it began; a disk error is told, the skill begins regardless.
+markLead :: (Shell es) => Call -> LeadSkill -> Eff es Text
+markLead call skill =
     slotFor call.session (keyOf call.agent) >>= \case
-        Just slot -> telling BeginHook Nothing ("" <$ writeWhole (leadFile slot) "lead\n")
+        Just slot -> telling BeginHook Nothing ("" <$ writeWhole (leadFile slot) (leadSkillName skill <> "\n"))
         Nothing -> pure ""
 
 -- | What an act says; a disk or git error is its text too, naming the run when one is known.

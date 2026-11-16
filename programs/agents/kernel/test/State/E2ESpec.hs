@@ -727,6 +727,14 @@ spec = describe "the state binary" $ do
                     replyField "decision" said `shouldBe` Just "deny"
                     replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>\n" `Text.isSuffixOf`)
 
+                it "deny a typed /10x-engineer's commit before its state init, naming the 10x's init" $ \repo -> do
+                    _ <- succeeded =<< hook hookBin repo "begin" (typed repo "10x-engineer")
+
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo Null "git commit -m x")
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes \"$PWD\" --flow 10x" `Text.isInfixOf`)
+
                 it "let a typed /engineer edit and commit once its state init bound it" $ \repo -> do
                     _ <- succeeded =<< hook hookBin repo "begin" (typed repo "engineer")
                     _ <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
