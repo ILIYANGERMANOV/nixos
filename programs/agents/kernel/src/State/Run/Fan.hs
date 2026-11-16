@@ -69,6 +69,8 @@ data Fan = Fan
     -- ^ Oldest first.
     , atWork :: Set TaskId
     -- ^ The tasks with an agent at work: spawned or resumed, and not handed back since.
+    , rounds :: Map TaskId Int
+    -- ^ The rounds asked of each task on its PR: a task never asked one is absent.
     }
     deriving stock (Eq, Show)
 
@@ -111,7 +113,7 @@ data Refusal
     deriving stock (Eq, Show)
 
 emptyFan :: Fan
-emptyFan = Fan {tasks = [], children = [], moves = Map.empty, held = [], atWork = Set.empty}
+emptyFan = Fan {tasks = [], children = [], moves = Map.empty, held = [], atWork = Set.empty, rounds = Map.empty}
 
 -- | A breakdown starts a fresh fan-out: refused while an agent works on a task of the old one.
 broken :: Tasks -> Fan -> Either Refusal Fan
@@ -194,7 +196,8 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
         | otherwise = childRun
 
 {- | A parked task has no agent at work: parking settles even a lost child.
-Only a round's PR is kept, and only under that PR's own URL.
+Only a round's PR is kept, and only under that PR's own URL. A round makes
+the task a round on its PR, refused while a child or an agent works on it.
 -}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
 moved task state fan = do
@@ -204,18 +207,34 @@ moved task state fan = do
         (Kept kept, RoundOn roundPr)
             | kept == roundPr -> Right ()
             | otherwise -> Left (NotItsRound task roundPr)
+        (Round _, _) -> idle
         (Parked _ _, _) -> Right ()
         (InCi _, _) -> Right ()
         (InReview _, _) -> Right ()
         (Merged _, _) -> Right ()
-    Right fan {moves = Map.insert task state fan.moves, atWork = working}
+    Right (rounded fan {moves = Map.insert task state fan.moves, atWork = working})
   where
+    idle = case (find ((== task) . (.child.task)) (running fan), Set.member task fan.atWork) of
+        (Just child, _) -> Left (StillRunning task child.child.run)
+        (Nothing, True) -> Left (AtWork task)
+        (Nothing, False) -> Right ()
     working = case state of
         Parked _ _ -> Set.delete task fan.atWork
         InCi _ -> fan.atWork
         InReview _ -> fan.atWork
         Merged _ -> fan.atWork
         Kept _ -> fan.atWork
+        Round _ -> fan.atWork
+    rounded after = case state of
+        Round url -> after {tasks = map (onRound url) after.tasks, rounds = Map.insertWith (+) task 1 after.rounds}
+        Parked _ _ -> after
+        InCi _ -> after
+        InReview _ -> after
+        Merged _ -> after
+        Kept _ -> after
+    onRound url found
+        | found.id == task = found {shape = RoundOn url}
+        | otherwise = found
 
 held :: TaskId -> Url -> Fan -> Either Refusal Fan
 held task url fan = fan {held = fan.held <> [(task, url)]} <$ known task fan
@@ -240,6 +259,7 @@ unmerged fan = [task.id | task <- fan.tasks, not (over task.id)]
         Just (Merged _) -> True
         Just (Kept _) -> True
         Just (Parked _ _) -> True
+        Just (Round _) -> False
         Just (InReview _) -> False
         Just (InCi _) -> False
         Nothing -> False
@@ -252,6 +272,7 @@ allParked fan = not (null fan.tasks) && all (parked . (.id)) fan.tasks
         Just (Parked _ _) -> True
         Just (Merged _) -> False
         Just (Kept _) -> False
+        Just (Round _) -> False
         Just (InReview _) -> False
         Just (InCi _) -> False
         Nothing -> False
@@ -316,6 +337,7 @@ pullRequest fan task =
         InReview url -> Just url
         Merged url -> Just url
         Kept url -> Just url
+        Round url -> Just url
         Parked _ url -> url
 
 -- | The task's children, oldest first.
@@ -323,7 +345,7 @@ childrenOf :: Fan -> TaskId -> [ChildRun]
 childrenOf fan task = [childRun | childRun <- fan.children, childRun.child.task == task]
 
 {- | Parked, or no child of it runs and its PR is in review, merged or kept,
-or its latest child finished. A stopped child leaves the task open: another child
+or its latest child finished. A round is open until its child's READY keeps it. A stopped child leaves the task open: another child
 may take it, or the 10x parks it. Parking settles even a child that never
 handed back, so a lost child cannot keep the fan-out open.
 -}
@@ -333,6 +355,7 @@ settled fan task = case Map.lookup task fan.moves of
     Just (InReview _) -> idle
     Just (Merged _) -> idle
     Just (Kept _) -> idle
+    Just (Round _) -> False
     Just (InCi _) -> finished fan task
     Nothing -> finished fan task
   where
@@ -378,6 +401,7 @@ built :: Fan -> TaskId -> Bool
 built fan task = case Map.lookup task fan.moves of
     Just (Merged _) -> True
     Just (Kept _) -> False
+    Just (Round _) -> False
     Just (Parked _ _) -> False
     Just (InCi _) -> False
     Just (InReview _) -> False
@@ -395,6 +419,7 @@ mergesAwaited fan = [dep.id | dep <- fan.tasks, opened dep.id, any (elem dep.id 
         Just (InCi _) -> True
         Just (Merged _) -> False
         Just (Kept _) -> False
+        Just (Round _) -> False
         Just (Parked _ _) -> False
         Nothing -> False
 

@@ -387,6 +387,7 @@ taskStateData moved = "state" .= taskStateName moved <> "why" .= why <> "pr" .= 
         InReview url -> (Nothing, Just url)
         Merged url -> (Nothing, Just url)
         Kept url -> (Nothing, Just url)
+        Round url -> (Nothing, Just url)
         Parked reason parkedPr -> (Just reason, parkedPr)
 
 taskStateOf :: Object -> Parser TaskState
@@ -400,7 +401,7 @@ taskStateOf obj = do
 
 -- | The states that name their PR, by the name 'taskStateName' gives each: @state record task@'s and the log's.
 prStates :: [(Text, Url -> TaskState)]
-prStates = [("ci", InCi), ("review", InReview), ("merged", Merged), ("kept", Kept)]
+prStates = [("ci", InCi), ("review", InReview), ("merged", Merged), ("kept", Kept), ("round", Round)]
 
 -- | As @state record task@ names it.
 taskStateName :: TaskState -> Text
@@ -409,6 +410,7 @@ taskStateName = \case
     InReview _ -> "review"
     Merged _ -> "merged"
     Kept _ -> "kept"
+    Round _ -> "round"
     Parked _ _ -> "parked"
 
 -- | The arguments @state record task@ takes after the task's id for this state.
@@ -420,6 +422,7 @@ taskStateArgs moved =
             InReview pr -> [urlText pr]
             Merged pr -> [urlText pr]
             Kept pr -> [urlText pr]
+            Round pr -> [urlText pr]
             Parked why pr -> why : maybe [] (\url -> ["--pr", urlText url]) pr
 
 startOf :: Object -> Parser Start

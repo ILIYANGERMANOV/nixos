@@ -508,6 +508,7 @@ taskLine fan open task =
             InReview url -> " " <> urlText url
             Merged url -> " " <> urlText url
             Kept url -> " " <> urlText url
+            Round url -> " " <> urlText url
             Parked why pr -> foldMap ((" " <>) . urlText) pr <> ": " <> why
 
 {- | The advice as its first line, for this principal and interface: the only

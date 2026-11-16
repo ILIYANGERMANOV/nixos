@@ -39,8 +39,8 @@ Available commands:
   ready.skipped            <url>
   breakdown.done           --tasks <file.json>
   engineers.done           no arguments
-  task                     <id> <ci|review|merged|kept> <pr> | <id> parked <why>
-                           | add <task.json> [--pr <url>]
+  task                     <id> <ci|review|merged|kept|round> <pr> | <id> parked
+                           <why> | add <task.json> [--pr <url>]
   held                     <task> <url>
   acted                    <task> <url>
   spawning                 <task>

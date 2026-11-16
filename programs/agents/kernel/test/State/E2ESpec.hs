@@ -21,6 +21,7 @@ import Data.Text.IO qualified as Text
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Codec (decodeLine, eventType)
 import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
+import State.Run.Event qualified as Event
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
@@ -451,6 +452,37 @@ spec = describe "the state binary" $ do
                 for_ agreed (succeeded <=< state bin repo . ("record" :))
                 respawn <- succeeded =<< state bin repo ["next"]
                 take 1 respawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+
+            it "runs another round on a task in review: spawns it under a fresh notes dir, refused while its child runs, kept on READY" $ \repo -> do
+                parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                writeFile repo.prJson (pullRequest True "OPEN")
+                let tasks = repo.root </> "tasks.json"
+                Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {repo = Just (Event.Repo "o" "r")}])
+                for_ [["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo)
+                w1 <- worktree repo "w1"
+                _ <- childRun bin w1 parent "n1" "t1"
+                for_ [["record", "fuel", "balanced"], ["override", "ready", "the", "test", "starts", "here"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
+                _ <- succeeded =<< state bin w1 ["next"]
+                inReview <- succeeded =<< state bin repo ["next"]
+                recorded inReview `shouldBe` ["engineers.done -> merge"]
+                notPr <- state bin repo ["record", "task", "t1", "round", "https://example.com/o/r/pull/1"]
+                notPr.code `shouldBe` 2
+                _ <- succeeded =<< state bin repo ["record", "task", "t1", "round", prUrlString]
+                spawn <- succeeded =<< state bin repo ["next"]
+                take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+                brief <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
+                brief `shouldSatisfy` mentions ("state init --notes /tmp/engineer-o-r-t1-r1/ --parent " <> parent)
+                w2 <- worktree repo "w2"
+                _ <- childRun bin w2 parent "n2" "t1"
+                running <- state bin repo ["record", "task", "t1", "round", prUrlString]
+                running.code `shouldBe` 2
+                for_ [["record", "fuel", "balanced"], ["override", "ready", "the", "test", "starts", "here"]] (succeeded <=< state bin w2)
+                skipped <- succeeded =<< state bin w2 ["next"]
+                recorded skipped `shouldBe` ["ready.skipped -> out"]
+                kept <- succeeded =<< state bin repo ["next"]
+                recorded kept `shouldBe` ["engineers.done -> merge"]
+                shown <- succeeded =<< state bin repo ["show"]
+                shown `shouldSatisfy` mentions ("PR kept " <> prUrl)
 
         describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
             it "climbs a question to the top and writes its one answer down to every run" $ \repo -> do

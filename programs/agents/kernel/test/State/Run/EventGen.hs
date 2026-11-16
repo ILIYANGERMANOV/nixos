@@ -117,6 +117,7 @@ genTaskState =
         , InReview . Url <$> genText
         , Merged . Url <$> genText
         , Kept . Url <$> genText
+        , Round . Url <$> genText
         , Parked <$> genText <*> Gen.maybe (Url <$> genText)
         ]
 

@@ -37,7 +37,7 @@ who owns each decision.
   every implementer, refactorer and fixer brief, and the plan-wrong line into a
   review-lead's.
 - **`state` holds the record and the mechanics** (`state help`, `state <command> --help`). When your
-  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes <dir>`, the notes directory being
+  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes <dir>`, plus `--pr <url>` on an existing PR, the notes directory being
   `/tmp/engineer-<owner>-<repo>-<slug>/`, the slug the branch name with each character but an ASCII letter, digit, `.`, `_` or `-` a `-`. Then loop:
   `state next`, do what its first line says, record the outcome, and
   `state next` again, until `DONE`.
@@ -244,5 +244,5 @@ and CI runs.
   runtime change, `/final-review --requirements <path> <PR>`,
   `/give-feedback <PR>`, and `/address-pr-feedback <PR>` when others
   commented. Only the user runs them.
-- A brief with a `Round on PR:` line is a round: `state` records
+- A `--pr` run or a `Round on PR:` brief is a round: `state` records
   `ready.skipped <url>` itself and the PR stays as it is; never `gh pr ready`.

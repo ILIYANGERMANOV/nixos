@@ -10,6 +10,7 @@ module State.Cli.View (
 ) where
 
 import Data.Bool (bool)
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -24,7 +25,7 @@ import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
-import State.Run.Fan (lookupTask)
+import State.Run.Fan (Fan (..), lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
 import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
@@ -81,16 +82,17 @@ the breakdown lacks is returned as the failure.
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent task = case (leads agent, task) of
     (Just flow, Nothing) -> Right (initLine flow "<dir>" "<id>")
-    (Just _, Just taskId) -> case lookupTask (currentFan state) taskId of
+    (Just _, Just taskId) -> case lookupTask fan taskId of
         Nothing -> Left taskId
         Just found -> Right (Text.unlines (taskLines found) <> "\n" <> taskInit found)
     (Nothing, _) -> Right $ case [step | step@(name, _) <- runsOf steps agent, At place <- [state.at], place.name == name] of
         [] -> briefOf steps agent
         here -> sections here <> ruleOf agent
   where
+    fan = currentFan state
     taskInit found =
         maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
-            <> initLine found.flow (maybe "<dir>" (engineerNotes found.branch) found.repo) (taskIdText found.id)
+            <> initLine found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) found.branch) found.repo) (taskIdText found.id)
     initLine flow notesText taskText =
         "state init --notes "
             <> notesText
@@ -125,11 +127,13 @@ brief steps state agent task = case (leads agent, task) of
 {- | The notes dir the engineer skill names for a task's run,
 @/tmp/engineer-<owner>-<repo>-<slug>/@, the slug its branch with each
 character but a 'slugChar' a @-@: a @/@, and whatever a shell would read.
+The run of the task's nth round gets @-r<n>@: an earlier run's dir is finished.
 -}
-engineerNotes :: Branch -> Repo -> Text
-engineerNotes branch repo = "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.map slug (branchText branch) <> "/"
+engineerNotes :: Int -> Branch -> Repo -> Text
+engineerNotes rounds branch repo = "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.map slug (branchText branch) <> suffix <> "/"
   where
     slug c = if slugChar c then c else '-'
+    suffix = if rounds > 0 then "-r" <> Text.pack (show rounds) else ""
 
 {- | A role's brief wherever a run is: the task text of each step it runs,
 then the rule its hand-back follows. 'brief' gives it at a step the role

@@ -37,6 +37,7 @@ import State.Protocol.Handback (parseTouches)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
+import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (Outcome (..))
@@ -183,12 +184,13 @@ recordables =
            , url Ready ReadySkipped
            ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
-        <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+        <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+                [task, "round", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Plain . TaskMoved (TaskId task) . Round) (parsePrUrl pr)
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
                 task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
                 -- Two words never move a task, so a task named add stays recordable.
                 ["add", path] -> Right (FromFile (Text.unpack path) (fmap TaskAdded . Codec.decodeTask))
-                _ -> Left "the task, then ci, review, merged or kept and its PR, or parked and why; or add and a task file"
+                _ -> Left "the task, then ci, review, merged, kept or round and its PR, or parked and why; or add and a task file"
            , stay "held" "<task> <url>" $ \case
                 [task, link] -> Right (Held (TaskId task) (Url link))
                 _ -> Left "the task and the url"
