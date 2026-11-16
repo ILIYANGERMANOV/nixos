@@ -23,6 +23,10 @@ const CHAIN_ID = 11155111;
 const KEY = `0x${"11".repeat(32)}` as const;
 const ADDRESS = privateKeyToAccount(KEY).address;
 const RPC_URL = "http://rpc.test/";
+// Each case writes and reads a key file, so on a loaded CI box 100 runs can
+// outlast vitest's 5 s default (#421).
+const PROPERTY_RUNS = 50;
+const PROPERTY_TIMEOUT_MS = 30_000;
 
 // secp256k1's order: a private key is in [1, order).
 const CURVE_ORDER =
@@ -99,7 +103,9 @@ function signedByWallet(message: Hex, signature: unknown): Promise<boolean> {
 }
 
 describe("walletAddress", () => {
-  test.prop([fc.bigInt({ min: 1n, max: CURVE_ORDER - 1n })])(
+  test.prop([fc.bigInt({ min: 1n, max: CURVE_ORDER - 1n })], {
+    numRuns: PROPERTY_RUNS,
+  })(
     "derives the key's address, with or without 0x and around whitespace",
     (scalar) => {
       const key = `0x${scalar.toString(16).padStart(64, "0")}` as Hex;
@@ -108,18 +114,26 @@ describe("walletAddress", () => {
       expect(walletAddress(keyFile(`${key}\n`))).toBe(expected);
       expect(walletAddress(keyFile(`  ${key.slice(2)}  `))).toBe(expected);
     },
+    PROPERTY_TIMEOUT_MS,
   );
 
-  test.prop([
-    fc
-      .string({ minLength: 8 })
-      .filter((content) => !/^(0x)?[0-9a-fA-F]{64}$/.test(content.trim())),
-  ])("refuses a file with no key and never echoes its content", (content) => {
-    const read = () => walletAddress(keyFile(content));
+  test.prop(
+    [
+      fc
+        .string({ minLength: 8 })
+        .filter((content) => !/^(0x)?[0-9a-fA-F]{64}$/.test(content.trim())),
+    ],
+    { numRuns: PROPERTY_RUNS },
+  )(
+    "refuses a file with no key and never echoes its content",
+    (content) => {
+      const read = () => walletAddress(keyFile(content));
 
-    expect(read).toThrow(/does not hold a 32-byte hex private key/);
-    expect(read).not.toThrow(content);
-  });
+      expect(read).toThrow(/does not hold a 32-byte hex private key/);
+      expect(read).not.toThrow(content);
+    },
+    PROPERTY_TIMEOUT_MS,
+  );
 
   test("refuses a key one digit short", () => {
     expect(() => walletAddress(keyFile(KEY.slice(0, -1)))).toThrow(

@@ -78,8 +78,22 @@ stop_background() {
   }
 }
 # A live session: a process with --sdk-url in its command line, working in $1.
-start_session() { in_background run_session "$1"; }
+# Returns once factory-ctl can see it, with $! still its pid: until the fork
+# execs, it has bats's command line and working directory.
+start_session() {
+  in_background run_session "$1"
+  visible_session "$!" "$1" || fail "the session in $1 never started"
+}
 run_session() { cd "$1" && exec bash -c 'sleep 300; true' session --sdk-url; }
+visible_session() {
+  local _
+  for _ in $(seq 100); do
+    grep -qa -- --sdk-url "/proc/$1/cmdline" 2>/dev/null &&
+      [ "/proc/$1/cwd" -ef "$2" ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
 # A signalled process dies shortly after the signal returns.
 ended() {
   local _
