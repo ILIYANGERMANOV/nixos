@@ -23,6 +23,7 @@ BACKGROUND = "background spawn: Post at launch, before SubagentStop"
 CONTEXT = "SubagentStart additionalContext reaches the subagent"
 DENY = "PreToolUse deny reason reaches the agent"
 FIELDS = "every event carries the adapter's fields"
+CD = "payload cwd follows a cd in the main session"
 
 
 def test_the_recorded_run_passes_every_check() -> None:
@@ -89,6 +90,17 @@ def denied_call_ran(events: list[Payload], transcripts: dict[str, str]) -> Run:
     return [*events, ran], transcripts
 
 
+def cwd_left_behind_by_cd(events: list[Payload], transcripts: dict[str, str]) -> Run:
+    return edited(
+        events,
+        lambda e: (
+            is_tool("PreToolUse", "Bash")(e)
+            and "PROBE-CD-TAG" in str(tool_input(e).get("command"))
+        ),
+        lambda e: {**e, "cwd": str(e["cwd"]).removesuffix("/probe-cd")},
+    ), transcripts
+
+
 def no_tool_use_id_at_depth_2(
     events: list[Payload], transcripts: dict[str, str]
 ) -> Run:
@@ -128,6 +140,7 @@ def no_session_at_expansion(events: list[Payload], transcripts: dict[str, str]) 
         (context_only_in_hook_output, (CONTEXT, 1)),
         (no_deny_reason, (DENY, 0)),
         (denied_call_ran, (DENY, 0)),
+        (cwd_left_behind_by_cd, (CD, 0)),
         (no_tool_use_id_at_depth_2, (FIELDS, 2)),
         (no_cwd_at_grandchild_start, (FIELDS, 2)),
         (no_session_at_expansion, (FIELDS, 0)),

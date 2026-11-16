@@ -32,6 +32,8 @@ SKILL_ARGS = "PROBE-SKILL-ARGS"
 DENY_TAG = "PROBE-DENY-TAG"
 DENY_REASON = "PROBE-DENY-REASON"
 CONTEXT_MARKER = "PROBE-CONTEXT-MARKER"
+CD_DIR = "probe-cd"
+CD_TAG = "PROBE-CD-TAG"
 # The login's, and nothing of the calling session: run from inside Claude
 # Code, its CLAUDE_CODE_* variables change how the nested client spawns.
 PASSED_ENV = ("PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR")
@@ -85,7 +87,9 @@ Do these steps in order, one tool call each, then reply `probe done`.
    prompt: "Spawn one Agent with subagent_type `{GRANDCHILD}`, run_in_background
    false, and the prompt 'Hand back the word done.', then hand back the word done."
 4. Spawn an Agent with subagent_type `{CHILD}`, run_in_background true, and the
-   prompt "Hand back the word done.". Wait for its hand-back before you reply.
+   prompt "Hand back the word done.". Wait for its hand-back before the next step.
+5. Run the Bash command `mkdir -p {CD_DIR} && cd {CD_DIR}`.
+6. Run the Bash command `echo {CD_TAG}`.
 """
 CALLED_SKILL_BODY = f"""\
 ---
@@ -324,6 +328,11 @@ def checks(events: list[Payload], transcripts: dict[str, str]) -> list[Check]:
             0,
             lambda: denied(indexed, transcripts),
         ),
+        verdict(
+            "payload cwd follows a cd in the main session",
+            0,
+            lambda: followed_cd(indexed),
+        ),
         *(
             verdict(
                 "every event carries the adapter's fields",
@@ -560,6 +569,26 @@ def denied(events: Indexed, transcripts: dict[str, str]) -> Passed | Missing:
             return Missing(
                 f"{DENY_REASON} in no message of the lead transcript holding {tool_use_id}"
             )
+
+
+def followed_cd(events: Indexed) -> Passed | Missing:
+    """The lead's call after its `cd {CD_DIR}` names the new directory as its
+    cwd: the state hooks find the run from that cwd."""
+    match first(
+        events,
+        f"the lead's PreToolUse Bash `echo {CD_TAG}`",
+        lambda event: (
+            tool_event(event, "PreToolUse", "Bash")
+            and "agent_id" not in event
+            and CD_TAG in str(field(event, "tool_input", "command"))
+        ),
+    ):
+        case Missing() as missing:
+            return missing
+        case Found(event={"cwd": str(cwd)}) if cwd.endswith(f"/{CD_DIR}"):
+            return Passed(f"cwd {cwd}")
+        case Found(event=call):
+            return Missing(f"cwd {call.get('cwd')} after `cd {CD_DIR}`")
 
 
 def sent(transcript: str) -> list[str]:
