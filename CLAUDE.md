@@ -133,6 +133,9 @@ declare them.
 **`programs/agents/` is the vendor-free frontend; each agent's own program is a
 thin backend.**
 
+**The logic ladder: pure Haskell >> impure Haskell >> hooks >> prose**
+(`.claude/rules/agents-logic-ladder.md`).
+
 Details: `.claude/rules/agents-*.md` and `claude-code-*.md`, each loaded only
 under the folder it covers; why: `docs/adr/0011-agent-compiler.md`.
 
