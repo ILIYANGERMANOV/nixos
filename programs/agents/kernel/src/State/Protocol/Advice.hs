@@ -154,8 +154,8 @@ data Action
       AwaitOn Waiting Text
     | -- | A child to resume, and what with: the answer to its question, or its CI.
       Resume RunId Text
-    | -- | A stopped child's stop, for @state ask --from@ before any retry.
-      TriageStop RunId Stop
+    | -- | A stopped child's stop, for @state ask --from@ before any retry; its task while a retry is left, for @state retry@.
+      TriageStop RunId (Maybe TaskId) Stop
     | -- | A worker's hand-back line 1, for @state ask --from@ before the run goes on.
       TriageHandback AgentRole OneLine
     | -- | A worker still at work, before the run hands back: its hand-back wakes the run.
@@ -439,7 +439,7 @@ atOnce :: ScopedFan -> [RunId] -> RunState -> AtOnce
 atOnce at ended state =
     AtOnce
         { unrecorded = [(c.child.task, Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in"))) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
-        , triage = [(child.task, TriageStop child.run stop) | (child, stop) <- Fan.untriaged here]
+        , triage = [(child.task, TriageStop child.run (retryable child.task) stop) | (child, stop) <- Fan.untriaged here]
         , record = recordsFinished here
         , resume = [(c.child.task, Resume c.child.run ("with the answer to " <> qidText qid <> ": " <> answer)) | (qid, answer) <- given state, Just c <- [Fan.askedBy here qid], c `elem` waiting] <> lost
         , spawn = [(task.id, Spawn (taskRole task) (Just task.id)) | task <- Fan.spawnable (askingChildren state) here]
@@ -450,6 +450,7 @@ atOnce at ended state =
     -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
     lost = [(c.child.task, Resume c.child.run ("lost at a restart: a fresh " <> roleText (taskRole task) <> " with its spawn prompt")) | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
     taskRole task = (Role.role task.flow).name
+    retryable task = if Fan.retryLeft here task then Just task else Nothing
 
 {- | At a fan-out's merge: record a finished task's PR, await the unmerged,
 then record the merge. With every task parked nothing merged, so the run
@@ -596,7 +597,7 @@ deliver start = \case
         ParentRun _ -> "HANDBACK " <> needsDecision question
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
-    TriageStop child stop -> triageFrom (runIdText child) (stopLine stop)
+    TriageStop child task stop -> "RUN " <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task <> askFrom (runIdText child) (stopLine stop)
     TriageHandback (AgentRole role) line -> triageFrom role (oneLineText line)
     AwaitWorker role agent -> "AWAIT worker " <> roleText role <> " " <> agent.agentIdText
     AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
@@ -616,7 +617,8 @@ deliver start = \case
     has op = Set.member op start.interface
     -- A run that cannot be woken hands the wait up to the run above (#360's AWAIT).
     awaiting waiting refs = (if has Event.Await then "" else "HANDBACK ") <> "AWAIT " <> waitingText waiting <> " " <> refs
-    triageFrom from line = "RUN state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
+    triageFrom from line = "RUN " <> askFrom from line
+    askFrom from line = "state ask --kind <kind> --from " <> from <> " <question> - triage: " <> line
     asked question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
 {- | The unindented lines after the advice's first: each other action it
@@ -705,7 +707,7 @@ runOptions = \case
     AwaitAnswer _ -> []
     AwaitOn _ _ -> []
     Resume _ _ -> []
-    TriageStop _ _ -> []
+    TriageStop {} -> []
     TriageHandback _ _ -> []
     AwaitWorker _ _ -> []
     AwaitChildren _ -> []

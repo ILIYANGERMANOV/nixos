@@ -24,6 +24,7 @@ module State.Cli.Command (
     unknownEvent,
     anyEvent,
     openQid,
+    retryOf,
     answeredQid,
     notStarted,
     help,
@@ -54,7 +55,7 @@ import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Propos
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
 import State.Run.Fold qualified as Fold
@@ -93,6 +94,8 @@ data RunCommand
     | -- | A question's id as typed, checked against the run's open ones ('openQid').
       RuleOn Text Raise Proposal
     | Forward Text Raise
+    | -- | A stopped child's task taken again: its stop triaged as Stuck and ruled a retry, and why.
+      Retry TaskId OneLine
     | -- | The answer that came down; by the run's principal unless named.
       Answer Text Text (Maybe Above)
     | StopRun Stop
@@ -236,6 +239,10 @@ commandInfo steps scope =
                     <*> textOption "cost" "<c>" "what the answer costs"
                     <*> optional (textOption "basis" "<event-id>|obvious:<why>" "the event that answered it, or why it is obvious")
                     <*> optional raiseOption
+            , sub "retry" "Retry a stopped child's task, printing its brief" $
+                (\task why -> OnRun . Retry (TaskId task) <$> oneLine why)
+                    <$> textArgument "<task>"
+                    <*> textOption "why" "<w>" "why another try may succeed"
             , sub "forward" "Forward a question up, to the parent run or the user" $
                 (\qid raise -> OnRun . Forward qid <$> raising raise) <$> textArgument "<qid>" <*> optional raiseOption
             , freeText "answer" "Record the answer to a forwarded question" $
@@ -528,6 +535,21 @@ closest name events = case (sameStep, events) of
     sameStep = case Text.breakOn "." name of
         (_, "") -> []
         (step, _) -> [e | e@(event, _) <- events, (step <> ".") `Text.isPrefixOf` event]
+
+{- | The task's latest child, whose stop awaits triage, while a retry is
+left ('Fan.retryLeft'): what @state retry@ triages and retries.
+-}
+retryOf :: RunState -> TaskId -> Either Failure (Task, Child, Stop)
+retryOf state task = case (Fan.lookupTask fan task, lookup task [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
+    (Nothing, _) -> Left (refused "the breakdown has no such task" "state show")
+    (Just _, Nothing) -> Left (refused "no stopped child of it awaits triage" "state next")
+    (Just _, Just (child, _))
+        | not (Fan.retryLeft fan task) ->
+            Left (refused (tshow (Fan.tries fan task) <> " children tried it, its one retry is spent") ("state ask --kind Stuck --from " <> runIdText child.run <> " <question> | state record task " <> Codec.taskIdText task <> " parked <why>"))
+    (Just found, Just (child, stop)) -> Right (found, child, stop)
+  where
+    fan = Fold.currentFan state
+    refused = Failure BadInput ("task " <> Codec.taskIdText task)
 
 {- | A question to answer: one open, or one answered already, whose answer
 again the fold judges (the same one is no news).

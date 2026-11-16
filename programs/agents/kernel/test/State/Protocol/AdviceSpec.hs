@@ -216,7 +216,12 @@ spec = describe "State.Protocol.Advice" $ do
                 stopped = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended stop)]
                 triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
             map (next noFacts . tenXAt (t1 :| [])) [stopped, stopped <> [Asked (Asking triaged (StateName "engineers") (ChildRun (runId "c1"))), RuledOn triaged.qid ruling]]
-                `shouldBe` [TriageStop (runId "c1") stop, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
+                `shouldBe` [TriageStop (runId "c1") (Just (TaskId "t1")) stop, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
+        it "offers no retry of a task once its second child stops" $ do
+            let stop = Stop Blocked "no access"
+                triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
+                twice = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended stop), Asked (Asking triaged (StateName "engineers") (ChildRun (runId "c1"))), RuledOn triaged.qid ruling, Spawned (childOf "c2" "t1"), HandedBack (runId "c2") (Ended stop)]
+            next noFacts (tenXAt (t1 :| []) twice) `shouldBe` TriageStop (runId "c2") Nothing stop
         it "waits on the user's answer to a stopped child's question before a retry" $ do
             let stuckOn = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
                 forwarded = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended (Stop Blocked "no access")), Asked (Asking stuckOn (StateName "engineers") (ChildRun (runId "c1"))), Forwarded stuckOn.qid TheUser]
@@ -298,9 +303,11 @@ spec = describe "State.Protocol.Advice" $ do
             deliver child (AwaitMerge ((TaskId "t1", Just prUrl) :| [(TaskId "t2", Nothing)]))
                 `shouldBe` "HANDBACK AWAIT merge https://pr/1 t2"
 
-        it "puts a child's stop to triage as a question from the child" $
-            deliver start (TriageStop (runId "c1") (Stop Blocked "no access"))
-                `shouldBe` "RUN state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
+        it "puts a child's stop to triage as a retry of its task while one is left, else as a question from the child" $
+            [deliver start (TriageStop (runId "c1") task (Stop Blocked "no access")) | task <- [Just (TaskId "t1"), Nothing]]
+                `shouldBe` [ "RUN state retry t1 --why <w> | state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
+                           , "RUN state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
+                           ]
 
         it "waits on CI or a merge itself only where the interface can" $
             [deliver from (AwaitOn on "u") | on <- [Ci, Merge], from <- [start {interface = Set.singleton Await}, start]]

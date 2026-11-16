@@ -335,7 +335,9 @@ run it, then triage it as any question. No retry spawns before.
 
 1. Answer from the brief if the brief answers it.
 2. A fresh engineer retries, from its PR or its worktree, with the failure in
-   the brief and a fresh notes directory in its `state init` line.
+   the brief: `state retry <task> --why <w>` triages the stop, rules the
+   retry and prints the brief head, its `state init` on a fresh notes dir.
+   It refuses once the task's one retry is spent.
 3. Stuck, the same failure in 2 tries in a row whatever the commit (`tries`
    in `state show`): ask once, retry with a direction, re-plan or park, and go
    on with other tasks. Parked: `state record task <id> parked <why>`, notify.

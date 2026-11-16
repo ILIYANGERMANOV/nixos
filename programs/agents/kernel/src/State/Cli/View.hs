@@ -5,6 +5,7 @@ module State.Cli.View (
     showRun,
     pendingLines,
     brief,
+    taskBrief,
     briefOf,
     beginText,
 ) where
@@ -24,9 +25,10 @@ import State.Protocol.Hook (Begin (..))
 import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
-import State.Run.Fan (Fan (..), lookupTask)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
+import State.Run.Fan (Fan (..), lookupTask, tries)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
+import State.Show (tshow)
 import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
 import State.Table (Row (..), Steps, row, stepsRunBy)
@@ -81,42 +83,34 @@ the breakdown lacks is returned as the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent task = case (leads agent, task) of
-    (Just flow, Nothing) -> Right (initLine flow "<dir>" "<id>")
-    (Just _, Just taskId) -> case lookupTask fan taskId of
-        Nothing -> Left taskId
-        Just found -> Right (Text.unlines (taskLines found) <> "\n" <> taskInit found)
+    (Just flow, Nothing) -> Right (initLine state flow "<dir>" "<id>")
+    (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
     (Nothing, _) -> Right $ case [step | step@(name, _) <- runsOf steps agent, At place <- [state.at], place.name == name] of
         [] -> briefOf steps agent
         here -> sections here <> ruleOf agent
+
+{- | A child engineer's brief head: its task's fields, then the line that
+starts its run under this one, on the task's flow: in the task's worktree and
+notes dir when the breakdown names them.
+-}
+taskBrief :: RunState -> Task -> Text
+taskBrief state found = Text.unlines (taskLines found) <> "\n" <> taskInit
   where
     fan = currentFan state
-    taskInit found =
+    taskInit =
         maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
-            <> initLine found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) found.branch) found.repo) (taskIdText found.id)
-    initLine flow notesText taskText =
-        "state init --notes "
-            <> notesText
-            <> flowFlag flow
-            <> " --parent "
-            <> runIdText state.run
-            <> " --parent-log "
-            <> Text.pack (logOf state.start.notes)
-            <> " --task "
-            <> taskText
-            <> "\n"
-    -- The default flow is left out, so an engineer's line reads as it always has.
-    flowFlag = maybe "" (" --flow " <>) . namedFlowText
-    taskLines found =
-        [ "Task: " <> taskIdText found.id
-        , "Fuel: " <> fuelLabel found.fuel
-        , "Base: " <> branchText found.base
-        , "Branch: " <> branchText found.branch
-        , "Depends on: " <> listed (map taskIdText found.deps)
-        , "QA: " <> yesNo found.qa
-        , "Heavy: " <> yesNo found.heavy
-        , "Security-sensitive: " <> listed (map topicText (Set.toList found.security))
+            <> initLine state found.flow (maybe "<dir>" (engineerNotes (Map.findWithDefault 0 found.id fan.rounds) (tries fan found.id) found.branch) found.repo) (taskIdText found.id)
+    taskLines task =
+        [ "Task: " <> taskIdText task.id
+        , "Fuel: " <> fuelLabel task.fuel
+        , "Base: " <> branchText task.base
+        , "Branch: " <> branchText task.branch
+        , "Depends on: " <> listed (map taskIdText task.deps)
+        , "QA: " <> yesNo task.qa
+        , "Heavy: " <> yesNo task.heavy
+        , "Security-sensitive: " <> listed (map topicText (Set.toList task.security))
         ]
-            <> case found.shape of
+            <> case task.shape of
                 OwnPr -> []
                 RoundOn url -> ["Round on PR: " <> urlText url]
     listed = \case
@@ -124,16 +118,37 @@ brief steps state agent task = case (leads agent, task) of
         items -> Text.intercalate ", " items
     yesNo = bool "no" "yes"
 
+-- | The line that starts a child run under this one: on this flow, in these notes, taking this task.
+initLine :: RunState -> FlowName -> Text -> Text -> Text
+initLine state flow notesText taskText =
+    "state init --notes "
+        <> notesText
+        <> flowFlag
+        <> " --parent "
+        <> runIdText state.run
+        <> " --parent-log "
+        <> Text.pack (logOf state.start.notes)
+        <> " --task "
+        <> taskText
+        <> "\n"
+  where
+    -- The default flow is left out, so an engineer's line reads as it always has.
+    flowFlag = maybe "" (" --flow " <>) (namedFlowText flow)
+
 {- | The notes dir the engineer skill names for a task's run,
 @/tmp/engineer-<owner>-<repo>-<slug>/@, the slug its branch with each
 character but a 'slugChar' a @-@: a @/@, and whatever a shell would read.
-The run of the task's nth round gets @-r<n>@: an earlier run's dir is finished.
+The run of the task's nth round gets @-r<n>@, and a retry, a child beyond one
+per round, @-t<n>@ for the nth child of the task (#429): an earlier run's dir
+is finished. As the task's children only grow, each child's dir is fresh.
 -}
-engineerNotes :: Int -> Branch -> Repo -> Text
-engineerNotes rounds branch repo = "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.map slug (branchText branch) <> suffix <> "/"
+engineerNotes :: Int -> Int -> Branch -> Repo -> Text
+engineerNotes rounds tried branch repo =
+    "/tmp/engineer-" <> repo.owner <> "-" <> repo.name <> "-" <> Text.map slug (branchText branch) <> roundSuffix <> trySuffix <> "/"
   where
     slug c = if slugChar c then c else '-'
-    suffix = if rounds > 0 then "-r" <> Text.pack (show rounds) else ""
+    roundSuffix = if rounds > 0 then "-r" <> tshow rounds else ""
+    trySuffix = if tried > rounds then "-t" <> tshow (tried + 1) else ""
 
 {- | A role's brief wherever a run is: the task text of each step it runs,
 then the rule its hand-back follows. 'brief' gives it at a step the role

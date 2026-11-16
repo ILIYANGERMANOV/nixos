@@ -28,6 +28,7 @@ module State.Run.Ask (
     OneLine,
     oneLineText,
     parseOneLine,
+    flattened,
     Question (..),
     Reading (..),
     Choice (..),
@@ -173,6 +174,10 @@ parseOneLine :: Text -> Maybe OneLine
 parseOneLine raw
     | Text.any breaksLine raw = Nothing
     | otherwise = Just (OneLine raw)
+
+-- | Text the run wrote itself, made one line: each line break a space.
+flattened :: Text -> OneLine
+flattened = OneLine . Text.map (\c -> if breaksLine c then ' ' else c)
 
 data Question = Question {qid :: QId, kind :: Kind, text :: OneLine}
     deriving stock (Eq, Show)
