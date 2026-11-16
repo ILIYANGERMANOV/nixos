@@ -24,6 +24,7 @@ module State.Protocol.Advice (
     deliverPrompt,
     ownAsk,
     factLines,
+    childBudget,
 ) where
 
 import Control.Applicative ((<|>))
@@ -45,7 +46,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
-import State.Category.Meter (AtCap (Extend), someMeterName)
+import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
@@ -59,10 +60,10 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
-import State.Step.Catalog (AnyOutcome, AnyStep (..), shownEdges, stepNamed)
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
@@ -273,9 +274,13 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (Nothing, [], At place, AwaitOn _ _) -> stepLeads place
         _ -> []
     stepLeads place = case stepNamed place.name of
-        Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
-            Agent _ _ -> [commandOption (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge]
-            Inline -> [recordOption event edge | (event, edge) <- shownEdges g place, along edge]
+        Just (AnyStep _ (SomeStep s)) ->
+            ( case (row steps s).runner of
+                Agent _ _ -> [commandOption (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge]
+                Inline -> [recordOption event edge | (event, edge) <- shownEdges g place, along edge]
+            )
+                -- The run records a stuck loop's exit itself: no worker's hand-back takes it.
+                <> [recordOption event edge | (event, edge) <- stuckExits g state place, along edge]
         Nothing -> []
     along edge = case edge.arrow of
         Along _ -> True
@@ -380,6 +385,39 @@ one command means = commandOption command means :| []
 -- | The budgets that hold the run, in the order they are shown.
 shownBudgets :: OpenGraph -> RunState -> [(Metered, Budget)]
 shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.cap) (Map.toList (budgets g state))
+
+{- | What a child's spawn or hand-back tells under its line in place of the
+advice, which parallel spawns would each repeat:
+
+> researchers: 2 running, 3 of 5 left
+> next: spawn more, or end your turn until they hand back
+
+None for an event that opens or closes no child.
+-}
+childBudget :: OpenGraph -> RunState -> Event -> Maybe [Text]
+childBudget g state event =
+    listToMaybe
+        [ childLines owed budget
+        | Event.Took _ (AnyOutcome _ some) <- [event]
+        , (_, budget) <- shownBudgets g state
+        , Just owed <- [owedBy budget.cap.meter (RecordedOutcome some)]
+        ]
+
+childLines :: Owed -> Budget -> [Text]
+childLines owed budget =
+    [ Text.toLower (someMeterName budget.cap.meter) <> ": " <> howMany open <> " running" <> foldMap left budget.allows
+    , "next: " <> next
+    ]
+  where
+    open = budget.ledger.open
+    left allows = ", " <> howMany (allows - min allows budget.ledger.spent) <> " of " <> tshow allows <> " left"
+    howMany n = if n == 0 then "none" else tshow n
+    await = "end your turn until " <> if open == 1 then "it hands back" else "they hand back"
+    next = case owed of
+        Opens | usedUp budget -> await
+        Opens -> "spawn more, or " <> await
+        Closes | open == 0 -> "state next"
+        Closes -> await
 
 -- | @Re-reviews: 1 of 3 used, 2 left@: what a budget spent of what the run's Fuel allows.
 spentText :: Budget -> Text

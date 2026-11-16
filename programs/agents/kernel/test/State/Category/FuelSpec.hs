@@ -19,8 +19,8 @@ spec = describe "State.Category.Fuel" $ do
         level <- forAll Gen.enumBounded
         tripping level fuelName parseFuel
 
-    it "refuses a name in another case" $
-        parseFuel "Balanced" `shouldBe` Nothing
+    it "parses a level in any case, as a brief's Fuel line spells it" $
+        map parseFuel ["Balanced", "MAX"] `shouldBe` [Just Balanced, Just Max]
 
     it "refuses an unknown name" $
         parseFuel "fast" `shouldBe` Nothing

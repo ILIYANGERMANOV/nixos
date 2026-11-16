@@ -256,6 +256,14 @@ spec = describe "the state binary" $ do
                 advice <- succeeded =<< state bin repo ["next"]
                 take 1 advice `shouldBe` ["ASK Stuck the fix loop repeats R1: go on, change course, or stop?"]
 
+            it "offers a stuck loop's exit once Stuck was asked, and takes it to describe with no override" $ \repo -> do
+                _ <- drive bin repo (atReview <> reviewRound "R1" [] <> [Handback "fixer" ready] <> reviewRound "R1" [] <> [AskUser "Stuck" ["stop?"]])
+                advice <- succeeded =<< state bin repo ["next"]
+                filter ("pick.final" `Text.isInfixOf`) advice
+                    `shouldBe` ["    state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe"]
+                exited <- succeeded =<< state bin repo ["record", "pick.final", "--row", "R1"]
+                recorded exited `shouldBe` ["pick.final -> describe"]
+
             it "refuses a pick.loop past Balanced's 3 re-reviews, then exits by pick.final" $ \repo -> do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]
                 _ <- drive bin repo (atReview <> rounds <> [Handback "review-lead" reviewed])
@@ -722,7 +730,7 @@ spec = describe "the state binary" $ do
 
                     said <- workerAt hookBin repo Null "w1"
 
-                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
                     loggedTypes repo.notes `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
                 it "record a 10x session's, whose run is outside the repo its hooks fire in" $ \repo -> do
@@ -733,7 +741,7 @@ spec = describe "the state binary" $ do
 
                     said <- workerAt hookBin repo Null "w1"
 
-                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
                     loggedTypes tenX `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
                 it "record a child engineer's worker spawn in its own run, not its parent's, at depth 1" $ \repo -> do
@@ -1231,10 +1239,14 @@ aboutNoRun line = case Text.stripPrefix "run " line of
     Just rest | (_, after) <- Text.breakOn ": " rest, not (Text.null after) -> Text.drop 2 after
     _ -> line
 
--- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
+{- | The @recorded <seq> <event> -> <state>@ lines of an output, and a hook's
+@recorded event <seq> ...@ of a child's spawn or hand-back, without their
+sequence numbers.
+-}
 recorded :: [Text] -> [Text]
 recorded = concatMap $ \line -> case Text.words line of
     ["recorded", _, event, "->", at] -> [event <> " -> " <> at]
+    ["recorded", "event", _, event, "->", at] -> [event <> " -> " <> at]
     _ -> []
 
 -- | A researcher's report as its skill shapes it: no token on line 1.

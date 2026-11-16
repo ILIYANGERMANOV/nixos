@@ -19,6 +19,7 @@ import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, t
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -92,6 +93,10 @@ typing = describe "typeHandback" $ do
         typed atGather "researcher" "The Index, ranked\n1. src/State.hs:12"
             `shouldBe` Right (Typed [stepTook ResearchHandedBack] Nothing)
 
+    it "records simplify_plan.done on a researcher's report, which opens with no token" $
+        typed atSimplifyPlan "researcher" "# t5 plan (simplify proposal)\n## Goals"
+            `shouldBe` Right (Typed [stepTook SimplifyPlanDone] Nothing)
+
     it "asks a stuck question under the run's next own id" $
         typed atImplement "implementer" "NEEDS_DECISION stuck: the same test fails"
             `shouldBe` Right (Typed [Asked (Asking (Question (QId run 1) Stuck (oneLine "the same test fails")) implement (Subagent (AgentRole "implementer")))] Nothing)
@@ -135,6 +140,7 @@ typing = describe "typeHandback" $ do
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
     atGather = runAt (map (Took mempty) (take 1 happyPath))
+    atSimplifyPlan = runAt (map (Took mempty) (take 4 happyPath))
     atImplement = runAt (map (Took mempty) (take 7 happyPath))
     atReview = runAt (map (Took mempty) (take 9 happyPath))
     atFix = runAt (map (Took mempty) (take 9 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))

@@ -11,7 +11,7 @@ import Control.Monad qualified as Monad
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.Either (fromRight)
+import Data.Either (fromRight, partitionEithers)
 import Data.Foldable (for_, toList, traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
@@ -347,20 +347,21 @@ runAnswer steps call bound found want = case want of
                         warning = case (action, spawned) of
                             (Advice.Spawn advised _, Just role) -> offAdvice steps after.state.at advised role
                             _ -> Nothing
-                        -- A recorded spawn tells only its line: parallel spawns would each repeat the advice.
+                        -- A recorded spawn tells its child's budget instead: parallel spawns would each repeat the advice.
                         adviceText = case opened of
                             [] -> out.text
                             _ : _ -> ""
-                     in (map (.envelope) opened <> new, recordedLines opened <> adviceText <> foldMap (<> "\n") warning)
+                     in (map (.envelope) opened <> new, (childrenTold after.g (const recorded) after.state opened).text <> adviceText <> foldMap (<> "\n") warning)
     Hook.HandedBack message agent role ->
         runPr >>= \pr -> onHook pr $ \stamp run ->
             let sources = hookSources run.state.run agent role message
-                said = either (failureText "handback") (Text.unlines . map ("state: " <>) . Text.lines . (.text))
+                said = either (failureText "handback") (.text)
+                told = record stamp run sources . fmap (\plan -> plan {say = childrenTold run.g plan.say})
              in case (loggedAlready run.logged sources, followedAt run.state.at role, Fold.returnOf run.state role agent.agentId) of
                     (True, _, _) -> ([], "")
-                    (False, True, _) -> said <$> record stamp run sources (handbackPlan steps stamp.head run.state role agent.agentId Nothing message)
+                    (False, True, _) -> said <$> told (handbackPlan steps stamp.head run.state role agent.agentId Nothing message)
                     -- A worker spawned beside the advice returns, its report its spawner's alone.
-                    (False, False, Just back) -> said <$> record stamp run sources (Right (Plan [back] (\_ _ -> mempty)))
+                    (False, False, Just back) -> said <$> told (Right (Plan [back] (\_ _ -> mempty)))
                     (False, False, Nothing) -> ([], "")
     AskedUser -> runPr >>= \pr -> onHook pr $ \_ run -> ([], Text.unlines (awaitingUser run.state))
   where
@@ -562,9 +563,24 @@ delivered state line
     | handsBack line = let handback = Ask.handback line state.run state.rulings in Output handback (Just handback) Nothing
     | otherwise = printed (line <> "\n")
 
+{- | What a hook tells of the lines it wrote: a child's spawn or hand-back by
+its line and its budget ('Advice.childBudget'), then what the rest say, each
+line under @state: @.
+-}
+childrenTold :: OpenGraph -> (RunState -> [Written] -> Output) -> RunState -> [Written] -> Output
+childrenTold g say state new = printed (foldMap childText children) <> underState (say state others)
+  where
+    (others, children) = partitionEithers [maybe (Left w) (Right . (w,)) (Advice.childBudget g state w.envelope.event) | w <- new]
+    childText (w, budget) = Text.unlines ("recorded event " <> movedLine w : map ("  " <>) budget)
+    underState (Output text handback down) = Output (Text.unlines (map ("state: " <>) (Text.lines text))) handback down
+
 -- | A line per event written, each with where that event left the run.
 recordedLines :: [Written] -> Text
-recordedLines = foldMap (\w -> "recorded " <> tshow w.envelope.seq <> " " <> eventType w.envelope.event <> " -> " <> stateNameText w.reached <> "\n")
+recordedLines = foldMap (\w -> "recorded " <> movedLine w <> "\n")
+
+-- | @3 research.spawned -> gather@: the event's number and name, and where it left the run.
+movedLine :: Written -> Text
+movedLine w = tshow w.envelope.seq <> " " <> eventType w.envelope.event <> " -> " <> stateNameText w.reached
 
 -- | A line written, and where the run is just after it.
 data Written = Written {envelope :: Envelope, reached :: StateName}

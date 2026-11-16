@@ -208,6 +208,24 @@ spec = describe "State.Run.Fold" $ do
         atName <$> replay g (logOf (started :| toReview <> [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty (Map.singleton (Requirement "R1") Unverified)))]))
             `shouldBe` Right (Just (StateName "describe"))
 
+    describe "a stuck review loop" $ do
+        let stuckAtFix = toReview <> reviewRounds [["A"], ["A"]]
+            askStuck = Asked (Asking (Question (QId run 1) Ask.Stuck (oneLine "the fix loop repeats A")) (StateName "fix") Itself)
+            final = stepTook (PickFinal (Picks (Set.singleton (Label "A")) Map.empty))
+        it "exits by pick.final at fix once Stuck was asked there" $
+            atName <$> replay g (logOf (started :| stuckAtFix <> [askStuck, final]))
+                `shouldBe` Right (Just (StateName "describe"))
+
+        it "refuses pick.final at fix before Stuck was asked" $
+            replay g (logOf (started :| stuckAtFix <> [final])) `shouldSatisfy` \case
+                Left (NoEdge _ _) -> True
+                _ -> False
+
+        it "refuses pick.final at fix once the run moved on from the Stuck ask" $
+            replay g (logOf (started :| stuckAtFix <> [askStuck, stepTook (FixDone commit), stepTook (ReReviewRows sha), stepTook (PickLoop (Picks Set.empty Map.empty)), final])) `shouldSatisfy` \case
+                Left (NoEdge _ _) -> True
+                _ -> False
+
     it "stuck_after_two_same_rounds" . hedgehog $ do
         -- Up to Max's 5 re-reviews, each a pick of the loop.
         rows <- forAll (Gen.list (Range.linear 1 5) (Gen.subsequence ["A", "B", "C"]))
@@ -226,6 +244,14 @@ spec = describe "State.Run.Fold" $ do
         let red = stepTook (AwaitCiRed sha (Check "lint" :| []))
         stuck <$> replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red]))
             `shouldBe` Right [Stuck "ci" (Set.singleton (Failing (Check "lint")))]
+
+    -- Green is CI's own outcome: a stuck CI loop never claims it without CI.
+    it "refuses await_ci.green at fix_pr once Stuck was asked there" $ do
+        let red = stepTook (AwaitCiRed sha (Check "lint" :| []))
+            askStuck = Asked (Asking (Question (QId run 1) Ask.Stuck (oneLine "the ci loop repeats lint")) (StateName "fix_pr") Itself)
+        replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red, askStuck, stepTook (AwaitCiGreen sha)])) `shouldSatisfy` \case
+            Left (NoEdge _ _) -> True
+            _ -> False
 
     it "forgets a loop's rounds once the run leaves it" $
         stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReReviewClean sha)]))
