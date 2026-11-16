@@ -280,9 +280,11 @@ BACKGROUND_CASES: list[Case[str]] = [
     ),
 ]
 
-# Who calls: the lead, a subagent that read the checks once already, or one
-# that has not.
+# Who calls: the lead, a subagent that read the checks and a run once already,
+# or one that has not.
 type Caller = Literal["lead", "polled", "fresh"]
+# A subagent's wait on CI that needs no `sleep` to be one.
+POLL = "for i in 1 2 3; do gh pr checks 7; done"
 
 AGENT_CASES: list[Case[tuple[Caller, str, bool]]] = [
     (
@@ -291,39 +293,84 @@ AGENT_CASES: list[Case[tuple[Caller, str, bool]]] = [
         ("fresh", 'a="$(gh pr checks 7)"; b="$(gh pr checks 7)"', False),
     ),
     (
-        BLOCKED,
-        "a second read of the same checks is blocked",
+        ALLOWED,
+        "a one-shot read of checks read before is allowed",
         ("polled", "gh pr checks 7", False),
     ),
     (
-        BLOCKED,
-        "a second read with other flags is blocked",
+        ALLOWED,
+        "a one-shot read with other flags of checks read before is allowed",
         ("polled", "gh pr checks 7 --json state", False),
     ),
     (
         BLOCKED,
-        "a repeated read behind a value flag is blocked",
-        ("polled", "gh pr checks --repo o/r 7", False),
+        "a second read of the same run is blocked",
+        ("polled", "gh run view 12", False),
+    ),
+    (
+        BLOCKED,
+        "a second read of the same run with other flags is blocked",
+        ("polled", "gh run view 12 --json status", False),
+    ),
+    (
+        BLOCKED,
+        "a repeated run read behind a value flag is blocked",
+        ("polled", "gh run view --repo o/r 12", False),
+    ),
+    (
+        BLOCKED,
+        "a read of checks read before beside another status read is blocked",
+        ("polled", "gh pr checks 7; gh run view 13", False),
     ),
     (
         ALLOWED,
-        "another pull request's checks are allowed",
-        ("polled", "gh pr checks 8", False),
-    ),
-    (
-        ALLOWED,
-        "another pull request behind a value flag is allowed",
-        ("polled", "gh pr checks --repo o/r 8", False),
-    ),
-    (
-        ALLOWED,
-        "another pull request behind a value flag with = is allowed",
-        ("polled", "gh pr checks --repo=o/r 8", False),
+        "another run's status is allowed",
+        ("polled", "gh run view 13", False),
     ),
     (
         ALLOWED,
         "a repeated command that is not CI is allowed",
         ("polled", "git status", False),
+    ),
+    (
+        BLOCKED,
+        "a watch of checks read before is blocked",
+        ("polled", "gh pr checks 7 --watch", False),
+    ),
+    (
+        BLOCKED,
+        "a watch of checks read before, set to true, is blocked",
+        ("polled", "gh pr checks 7 --watch=true", False),
+    ),
+    (
+        ALLOWED,
+        "a one-shot read of checks read before, its watch set to false, is allowed",
+        ("polled", "gh pr checks 7 --watch=false", False),
+    ),
+    (
+        BLOCKED,
+        "a loop over checks read before is blocked",
+        ("polled", POLL, False),
+    ),
+    (
+        BLOCKED,
+        "a repeated read in one command with other flags is blocked",
+        ("fresh", "gh pr checks 7; gh pr checks 7 --json state", False),
+    ),
+    (
+        BLOCKED,
+        "a repeated read in one command behind a value flag is blocked",
+        ("fresh", "gh pr checks --repo o/r 7; gh pr checks 7", False),
+    ),
+    (
+        ALLOWED,
+        "reads of two pull requests behind a value flag are allowed",
+        ("fresh", "gh pr checks --repo o/r 7; gh pr checks --repo o/r 8", False),
+    ),
+    (
+        ALLOWED,
+        "reads of two pull requests behind a value flag with = are allowed",
+        ("fresh", "gh pr checks --repo=o/r 7; gh pr checks --repo=o/r 8", False),
     ),
     (
         ALLOWED,
@@ -499,24 +546,22 @@ def test_raw_input(want: Decision, given: str) -> None:
 @pytest.mark.parametrize(
     "earlier",
     [
-        "cd sub && gh pr checks 7 | tail -5",
-        "gh pr \\\n  checks 7",
-        "bash -c 'gh pr checks 7'",
-        'echo "$(gh pr checks 7)"',
-        "nix develop -c gh pr checks 7",
+        "cd sub && gh run view 12 | tail -5",
+        "gh run \\\n  view 12",
+        "bash -c 'gh run view 12'",
+        'echo "$(gh run view 12)"',
+        "nix develop -c gh run view 12",
     ],
 )
 def test_an_earlier_status_read_counts_among_other_commands(earlier: str) -> None:
     history = ["ls", earlier, "git status"]
-    event = shell_event("gh pr checks 7", agent=SUBAGENT, history=history)
+    event = shell_event("gh run view 12", agent=SUBAGENT, history=history)
 
     assert decision(judge([GUARD], event)) == BLOCKED
 
 
 def test_a_subagent_with_no_id_never_waits_on_ci() -> None:
-    event = shell_event(
-        "gh pr checks 7", agent=Agent(None, None), history=["gh pr checks 7"]
-    )
+    event = shell_event("gh pr checks 7 --watch", agent=Agent(None, None))
 
     assert decision(judge([GUARD], event)) == BLOCKED
 
@@ -536,19 +581,17 @@ def test_a_broken_shfmt_allows_a_wait(
     assert decision(verdict) == want
 
 
-def test_a_working_shfmt_blocks_a_repeated_read_on_that_runner() -> None:
+def test_a_working_shfmt_blocks_a_polling_loop_on_that_runner() -> None:
     argv = guard_on(SOURCE, bash_commands.SHFMT)
 
-    assert decision(judge(argv, call_by("polled", "gh pr checks 7"))) == BLOCKED
+    assert decision(judge(argv, call_by("fresh", POLL))) == BLOCKED
 
 
 @guard_cases(BROKEN_SHFMT)
-def test_a_broken_shfmt_allows_a_repeated_read(
+def test_a_broken_shfmt_allows_a_polling_loop(
     tmp_path: Path, want: Decision, given: BrokenShfmt
 ) -> None:
-    verdict = judge(
-        guard_on_broken(SOURCE, given, tmp_path), call_by("polled", "gh pr checks 7")
-    )
+    verdict = judge(guard_on_broken(SOURCE, given, tmp_path), call_by("fresh", POLL))
 
     assert decision(verdict) == want
 
@@ -560,16 +603,16 @@ def test_a_deny_says_to_background_and_when_to_hand_back() -> None:
     assert "about 60k context" in told
 
 
-def test_a_repeated_read_says_a_subagent_never_waits_on_ci() -> None:
-    told = reason(judge([GUARD], call_by("polled", "gh pr checks 7")))
+def test_a_polling_loop_says_a_subagent_never_waits_on_ci() -> None:
+    told = reason(judge([GUARD], call_by("fresh", POLL)))
 
     assert "never waits on CI" in told
 
 
 def call_by(caller: Caller, command: str, *, background: bool = False) -> str:
     """A shell call by `caller`, whose history holds one read of PR 7's checks
-    unless it is `fresh`."""
-    read_once = ["gh pr checks 7"]
+    and one of run 12 unless it is `fresh`."""
+    read_once = ["gh pr checks 7", "gh run view 12"]
     match caller:
         case "lead":
             agent, history = None, read_once

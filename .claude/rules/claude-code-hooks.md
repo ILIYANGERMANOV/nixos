@@ -44,6 +44,43 @@ tail for a shell call's `history` and a result's `context`; an unreadable one
 gives none. Input it cannot read exits 1, which Claude shows and lets the call
 go on.
 
+| Claude event | Neutral event | Output |
+|---|---|---|
+| `SessionStart` | `sessionStart` | `additionalContext` |
+| `PreToolUse` | `beforeTool` | `permissionDecision: deny` and its reason, or `additionalContext` |
+| `PostToolUse` | `afterTool` | `additionalContext` |
+| `SubagentStart` (no matcher) | `agentStart`, `agent_type` as the role | `additionalContext` |
+| `UserPromptExpansion` (no matcher) | `promptExpansion`, `command_name` as the skill | `additionalContext` |
+
+Only documented hook features: no `updatedInput` from any state hook (auto
+mode refuses a rewritten call), and no field outside Claude's hooks docs.
+
+### State hooks on Claude
+
+The kernel's (`kernel/hooks.nix`, ADR 0016); what Claude gives them:
+
+- **Binding.** `$XDG_STATE_HOME/state/bindings/<session_id>/<agent_id>` (the
+  lead's `main`) holds the `run <id> <notes> <toplevel>` line `state init`
+  prints. `PostToolUse` on `Bash` binds the caller when the command ran
+  `state init`; on `Agent`, `tool_response.agentId` binds a spawned worker to
+  its spawner's run. It fires at launch for a background spawn, after the
+  hand-back for a foreground one, so a hand-back seen first is stashed in
+  `handback-<agent_id>.json` and recorded at the bind.
+- **Resolution.** A hook acts on the caller's bound run; only the lead falls
+  back to its `cwd`, which for a subagent is its spawner's. Once the bound
+  worktree is removed (its PR merged), the caller's hooks stay quiet. A reply
+  about a run starts `run <id>: `, an error too; only an error before any
+  run is known names none.
+- **Deny.** `PreToolUse` on `Bash`: a `state` call that reads a run (not
+  `init` or help) whose directory, the `cwd` or a `cd <dir>` before it, is in another git
+  worktree than the bound run's is denied with `fix: cd <toplevel> && state
+  ...`. Reading another run, `show`, `pending` or `brief` too, is that run's
+  agent's job. A command the simple reader cannot follow passes.
+- **Begin.** `SubagentStart` tells an `engineer` its run starts at the
+  `state init` line in its prompt, and a worker role its `state brief`.
+  `UserPromptExpansion` of a typed `/engineer` or `/10x-engineer`, and
+  `PreToolUse` on `Skill` naming one, tell it to begin with `state`.
+
 ### Secret files
 
 The wrapper exports a secret file's **path**. Where one is exported,

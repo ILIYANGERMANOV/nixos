@@ -51,11 +51,16 @@ runRoFileSystemInMemory = interpret $ \env -> \case
 
 runWrFileSystemInMemory :: (State Disk :> es) => Eff (WrFileSystem : es) a -> Eff es a
 runWrFileSystemInMemory = interpret $ \_ -> \case
-    WriteText path text -> do
+    WriteText path text -> written path text
+    -- One call is one step here: no reader runs between, so whole is all it can be.
+    WriteTextAtomic path text -> written path text
+    RemoveFile path -> absolute path >>= \file -> modify @Disk (\d -> d {files = Map.delete file d.files})
+    CreateDirectory path -> absolute path >>= \dir -> modify @Disk (\d -> d {dirs = d.dirs <> Set.fromList (ancestors dir)})
+  where
+    written path text = do
         file <- absolute path
         existingDirectory file
         modify @Disk (\d -> d {files = Map.insert file (encodeUtf8 text) d.files})
-    CreateDirectory path -> absolute path >>= \dir -> modify @Disk (\d -> d {dirs = d.dirs <> Set.fromList (ancestors dir)})
 
 -- | The path against the current directory.
 absolute :: (State Disk :> es) => FilePath -> Eff es FilePath

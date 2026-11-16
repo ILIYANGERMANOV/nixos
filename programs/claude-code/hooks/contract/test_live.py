@@ -102,6 +102,20 @@ def no_tool_use_id_at_depth_2(
     ), transcripts
 
 
+def no_cwd_at_grandchild_start(
+    events: list[Payload], transcripts: dict[str, str]
+) -> Run:
+    return edited(
+        events, is_start("probe-grandchild"), lambda e: omit(e, "cwd")
+    ), transcripts
+
+
+def no_session_at_expansion(events: list[Payload], transcripts: dict[str, str]) -> Run:
+    return edited(
+        events, is_event("UserPromptExpansion"), lambda e: omit(e, "session_id")
+    ), transcripts
+
+
 @pytest.mark.parametrize(
     ("breakage", "check"),
     [
@@ -115,6 +129,8 @@ def no_tool_use_id_at_depth_2(
         (no_deny_reason, (DENY, 0)),
         (denied_call_ran, (DENY, 0)),
         (no_tool_use_id_at_depth_2, (FIELDS, 2)),
+        (no_cwd_at_grandchild_start, (FIELDS, 2)),
+        (no_session_at_expansion, (FIELDS, 0)),
     ],
 )
 def test_a_broken_run_fails_exactly_its_check(

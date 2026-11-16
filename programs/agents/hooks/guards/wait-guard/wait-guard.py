@@ -15,11 +15,13 @@ A subagent never waits on CI: its caller does. In a subagent, backgrounded or
 not, the guard also blocks `gh pr checks --watch`, `gh run watch`, `watch` over
 a CI read, a status read (`gh pr checks`, `gh run view`, `gh run list`) in a
 `while`, `until` or `for` loop, and a status read the agent already made, in
-this command or an earlier one of the event's `history`. One status read stays allowed,
-because review agents read CI as evidence, and so does a log read, in a loop
-too: `gh run view --log` of a finished run returns the same log, and only the
-filter after it changes. This guards accidents, not an adversary: `gh api` goes
-unseen.
+this command or an earlier one of the event's `history`. One status read stays
+allowed, because review agents read CI as evidence. So does a one-shot
+`gh pr checks <n>`, a call holding no other status read, an earlier one in the
+history or not: a subagent resumed after its caller waited reads the result
+once. So does a log read, in a loop too: `gh run view --log` of a finished run
+returns the same log, and only the filter after it changes. This guards
+accidents, not an adversary: `gh api` goes unseen.
 """
 
 import re
@@ -47,7 +49,7 @@ HINT = (
 )
 CI_HINT = (
     "Blocked: a subagent never waits on CI. Hand back now and your caller waits "
-    "on the PR. One plain `gh pr checks <n>` read is allowed."
+    "on the PR. A one-shot `gh pr checks <n>` read is allowed."
 )
 # GNU sleep: a number with an optional unit suffix.
 DURATION = re.compile(r"(\d+(?:\.\d*)?|\.\d+)([smhd]?)")
@@ -130,12 +132,25 @@ def polls_ci(command: str, earlier: Iterable[str]) -> bool:
     statuses = status_reads(steps)
     if CiRead.WATCH in kinds or looped or len(set(statuses)) < len(statuses):
         return True
-    return bool(statuses) and any(
-        status in statuses
-        for earlier_command in earlier
-        if MAY_READ_CI.search(earlier_command)
-        for status in status_reads(parsed(earlier_command))
+    return (
+        bool(statuses)
+        and not is_one_shot_pr_checks(statuses)
+        and any(
+            status in statuses
+            for earlier_command in earlier
+            if MAY_READ_CI.search(earlier_command)
+            for status in status_reads(parsed(earlier_command))
+        )
     )
+
+
+def is_one_shot_pr_checks(statuses: list[tuple[str, ...]]) -> bool:
+    """A call whose only status read is `gh pr checks`, `--watch` being a watch."""
+    match statuses:
+        case [("gh", "pr", "checks", *_)]:
+            return True
+        case _:
+            return False
 
 
 def ci_read(words: list[str]) -> CiRead:
@@ -143,7 +158,7 @@ def ci_read(words: list[str]) -> CiRead:
         case ["gh", "run", "watch", *_]:
             return CiRead.WATCH
         case ["gh", "pr", "checks", *args]:
-            return CiRead.WATCH if "--watch" in args else CiRead.STATUS
+            return CiRead.WATCH if any(map(is_watch_flag, args)) else CiRead.STATUS
         case ["gh", "run", "view", *args]:
             logs = any(arg.startswith("--log") for arg in args)
             return CiRead.LOG if logs else CiRead.STATUS
@@ -155,6 +170,11 @@ def ci_read(words: list[str]) -> CiRead:
             return CiRead.NONE if read is CiRead.NONE else CiRead.WATCH
         case _:
             return CiRead.NONE
+
+
+def is_watch_flag(arg: str) -> bool:
+    """`--watch` in any spelling gh takes (`--watch=true`), but `--watch=false`."""
+    return arg.startswith("--watch") and arg != "--watch=false"
 
 
 def status_reads(steps: list[Step]) -> list[tuple[str, ...]]:

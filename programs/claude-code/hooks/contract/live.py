@@ -38,10 +38,12 @@ PASSED_ENV = ("PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR")
 # Three subagents on haiku take about a minute; the slack is for a slow API.
 TIMEOUT_SECONDS = 600
 
-# What claude_adapter.py's parse_claude and parse_agent (lines 102-178) read
-# from each event they parse, and from a subagent's.
+# What claude_adapter.py's parse_claude and parse_agent read from each event
+# they parse, and from a subagent's.
 ADAPTER_FIELDS: dict[str, tuple[str, ...]] = {
     "SessionStart": ("hook_event_name", "session_id", "cwd", "source"),
+    "SubagentStart": ("hook_event_name", "session_id", "cwd"),
+    "UserPromptExpansion": ("hook_event_name", "session_id", "cwd", "command_name"),
     "PreToolUse": (
         "hook_event_name",
         "session_id",
@@ -590,9 +592,7 @@ def adapter_fields(events: Indexed, depth: int) -> Passed | Missing:
     )
     match (at_depth, lacking):
         case ([], _):
-            return Missing(
-                f"no SessionStart, PreToolUse or PostToolUse at depth {depth}"
-            )
+            return Missing(f"no event the adapter parses at depth {depth}")
         case (_, []):
             return Passed(f"{len(at_depth)} events")
         case _:

@@ -41,6 +41,16 @@ let
       name = "PostToolUse";
       matcher = toolMatcher;
     };
+    # Neither takes a matcher the hooks need: every subagent starts, every
+    # typed command expands.
+    agentStart = {
+      name = "SubagentStart";
+      matcher = _: null;
+    };
+    promptExpansion = {
+      name = "UserPromptExpansion";
+      matcher = _: null;
+    };
   };
 
   # `hook` is the adapter's settings entry, `hooks` event -> [hook], as

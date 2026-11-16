@@ -4,9 +4,9 @@ A hook is a program. It reads one event as JSON on stdin and prints one result
 as JSON on stdout, or nothing, which allows:
 
     stdin:  {event, tool, input, output, cwd, session, agent: {id, role} | null, source,
-             history, context}
+             history, context, skill}
     stdout: beforeTool: {decision: allow | deny, reason, context, updatedInput}
-            sessionStart, afterTool: {context}
+            sessionStart, afterTool, agentStart, promptExpansion: {context}
 
 `agent` is null for the lead; a subagent's `id` is null when its agent gives
 none, and its `role` null when its agent names none. `tool` is `other` for a tool the vocabulary has no name for, which
@@ -20,9 +20,15 @@ the agent has done so far, so a hook needs no state of its own:
              newest model call sent, and those of the last earlier call that
              ran a tool (null when there is none); null when unknown
 
-A sessionStart or afterTool hook only adds context: the session has started and
-the tool has run, so there is nothing left to deny or rewrite. Each kind of
-event has its own result type, so a deny there cannot even be built.
+`agentStart` is a subagent starting, its `agent` never null; `promptExpansion`
+is a typed `/skill` expanding into the prompt, `skill` its name. Neither has a
+tool, so neither has `tool`, `input` or `output`.
+
+A sessionStart, afterTool, agentStart or promptExpansion hook only adds
+context: the session or subagent has started and the tool has run, so there
+is nothing left to deny or rewrite, and a typed skill is the person's own
+request, which no hook refuses. Each kind of event has its own result type,
+so a deny there cannot even be built.
 
 An agent's backend translates its own hook format to an `Event`, hands it to
 `dispatch_verdict` or `dispatch_note` with the hooks declared for that event,
@@ -51,12 +57,15 @@ SessionId = NewType("SessionId", str)
 AgentId = NewType("AgentId", str)
 Role = NewType("Role", str)
 HookName = NewType("HookName", str)
+SkillName = NewType("SkillName", str)
 
 
 class EventName(StrEnum):
     SESSION_START = "sessionStart"
     BEFORE_TOOL = "beforeTool"
     AFTER_TOOL = "afterTool"
+    AGENT_START = "agentStart"
+    PROMPT_EXPANSION = "promptExpansion"
 
 
 class Tool(StrEnum):
@@ -128,10 +137,29 @@ class AfterTool:
     context: ContextSize | None = None
 
 
-type Event = SessionStart | BeforeTool | AfterTool
+@dataclass(frozen=True, slots=True)
+class AgentStart:
+    """A subagent starts, before its first model call."""
+
+    session: SessionId
+    cwd: Path
+    agent: Agent
+
+
+@dataclass(frozen=True, slots=True)
+class PromptExpansion:
+    """A skill the person typed as `/<skill>` expands into the prompt."""
+
+    session: SessionId
+    cwd: Path
+    agent: Agent | None
+    skill: SkillName
+
+
+type Event = SessionStart | BeforeTool | AfterTool | AgentStart | PromptExpansion
 
 # The events a hook can only add context to.
-type Observed = SessionStart | AfterTool
+type Observed = SessionStart | AfterTool | AgentStart | PromptExpansion
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +184,7 @@ type Verdict = Allow | Deny
 
 @dataclass(frozen=True, slots=True)
 class Note:
-    """A sessionStart or afterTool hook's result: context for the agent."""
+    """A hook's result at an event it only observes: context for the agent."""
 
     context: str | None = None
 
@@ -249,7 +277,7 @@ def joined(first: str | None, second: str | None) -> str | None:
 
 def matches(hook: Hook, event: Event) -> bool:
     match event:
-        case SessionStart():
+        case SessionStart() | AgentStart() | PromptExpansion():
             return True
         case BeforeTool(tool=tool) | AfterTool(tool=tool):
             match hook.tools:
@@ -317,6 +345,10 @@ def event_name(event: Event) -> EventName:
             return EventName.BEFORE_TOOL
         case AfterTool():
             return EventName.AFTER_TOOL
+        case AgentStart():
+            return EventName.AGENT_START
+        case PromptExpansion():
+            return EventName.PROMPT_EXPANSION
 
 
 def parse_manifest(text: str) -> Manifest:
@@ -398,14 +430,39 @@ def parse_event(text: str) -> Event:
                 output,
                 parse_context_size(context),
             )
+        case {
+            "event": "agentStart",
+            "session": str(session),
+            "cwd": str(cwd),
+            "agent": agent,
+        }:
+            return AgentStart(SessionId(session), Path(cwd), parse_subagent(agent))
+        case {
+            "event": "promptExpansion",
+            "session": str(session),
+            "cwd": str(cwd),
+            "agent": agent,
+            "skill": str(skill),
+        }:
+            return PromptExpansion(
+                SessionId(session), Path(cwd), parse_agent(agent), SkillName(skill)
+            )
         case _:
-            raise ValueError("not a sessionStart, beforeTool or afterTool event")
+            raise ValueError(
+                "not a sessionStart, beforeTool, afterTool, agentStart or promptExpansion event"
+            )
 
 
 def parse_agent(agent: Json) -> Agent | None:
     match agent:
         case None:
             return None
+        case _:
+            return parse_subagent(agent)
+
+
+def parse_subagent(agent: Json) -> Agent:
+    match agent:
         case {"id": None | str() as agent_id, "role": None | str() as role}:
             return Agent(
                 None if agent_id is None else AgentId(agent_id),
@@ -433,6 +490,10 @@ def emit_event(event: Event) -> str:
         "agent": emit_agent(event.agent),
     }
     match event:
+        case AgentStart():
+            return json.dumps(common)
+        case PromptExpansion(skill=skill):
+            return json.dumps(common | {"skill": skill})
         case SessionStart(source=source):
             return json.dumps(common | {"source": source.value})
         case BeforeTool(tool=tool, input=tool_input, history=history):
@@ -484,8 +545,9 @@ def parse_verdict(text: str) -> Verdict:
 
 
 def parse_note(text: str) -> Note:
-    """What a sessionStart or afterTool hook printed. A field only a verdict
-    has, such as a deny after the tool ran, is an error rather than dropped."""
+    """What a hook printed at an event it only observes. A field only a
+    verdict has, such as a deny after the tool ran, is an error rather than
+    dropped."""
     if not text.strip():
         return Note()
     fields = result_fields(text)

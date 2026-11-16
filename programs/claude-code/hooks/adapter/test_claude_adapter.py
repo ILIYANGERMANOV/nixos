@@ -14,6 +14,7 @@ from agent_hook import (
     AfterTool,
     Agent,
     AgentId,
+    AgentStart,
     Allow,
     BeforeTool,
     ContextSize,
@@ -22,12 +23,16 @@ from agent_hook import (
     JsonObject,
     Note,
     Observed,
+    PromptExpansion,
     Role,
     SessionId,
     SessionStart,
+    SkillName,
     Source,
     Tool,
     Verdict,
+    emit_event,
+    parse_event,
 )
 from claude_adapter import (
     TAIL_BYTES,
@@ -37,6 +42,7 @@ from claude_adapter import (
     parse_tools,
     verdict_to_claude,
 )
+from recorded_events import recorded, recorded_all
 from transcript_fixtures import (
     THINKING,
     assistant,
@@ -95,6 +101,10 @@ HANDBACK: JsonObject = {
     "tool_input": {"message": "READY commit abc"},
     "tool_use_id": "toolu_02",
 }
+RECORDED_STARTS = recorded_all("SubagentStart")
+RECORDED_EXPANSIONS = recorded_all("UserPromptExpansion")
+SUBAGENT_START = recorded("SubagentStart")
+TYPED_SKILL = recorded("UserPromptExpansion")
 RAN: JsonObject = {
     **COMMON,
     **WORKER,
@@ -301,6 +311,41 @@ def test_a_session_start_reads_its_source() -> None:
     )
 
 
+@pytest.mark.parametrize("payload", RECORDED_STARTS)
+def test_a_recorded_subagent_start_is_that_subagent_starting(
+    payload: JsonObject,
+) -> None:
+    assert parse_claude(payload, TOOLS, NO_TRANSCRIPT) == AgentStart(
+        SessionId(cast("str", payload["session_id"])),
+        Path(cast("str", payload["cwd"])),
+        Agent(
+            AgentId(cast("str", payload["agent_id"])),
+            Role(cast("str", payload["agent_type"])),
+        ),
+    )
+
+
+@pytest.mark.parametrize("payload", RECORDED_EXPANSIONS)
+def test_a_recorded_typed_skill_is_its_command_name(payload: JsonObject) -> None:
+    assert parse_claude(payload, TOOLS, NO_TRANSCRIPT) == PromptExpansion(
+        SessionId(cast("str", payload["session_id"])),
+        Path(cast("str", payload["cwd"])),
+        None,
+        SkillName(cast("str", payload["command_name"])),
+    )
+
+
+@pytest.mark.parametrize(
+    "payload", [*RECORDED_STARTS, *RECORDED_EXPANSIONS, SESSION_START, SPAWN, RAN]
+)
+def test_an_event_the_adapter_reads_reaches_a_hook_unchanged(
+    payload: JsonObject,
+) -> None:
+    event = parse_claude(payload, TOOLS, NO_TRANSCRIPT)
+
+    assert parse_event(emit_event(event)) == event
+
+
 def test_a_lead_tool_call_has_no_agent() -> None:
     assert parse_claude(SPAWN, TOOLS, NO_TRANSCRIPT) == BeforeTool(
         SessionId("abc123"),
@@ -428,6 +473,16 @@ def test_a_lead_started_as_an_agent_type_is_still_the_lead() -> None:
             "agent_id 7 is not a string",
             id="agent id not a string",
         ),
+        pytest.param(
+            {k: v for k, v in SUBAGENT_START.items() if k != "agent_id"},
+            "names no agent_id",
+            id="subagent start with no agent",
+        ),
+        pytest.param(
+            {k: v for k, v in TYPED_SKILL.items() if k != "command_name"},
+            "not a SessionStart",
+            id="typed skill with no name",
+        ),
     ],
 )
 def test_a_payload_outside_the_contract_is_an_error(payload: Json, error: str) -> None:
@@ -437,6 +492,8 @@ def test_a_payload_outside_the_contract_is_an_error(payload: Json, error: str) -
 
 START_EVENT = parse_claude(SESSION_START, TOOLS, NO_TRANSCRIPT)
 RAN_EVENT = parse_claude(RAN, TOOLS, NO_TRANSCRIPT)
+SUBAGENT_START_EVENT = parse_claude(SUBAGENT_START, TOOLS, NO_TRANSCRIPT)
+TYPED_SKILL_EVENT = parse_claude(TYPED_SKILL, TOOLS, NO_TRANSCRIPT)
 
 
 @pytest.mark.parametrize(
@@ -465,6 +522,29 @@ RAN_EVENT = parse_claude(RAN, TOOLS, NO_TRANSCRIPT)
             },
             id="context after a tool",
         ),
+        pytest.param(
+            SUBAGENT_START_EVENT,
+            Note("brief"),
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SubagentStart",
+                    "additionalContext": "brief",
+                }
+            },
+            id="context at a subagent's start",
+        ),
+        pytest.param(
+            TYPED_SKILL_EVENT,
+            Note("begin"),
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptExpansion",
+                    "additionalContext": "begin",
+                }
+            },
+            id="context beside a typed skill",
+        ),
+        pytest.param(SUBAGENT_START_EVENT, Note(), {}, id="nothing at a start"),
     ],
 )
 def test_a_note_becomes_claudes_output(
@@ -676,3 +756,45 @@ def test_the_built_adapter_runs_the_hooks_without_a_transcript(tmp_path: Path) -
     done = adapter(tmp_path, {"afterTool": [echo("context")]}, at(tmp_path, RAN))
 
     assert echoed(done) is None
+
+
+def test_the_built_adapter_hands_a_starting_subagents_hook_its_agent(
+    tmp_path: Path,
+) -> None:
+    done = adapter(tmp_path, {"agentStart": [echo("agent")]}, SUBAGENT_START)
+
+    assert echoed(done) == {
+        "id": SUBAGENT_START["agent_id"],
+        "role": SUBAGENT_START["agent_type"],
+    }
+
+
+def test_the_built_adapter_hands_a_typed_skills_hook_its_name(
+    tmp_path: Path,
+) -> None:
+    done = adapter(tmp_path, {"promptExpansion": [echo("skill")]}, TYPED_SKILL)
+
+    assert echoed(done) == TYPED_SKILL["command_name"]
+
+
+@pytest.mark.parametrize(
+    ("event", "payload"),
+    [("agentStart", SUBAGENT_START), ("promptExpansion", TYPED_SKILL)],
+)
+def test_the_built_adapter_tells_a_deny_at_an_event_with_no_tool_and_never_denies(
+    tmp_path: Path, event: str, payload: JsonObject
+) -> None:
+    manifest: JsonObject = {
+        event: [declared("no", None, 'print(\'{"decision": "deny", "reason": "no"}\')')]
+    }
+
+    done = adapter(tmp_path, manifest, payload)
+
+    assert done.returncode == 0, done.stderr
+    specific = cast("dict[str, JsonObject]", json.loads(done.stdout))[
+        "hookSpecificOutput"
+    ]
+    assert specific == {
+        "hookEventName": payload["hook_event_name"],
+        "additionalContext": "hook no: bad output: only beforeTool may set ['decision', 'reason']",
+    }

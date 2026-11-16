@@ -29,5 +29,36 @@ in
       tools = [ "ask" ];
       command = command "asked";
     };
+    # Binds the agent to its run: after a shell that ran `state init`, and after
+    # a spawn, which binds the worker (State.Protocol.Binding).
+    state-bind = {
+      on = "afterTool";
+      tools = [
+        "shell"
+        "delegate"
+      ];
+      command = command "bind";
+    };
+    # Denies a `state` call aimed at another run than the agent is bound to.
+    state-route = {
+      on = "beforeTool";
+      tools = [ "shell" ];
+      command = command "route";
+    };
+    # How work begins: a spawned engineer's run or a worker's brief, and a
+    # lead skill typed or called (State.Cli.View.beginText).
+    state-begin-agent = {
+      on = "agentStart";
+      command = command "begin";
+    };
+    state-begin-prompt = {
+      on = "promptExpansion";
+      command = command "begin";
+    };
+    state-begin-skill = {
+      on = "beforeTool";
+      tools = [ "skill" ];
+      command = command "begin";
+    };
   };
 }

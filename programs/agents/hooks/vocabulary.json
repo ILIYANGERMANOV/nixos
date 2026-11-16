@@ -1,5 +1,11 @@
 {
-  "events": ["sessionStart", "beforeTool", "afterTool"],
+  "events": [
+    "sessionStart",
+    "beforeTool",
+    "afterTool",
+    "agentStart",
+    "promptExpansion"
+  ],
   "tools": [
     "shell",
     "read",
