@@ -12,6 +12,7 @@ nothing.** Why, and how a backend consumes it: `docs/adr/0011-agent-compiler.md`
 
 Prefer a deterministic program over an agent instruction, unless it limits the
 agent or forces a chain of commands: `docs/adr/0013-deterministic-programs-over-instructions.md`.
+Where code goes, from the kernel to prose: `agents-logic-ladder.md`.
 
 Nothing in `programs/agents` may reach `programs/claude-code`, `opencode` or
 `codex`, even through another program (Deslop `agents-name-no-vendor`).
