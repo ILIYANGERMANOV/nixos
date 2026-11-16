@@ -26,7 +26,7 @@ import Data.Char (isDigit, isSpace)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Cli.Command (Command (..), Exit (..), Failure (..), RunCommand (ShowRun), failureText, initFix, parseCommand)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), RunCommand (ShowRun), failureText, initFix, parseCommand, tenXInitFix)
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (leads)
@@ -123,7 +123,7 @@ gate :: Lead -> Gate -> Maybe Text
 gate lead call = case lead of
     NotLead -> Nothing
     SkillLead EngineerSkill -> denial initFix <$> writeOf call
-    SkillLead TenXSkill -> denial "state init --notes \"$PWD\" --flow 10x, in the run directory Intake or Resume names" <$> writeOf call
+    SkillLead TenXSkill -> denial (tenXInitFix <> ", in the run directory Intake or Resume names") <$> writeOf call
     RoleLead -> denial "run the `state init` line in your prompt, as written" <$> writeOf call
   where
     denial fix act =

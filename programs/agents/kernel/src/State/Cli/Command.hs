@@ -19,6 +19,7 @@ module State.Cli.Command (
     optparseText,
     failureText,
     initFix,
+    tenXInitFix,
     noteOf,
     explain,
     unknownEvent,
@@ -118,7 +119,7 @@ data Raise = AsAsked | ToSecurity
     deriving stock (Eq, Show)
 
 -- | What @state render@ prints: each a block the skills paste.
-data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong
+data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong | InitLine
     deriving stock (Eq, Show, Enum, Bounded)
 
 {- | Why a command did nothing, as @state <sub>: what - why@ and a @fix:@
@@ -137,6 +138,10 @@ failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> fa
 -- | The fix where a run is missing: start one, its notes dir as the skills name it.
 initFix :: Text
 initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
+
+-- | The 10x lead's @state init@ line, run in the run directory its skill names.
+tenXInitFix :: Text
+tenXInitFix = "state init --notes \"$PWD\" --flow 10x"
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
 noteOf :: Failure -> Note
@@ -409,6 +414,7 @@ blockName = \case
     Kinds -> "kinds"
     StopRule -> "stop-rule"
     PlanWrong -> "plan-wrong"
+    InitLine -> "init"
 
 -- | A log whose first line starts no run: it has no flow to explain against.
 notStarted :: Failure
