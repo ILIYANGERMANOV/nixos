@@ -44,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.View (brief, pendingLines, showRun)
@@ -57,7 +57,7 @@ import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Parent (..), Principal (..), Question (..), oneLineText, qidText)
+import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), QId, Question (..), oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
@@ -248,18 +248,22 @@ execute steps = \case
 -- | What a command appends, and what it prints from the state reached and the lines written.
 data Plan = Plan {events :: [Event], say :: RunState -> [Envelope] -> Output}
 
--- | What a command prints, and the hand-back it delivers, if any.
-data Output = Output {text :: Text, handback :: Maybe Text}
+-- | What a command prints, the hand-back it delivers, and the answer it writes down, if any.
+data Output = Output {text :: Text, handback :: Maybe Text, down :: Maybe Down}
 
 instance Semigroup Output where
-    Output a first <> Output b second = Output (a <> b) (first <|> second)
+    Output a first firstDown <> Output b second secondDown = Output (a <> b) (first <|> second) (firstDown <|> secondDown)
 
 instance Monoid Output where
-    mempty = Output "" Nothing
+    mempty = Output "" Nothing Nothing
 
 -- | Text that delivers no hand-back.
 printed :: Text -> Output
-printed text = Output text Nothing
+printed text = Output text Nothing Nothing
+
+-- | The answer to the question, written down to the child that asked it, if one did.
+writtenDown :: RunState -> QId -> Output
+writtenDown state qid = Output "" Nothing (downOf state qid)
 
 -- | A line per event written, delivering no hand-back.
 recorded :: RunState -> [Envelope] -> Output
@@ -284,11 +288,11 @@ planOf steps worktreeHead file g state = \case
         let question = Question (nextQId state) kind text
          in Right (Plan [Asked (Asking question (askedAt state) from)] (\after _ -> asked question <> delivered after (deliver after.start (Triage question))))
     RecordUnknown name -> Left (unknownEvent g state name)
-    RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\_ _ -> printed ("ruled " <> qidText qid <> "\n")))
+    RuleOn raw raise proposal -> open raw >>= \qid -> Right (Plan (raised raise qid <> [RuledOn qid proposal]) (\after _ -> printed ("ruled " <> qidText qid <> "\n") <> writtenDown after qid))
     Forward raw raise ->
         open raw >>= \qid -> Right . Plan (raised raise qid <> [Forwarded qid (Ask.deliver state.start.principal)]) $ \after _ ->
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
-    Answer raw answer by -> open raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\_ _ -> printed ("answered " <> qidText qid <> "\n")))
+    Answer raw answer by -> answeredQid state raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\after _ -> printed ("answered " <> qidText qid <> "\n") <> writtenDown after qid))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
     ShowRun -> Right (Plan [] (\_ _ -> printed (showRun g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
@@ -345,7 +349,7 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
 -- | A hand-back line under a parent carries the run and its rulings (law Audit), and is delivered.
 delivered :: RunState -> Text -> Output
 delivered state line
-    | "HANDBACK " `Text.isPrefixOf` line = let handback = Ask.handback line state.run state.rulings in Output handback (Just handback)
+    | "HANDBACK " `Text.isPrefixOf` line = let handback = Ask.handback line state.run state.rulings in Output handback (Just handback) Nothing
     | otherwise = printed (line <> "\n")
 
 -- | A line per event written, each with where the run is now.
@@ -389,29 +393,50 @@ nextSeq run = fromIntegral (length run.logged) + 1
 stamped :: Stamp -> Source -> RunId -> Natural -> Event -> Envelope
 stamped stamp source run n event = Envelope {source, seq = n, ts = stamp.ts, run, head = stamp.head, session = stamp.session, event}
 
-{- | 'onRun' for a command that may hand back. A hand-back it delivers under
-a parent is recorded in the parent's run too, once this run's lock is
+{- | 'onRun' for a command that may hand back or answer. A hand-back it
+delivers under a parent is recorded in the parent's run too, and an answer
+it gives is written down to the child that asked, once this run's lock is
 released, as init's spawn is ('spawnedIn').
 -}
 handingBack :: (Shell es) => Steps -> (Stamp -> Loaded -> ([Envelope], Either Failure Output)) -> Eff es (Ran Text)
 handingBack steps act =
-    onRun (\stamp run -> let (new, result) = act stamp run in (new, (\out -> (out.text, upOf run new =<< out.handback)) <$> result)) >>= \case
+    onRun (\stamp run -> let (new, result) = act stamp run in (new, (\out -> (out.text, upOf run new =<< out.handback, out.down)) <$> result)) >>= \case
         NoRun -> pure NoRun
         Ran (Left failure) -> pure (Ran (Left failure))
-        Ran (Right (text, Nothing)) -> pure (Ran (Right text))
-        Ran (Right (text, Just up)) -> Ran . Right . (text <>) <$> handedUp steps up
+        Ran (Right (text, up, down)) -> do
+            above <- maybe (pure "") (handedUp steps) up
+            below <- maybe (pure "") answeredDown down
+            pure (Ran (Right (text <> above <> below)))
 
--- | A child run's hand-back to its parent: the parent, the child's run, its role and last line, and the text.
-data Up = Up {parent :: Parent, child :: RunId, role :: AgentRole, lastSeq :: Natural, text :: Text}
+{- | A child run's hand-back to its parent: the parent, the child's run, its
+role, what makes the hand-back one, and the text.
+-}
+data Up = Up {parent :: Parent, child :: RunId, role :: AgentRole, once :: Text, text :: Text}
 
+{- | A question is handed up once, whatever the child's log grew by since,
+as @state next@ delivers it again until its answer comes; any other
+hand-back once per line of the child's log, so a CI awaited again after a
+resume is news.
+-}
 upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
 upOf run new text = case run.state.start.principal of
     ByUser -> Nothing
-    ByRole parent _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name (nextSeq run - 1 + fromIntegral (length new)) text)
+    ByRole parent _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name once text)
+  where
+    once = maybe (tshow (nextSeq run - 1 + fromIntegral (length new))) qidText (asks =<< either (const Nothing) (.token) (parseHandback text))
+    asks = \case
+        Handback.NeedsDecision (Handback.Asks question) -> Just question.qid
+        Handback.NeedsDecision (Handback.StuckOn _) -> Nothing
+        Handback.NeedsDecision (Handback.PlanWrong _) -> Nothing
+        Handback.NeedsDecision (Handback.Untyped _) -> Nothing
+        Handback.Ready _ -> Nothing
+        Handback.Await _ _ -> Nothing
+        Handback.Blocked _ -> Nothing
+        Handback.Failed _ -> Nothing
 
 {- | The child's hand-back, appended to its parent's log under the parent's
-lock by ids hashed from the child's run and its last line: a repeated command
-appends it once. The ids alone skip only events typed alike: typed again
+lock by ids hashed from the child's run and what makes the hand-back one: a
+repeated command appends it once. The ids alone skip only events typed alike: typed again
 against a parent that moved on, a repeat would refuse or add others. A refusal or an outage does not fail the child's command,
 which tells it; the parent's @state next@ names a child that ended unrecorded.
 -}
@@ -422,7 +447,7 @@ handedUp steps up =
         Right (Left failure) -> told (failure.what <> " - " <> failure.why)
         Left (e :: IOException) -> told (tshow e)
   where
-    sources = [Hook (digestOf [runIdText up.child, tshow up.lastSeq, tshow n]) | n <- [0 :: Int ..]]
+    sources = [Hook (digestOf [runIdText up.child, up.once, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
         | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state up.role (Just up.child) up.text) of
@@ -430,6 +455,51 @@ handedUp steps up =
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())
     told why = "parent: " <> why <> "\nfix: hand back as printed; the parent's state next catches it\n"
+
+{- | An answer on its way down: the run that holds it, the child that asked
+it of that run, the question and its answer.
+-}
+data Down = Down {above :: RunId, child :: Child, qid :: QId, answer :: Text}
+
+-- | The answer the run holds to the question, for the child of its fan-out that asked it.
+downOf :: RunState -> QId -> Maybe Down
+downOf state qid = do
+    asker <- Fan.askedBy (Fold.currentFan state) qid
+    answer <- lookup qid (Fold.given state)
+    Just (Down state.run asker.child qid answer)
+
+{- | The answer, appended to the asking child's log under its lock by ids
+hashed from both runs and the question, so a retry appends it once; then on
+down from that child, to the run that asked it first. A refusal or an
+outage below does not fail the answer, which tells it with the command that
+writes it there by hand.
+-}
+answeredDown :: (Shell es) => Down -> Eff es Text
+answeredDown down =
+    try (onLog write down.child.log) >>= \case
+        Right (Right below) -> maybe (pure "") answeredDown (downOf below down.qid)
+        Right (Left failure) -> pure (told (failure.what <> " - " <> failure.why))
+        Left (e :: IOException) -> pure (told (tshow e))
+  where
+    source = Hook (digestOf [runIdText down.above, qidText down.qid, runIdText down.child.run])
+    write stamp run = case commit stamp run [(source, Answered down.qid down.answer (ParentRun down.above))] of
+        Right (new, after) -> (new, Right after.state)
+        -- The answering run tells the refusal; the child's log does not keep it.
+        Left refusal -> ([], Left (explain run.g (Fold.fuelOf run.state) run.state.at run.state.meters refusal))
+    told why =
+        "child "
+            <> runIdText down.child.run
+            <> ": "
+            <> why
+            <> "\nfix: state answer "
+            <> qidText down.qid
+            <> " "
+            <> down.answer
+            <> " --by "
+            <> runIdText down.above
+            <> ", in "
+            <> Text.pack down.child.worktree
+            <> "\n"
 
 -- | The worktree's run, locked for one command.
 onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> Eff es (Ran a)

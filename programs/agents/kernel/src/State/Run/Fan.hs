@@ -36,6 +36,8 @@ module State.Run.Fan (
     waiting,
     untriaged,
     latest,
+    askedBy,
+    pullRequest,
     childrenOf,
     settled,
     unsettled,
@@ -53,6 +55,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import State.Run.Ask (QId)
 import State.Run.Event (Child (..), RunId, Said (..), Shape (..), Stop, Task (..), TaskId, TaskState (..), Tasks, Url, taskList)
 
 data Fan = Fan
@@ -289,7 +292,7 @@ live childRun = case latest childRun of
     Just said -> case said of
         Finished _ -> False
         AsksUp _ -> True
-        AwaitsCi _ -> True
+        Awaits _ _ -> True
         Ended _ -> False
 
 -- | What the child said last, triaged or not; 'Nothing' while it has not handed back.
@@ -298,6 +301,22 @@ latest childRun = case reverse childRun.said of
     Heard said : _ -> Just said
     TriagedStop stop : _ -> Just (Ended stop)
     [] -> Nothing
+
+{- | The child whose latest hand-back asks this question up: the one its
+answer goes down to, and the one resumed with it.
+-}
+askedBy :: Fan -> QId -> Maybe ChildRun
+askedBy fan qid = find ((== Just (AsksUp qid)) . latest) fan.children
+
+-- | The task's PR as last recorded, if one was.
+pullRequest :: Fan -> TaskId -> Maybe Url
+pullRequest fan task =
+    Map.lookup task fan.moves >>= \case
+        InCi url -> Just url
+        InReview url -> Just url
+        Merged url -> Just url
+        Kept url -> Just url
+        Parked _ url -> url
 
 -- | The task's children, oldest first.
 childrenOf :: Fan -> TaskId -> [ChildRun]
@@ -324,7 +343,7 @@ finished :: Fan -> TaskId -> Bool
 finished fan task = case latest =<< listToMaybe (reverse (childrenOf fan task)) of
     Just (Finished _) -> True
     Just (AsksUp _) -> False
-    Just (AwaitsCi _) -> False
+    Just (Awaits _ _) -> False
     Just (Ended _) -> False
     Nothing -> False
 

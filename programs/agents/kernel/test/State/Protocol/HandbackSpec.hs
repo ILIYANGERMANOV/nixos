@@ -33,6 +33,9 @@ spec = describe "State.Protocol.Handback" $ do
         for_ tokens $ \(first, token) ->
             (.token) <$> parseHandback first `shouldBe` Right token
 
+    it "refuses an AWAIT on anything but CI or a merge" $
+        parseHandback "AWAIT deploy prod" `shouldBe` Left "AWAIT deploy: only ci or merge is awaited"
+
     it "reads line 1 pasted with the HANDBACK delivery prefix as the bare token" $
         for_ tokens $ \(first, token) ->
             (.token) <$> parseHandback ("HANDBACK " <> first) `shouldBe` Right token
@@ -111,8 +114,9 @@ typing = describe "typeHandback" $ do
         it "records a question as asked up by the child, which joins this run's pending" $
             fromChild "NEEDS_DECISION Design c1:2: which store?\nRun: c1"
                 `shouldBe` Right (Typed [HandedBack c1 (AsksUp (QId c1 2)), Asked (Asking (Question (QId c1 2) Design (oneLine "which store?")) engineers (ChildRun c1))] Nothing)
-        it "records AWAIT ci as the child awaiting CI" $
-            fromChild "AWAIT ci https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (AwaitsCi (oneLine "https://pr/1"))] Nothing)
+        it "records AWAIT ci or merge as the child awaiting it" $
+            map fromChild ["AWAIT ci https://pr/1\nRun: c1", "AWAIT merge https://pr/1 https://pr/2\nRun: c1"]
+                `shouldBe` [Right (Typed [HandedBack c1 (Awaits Ci (oneLine "https://pr/1"))] Nothing), Right (Typed [HandedBack c1 (Awaits Merge (oneLine "https://pr/1 https://pr/2"))] Nothing)]
         it "records a stop as the child ended, for this run to triage" $
             map fromChild ["BLOCKED no access\nRun: c1", "NEEDS_DECISION plan wrong: no such table\nRun: c1"]
                 `shouldBe` [ Right (Typed [HandedBack c1 (Ended (Event.Stop Event.Blocked "no access"))] (Just (oneLine "BLOCKED no access")))
@@ -141,6 +145,7 @@ tokens =
     , ("NEEDS_DECISION plan wrong: no such table", Just (NeedsDecision (PlanWrong (oneLine "no such table"))))
     , ("NEEDS_DECISION should I?", Just (NeedsDecision (Untyped (oneLine "should I?"))))
     , ("AWAIT ci https://pr/1", Just (Await Ci (oneLine "https://pr/1")))
+    , ("AWAIT merge https://pr/1 https://pr/2", Just (Await Merge (oneLine "https://pr/1 https://pr/2")))
     , ("BLOCKED no access", Just (Blocked (oneLine "no access")))
     , ("FAILED tests red", Just (Failed (oneLine "tests red")))
     , ("| # | Severity | What |", Nothing)
@@ -166,7 +171,7 @@ genToken =
     Gen.choice
         [ Ready <$> genOneLine
         , NeedsDecision <$> genNeed
-        , Await Ci <$> genOneLine
+        , Await <$> Gen.enumBounded <*> genOneLine
         , Blocked <$> genOneLine
         , Failed <$> genOneLine
         ]

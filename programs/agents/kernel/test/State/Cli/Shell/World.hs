@@ -13,6 +13,7 @@ module State.Cli.Shell.World (
     hook,
     succeeded,
     startedRun,
+    startedIn,
     putFile,
     tenXAtFanOut,
     tenXAtFanOutOf,
@@ -21,10 +22,12 @@ module State.Cli.Shell.World (
     childWorktree,
     logged,
     loggedEvents,
+    loggedEventsIn,
     headOf,
     draftPr,
     prOn,
     editLog,
+    editLogIn,
     logBytes,
     prUrl,
     notes,
@@ -219,14 +222,22 @@ eventsPath = logOf notes
 
 -- | The worktree's log as written, decoded line by line; it must read.
 logged :: IORef World -> IO [Envelope]
-logged world = do
+logged world = loggedIn world eventsPath
+
+-- | The log at this path as written, decoded line by line; it must read.
+loggedIn :: IORef World -> FilePath -> IO [Envelope]
+loggedIn world path = do
     w <- readIORef world
-    case decodeLogBytes (Map.findWithDefault "" eventsPath w.disk.files) of
+    case decodeLogBytes (Map.findWithDefault "" path w.disk.files) of
         Right lines' -> pure lines'
         Left bad -> [] <$ expectationFailure ("the log does not read: " <> show bad.line)
 
 loggedEvents :: IORef World -> IO [Text]
-loggedEvents world = map (eventType . (.event)) <$> logged world
+loggedEvents world = loggedEventsIn world eventsPath
+
+-- | The event types of the log at this path.
+loggedEventsIn :: IORef World -> FilePath -> IO [Text]
+loggedEventsIn world path = map (eventType . (.event)) <$> loggedIn world path
 
 prUrl :: Text
 prUrl = "https://github.com/o/r/pull/1"
@@ -241,8 +252,12 @@ prOn base = printedPr . PullRequest (DraftPr (Url prUrl) (Branch base) (Branch "
 
 -- | Edit the worktree's log by hand, as the bytes on disk.
 editLog :: IORef World -> (ByteString -> ByteString) -> IO ()
-editLog world edit = modifyIORef' world $ \w ->
-    let disk = w.disk in w {disk = disk {files = Map.alter (Just . edit . fromMaybe "") eventsPath disk.files}}
+editLog world = editLogIn world eventsPath
+
+-- | Edit the log at this path by hand, as the bytes on disk.
+editLogIn :: IORef World -> FilePath -> (ByteString -> ByteString) -> IO ()
+editLogIn world path edit = modifyIORef' world $ \w ->
+    let disk = w.disk in w {disk = disk {files = Map.alter (Just . edit . fromMaybe "") path disk.files}}
 
 -- | The worktree's log as the bytes on disk.
 logBytes :: IORef World -> IO (Maybe ByteString)

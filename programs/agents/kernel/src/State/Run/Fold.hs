@@ -32,6 +32,7 @@ module State.Run.Fold (
     usedUp,
     flowRole,
     nextQId,
+    given,
     askingChildren,
     askedAt,
     over,
@@ -62,7 +63,7 @@ import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal, QId (..), Question (..), Ruling, deliver)
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText)
 import State.Run.Ask qualified as Ask
 import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Url, eventId, tookEvent)
 import State.Run.Fan (Fan, emptyFan)
@@ -167,6 +168,8 @@ data Refusal
       AlreadyForwarded QId
     | -- | An answer to a question the run never forwarded.
       NotForwarded QId
+    | -- | Another answer to a question answered already with this one.
+      AnsweredOtherwise QId Text
     | -- | The run's row of 'State.Run.Ask.authority' does not allow it.
       NotAllowed Ask.Refusal
     | -- | A forward or answer naming another than whoever started the run.
@@ -559,8 +562,18 @@ forwarded state qid to = do
     fromAbove state.start.principal to
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
+{- | An answer the run holds already is no news: one written down from above
+and then given again by the run's own agent, or a retry, changes nothing.
+-}
 answered :: RunState -> QId -> Text -> Above -> Either Refusal RunState
-answered state qid answer by = do
+answered state qid answer by = case find ((== qid) . (.about.qid)) state.answers of
+    Just earlier
+        | earlier.given == answer -> state <$ fromAbove state.start.principal by
+        | otherwise -> Left (AnsweredOtherwise qid earlier.given)
+    Nothing -> firstAnswer state qid answer by
+
+firstAnswer :: RunState -> QId -> Text -> Above -> Either Refusal RunState
+firstAnswer state qid answer by = do
     pending <- pendingOf qid state.pending
     case pending.waits of
         ForTriage -> Left (NotForwarded qid)
@@ -586,6 +599,10 @@ close qid = filter ((/= qid) . pendingId)
 
 pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
+
+-- | Each question the run ruled on or had answered from above, with its answer.
+given :: RunState -> [(QId, Text)]
+given state = [(ruling.qid, oneLineText ruling.proposal.answer) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
 
 -- | The children whose question is still open, in triage or with the user: none of their tasks is retried.
 askingChildren :: RunState -> [RunId]

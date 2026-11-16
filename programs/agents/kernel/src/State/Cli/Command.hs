@@ -22,6 +22,7 @@ module State.Cli.Command (
     unknownEvent,
     anyEvent,
     openQid,
+    answeredQid,
     notStarted,
     help,
 ) where
@@ -406,6 +407,7 @@ explain g fuel at meters = \case
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))
+    AnsweredOtherwise qid earlier -> refused ("another answer to " <> qidText qid) ("it was answered already: " <> earlier) "state show"
     NotAllowed refusal -> case refusal of
         Ask.MayNotRule _ kind -> refused ("a ruling on " <> kindName kind) ("this run forwards a " <> kindName kind <> " question") "state forward <qid>"
         Ask.MustAnswer _ kind -> refused ("a forward of " <> kindName kind) ("this run answers a " <> kindName kind <> " question itself") (triage "<qid>")
@@ -495,6 +497,14 @@ closest name events = case (sameStep, events) of
     sameStep = case Text.breakOn "." name of
         (_, "") -> []
         (step, _) -> [e | e@(event, _) <- events, (step <> ".") `Text.isPrefixOf` event]
+
+{- | A question to answer: one open, or one answered already, whose answer
+again the fold judges (the same one is no news).
+-}
+answeredQid :: RunState -> Text -> Either Failure QId
+answeredQid state raw = case parseQId raw of
+    Just qid | qid `elem` map (.about.qid) state.answers -> Right qid
+    _ -> openQid state raw
 
 {- | A question the run has open, by the id typed: a malformed one or one
 not open is refused with the open ones listed.

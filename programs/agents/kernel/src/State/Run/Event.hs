@@ -55,6 +55,7 @@ module State.Run.Event (
     taskList,
     Child (..),
     Said (..),
+    Waiting (..),
     TaskState (..),
 ) where
 
@@ -203,15 +204,19 @@ data Note = Note {message :: Text, fix :: Text}
 data Child = Child {run :: RunId, task :: TaskId, log :: FilePath, worktree :: FilePath}
     deriving stock (Eq, Show)
 
--- | A child's hand-back, typed: only 'AsksUp' and 'AwaitsCi' leave it running.
+-- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.
 data Said
     = Finished OneLine
     | -- | A question it forwarded up, now pending in this run.
       AsksUp QId
-    | -- | CI on its PR, which this run waits on, then resumes the child.
-      AwaitsCi OneLine
+    | -- | What it cannot wait on itself, on these refs: this run waits, then resumes the child.
+      Awaits Waiting OneLine
     | Ended Stop
     deriving stock (Eq, Show)
+
+-- | What a run with no wakes of its own hands up for a run above to wait on.
+data Waiting = Ci | Merge
+    deriving stock (Eq, Show, Enum, Bounded)
 
 -- | Where a task's PR stands; the child's own hand-back settles it otherwise.
 data TaskState

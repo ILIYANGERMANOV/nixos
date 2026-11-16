@@ -243,17 +243,25 @@ spec = describe "the state binary" $ do
                 unfounded.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["forward", q2]
                 first <- succeeded =<< state bin repo ["next"]
-                take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1]
+                take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1 <> ": postgres"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c1]
                 userHolds <- succeeded =<< state bin repo ["next"]
                 take 1 userHolds `shouldBe` ["ASK Security " <> Text.pack q2 <> ": token in env?"]
                 _ <- succeeded =<< state bin repo ["answer", q2, "use", "a", "vault"]
                 second <- succeeded =<< state bin repo ["next"]
-                take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2]
+                take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2 <> ": use a vault"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c2]
                 twice <- state bin repo ["record", "resumed", Text.unpack c2]
                 twice.code `shouldBe` 2
+                -- Each answer was written down to the child that asked it.
+                shown1 <- succeeded =<< state bin w1 ["show"]
+                shown2 <- succeeded =<< state bin w2 ["show"]
+                shown1 `shouldSatisfy` mentions (Text.pack q1 <> " Design: which store? - postgres")
+                shown2 `shouldSatisfy` mentions (Text.pack q2 <> " Security: token in env? - use a vault")
+                -- The child's own answer, the same, adds nothing; another is refused.
                 _ <- succeeded =<< state bin w1 ["answer", q1, "postgres", "--by", Text.unpack parent]
+                other <- state bin w1 ["answer", q1, "sqlite", "--by", Text.unpack parent]
+                other.code `shouldBe` 2
                 relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
                 third <- succeeded =<< state bin repo ["next"]
                 take 1 third `shouldBe` ["AWAIT children t2"]
@@ -273,7 +281,7 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
                 _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
                 resume <- succeeded =<< state bin repo ["next"]
-                take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1"]
+                take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed"]
 
             it "refuses a malformed task file with the breakdown's error" $ \repo -> do
                 _ <- tenXAtFanOut bin repo

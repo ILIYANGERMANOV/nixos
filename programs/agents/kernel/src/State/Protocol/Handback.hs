@@ -28,8 +28,8 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Role (leads)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), needsDecision, oneLineText, parseKind, parseOneLine, parseQId)
-import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), parseRunId, runIdText, tookIn)
+import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire, waitingText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
 import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId)
@@ -79,9 +79,6 @@ data Need
       Untyped OneLine
     deriving stock (Eq, Show)
 
-data Waiting = Ci
-    deriving stock (Eq, Show, Enum, Bounded)
-
 parseHandback :: Text -> Either Text Handback
 parseHandback message = do
     token <- parseToken first
@@ -107,14 +104,15 @@ parseToken :: Text -> Either Text (Maybe Token)
 parseToken line = case word of
     "READY" -> Just . Ready <$> oneLine payload
     "NEEDS_DECISION" -> Just . NeedsDecision <$> parseNeed payload
-    "AWAIT" -> case Text.breakOn " " payload of
-        ("ci", ref) -> Just . Await Ci <$> oneLine (Text.drop 1 ref)
-        (other, _) -> Left ("AWAIT " <> other <> ": only ci is awaited")
+    "AWAIT" -> case parseByName waitingText what of
+        Just waiting -> Just . Await waiting <$> oneLine refs
+        Nothing -> Left ("AWAIT " <> what <> ": only " <> Text.intercalate " or " (map waitingText [minBound .. maxBound]) <> " is awaited")
     "BLOCKED" -> Just . Blocked <$> oneLine payload
     "FAILED" -> Just . Failed <$> oneLine payload
     _ -> Right Nothing
   where
     (word, payload) = Text.drop 1 <$> Text.breakOn " " line
+    (what, refs) = Text.drop 1 <$> Text.breakOn " " payload
 
 parseNeed :: Text -> Either Text Need
 parseNeed payload = case (labelled "stuck:", labelled "plan wrong:", asks) of
@@ -173,7 +171,7 @@ tokenLine = \case
         StuckOn why -> needing ("stuck: " <> oneLineText why)
         PlanWrong finding -> needing (planWrong (oneLineText finding))
         Untyped question -> needing (oneLineText question)
-    Await Ci ref -> spaced "AWAIT ci" (oneLineText ref)
+    Await waiting ref -> spaced ("AWAIT " <> waitingText waiting) (oneLineText ref)
     Blocked why -> spaced "BLOCKED" (oneLineText why)
     Failed why -> spaced "FAILED" (oneLineText why)
   where
@@ -222,7 +220,7 @@ fromChild state fan handback = case handback.run of
             PlanWrong _ -> ended token
             StuckOn _ -> unasked
             Untyped _ -> unasked
-        Just (Await Ci ref) -> Right (Typed [said (AwaitsCi ref)] Nothing)
+        Just (Await waiting ref) -> Right (Typed [said (Awaits waiting ref)] Nothing)
         Just token@(Blocked _) -> ended token
         Just token@(Failed _) -> ended token
       where

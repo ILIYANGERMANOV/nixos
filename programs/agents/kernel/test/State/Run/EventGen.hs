@@ -106,7 +106,7 @@ genSaid =
     Gen.choice
         [ Finished <$> genOneLine
         , AsksUp <$> genQId
-        , AwaitsCi <$> genOneLine
+        , Awaits <$> Gen.enumBounded <*> genOneLine
         , Ended <$> (Stop <$> Gen.enumBounded <*> genText)
         ]
 

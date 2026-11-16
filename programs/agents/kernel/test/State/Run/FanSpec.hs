@@ -9,6 +9,7 @@ import Data.Text qualified as Text
 import Hedgehog (Gen, assert, cover, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Run.Ask (QId (..))
 import State.Run.Event
 import State.Run.EventGen (genSaid, genTaskAt, genTaskId, genTaskState, genTasks, oneLine, runId, tasksOf)
 import State.Run.Fan
@@ -66,20 +67,26 @@ spec = describe "State.Run.Fan" $ do
         applied [spawning [] t1, spawning [] t1] `shouldBe` Left (AtWork t1)
 
     it "refuses to resume a child twice before it hands back" $
-        applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), resumed (runId "c1"), resumed (runId "c1")]
+        applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Awaits Ci (oneLine "PR #1")), resumed (runId "c1"), resumed (runId "c1")]
             `shouldBe` Left (AtWork t1)
 
     it "closes only once every task is merged or parked" $
         map (\state -> applied [moved t1 state] >>= closed) [InReview (Url "pr"), Merged (Url "pr")] `shouldBe` [Left (Unmerged (t1 :| [])), Right ()]
 
     it "keeps a child running while it asks up or awaits CI" $
-        length . running <$> applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1"))] `shouldBe` Right 1
+        length . running <$> applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Awaits Ci (oneLine "PR #1"))] `shouldBe` Right 1
+
+    it "finds the child a question came from while that question is its latest word" $ do
+        let asks = QId (runId "c1") 1
+            asked = [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AsksUp asks)]
+        map (fmap (fmap (.child.run) . (`askedBy` asks)) . applied) [asked, asked <> [handedBack (runId "c1") (Finished (oneLine "PR #1"))]]
+            `shouldBe` [Right (Just (runId "c1")), Right Nothing]
 
     it "settles a parked task, so the fan-out may leave" $
         (applied [moved t1 (Parked "out of scope" Nothing)] >>= leave) `shouldBe` Right ()
 
     it "does not leave while a child runs on a task already in review" $
-        (applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (AwaitsCi (oneLine "PR #1")), moved t1 (InReview (Url "pr"))] >>= leave)
+        (applied [spawned [] (childFor "c1" t1), handedBack (runId "c1") (Awaits Ci (oneLine "PR #1")), moved t1 (InReview (Url "pr"))] >>= leave)
             `shouldBe` Left (Unsettled (t1 :| []))
 
     it "does not settle a task whose PR is in CI" $

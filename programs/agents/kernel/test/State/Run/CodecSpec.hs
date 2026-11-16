@@ -13,7 +13,7 @@ import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
@@ -89,6 +89,18 @@ spec = describe "State.Run.Codec" $ do
     it "writes a child's stop as its reason, upper case, with its why as the ref" $
         encodeLine reviewRows {event = HandedBack (runId "c1") (Ended (Stop Blocked "no access"))}
             `shouldSatisfy` Text.isInfixOf "\"type\":\"handed_back\",\"data\":{\"child\":\"c1\",\"token\":\"BLOCKED\",\"ref\":\"no access\",\"qid\":null}"
+
+    it "writes a child's AWAIT ci as before merges climbed, and names a merge" $
+        [encodeLine reviewRows {event = HandedBack (runId "c1") (Awaits on (oneLine "https://pr/1"))} | on <- [Ci, Merge]]
+            `shouldSatisfy` \case
+                [ci, merge] ->
+                    "\"data\":{\"child\":\"c1\",\"token\":\"AWAIT\",\"ref\":\"https://pr/1\",\"qid\":null}" `Text.isInfixOf` ci
+                        && "\"qid\":null,\"on\":\"merge\"}" `Text.isInfixOf` merge
+                _ -> False
+
+    it "reads an AWAIT an older log wrote, with no on, as awaiting CI" $
+        (.event) <$> decodeLine (encodeLine reviewRows {event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))} `replacing` (",\"on\":\"merge\"", ""))
+            `shouldBe` Right (HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1")))
 
     it "reads a breakdown's tasks in order" $
         map (.id) . taskList <$> decodeBreakdown (breakdownJson [plainTask "t1" [], plainTask "t2" ["t1"]]) `shouldBe` Right [TaskId "t1", TaskId "t2"]
