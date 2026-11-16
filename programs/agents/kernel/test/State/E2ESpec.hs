@@ -192,10 +192,9 @@ spec = describe "the state binary" $ do
                 parent <- tenXAtFanOut bin repo
                 git repo ["checkout", "-q", "-b", "child"]
                 child <- childRun bin repo parent "child" "t1"
-                [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Pick", "which", "lib?"]
-                let qid = Text.unpack (Text.drop (Text.length "asked ") asked)
-                    ruling = "Ruling " <> Text.pack qid <> " Pick: zod - already used - none"
-                _ <- succeeded =<< state bin repo ["rule", qid, "--answer", "zod", "--why", "already used", "--cost", "none"]
+                qid <- askedQid bin repo "Pick" ["which", "lib?"]
+                let ruling = "Ruling " <> qid <> " Pick: zod - already used - none"
+                _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "zod", "--why", "already used", "--cost", "none"]
                 shown <- succeeded =<< state bin repo ["show"]
                 shown `shouldContain` ["rulings:", "  " <> ruling]
                 forwarded <- succeeded =<< state bin repo ["ask", "--kind", "Design", "which", "store?"]
@@ -320,11 +319,8 @@ spec = describe "the state binary" $ do
                 relay bin repo ["HANDBACK BLOCKED no access to the registry", "Run: " <> c1]
                 triage <- succeeded =<< state bin repo ["next"]
                 take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c1 <> " <question> - triage: BLOCKED no access to the registry"]
-                asked <- succeeded =<< state bin repo ["ask", "--kind", "Stuck", "--from", Text.unpack c1, "retry", "with", "a", "token?"]
-                qid <- case asked of
-                    line : _ | Just found <- Text.stripPrefix "asked " line -> pure (Text.unpack found)
-                    other -> fail ("not asked: " <> show other)
-                _ <- succeeded =<< state bin repo ["rule", qid, "--answer", "retry", "--why", "first try", "--cost", "one try"]
+                qid <- askedQid bin repo "Stuck" ["--from", Text.unpack c1, "retry", "with", "a", "token?"]
+                _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "retry", "--why", "first try", "--cost", "one try"]
                 retry <- succeeded =<< state bin repo ["next"]
                 take 1 retry `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
@@ -506,8 +502,7 @@ spec = describe "the state binary" $ do
 
             it "tell the lead how to record the answer to a question put to the user" $ \repo -> do
                 _ <- drive bin repo []
-                [asked, _] <- succeeded =<< state bin repo ["ask", "--kind", "Design", "which", "store?"]
-                let qid = Text.drop (Text.length "asked ") asked
+                qid <- askedQid bin repo "Design" ["which", "store?"]
                 said <- succeeded =<< hook hookBin repo "asked" (askedUser repo)
                 said `shouldSatisfy` mentions ("state answer " <> qid <> " <answer>")
 
