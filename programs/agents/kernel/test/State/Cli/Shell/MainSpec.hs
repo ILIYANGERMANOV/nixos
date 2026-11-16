@@ -10,11 +10,12 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
+import State.Category.Fuel (Fuel (Max))
 import State.Cli.Command (help)
 import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
-import State.Run.Event (Branch (..), Envelope (..), Repo (..), SessionId (..), Task (..))
+import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), Repo (..), SessionId (..), Task (..))
 import State.Run.RunGen (loadSteps, plainTask, roundTask)
 import State.Step.Artifact (shellPath)
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
@@ -374,6 +375,13 @@ spec = describe "state over the doubles" $ do
 
                 take 1 advised `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
+            it "spawns a task's child as the role leading its task's flow" $ \world -> do
+                _ <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
+
+                advised <- succeeded =<< state world ["next"]
+
+                take 1 advised `shouldBe` ["SPAWN 10x --task t1 background: yes"]
+
             it "logs a child's spawn in its parent's log once, a retried init joining the same run" $ \world -> do
                 parent <- tenXAtFanOut world
 
@@ -391,15 +399,47 @@ spec = describe "state over the doubles" $ do
 
                 take 1 shown `shouldBe` ["run: " <> child <> " (engineer)"]
 
-            it "refuses a child --flow other than its parent's fan-out's, logging no spawn" $ \world -> do
+            it "refuses a child --flow other than its task's, logging no spawn" $ \world -> do
                 parent <- tenXAtFanOut world
                 atWorktree world childWorktree
 
                 refused <- state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
 
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state init: --flow 10x - the parent's fan-out runs engineer", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                    `shouldBe` (2, ["state init: --flow 10x - task t1 runs the engineer flow", "fix: state brief engineer --task t1, in the parent's worktree, prints the init line"])
                 filter (== "spawned") <$> loggedEvents world `shouldReturn` []
+
+            it "starts a 10x child for a task whose flow is 10x, --flow named or not" $ \world -> do
+                parent <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}, (plainTask "t2" []) {flow = TenXFlow}]
+                atWorktree world childWorktree
+                named <- succeeded =<< state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                namedShown <- succeeded =<< state world ["show"]
+                atWorktree world "/other-work"
+                _ <- succeeded =<< state world ["init", "--notes", "/other", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t2"]
+                unnamedShown <- succeeded =<< state world ["show"]
+
+                map (Text.takeWhile (/= ' ')) named `shouldBe` ["started", "run"]
+                map (take 1) [namedShown, unnamedShown] `shouldSatisfy` all (all (" (10x)" `Text.isSuffixOf`))
+
+            it "refuses an engineer child for a task whose flow is 10x" $ \world -> do
+                parent <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
+                atWorktree world childWorktree
+
+                refused <- state world ["init", "--notes", "/child", "--flow", "engineer", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+
+                (refused.code, refused.err)
+                    `shouldBe` (2, ["state init: --flow engineer - task t1 runs the 10x flow", "fix: state brief 10x --task t1, in the parent's worktree, prints the init line"])
+
+            it "starts a child at its task's Fuel, so its first next is the step, in the foreground" $ \world -> do
+                parent <- tenXAtFanOutOf world [(plainTask "t1" []) {fuel = Max}]
+                _ <- childRun world parent "/child" "t1"
+
+                advised <- succeeded =<< state world ["next"]
+
+                take 1 advised `shouldBe` ["RUN one option below"]
+                advised `shouldSatisfy` any ("spawn a researcher in the foreground - " `Text.isInfixOf`)
+                -- Max's researcher budget: Balanced, the default, caps it.
+                filter ("Researchers: " `Text.isInfixOf`) advised `shouldBe` ["  Researchers: 0 used, one per group"]
 
             it "starts a child whose --flow names its parent's fan-out's" $ \world -> do
                 parent <- tenXAtFanOut world
@@ -473,6 +513,14 @@ spec = describe "state over the doubles" $ do
                                , ""
                                , "state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t2"
                                ]
+
+            it "briefs a 10x task's init line with its flow, whichever lead role asks" $ \world -> do
+                run <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
+
+                briefs <- traverse (\role -> succeeded =<< state world ["brief", role, "--task", "t1"]) ["engineer", "10x"]
+
+                map (drop 9) briefs
+                    `shouldBe` replicate 2 ["state init --notes <dir> --flow 10x --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
 
             it "briefs an engineer to init in its task's worktree and its repo's notes dir" $ \world -> do
                 run <- tenXAtFanOutOf world [(plainTask "t1" []) {branch = Branch "feat/x", repo = Just (Repo "o" "r"), worktree = shellPath "/wt/t1"}]

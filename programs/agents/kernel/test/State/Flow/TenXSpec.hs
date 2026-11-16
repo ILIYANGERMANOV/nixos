@@ -6,8 +6,7 @@ import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
 import State.Flow.TenX (tenX)
-import State.Role (RoleDef (..), role)
-import State.Run.Event (fanFlow)
+import State.Role (FlowName (EngineerFlow), RoleDef (..), role)
 import State.Step.Fan (engineers)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
@@ -23,9 +22,9 @@ spec = describe "State.Flow.TenX" $ do
     it "no_mode_skips_kept_steps" $
         skipsKept (graph tenX) (map StateName ["engineers", "merge"]) `shouldBe` []
 
-    -- The fan-out runs each task's child on the flow the registry names for it.
-    it "runs the registry's engineer flow at its fan-out" $
-        lookup engineers (parBodies tenX) `shouldBe` Just (show (role fanFlow).flow)
+    -- The graph draws the fan-out's body as a task's default flow; each child runs its own task's.
+    it "draws the registry's engineer flow as its fan-out's body" $
+        lookup engineers (parBodies tenX) `shouldBe` Just (show (role EngineerFlow).flow)
 
 {- | Each fan-out's body, shown. Compared by 'show', not 'graph': 'graph'
 draws a 'Par' as one state, and a 'Par' hides the types 'graph' needs of its

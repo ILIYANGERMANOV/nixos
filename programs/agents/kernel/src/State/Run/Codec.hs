@@ -63,8 +63,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Step (eventText)
-import State.Role (RoleDef (..), roleText)
-import State.Role qualified as Role
+import State.Role (flowText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
     AgentRole (..),
@@ -75,7 +74,6 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     EventId (..),
-    FlowName (..),
     Note (..),
     Op (..),
     Parent (..),
@@ -497,9 +495,6 @@ oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneL
 
 runIdOf :: Text -> Parser RunId
 runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break")) pure (parseRunId raw)
-
-flowText :: FlowName -> Text
-flowText = roleText . (.name) . Role.role
 
 opText :: Op -> Text
 opText = \case

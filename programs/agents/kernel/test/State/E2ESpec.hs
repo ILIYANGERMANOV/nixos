@@ -17,6 +17,8 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
+import State.Category.Fuel (Fuel (Low))
+import State.Run.Event (Task (..))
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
@@ -383,15 +385,16 @@ spec = describe "the state binary" $ do
             it "runs from init to done, its child through the engineer flow" $ \repo -> do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 let tasks = repo.root </> "tasks.json"
-                Text.writeFile tasks (breakdownJson [plainTask "t1" []])
+                Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {fuel = Low}])
                 plan <- writtenPlan repo
                 for_ [["fuel", "balanced"], ["gather.enough"], ["plan.done", plan], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
-                child <- driveOn bin w1 trivialPath
-                child `shouldBe` trivialTranscript
+                -- The task's Fuel is the child's from init: it records none.
+                child <- driveOn bin w1 (drop 1 trivialPath)
+                child `shouldBe` drop 1 trivialTranscript
                 merging <- succeeded =<< state bin repo ["next"]
                 recorded merging `shouldBe` ["engineers.done -> merge"]
                 for_ [["task", "t1", "merged", prUrlString], ["merge.done", prUrlString]] (succeeded <=< state bin repo . ("record" :))

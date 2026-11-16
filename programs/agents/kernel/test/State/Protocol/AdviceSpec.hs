@@ -13,9 +13,10 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (..))
 import State.Protocol.Advice
-import State.Protocol.Record (Option (..))
+import State.Protocol.Record (Option (..), commandOption)
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
 import State.Run.Event hiding (Stopped)
+import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), replay)
 import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, securityGraph, securityScope, sha, tenXAt, tenXGraph)
@@ -31,7 +32,7 @@ spec :: Spec
 spec = describe "State.Protocol.Advice" $ do
     steps <- runIO loadSteps
     let next facts state = commandsOnly (advise steps (flowGraph state.start.flow) facts state).action
-        explainedAt state = explained (advise steps (flowGraph state.start.flow) noFacts state)
+        explainedAt state = explained state.start (advise steps (flowGraph state.start.flow) noFacts state)
 
     it "advice_is_equal_under_any_principal_up_to_delivery" . hedgehog $ do
         events <- forAll genAccepted
@@ -71,6 +72,12 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers each action in the order the flow declares them, and enough, each with what it does" $
             explainedAt (runAt (knobs Balanced)) `shouldBe` gatherHub ["  state record gather.enough - on to plan"]
 
+        it "tells a run without the background to spawn its researcher in the foreground, as its SPAWN says" $ do
+            let spawnOption interface = [fst (Text.breakOn " - " line) | line <- explained interface (advise steps g noFacts (runAt (knobs Balanced))), "  spawn" `Text.isPrefixOf` line]
+            map spawnOption [child, start {interface = Set.fromList [Background]}]
+                `shouldBe` [["  spawn a researcher in the foreground"], ["  spawn a researcher in the background"]]
+            deliver child (Spawn (AgentRole "researcher") Nothing) `shouldBe` "SPAWN researcher background: no"
+
         it "prints each action's task on its own line, so the researcher's reads apart from the interview's" $
             length (Text.lines (advise steps g noFacts (runAt (knobs Balanced))).prompt) `shouldBe` 2
 
@@ -96,7 +103,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "extends on the user's yes, or ends the gather" $ do
             let onStuck = knobs Balanced <> questions 30 <> [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt onStuck) `shouldBe` offering ["spawn a researcher in the background", "state record extend <why>", "state record gather.enough"]
+            next noFacts (runAt onStuck) `shouldBe` offering ["spawn a researcher", "state record extend <why>", "state record gather.enough"]
             next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing
 
     it "names where a spawned step's outcomes lead, for the hook records them" $
@@ -318,7 +325,7 @@ spec = describe "State.Protocol.Advice" $ do
     atImplement = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
     atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath))
     atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 8 happyPath))
-    tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {flow = TenXFlow} :| events)))
+    tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {Event.flow = TenXFlow} :| events)))
     tenXStarted = tenXRun []
     gathering = StateName "gather"
     researched = [stepTook ResearchSpawned]
@@ -329,11 +336,11 @@ spec = describe "State.Protocol.Advice" $ do
     gatherHub enough =
         [ "at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
         , "options:"
-        , "  spawn a researcher in the background - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back"
+        , "  spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back"
         , "  state ask --kind <kind> <question> - asks one question; what it prints says who answers"
         ]
             <> enough
-    choosing = offering ["spawn a researcher in the background", "state ask --kind <kind> <question>", "state record gather.enough"]
+    choosing = offering ["spawn a researcher", "state ask --kind <kind> <question>", "state record gather.enough"]
     atReady = runAt (knobs Balanced <> map (Took mempty) (take 13 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
@@ -352,12 +359,12 @@ offers holds = \case
 
 -- | A 'Run' of these commands, each meaning left to the specs that pin it.
 offering :: [Text] -> Action
-offering = Run . fmap (`Option` "") . NonEmpty.fromList
+offering = Run . fmap (`commandOption` "") . NonEmpty.fromList
 
--- | The action with each option's meaning dropped: most specs pin only the commands.
+-- | The action with each option's meaning and spawn dropped: most specs pin only the commands.
 commandsOnly :: Action -> Action
 commandsOnly = \case
-    Run options -> Run (fmap (\option -> option {means = ""}) options)
+    Run options -> Run (fmap (\option -> commandOption option.command "") options)
     other -> other
 
 genFacts :: Gen Facts

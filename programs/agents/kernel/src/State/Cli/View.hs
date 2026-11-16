@@ -14,9 +14,10 @@ import State.Category.Graph (Node (..), OpenGraph, Place (..))
 import State.Category.Step (SomeStep (..), stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.Protocol.Advice (Facts (..), factLines)
+import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, childRole, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName (..), Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
 import State.Run.Fan (lookupTask)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
 import State.Step.Artifact (shellPathText, slugChar)
@@ -66,26 +67,26 @@ pendingLines state = map line state.pending
 
 {- | A role's brief skeleton: the task text of the step the run is at, or,
 when the role runs no step there, of each step it runs; then the rule its
-hand-back follows. An engineer, a child flow, gets its task's fields and the
-line that starts its run under this one: in the task's worktree and notes
-dir when the breakdown names them; a task the breakdown lacks is returned as
-the failure.
+hand-back follows. A role that leads a flow, a child run, gets its task's
+fields and the line that starts its run under this one, on the task's flow:
+in the task's worktree and notes dir when the breakdown names them; a task
+the breakdown lacks is returned as the failure.
 -}
 brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
-brief steps state agent@(AgentRole role) task
-    | agent == childRole = case task of
-        Nothing -> Right (initLine "<dir>" "<id>")
-        Just taskId -> case lookupTask (currentFan state) taskId of
-            Nothing -> Left taskId
-            Just found -> Right (Text.unlines (taskLines found) <> "\n" <> taskInit found)
-    | otherwise = Right (Text.concat [section name r | (name, r) <- briefed] <> rule)
+brief steps state agent@(AgentRole role) task = case (leads agent, task) of
+    (Just flow, Nothing) -> Right (initLine flow "<dir>" "<id>")
+    (Just _, Just taskId) -> case lookupTask (currentFan state) taskId of
+        Nothing -> Left taskId
+        Just found -> Right (Text.unlines (taskLines found) <> "\n" <> taskInit found)
+    (Nothing, _) -> Right (Text.concat [section name r | (name, r) <- briefed] <> rule)
   where
     taskInit found =
         maybe "" (\path -> "cd " <> Text.pack (shellPathText path) <> " && ") found.worktree
-            <> initLine (maybe "<dir>" (engineerNotes found.branch) found.repo) (taskIdText found.id)
-    initLine notesText taskText =
+            <> initLine found.flow (maybe "<dir>" (engineerNotes found.branch) found.repo) (taskIdText found.id)
+    initLine flow notesText taskText =
         "state init --notes "
             <> notesText
+            <> flowFlag flow
             <> " --parent "
             <> runIdText state.run
             <> " --parent-log "
@@ -93,6 +94,10 @@ brief steps state agent@(AgentRole role) task
             <> " --task "
             <> taskText
             <> "\n"
+    -- The default flow is left out, so an engineer's line reads as it always has.
+    flowFlag = \case
+        EngineerFlow -> ""
+        TenXFlow -> " --flow " <> flowText TenXFlow
     taskLines found =
         [ "Task: " <> taskIdText found.id
         , "Fuel: " <> fuelLabel found.fuel

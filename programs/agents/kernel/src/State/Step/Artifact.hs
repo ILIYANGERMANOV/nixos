@@ -69,11 +69,13 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
+import State.FlowName (FlowName (..), flowText)
 import System.FilePath (isAbsolute)
 
 -- | The draft PR, synced from GitHub.
@@ -133,6 +135,8 @@ data Task = Task
     -- ^ The repo the task's work lands in, when the breakdown names it: its brief's notes dir.
     , worktree :: Maybe ShellPath
     -- ^ When the breakdown names it: its brief's init line runs there.
+    , flow :: FlowName
+    -- ^ The flow its child run follows: an engineer's unless the breakdown names another.
     }
     deriving stock (Eq, Show)
 
@@ -281,6 +285,13 @@ taskEncoding task =
             <> shapeData task.shape
             <> maybe mempty (("repo" .=) . repoText) task.repo
             <> maybe mempty (("worktree" .=) . shellPathText) task.worktree
+            <> flowData task.flow
+
+-- | The default flow is omitted, so a breakdown older than flows encodes as it was written.
+flowData :: FlowName -> Series
+flowData = \case
+    EngineerFlow -> mempty
+    TenXFlow -> "flow" .= flowText TenXFlow
 
 -- | Only a round names its PR: a log older than rounds reads as own PRs.
 shapeData :: Shape -> Series
@@ -347,7 +358,8 @@ taskFieldsOf obj = do
     shape <- shapeOf obj
     repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
-    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree}
+    flow <- fromMaybe EngineerFlow <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
+    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree, flow}
   where
     worktreeOf path = maybe (fail ("a worktree is " <> shellPathRule <> ", not " <> show path)) pure (shellPath path)
 

@@ -46,6 +46,7 @@ import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
 import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
+import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Artifact (shellPathText)
@@ -86,7 +87,7 @@ tasks, then these events.
 tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
-    tenXStart = start {flow = TenXFlow}
+    tenXStart = start {Event.flow = TenXFlow}
     toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced, light, after these tasks.
@@ -104,6 +105,7 @@ plainTask name deps =
         , shape = OwnPr
         , repo = Nothing
         , worktree = Nothing
+        , flow = EngineerFlow
         }
 
 -- | A round on the existing PR @pr@: a plain task otherwise.
@@ -135,6 +137,9 @@ taskJson task =
                 RoundOn url -> ["pr" .= urlText url]
             <> maybe [] (\repo -> ["repo" .= repoText repo]) task.repo
             <> maybe [] (\path -> ["worktree" .= shellPathText path]) task.worktree
+            <> case task.flow of
+                EngineerFlow -> []
+                TenXFlow -> ["flow" .= ("10x" :: Text)]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

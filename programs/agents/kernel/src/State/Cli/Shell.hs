@@ -12,7 +12,7 @@ import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromRight)
-import Data.Foldable (traverse_)
+import Data.Foldable (toList, traverse_)
 import Data.Functor (($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -61,7 +61,7 @@ import State.Run.Ask (Parent (..), Principal (..), Question (..), oneLineText, q
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), childRole, parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Append (..), Pending (asking), RunState (..), askedAt, nextQId, replay)
@@ -332,7 +332,7 @@ adviceOf steps facts told stamp run = (new, advice.action, out)
             <> delivered settled.state (deliver settled.state.start advice.action)
             <> printed
                 ( foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
-                    <> Text.concat ["  " <> line <> "\n" | line <- explained advice <> told <> unsynced <> advice.facts <> skippable settled.g settled.state]
+                    <> Text.concat ["  " <> line <> "\n" | line <- explained settled.state.start advice <> told <> unsynced <> advice.facts <> skippable settled.g settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
     settle current = case due current.g facts current.state of
@@ -401,13 +401,13 @@ handingBack steps act =
         Ran (Right (text, Nothing)) -> pure (Ran (Right text))
         Ran (Right (text, Just up)) -> Ran . Right . (text <>) <$> handedUp steps up
 
--- | A child run's hand-back to its parent: the parent, the child's run and its last line, and the text.
-data Up = Up {parent :: Parent, child :: RunId, lastSeq :: Natural, text :: Text}
+-- | A child run's hand-back to its parent: the parent, the child's run, its role and last line, and the text.
+data Up = Up {parent :: Parent, child :: RunId, role :: AgentRole, lastSeq :: Natural, text :: Text}
 
 upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
 upOf run new text = case run.state.start.principal of
     ByUser -> Nothing
-    ByRole parent _ -> Just (Up parent run.state.run (nextSeq run - 1 + fromIntegral (length new)) text)
+    ByRole parent _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name (nextSeq run - 1 + fromIntegral (length new)) text)
 
 {- | The child's hand-back, appended to its parent's log under the parent's
 lock by ids hashed from the child's run and its last line: a repeated command
@@ -425,7 +425,7 @@ handedUp steps up =
     sources = [Hook (digestOf [runIdText up.child, tshow up.lastSeq, tshow n]) | n <- [0 :: Int ..]]
     append stamp run
         | loggedAlready run.logged sources = ([], Right ())
-        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state childRole (Just up.child) up.text) of
+        | otherwise = case record stamp run sources (handbackPlan steps stamp.head run.state up.role (Just up.child) up.text) of
             -- The child tells its refusal; the parent's log does not keep it.
             (_, Left failure) -> ([], Left failure)
             (new, Right _) -> (new, Right ())
@@ -497,15 +497,16 @@ initRun gd args = do
     top <- worktreeTop
     case (,,) <$> free <*> began <*> top of
         Left failure -> pure (Left failure)
-        Right ((), (principal, flow), worktree) -> do
+        Right ((), Begin {principal, flow, fuel}, worktree) -> do
             FileSystem.createDirectory notes
             stamp <- now
             fresh <- newRunId
             let path = logOf notes
                 start = Start {flow, notes = notes, principal, interface = interfaceOf principal}
+                begun = Started start : map FuelSet (toList fuel)
             result <- Log.locked path $ \case
                 Left bad -> ([], Left (unreadLine path bad))
-                Right [] -> ([stamped stamp Cli fresh 1 (Started start)], Right ("started", fresh))
+                Right [] -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
                 Right (first : rest) -> ([], ("resumed",) <$> joined notes (first :| rest))
             -- The pointer only once the parent took the child: a refused child has no run here.
             accepted <- case (result, args.parent) of
@@ -586,12 +587,15 @@ liveness state = case (state.stopped, Fold.over state) of
     (Nothing, True) -> Ended "finished"
     (Nothing, False) -> Live
 
-{- | Who starts the run, and its flow: a child runs the flow of the fan-out its
-parent is at, on its task of the parent's breakdown, read from the parent's log.
+-- | Who starts a run, its flow, and the Fuel already set: a child's task sets it, a user's run asks.
+data Begin = Begin {principal :: Principal, flow :: FlowName, fuel :: Maybe Fuel}
+
+{- | Who starts the run, and its flow: a child runs its task's flow, at its
+task's Fuel, the task read from the parent's log.
 -}
-startOf :: (Shell es) => InitArgs -> Eff es (Either Failure (Principal, FlowName))
+startOf :: (Shell es) => InitArgs -> Eff es (Either Failure Begin)
 startOf args = case args.parent of
-    Nothing -> pure (Right (ByUser, fromMaybe defaultFlow args.flow))
+    Nothing -> pure (Right (Begin ByUser (fromMaybe defaultFlow args.flow) Nothing))
     Just parent ->
         parentStarts parent >>= \case
             Left failure -> pure (Left failure)
@@ -607,22 +611,34 @@ parentStarts parent = do
         Right envelope | envelope.run == parent.run, Started _ <- envelope.event -> Right ()
         _ -> Left (Failure BadInput ("--parent " <> runIdText parent.run) (Text.pack parent.log <> " does not start that run") initLineFix)
 
--- | The child's principal, with its task's shape, and its flow.
-childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure (Principal, FlowName)
+-- | The child's principal, with its task's shape, its flow and its Fuel.
+childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure Begin
 childStart parent named state = do
-    flow <- childFlow parent named state
-    case Fan.lookupTask (Fold.currentFan state) parent.task of
-        Just task -> Right (ByRole parent task.shape, flow)
-        Nothing -> Left (Failure BadInput ("--task " <> taskIdText parent.task) "the parent's breakdown has no such task" initLineFix)
+    task <- childTask parent state
+    flow <- childFlow named task
+    Right (Begin (ByRole parent task.shape) flow (Just task.fuel))
 
--- | The flow of the fan-out the parent is at; a @--flow@ named must be that one.
-childFlow :: Parent -> Maybe FlowName -> RunState -> Either Failure FlowName
-childFlow parent named state = case (Event.fanFlow <$ Fold.fanAt state.at, named) of
+-- | The parent's task the child runs: the parent must be at a fan-out whose breakdown names it.
+childTask :: Parent -> RunState -> Either Failure Task
+childTask parent state = case (Fold.fanAt state.at, Fan.lookupTask (Fold.currentFan state) parent.task) of
     (Nothing, _) -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "its run is at no fan-out whose children run a flow" "state show, in the parent's worktree")
-    (Just flow, Nothing) -> Right flow
-    (Just flow, Just asked)
-        | asked == flow -> Right flow
-        | otherwise -> Left (Failure BadInput ("--flow " <> Codec.flowText asked) ("the parent's fan-out runs " <> Codec.flowText flow) initLineFix)
+    (Just _, Nothing) -> Left (Failure BadInput ("--task " <> taskIdText parent.task) "the parent's breakdown has no such task" initLineFix)
+    (Just _, Just task) -> Right task
+
+-- | The task's flow; a @--flow@ named must be that one.
+childFlow :: Maybe FlowName -> Task -> Either Failure FlowName
+childFlow named task = case named of
+    Nothing -> Right task.flow
+    Just asked
+        | asked == task.flow -> Right asked
+        | otherwise ->
+            Left
+                ( Failure
+                    BadInput
+                    ("--flow " <> Codec.flowText asked)
+                    ("task " <> taskIdText task.id <> " runs the " <> Codec.flowText task.flow <> " flow")
+                    ("state brief " <> Codec.flowText task.flow <> " --task " <> taskIdText task.id <> ", in the parent's worktree, prints the init line")
+                )
 
 initLineFix :: Text
 initLineFix = "state brief engineer, in the parent's worktree, prints the init line"

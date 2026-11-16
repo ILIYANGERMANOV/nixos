@@ -26,8 +26,6 @@ module State.Run.Event (
     Asker (..),
     AgentRole (..),
     roleText,
-    fanFlow,
-    childRole,
     Stop (..),
     StopReason (..),
     Note (..),
@@ -67,7 +65,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Fuel (Fuel)
 import State.Category.Step (EventName, Outcome, StateName (..))
-import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
+import State.Role (AgentRole (..), FlowName (..), roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Repo (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
@@ -189,14 +187,6 @@ data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
 -- | Who put the question to this run.
 data Asker = Itself | Subagent AgentRole | ChildRun RunId
     deriving stock (Eq, Show)
-
--- | The flow a fan-out's children each run, as its @Par@ body: an engineer leads a whole engineer flow.
-fanFlow :: FlowName
-fanFlow = EngineerFlow
-
--- | The role a fan-out's children run as: the lead of their flow, the registry's name.
-childRole :: AgentRole
-childRole = (role fanFlow).name
 
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)

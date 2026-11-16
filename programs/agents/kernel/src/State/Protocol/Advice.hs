@@ -45,12 +45,13 @@ import State.Category.Meter (AtCap (Extend), someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Protocol.Handback (stopLine)
-import State.Protocol.Record (Option (..), capRecords, extendOption, goes, recordCommand, recordOption)
-import State.Role (FlowName (..))
+import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
+import State.Role (FlowName (..), RoleDef (..))
+import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, needsDecision, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText)
-import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), childRole, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
@@ -255,7 +256,7 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
         _ -> []
     stepLeads place = case stepNamed place.name of
         Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
-            Agent _ _ -> [Option (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge]
+            Agent _ _ -> [commandOption (eventText event) (goes edge) | (event, edge) <- shownEdges g place, along edge]
             Inline -> [recordOption event edge | (event, edge) <- shownEdges g place, along edge]
         Nothing -> []
     along edge = case edge.arrow of
@@ -311,8 +312,8 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
         leave = case (Map.lookup (place, enough) g.edges, open) of
             (Just edge, 0) -> recordOption enough edge
             (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
-            (Nothing, _) -> Option (recordCommand enough) "leaves the choice"
-        option step = maybe (Option (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
+            (Nothing, _) -> commandOption (recordCommand enough) "leaves the choice"
+        option step = maybe (commandOption (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
     actionAt :: Place -> AnyStep -> Option
@@ -320,10 +321,11 @@ advise steps g facts state = Advice action (atLine steps state) leads (factLines
         OpensChildren -> case (row steps s).runner of
             Agent (AgentRole role) _ ->
                 Option
-                    ("spawn a " <> role <> " in the background")
+                    ("spawn a " <> role)
                     ("prompted with state brief " <> role <> " and the task below; the hook records " <> eventText (EventName (stepName s) spawnedOutcome) <> ", and its hand-back as " <> eventText (EventName (stepName s) handedBackOutcome))
-            Inline -> Option (recordCommand (EventName (stepName s) spawnedOutcome)) "opens a child that must hand back"
-        AsksOnly -> Option "state ask --kind <kind> <question>" "asks one question; what it prints says who answers"
+                    True
+            Inline -> commandOption (recordCommand (EventName (stepName s) spawnedOutcome)) "opens a child that must hand back"
+        AsksOnly -> commandOption "state ask --kind <kind> <question>" "asks one question; what it prints says who answers"
         Continues _ -> NonEmpty.head (recordOutcomes g place s)
         ExitsOr _ _ -> NonEmpty.head (recordOutcomes g place s)
         Branches _ _ -> NonEmpty.head (recordOutcomes g place s)
@@ -355,7 +357,7 @@ someOptions = fromMaybe (error "no option out of a state: the graph draws none s
 
 -- | A single option.
 one :: Text -> Text -> NonEmpty Option
-one command means = Option command means :| []
+one command means = commandOption command means :| []
 
 -- | The budgets that hold the run, in the order they are shown.
 shownBudgets :: OpenGraph -> RunState -> [(Metered, Budget)]
@@ -385,7 +387,7 @@ atFan at ended state = fromMaybe leave (asum [unrecorded, question, triage, reco
   where
     here = fanIn state.fans at
     fan = at.fan
-    unrecorded = listToMaybe [Run (one ("state handback " <> roleText childRole) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in")) | c <- Fan.running here, c.child.run `elem` ended]
+    unrecorded = listToMaybe [Run (one ("state handback " <> roleText (taskRole task)) ("child " <> runIdText c.child.run <> " ended, its hand-back unrecorded: pipe it in")) | c <- Fan.running here, c.child.run `elem` ended, Just task <- [Fan.lookupTask here c.child.task]]
     waiting = Fan.waiting here
     open = map (.asking.question.qid) state.pending
     question = listToMaybe [Triage p.asking.question | p <- state.pending, p.waits == ForTriage]
@@ -394,8 +396,9 @@ atFan at ended state = fromMaybe leave (asum [unrecorded, question, triage, reco
     record = recordFinished here
     resume = listToMaybe ([Resume c.child.run ("with the answer to " <> qidText qid) | c <- waiting, Just (AsksUp qid) <- [Fan.latest c], qid `notElem` open] <> lost)
     -- A child that never handed back and has no agent lost it at a restart: a fresh one resumes its run.
-    lost = [Resume c.child.run "lost at a restart: a fresh engineer with its spawn prompt" | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c]]
-    spawn = (\task -> Spawn childRole (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) here)
+    lost = [Resume c.child.run ("lost at a restart: a fresh " <> roleText (taskRole task) <> " with its spawn prompt") | c <- waiting, not (Fan.settled here c.child.task), Nothing <- [Fan.latest c], Just task <- [Fan.lookupTask here c.child.task]]
+    spawn = (\task -> Spawn (taskRole task) (Just task.id)) <$> listToMaybe (Fan.spawnable (askingChildren state) here)
+    taskRole task = (Role.role task.flow).name
     awaitCi = AwaitCi . Text.unwords . NonEmpty.toList <$> NonEmpty.nonEmpty [oneLineText ref | c <- waiting, Just (AwaitsCi ref) <- [Fan.latest c]]
     awaitChildren = AwaitChildren <$> NonEmpty.nonEmpty (Set.toList here.atWork)
     awaitMerge = AwaitMerge <$> NonEmpty.nonEmpty (Fan.mergesAwaited here)
@@ -431,7 +434,7 @@ prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$>
 recordOutcomes :: (StepSet k) => OpenGraph -> Place -> Sing (s :: k) -> NonEmpty Option
 recordOutcomes g place s =
     someOptions
-        [ maybe (Option (recordCommand event) "") (recordOption event) (Map.lookup (place, event) g.edges)
+        [ maybe (commandOption (recordCommand event) "") (recordOption event) (Map.lookup (place, event) g.edges)
         | outcome <- outcomeNames (outcomes s)
         , let event = EventName (placeName place) outcome
         ]
@@ -525,7 +528,7 @@ deliver start = \case
     TriageHandback (AgentRole role) line -> triageFrom role (oneLineText line)
     AwaitChildren tasks -> "AWAIT children " <> Text.unwords (map taskIdText (toList tasks))
     AwaitMerge tasks -> "AWAIT merge " <> Text.unwords (map taskIdText (toList tasks))
-    Run (option :| []) -> "RUN " <> option.command
+    Run (option :| []) -> "RUN " <> optionCommand start option
     Run (_ :| _ : _) -> "RUN one option below"
     Stopped stop -> case Ask.deliver start.principal of
         TheUser -> "STOP " <> reasonText stop.reason <> " " <> stop.why
@@ -588,11 +591,19 @@ atLine steps state = case state.at of
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.
 -}
-explained :: Advice -> [Text]
-explained advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads
+explained :: Start -> Advice -> [Text]
+explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads
   where
     listed _ [] = []
-    listed heading options = heading : ["  " <> option.command <> " - " <> option.means | option <- options]
+    listed heading options = heading : ["  " <> optionCommand start option <> " - " <> option.means | option <- options]
+
+{- | An option's command for this interface: a spawn runs in the background
+only where the interface can, as 'deliver' says of a @SPAWN@.
+-}
+optionCommand :: Start -> Option -> Text
+optionCommand start option
+    | option.spawns = option.command <> if Set.member Event.Background start.interface then " in the background" else " in the foreground"
+    | otherwise = option.command
 
 -- | The options a 'Run' offers.
 runOptions :: Action -> [Option]
