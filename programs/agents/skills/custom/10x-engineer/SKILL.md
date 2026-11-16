@@ -195,7 +195,9 @@ mid-run: one such object in a file, then `state record task add <file>`.
 free to start; run `state record spawning <id>`, then spawn, then `state next`
 for the next line. Spawn as many as it prints. Worktree, brief and spawn prompt:
 `${CLAUDE_SKILL_DIR}/references/brief.md`. The child's first command, the
-`state init` line in its brief, records `spawned` in your log. No `10x`
+`state init` line in its brief, records `spawned` in your log. Until then
+`state next` prints its SPAWN again, its task line `spawning`: spawn it
+only if you have not yet, with no second `state record spawning`. No `10x`
 subagent_type exists: `SPAWN 10x` spawns `subagent_type: claude`, its prompt
 the `state brief 10x --task <id>` output and an order to invoke the
 `10x-engineer` skill and begin with that `state init` line.

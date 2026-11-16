@@ -351,13 +351,13 @@ spec = describe "the state binary" $ do
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task fix background: yes"]
 
-            it "spawns a task once: next waits on it from the recorded spawn, before the child starts" $ \repo -> do
+            it "advises a task recorded spawning until its child starts, recording its spawning once" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
                 _ <- succeeded =<< state bin repo ["record", "spawning", "t1"]
-                waits <- succeeded =<< state bin repo ["next"]
-                take 1 waits `shouldBe` ["AWAIT children t1"]
+                unseen <- succeeded =<< state bin repo ["next"]
+                take 1 unseen `shouldBe` ["SPAWN engineer --task t1 background: yes"]
                 twice <- state bin repo ["record", "spawning", "t1"]
                 twice.code `shouldBe` 2
 

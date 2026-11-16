@@ -195,9 +195,15 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` offering ["state stop blocked \"all tasks parked\""]
         it "waits on the children while a task's dependencies run" $
             next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
-        it "spawns the next task once a spawn is recorded, never the same task twice" $
-            map (next noFacts . tenXAt (t1 :| [t2])) [[Spawning (TaskId "t1")], [Spawning (TaskId "t1"), Spawning (TaskId "t2")]]
+        it "spawns a free task before one recorded spawning, and waits once every spawn is seen" $
+            map (next noFacts . tenXAt (t1 :| [t2])) [[Spawning (TaskId "t1")], [Spawning (TaskId "t1"), Spawning (TaskId "t2"), Spawned (childOf "c1" "t1"), Spawned (childOf "c2" "t2")]]
                 `shouldBe` [Spawn (AgentRole "engineer") (Just (TaskId "t2")), AwaitChildren (TaskId "t1" :| [TaskId "t2"])]
+        it "spawns the rest of the tasks recorded spawning until each child is seen, awaiting none" $ do
+            let advice = advise steps tenXGraph noFacts (tenXAt (t1 :| [t2, plainTask "t3" []]) [Spawning (TaskId "t1"), Spawning (TaskId "t2"), Spawning (TaskId "t3"), Spawned (childOf "c1" "t1")])
+            advice.action : advice.more `shouldBe` [Spawn (AgentRole "engineer") (Just (TaskId task)) | task <- ["t2", "t3"]]
+        it "shows a task recorded spawning as spawning, not with an agent at work, until its child is seen" $
+            filter ("task " `Text.isPrefixOf`) (factLines tenXGraph noFacts (tenXAt (t1 :| []) [Spawning (TaskId "t1")]))
+                `shouldBe` ["task t1: not started, spawning, tries 0"]
         it "resumes the next child once a resume is recorded, never the same child twice" $ do
             let asks2 = Question (QId (runId "c2") 1) Design (oneLine "which queue?")
                 both = fromChild <> [RuledOn asks.qid ruling, Spawned (childOf "c2" "t2"), HandedBack (runId "c2") (AsksUp asks2.qid), Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2"))), RuledOn asks2.qid ruling]
