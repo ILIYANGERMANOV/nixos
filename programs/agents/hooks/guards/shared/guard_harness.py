@@ -71,10 +71,10 @@ def tool_event(
     )
 
 
-def after_tool_event(context: ContextSize | None) -> str:
-    """The afterTool event of a shell call, with the context it reports."""
+def after_tool_event(context: ContextSize | None, agent: Agent | None = None) -> str:
+    """The afterTool event of a shell call by `agent`, with the context it reports."""
     return emit_event(
-        AfterTool(SESSION, Path("/"), None, Tool.SHELL, {"command": "ls"}, "", context)
+        AfterTool(SESSION, Path("/"), agent, Tool.SHELL, {"command": "ls"}, "", context)
     )
 
 

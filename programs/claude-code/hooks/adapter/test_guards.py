@@ -85,20 +85,20 @@ def test_the_leads_second_ci_read_is_allowed(flavor: str, tmp_path: Path) -> Non
 
 
 @flavors
-def test_crossing_150k_after_an_mcp_tool_gives_the_notice(
+def test_crossing_300k_after_an_mcp_tool_gives_the_notice(
     flavor: str, tmp_path: Path
 ) -> None:
     write_transcript(
         lead_transcript(tmp_path),
         [
-            *model_call("m1", 148_000, bash("toolu_m1", "ls")),
-            *model_call("m2", 150_500, bash("toolu_m2", "ls")),
+            *model_call("m1", 298_000, bash("toolu_m1", "ls")),
+            *model_call("m2", 300_500, bash("toolu_m2", "ls")),
         ],
     )
 
     output = answer(flavor, "PostToolUse", mcp_result(tmp_path))
 
-    assert "Context 150k" in additional_context(output)
+    assert "Context 300k" in additional_context(output)
 
 
 @flavors

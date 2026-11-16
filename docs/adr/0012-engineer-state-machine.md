@@ -139,7 +139,7 @@ table.
 | 2 | engineer, `grilling` | - | in turn | research notes, the user's answers | - (feeds step 3) | - |
 | 3 | `researcher`, proposal mode | one runs simplify | bg | `plan.md` | `proposal-simplify.md` | the plan |
 | 4 | engineer | - | in turn | plan | branch, draft PR, `report.md` | - |
-| 5 | `implementer` | one per slice, a successor at 150k | bg | plan, slice, notes | commits | stop rule line |
+| 5 | `implementer` | one per slice, a successor at the guard's warning | bg | plan, slice, notes | commits | stop rule line |
 | 6 | `refactorer` | 1, fresh | bg | `ctx diff` | commits | proposals |
 | 7, 8 | `review-lead` | 1 fresh per round | bg | `requirements.md`, `ctx` | nothing | the report |
 | 7, 8 | `reviewer` | spawned by review-lead | fg | `ctx` folder | nothing | findings |
@@ -328,9 +328,15 @@ Prompt cache and context budget:
   (`programs/agents/instructions/agent.md` Checks).
 - Fanning out, launch one agent first and the rest after, so they share its
   cached prefix (`programs/agents/instructions/lead.md`).
-- The context guard warns at 150k tokens and stops at 220k
-  (`programs/agents/hooks/guards/context-guard/context-guard.py`). An implementer
-  hands back at the warning for a successor.
+- The context guard warns and stops by role
+  (`programs/agents/hooks/guards/context-guard/context-guard.py`). An
+  implementer hands back at the warning for a successor.
+
+  | Caller | Warn | Stop |
+  |---|---|---|
+  | top-level session | 300k | 400k |
+  | `engineer` | 260k | 350k |
+  | any other role | 220k | 300k |
 - Never resume a large agent after a gap: spawn a fresh one from a summary.
 
 > **Formal view.** Agents keep no state across runs. The files are a shared
