@@ -6,16 +6,19 @@ for the Messages API on 127.0.0.1, with a dummy key and its own config dir:
 no login, no network, no cost, and the same turns every run. A recording
 hook sees every SessionStart, PreToolUse and PostToolUse, rewrites three
 inputs, and the mock sees whether the rewrites reached the next turn.
+Managed settings that allow only Anthropic's API refuse the mock; there the
+run says REFUSED and `--live` (live.py) is the probe.
 
     probe.py <snapshot.json> [--update]   run, compare, print the summary line
-    probe.py hook <log.jsonl>             the recording hook `claude` runs
+    probe.py <snapshot.json> --live       the live probe, see live.py
+    probe.py hook <log.jsonl>             the recording hook the offline run registers
+    probe.py live-hook <log.jsonl>        the one the live run registers
 """
 
 import difflib
 import json
 import os
 import shlex
-import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable
@@ -23,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import live
+from client import ClaudeFailedError, claude, claude_version, hook, read_jsonl
 from model import (
     HANDBACK_TAG,
     ORIGINAL_COMMAND,
@@ -51,10 +56,6 @@ class Logs:
     requests: list[dict[str, Json]]
 
 
-class ClaudeFailedError(Exception):
-    pass
-
-
 class UnscriptedCallError(Exception):
     """Auto mode's classifier was asked about a call no script issued, and the
     mock blocked it: the client made a call the probe does not expect."""
@@ -68,7 +69,14 @@ class UnscriptedCallError(Exception):
 def main(argv: list[str]) -> int:
     match argv:
         case ["hook", log]:
-            return hook(Path(log), sys.stdin.read())
+            return hook(Path(log), sys.stdin.read(), rewrite)
+        case ["live-hook", log]:
+            return hook(Path(log), sys.stdin.read(), live.respond)
+        case [_, "--live"]:
+            return live.probe(
+                claude_version(),
+                [sys.executable, str(Path(__file__).resolve()), "live-hook"],
+            )
         case [snapshot]:
             return check(Path(snapshot), update=False)
         case [snapshot, "--update"]:
@@ -83,7 +91,15 @@ def check(snapshot: Path, *, update: bool) -> int:
     with tempfile.TemporaryDirectory(prefix="probe-agents-hooks-") as work:
         try:
             observed = record(run(Path(work)))
-        except (ClaudeFailedError, UnscriptedCallError) as error:
+        except ClaudeFailedError as error:
+            print(error, file=sys.stderr)
+            print(
+                f"probe-agents-hooks: claude-code {version} REFUSED - managed settings allowedProviders forbid the local mock; run --live"
+                if refused(error.stderr)
+                else f"probe-agents-hooks: claude-code {version} FAIL"
+            )
+            return 1
+        except UnscriptedCallError as error:
             print(error, file=sys.stderr)
             print(f"probe-agents-hooks: claude-code {version} FAIL")
             return 1
@@ -98,6 +114,13 @@ def check(snapshot: Path, *, update: bool) -> int:
     return 1 if differences else 0
 
 
+def refused(stderr: str) -> bool:
+    """Whether the client refused the mock for a managed `allowedProviders`
+    list. Its own message names the key, so this covers every managed
+    settings source without reading one."""
+    return "allowedProviders" in stderr
+
+
 def diff(expected: Json, observed: Json) -> list[str]:
     """Empty when they agree, else one unified diff of the two snapshots."""
     return list(
@@ -108,13 +131,6 @@ def diff(expected: Json, observed: Json) -> list[str]:
             "observed",
         )
     )
-
-
-def claude_version() -> str:
-    result = subprocess.run(
-        ["claude", "--version"], capture_output=True, text=True, check=True
-    )
-    return result.stdout.split()[0]
 
 
 def run(work: Path) -> Logs:
@@ -153,8 +169,9 @@ def run(work: Path) -> Logs:
             ],
             repo,
             env,
+            TIMEOUT_SECONDS,
         )
-        _ = claude([*base, "--resume", session, "/compact"], repo, env)
+        _ = claude([*base, "--resume", session, "/compact"], repo, env, TIMEOUT_SECONDS)
     finally:
         server.shutdown()
         # Even when `claude` failed: a blocked call likely made it fail, and
@@ -191,41 +208,6 @@ def recording_settings(log: Path) -> Json:
             "PostToolUse": [{"matcher": "*", "hooks": hooks}],
         }
     }
-
-
-def claude(argv: list[str], repo: Path, env: dict[str, str]) -> str:
-    """Runs one `claude -p` and returns its session id."""
-    result = subprocess.run(
-        argv,
-        cwd=repo,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT_SECONDS,
-        check=False,
-    )
-    output = cast("Json", json.loads(result.stdout or "null"))
-    match result.returncode, output:
-        case 0, {"session_id": str(session), "is_error": False}:
-            return session
-        case code, _:
-            raise ClaudeFailedError(
-                f"`{shlex.join(argv[:2])} ...` exited {code}:\n{result.stdout}\n{result.stderr}"
-            )
-
-
-def read_jsonl(path: Path) -> list[dict[str, Json]]:
-    lines = path.read_text().splitlines() if path.exists() else []
-    return [cast("dict[str, Json]", json.loads(line)) for line in lines]
-
-
-def hook(log: Path, stdin: str) -> int:
-    payload = cast("dict[str, Json]", json.loads(stdin))
-    with log.open("a") as out:
-        _ = out.write(json.dumps({"pwd": str(Path.cwd()), **payload}) + "\n")
-    print(json.dumps(rewrite(payload)))
-    return 0
 
 
 def rewrite(payload: dict[str, Json]) -> Json:

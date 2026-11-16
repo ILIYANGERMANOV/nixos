@@ -8,7 +8,7 @@ from pathlib import Path
 from hypothesis import given
 from hypothesis import strategies as st
 from model import HANDBACK_TAG, ORIGINAL_COMMAND, REWRITE_TAG, SPAWN_TAG, Json
-from probe import Logs, diff, record, rewrite
+from probe import Logs, diff, record, refused, rewrite
 
 LEAD_TOOLS: list[Json] = ["Agent", "Bash", "Read", "Write"]
 REPO = Path("/probe/repo")
@@ -246,3 +246,16 @@ def as_dict(value: Json) -> dict[str, Json]:
 def as_list(value: Json) -> list[Json]:
     assert isinstance(value, list)
     return value
+
+
+def test_the_mock_is_refused_where_managed_settings_allow_only_anthropic() -> None:
+    stderr = (
+        "Your organization's managed settings allow Claude Code to use: Anthropic API.\n"
+        'Admins: to sanction this endpoint, add "customEndpoint" to allowedProviders'
+    )
+
+    assert refused(stderr)
+
+
+def test_any_other_client_failure_is_no_refusal() -> None:
+    assert not refused("API Error: 400 unscripted request")

@@ -124,7 +124,8 @@ mutation:
     nix run .#mutation -- full
 
 # Never part of `check`: it runs the real Claude Code, see its probe.py.
-# Run it after a Claude Code or any agent update; `--update` rewrites the snapshot.
+# Run it after a Claude Code or any agent update; `--update` rewrites the snapshot,
+# `--live` runs the live probe on haiku with your login (live.py).
 #
 # Snapshot the hook contract of the pinned Claude Code and diff it
 probe-agents-hooks *ARGS:
