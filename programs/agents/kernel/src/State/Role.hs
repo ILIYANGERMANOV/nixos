@@ -7,6 +7,7 @@ constructor, its 'flowText' and its 'role' arm; @flows/steps.nix@ names it in a 
 -}
 module State.Role (
     FlowName (..),
+    defaultFlow,
     flowText,
     RoleDef (..),
     Rung (..),
@@ -23,7 +24,7 @@ import State.Category.Flow (Flow)
 import State.Category.Ty (Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
-import State.FlowName (FlowName (..), flowText)
+import State.FlowName (FlowName (..), defaultFlow, flowText)
 
 -- | A rung of the chain a question climbs; the user is the top.
 data Rung = Worker | Lead | Orchestrator | User

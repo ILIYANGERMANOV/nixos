@@ -45,7 +45,7 @@ import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
-import State.Role (RoleDef (..))
+import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, Question (..), kindName, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
@@ -304,10 +304,6 @@ flowOf = maybe (Right defaultFlow) flowNamed
 flowNamed :: Text -> Either Failure FlowName
 flowNamed = named "flow" (parseByName Codec.flowText)
 
--- | The flow a run follows when none is named.
-defaultFlow :: FlowName
-defaultFlow = EngineerFlow
-
 textOption :: String -> Text -> String -> Opt.Parser Text
 textOption name value about = Opt.strOption (Opt.long name <> Opt.metavar (Text.unpack value) <> Opt.help about)
 
@@ -503,7 +499,7 @@ again the fold judges (the same one is no news).
 -}
 answeredQid :: RunState -> Text -> Either Failure QId
 answeredQid state raw = case parseQId raw of
-    Just qid | qid `elem` map (.about.qid) state.answers -> Right qid
+    Just qid | Just _ <- Fold.heldAnswer state qid -> Right qid
     _ -> openQid state raw
 
 {- | A question the run has open, by the id typed: a malformed one or one

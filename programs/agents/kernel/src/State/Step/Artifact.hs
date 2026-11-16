@@ -75,7 +75,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
-import State.FlowName (FlowName (..), flowText)
+import State.FlowName (FlowName (..), defaultFlow, flowText)
 import System.FilePath (isAbsolute)
 
 -- | The draft PR, synced from GitHub.
@@ -358,7 +358,7 @@ taskFieldsOf obj = do
     shape <- shapeOf obj
     repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
-    flow <- fromMaybe EngineerFlow <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
+    flow <- fromMaybe defaultFlow <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
     pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree, flow}
   where
     worktreeOf path = maybe (fail ("a worktree is " <> shellPathRule <> ", not " <> show path)) pure (shellPath path)

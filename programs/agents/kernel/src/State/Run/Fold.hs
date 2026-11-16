@@ -33,6 +33,7 @@ module State.Run.Fold (
     flowRole,
     nextQId,
     given,
+    heldAnswer,
     askingChildren,
     askedAt,
     over,
@@ -179,7 +180,9 @@ data Refusal
       NotAtFan
     deriving stock (Eq, Show)
 
--- | An id already in the log is not appended twice: the append is a no-op.
+{- | An id already in the log, or an answer the run holds already, is not
+appended twice: the append is a no-op.
+-}
 data Append = Appended RunState | AlreadyLogged
     deriving stock (Eq, Show)
 
@@ -201,6 +204,8 @@ append :: OpenGraph -> RunState -> Envelope -> Either Refusal Append
 append g state envelope
     | Set.member (eventId envelope) state.seen = Right AlreadyLogged
     | envelope.run /= state.run = Left (OtherRun envelope.run)
+    -- Written down from above, then given again by the run's own agent, or retried: still from above.
+    | Answered qid answer by <- envelope.event, Just answer == heldAnswer state qid = AlreadyLogged <$ fromAbove state.start.principal by
     | otherwise = do
         next <- applyEvent g state envelope.event
         Right (Appended next {seen = Set.insert (eventId envelope) state.seen})
@@ -562,14 +567,10 @@ forwarded state qid to = do
     fromAbove state.start.principal to
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
-{- | An answer the run holds already is no news: one written down from above
-and then given again by the run's own agent, or a retry, changes nothing.
--}
+-- | 'append' takes the answer the run holds again as no news; another is refused.
 answered :: RunState -> QId -> Text -> Above -> Either Refusal RunState
-answered state qid answer by = case find ((== qid) . (.about.qid)) state.answers of
-    Just earlier
-        | earlier.given == answer -> state <$ fromAbove state.start.principal by
-        | otherwise -> Left (AnsweredOtherwise qid earlier.given)
+answered state qid answer by = case heldAnswer state qid of
+    Just earlier -> Left (AnsweredOtherwise qid earlier)
     Nothing -> firstAnswer state qid answer by
 
 firstAnswer :: RunState -> QId -> Text -> Above -> Either Refusal RunState
@@ -599,6 +600,10 @@ close qid = filter ((/= qid) . pendingId)
 
 pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
+
+-- | The answer from above the run holds to this question, if it was answered.
+heldAnswer :: RunState -> QId -> Maybe Text
+heldAnswer state qid = (.given) <$> find ((== qid) . (.about.qid)) state.answers
 
 -- | Each question the run ruled on or had answered from above, with its answer.
 given :: RunState -> [(QId, Text)]

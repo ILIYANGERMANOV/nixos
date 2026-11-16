@@ -530,18 +530,27 @@ spec = describe "state over the doubles" $ do
                     [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " postgres --by " <> mid <> ", in " <> Text.pack grandWorktree
                     _ -> False
                 retried `shouldBe` ["answered " <> qid]
-                drop 1 <$> answersIn world `shouldReturn` [1, 1]
+                answersIn world `shouldReturn` [1, 1, 1]
 
-            it "refuses another answer to a question it holds an answer to, and takes the same one again" $ \world -> do
+            it "takes the same answer again, appending nothing to any run" $ \world -> do
                 (_, _, grand) <- threeLevels world
                 let qid = grand <> ":1"
                 climbed world qid
                 _ <- succeeded =<< state world ["answer", qid, "postgres"]
 
-                same <- state world ["answer", qid, "postgres"]
+                same <- succeeded =<< state world ["answer", qid, "postgres"]
+
+                same `shouldBe` ["answered " <> qid]
+                answersIn world `shouldReturn` [1, 1, 1]
+
+            it "refuses another answer to a question it holds an answer to" $ \world -> do
+                (_, _, grand) <- threeLevels world
+                let qid = grand <> ":1"
+                climbed world qid
+                _ <- succeeded =<< state world ["answer", qid, "postgres"]
+
                 other <- state world ["answer", qid, "sqlite"]
 
-                same.code `shouldBe` 0
                 (other.code, other.err)
                     `shouldBe` (2, ["state answer: another answer to " <> qid <> " - it was answered already: postgres", "fix: state show"])
 
@@ -681,8 +690,6 @@ spec = describe "state over the doubles" $ do
 
                 (ran.code, ran.err) `shouldBe` (1, ["state steps: STATE_STEPS is not set - it names the flows' step table", "fix: run the installed state, which sets it"])
 
--- | A Balanced run to its first Simplify of the PR.
-
 {- | A top 10x at its fan-out over a 10x task, that task's 10x child at its
 own fan-out, and an engineer grandchild under it, each in its own worktree;
 later calls run in the grandchild's. The three runs' ids, top first.
@@ -721,6 +728,7 @@ grandNotes = "/grand"
 midWorktree = "/mid-work"
 grandWorktree = "/grand-work"
 
+-- | A Balanced run to its first Simplify of the PR.
 toSimplifyPr :: [Act]
 toSimplifyPr =
     Record ["fuel", "balanced"]
