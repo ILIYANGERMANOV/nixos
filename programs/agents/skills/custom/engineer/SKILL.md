@@ -23,10 +23,9 @@ who owns each decision.
     `state forward <qid>`, and do what that prints.
   - `HANDBACK <line>`: end your turn with `<line>` and the lines under it
     (`Run:`, `Ruling`), then your last finished step and the head SHA, all
-    work pushed. Resumed with the answer:
-    `state answer <qid> <answer> --by <run>`; after `AWAIT ci`: `gh pr checks
-    <n>` once, `state record await_ci.green` or `await_ci.red <check>...`.
-    Then `state next`.
+    work pushed. Resumed with the answer: it is in your run already. After
+    `AWAIT ci`: `gh pr checks <n>` once, `state record await_ci.green` or
+    `await_ci.red <check>...`. Then `state next`.
 
   This covers user-facing wording and naming you are unsure of (slash
   commands, labels); mechanical internal names are yours.
@@ -149,8 +148,8 @@ Fuel row's Researchers, each prompt `state brief
 researcher` filled in as `## Callers` in `~/.claude/skills/researcher/SKILL.md`
 says. An answer that opens a new fact gap gets research too.
 
-Gather is a choice, one step at a time, in any order: spawn a researcher in
-the background, ask a question, end your turn to wait for a hand-back, or
+Gather is a choice, one step at a time, in any order: spawn a researcher as
+its option says, ask a question, end your turn to wait for a hand-back, or
 `gather.enough`. The hooks record each spawn and hand-back; asking needs no
 record. `gather.enough` waits until every open researcher handed back.
 Your Fuel row caps researchers and interview questions apart; at either cap

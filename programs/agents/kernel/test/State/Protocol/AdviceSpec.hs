@@ -13,9 +13,10 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (..))
 import State.Protocol.Advice
-import State.Protocol.Record (Option (..))
+import State.Protocol.Record (Option (..), commandOption)
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
 import State.Run.Event hiding (Stopped)
+import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), replay)
 import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, securityGraph, securityScope, sha, tenXAt, tenXGraph)
@@ -31,7 +32,7 @@ spec :: Spec
 spec = describe "State.Protocol.Advice" $ do
     steps <- runIO loadSteps
     let next facts state = commandsOnly (advise steps (flowGraph state.start.flow) facts state).action
-        explainedAt state = explained (advise steps (flowGraph state.start.flow) noFacts state)
+        explainedAt state = explained state.start (advise steps (flowGraph state.start.flow) noFacts state)
 
     it "advice_is_equal_under_any_principal_up_to_delivery" . hedgehog $ do
         events <- forAll genAccepted
@@ -71,6 +72,12 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers each action in the order the flow declares them, and enough, each with what it does" $
             explainedAt (runAt (knobs Balanced)) `shouldBe` gatherHub ["  state record gather.enough - on to plan"]
 
+        it "tells a run without the background to spawn its researcher in the foreground, as its SPAWN says" $ do
+            let spawnOption interface = [fst (Text.breakOn " - " line) | line <- explained interface (advise steps g noFacts (runAt (knobs Balanced))), "  spawn" `Text.isPrefixOf` line]
+            map spawnOption [child, start {interface = Set.fromList [Background]}]
+                `shouldBe` [["  spawn a researcher in the foreground"], ["  spawn a researcher in the background"]]
+            deliver child (Spawn (AgentRole "researcher") Nothing) `shouldBe` "SPAWN researcher background: no"
+
         it "prints each action's task on its own line, so the researcher's reads apart from the interview's" $
             length (Text.lines (advise steps g noFacts (runAt (knobs Balanced))).prompt) `shouldBe` 2
 
@@ -96,7 +103,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "extends on the user's yes, or ends the gather" $ do
             let onStuck = knobs Balanced <> questions 30 <> [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt onStuck) `shouldBe` offering ["spawn a researcher in the background", "state record extend <why>", "state record gather.enough"]
+            next noFacts (runAt onStuck) `shouldBe` offering ["spawn a researcher", "state record extend <why>", "state record gather.enough"]
             next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing
 
     it "names where a spawned step's outcomes lead, for the hook records them" $
@@ -176,7 +183,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "awaits a dependency's merge, not a park of its dependent" $ do
             let reviewed = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl)]
             map (next noFacts . tenXAt (t1 :| [plainTask "t2" ["t1"]])) [reviewed, reviewed <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
-                `shouldBe` [AwaitMerge (TaskId "t1" :| []), Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
+                `shouldBe` [AwaitMerge ((TaskId "t1", Just prUrl) :| []), Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
         it "stops the run at merge once every task is parked" $
             next noFacts (tenXAt (t1 :| [t2]) [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), TaskMoved (TaskId "t2") (Parked "not needed" Nothing), stepTook (FanDone engineers)])
                 `shouldBe` offering ["state stop blocked \"all tasks parked\""]
@@ -189,7 +196,7 @@ spec = describe "State.Protocol.Advice" $ do
             let asks2 = Question (QId (runId "c2") 1) Design (oneLine "which queue?")
                 both = fromChild <> [RuledOn asks.qid ruling, Spawned (childOf "c2" "t2"), HandedBack (runId "c2") (AsksUp asks2.qid), Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2"))), RuledOn asks2.qid ruling]
             map (next noFacts . tenXAt (t1 :| [t2])) [both <> [Resumed (runId "c1")], both <> [Resumed (runId "c1"), Resumed (runId "c2")]]
-                `shouldBe` [Resume (runId "c2") "with the answer to c2:1", AwaitChildren (TaskId "t1" :| [TaskId "t2"])]
+                `shouldBe` [Resume (runId "c2") "with the answer to c2:1: confirmed", AwaitChildren (TaskId "t1" :| [TaskId "t2"])]
         it "sends a child lost at a restart again, and waits on it once resumed" $ do
             let lost = [Spawned (childOf "c1" "t1"), Restarted]
             map (next noFacts . tenXAt (t1 :| [])) [lost, lost <> [Resumed (runId "c1")]]
@@ -197,7 +204,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "spawns a task added mid-run" $
             next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), TaskAdded (plainTask "fix" [])]) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "waits on CI no more once the child is resumed" $
-            next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AwaitsCi (oneLine "https://pr/1")), Resumed (runId "c1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
+            next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1")), Resumed (runId "c1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
         it "triages a child's stop before a retry, and retries once it is asked" $ do
             let stop = Stop Blocked "no access"
                 stopped = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended stop)]
@@ -212,7 +219,7 @@ spec = describe "State.Protocol.Advice" $ do
         it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
             let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), stepTook (FanDone engineers)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
-                `shouldBe` [AwaitMerge (TaskId "t1" :| []), offering ["state record merge.done <url>", "state record merge.next_round"]]
+                `shouldBe` [AwaitMerge ((TaskId "t1", Just prUrl) :| []), offering ["state record merge.done <url>", "state record merge.next_round"]]
         it "spawns a task added at the merge" $ do
             let merged = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (Merged prUrl), stepTook (FanDone engineers)]
             next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded (plainTask "fix" [])])) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
@@ -220,7 +227,7 @@ spec = describe "State.Protocol.Advice" $ do
             let asks2 = Question (QId (runId "c2") 1) Security (oneLine "token in env?")
                 forwarded = fromChild <> [RuledOn asks.qid ruling, Spawned (childOf "c2" "t2"), HandedBack (runId "c2") (AsksUp asks2.qid), Asked (Asking asks2 (StateName "engineers") (ChildRun (runId "c2"))), Forwarded asks2.qid TheUser]
             map (next noFacts . tenXAt (t1 :| [t2])) [forwarded, forwarded <> [Resumed (runId "c1")]]
-                `shouldBe` [Resume (runId "c1") "with the answer to c1:1", AwaitAnswer asks2]
+                `shouldBe` [Resume (runId "c1") "with the answer to c1:1: confirmed", AwaitAnswer asks2]
         it "records a finished task's PR when the child's READY named none" $
             map (next noFacts . tenXAt (t1 :| [t2]) . ([Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "done"))] <>)) [[], [TaskMoved (TaskId "t1") (InReview prUrl)]]
                 `shouldBe` [offering ["state record task t1 review <url>"], Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
@@ -229,10 +236,14 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` ["task t1: child c1 waits to resume, tries 1"]
         it "triages a child's question before anything else" $
             next noFacts (tenXAt (t1 :| [t2]) fromChild) `shouldBe` Triage asks
-        it "resumes a child once its question is ruled on" $
-            next noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])) `shouldBe` Resume (runId "c1") "with the answer to c1:1"
-        it "waits on CI a child handed back" $
-            next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (AwaitsCi (oneLine "https://pr/1"))]) `shouldBe` AwaitCi "https://pr/1"
+        it "resumes a child with the ruling on its question" $
+            next noFacts (tenXAt (t1 :| []) (fromChild <> [RuledOn asks.qid ruling])) `shouldBe` Resume (runId "c1") "with the answer to c1:1: confirmed"
+        it "resumes a child with the answer that came down for its question" $
+            next noFacts (tenXAt (t1 :| []) (fromChild <> [Forwarded asks.qid TheUser, Answered asks.qid "postgres" TheUser]))
+                `shouldBe` Resume (runId "c1") "with the answer to c1:1: postgres"
+        it "waits on the CI or merge a child handed back" $
+            [next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Awaits on (oneLine "https://pr/1"))]) | on <- [Ci, Merge]]
+                `shouldBe` [AwaitOn Ci "https://pr/1", AwaitOn Merge "https://pr/1"]
         it "leaves the fan-out itself once every task is settled, and not before" $ do
             let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
             due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
@@ -263,16 +274,20 @@ spec = describe "State.Protocol.Advice" $ do
             deliver start {interface = Set.fromList [Background]} (Spawn (AgentRole "engineer") (Just (TaskId "t1"))) `shouldBe` "SPAWN engineer --task t1 background: yes"
 
         it "resumes a child, or waits on the children" $
-            map (deliver start) [Resume (runId "c1") "with the answer to c1:1", AwaitChildren (TaskId "t1" :| [TaskId "t2"]), AwaitMerge (TaskId "t1" :| [])]
-                `shouldBe` ["RESUME c1 with the answer to c1:1", "AWAIT children t1 t2", "AWAIT merge t1"]
+            map (deliver start {interface = Set.singleton Await}) [Resume (runId "c1") "with the answer to c1:1: postgres", AwaitChildren (TaskId "t1" :| [TaskId "t2"]), AwaitMerge ((TaskId "t1", Just prUrl) :| [])]
+                `shouldBe` ["RESUME c1 with the answer to c1:1: postgres", "AWAIT children t1 t2", "AWAIT merge t1"]
+
+        it "hands the merges it awaits up by their PRs where the interface cannot wait, a task with none by its id" $
+            deliver child (AwaitMerge ((TaskId "t1", Just prUrl) :| [(TaskId "t2", Nothing)]))
+                `shouldBe` "HANDBACK AWAIT merge https://pr/1 t2"
 
         it "puts a child's stop to triage as a question from the child" $
             deliver start (TriageStop (runId "c1") (Stop Blocked "no access"))
                 `shouldBe` "RUN state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
 
-        it "waits on CI itself only where the interface can" $
-            map (`deliver` AwaitCi "u") [start {interface = Set.singleton Await}, start]
-                `shouldBe` ["AWAIT ci u", "HANDBACK AWAIT ci u"]
+        it "waits on CI or a merge itself only where the interface can" $
+            [deliver from (AwaitOn on "u") | on <- [Ci, Merge], from <- [start {interface = Set.singleton Await}, start]]
+                `shouldBe` ["AWAIT ci u", "HANDBACK AWAIT ci u", "AWAIT merge u", "HANDBACK AWAIT merge u"]
 
         it "notifies at ready only where the interface can, so a child run leaves it to its parent" $ do
             let ready = advise steps g noFacts atReady
@@ -318,7 +333,7 @@ spec = describe "State.Protocol.Advice" $ do
     atImplement = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
     atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath))
     atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 8 happyPath))
-    tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {flow = TenXFlow} :| events)))
+    tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {Event.flow = TenXFlow} :| events)))
     tenXStarted = tenXRun []
     gathering = StateName "gather"
     researched = [stepTook ResearchSpawned]
@@ -329,11 +344,11 @@ spec = describe "State.Protocol.Advice" $ do
     gatherHub enough =
         [ "at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
         , "options:"
-        , "  spawn a researcher in the background - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back"
+        , "  spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back"
         , "  state ask --kind <kind> <question> - asks one question; what it prints says who answers"
         ]
             <> enough
-    choosing = offering ["spawn a researcher in the background", "state ask --kind <kind> <question>", "state record gather.enough"]
+    choosing = offering ["spawn a researcher", "state ask --kind <kind> <question>", "state record gather.enough"]
     atReady = runAt (knobs Balanced <> map (Took mempty) (take 13 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
@@ -352,12 +367,12 @@ offers holds = \case
 
 -- | A 'Run' of these commands, each meaning left to the specs that pin it.
 offering :: [Text] -> Action
-offering = Run . fmap (`Option` "") . NonEmpty.fromList
+offering = Run . fmap (`commandOption` "") . NonEmpty.fromList
 
--- | The action with each option's meaning dropped: most specs pin only the commands.
+-- | The action with each option's meaning and spawn dropped: most specs pin only the commands.
 commandsOnly :: Action -> Action
 commandsOnly = \case
-    Run options -> Run (fmap (\option -> option {means = ""}) options)
+    Run options -> Run (fmap (\option -> commandOption option.command "") options)
     other -> other
 
 genFacts :: Gen Facts

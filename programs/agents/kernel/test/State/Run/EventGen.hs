@@ -106,7 +106,7 @@ genSaid =
     Gen.choice
         [ Finished <$> genOneLine
         , AsksUp <$> genQId
-        , AwaitsCi <$> genOneLine
+        , Awaits <$> Gen.enumBounded <*> genOneLine
         , Ended <$> (Stop <$> Gen.enumBounded <*> genText)
         ]
 
@@ -147,6 +147,7 @@ genTaskAt i =
         <*> genShape
         <*> Gen.maybe genRepo
         <*> Gen.maybe genWorktree
+        <*> Gen.enumBounded
   where
     taskNamed n = TaskId ("t" <> Text.pack (show n))
 
@@ -223,7 +224,7 @@ templates =
     , outcome (ReadySkipped (Url ""))
     ]
         <> concat
-            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr Nothing Nothing :| [])))
+            [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr Nothing Nothing EngineerFlow :| [])))
               , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)

@@ -26,8 +26,6 @@ module State.Run.Event (
     Asker (..),
     AgentRole (..),
     roleText,
-    fanFlow,
-    childRole,
     Stop (..),
     StopReason (..),
     Note (..),
@@ -57,6 +55,7 @@ module State.Run.Event (
     taskList,
     Child (..),
     Said (..),
+    Waiting (..),
     TaskState (..),
 ) where
 
@@ -67,7 +66,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
 import State.Category.Fuel (Fuel)
 import State.Category.Step (EventName, Outcome, StateName (..))
-import State.Role (AgentRole (..), FlowName (..), RoleDef (..), role, roleText)
+import State.Role (AgentRole (..), FlowName (..), roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
 import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), Repo (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
@@ -190,14 +189,6 @@ data Asking = Asking {question :: Question, step :: StateName, from :: Asker}
 data Asker = Itself | Subagent AgentRole | ChildRun RunId
     deriving stock (Eq, Show)
 
--- | The flow a fan-out's children each run, as its @Par@ body: an engineer leads a whole engineer flow.
-fanFlow :: FlowName
-fanFlow = EngineerFlow
-
--- | The role a fan-out's children run as: the lead of their flow, the registry's name.
-childRole :: AgentRole
-childRole = (role fanFlow).name
-
 data Stop = Stop {reason :: StopReason, why :: Text}
     deriving stock (Eq, Show)
 
@@ -213,15 +204,19 @@ data Note = Note {message :: Text, fix :: Text}
 data Child = Child {run :: RunId, task :: TaskId, log :: FilePath, worktree :: FilePath}
     deriving stock (Eq, Show)
 
--- | A child's hand-back, typed: only 'AsksUp' and 'AwaitsCi' leave it running.
+-- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.
 data Said
     = Finished OneLine
     | -- | A question it forwarded up, now pending in this run.
       AsksUp QId
-    | -- | CI on its PR, which this run waits on, then resumes the child.
-      AwaitsCi OneLine
+    | -- | What it cannot wait on itself, on these refs: this run waits, then resumes the child.
+      Awaits Waiting OneLine
     | Ended Stop
     deriving stock (Eq, Show)
+
+-- | What a run with no wakes of its own hands up for a run above to wait on.
+data Waiting = Ci | Merge
+    deriving stock (Eq, Show, Enum, Bounded)
 
 -- | Where a task's PR stands; the child's own hand-back settles it otherwise.
 data TaskState

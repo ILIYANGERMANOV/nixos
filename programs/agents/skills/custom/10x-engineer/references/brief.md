@@ -75,8 +75,9 @@ refuses a finished run's directory.
 
 ## Spawn prompt
 
-A fresh background `subagent_type: engineer` agent, which has `engineer`
-preloaded and runs its whole flow:
+A fresh `subagent_type: engineer` agent, background as the SPAWN line says,
+which has `engineer` preloaded and runs its whole flow. A `SPAWN 10x` task:
+SKILL.md's Spawn.
 
 ```text
 <the data line from SKILL.md's Rules>
@@ -86,8 +87,8 @@ line is your first command.
 
 ## Fixer prompt
 
-For CI failures, requested changes and rebases, a fresh background
-`subagent_type: fixer` agent:
+For CI failures, requested changes and rebases, a fresh
+`subagent_type: fixer` agent, background as the SPAWN line says:
 
 ```text
 <the data line from SKILL.md's Rules>

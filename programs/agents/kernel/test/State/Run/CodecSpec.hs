@@ -13,10 +13,11 @@ import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
+import State.Step.Artifact qualified as Artifact (Task (..))
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
@@ -89,6 +90,18 @@ spec = describe "State.Run.Codec" $ do
         encodeLine reviewRows {event = HandedBack (runId "c1") (Ended (Stop Blocked "no access"))}
             `shouldSatisfy` Text.isInfixOf "\"type\":\"handed_back\",\"data\":{\"child\":\"c1\",\"token\":\"BLOCKED\",\"ref\":\"no access\",\"qid\":null}"
 
+    it "writes a child's AWAIT ci as before merges climbed, and names a merge" $
+        [encodeLine reviewRows {event = HandedBack (runId "c1") (Awaits on (oneLine "https://pr/1"))} | on <- [Ci, Merge]]
+            `shouldSatisfy` \case
+                [ci, merge] ->
+                    "\"data\":{\"child\":\"c1\",\"token\":\"AWAIT\",\"ref\":\"https://pr/1\",\"qid\":null}" `Text.isInfixOf` ci
+                        && "\"qid\":null,\"on\":\"merge\"}" `Text.isInfixOf` merge
+                _ -> False
+
+    it "reads an AWAIT an older log wrote, with no on, as awaiting CI" $
+        (.event) <$> decodeLine (encodeLine reviewRows {event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))} `replacing` (",\"on\":\"merge\"", ""))
+            `shouldBe` Right (HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1")))
+
     it "reads a breakdown's tasks in order" $
         map (.id) . taskList <$> decodeBreakdown (breakdownJson [plainTask "t1" [], plainTask "t2" ["t1"]]) `shouldBe` Right [TaskId "t1", TaskId "t2"]
 
@@ -111,9 +124,18 @@ spec = describe "State.Run.Codec" $ do
             [placed, placed {worktree = Nothing}, placed {repo = Nothing}]
             `shouldBe` [True, True, True]
 
-    it "writes no repo or worktree key for a task the breakdown places nowhere" $
+    it "writes no repo, worktree or flow key for an engineer's task the breakdown places nowhere" $
         encodeLine reviewRows {event = stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))}
-            `shouldSatisfy` (\line -> not (any (`Text.isInfixOf` line) ["\"repo\"", "\"worktree\""]))
+            `shouldSatisfy` (\line -> not (any (`Text.isInfixOf` line) ["\"repo\"", "\"worktree\"", "\"flow\""]))
+
+    it "reads a task's flow, an engineer's where the task names none, as a breakdown older than flows" $
+        map (fmap (.flow) . decodeTask . taskFileJson) [ledBy10x, plainTask "t1" []] `shouldBe` [Right TenXFlow, Right EngineerFlow]
+
+    it "writes a 10x task's flow under the key a breakdown names it by" $
+        encodeLine reviewRows {event = stepTook (BreakdownDone engineers (tasksOf (ledBy10x :| [])))} `shouldSatisfy` Text.isInfixOf "\"flow\":\"10x\""
+
+    it "refuses a task's flow no role leads" $
+        decodeTask (taskFileJson ledBy10x `replacing` ("\"10x\"", "\"chief\"")) `shouldBe` Left "Error in $: unknown flow \"chief\""
 
     it "refuses a repo not OWNER/REPO of shell-inert characters" $
         [decodeTask (taskFileJson placed `replacing` ("\"o/r\"", hostile)) | hostile <- ["\"o/r/x\"", "\"/r\"", "\"o /r\"", "\"o;x/r\"", "\"o/$(x)\"", "\"o/r|x\"", "\"o/\\u00e9\""]]
@@ -185,6 +207,10 @@ malformed = \case
     Left (Malformed _) -> True
     Left (Unsupported _) -> False
     Right _ -> False
+
+-- | A task whose child runs the 10x flow.
+ledBy10x :: Task
+ledBy10x = (plainTask "t1" []) {Artifact.flow = TenXFlow}
 
 -- | A task whose breakdown names its repo and worktree.
 placed :: Task

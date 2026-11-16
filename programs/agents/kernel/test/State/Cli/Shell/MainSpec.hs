@@ -3,20 +3,25 @@ the log it writes. The e2e specs prove the same over a real repo and binary.
 -}
 module State.Cli.Shell.MainSpec (spec) where
 
+import Data.ByteString qualified as BS
 import Data.Foldable (for_)
-import Data.IORef (modifyIORef', readIORef)
+import Data.IORef (IORef, modifyIORef', readIORef)
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
+import State.Category.Fuel (Fuel (Max))
 import State.Cli.Command (help)
 import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
-import State.Run.Event (Branch (..), Envelope (..), Repo (..), SessionId (..), Task (..))
-import State.Run.RunGen (loadSteps, plainTask, roundTask)
+import State.Run.Codec (logOf)
+import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), Repo (..), SessionId (..), Task (..))
+import State.Run.RunGen (breakdownJson, loadSteps, plainTask, roundTask)
 import State.Step.Artifact (shellPath)
+import System.FilePath ((</>))
 import Test.Hspec (Spec, before, describe, it, runIO, shouldBe, shouldContain, shouldReturn, shouldSatisfy)
 
 spec :: Spec
@@ -374,6 +379,13 @@ spec = describe "state over the doubles" $ do
 
                 take 1 advised `shouldBe` ["SPAWN engineer --task t1 background: yes"]
 
+            it "spawns a task's child as the role leading its task's flow" $ \world -> do
+                _ <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
+
+                advised <- succeeded =<< state world ["next"]
+
+                take 1 advised `shouldBe` ["SPAWN 10x --task t1 background: yes"]
+
             it "logs a child's spawn in its parent's log once, a retried init joining the same run" $ \world -> do
                 parent <- tenXAtFanOut world
 
@@ -391,15 +403,47 @@ spec = describe "state over the doubles" $ do
 
                 take 1 shown `shouldBe` ["run: " <> child <> " (engineer)"]
 
-            it "refuses a child --flow other than its parent's fan-out's, logging no spawn" $ \world -> do
+            it "refuses a child --flow other than its task's, logging no spawn" $ \world -> do
                 parent <- tenXAtFanOut world
                 atWorktree world childWorktree
 
                 refused <- state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
 
                 (refused.code, refused.err)
-                    `shouldBe` (2, ["state init: --flow 10x - the parent's fan-out runs engineer", "fix: state brief engineer, in the parent's worktree, prints the init line"])
+                    `shouldBe` (2, ["state init: --flow 10x - task t1 runs the engineer flow", "fix: state brief engineer --task t1, in the parent's worktree, prints the init line"])
                 filter (== "spawned") <$> loggedEvents world `shouldReturn` []
+
+            it "starts a 10x child for a task whose flow is 10x, --flow named or not" $ \world -> do
+                parent <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}, (plainTask "t2" []) {flow = TenXFlow}]
+                atWorktree world childWorktree
+                named <- succeeded =<< state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                namedShown <- succeeded =<< state world ["show"]
+                atWorktree world "/other-work"
+                _ <- succeeded =<< state world ["init", "--notes", "/other", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t2"]
+                unnamedShown <- succeeded =<< state world ["show"]
+
+                map (Text.takeWhile (/= ' ')) named `shouldBe` ["started", "run"]
+                map (take 1) [namedShown, unnamedShown] `shouldSatisfy` all (all (" (10x)" `Text.isSuffixOf`))
+
+            it "refuses an engineer child for a task whose flow is 10x" $ \world -> do
+                parent <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
+                atWorktree world childWorktree
+
+                refused <- state world ["init", "--notes", "/child", "--flow", "engineer", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+
+                (refused.code, refused.err)
+                    `shouldBe` (2, ["state init: --flow engineer - task t1 runs the 10x flow", "fix: state brief 10x --task t1, in the parent's worktree, prints the init line"])
+
+            it "starts a child at its task's Fuel, so its first next is the step, in the foreground" $ \world -> do
+                parent <- tenXAtFanOutOf world [(plainTask "t1" []) {fuel = Max}]
+                _ <- childRun world parent "/child" "t1"
+
+                advised <- succeeded =<< state world ["next"]
+
+                take 1 advised `shouldBe` ["RUN one option below"]
+                advised `shouldSatisfy` any ("spawn a researcher in the foreground - " `Text.isInfixOf`)
+                -- Max's researcher budget: Balanced, the default, caps it.
+                filter ("Researchers: " `Text.isInfixOf`) advised `shouldBe` ["  Researchers: 0 used, one per group"]
 
             it "starts a child whose --flow names its parent's fan-out's" $ \world -> do
                 parent <- tenXAtFanOut world
@@ -440,6 +484,76 @@ spec = describe "state over the doubles" $ do
                 unnamed.code `shouldBe` 2
                 (named.code, recorded named.out) `shouldBe` (0, ["handed_back -> engineers", "task -> engineers"])
 
+            it "hands a child's question up once, however its log grew before next delivered it again" $ \world -> do
+                parent <- tenXAtFanOut world
+                _ <- childRun world parent "/child" "t1"
+                _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                once <- loggedEvents world
+                _ <- succeeded =<< state world ["record", "fuel", "balanced"]
+
+                again <- succeeded =<< state world ["next"]
+
+                take 1 again `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
+                again `shouldSatisfy` (not . any ("parent: " `Text.isPrefixOf`))
+                loggedEvents world `shouldReturn` once
+
+            it "writes the top's answer down to every run below, each resuming the next with it" $ \world -> do
+                (_, mid, grand) <- threeLevels world
+                let qid = grand <> ":1"
+                climbed world qid
+
+                answered <- succeeded =<< state world ["answer", qid, "postgres"]
+                topNext <- succeeded =<< state world ["next"]
+                atWorktree world midWorktree
+                midNext <- succeeded =<< state world ["next"]
+                atWorktree world grandWorktree
+                grandShown <- succeeded =<< state world ["show"]
+
+                answered `shouldBe` ["answered " <> qid]
+                take 1 topNext `shouldBe` ["RESUME " <> mid <> " with the answer to " <> qid <> ": postgres"]
+                take 1 midNext `shouldBe` ["RESUME " <> grand <> " with the answer to " <> qid <> ": postgres"]
+                grandShown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - postgres"]
+                answersIn world `shouldReturn` [1, 1, 1]
+
+            it "tells an answer it could not write down, and a retry lands it once in every run below" $ \world -> do
+                (_, mid, grand) <- threeLevels world
+                let qid = grand <> ":1"
+                    broken = "{broken\n"
+                climbed world qid
+                editLogIn world (logOf grandNotes) (<> broken)
+
+                failed <- succeeded =<< state world ["answer", qid, "it's postgres"]
+                editLogIn world (logOf grandNotes) (\bytes -> fromMaybe bytes (BS.stripSuffix broken bytes))
+                retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
+
+                drop 1 failed `shouldSatisfy` \case
+                    [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " 'it'\\''s postgres' --by " <> mid <> ", in " <> Text.pack grandWorktree
+                    _ -> False
+                retried `shouldBe` ["answered " <> qid]
+                answersIn world `shouldReturn` [1, 1, 1]
+
+            it "takes the same answer again, appending nothing to any run" $ \world -> do
+                (_, _, grand) <- threeLevels world
+                let qid = grand <> ":1"
+                climbed world qid
+                _ <- succeeded =<< state world ["answer", qid, "postgres"]
+
+                same <- succeeded =<< state world ["answer", qid, "postgres"]
+
+                same `shouldBe` ["answered " <> qid]
+                answersIn world `shouldReturn` [1, 1, 1]
+
+            it "refuses another answer to a question it holds an answer to" $ \world -> do
+                (_, _, grand) <- threeLevels world
+                let qid = grand <> ":1"
+                climbed world qid
+                _ <- succeeded =<< state world ["answer", qid, "postgres"]
+
+                other <- state world ["answer", qid, "sqlite"]
+
+                (other.code, other.err)
+                    `shouldBe` (2, ["state answer: another answer to " <> qid <> " - it was answered already: postgres", "fix: state show"])
+
             it "shows each task, its PR and what is held" $ \world -> do
                 _ <- tenXAtFanOut world
                 for_ [["task", "t1", "review", prUrl], ["held", "t2", "https://github.com/o/r/issues/9"]] $ \argv -> succeeded =<< state world ("record" : argv)
@@ -473,6 +587,14 @@ spec = describe "state over the doubles" $ do
                                , ""
                                , "state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t2"
                                ]
+
+            it "briefs a 10x task's init line with its flow, whichever lead role asks" $ \world -> do
+                run <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
+
+                briefs <- traverse (\role -> succeeded =<< state world ["brief", role, "--task", "t1"]) ["engineer", "10x"]
+
+                map (drop 9) briefs
+                    `shouldBe` replicate 2 ["state init --notes <dir> --flow 10x --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
 
             it "briefs an engineer to init in its task's worktree and its repo's notes dir" $ \world -> do
                 run <- tenXAtFanOutOf world [(plainTask "t1" []) {branch = Branch "feat/x", repo = Just (Repo "o" "r"), worktree = shellPath "/wt/t1"}]
@@ -567,6 +689,44 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["next"]
 
                 (ran.code, ran.err) `shouldBe` (1, ["state steps: STATE_STEPS is not set - it names the flows' step table", "fix: run the installed state, which sets it"])
+
+{- | A top 10x at its fan-out over a 10x task, that task's 10x child at its
+own fan-out, and an engineer grandchild under it, each in its own worktree;
+later calls run in the grandchild's. The three runs' ids, top first.
+-}
+threeLevels :: IORef World -> IO (Text, Text, Text)
+threeLevels world = do
+    top <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
+    atWorktree world midWorktree
+    mid <- startedIn world ["--notes", Text.pack midNotes, "--parent", top, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+    putFile world (midNotes </> "tasks.json") (breakdownJson [plainTask "t1" []])
+    _ <- succeeded =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
+    _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (midNotes </> "tasks.json")]
+    atWorktree world grandWorktree
+    grand <- startedIn world ["--notes", Text.pack grandNotes, "--parent", mid, "--parent-log", Text.pack (logOf midNotes), "--task", "t1"]
+    pure (top, mid, grand)
+
+{- | The grandchild asks a Design question, the middle run forwards it, and
+the top forwards it to the user; later calls run in the top's worktree.
+-}
+climbed :: IORef World -> Text -> IO ()
+climbed world qid = do
+    _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+    atWorktree world midWorktree
+    _ <- succeeded =<< state world ["forward", qid]
+    atWorktree world "/work"
+    _ <- succeeded =<< state world ["forward", qid]
+    pure ()
+
+-- | How many answers each run's log holds, top first.
+answersIn :: IORef World -> IO [Int]
+answersIn world = traverse (fmap (length . filter (== "answered")) . loggedEventsIn world) [eventsPath, logOf midNotes, logOf grandNotes]
+
+midNotes, grandNotes, midWorktree, grandWorktree :: FilePath
+midNotes = "/mid"
+grandNotes = "/grand"
+midWorktree = "/mid-work"
+grandWorktree = "/grand-work"
 
 -- | A Balanced run to its first Simplify of the PR.
 toSimplifyPr :: [Act]

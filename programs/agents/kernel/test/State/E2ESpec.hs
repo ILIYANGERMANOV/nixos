@@ -17,6 +17,8 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
+import State.Category.Fuel (Fuel (Low))
+import State.Run.Event (FlowName (TenXFlow), Task (..))
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
@@ -241,17 +243,25 @@ spec = describe "the state binary" $ do
                 unfounded.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["forward", q2]
                 first <- succeeded =<< state bin repo ["next"]
-                take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1]
+                take 1 first `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> Text.pack q1 <> ": postgres"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c1]
                 userHolds <- succeeded =<< state bin repo ["next"]
                 take 1 userHolds `shouldBe` ["ASK Security " <> Text.pack q2 <> ": token in env?"]
                 _ <- succeeded =<< state bin repo ["answer", q2, "use", "a", "vault"]
                 second <- succeeded =<< state bin repo ["next"]
-                take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2]
+                take 1 second `shouldBe` ["RESUME " <> c2 <> " with the answer to " <> Text.pack q2 <> ": use a vault"]
                 _ <- succeeded =<< state bin repo ["record", "resumed", Text.unpack c2]
                 twice <- state bin repo ["record", "resumed", Text.unpack c2]
                 twice.code `shouldBe` 2
+                -- Each answer was written down to the child that asked it.
+                shown1 <- succeeded =<< state bin w1 ["show"]
+                shown2 <- succeeded =<< state bin w2 ["show"]
+                shown1 `shouldSatisfy` mentions (Text.pack q1 <> " Design: which store? - postgres")
+                shown2 `shouldSatisfy` mentions (Text.pack q2 <> " Security: token in env? - use a vault")
+                -- The child's own answer, the same, adds nothing; another is refused.
                 _ <- succeeded =<< state bin w1 ["answer", q1, "postgres", "--by", Text.unpack parent]
+                other <- state bin w1 ["answer", q1, "sqlite", "--by", Text.unpack parent]
+                other.code `shouldBe` 2
                 relay bin repo ["HANDBACK READY " <> prUrl, "Run: " <> c1]
                 third <- succeeded =<< state bin repo ["next"]
                 take 1 third `shouldBe` ["AWAIT children t2"]
@@ -271,7 +281,7 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
                 _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
                 resume <- succeeded =<< state bin repo ["next"]
-                take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1"]
+                take 1 resume `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed"]
 
             it "refuses a malformed task file with the breakdown's error" $ \repo -> do
                 _ <- tenXAtFanOut bin repo
@@ -383,15 +393,16 @@ spec = describe "the state binary" $ do
             it "runs from init to done, its child through the engineer flow" $ \repo -> do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 let tasks = repo.root </> "tasks.json"
-                Text.writeFile tasks (breakdownJson [plainTask "t1" []])
+                Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {fuel = Low}])
                 plan <- writtenPlan repo
                 for_ [["fuel", "balanced"], ["gather.enough"], ["plan.done", plan], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
-                child <- driveOn bin w1 trivialPath
-                child `shouldBe` trivialTranscript
+                -- The task's Fuel is the child's from init: it records none.
+                child <- driveOn bin w1 (drop 1 trivialPath)
+                child `shouldBe` drop 1 trivialTranscript
                 merging <- succeeded =<< state bin repo ["next"]
                 recorded merging `shouldBe` ["engineers.done -> merge"]
                 for_ [["task", "t1", "merged", prUrlString], ["merge.done", prUrlString]] (succeeded <=< state bin repo . ("record" :))
@@ -421,6 +432,49 @@ spec = describe "the state binary" $ do
                 for_ agreed (succeeded <=< state bin repo . ("record" :))
                 respawn <- succeeded =<< state bin repo ["next"]
                 take 1 respawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+
+        describe "a tree of runs: a 10x under a 10x, an engineer under that" $ do
+            it "climbs a question to the top and writes its one answer down to every run" $ \repo -> do
+                Tree {mid, midRun, grand, grandRun} <- treeOfRuns bin repo
+                let qid = grandRun <> ":1"
+                    q = Text.unpack qid
+                asked <- succeeded =<< state bin grand ["ask", "--kind", "Design", "which", "store?"]
+                midAsked <- succeeded =<< state bin mid ["next"]
+                _ <- succeeded =<< state bin mid ["forward", q]
+                topAsked <- succeeded =<< state bin repo ["next"]
+                _ <- succeeded =<< state bin repo ["rule", q, "--answer", "postgres", "--why", "already used", "--cost", "none"]
+                topResume <- succeeded =<< state bin repo ["next"]
+                midResume <- succeeded =<< state bin mid ["next"]
+                shown <- traverse (succeeded <=< \run -> state bin run ["show"]) [repo, mid, grand]
+                -- The grandchild's own answer, the same, is taken and changes nothing.
+                _ <- succeeded =<< state bin grand ["answer", q, "postgres", "--by", Text.unpack midRun]
+                again <- succeeded =<< state bin grand ["show"]
+                take 1 asked `shouldBe` ["asked " <> qid]
+                take 1 midAsked `shouldSatisfy` mentions ("state forward " <> qid)
+                take 1 topAsked `shouldSatisfy` mentions ("state rule " <> qid)
+                take 1 topResume `shouldBe` ["RESUME " <> midRun <> " with the answer to " <> qid <> ": postgres"]
+                take 1 midResume `shouldBe` ["RESUME " <> grandRun <> " with the answer to " <> qid <> ": postgres"]
+                map (mentions (qid <> " Design")) shown `shouldBe` [True, True, True]
+                map (mentions "postgres") shown `shouldBe` [True, True, True]
+                Just again `shouldBe` lastMaybe shown
+
+            it "starts the 10x child by a --flow 10x line, spawns in the foreground below the top, and climbs a grandchild's AWAIT ci to it" $ \repo -> do
+                Tree {mid, midSpawn, grand, grandFirst} <- treeOfRuns bin repo
+                brief <- succeeded =<< state bin repo ["brief", "10x", "--task", "t1"]
+                writeFile repo.prJson (pullRequest True "OPEN")
+                _ <- succeeded =<< state bin grand ["override", "simplify_plan", "the", "test", "starts", "here"]
+                grandSpawn <- succeeded =<< state bin grand ["next"]
+                _ <- succeeded =<< state bin grand ["override", "await_ci", "the", "test", "starts", "here"]
+                grandAwait <- succeeded =<< state bin grand ["next"]
+                midAwait <- succeeded =<< state bin mid ["next"]
+                topAwait <- succeeded =<< state bin repo ["next"]
+                lastMaybe brief `shouldSatisfy` any (" --flow 10x " `Text.isInfixOf`)
+                -- The task's Fuel is the grandchild's from init: it gathers at once, its researchers in the foreground.
+                take 1 grandFirst `shouldBe` ["RUN one option below"]
+                grandFirst `shouldSatisfy` mentions "spawn a researcher in the foreground"
+                map (take 1) [midSpawn, grandSpawn] `shouldBe` [["SPAWN engineer --task g1 background: no"], ["SPAWN researcher background: no"]]
+                map (take 1) [grandAwait, midAwait] `shouldBe` replicate 2 ["HANDBACK AWAIT ci " <> prUrl]
+                take 1 topAwait `shouldBe` ["AWAIT ci " <> prUrl]
 
         describe "brief" $ do
             it "gives a refactorer its step's task and the stop rule" $ \repo -> do
@@ -629,6 +683,46 @@ childQuestion bin repo = do
     w1 <- worktree repo "w1"
     _ <- childRun bin w1 parent "n1" "t1"
     (w1,) <$> askedQid bin w1 "Pick" ["which", "lib?"]
+
+{- | Three runs, each in its own worktree and notes: the top 10x at its
+fan-out, a 10x child on its task t1, at its own fan-out, and an engineer
+grandchild on the child's task g1. Each child starts by its parent's brief
+line.
+-}
+data Tree = Tree {top :: Text, mid :: Repo, midRun :: Text, midSpawn :: [Text], grand :: Repo, grandRun :: Text, grandFirst :: [Text]}
+
+treeOfRuns :: FilePath -> Repo -> IO Tree
+treeOfRuns bin repo = do
+    top <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+    _ <- brokenDown bin repo [(plainTask "t1" []) {flow = TenXFlow}]
+    w1 <- worktree repo "w1"
+    let mid = w1 {notes = repo.root </> "n1"}
+    midRun <- briefedRun bin repo "10x" "t1" mid
+    midSpawn <- brokenDown bin mid [plainTask "g1" []]
+    w2 <- worktree repo "w2"
+    let grand = w2 {notes = repo.root </> "n2"}
+    grandRun <- briefedRun bin mid "engineer" "g1" grand
+    grandFirst <- succeeded =<< state bin grand ["next"]
+    pure Tree {top, mid, midRun, midSpawn, grand, grandRun, grandFirst}
+
+-- | A 10x run's breakdown of these tasks, agreed and recorded; the @next@ after it.
+brokenDown :: FilePath -> Repo -> [Task] -> IO [Text]
+brokenDown bin repo tasks = do
+    let file = repo.notes </> "tasks.json"
+    Text.writeFile file (breakdownJson tasks)
+    for_ [["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", file]] (succeeded <=< state bin repo)
+    succeeded =<< state bin repo ["next"]
+
+-- | The child run the parent's brief for this role and task starts in the child's notes, by the brief's init line; its id.
+briefedRun :: FilePath -> Repo -> String -> String -> Repo -> IO Text
+briefedRun bin parent role task child = do
+    brief <- succeeded =<< state bin parent ["brief", role, "--task", task]
+    case map Text.unpack . Text.words <$> lastMaybe brief of
+        Just ("state" : "init" : flags) -> startedIn bin child [if flag == "<dir>" then child.notes else flag | flag <- flags]
+        other -> fail ("no init line: " <> show other)
+
+lastMaybe :: [a] -> Maybe a
+lastMaybe = foldl (\_ line -> Just line) Nothing
 
 -- | @state ask --kind <kind> <question>@; the id it prints.
 askedQid :: FilePath -> Repo -> String -> [String] -> IO Text

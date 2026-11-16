@@ -31,6 +31,7 @@ module State.Step.Artifact (
     shellPathText,
     shellPathRule,
     slugChar,
+    shellWord,
     taskIdText,
     topicText,
     judgementText,
@@ -69,11 +70,13 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Area (..), Fuel, fuelName, parseByName, parseFuel)
+import State.FlowName (FlowName, defaultFlow, flowText, namedFlowText)
 import System.FilePath (isAbsolute)
 
 -- | The draft PR, synced from GitHub.
@@ -133,6 +136,8 @@ data Task = Task
     -- ^ The repo the task's work lands in, when the breakdown names it: its brief's notes dir.
     , worktree :: Maybe ShellPath
     -- ^ When the breakdown names it: its brief's init line runs there.
+    , flow :: FlowName
+    -- ^ The flow its child run follows: an engineer's unless the breakdown names another.
     }
     deriving stock (Eq, Show)
 
@@ -177,6 +182,14 @@ shellPathRule = "an absolute path of ASCII letters, digits and ._/@+-"
 -- | A character a shell word holds unquoted, with no meaning to the shell: ASCII letters, digits, @.@, @_@ and @-@.
 slugChar :: Char -> Bool
 slugChar c = isAsciiLower c || isAsciiUpper c || isDigit c || c `elem` ("._-" :: String)
+
+{- | Text as one shell word: as it is when all 'slugChar's, else single-quoted
+with each @'@ written @'\\''@, so a printed line runs as it reads.
+-}
+shellWord :: Text -> Text
+shellWord text
+    | not (Text.null text), Text.all slugChar text = text
+    | otherwise = "'" <> Text.replace "'" "'\\''" text <> "'"
 
 {- | What the task's engineer does to its PR. A round on a PR that already
 exists leaves it open: its run skips @ready@, and the task settles kept.
@@ -281,6 +294,11 @@ taskEncoding task =
             <> shapeData task.shape
             <> maybe mempty (("repo" .=) . repoText) task.repo
             <> maybe mempty (("worktree" .=) . shellPathText) task.worktree
+            <> flowData task.flow
+
+-- | The default flow is omitted, so a breakdown older than flows encodes as it was written.
+flowData :: FlowName -> Series
+flowData = maybe mempty ("flow" .=) . namedFlowText
 
 -- | Only a round names its PR: a log older than rounds reads as own PRs.
 shapeData :: Shape -> Series
@@ -347,7 +365,8 @@ taskFieldsOf obj = do
     shape <- shapeOf obj
     repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
-    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree}
+    flow <- fromMaybe defaultFlow <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
+    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree, flow}
   where
     worktreeOf path = maybe (fail ("a worktree is " <> shellPathRule <> ", not " <> show path)) pure (shellPath path)
 

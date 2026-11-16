@@ -32,6 +32,8 @@ module State.Run.Fold (
     usedUp,
     flowRole,
     nextQId,
+    given,
+    heldAnswer,
     askingChildren,
     askedAt,
     over,
@@ -62,7 +64,7 @@ import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal, QId (..), Question (..), Ruling, deliver)
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText)
 import State.Run.Ask qualified as Ask
 import State.Run.Event (AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Url, eventId, tookEvent)
 import State.Run.Fan (Fan, emptyFan)
@@ -167,6 +169,8 @@ data Refusal
       AlreadyForwarded QId
     | -- | An answer to a question the run never forwarded.
       NotForwarded QId
+    | -- | Another answer to a question answered already with this one.
+      AnsweredOtherwise QId Text
     | -- | The run's row of 'State.Run.Ask.authority' does not allow it.
       NotAllowed Ask.Refusal
     | -- | A forward or answer naming another than whoever started the run.
@@ -176,7 +180,9 @@ data Refusal
       NotAtFan
     deriving stock (Eq, Show)
 
--- | An id already in the log is not appended twice: the append is a no-op.
+{- | An id already in the log, or an answer the run holds already, is not
+appended twice: the append is a no-op.
+-}
 data Append = Appended RunState | AlreadyLogged
     deriving stock (Eq, Show)
 
@@ -198,6 +204,8 @@ append :: OpenGraph -> RunState -> Envelope -> Either Refusal Append
 append g state envelope
     | Set.member (eventId envelope) state.seen = Right AlreadyLogged
     | envelope.run /= state.run = Left (OtherRun envelope.run)
+    -- Written down from above, then given again by the run's own agent, or retried: still from above.
+    | Answered qid answer by <- envelope.event, Just answer == heldAnswer state qid = AlreadyLogged <$ fromAbove state.start.principal by
     | otherwise = do
         next <- applyEvent g state envelope.event
         Right (Appended next {seen = Set.insert (eventId envelope) state.seen})
@@ -559,8 +567,14 @@ forwarded state qid to = do
     fromAbove state.start.principal to
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
+-- | 'append' takes the answer the run holds again as no news; another is refused.
 answered :: RunState -> QId -> Text -> Above -> Either Refusal RunState
-answered state qid answer by = do
+answered state qid answer by = case heldAnswer state qid of
+    Just earlier -> Left (AnsweredOtherwise qid earlier)
+    Nothing -> firstAnswer state qid answer by
+
+firstAnswer :: RunState -> QId -> Text -> Above -> Either Refusal RunState
+firstAnswer state qid answer by = do
     pending <- pendingOf qid state.pending
     case pending.waits of
         ForTriage -> Left (NotForwarded qid)
@@ -586,6 +600,14 @@ close qid = filter ((/= qid) . pendingId)
 
 pendingId :: Pending -> QId
 pendingId pending = pending.asking.question.qid
+
+-- | The answer from above the run holds to this question, if it was answered.
+heldAnswer :: RunState -> QId -> Maybe Text
+heldAnswer state qid = (.given) <$> find ((== qid) . (.about.qid)) state.answers
+
+-- | Each question the run ruled on or had answered from above, with its answer.
+given :: RunState -> [(QId, Text)]
+given state = [(ruling.qid, oneLineText ruling.proposal.answer) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
 
 -- | The children whose question is still open, in triage or with the user: none of their tasks is retried.
 askingChildren :: RunState -> [RunId]

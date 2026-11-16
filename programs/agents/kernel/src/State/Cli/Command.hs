@@ -22,6 +22,7 @@ module State.Cli.Command (
     unknownEvent,
     anyEvent,
     openQid,
+    answeredQid,
     notStarted,
     help,
 ) where
@@ -44,11 +45,13 @@ import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
+import State.Role (RoleDef (..), defaultFlow)
+import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, Question (..), kindName, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), childRole, parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
 import State.Run.Fold qualified as Fold
@@ -234,7 +237,7 @@ commandInfo steps scope =
         , "A refusal prints `state <command>: what - why`, then `fix: <command>`."
         , "Run 'state <command> --help' for a command's arguments."
         ]
-    anyRole = agentRoles steps <> [childRole]
+    anyRole = agentRoles steps <> map (.name) Role.roles
     sub name about parser = Opt.command name (Opt.info parser (Opt.progDesc about))
     -- Its last words are free text, which may start with a dash: an option it does not take is a word.
     freeText name about parser = Opt.command name (Opt.info parser (Opt.progDesc about <> Opt.forwardOptions))
@@ -300,10 +303,6 @@ flowOf = maybe (Right defaultFlow) flowNamed
 
 flowNamed :: Text -> Either Failure FlowName
 flowNamed = named "flow" (parseByName Codec.flowText)
-
--- | The flow a run follows when none is named.
-defaultFlow :: FlowName
-defaultFlow = EngineerFlow
 
 textOption :: String -> Text -> String -> Opt.Parser Text
 textOption name value about = Opt.strOption (Opt.long name <> Opt.metavar (Text.unpack value) <> Opt.help about)
@@ -404,6 +403,7 @@ explain g fuel at meters = \case
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))
+    AnsweredOtherwise qid earlier -> refused ("another answer to " <> qidText qid) ("it was answered already: " <> earlier) "state show"
     NotAllowed refusal -> case refusal of
         Ask.MayNotRule _ kind -> refused ("a ruling on " <> kindName kind) ("this run forwards a " <> kindName kind <> " question") "state forward <qid>"
         Ask.MustAnswer _ kind -> refused ("a forward of " <> kindName kind) ("this run answers a " <> kindName kind <> " question itself") (triage "<qid>")
@@ -493,6 +493,14 @@ closest name events = case (sameStep, events) of
     sameStep = case Text.breakOn "." name of
         (_, "") -> []
         (step, _) -> [e | e@(event, _) <- events, (step <> ".") `Text.isPrefixOf` event]
+
+{- | A question to answer: one open, or one answered already, whose answer
+again the fold judges (the same one is no news).
+-}
+answeredQid :: RunState -> Text -> Either Failure QId
+answeredQid state raw = case parseQId raw of
+    Just qid | Just _ <- Fold.heldAnswer state qid -> Right qid
+    _ -> openQid state raw
 
 {- | A question the run has open, by the id typed: a malformed one or one
 not open is refused with the open ones listed.

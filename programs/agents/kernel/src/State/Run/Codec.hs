@@ -30,6 +30,7 @@ module State.Run.Codec (
     judgementText,
     flowText,
     opText,
+    waitingText,
     shaText,
     urlText,
     taskIdText,
@@ -63,8 +64,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Step (eventText)
-import State.Role (RoleDef (..), roleText)
-import State.Role qualified as Role
+import State.Role (flowText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
     AgentRole (..),
@@ -75,7 +75,6 @@ import State.Run.Event (
     Envelope (..),
     Event (..),
     EventId (..),
-    FlowName (..),
     Note (..),
     Op (..),
     Parent (..),
@@ -92,6 +91,7 @@ import State.Run.Event (
     TaskId (..),
     TaskState (..),
     Url (..),
+    Waiting (..),
     eventId,
     parseRunId,
     runIdText,
@@ -319,19 +319,26 @@ taskOf obj = TaskId <$> obj .: "task"
 sent it, a stop's as 'stopWire' spells it.
 -}
 saidData :: Said -> Series
-saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid
+saidData said = "token" .= token <> "ref" .= ref <> "qid" .= fmap qidText qid <> waits
   where
     (token, ref, qid) = case said of
         Finished summary -> ("READY", Just (oneLineText summary), Nothing)
         AsksUp asked -> ("NEEDS_DECISION", Nothing, Just asked)
-        AwaitsCi on -> ("AWAIT", Just (oneLineText on), Nothing)
+        Awaits _ on -> ("AWAIT", Just (oneLineText on), Nothing)
         Ended stop -> let (word, payload) = stopWire stop in (word, Just payload, Nothing)
+    -- Only a merge is named: a log from before merges climbed awaits CI.
+    waits = case said of
+        Awaits Merge _ -> "on" .= waitingText Merge
+        Awaits Ci _ -> mempty
+        Finished _ -> mempty
+        AsksUp _ -> mempty
+        Ended _ -> mempty
 
 saidOf :: Object -> Parser Said
 saidOf obj =
     obj .: "token" >>= \case
         "READY" -> Finished <$> oneLineAt "ref" obj
-        "AWAIT" -> AwaitsCi <$> oneLineAt "ref" obj
+        "AWAIT" -> Awaits <$> (obj .:? "on" >>= maybe (pure Ci) (named "awaited" (parseByName waitingText))) <*> oneLineAt "ref" obj
         token ->
             obj .:? "ref" >>= \case
                 Nothing | token == "NEEDS_DECISION" -> AsksUp <$> qidOf obj
@@ -498,8 +505,11 @@ oneLineOf raw = maybe (fail (show raw <> " holds a line break")) pure (parseOneL
 runIdOf :: Text -> Parser RunId
 runIdOf raw = maybe (fail ("run id " <> show raw <> " is empty, h, or holds a colon or a line break")) pure (parseRunId raw)
 
-flowText :: FlowName -> Text
-flowText = roleText . (.name) . Role.role
+-- | #360's @AWAIT <what> <refs>@: what a run hands up to be waited on.
+waitingText :: Waiting -> Text
+waitingText = \case
+    Ci -> "ci"
+    Merge -> "merge"
 
 opText :: Op -> Text
 opText = \case

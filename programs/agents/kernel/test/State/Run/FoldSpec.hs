@@ -24,7 +24,7 @@ import State.Flow.Engineer (engineer)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
-import State.Run.Event
+import State.Run.Event hiding (Merge)
 import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
@@ -456,6 +456,12 @@ questions = describe "questions" $ do
     it "refuses asking a ruled question again, so a retried relay is ruled once" $
         replay g (logOf (started :| [ask 1 Pick, RuledOn (q 1) proposal, ask 1 Pick])) `shouldBe` Left (AskedTwice (q 1))
 
+    it "takes an answer it holds again as no news, and refuses another" $ do
+        let answered = [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser]
+        map (\more -> (.answers) <$> replay g (logOf (started :| answered <> more))) [[], [Answered (q 1) "yes" TheUser]]
+            `shouldBe` replicate 2 (Right [Fold.Answer (Question (q 1) Design (oneLine "a question")) "yes"])
+        replay g (logOf (started :| answered <> [Answered (q 1) "no" TheUser])) `shouldBe` Left (AnsweredOtherwise (q 1) "yes")
+
     it "refuses asking an answered question again" $
         replay g (logOf (started :| [ask 1 Design, Forwarded (q 1) TheUser, Answered (q 1) "yes" TheUser, ask 1 Design]))
             `shouldBe` Left (AskedTwice (q 1))
@@ -489,6 +495,11 @@ questions = describe "questions" $ do
         for_ (zip rungs logs) $ \(rung, events) -> do
             state <- evalEither (replay g (runLog rung events))
             state.pending === []
+            -- An answer that came down, given again, is no news; another is refused.
+            for_ [(qid, answer, by) | Answered qid answer by <- events] $ \(qid, answer, by) -> do
+                again <- evalEither (replay g (runLog rung (events <> [Answered qid answer by])))
+                (again.answers, again.pending) === (state.answers, state.pending)
+                replay g (runLog rung (events <> [Answered qid (answer <> " or not") by])) === Left (AnsweredOtherwise qid answer)
   where
     q = QId run
     ask n kind = Asked (Asking (Question (q n) kind (oneLine "a question")) (StateName "implement") Itself)

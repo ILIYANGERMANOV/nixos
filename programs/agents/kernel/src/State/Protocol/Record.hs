@@ -11,6 +11,7 @@ module State.Protocol.Record (
     usageOf,
     recordCommand,
     Option (..),
+    commandOption,
     recordOption,
     goes,
     extend,
@@ -61,14 +62,20 @@ recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usag
     step = snd (unqualify name)
 
 {- | One way on from where the run is: the exact command, and what taking
-it means, where the run goes next among it.
+it means, where the run goes next among it. A spawn's command names the
+agent, not how it runs: whether in the background is the run's interface's
+to say, told when the option is printed.
 -}
-data Option = Option {command :: Text, means :: Text}
+data Option = Option {command :: Text, means :: Text, spawns :: Bool}
     deriving stock (Eq, Show)
+
+-- | An option taken by running its command.
+commandOption :: Text -> Text -> Option
+commandOption command means = Option command means False
 
 -- | The record of an event along its edge, saying where the run goes.
 recordOption :: EventName -> Edge Node -> Option
-recordOption event edge = Option (recordCommand event) (goes edge)
+recordOption event edge = commandOption (recordCommand event) (goes edge)
 
 -- | Where an edge takes the run, in words.
 goes :: Edge Node -> Text
@@ -85,7 +92,7 @@ goes edge = case (edge.arrow, edge.to, edge.back) of
 
 -- | The @state record@ line that extends a used-up budget, on the user's yes.
 extendOption :: Option
-extendOption = Option (Text.unwords ["state record", extend.name, usageOf extend]) "when the user goes on: the used-up budgets here start afresh"
+extendOption = commandOption (Text.unwords ["state record", extend.name, usageOf extend]) "when the user goes on: the used-up budgets here start afresh"
 
 {- | What the run may record at a used-up budget of the step at this state:
 the ways out of its loop, then as its 'AtCap' says - nothing more, a stop,
@@ -94,7 +101,7 @@ or an @extend@ (with the step's own outcomes when no way leaves).
 capRecords :: OpenGraph -> Place -> AtCap -> [Option]
 capRecords g place atCap = case atCap of
     Refuse -> exits
-    Stop -> exits <> [Option "state stop rounds <why>" "stops the run: the budget is used up"]
+    Stop -> exits <> [commandOption "state stop rounds <why>" "stops the run: the budget is used up"]
     Extend -> extendOption : if null exits then outs else exits
   where
     exits = [recordOption event edge | (event, edge) <- leaving g place]
