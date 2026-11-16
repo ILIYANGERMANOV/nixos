@@ -11,9 +11,9 @@ paths:
 ## The logic ladder
 
 **Agent behaviour lives on the first rung that can hold it: pure Haskell
-(kernel `src/`, no IO) >> impure Haskell (the kernel's effect shell, e.g.
-`kernel/src/State/Cli/Shell.hs`) >> hooks (`kernel/hooks.nix`, `state-hook`)
->> prose (skills, roles, instructions).**
+(the kernel's no-IO modules) >> impure Haskell (the kernel's effect shell,
+e.g. `kernel/src/State/Cli/Shell.hs`) >> hooks (`kernel/hooks.nix`,
+`state-hook`) >> prose (skills, roles, instructions).**
 
 Each rung further from the kernel is less deterministic and less testable:
 pure code has property and golden tests, the shell runs on the doubles in
