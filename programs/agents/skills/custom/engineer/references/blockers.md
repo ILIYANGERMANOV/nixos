@@ -82,7 +82,8 @@ new question of that kind.
 review-lead's `plan wrong:` line you agree with: `state stop replan <why>`,
 then do what it prints. On `STOP replan`, or resumed after its
 `HANDBACK NEEDS_DECISION plan wrong`, start a new run in a fresh notes
-directory, `state init --notes <dir>-replan-<n>` plus the `--parent`,
+directory, `state init --notes <dir>-replan-<n>`, `<dir>` your first notes
+directory without its trailing `/`, plus the `--parent`,
 `--parent-log` and `--task` of your first `state init` when it had them, on
 the same branch and PR, at the same Fuel: Gather for the open question
 only, never re-asking what was just answered, then Propose and confirm. The

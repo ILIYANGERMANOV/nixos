@@ -133,10 +133,9 @@ spec = describe "the state binary" $ do
             (started, resumed)
                 `shouldBe` (["started " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top], ["resumed " <> run, "run " <> run <> " " <> Text.pack repo.notes <> " " <> top])
 
-        it "refuses another run over the worktree's unfinished one, and a relative notes dir" $ \repo -> do
+        it "refuses another run over the worktree's unfinished one" $ \repo -> do
             run <- startedRun bin repo
             other <- state bin repo ["init", "--notes", repo.root </> "other"]
-            relative <- state bin repo ["init", "--notes", "notes"]
             (other.code, other.err)
                 `shouldBe` ( 2
                            ,
@@ -144,6 +143,9 @@ spec = describe "the state binary" $ do
                                , "fix: state init --notes " <> Text.pack repo.notes <> " resumes it, or state stop <reason> <why> ends it"
                                ]
                            )
+
+        it "refuses a relative notes dir" $ \repo -> do
+            relative <- state bin repo ["init", "--notes", "notes"]
             (relative.code, take 1 relative.err) `shouldBe` (2, ["state init: --notes notes - the notes dir is an absolute path with no whitespace"])
 
         it "starts a run once per notes dir, and refuses one there after it stopped" $ \repo -> do

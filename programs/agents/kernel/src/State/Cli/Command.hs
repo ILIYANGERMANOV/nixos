@@ -28,7 +28,6 @@ module State.Cli.Command (
 
 import Control.Applicative (many, optional, some, (<**>))
 import Data.Bifunctor (first)
-import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -55,6 +54,7 @@ import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
+import State.Step.Artifact (unquotedPath)
 import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
 import System.FilePath (dropTrailingPathSeparator, isAbsolute, normalise, takeFileName)
@@ -356,13 +356,13 @@ parentLog raw
     path = Text.unpack raw
 
 {- | A run's notes dir, one spelling of it: the pointer, the log's start, the
-same-dir check and init's @run@ line all hold this value. Absolute, as the
-directory init ran in is not the one a later reader runs in; no whitespace,
-as the @run@ line and the brief's init line print it unquoted.
+same-dir check and init's @run@ line all hold this value. Unquoted, as the
+@run@ line and the brief's init line print it, and a later reader runs in
+another directory than init did.
 -}
 notesDir :: Text -> Either Failure FilePath
 notesDir raw
-    | isAbsolute path, not (Text.any isSpace raw) = Right (dropTrailingPathSeparator (normalise path))
+    | unquotedPath path = Right (dropTrailingPathSeparator (normalise path))
     | otherwise = Left (usage ("--notes " <> raw) "the notes dir is an absolute path with no whitespace")
   where
     path = Text.unpack raw

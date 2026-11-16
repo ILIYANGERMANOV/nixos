@@ -26,6 +26,7 @@ module State.Step.Artifact (
     urlText,
     branchText,
     repoText,
+    unquotedPath,
     taskIdText,
     topicText,
     judgementText,
@@ -145,6 +146,10 @@ parseRepo raw = case Text.splitOn "/" raw of
 
 repoText :: Repo -> Text
 repoText repo = repo.owner <> "/" <> repo.name
+
+-- | A path a shell line prints unquoted, so it runs from any directory: absolute, with no whitespace.
+unquotedPath :: FilePath -> Bool
+unquotedPath path = isAbsolute path && not (any isSpace path)
 
 {- | What the task's engineer does to its PR. A round on a PR that already
 exists leaves it open: its run skips @ready@, and the task settles kept.
@@ -317,9 +322,8 @@ taskFieldsOf obj = do
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
     pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree}
   where
-    -- Printed unquoted in a shell line, so absolute and free of whitespace.
     worktreeOf path
-        | isAbsolute path, not (any isSpace path) = pure path
+        | unquotedPath path = pure path
         | otherwise = fail ("a worktree is an absolute path with no whitespace, not " <> show path)
 
 shapeOf :: Object -> Parser Shape
