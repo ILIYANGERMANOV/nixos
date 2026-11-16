@@ -1,6 +1,5 @@
 module State.Run.FoldSpec (spec) where
 
-import Data.Bifunctor (bimap)
 import Data.Either (isRight)
 import Data.Foldable (for_)
 import Data.List (intercalate)
@@ -247,7 +246,7 @@ spec = describe "State.Run.Fold" $ do
                 voided = appendTo g state logged (line (lastSeq + 1) (Voided target "logged in error"))
             cover 5 "the log without it replays" (isRight without)
             cover 5 "the log without it does not" (not (isRight without))
-            (unseenIn <$> voided) === bimap (VoidBreaks target) (Appended . unseen) without
+            (unseenIn <$> voided) === either (Left . VoidBreaks target) (Right . Appended . unseen) without
         it "refuses a seq no line the run replays has: none, a voided one, a void" $ do
             let logged = line 0 started :| [line 1 (FuelSet Max), line 2 (Voided 1 "set by mistake")]
             state <- either (fail . show) pure (replay g logged)

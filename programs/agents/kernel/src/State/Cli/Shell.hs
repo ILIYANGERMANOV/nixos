@@ -823,7 +823,7 @@ worktreeAt :: (Git :> es, RoFileSystem :> es) => FilePath -> Eff es (Either Fail
 worktreeAt dir =
     toplevelAt dir >>= \case
         Nothing -> pure (Left (noWorktree "git finds none there"))
-        Just top -> Bifunctor.bimap noWorktree (,top) <$> FileSystem.inDirectory top Git.gitDir
+        Just top -> fmap (,top) . Bifunctor.first noWorktree <$> FileSystem.inDirectory top Git.gitDir
   where
     noWorktree why = Failure BadInput (Text.pack dir <> " is in no git worktree") why "git worktree add <dir> <branch>, then state move <dir>"
 

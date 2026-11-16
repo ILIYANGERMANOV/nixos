@@ -18,6 +18,7 @@ module Effects.FileSystem (
 ) where
 
 import Control.Exception (bracketOnError, catchJust)
+import Control.Monad (guard)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Text (Text)
@@ -90,7 +91,7 @@ runRoFileSystemIO = interpret $ \env -> \case
             doesFileExist path >>= \case
                 False -> pure Nothing
                 True -> Just <$> Text.readFile path
-    ListDirectory dir -> liftIO (catchJust (\e -> if isDoesNotExistError e then Just () else Nothing) (Directory.listDirectory dir) (const (pure [])))
+    ListDirectory dir -> liftIO (orIfAbsent [] (Directory.listDirectory dir))
     InDirectory dir act -> localSeqUnliftIO env $ \unlift -> withCurrentDirectory dir (unlift act)
 
 runWrFileSystemIO :: (IOE :> es) => Eff (WrFileSystem : es) a -> Eff es a
@@ -103,5 +104,9 @@ runWrFileSystemIO = interpret $ \_ -> \case
                 (openTempFile (takeDirectory path) (takeFileName path <> ".tmp"))
                 (\(temp, handle) -> hClose handle >> Directory.removeFile temp)
                 (\(temp, handle) -> Text.hPutStr handle text >> hClose handle >> renameFile temp path)
-    RemoveFile path -> liftIO (catchJust (\e -> if isDoesNotExistError e then Just () else Nothing) (Directory.removeFile path) pure)
+    RemoveFile path -> liftIO (orIfAbsent () (Directory.removeFile path))
     CreateDirectory path -> liftIO (createDirectoryIfMissing True path)
+
+-- | The action's result, or this when the path it names does not exist.
+orIfAbsent :: a -> IO a -> IO a
+orIfAbsent absent act = catchJust (guard . isDoesNotExistError) act (const (pure absent))
