@@ -7,7 +7,7 @@
 # A table or quoted block must stand alone: blank lines around it, so a row
 # added or dropped beside it fails too. The Fuel rows sit apart in their
 # table, so each must be a whole line of it. An init line sits inline in a
-# sentence, so it need only appear.
+# sentence, so it need only appear as a whole code span.
 {
   pkgs,
   state,
@@ -35,10 +35,10 @@ pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
     done < rendered
   }
 
-  # The rendered line, anywhere in the file.
+  # The rendered line as a whole code span, anywhere in the file.
   inline() {
     state render $2 > rendered
-    grep -Fq -- "$(cat rendered)" "$1" || fail "$1" "$2" rendered
+    grep -Fq -- "\`$(cat rendered)\`" "$1" || fail "$1" "$2" rendered
   }
 
   block ${engineer}/SKILL.md "states --flow engineer"

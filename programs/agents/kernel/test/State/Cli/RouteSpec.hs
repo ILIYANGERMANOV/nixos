@@ -97,7 +97,7 @@ gateSpec :: Spec
 gateSpec = describe "the gate of an agent bound to no run" $ do
     let denied lead = map (gate lead)
         writes = [Edits, Writes, Spawns] <> map RunsShell recordedCommands
-        initFix = "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>\n"
+        initFix = "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>/\n"
     it "denies a typed /engineer's edit, naming the init that starts its run" $
         gate engineer Edits
             `shouldBe` Just

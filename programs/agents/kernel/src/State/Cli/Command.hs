@@ -137,7 +137,7 @@ failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> fa
 
 -- | The fix where a run is missing: start one, its notes dir as the skills name it.
 initFix :: Text
-initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
+initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"
 
 -- | The 10x lead's @state init@ line, run in the run directory its skill names.
 tenXInitFix :: Text

@@ -189,7 +189,7 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["next"]
 
                 (ran.code, ran.err)
-                    `shouldBe` (2, ["state next: no run in this worktree - no state init ran here", "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>"])
+                    `shouldBe` (2, ["state next: no run in this worktree - no state init ran here", "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"])
 
             it "names a hand-edited bad line and appends nothing after it" $ \world -> do
                 _ <- drive world []
@@ -758,7 +758,7 @@ spec = describe "state over the doubles" $ do
             it "prints each flow's init line, as the hooks name it" $ \world -> do
                 ran <- traverse (\flow -> state world ["render", "init", "--flow", flow]) ["engineer", "10x"]
 
-                [(r.code, r.out) | r <- ran] `shouldBe` [(0, ["state init --notes /tmp/engineer-<owner>-<repo>-<slug>"]), (0, ["state init --notes \"$PWD\" --flow 10x"])]
+                [(r.code, r.out) | r <- ran] `shouldBe` [(0, ["state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"]), (0, ["state init --notes \"$PWD\" --flow 10x"])]
 
             it "refuses a block it does not know, with exit 2" $ \world -> do
                 ran <- state world ["render", "nowhere"]
