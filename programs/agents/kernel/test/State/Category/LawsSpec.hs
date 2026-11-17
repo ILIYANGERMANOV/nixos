@@ -20,7 +20,7 @@ import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
-import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, outOf, placeName, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Sing, StateName (..), StepSet, stateNameText)
@@ -221,7 +221,7 @@ bisimilar left right = go Set.empty [(left.inPort, right.inPort)]
             (Out, Out) -> Just []
             (Graph.Exit, Graph.Exit) -> Just []
             _ -> Nothing
-    leaving g place = Map.fromList [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place]
+    leaving g place = Map.fromAscList (outOf place g.edges)
     uncopiedKeys = Map.mapKeys (renameEvent strip)
     uncopied = renameState strip
     strip text = fromMaybe text (Text.stripPrefix (nameText copy <> "/") text)

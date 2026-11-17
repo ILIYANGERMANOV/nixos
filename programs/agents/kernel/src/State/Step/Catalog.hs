@@ -29,7 +29,7 @@ import Data.Typeable (eqT)
 import State.Category.Flow (Cappable (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Id, Into, Loop, Scope, (:>)), Name, branchesWith)
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel, SkipWhen)
-import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..))
+import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..), outOf)
 import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
 import State.Category.Ty (KnownTy)
@@ -219,7 +219,7 @@ actions' first, in the order the term declares them, each one's outcomes as
 its step declares them; then the state's own, by name.
 -}
 shownEdges :: OpenGraph -> Place -> [(EventName, Edge Node)]
-shownEdges g place = sortOn (shown . fst) [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place]
+shownEdges g place = sortOn (shown . fst) (outOf place g.edges)
   where
     ranks = Map.fromList [(metered.step, cap.rank) | (metered, cap) <- Map.toList g.caps, metered.place == place, metered.step /= place.name]
     shown event = case Map.lookup event.step ranks of

@@ -52,7 +52,7 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Name (..), ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
-import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
+import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, outOf)
 import State.Category.Graph qualified as Graph
 import State.Category.Path (unrecorded)
 import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
@@ -274,7 +274,7 @@ genAcceptedOn own on = do
     go 0 _ _ = pure []
     go k state n = case state.at of
         -- At a fan-out's await, only the 10x's own events, which this draws none of, move the run.
-        At place -> case handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | ((from, name), edge) <- Map.toList on.edges, from == place, isNothing (unrecorded on place)] of
+        At place -> case handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | isNothing (unrecorded on place), (name, edge) <- outOf place on.edges] of
             [] -> pure []
             choices -> do
                 took <- Gen.frequency choices

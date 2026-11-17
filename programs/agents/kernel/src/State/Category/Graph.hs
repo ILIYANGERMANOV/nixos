@@ -24,6 +24,7 @@ module State.Category.Graph (
     places,
     innermost,
     leaving,
+    outOf,
     eventLabel,
 ) where
 
@@ -192,7 +193,7 @@ reachable start edges = go Set.empty [start]
         [] -> seen
         place : rest
             | Set.member place seen -> go seen rest
-            | otherwise -> go (Set.insert place seen) ([next | ((from, _), Edge {to = At next}) <- Map.toList edges, from == place] <> rest)
+            | otherwise -> go (Set.insert place seen) ([next | (_, Edge {to = At next}) <- outOf place edges] <> rest)
 
 {- | Which summand of @t@ an edge continues into, down to one type. 'Here' at
 a sum does not type-check, so every selector names one in port. Its context
@@ -501,7 +502,7 @@ innermost g place = case [loop | loop <- Map.elems g.loops, Set.member place loo
 
 -- | The edges out of the state that leave the innermost loop around it: every one, for a state in no loop.
 leaving :: OpenGraph -> Place -> [(EventName, Edge Node)]
-leaving g place = [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == place, not (stays edge.to)]
+leaving g place = [(event, edge) | (event, edge) <- outOf place g.edges, not (stays edge.to)]
   where
     stays = \case
         At to -> maybe False (Set.member to . (.body)) (innermost g place)
@@ -515,6 +516,12 @@ eventLabel :: Place -> EventName -> Text
 eventLabel place event@(EventName step (OutcomeName outcome))
     | step == placeName place = outcome
     | otherwise = eventText event
+
+{- | The edges out of the state, by event: a range of the map, as its keys
+order by state first.
+-}
+outOf :: Place -> Map (Place, EventName) a -> [(EventName, a)]
+outOf place = map (\((_, event), a) -> (event, a)) . Map.toAscList . Map.takeWhileAntitone ((== place) . fst) . Map.dropWhileAntitone ((< place) . fst)
 
 -- | The states these edges leave.
 sources :: Map (Place, EventName) a -> Set Place

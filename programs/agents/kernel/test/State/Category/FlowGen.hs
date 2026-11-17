@@ -30,7 +30,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), ScopePath, scopePath)
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
-import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, outOf, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName)
@@ -81,13 +81,14 @@ on, or a pick of one of two.
 -}
 genBranching :: Gen (Flow 'Diff 'Nothing 'PR)
 genBranching =
-    Gen.recursive
-        Gen.choice
-        [inFresh (pure (Do Describe))]
-        [ (:>) <$> genEndo diffKit <*> genBranching
-        , inFresh ((\small big -> Do Triage :> Case (#small :-> small :& #big :-> Do Implement :> big :& End)) <$> genBranching <*> genBranching)
-        , inFresh ((\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genBranching <*> genBranching)
-        ]
+    bounded $
+        Gen.recursive
+            Gen.choice
+            [inFresh (pure (Do Describe))]
+            [ (:>) <$> genEndo diffKit <*> genBranching
+            , inFresh ((\small big -> Do Triage :> Case (#small :-> small :& #big :-> Do Implement :> big :& End)) <$> genBranching <*> genBranching)
+            , inFresh ((\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genBranching <*> genBranching)
+            ]
 
 {- | A choice from a diff to its PR over three branches, each entering a
 state of its own: @describe@, @big/refactor@ and @other/describe@. A
@@ -112,16 +113,26 @@ threeWayGraph = either (error . show) id (graph threeWay)
 
 genEndo :: (KnownTy a, NotSum a, Typeable a) => Kit a -> Gen (Flow a 'Nothing a)
 genEndo kit =
-    Gen.recursive
-        Gen.choice
-        [inFresh (Gen.element kit.endo)]
-        ( [ inFresh (opt <$> genName <*> genSkips <*> genEndo kit)
-          , (:>) <$> genEndo kit <*> genEndo kit
-          , Scope <$> genName <*> genEndo kit
-          , inFresh ((\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genEndo kit <*> genEndo kit)
-          ]
-            <> [inFresh (Loop <$> genName <*> genExiting kit) | not (null kit.exiting)]
-        )
+    bounded $
+        Gen.recursive
+            Gen.choice
+            [inFresh (Gen.element kit.endo)]
+            ( [ inFresh (opt <$> genName <*> genSkips <*> genEndo kit)
+              , (:>) <$> genEndo kit <*> genEndo kit
+              , Scope <$> genName <*> genEndo kit
+              , inFresh ((\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genEndo kit <*> genEndo kit)
+              ]
+                <> [inFresh (Loop <$> genName <*> genExiting kit) | not (null kit.exiting)]
+            )
+
+{- | A term's size at most 20 of hedgehog's 100: every leaf sits under a scope
+of its own ('inFresh'), so nearly every term builds, and at full size its
+graph runs to hundreds of edges with no case reached that a smaller one
+misses. A recursive call is already within the bound, so bounding it again
+changes nothing.
+-}
+bounded :: Gen a -> Gen a
+bounded = Gen.scale (min 20)
 
 -- | A loop or skip name from a small pool, so nested terms sometimes reuse one.
 genName :: Gen Name
@@ -165,7 +176,7 @@ genWalkTo port g = Gen.just $ do
     go detour g.inPort
   where
     go 0 place = pure (pathTo g (At place) port)
-    go n place = case [(event, next) | ((from, event), Edge {to = At next}) <- Map.toList g.edges, from == place] of
+    go n place = case [(event, next) | (event, Edge {to = At next}) <- outOf place g.edges] of
         [] -> pure (pathTo g (At place) port)
         inside -> do
             (event, next) <- Gen.element inside
@@ -179,7 +190,7 @@ pathTo g from target = go (Set.singleton from) [(from, [])]
     go seen ((node, walked) : queue)
         | node == target = Just (reverse walked)
         | otherwise =
-            let next = [(edge.to, event : walked) | ((place, event), edge) <- Map.toList g.edges, At place == node, edge.to `Set.notMember` seen]
+            let next = [(edge.to, event : walked) | At place <- [node], (event, edge) <- outOf place g.edges, edge.to `Set.notMember` seen]
              in go (foldr (Set.insert . fst) seen next) (queue <> next)
 
 {- | Each kept state a run can bypass: none, by

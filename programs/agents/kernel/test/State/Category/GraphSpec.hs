@@ -10,7 +10,7 @@ import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
 import State.Category.Fuel (always)
-import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, outOf, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
@@ -124,7 +124,7 @@ spec = describe "State.Category.Graph" $ do
 
 -- | The edges out of the graph's first state: each event and where it goes.
 outOfStart :: OpenGraph -> [(EventName, Node)]
-outOfStart g = [(event, edge.to) | ((from, event), edge) <- Map.toList g.edges, from == g.inPort]
+outOfStart g = [(event, edge.to) | (event, edge) <- outOf g.inPort g.edges]
 
 -- | The gather's questions, capped as an action of its choice.
 questions :: Flow 'Ctx 'Nothing 'Ctx

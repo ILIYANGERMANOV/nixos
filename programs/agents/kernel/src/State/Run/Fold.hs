@@ -68,7 +68,7 @@ import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText, scopeNames)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, outOf, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (awaitDone, forkPasses, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
@@ -1026,7 +1026,7 @@ stuckExits :: OpenGraph -> RunState -> Place -> [(EventName, Edge Node)]
 stuckExits g state place = case innermost g place of
     Just loop
         | Ask.Stuck `elem` state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
-            [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == loop.entry, not (inBody loop edge.to)]
+            [(event, edge) | (event, edge) <- outOf loop.entry g.edges, not (inBody loop edge.to)]
     _ -> []
   where
     inBody loop = \case

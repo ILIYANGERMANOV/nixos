@@ -31,7 +31,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath, nameText, unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
-import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, placeName)
+import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, outOf, placeName)
 import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Flow.Drawn (drawnOutcomes)
@@ -108,7 +108,7 @@ capRecords g place atCap = case atCap of
     Extend -> extendOption : if null exits then outs else exits
   where
     exits = [recordOption event edge | (event, edge) <- leaving g place]
-    outs = [recordOption event edge | ((from, event), edge) <- Map.toList g.edges, from == place]
+    outs = [recordOption event edge | (event, edge) <- outOf place g.edges]
 
 -- | The user's yes to one more interview round, and why.
 extend :: Recordable
