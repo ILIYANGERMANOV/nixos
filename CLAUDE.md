@@ -15,7 +15,7 @@ modules/nixos/  - NixOS-only system configuration (server/ - factories only,
 modules/macos/  - nix-darwin-only system configuration
 modules/home/   - Home Manager configuration shared across all hosts
 programs/       - reusable, host-agnostic program configs
-programs/agents/- agent-agnostic config shared by every coding agent (instructions, skill catalog, subagent role records)
+programs/agents/- agent-agnostic config shared by every coding agent (instructions, skills, subagent roles)
 programs/tech-checks/ - `<tech>-<kind>` checks, treefmt
 programs/shell-check/ - `writeShellApplication` and its rules
 shells/         - dev shells (default for repo recipes, nixos-install, darwin-install)
@@ -136,10 +136,9 @@ thin backend.**
 **The logic ladder: pure Haskell >> impure Haskell >> hooks >> prose**
 (`.claude/rules/agents-logic-ladder.md`).
 
-The vision, read before any agent design: `programs/agents/VISION.md`.
-
+Before any agent design read `programs/agents/VISION.md`.
 Details: `.claude/rules/agents-*.md` and `claude-code-*.md`, each loaded only
-under the folder it covers; why: `docs/adr/0011-agent-compiler.md`.
+under its folder; why: `docs/adr/0011-agent-compiler.md`.
 
 ## Software factory
 
