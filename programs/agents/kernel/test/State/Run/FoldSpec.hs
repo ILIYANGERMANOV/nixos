@@ -32,9 +32,9 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph)
+import State.Run.RunGen (architectGraph, childOf, commit, designWritten, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Catalog (outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), choiceNamed, discussing, exploring, gathering)
+import State.Step.Choice (Outcome (..), choiceNamed, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
@@ -495,21 +495,18 @@ user confirms one, the ticket finalized and its url kept.
 architectRun :: Spec
 architectRun = describe "the architect's run" $ do
     it "researches, opens the ticket, adjusts the design once, then finalizes the confirmed one, keeping the ticket's url" $
-        (\state -> (state.at, state.ticket)) <$> architect (opened <> designRound ConfirmDesignAdjusted <> designRound ConfirmDesignConfirmed <> [stepTook FinalizeTicketDone])
-            `shouldBe` Right (Out, Just ticket)
+        (\state -> (state.at, state.ticket)) <$> architect (ticketOpened <> designRound ConfirmDesignAdjusted <> designRound ConfirmDesignConfirmed <> [stepTook FinalizeTicketDone])
+            `shouldBe` Right (Out, Just ticketUrl)
 
     it "refuses a fourth adjusted design at Balanced's three rounds" $
-        architect (opened <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
+        architect (ticketOpened <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
 
-    it "grants three more design rounds after extend" $ do
-        let extended = opened <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> [stepTook (Enough discussing), stepTook UpdateTicketDone, Extended "the user goes on"]
+    it "accepts a fourth adjusted design after extend" $ do
+        let extended = ticketOpened <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> designWritten <> [Extended "the user goes on"]
         architect (extended <> [stepTook ConfirmDesignAdjusted]) `shouldSatisfy` isRight
   where
     architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| FuelSet Balanced : events))
-    ticket = Url "https://github.com/o/r/issues/1"
-    opened = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring), stepTook (OpenTicketDone ticket)]
-    -- One design round: discussed, written into the ticket, and the user's verdict.
-    designRound verdict = [stepTook (Enough discussing), stepTook UpdateTicketDone, stepTook verdict]
+    designRound verdict = designWritten <> [stepTook verdict]
 
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.

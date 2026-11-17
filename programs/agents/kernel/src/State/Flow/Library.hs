@@ -45,7 +45,7 @@ gather =
     choiceLoop
         gathering
         [ researchers
-        , Capped (UpTo <$> PerFuel 15 30 50) Extend Interview
+        , Capped questions Extend Interview
         ]
 
 -- | Researchers alone, until the agent has enough: the facts before a ticket opens.
@@ -61,12 +61,16 @@ discuss =
     choiceLoop
         discussing
         [ researchers
-        , Capped (UpTo <$> PerFuel 15 30 50) Extend Discuss
+        , Capped questions Extend Discuss
         ]
 
 -- | A researcher per open fact group, one at Low: each spawn opens a child.
 researchers :: Flow 'Ctx 'Nothing 'Ctx
 researchers = spawn (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research
+
+-- | The questions the user is asked, by Fuel: an interview's or a discussion's.
+questions :: PerFuel Limit
+questions = UpTo <$> PerFuel 15 30 50
 
 -- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm is asked at every level.
 propose :: Flow 'Ctx ('Just 'Plan) 'Ctx

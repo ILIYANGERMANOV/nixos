@@ -153,7 +153,7 @@ jobReply steps name input call job = case job of
     Routes gate ->
         callerBinding call >>= \(slot, bound) -> case (bound, gate) of
             (Just binding, _) ->
-                readOnlyAt binding gate >>= \case
+                readOnlyAt binding.notes gate >>= \case
                     Just why -> pure (Deny why)
                     Nothing -> case gate of
                         RunsShell command -> case stateCalls steps call.cwd command of
@@ -174,18 +174,16 @@ jobReply steps name input call job = case job of
 
 {- | Why the bound run denies the call where it is: by the flow running
 there. Read under the log's lock, appending nothing; no git is read, as a
-route runs before every edit. A run that is gone or does not replay denies
-nothing: its other hooks tell what is wrong with it.
+route runs before every edit. The run is replayed, as a scope inside it may
+run another flow. A run that is gone or does not replay denies nothing: its
+other hooks tell what is wrong with it.
 -}
-readOnlyAt :: (Log :> es) => Binding -> Gate -> Eff es (Maybe Text)
-readOnlyAt binding gate =
-    Log.exists path >>= \case
-        False -> pure Nothing
-        True -> Log.locked path $ \case
-            Right (first : rest) | Right (_, state) <- replayed path (first :| rest) -> ([], Route.readOnly (Role.flowAt state.start.flow (askedAt state)) gate)
-            _ -> ([], Nothing)
-  where
-    path = logOf binding.notes
+readOnlyAt :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => FilePath -> Gate -> Eff es (Maybe Text)
+readOnlyAt notes gate =
+    onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) (logOf notes) <&> \case
+        Ran (Right denial) -> denial
+        Ran (Left _) -> Nothing
+        NoRun -> Nothing
 
 -- | Marks the caller a lead of the skill it began; a disk error is told, the skill begins regardless.
 markLead :: (Shell es) => Call -> LeadSkill -> Eff es Text

@@ -3,6 +3,9 @@ module State.Run.RunGen (
     g,
     tenXGraph,
     architectGraph,
+    ticketUrl,
+    ticketOpened,
+    designWritten,
     securityGraph,
     securityScope,
     scopedIn,
@@ -56,12 +59,13 @@ import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
-import State.Step.Choice (Outcome (..), gathering)
+import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 import State.Table (Steps, parseSteps)
 import System.Environment (getEnv)
 
@@ -85,6 +89,18 @@ tenXGraph = either (error . show) id (graph tenX)
 
 architectGraph :: OpenGraph
 architectGraph = either (error . show) id (graph architect)
+
+-- | The ticket an architect run opens.
+ticketUrl :: Url
+ticketUrl = Url "https://github.com/o/r/issues/1"
+
+-- | An architect run up to its ticket: researched, explored enough, the ticket opened.
+ticketOpened :: [Event]
+ticketOpened = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring), stepTook (OpenTicketDone ticketUrl)]
+
+-- | A design round up to the user's verdict: discussed, written into the ticket.
+designWritten :: [Event]
+designWritten = [stepTook (Enough discussing), stepTook UpdateTicketDone]
 
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph

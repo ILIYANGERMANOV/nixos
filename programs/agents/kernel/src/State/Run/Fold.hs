@@ -460,7 +460,6 @@ data Effect = Effect
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
     , opened :: Maybe Url
-    -- ^ The ticket opened.
     }
 
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
