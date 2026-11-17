@@ -21,6 +21,7 @@ module State.Role (
     leads,
     roleText,
     scopeFlow,
+    flowAt,
     rungAt,
 ) where
 
@@ -31,6 +32,7 @@ import State.Category.Flow (Flow, Name (..), scopeNames, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (KnownTy (..), NotSum, Ty (..))
+import State.Flow.Architect (architect)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.FlowName (FlowName (..), defaultFlow, flowText)
@@ -58,6 +60,7 @@ role :: FlowName -> RoleDef
 role flowName = case flowName of
     EngineerFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow engineer) Lead
     TenXFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow tenX) Orchestrator
+    ArchitectFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow architect) Lead
 
 roles :: [RoleDef]
 roles = map role [minBound .. maxBound]
@@ -76,10 +79,12 @@ their own.
 scopeFlow :: Name -> Maybe FlowName
 scopeFlow (Name scope) = parseByName flowText scope
 
-{- | The rung a question asked at this state climbs from: that of the
-innermost scope around it that runs a flow, else that of the run's own flow.
--}
+-- | The flow running at this state: the innermost scope around it that runs one, else the run's own.
+flowAt :: FlowName -> StateName -> FlowName
+flowAt runFlow (StateName at) = case reverse (mapMaybe scopeFlow (scopeNames (fst (unqualify at)))) of
+    innermost : _ -> innermost
+    [] -> runFlow
+
+-- | The rung a question asked at this state climbs from: that of the flow running there.
 rungAt :: FlowName -> StateName -> Rung
-rungAt runFlow (StateName asked) = case reverse (mapMaybe scopeFlow (scopeNames (fst (unqualify asked)))) of
-    innermost : _ -> (role innermost).rung
-    [] -> (role runFlow).rung
+rungAt runFlow asked = (role (flowAt runFlow asked)).rung

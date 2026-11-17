@@ -5,6 +5,8 @@ values, so a flow names these flows rather than their steps.
 module State.Flow.Library (
     agree,
     gather,
+    research,
+    discuss,
     propose,
     build,
     review,
@@ -19,7 +21,7 @@ import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (Ty (..))
 import State.Step.Build (Sing (..))
-import State.Step.Choice (gathering)
+import State.Step.Choice (discussing, exploring, gathering)
 import State.Step.Gather (Sing (..))
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Sing (..))
@@ -42,9 +44,33 @@ gather :: Flow 'Ctx 'Nothing 'Ctx
 gather =
     choiceLoop
         gathering
-        [ spawn (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research
-        , Capped (UpTo <$> PerFuel 15 30 50) Extend Interview
+        [ researchers
+        , Capped questions Extend Interview
         ]
+
+-- | Researchers alone, until the agent has enough: the facts before a ticket opens.
+research :: Flow 'Ctx 'Nothing 'Ctx
+research = choiceLoop exploring [researchers]
+
+{- | The design discussion: spawn a researcher on a fact gap, or ask the user
+a design question, each explained before it is asked; @extend@ grants both
+budgets again at the user's yes.
+-}
+discuss :: Flow 'Ctx 'Nothing 'Ctx
+discuss =
+    choiceLoop
+        discussing
+        [ researchers
+        , Capped questions Extend Discuss
+        ]
+
+-- | A researcher per open fact group, one at Low: each spawn opens a child.
+researchers :: Flow 'Ctx 'Nothing 'Ctx
+researchers = spawn (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research
+
+-- | The questions the user is asked, by Fuel: an interview's or a discussion's.
+questions :: PerFuel Limit
+questions = UpTo <$> PerFuel 15 30 50
 
 -- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm is asked at every level.
 propose :: Flow 'Ctx ('Just 'Plan) 'Ctx

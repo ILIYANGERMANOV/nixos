@@ -7,6 +7,7 @@ import Hedgehog.Range qualified as Range
 import State.Cli.Route
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
+import State.Role (FlowName (..))
 import State.Run.Event (AgentRole (..))
 import State.Run.EventGen (runId)
 import State.Run.RunGen (loadSteps)
@@ -92,6 +93,7 @@ spec = describe "routing a shell command's state calls" $ do
             route bound {toplevel = "/home/me/my repo"} [(next, Just "/repo")] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
 
     gateSpec
+    readOnlySpec
 
 gateSpec :: Spec
 gateSpec = describe "the gate of an agent bound to no run" $ do
@@ -110,6 +112,9 @@ gateSpec = describe "the gate of an agent bound to no run" $ do
 
     it "points a typed /10x-engineer at the init its run directory takes" $
         denied (SkillLead TenXSkill) writes `shouldSatisfy` all (maybe False ("fix: state init --notes \"$PWD\" --flow 10x, in the run directory Intake or Resume names\n" `Text.isSuffixOf`))
+
+    it "points a typed /architect at the architect's init" $
+        denied (SkillLead ArchitectSkill) writes `shouldSatisfy` all (maybe False ("fix: state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --flow architect\n" `Text.isSuffixOf`))
 
     it "points a spawned lead at the init line in its prompt" $
         denied RoleLead writes `shouldSatisfy` all (maybe False ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`))
@@ -134,6 +139,21 @@ gateSpec = describe "the gate of an agent bound to no run" $ do
     engineer = SkillLead EngineerSkill
     recordedCommands = ["git commit -m x", "git push", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash", "git add . && git commit -m x"]
     readCommands = ["git status", "git log --oneline -3", "gh pr view 7", "state next", "state init --notes /tmp/n --task t", "echo git commit"]
+
+readOnlySpec :: Spec
+readOnlySpec = describe "the architect's read-only run" $ do
+    let codeWrites = [Edits, Writes] <> map RunsShell ["git commit -m x", "git -C /wt push -u origin HEAD", "gh pr create --draft", "gh pr merge 7 --squash"]
+        ticketCalls = [Spawns] <> map RunsShell ["gh issue create --repo o/r --title t --body b", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\nbody\nEOF", "git status", "state next"]
+    it "denies an edit, a write, a commit, a push and a PR opened or merged, naming the ticket as the fix" $
+        map (readOnly ArchitectFlow) codeWrites `shouldSatisfy` all (maybe False ("fix: write the design into the ticket" `Text.isInfixOf`))
+
+    it "lets a researcher spawn, the ticket be written and reads go on" $
+        map (readOnly ArchitectFlow) ticketCalls `shouldBe` map (const Nothing) ticketCalls
+
+    it "never_denies_the_engineer_or_the_10x" . hedgehog $ do
+        flow <- forAll (Gen.element [EngineerFlow, TenXFlow])
+        call <- forAll (Gen.element (codeWrites <> ticketCalls))
+        readOnly flow call === Nothing
 
 -- | An absolute directory of plain path words, which a shell reads as written.
 genDir :: Gen FilePath

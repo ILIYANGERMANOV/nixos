@@ -33,6 +33,7 @@ import State.Step.Gather (GatherStep)
 import State.Step.Plan (PlanStep)
 import State.Step.Review (ReviewStep)
 import State.Step.Ship (ShipStep)
+import State.Step.Ticket (TicketStep)
 
 -- | A layer of steps, by the kind of its steps.
 data Layer k where
@@ -41,6 +42,7 @@ data Layer k where
     BuildLayer :: Layer BuildStep
     ReviewLayer :: Layer ReviewStep
     ShipLayer :: Layer ShipStep
+    TicketLayer :: Layer TicketStep
     FanLayer :: Layer FanStep
     ChoiceLayer :: Layer ChoiceStep
 
@@ -55,12 +57,13 @@ instance KnownLayer PlanStep where layer = PlanLayer
 instance KnownLayer BuildStep where layer = BuildLayer
 instance KnownLayer ReviewStep where layer = ReviewLayer
 instance KnownLayer ShipStep where layer = ShipLayer
+instance KnownLayer TicketStep where layer = TicketLayer
 instance KnownLayer FanStep where layer = FanLayer
 instance KnownLayer ChoiceStep where layer = ChoiceLayer
 
 -- | The layers, in the order the flows run them.
 layers :: [SomeLayer]
-layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer]
+layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer]
   where
     _listsEvery :: Layer k -> ()
     _listsEvery = \case
@@ -69,6 +72,7 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
         BuildLayer -> ()
         ReviewLayer -> ()
         ShipLayer -> ()
+        TicketLayer -> ()
         FanLayer -> ()
         ChoiceLayer -> ()
 
@@ -87,6 +91,8 @@ sameLayer a b = case (a, b) of
     (ReviewLayer, _) -> Nothing
     (ShipLayer, ShipLayer) -> Just Refl
     (ShipLayer, _) -> Nothing
+    (TicketLayer, TicketLayer) -> Just Refl
+    (TicketLayer, _) -> Nothing
     (FanLayer, FanLayer) -> Just Refl
     (FanLayer, _) -> Nothing
     (ChoiceLayer, ChoiceLayer) -> Just Refl

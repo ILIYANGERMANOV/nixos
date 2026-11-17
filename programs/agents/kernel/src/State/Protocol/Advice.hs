@@ -305,6 +305,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
     fuelAsked = case state.start.flow of
         EngineerFlow -> isJust state.fuel
         TenXFlow -> True
+        ArchitectFlow -> isJust state.fuel
     output = outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
@@ -373,7 +374,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
             (Agent role _, Nothing) -> Spawn role Nothing
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
-        AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
+        AsksConfirm what -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm (what <> ": confirmed, or adjusted?")
         Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
       where
@@ -529,12 +530,13 @@ recordsFinished fan = [(task.id, Run (one (recordTask task) "its child finished:
 recordTask :: Task -> Text
 recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (InReview (Url "<url>"))
 
-{- | The url of what the run's flow ends in, when the run keeps one: a PR's.
-No step records a url for any other type yet.
+{- | The url of what the run's flow ends in, when the run keeps one: a PR's
+or a ticket's. No step records a url for any other type yet.
 -}
 outputUrl :: Ty -> Facts -> RunState -> Maybe Url
 outputUrl out facts state = case out of
     PR -> prUrl facts state
+    Ticket -> state.ticket
     Ctx -> Nothing
     Plan -> Nothing
     Diff -> Nothing

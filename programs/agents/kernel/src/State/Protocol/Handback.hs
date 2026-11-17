@@ -52,6 +52,7 @@ import State.Step.Review (Outcome (..))
 import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..))
 import State.Step.Ship qualified as Ship
+import State.Step.Ticket qualified as Ticket
 import State.Table (Row (..), Runner (..), Steps, row, stepsRunBy)
 
 data Handback = Handback
@@ -318,6 +319,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
         GatherLayer -> case s of
             Gather.Research -> took Gather.ResearchHandedBack
             Gather.Interview -> inline s
+            Gather.Discuss -> inline s
         PlanLayer -> case s of
             Plan.SimplifyP -> took SimplifyPlanDone
             Plan.PlanS -> inline s
@@ -338,6 +340,11 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Ship.FixPR -> took . FixPrDone =<< atHead
             Ship.AwaitCi -> inline s
             Ship.Ready -> inline s
+        TicketLayer -> case s of
+            Ticket.OpenTicket -> inline s
+            Ticket.UpdateTicket -> inline s
+            Ticket.ConfirmDesign -> inline s
+            Ticket.FinalizeTicket -> inline s
         FanLayer -> case s of
             Fan.Breakdown _ -> inline s
             Fan.FanOut _ -> inline s

@@ -53,12 +53,13 @@ import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), gathering)
+import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 
 genEnvelope :: Gen Envelope
 genEnvelope =
@@ -203,6 +204,8 @@ templates =
     [ outcome ResearchSpawned
     , outcome ResearchHandedBack
     , outcome (Enough gathering)
+    , outcome (Enough exploring)
+    , outcome (Enough discussing)
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
     , outcome SimplifyPlanSkipped
@@ -227,6 +230,11 @@ templates =
     , outcome (FixPrDone (Sha ""))
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
+    , outcome (OpenTicketDone (Url ""))
+    , outcome UpdateTicketDone
+    , outcome ConfirmDesignConfirmed
+    , outcome ConfirmDesignAdjusted
+    , outcome FinalizeTicketDone
     ]
         <> concat
             [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
@@ -274,6 +282,12 @@ likeIn = \case
         FixPrDone _ -> FixPrDone <$> genSha
         ReadyDone _ -> ReadyDone . Url <$> genText
         ReadySkipped _ -> ReadySkipped . Url <$> genText
+    TicketLayer -> \case
+        OpenTicketDone _ -> OpenTicketDone . Url <$> genText
+        UpdateTicketDone -> pure UpdateTicketDone
+        ConfirmDesignConfirmed -> pure ConfirmDesignConfirmed
+        ConfirmDesignAdjusted -> pure ConfirmDesignAdjusted
+        FinalizeTicketDone -> pure FinalizeTicketDone
     FanLayer -> \case
         BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
         FanDone fan -> pure (FanDone fan)

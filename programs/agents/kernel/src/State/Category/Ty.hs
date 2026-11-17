@@ -13,10 +13,11 @@ module State.Category.Ty (
 import GHC.TypeError (ErrorMessage (..), Unsatisfiable)
 
 {- | Types are references, not values: a plan file, a commit, a PR number.
-'Findings' are a review's rows on a diff, the rows a fix takes.
+'Findings' are a review's rows on a diff, the rows a fix takes. A 'Ticket'
+is a design written into an issue tracker's ticket, by its url.
 @a ':+' b@ is #351's sum: one of the two, as a step that branches hands on.
 -}
-data Ty = Ctx | Plan | Diff | Findings | PR | List Ty | Ty :+ Ty
+data Ty = Ctx | Plan | Diff | Findings | PR | Ticket | List Ty | Ty :+ Ty
     deriving stock (Eq, Ord, Show)
 
 infixr 6 :+
@@ -30,6 +31,7 @@ instance KnownTy 'Plan where tyVal = Plan
 instance KnownTy 'Diff where tyVal = Diff
 instance KnownTy 'Findings where tyVal = Findings
 instance KnownTy 'PR where tyVal = PR
+instance KnownTy 'Ticket where tyVal = Ticket
 instance (KnownTy t) => KnownTy ('List t) where tyVal = List (tyVal @t)
 instance (KnownTy a, KnownTy b) => KnownTy (a ':+ b) where tyVal = tyVal @a :+ tyVal @b
 
@@ -50,6 +52,7 @@ instance NotSum 'Plan
 instance NotSum 'Diff
 instance NotSum 'Findings
 instance NotSum 'PR
+instance NotSum 'Ticket
 instance NotSum ('List t)
 
 instance

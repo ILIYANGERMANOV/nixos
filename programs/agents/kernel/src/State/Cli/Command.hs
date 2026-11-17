@@ -20,6 +20,7 @@ module State.Cli.Command (
     failureText,
     initFix,
     tenXInitFix,
+    architectInitFix,
     noteOf,
     explain,
     unknownEvent,
@@ -142,6 +143,10 @@ initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"
 -- | The 10x lead's @state init@ line, run in the run directory its skill names.
 tenXInitFix :: Text
 tenXInitFix = "state init --notes \"$PWD\" --flow 10x"
+
+-- | The architect's @state init@ line: its notes hold the research, its ticket the design.
+architectInitFix :: Text
+architectInitFix = "state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --flow architect"
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
 noteOf :: Failure -> Note

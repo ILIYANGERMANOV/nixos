@@ -48,6 +48,7 @@ import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
 import State.Step.Ship (Outcome (..), Sing (..))
+import State.Step.Ticket (Outcome (..), Sing (..))
 
 {- | An event to record. Most carry the commit the worktree is at, which only
 the shell can read; a breakdown or an added task is read from a file, by the shell too.
@@ -182,8 +183,13 @@ recordables =
                 check : more -> Right (AtHead (\sha -> tookIn a.scope (AwaitCiRed sha (fmap Check (check :| more)))))
                 [] -> Left "the failing checks"
            , atHead FixPR FixPrDone
-           , url Ready ReadyDone
-           , url Ready ReadySkipped
+           , url "the PR's url" Ready ReadyDone
+           , url "the PR's url" Ready ReadySkipped
+           , url "the issue's url" OpenTicket OpenTicketDone
+           , nothing UpdateTicketDone
+           , nothing ConfirmDesignConfirmed
+           , nothing ConfirmDesignAdjusted
+           , nothing FinalizeTicketDone
            ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
         <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
@@ -206,7 +212,7 @@ recordables =
                 [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
-        <> concat [[url (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
+        <> concat [[url "the PR's url" (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
   where
     breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (tookIn a.scope . BreakdownDone fan) . Codec.decodeBreakdown))
@@ -225,9 +231,9 @@ recordables =
     picks s done = outcome (builtEvent s done) "" [Flag "row" "<label>" Repeated, Flag "verdict" ("<requirement>=<" <> choices judgementText <> ">") Repeated] $ \a -> case a.positional of
         [] -> Plain . tookIn a.scope . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
         _ -> Left "rows and verdicts are options"
-    url s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
+    url noun s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
         [raw] -> Right (Plain (tookIn a.scope (done (Url raw))))
-        _ -> Left "the PR's url"
+        _ -> Left noun
     verdict raw = case Text.breakOnEnd "=" raw of
         (requirement, judgement) | Just r <- Text.stripSuffix "=" requirement, not (Text.null r) -> (Requirement r,) <$> known "verdict" (parseByName judgementText) judgement
         _ -> Left (raw <> " is not <requirement>=<verdict>")

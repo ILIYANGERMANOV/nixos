@@ -397,6 +397,24 @@ spec = describe "state-hook over the doubles" $ do
                 (said.code, said.out, length after) `shouldBe` (0, [], length before')
 
         describe "route" $ do
+            it "denies a session bound to an architect run its edit, commit, push and PR, letting a spawn, gh issue and a heredoc through" $ \world -> do
+                run <- startedIn world ["--flow", "architect"]
+                putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
+
+                let denied = editCall : map stateCall writing
+                    allowed = spawned "researcher" : map stateCall issuing
+                said <- traverse (fmap denies . hook world "route") (denied <> allowed)
+
+                said `shouldBe` map (const True) denied <> map (const False) allowed
+
+            it "lets a session bound to an engineer run edit, commit and push" $ \world -> do
+                run <- startedRun world
+                putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
+
+                said <- traverse (hook world "route") (editCall : map stateCall writing)
+
+                map (.out) said `shouldBe` map (const []) (editCall : map stateCall writing)
+
             it "denies a bound session's state call at another run, naming its own" $ \world -> do
                 run <- startedRun world
                 putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /other\n")
@@ -450,6 +468,18 @@ spec = describe "state-hook over the doubles" $ do
 
                 after <- logBytes world
                 after `shouldBe` before'
+
+-- | Calls the architect's run denies: a commit, a push, a PR opened.
+writing :: [Text]
+writing = ["git commit -m x", "git push -u origin HEAD", "gh pr create --draft"]
+
+-- | Calls the architect's run lets through: its ticket, by @gh issue@ and a heredoc.
+issuing :: [Text]
+issuing = ["gh issue create --repo o/r --title '[WIP] t' --body x", "gh issue edit 1 --repo o/r --body-file - <<'EOF'\n# Design\nEOF"]
+
+-- | Whether the route hook denied the call, naming the architect flow.
+denies :: Ran -> Bool
+denies said = any ("the architect flow changes no code" `Text.isInfixOf`) said.out
 
 -- | The id of the run the worktree's log holds.
 runOf :: IORef World -> IO Text

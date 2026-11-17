@@ -12,6 +12,8 @@ module State.Step.Choice (
     Sing (..),
     Outcome (..),
     gathering,
+    exploring,
+    discussing,
     choices,
     routes,
     choiceNamed,
@@ -90,9 +92,19 @@ deriving stock instance Eq (Outcome (s :: ChoiceStep) l)
 gathering :: Name
 gathering = "gather"
 
+{- | The architect's research before its ticket opens. Named apart from its
+action, @research@: a choice's state and loop take its name.
+-}
+exploring :: Name
+exploring = "exploring"
+
+-- | The architect's design discussion: research and design questions, as the agent chooses.
+discussing :: Name
+discussing = "discussing"
+
 -- | Every choice a run may hold, so the log's decoders know each one's @enough@.
 choices :: [Name]
-choices = [gathering]
+choices = [gathering, exploring, discussing]
 
 {- | Every route a run may hold, with its branches, so the log's decoders
 know each pick. None yet: the chief's routes join here.

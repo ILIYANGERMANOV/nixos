@@ -167,6 +167,7 @@ tyText = \case
     Diff -> "Diff"
     Findings -> "Findings"
     PR -> "PR"
+    Ticket -> "Ticket"
     List t -> "[" <> tyText t <> "]"
     a :+ b -> "(" <> tyText a <> " + " <> tyText b <> ")"
 

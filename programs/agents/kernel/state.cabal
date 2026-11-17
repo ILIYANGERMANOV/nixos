@@ -53,6 +53,7 @@ library
     State.Cli.Route
     State.Cli.Shell
     State.Cli.View
+    State.Flow.Architect
     State.Flow.Engineer
     State.Flow.Library
     State.Flow.TenX
@@ -79,6 +80,7 @@ library
     State.Step.Plan
     State.Step.Review
     State.Step.Ship
+    State.Step.Ticket
     State.Table
 
   build-depends:

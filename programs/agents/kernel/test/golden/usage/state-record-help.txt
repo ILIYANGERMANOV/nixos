@@ -10,6 +10,8 @@ Available commands:
   research.spawned         no arguments
   research.handed_back     no arguments
   gather.enough            no arguments
+  exploring.enough         no arguments
+  discussing.enough        no arguments
   extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments
@@ -37,6 +39,11 @@ Available commands:
   fix_pr.done              no arguments
   ready.done               <url>
   ready.skipped            <url>
+  open_ticket.done         <url>
+  update_ticket.done       no arguments
+  confirm_design.confirmed no arguments
+  confirm_design.adjusted  no arguments
+  finalize_ticket.done     no arguments
   breakdown.done           --tasks <file.json>
   engineers.done           no arguments
   task                     <id> <ci|review|merged|kept|round> <pr> | add
