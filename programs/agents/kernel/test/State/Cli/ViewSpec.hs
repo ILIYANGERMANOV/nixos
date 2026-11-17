@@ -27,7 +27,7 @@ spec = describe "the texts that need no run" $ do
                 briefOf steps role `shouldSatisfy` \text -> all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
 
         it "names every hand-back token for line 1 at a step the role runs" $ do
-            let atImplement = runAt (fuelSet Balanced : map (Took mempty) (take 8 happyPath))
+            let atImplement = runAt (fuelSet Balanced : map (Took mempty) (take 10 happyPath))
             brief steps atImplement (AgentRole "implementer") Nothing `shouldSatisfy` \case
                 Right text -> take 1 (Text.lines text) == ["## implement"] && all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
                 Left _ -> False

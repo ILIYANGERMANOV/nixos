@@ -16,6 +16,7 @@ module State.Category.Graph (
     LoopAt (..),
     Cap (..),
     Metered (..),
+    GroupAt (..),
     shownOrder,
     Clash (..),
     graph,
@@ -36,7 +37,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 
 -- Flow's 'Exit' is qualified: 'Exit' here is the 'Node'.
-import State.Category.Flow (Branch (..), Branches (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Par, Route, Scope, (:>)), Group (..), Name (..), ScopePath, enoughOutcome, fanEvent, namedState, qualify, qualifyEvent, scopePath, scoped)
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Par, Route, Scope, (:>)), Group (..), Name (..), ScopePath, enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent, scopePath, scoped)
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
@@ -105,6 +106,8 @@ data OpenGraph = OpenGraph
     , caps :: Map Metered Cap
     , routes :: Set Place
     -- ^ Each 'Route''s hub, where the run picks a branch.
+    , groupStates :: Map Place GroupAt
+    -- ^ The 'Fork' and 'Await' states, by group in its scopes.
     }
     deriving stock (Eq, Show)
 
@@ -138,6 +141,8 @@ data Clash
       that passes no 'Await' of its group: its children would outlive it.
       -}
       NotAwaited Place Name
+    | -- | Two states of one name: an event names its state, so one would stand for both.
+      SameState StateName
     deriving stock (Eq, Show)
 
 {- | A whole flow starts from one type and ends in one, so it has one in port
@@ -159,15 +164,19 @@ whole p = do
                 , loops = Map.mapMaybe (\at -> if Set.member at.entry reached then Just at {body = Set.intersection at.body reached} else Nothing) p.loops
                 , caps = Map.filterWithKey (\metered _ -> Set.member metered.place reached) p.caps
                 , routes = Set.intersection p.routes reached
+                , groupStates = Map.restrictKeys p.groups reached
                 }
+    case [name | (name, n) <- Map.toList (Map.fromListWith (+) [(placeName place, 1 :: Int) | place <- Set.toList reached]), n > 1] of
+        [] -> pure ()
+        name : _ -> Left (SameState name)
     case [metered.place | (metered, cap) <- Map.toList g.caps, refuses cap.atCap, null (leaving g metered.place)] of
         [] -> pure ()
         place : _ -> Left (RefuseWithoutWayOut place)
-    case [(place, group) | (place, Forks group) <- Map.toList p.groups, Set.member place reached, escapes g.edges (awaitsOf group) place] of
+    case [(place, group) | (place, Forking group) <- Map.toList p.groups, Set.member place reached, escapes g.edges (awaitsOf group) place] of
         [] -> pure g
         (place, group) : _ -> Left (NotAwaited place group)
   where
-    awaitsOf group = Map.keysSet (Map.filter (== Awaits group) p.groups)
+    awaitsOf group = Map.keysSet (Map.filter (== Awaiting group) p.groups)
     refuses = \case
         Refuse -> True
         Stop -> False
@@ -232,13 +241,14 @@ data Part i o = Part
     }
 
 -- | What a state does to its group's children: starts one, or waits for all.
-data GroupAt = Forks Name | Awaits Name
-    deriving stock (Eq)
+data GroupAt = Forking Name | Awaiting Name
+    deriving stock (Eq, Show)
 
 part :: Flow i e o -> Either Clash (Part i o)
 part = \case
     Do s -> stepPart s
-    Capped limit atCap s -> cappedPart limit atCap s
+    Capped limit atCap (Step s) -> cappedPart limit atCap s
+    Capped limit atCap (ForkOf (Group group) s) -> Right (cappedFork limit atCap group s)
     Id -> Right (passing Passes)
     Into -> Right (passing (\Here -> Passes Here))
     f :> g -> do
@@ -250,7 +260,7 @@ part = \case
     Case branches -> casePart 0 branches
     Flow.Exit -> Right (passing (const Exits))
     Each body -> eachPart =<< part body
-    Fork (Group group) body -> Right (forkPart group body)
+    Fork (Group group) body -> Right (forkPart group (forkName group body))
     Await (Group group) -> Right (awaitPart group)
     Catch body -> caught <$> part body
     Scope name body -> inScope name <$> part body
@@ -350,8 +360,8 @@ inScope scope p =
         }
   where
     groupIn = \case
-        Forks group -> Forks (scoped scope group)
-        Awaits group -> Awaits (scoped scope group)
+        Forking group -> Forking (scoped scope group)
+        Awaiting group -> Awaiting (scoped scope group)
     moved = movePlaces (\place -> place {scope = scopePath scope <> place.scope}) p
     eventIn = qualifyEvent (scopePath scope)
     edgeIn edge =
@@ -415,7 +425,8 @@ choicePart name branches = do
     stays s outcome = ((hub, EventName (stepName s) outcome), Edge (ToState hub) Stay Nothing)
     action :: Int -> Flow a 'Nothing a -> Either Clash ([((Place, EventName), Edge (To a))], (Metered, Cap))
     action rank = \case
-        Capped limit atCap s ->
+        Capped _ _ (ForkOf _ _) -> notAction
+        Capped limit atCap (Step s) ->
             let metered = (Metered hub (stepName s), Cap (SomeMeter s) limit atCap rank)
              in case outcomes s of
                     OpensChildren -> Right ([stays s spawnedOutcome, stays s handedBackOutcome], metered)
@@ -532,17 +543,48 @@ eachPart body = case body.inPorts Here of
 eachDoneOutcome :: OutcomeName
 eachDoneOutcome = OutcomeName "each_done"
 
-{- | One state, the group's: @spawned@ starts a child and goes on with the
+{- | One state: @spawned@ starts a child in the group and goes on with the
 input. The child's body is its own run, so only its types are drawn here.
 -}
-forkPart :: forall a b. (KnownTy a, NotSum a) => Name -> Flow a 'Nothing b -> Part a a
-forkPart group _ =
+forkPart :: forall a. (KnownTy a, NotSum a) => Name -> StateName -> Part a a
+forkPart group name =
     (oneState place (Map.singleton (place, event) (Edge (ToOut Here) (Along (OutcomeEdge event (tyVal @a) (tyVal @a))) Nothing)))
-        { groups = Map.singleton place (Forks group)
+        { groups = Map.singleton place (Forking group)
         }
   where
-    place = rootPlace (namedState group)
-    event = fanEvent Spawns place.name
+    place = rootPlace name
+    event = fanEvent Spawns name
+
+{- | A 'Fork''s state: its step's, when it forks one step, so the spawn is
+that step's @spawned@ outcome; else @spawn_<group>@. The group's own name
+is its 'Await''s.
+-}
+forkName :: Name -> Flow a e b -> StateName
+forkName group = \case
+    Do s -> stepName s
+    Capped {} -> spawnName
+    Id -> spawnName
+    Into -> spawnName
+    _ :> _ -> spawnName
+    Loop _ _ -> spawnName
+    Par _ _ -> spawnName
+    Case _ -> spawnName
+    Flow.Exit -> spawnName
+    Each _ -> spawnName
+    Fork _ _ -> spawnName
+    Await _ -> spawnName
+    Catch _ -> spawnName
+    Scope _ _ -> spawnName
+    Choice _ _ -> spawnName
+    Route _ _ -> spawnName
+  where
+    spawnName = StateName ("spawn_" <> nameText group)
+
+-- | 'forkPart' of one step, its meter counting the children it starts.
+cappedFork :: forall k (s :: k) a. (StepSet k, Meter s, KnownTy a, NotSum a) => PerFuel Limit -> AtCap -> Name -> Sing s -> Part a a
+cappedFork limit atCap group s = Part {inPorts = p.inPorts, edges = p.edges, loops = p.loops, fans = p.fans, caps = Map.singleton (Metered (rootPlace (stepName s)) (stepName s)) (Cap (SomeMeter s) limit atCap 0), routes = p.routes, groups = p.groups}
+  where
+    p = forkPart group (stepName s)
 
 {- | One state, the group's: a child's @handed_back@ stays, @done@ goes on
 with every child's result once all have handed back.
@@ -557,7 +599,7 @@ awaitPart group =
             ]
         )
     )
-        { groups = Map.singleton place (Awaits group)
+        { groups = Map.singleton place (Awaiting group)
         }
   where
     place = rootPlace (namedState group)

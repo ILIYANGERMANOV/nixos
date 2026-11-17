@@ -7,14 +7,13 @@ any flow.
 -}
 module State.Category.Flow (
     Flow (..),
+    Cappable (..),
     Branches (..),
     Branch (..),
     branchesWith,
     Label (..),
     Group (..),
     alternateLoop,
-    choiceLoop,
-    spawn,
     Join,
     Name (..),
     nameText,
@@ -40,7 +39,7 @@ import GHC.OverloadedLabels (IsLabel (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import GHC.TypeLits (KnownSymbol, Symbol)
 import State.Category.Fuel (PerFuel)
-import State.Category.Meter (AtCap, Limit, Meter (Owes))
+import State.Category.Meter (AtCap, Limit, Meter)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..), handedBackOutcome, spawnedOutcome)
 import State.Category.Ty (KnownTy, NotSum, Ty, TyOf (..))
 
@@ -81,11 +80,12 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     @(f :> g) :> h = f :> (g :> h)@.
     -}
     (:>) :: Flow a e1 b -> Flow b e2 c -> Flow a (Join e1 e2) c
-    {- | One step whose events spend a budget, its step's 'Meter': at most
-    the limit at the run's Fuel, then what 'AtCap' says. A step with no
-    'Meter' cannot be capped. Law: it walks as @Do s@, one state with a cap.
+    {- | A step, or a 'Fork' of a step, whose events spend a budget, its
+    step's 'Meter': at most the limit at the run's Fuel, then what 'AtCap'
+    says. A step with no 'Meter' cannot be capped, nor can any other flow
+    ('Cappable'). Law: it walks as the step or the fork, with a cap.
     -}
-    Capped :: (StepSet k, Meter s, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Flow i e o
+    Capped :: PerFuel Limit -> AtCap -> Cappable i e o -> Flow i e o
     {- | Repeat the body while it continues; its exit is the loop's out. Over
     one type only: a loop over a sum would start each round at one of
     several states, and the exit of a sum would not say which summand. Its
@@ -201,18 +201,15 @@ Law: @alternateLoop n (f :| [g]) = Loop n (f :> g)@.
 alternateLoop :: (NotSum a, NotSum b) => Name -> NonEmpty (Flow a ('Just b) a) -> Flow a 'Nothing b
 alternateLoop name = Loop name . foldr1 (:>)
 
-{- | The vocabulary's name for a 'Choice'. One state is its own scope: its
-meters and children live while the run is there, so no 'Scope' wraps it,
-which would only prefix @gather/@ to every name.
+{- | What 'Capped' may wrap: one step, as 'Do' draws it, or a 'Fork' of
+one step, whose cap counts the children it starts. No other flow has a
+meter, so capping one does not compile.
 -}
-choiceLoop :: (KnownTy a, NotSum a) => Name -> [Flow a 'Nothing a] -> Flow a 'Nothing a
-choiceLoop = Choice
+data Cappable (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
+    Step :: (StepSet k, Meter s, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Cappable i e o
+    ForkOf :: (StepSet k, Meter s, Drawn s ~ 'True, Sig s ~ '(a, 'Nothing, b), KnownTy a, KnownTy b, NotSum a) => Group b -> Sing (s :: k) -> Cappable a 'Nothing a
 
-{- | A capped action whose every spend opens a child that must hand back:
-a step that 'Owes' none cannot be spawned. Law: it is 'Capped'.
--}
-spawn :: (StepSet k, Meter s, Owes s ~ 'True, Drawn s ~ 'True, Sig s ~ '(i, 'Nothing, i), KnownTy i, NotSum i) => PerFuel Limit -> AtCap -> Sing (s :: k) -> Flow i 'Nothing i
-spawn = Capped
+deriving stock instance Show (Cappable i e o)
 
 deriving stock instance Show (Flow i e o)
 

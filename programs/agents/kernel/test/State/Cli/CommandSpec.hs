@@ -291,11 +291,11 @@ spec = describe "State.Cli.Command" $ do
   where
     -- At the gather, past the root's Fuel; then with a researcher open, at simplify_plan's skip, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
     fueled = [fuelSet Balanced]
-    researched = fueled <> map (Took mempty) (take 1 happyPath)
-    skipping = fueled <> map (Took mempty) (take 4 happyPath)
-    simplifying = fueled <> map (Took mempty) (take 5 happyPath)
-    planned = fueled <> map (Took mempty) (take 6 happyPath)
-    picking = fueled <> map (Took mempty) (take 11 happyPath) <> [stepTook (ReviewRows sha)]
+    researched = fueled <> map (Took mempty) (take 2 happyPath)
+    skipping = fueled <> map (Took mempty) (take 6 happyPath)
+    simplifying = fueled <> map (Took mempty) (take 7 happyPath)
+    planned = fueled <> map (Took mempty) (take 8 happyPath)
+    picking = fueled <> map (Took mempty) (take 13 happyPath) <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.
     capOf :: Text -> Cap
     capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of

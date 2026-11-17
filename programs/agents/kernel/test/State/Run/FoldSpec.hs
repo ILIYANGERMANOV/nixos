@@ -391,11 +391,11 @@ ofRun other (Envelope source n ts _ sha' session event) = Envelope source n ts o
 
 -- | From the start to the first review.
 toReview :: [Event]
-toReview = map (Took mempty) (take 11 happyPath)
+toReview = map (Took mempty) (take 13 happyPath)
 
 -- | From the start to the first CI result.
 toCi :: [Event]
-toCi = map (Took mempty) (take 11 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
+toCi = map (Took mempty) (take 13 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
 
 -- | Fix rounds that pick these rows, as 'pickRounds'.
 reviewRounds :: [[Text]] -> [Event]
@@ -476,7 +476,7 @@ gatherBudgets = describe "the gather's choice" $ do
         replay g (logOf (started :| fuelSet Balanced : adjusted <> asks 31 30 <> spawns 5)) `shouldSatisfy` isRight
 
     it "refuses extend outside the gather" $
-        replay g (logOf (started :| fuelSet Balanced : map (Took mempty) (take 8 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
+        replay g (logOf (started :| fuelSet Balanced : map (Took mempty) (take 10 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where
     spawns n = replicate n (stepTook ResearchSpawned)
     handedBack = stepTook ResearchHandedBack

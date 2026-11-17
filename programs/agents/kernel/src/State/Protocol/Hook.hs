@@ -75,12 +75,12 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty, toList)
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
-import State.Category.Graph (Node (..), Place (..))
+import State.Category.Graph (Metered (..), Node (..), Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingIn)
@@ -88,12 +88,11 @@ import State.Role (leads)
 import State.Run.Ask (Principal (..), Question (..), qidText)
 import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
-import State.Run.Fold (Pending (..), RunState (..), Waits (..), over, unvoided)
+import State.Run.Fold (Pending (..), RunState (..), Waits (..), openForks, over, unvoided)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..))
-import State.Step.Choice (choiceNamed, nodeChoice)
 import State.Step.Gather qualified as Gather
 import State.Table (Steps, agentRoles, stepsRunBy)
 
@@ -436,23 +435,20 @@ spawned beside reports to its spawner alone.
 tracked :: Steps -> AgentRole -> Bool
 tracked steps role = role `elem` agentRoles steps
 
-{- | Whether the run records this step runner's hand-back where it is: one
-also spawned beside the advice only at a choice, where it runs an action. A
-child run records its own in its parent's run.
+{- | Whether the run records this step runner's hand-back: one also spawned
+beside the advice only while a fork of its step has a child open, wherever
+the run is. A child run records its own in its parent's run.
 -}
-followedAt :: Node -> AgentRole -> Bool
-followedAt at role = role `notElem` beside || isJust (nodeChoice at)
+followedAt :: Steps -> RunState -> AgentRole -> Bool
+followedAt steps state role = role `notElem` beside || or [stepName s == metered.step | metered <- openForks state, AnyStep _ (SomeStep s) <- stepsRunBy steps role]
 
-{- | What a lead's spawn of this role records: at a choice, the spawn of the
-action the role runs, a child the choice then waits for. The spawn hook
+{- | What a lead's spawn of this role records: at a fork of the step the
+role runs, the spawn of a child the group then waits for. The spawn hook
 carries no child id, so a spawn seen twice records twice: none is deduplicated.
 -}
 spawnedAt :: Steps -> Node -> AgentRole -> Maybe Event
 spawnedAt steps at spawned = case at of
-    At place
-        | Just _ <- choiceNamed place.name ->
-            listToMaybe [event | AnyStep l (SomeStep s) <- stepsRunBy steps spawned, Just event <- [opening place.scope l s]]
-        | otherwise -> Nothing
+    At place -> listToMaybe [event | AnyStep l (SomeStep s) <- stepsRunBy steps spawned, stepName s == place.name, Just event <- [opening place.scope l s]]
     Out -> Nothing
     Exit -> Nothing
 
@@ -463,6 +459,7 @@ opening scope l s = case l of
         Gather.Research -> Just (tookIn scope Gather.ResearchSpawned)
         Gather.Interview -> Nothing
         Gather.Discuss -> Nothing
+        Gather.Notes -> Nothing
     PlanLayer -> Nothing
     BuildLayer -> Nothing
     ReviewLayer -> Nothing

@@ -6,6 +6,10 @@ module State.Flow.Library (
     choice,
     choiceLoop,
     opt,
+    gathering,
+    exploring,
+    discussing,
+    researchers,
     par,
     agree,
     gather,
@@ -28,13 +32,11 @@ import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, symbolVal)
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group, Label (..), Name (..), spawn)
-import State.Category.Flow qualified as Flow
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Label (..), Name (..))
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (KnownTy, NotSum, Summands, TyOf (..))
 import State.Step.Build (Sing (..))
-import State.Step.Choice (discussing, exploring, gathering)
 import State.Step.Fuel (Sing (Skip))
 import State.Step.Gather (Sing (..))
 import State.Step.Pick (Over, PickLabels, Sing (Pick))
@@ -87,38 +89,60 @@ agree :: Flow 'Ctx 'Nothing 'Plan
 agree = Loop "plan" (gather :> propose)
 
 {- | The agent's choice, until it has enough: spawn a researcher on a fact
-gap, in the background, or ask the user a question. More researchers may
-follow any answer; @enough@ waits for every researcher to hand back. Its
-meters are the researchers and the questions; at either cap the user is
-asked whether to go on, and @extend@ grants both again.
+gap, in the background, or interview the user. More researchers may follow
+any answer; @enough@ waits for every researcher to hand back, then merges
+their notes. Its meters are the researchers and the questions; at either cap
+the user is asked whether to go on, and @extend@ grants both again.
 -}
 gather :: Flow 'Ctx 'Nothing 'Ctx
 gather =
-    Flow.choiceLoop
+    choiceLoop
         gathering
-        [ researchers
-        , Capped questions Extend Interview
-        ]
+        (merged gathering)
+        (#research :-> researchersOf gathering :& #interview :-> Capped questions Extend (Step Interview) :& End)
 
 -- | Researchers alone, until the agent has enough: the facts before a ticket opens.
 research :: Flow 'Ctx 'Nothing 'Ctx
-research = Flow.choiceLoop exploring [researchers]
+research = choiceLoop exploring (merged exploring) (#research :-> researchersOf exploring :& End)
 
 {- | The design discussion: spawn a researcher on a fact gap, or ask the user
-a design question, each explained before it is asked; @extend@ grants both
+design questions, each explained before it is asked; @extend@ grants both
 budgets again at the user's yes.
 -}
 discuss :: Flow 'Ctx 'Nothing 'Ctx
 discuss =
-    Flow.choiceLoop
+    choiceLoop
         discussing
-        [ researchers
-        , Capped questions Extend Discuss
-        ]
+        (merged discussing)
+        (#research :-> researchersOf discussing :& #discuss :-> Capped questions Extend (Step Discuss) :& End)
 
--- | A researcher per open fact group, one at Low: each spawn opens a child.
-researchers :: Flow 'Ctx 'Nothing 'Ctx
-researchers = spawn (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research
+-- | The engineer's and the 10x's gather: research and interview, as the agent picks.
+gathering :: Name
+gathering = "gather"
+
+{- | The architect's research before its ticket opens. Named apart from its
+action, @research@, as a pick's state is its name.
+-}
+exploring :: Name
+exploring = "exploring"
+
+-- | The architect's design discussion: research and design questions, as the agent picks.
+discussing :: Name
+discussing = "discussing"
+
+{- | A researcher per open fact group, one at Low: each spawn starts a child
+of the group. In the choice's scope, as one flow may hold two choices that research.
+-}
+researchersOf :: Name -> Flow 'Ctx 'Nothing 'Ctx
+researchersOf scope = Scope scope (Capped (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend (ForkOf researchers Research))
+
+-- | Every researcher's hand-back, awaited, then merged into the notes: a choice's @enough@.
+merged :: Name -> Flow 'Ctx 'Nothing 'Ctx
+merged scope = Scope scope (Await researchers :> Do Notes)
+
+-- | The researchers a choice spawns, each handing back its facts: the group's state is its 'Await'.
+researchers :: Group 'Ctx
+researchers = Group "researchers"
 
 -- | The questions the user is asked, by Fuel: an interview's or a discussion's.
 questions :: PerFuel Limit
@@ -129,7 +153,7 @@ propose :: Flow 'Ctx ('Just 'Plan) 'Ctx
 propose =
     Do PlanS
         :> opt simplifyPlan skippableAtLow (Do SimplifyP)
-        :> Capped (always (UpTo 3)) Stop Confirm
+        :> Capped (always (UpTo 3)) Stop (Step Confirm)
 
 {- | @draft@ opens the draft PR before the first commit. Balanced skips the
 refactor at or below 100 changed lines, Low on a trivial task.
@@ -154,7 +178,7 @@ clean. Each @pick.loop@ spends a re-review, #351's @n(m)@: once none is
 left, pick offers only @pick.final@.
 -}
 fixReReview :: Flow 'Findings 'Nothing 'Diff
-fixReReview = Loop "fix" (Capped (UpTo <$> PerFuel 1 3 5) Refuse PickRows :> Do Fix :> Do ReReview)
+fixReReview = Loop "fix" (Capped (UpTo <$> PerFuel 1 3 5) Refuse (Step PickRows) :> Do Fix :> Do ReReview)
 
 -- | @describe@ is the final fixer, so @simplify_pr@ is never skipped: the Keep law.
 describe :: Flow 'Diff 'Nothing 'PR
@@ -164,7 +188,7 @@ describe = Do Describe :> Do SimplifyPR
 is, by its task's shape, and records the url it keeps.
 -}
 ship :: Flow 'PR 'Nothing 'PR
-ship = Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR) :> Do Ready :> Case (#done :-> Id :& #skipped :-> Id :& End)
+ship = Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Stop (Step FixPR)) :> Do Ready :> Case (#done :-> Id :& #skipped :-> Id :& End)
 
 {- | The optional @simplify_plan@: besides its Fuel, a plan settled
 without the user skips it ('State.Run.Fold.planSettled').

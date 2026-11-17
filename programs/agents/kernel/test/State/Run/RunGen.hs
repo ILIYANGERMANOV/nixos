@@ -67,7 +67,6 @@ import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Catalog qualified as Catalog
-import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
@@ -107,11 +106,11 @@ ticketUrl = Url "https://github.com/o/r/issues/1"
 
 -- | An architect run up to its ticket: researched, explored enough, the ticket opened.
 ticketOpened :: [Event]
-ticketOpened = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring), stepTook (OpenTicketDone ticketUrl)]
+ticketOpened = map (Took mempty) [pickOf "exploring" "research", outcome ResearchSpawned, outcome ResearchHandedBack, pickOf "exploring" "enough", outcome NotesDone] <> [stepTook (OpenTicketDone ticketUrl)]
 
 -- | A design round up to the user's verdict: discussed, written into the ticket.
 designWritten :: [Event]
-designWritten = [stepTook (Enough discussing), stepTook UpdateTicketDone]
+designWritten = map (Took mempty) [pickOf "discussing" "enough", outcome NotesDone] <> [stepTook UpdateTicketDone]
 
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph
@@ -199,7 +198,7 @@ commit = Commit sha Set.empty
 
 happyPath :: [AnyOutcome]
 happyPath =
-    [outcome ResearchSpawned, outcome ResearchHandedBack, outcome (Enough gathering), outcome (PlanDone "plan.md"), runOf "simplify_plan", outcome SimplifyPlanDone, outcome ConfirmConfirmed]
+    [pickOf "gather" "research", outcome ResearchSpawned, outcome ResearchHandedBack, pickOf "gather" "enough", outcome NotesDone, outcome (PlanDone "plan.md"), runOf "simplify_plan", outcome SimplifyPlanDone, outcome ConfirmConfirmed]
         <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), runOf "refactor", outcome (RefactorDone sha), outcome (ReviewClean sha)]
         <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
 

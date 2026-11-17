@@ -69,7 +69,7 @@ let
       dom = "Ctx";
       cod = "Ctx";
       exit = null;
-      outcomes = [ ];
+      outcomes = [ "asked" ];
       runner = "inline";
       task = "Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.";
       tools = [
@@ -236,7 +236,7 @@ in
       dom = "Ctx";
       cod = "Ctx";
       exit = null;
-      outcomes = [ ];
+      outcomes = [ "asked" ];
       runner = "inline";
       task = "Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.";
       # `skill` invokes grilling, which the engineer does not preload; `web`
@@ -252,6 +252,23 @@ in
       flows = [
         "engineer"
         "10x"
+      ];
+    };
+    notes = {
+      dom = "[Ctx]";
+      cod = "Ctx";
+      exit = null;
+      outcomes = [ "done" ];
+      runner = "inline";
+      task = "Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.";
+      tools = [ "read" ];
+      skills = [ ];
+      prose = leadProse;
+      ops = [ ];
+      flows = [
+        "engineer"
+        "10x"
+        "architect"
       ];
     };
     plan = {

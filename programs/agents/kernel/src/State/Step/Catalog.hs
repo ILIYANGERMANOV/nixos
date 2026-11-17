@@ -27,7 +27,7 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
-import State.Category.Flow (Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Par, Route, Scope, (:>)), Name, branchesWith)
+import State.Category.Flow (Cappable (..), Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Par, Route, Scope, (:>)), Name, branchesWith)
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..))
@@ -35,7 +35,7 @@ import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutc
 import State.Category.Step qualified as Step
 import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
-import State.Step.Choice (ChoiceStep, Sing (Hub), choices)
+import State.Step.Choice (ChoiceStep)
 import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
 import State.Step.Fuel (FuelStep, Sing (Skip), skipOutcomes)
 import State.Step.Gather (GatherStep)
@@ -168,15 +168,13 @@ allSteps = concatMap stepsOf layers
   where
     stepsOf (SomeLayer l) = map (AnyStep l) layerSteps
 
-{- | Every step with outcomes: those 'allSteps' lists, each fan-out's own
-state, which 'State.Category.Flow.Par' draws, and each choice's, which
-'State.Category.Flow.Choice' draws.
+{- | Every step with outcomes: those 'allSteps' lists, and each fan-out's own
+state, which 'State.Category.Flow.Par' draws.
 -}
 outcomeSteps :: [AnyStep]
 outcomeSteps =
     allSteps
         <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts]
-        <> [AnyStep ChoiceLayer (SomeStep (Hub choice)) | choice <- choices]
 
 {- | The pick and skip steps of a term: a flow names its own, with its
 labels, so no layer lists them. In the term's order; a fork's child is
@@ -185,7 +183,9 @@ its own run, of its own flow.
 termSteps :: Flow i e o -> [AnyStep]
 termSteps = \case
     Do s -> drawnStep s
-    Capped _ _ s -> drawnStep s
+    Capped _ _ (Step s) -> drawnStep s
+    -- The forked step is the child's: no pick or skip of this flow.
+    Capped _ _ (ForkOf _ _) -> []
     Id -> []
     Into -> []
     f :> g -> termSteps f <> termSteps g

@@ -29,7 +29,7 @@ import Data.Typeable (Typeable)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), Name, ScopePath, scopePath)
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name, ScopePath, scopePath)
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Graph qualified as Graph
@@ -58,10 +58,10 @@ planKit = Kit [Do SimplifyP, Do Draft] []
 
 -- | A review with rows always fixes them before the diff goes on.
 diffKit :: Kit 'Diff
-diffKit = Kit [Do Refactor] [Do Review :> Capped (always (UpTo 3)) Refuse PickRows :> Do Fix, Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse PickRows :> Do Fix]
+diffKit = Kit [Do Refactor] [Do Review :> Capped (always (UpTo 3)) Refuse (Step PickRows) :> Do Fix, Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse (Step PickRows) :> Do Fix]
 
 prKit :: Kit 'PR
-prKit = Kit [Do SimplifyPR, Do FixPR] [Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR]
+prKit = Kit [Do SimplifyPR, Do FixPR] [Do AwaitCi :> Capped (always (UpTo 5)) Stop (Step FixPR)]
 
 -- | A term from @Ctx@ to @PR@ through every type, any combinator on each.
 genFlow :: Gen (Flow 'Ctx 'Nothing 'PR)
@@ -70,8 +70,8 @@ genFlow = do
     plan <- genEndo planKit
     Gen.choice
         [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers engineer :> Capped (always (UpTo 9)) Stop (Merge engineers)))
-        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> par (Group "engineers") engineer :> Capped (always (UpTo 9)) Stop (Merge engineers)))
+        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers))))
+        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> par (Group "engineers") engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers))))
         ]
   where
     engineer = Do PlanS :> Do Implement :> Do Describe
@@ -198,6 +198,7 @@ redrawn g =
         , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
         , caps = Map.mapKeys (\metered -> metered {place = ranked metered.place}) g.caps
         , routes = Set.map ranked g.routes
+        , groupStates = Map.mapKeys ranked g.groupStates
         }
   where
     ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])

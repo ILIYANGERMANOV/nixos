@@ -44,6 +44,8 @@ module State.Run.Fold (
     askingChildren,
     askedAt,
     over,
+    openForks,
+    awaitedOpen,
     ScopedFan (..),
     fanAt,
     fanIn,
@@ -66,7 +68,7 @@ import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
@@ -187,7 +189,7 @@ data Refusal
       OutOfBudget Cap Natural
     | -- | A hand-back to this step where it has no child open.
       NoneOpen StateName
-    | -- | A move off the state while this many children its spends opened have yet to hand back.
+    | -- | A move off a group's 'State.Category.Flow.Await' while this many of its children have yet to hand back.
       StillOpen Natural
     | -- | An @extend@ where no budget the user may extend holds the run.
       NothingToExtend
@@ -430,12 +432,47 @@ triagedBy role untriaged = case break ((== role) . fst) untriaged of
 meter and its problems join the rounds it ends.
 -}
 took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
-took g state scope outcome@(AnyOutcome _ some) = do
+took g state scope outcome@(AnyOutcome _ some) = case NonEmpty.nonEmpty [metered | (metered, cap) <- Map.toList g.caps, owedBy cap.meter (RecordedOutcome some) == Just Closes] of
+    Nothing -> joined g <$> walked g state scope outcome
+    Just forks -> joined g <$> handedBack state forks
+
+{- | A child's hand-back closes one open child of a fork of its step,
+wherever the run is while the group is open (structured concurrency): the
+run stays. The children are alike, so any fork of its step with one open
+closes it, in any scope: an await closes each group before the run leaves
+it, so two are never open at once.
+-}
+handedBack :: RunState -> NonEmpty Metered -> Either Refusal RunState
+handedBack state forks@(first :| _) = case filter (`elem` openForks state) (NonEmpty.toList forks) of
+    metered : _ -> Right state {meters = Map.adjust (\spent -> spent {open = spent.open - 1}) metered state.meters}
+    [] -> Left (NoneOpen first.step)
+
+{- | A group's 'State.Category.Flow.Await' goes on by itself once every
+child handed back (an AND-join): no one records its @done@, as the
+run's ledger already holds the fact. At any other state, the run stays.
+-}
+joined :: OpenGraph -> RunState -> RunState
+joined g state = case state.at of
+    At place
+        | Just (Awaiting _) <- Map.lookup place g.groupStates
+        , awaitedOpen g state.meters place == 0
+        , Just edge <- step g place (fanEvent Leaves (placeName place)) ->
+            state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
+    At _ -> state
+    Out -> state
+    Exit -> state
+
+-- | Each forked step's ledger with a child yet to hand back: a hand-back closes one.
+openForks :: RunState -> [Metered]
+openForks state = [metered | (metered, spent) <- Map.toList state.meters, spent.open > 0]
+
+walked :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
+walked g state scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
-    case (edge.to == At from, openAt from state.meters) of
+    case (edge.to == At from, awaitedOpen g state.meters from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
     meters <- spend g state (RecordedOutcome some)
@@ -741,9 +778,15 @@ empty = Spent 0 0
 ledger :: Spent -> Maybe Spent
 ledger spent = if spent == empty then Nothing else Just spent
 
--- | The children the spends at this state opened, yet to hand back: the state is left only at none (an AND-join).
-openAt :: Place -> Map Metered Spent -> Natural
-openAt place meters = sum [spent.open | (metered, spent) <- Map.toList meters, metered.place == place]
+{- | At a group's 'State.Category.Flow.Await', the children its forks
+opened that have yet to hand back: the state is left only at none (an
+AND-join). None elsewhere.
+-}
+awaitedOpen :: OpenGraph -> Map Metered Spent -> Place -> Natural
+awaitedOpen g meters place = case Map.lookup place g.groupStates of
+    Just (Awaiting group) -> sum [spent.open | (metered, spent) <- Map.toList meters, Map.lookup metered.place g.groupStates == Just (Forking group)]
+    Just (Forking _) -> 0
+    Nothing -> 0
 
 -- | A cap's budget as the run stands: its ledger, and what the run's Fuel allows.
 data Budget = Budget {cap :: Cap, ledger :: Spent, allows :: Maybe Natural}

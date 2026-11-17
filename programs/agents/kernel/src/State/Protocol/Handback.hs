@@ -24,6 +24,7 @@ module State.Protocol.Handback (
 ) where
 
 import Data.Bifunctor qualified as Bifunctor
+import Control.Applicative ((<|>))
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -31,7 +32,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
 import State.Category.Fuel (Area, parseByName)
-import State.Category.Graph (Node (..), Place (..))
+import State.Category.Graph (Metered (..), Node (..), Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Role (leads)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), oneLineText, parseKind, parseOneLine, parseQId, questionLine)
@@ -39,11 +40,11 @@ import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire, w
 import State.Run.Event (AgentId, AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId, returnOf)
+import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId, openForks, returnOf)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
-import State.Step.Choice (Sing (Hub, Pick), nodeChoice)
+import State.Step.Choice (Sing (Hub, Pick))
 import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
@@ -277,8 +278,8 @@ fromChild state fan handback = case handback.run of
 
 fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Refusal Typed
 fromWorker steps state worktreeHead agent handback = case handback.token of
-    -- A choice's worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
-    Nothing -> recorded <$> done (not atChoice)
+    -- A forked worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
+    Nothing -> recorded <$> done (not forked)
     Just (Ready _) -> recorded <$> done False
     Just token@(NeedsDecision need) ->
         closing <$> case need of
@@ -292,13 +293,16 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
     Just token@(Failed _) -> closing <$> triage token
   where
     recorded events = Typed events Nothing
-    -- A choice's worker is done whatever it says: its child hands back first.
-    closing typed = case (atChoice, done False) of
+    -- A forked worker is done whatever it says: its child hands back first.
+    closing typed = case (forked, done False) of
         (True, Right events) -> typed {events = events <> typed.events}
         _ -> typed
-    atChoice = isJust (nodeChoice state.at)
-    -- At a choice, the step is the action this worker runs.
-    stepHere = listToMaybe ([(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]] <> [(place, step) | atChoice, At place <- [state.at], step <- stepsRunBy steps agent])
+    forked = isJust openFork
+    {- A worker of a group with a child open hands back wherever the run is
+    (structured concurrency): its step is the one forked. Else the step here.
+    -}
+    openFork = listToMaybe [(metered.place, step) | metered <- openForks state, step@(AnyStep _ (SomeStep s)) <- stepsRunBy steps agent, stepName s == metered.step]
+    stepHere = openFork <|> listToMaybe [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]]
     -- Logged, so @state next@ advises the triage until the run asks it.
     triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> Bifunctor.first Why (oneLine (tokenLine token))
     asked question = [Asked (Asking question (askedAt state) asker)]
@@ -321,6 +325,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Gather.Research -> took Gather.ResearchHandedBack
             Gather.Interview -> inline s
             Gather.Discuss -> inline s
+            Gather.Notes -> inline s
         PlanLayer -> case s of
             Plan.SimplifyP -> took SimplifyPlanDone
             Plan.PlanS -> inline s

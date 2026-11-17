@@ -6,7 +6,7 @@ is asked whether to go on.
 -}
 module State.Flow.Architect (architect) where
 
-import State.Category.Flow (Flow (..))
+import State.Category.Flow (Cappable (..), Flow (..))
 import State.Category.Fuel (always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))
@@ -19,5 +19,5 @@ architect =
     Do Fuel
         :> research
         :> Do OpenTicket
-        :> Loop "design" (discuss :> Do UpdateTicket :> Capped (always (UpTo 3)) Extend ConfirmDesign)
+        :> Loop "design" (discuss :> Do UpdateTicket :> Capped (always (UpTo 3)) Extend (Step ConfirmDesign))
         :> Do FinalizeTicket

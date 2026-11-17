@@ -37,7 +37,7 @@ import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -45,9 +45,9 @@ import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
 import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
@@ -63,12 +63,11 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), OnTarget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
+import State.Run.Fold (Budget (..), OnTarget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
-import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
 import State.Step.Fuel (Sing (Fuel))
 import State.Step.Plan (Outcome (..), Sing (Confirm))
@@ -285,8 +284,9 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (Out, _) -> plain (Done output)
         (Exit, _) -> plain (Done output)
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
-        (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
+        (At place, _) | isPick place.name, Map.member (place, enoughAt place) g.edges -> (atChoice place, choicePrompt place)
         (At place, _) | isPick place.name -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
+        (At place, _) | Just (Awaiting _) <- Map.lookup place g.groupStates -> plain (atAwait place)
         (At place, _) | place.name == stepName Fuel -> (atStep place Fuel, promptOf (row steps Fuel) <> fuelGiven)
         (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place, fuelTakes (fuelOf state) place.name event]))
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
@@ -297,22 +297,23 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
                 Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " fan-out's outcome") "ends the fan-out"))
     usedUpAt place = mfilter usedUp (listToMaybe [budget | (_, budget) <- budgetsAt place])
     budgetsAt place = [(metered.step, budget) | (metered, budget) <- shownBudgets g state, metered.place == place]
-    {- At a choice: the user says whether to go on at a used-up budget, once;
-    then each action its budget leaves, in the order the term declares them,
-    extend, and enough once every child handed back.
+    {- At a choice's pick: the user says whether to go on at a used-up
+    budget, once; then each action its budget leaves, extend, and enough.
     -}
-    atChoice place = case [budget | (_, budget) <- here, usedUp budget, budget.cap.atCap == Extend] of
+    atChoice place = case [budget | (_, budget) <- spentOn, budget.cap.atCap == Extend] of
         used : _ | Ask.Stuck `notElem` state.askedHere -> goOn used
-        used -> Run (NonEmpty.prependList ([option step | (step, budget) <- here, not (usedUp budget)] <> [extendOption | not (null used)]) (leave :| []))
+        used -> Run (someOptions ([recordOption event edge | (event, edge) <- shownEdges g place, isNothing (usedUpOn edge)] <> [extendOption | not (null used)]))
       where
-        here = budgetsAt place
-        open = sum [budget.ledger.open | (_, budget) <- here]
-        enough = EventName (placeName place) enoughOutcome
-        leave = case (Map.lookup (place, enough) g.edges, open) of
-            (Just edge, 0) -> recordOption enough edge
-            (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
-            (Nothing, _) -> commandOption (recordCommand enough) "leaves the choice"
-        option step = maybe (commandOption (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
+        spentOn = [(event, budget) | (event, edge) <- shownEdges g place, Just budget <- [usedUpOn edge]]
+    usedUpOn edge = case edge.to of
+        At next -> usedUpAt next
+        Out -> Nothing
+        Exit -> Nothing
+    enoughAt place = EventName (placeName place) enoughOutcome
+    {- At a group's await, children are open: the run goes on by itself
+    once the last hands back, so it only waits.
+    -}
+    atAwait place = Run (commandOption "end your turn" ("until the " <> tshow (awaitedOpen g state.meters place) <> " open hand back: each hand-back is recorded, and the last moves the run on") :| [])
     {- Fuel is an input: the level a caller gave, or one an earlier request
     set, is recorded as given; the user is asked only when none is.
     -}
@@ -324,20 +325,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         | Ask.Pick `elem` state.askedHere = "The user was asked the branch once: record the branch the answer names."
         | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
     -- One line per action, so one action's task never reads as another's.
-    choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
-    actionAt :: Place -> AnyStep -> Option
-    actionAt place (AnyStep _ (SomeStep s)) = case outcomes s of
-        OpensChildren -> case (row steps s).runner of
-            Agent (AgentRole role) _ ->
-                Option
-                    ("spawn a " <> role)
-                    ("prompted with state brief " <> role <> " and the task below; the hook records " <> eventText (EventName (stepName s) spawnedOutcome) <> ", and its hand-back as " <> eventText (EventName (stepName s) handedBackOutcome))
-                    True
-            Inline -> commandOption (recordCommand (EventName (stepName s) spawnedOutcome)) "opens a child that must hand back"
-        AsksOnly -> commandOption "state ask --kind <kind> <question>" "asks one question; what it prints says who answers"
-        Continues _ -> NonEmpty.head (recordOutcomes g place s)
-        ExitsOr _ _ -> NonEmpty.head (recordOutcomes g place s)
-        Branches -> NonEmpty.head (recordOutcomes g place s)
+    choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (_, Edge {to = At next}) <- shownEdges g place, Just (AnyStep _ (SomeStep s)) <- [stepNamed next.name]]
     told :: (StepSet k) => Sing (s :: k) -> Text
     told s = case special s of
         TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
@@ -727,14 +715,13 @@ atLine steps state = case state.at of
     Exit -> "at the end: the flow is done"
   where
     meaning place
-        | isPick place.name = "a branch you pick - take one option below, once, then state next"
+        | isPick place.name = "a branch you pick - take one option below, then state next"
         | Just _ <- skipHere place.name = "an optional block - take one option below, then state next"
-        | otherwise = case (stepNamed place.name, choiceNamed place.name) of
-            (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
+        | otherwise = case stepNamed place.name of
+            Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
                 Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
                 Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
-            (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
-            (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
+            Nothing -> "children at work - each runs on its own; do what each unindented line says, then state next"
 
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.

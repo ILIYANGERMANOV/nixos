@@ -42,8 +42,6 @@ import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Even
 import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
-import State.Step.Choice (Outcome (..))
-import State.Step.Choice qualified as Choice
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Gather (Outcome (..))
@@ -147,8 +145,10 @@ recordables :: [Recordable]
 recordables =
     [ nothing ResearchSpawned
     , nothing ResearchHandedBack
+    , nothing InterviewAsked
+    , nothing DiscussAsked
+    , nothing NotesDone
     ]
-        <> [nothing (Enough choice) | choice <- Choice.choices]
         <> [ -- Named at a request's Fuel, before its level.
              stay "target" "<pr <url>|branch <name>|ticket <url>>" $ \case
                 ["pr", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Targeted . OnPr) (parsePrUrl pr)

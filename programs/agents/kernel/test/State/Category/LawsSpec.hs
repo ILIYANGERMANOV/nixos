@@ -20,7 +20,7 @@ import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), Name (..), branchesWith, nameText, qualify, qualifyText, scoped, spawn, unqualify)
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (Kit (..), diffKit, genBranches, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
@@ -190,7 +190,7 @@ engineers = Group "engineers"
 
 -- | A capped fix of a PR: what bounds a choice loop over PRs.
 fixCapped :: Flow 'PR 'Nothing 'PR
-fixCapped = Capped (always (UpTo 5)) Stop FixPR
+fixCapped = Capped (always (UpTo 5)) Stop (Step FixPR)
 
 -- | The graph with each state's path its rank, or the clash that refuses the term.
 drawn :: (NotSum i, NotSum o) => Flow i e o -> Either Clash OpenGraph
@@ -213,8 +213,8 @@ genActions :: Gen [(StateName, Flow 'Ctx 'Nothing 'Ctx)]
 genActions = do
     let genLimit = Gen.element [UpTo 1, UpTo 5, PerGroup]
         genCap = Gen.element [Refuse, Stop, Extend]
-    research <- spawn <$> (PerFuel <$> genLimit <*> genLimit <*> genLimit) <*> genCap <*> pure Research
-    interview <- Capped . always <$> genLimit <*> genCap <*> pure Interview
+    research <- (\limit atCap -> Capped limit atCap (Step Research)) <$> (PerFuel <$> genLimit <*> genLimit <*> genLimit) <*> genCap
+    interview <- (\limit atCap -> Capped (always limit) atCap (Step Interview)) <$> genLimit <*> genCap
     Gen.subsequence [(stepName Research, research), (stepName Interview, interview)]
 
 -- | A loop body with an exit.
@@ -269,8 +269,12 @@ unscoped scope g =
         , loops = Map.fromList [(renameName bare loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
         , caps = Map.mapKeys (\metered -> metered {place = place metered.place}) g.caps
         , routes = Set.map place g.routes
+        , groupStates = Map.mapKeys place (fmap renameGroup g.groupStates)
         }
   where
+    renameGroup = \case
+        Graph.Forking group -> Graph.Forking (renameName bare group)
+        Graph.Awaiting group -> Graph.Awaiting (renameName bare group)
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
     place at = let (inner, name) = unqualify (bare (stateNameText (placeName at))) in at {scope = inner, name = StateName name}
     renameEdge edge =
@@ -306,7 +310,8 @@ more Fuel never allows less, nor skips where less Fuel runs.
 budgetsOf :: Flow i e o -> [(Name, Bool)]
 budgetsOf = \case
     Do s -> [(name, skipped skips) | Just (name, skips) <- [skipOf s]]
-    Capped limit _ s -> [(Name (meterName s), capped limit)]
+    Capped limit _ (Step s) -> [(Name (meterName s), capped limit)]
+    Capped limit _ (ForkOf _ s) -> [(Name (meterName s), capped limit)]
     Id -> []
     Into -> []
     f :> g -> budgetsOf f <> budgetsOf g

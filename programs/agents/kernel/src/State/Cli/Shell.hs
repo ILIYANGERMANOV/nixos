@@ -392,7 +392,7 @@ runAnswer steps call bound found want = case want of
             let sources = hookSources run.state.run agent role message
                 said = either (failureText "handback") (.text)
                 told = record stamp run sources . fmap (\plan -> plan {say = childrenTold run.g plan.say})
-             in case (loggedAlready run.logged sources, followedAt run.state.at role, Fold.returnOf run.state role agent.agentId) of
+             in case (loggedAlready run.logged sources, followedAt steps run.state role, Fold.returnOf run.state role agent.agentId) of
                     (True, _, _) -> ([], "")
                     (False, True, _) -> said <$> told (handbackPlan steps stamp.head run.state role agent.agentId Nothing message)
                     -- A worker spawned beside the advice returns, its report its spawner's alone.
@@ -1012,7 +1012,7 @@ liveness state = case (state.stopped, Fold.over state) of
     (Nothing, True) -> Ended "finished"
     (Nothing, False) -> Live
 
--- | Who starts a run, its flow, and the Fuel given it: a child's task gives one, the 10x's is fixed, a user's other run asks.
+-- | Who starts a run, its flow, and the Fuel given it: a child's task gives one, the 10x's and the chief's are fixed, a user's other run asks.
 data Begin = Begin {principal :: Principal, flow :: FlowName, fuel :: Maybe Fuel}
 
 {- | Who starts the run, and its flow: a child runs its task's flow, at its
@@ -1027,14 +1027,15 @@ startOf args = case args.origin of
             Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
 
 {- | The Fuel a flow runs at whoever starts it: the 10x picks each task's
-Fuel and runs at Balanced itself, so its user is never asked one.
+Fuel and runs at Balanced itself, and the chief starts at Balanced, as a
+request names its own level; so neither user is asked one.
 -}
 fixedFuel :: FlowName -> Maybe Fuel
 fixedFuel = \case
     TenXFlow -> Just Balanced
+    ChiefFlow -> Just Balanced
     EngineerFlow -> Nothing
     ArchitectFlow -> Nothing
-    ChiefFlow -> Nothing
 
 {- | A parent's log path was checked by the parser; here its first line must
 be that run's start.

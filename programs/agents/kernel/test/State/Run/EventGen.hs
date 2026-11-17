@@ -55,7 +55,7 @@ import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
+import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Fuel (Outcome (..))
 import State.Step.Gather (Outcome (..))
@@ -212,9 +212,9 @@ templates =
     [ outcome (LevelSet Balanced)
     , outcome ResearchSpawned
     , outcome ResearchHandedBack
-    , outcome (Enough gathering)
-    , outcome (Enough exploring)
-    , outcome (Enough discussing)
+    , outcome InterviewAsked
+    , outcome DiscussAsked
+    , outcome NotesDone
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
     , outcome ConfirmConfirmed
@@ -267,6 +267,9 @@ likeIn = \case
     GatherLayer -> \case
         ResearchSpawned -> pure ResearchSpawned
         ResearchHandedBack -> pure ResearchHandedBack
+        InterviewAsked -> pure InterviewAsked
+        DiscussAsked -> pure DiscussAsked
+        NotesDone -> pure NotesDone
     PlanLayer -> \case
         PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
         SimplifyPlanDone -> pure SimplifyPlanDone

@@ -6,7 +6,7 @@ question asked inside it climbs from that flow's rung.
 -}
 module State.Flow.Chief (chief, discussion) where
 
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Label (..), Name (..))
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Label (..), Name (..))
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))
@@ -22,7 +22,7 @@ first spends one: at the cap the user is asked whether to go on. A whole
 flow's label is its flow's name ('State.FlowName.flowText').
 -}
 chief :: Flow 'Ctx 'Nothing 'Result
-chief = Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend Next)
+chief = Loop "requests" (Do Fuel :> choice "route" requests :> Capped (UpTo <$> PerFuel 5 10 20) Extend (Step Next))
   where
     requests =
         branch @"architect" architect

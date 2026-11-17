@@ -5,25 +5,17 @@
 step of this layer for its one outcome, @enough@, never one
 'State.Category.Flow.Do' draws. Its actions' events are their own steps'.
 A 'State.Category.Flow.Route''s hub is a step of this layer per branch,
-each for its one outcome, the branch; no flow draws a route, so no log reads one.
+each for its one outcome, the branch. No flow draws either, so no log reads one.
 -}
 module State.Step.Choice (
     ChoiceStep,
     Sing (..),
     Outcome (..),
-    gathering,
-    exploring,
-    discussing,
-    choices,
-    choiceNamed,
-    nodeChoice,
 ) where
 
-import Data.List (find)
 import Data.Type.Equality ((:~:) (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Flow (Name, enoughOutcome, namedState)
-import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
 
@@ -79,37 +71,9 @@ instance StepSet ChoiceStep where
         Enough _ -> mempty
         Picked _ _ -> mempty
 
-    decoders = [Decoder (Hub name) (const (pure (Enough name))) | name <- choices]
+    -- None: no flow draws a choice or a route, so no log reads one.
+    decoders = []
 
 deriving stock instance Show (Sing (s :: ChoiceStep))
 deriving stock instance Show (Outcome (s :: ChoiceStep) l)
 deriving stock instance Eq (Outcome (s :: ChoiceStep) l)
-
--- | The engineer's and the 10x's gather: research and interview, as the agent chooses.
-gathering :: Name
-gathering = "gather"
-
-{- | The architect's research before its ticket opens. Named apart from its
-action, @research@: a choice's state and loop take its name.
--}
-exploring :: Name
-exploring = "exploring"
-
--- | The architect's design discussion: research and design questions, as the agent chooses.
-discussing :: Name
-discussing = "discussing"
-
--- | Every choice a run may hold, so the log's decoders know each one's @enough@.
-choices :: [Name]
-choices = [gathering, exploring, discussing]
-
--- | The choice whose state this is.
-choiceNamed :: StateName -> Maybe Name
-choiceNamed name = find ((== name) . namedState) choices
-
--- | The choice the run is at: none at a port, nor at a step's or a fan-out's state.
-nodeChoice :: Node -> Maybe Name
-nodeChoice = \case
-    At place -> choiceNamed place.name
-    Out -> Nothing
-    Exit -> Nothing

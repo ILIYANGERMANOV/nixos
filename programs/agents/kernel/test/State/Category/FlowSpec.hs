@@ -11,7 +11,7 @@ import Control.Exception (TypeError (..), evaluate, try)
 import Data.Char (isAlphaNum, isDigit)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), spawn)
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..))
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -60,7 +60,7 @@ spec = describe "State.Category.Flow" $ do
         it "capping a step with no meter" $
             rejectedShown
                 "Could not deduce ‘State.Category.Meter.Meter State.Step.Build.Implement’"
-                (graph (Capped (always (UpTo 1)) Stop Implement))
+                (graph (Capped (always (UpTo 1)) Stop (Step Implement)))
 
         {- The exit is pinned: left free, nothing asks GHC to reduce the
         clashing 'Join'. 'Ty' is imported qualified, so GHC still prints every
@@ -71,10 +71,10 @@ spec = describe "State.Category.Flow" $ do
                 "Both sides of :> exit, with different types: State.Category.Ty.PR and State.Category.Ty.Plan"
                 (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
 
-        it "spawning a step whose events open no child" $
+        it "capping a flow that is neither a step nor a fork of one" $
             rejectedShown
-                "Couldn't match type ‘False’ with ‘True’"
-                (graph (spawn (always (UpTo 1)) Extend Interview))
+                "Couldn't match expected type: State.Category.Flow.Cappable"
+                (graph (Capped (always (UpTo 1)) Stop (Do Fix :> Do ReReview)))
 
         it "a fan-out's state drawn as a step" $
             rejected

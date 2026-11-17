@@ -71,7 +71,7 @@ typing = describe "typeHandback" $ do
             `shouldBe` Right (Typed [stepTook (FixDone (Commit sha Set.empty))] Nothing)
 
     it "says a worker logged at work returned, by its id or else its role, and no other" $ do
-        let fixing = runAt (fuelSet Balanced : map (Took mempty) (take 11 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]) <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
+        let fixing = runAt (fuelSet Balanced : map (Took mempty) (take 13 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]) <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
             returns agent = drop 1 . (.events) <$> typeHandback steps fixing (Just sha) (AgentRole "fixer") agent (parsed "READY fixed")
         map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
             `shouldBe` [Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))], Right [Event.WorkerReturned (AgentRole "fixer") Nothing], Right []]
@@ -139,11 +139,11 @@ typing = describe "typeHandback" $ do
         it "refuses a question the child did not ask in its own run" $
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
-    atGather = runAt (fuelSet Balanced : map (Took mempty) (take 1 happyPath))
-    atSimplifyPlan = runAt (fuelSet Balanced : map (Took mempty) (take 5 happyPath))
-    atImplement = runAt (fuelSet Balanced : map (Took mempty) (take 8 happyPath))
-    atReview = runAt (fuelSet Balanced : map (Took mempty) (take 11 happyPath))
-    atFix = runAt (fuelSet Balanced : map (Took mempty) (take 11 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
+    atGather = runAt (fuelSet Balanced : map (Took mempty) (take 2 happyPath))
+    atSimplifyPlan = runAt (fuelSet Balanced : map (Took mempty) (take 7 happyPath))
+    atImplement = runAt (fuelSet Balanced : map (Took mempty) (take 10 happyPath))
+    atReview = runAt (fuelSet Balanced : map (Took mempty) (take 13 happyPath))
+    atFix = runAt (fuelSet Balanced : map (Took mempty) (take 13 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"

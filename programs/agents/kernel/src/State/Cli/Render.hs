@@ -15,7 +15,6 @@ module State.Cli.Render (
 
 import Data.List (nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -32,7 +31,6 @@ import State.Run.Codec (areaText)
 import State.Show (tshow)
 import State.Step.Build (Sing (Refactor))
 import State.Step.Catalog (AnyStep (..), shownEdges, stepNamed)
-import State.Step.Choice (choiceNamed)
 import State.Step.Gather (Sing (Research))
 import State.Step.Review (Sing (PickRows))
 import State.Table (Row (runner), Runner (..), Steps, row)
@@ -47,8 +45,8 @@ states g steps =
         ["State", "Run by", "Arrows out"]
         [[stateNameText (placeName place), runBy place, arrowsOut place] | place <- Set.toList (places g)]
   where
-    -- A choice and a pick are the lead's own: any other unnamed state is a fan-out.
-    runBy place = case (stepNamed place.name, isJust (choiceNamed place.name) || isPick place.name) of
+    -- A pick is the lead's own: any other unnamed state is a fan-out or a group's await.
+    runBy place = case (stepNamed place.name, isPick place.name) of
         (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
             Agent agent _ -> roleText agent
             Inline -> "you"

@@ -7,7 +7,7 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), branchesWith, qualifyEvent, scopePath)
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), branchesWith, qualifyEvent, scopePath)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
 import State.Category.Fuel (always)
@@ -83,7 +83,7 @@ spec = describe "State.Category.Graph" $ do
             `shouldBe` Left (Unbounded "outer")
 
     it "refuses a Refuse cap on a step whose every outcome stays in its loop: past the cap nothing is left to record" $
-        graph (Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Refuse FixPR))
+        graph (Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Refuse (Step FixPR)))
             `shouldBe` Left (RefuseWithoutWayOut (Place [1] mempty (StateName "fix_pr")))
 
     it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
@@ -96,7 +96,7 @@ spec = describe "State.Category.Graph" $ do
                 `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "engineers")) "engineers")
 
         it "refuses a fork whose way out by an exit passes no await" $
-            graph (Fork engineerGroup (Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> Capped (always (UpTo 9)) Stop (Merge "engineers") :& End))
+            graph (Fork engineerGroup (Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> Capped (always (UpTo 9)) Stop (Step (Merge "engineers")) :& End))
                 `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "engineers")) "engineers")
 
         it "walks par as a spawn per item, the items done, a hand-back per child, then on" $
@@ -137,7 +137,7 @@ outOfStart g = [(event, edge.to) | ((from, event), edge) <- Map.toList g.edges, 
 
 -- | The gather's questions, capped as an action of its choice.
 questions :: Flow 'Ctx 'Nothing 'Ctx
-questions = Capped (always (UpTo 3)) Extend Interview
+questions = Capped (always (UpTo 3)) Extend (Step Interview)
 
 -- | The graphs of two terms and of their series, over terms that build: 'Clash' has its own cases.
 seqGraphs :: (NotSum a, NotSum b, NotSum c) => Gen (Flow a e1 b) -> Gen (Flow b e2 c) -> PropertyT IO (OpenGraph, OpenGraph, OpenGraph)
@@ -160,7 +160,8 @@ endOf g = foldM next (At g.inPort)
 arrows :: Flow i e o -> Int
 arrows = \case
     Do s -> length (outcomeNames (outcomes s))
-    Capped _ _ s -> length (outcomeNames (outcomes s))
+    Capped _ _ (Step s) -> length (outcomeNames (outcomes s))
+    Capped _ _ (ForkOf _ _) -> 1
     f :> g -> arrows f + arrows g
     Id -> 0
     Into -> 0
@@ -185,4 +186,4 @@ engineerChild = Do PlanS :> Do Implement :> Do Describe
 
 -- | A fix of a red CI, capped as the ship flow caps it.
 fixCapped :: Flow 'PR 'Nothing 'PR
-fixCapped = Capped (always (UpTo 5)) Stop FixPR
+fixCapped = Capped (always (UpTo 5)) Stop (Step FixPR)
