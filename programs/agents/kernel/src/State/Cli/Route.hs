@@ -162,7 +162,7 @@ readOnly flow call = case flow of
                 { exit = BadInput
                 , what = "the architect flow changes no code, so " <> act <> " is denied"
                 , why = "an architect run's design goes into its ticket"
-                , fix = "write the design into the ticket: a heredoc into `gh issue edit <number> --body-file -`"
+                , fix = "write the design into the ticket: a quoted heredoc (<<'EOF') into `gh issue edit <number> --body-file -`"
                 }
 
 -- | A write a run must see, as a denial names it; 'Nothing' for any other call.

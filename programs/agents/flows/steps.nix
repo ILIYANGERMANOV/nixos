@@ -87,7 +87,7 @@ let
       exit = null;
       outcomes = [ "done" ];
       runner = "inline";
-      task = "Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, with the research so far as its body: `gh issue create --repo <owner>/<repo>`, or a Linear issue when the request names Linear. Record its url.";
+      task = "Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, its body the skill's `references/issue.md` sections filled with what is known so far (the research in What & Why, Decisions candidates, Open questions), from a quoted heredoc (`<<'EOF'`): `gh issue create --repo <owner>/<repo>`, or a Linear issue when the request names Linear. Record its url.";
       tools = [ "shell" ];
       skills = [ "architect" ];
       prose = leadProse;
@@ -100,7 +100,7 @@ let
       exit = null;
       outcomes = [ "done" ];
       runner = "inline";
-      task = "Ticket: write the design into the ticket, as the skill's `references/issue.md` says: a heredoc into `gh issue edit <number> --repo <owner>/<repo> --body-file -`.";
+      task = "Ticket: write the design into the ticket, as the skill's `references/issue.md` says: a quoted heredoc (`<<'EOF'`) into `gh issue edit <number> --repo <owner>/<repo> --body-file -`, or through the `linear` MCP when the request names Linear.";
       tools = [ "shell" ];
       skills = [ "architect" ];
       prose = leadProse;
@@ -129,7 +129,7 @@ let
       exit = null;
       outcomes = [ "done" ];
       runner = "inline";
-      task = "Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`); the run hands back its url.";
+      task = "Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.";
       tools = [ "shell" ];
       skills = [ "architect" ];
       prose = leadProse;
