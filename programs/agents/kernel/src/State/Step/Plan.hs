@@ -56,7 +56,7 @@ instance StepSet PlanStep where
     special = \case
         PlanS -> Ordinary
         SimplifyP -> Ordinary
-        Confirm -> AsksConfirm
+        Confirm -> AsksConfirm "the simplified plan"
 
     sameStep a b = case (a, b) of
         (PlanS, PlanS) -> Just Refl

@@ -53,12 +53,14 @@ import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), gathering)
+import State.Step.Choice (Outcome (..), discussing, exploring, gathering, routes)
 import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 
 genEnvelope :: Gen Envelope
 genEnvelope =
@@ -76,6 +78,7 @@ genEvent =
     Gen.choice
         [ Started <$> genStart
         , FuelSet <$> Gen.enumBounded
+        , Targeted <$> genTarget
         , Extended <$> genText
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
@@ -169,6 +172,9 @@ genWorktree = Gen.mapMaybe (shellPath . ('/' :)) (Gen.string (Range.linear 0 20)
 genShape :: Gen Shape
 genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]
 
+genTarget :: Gen Target
+genTarget = Gen.choice [OnPr . Url <$> genText, OnBranch . Branch <$> genText, OnTicket . Url <$> genText]
+
 -- | A breakdown the test spells, which must be one 'breakdown' accepts.
 tasksOf :: NonEmpty Task -> Tasks
 tasksOf = either (error . show) id . breakdown
@@ -203,6 +209,8 @@ templates =
     [ outcome ResearchSpawned
     , outcome ResearchHandedBack
     , outcome (Enough gathering)
+    , outcome (Enough exploring)
+    , outcome (Enough discussing)
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
     , outcome SimplifyPlanSkipped
@@ -227,7 +235,19 @@ templates =
     , outcome (FixPrDone (Sha ""))
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
+    , outcome (OpenTicketDone (Url ""))
+    , outcome UpdateTicketDone
+    , outcome ConfirmDesignConfirmed
+    , outcome ConfirmDesignAdjusted
+    , outcome FinalizeTicketDone
+    , outcome (OpenPlanDone (Url ""))
+    , outcome (OpenBranchDone (Branch ""))
+    , outcome (OpenPrDone (Url ""))
+    , outcome (DirectDone "")
+    , outcome NextDone
+    , outcome NextRequest
     ]
+        <> [outcome (Picked route branch) | (route, branches) <- routes, branch <- branches]
         <> concat
             [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
               , outcome (FanDone fan)
@@ -274,6 +294,19 @@ likeIn = \case
         FixPrDone _ -> FixPrDone <$> genSha
         ReadyDone _ -> ReadyDone . Url <$> genText
         ReadySkipped _ -> ReadySkipped . Url <$> genText
+    TicketLayer -> \case
+        OpenTicketDone _ -> OpenTicketDone . Url <$> genText
+        UpdateTicketDone -> pure UpdateTicketDone
+        ConfirmDesignConfirmed -> pure ConfirmDesignConfirmed
+        ConfirmDesignAdjusted -> pure ConfirmDesignAdjusted
+        FinalizeTicketDone -> pure FinalizeTicketDone
+    RequestLayer -> \case
+        OpenPlanDone _ -> OpenPlanDone . Url <$> genText
+        OpenBranchDone _ -> OpenBranchDone . Branch <$> genText
+        OpenPrDone _ -> OpenPrDone . Url <$> genText
+        DirectDone _ -> DirectDone <$> genText
+        NextDone -> pure NextDone
+        NextRequest -> pure NextRequest
     FanLayer -> \case
         BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
         FanDone fan -> pure (FanDone fan)
@@ -281,6 +314,7 @@ likeIn = \case
         MergeNextRound fan -> pure (MergeNextRound fan)
     ChoiceLayer -> \case
         Enough choice -> pure (Enough choice)
+        Picked route branch -> pure (Picked route branch)
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

@@ -19,6 +19,7 @@ module State.Category.Flow (
     scoped,
     ScopePath,
     scopePath,
+    scopeNames,
     qualify,
     qualifyEvent,
     qualifyText,
@@ -68,6 +69,10 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     Do :: (StepSet k, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Flow i e o
     -- | Identity: no step runs. Law: @Id :> f = f = f :> Id@.
     Id :: Flow a 'Nothing a
+    {- | Retype as 'Result': no step runs, nothing is recorded, as 'Id'. The
+    chief's route joins its branches' outs here. Law: @f :> Into@ walks as @f@.
+    -}
+    Into :: (KnownTy a, NotSum a) => Flow a 'Nothing 'Result
     {- | Series: an exit of either side exits the whole. Law: associative,
     @(f :> g) :> h = f :> (g :> h)@.
     -}
@@ -123,6 +128,14 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     not matter.
     -}
     Choice :: (KnownTy a, NotSum a) => Name -> [Flow a 'Nothing a] -> Flow a 'Nothing a
+    {- | The agent's pick, once, of one of the named branches: one state, the
+    hub, with one edge per branch, @<name>.<branch>@, into that branch. The
+    branches share the in, the exit and the out, so the whole goes on as any
+    of them; a route picked again sits in a 'Loop'. Laws: the order of the
+    branches changes nothing a run walks, and series distributes over it,
+    @Route n ((b, f) :| [(c, g)]) :> h = Route n ((b, f :> h) :| [(c, g :> h)])@.
+    -}
+    Route :: (KnownTy a, NotSum a) => Name -> NonEmpty (OutcomeName, Flow a e c) -> Flow a e c
 
 infixr 5 :>
 
@@ -187,6 +200,10 @@ newtype ScopePath = ScopePath [Name]
     deriving stock (Eq, Ord, Show)
     deriving newtype (Semigroup, Monoid)
 
+-- | The scopes, outermost first.
+scopeNames :: ScopePath -> [Name]
+scopeNames (ScopePath scopes) = scopes
+
 -- | A scope's name as a path: @Scope "s/t"@ is @Scope "s" (Scope "t" ..)@ (law Nested scopes).
 scopePath :: Name -> ScopePath
 scopePath (Name name) = ScopePath (map Name (Text.splitOn "/" name))
@@ -217,7 +234,7 @@ unqualify qualified = case Text.breakOnEnd "/" qualified of
 enoughOutcome :: OutcomeName
 enoughOutcome = OutcomeName "enough"
 
--- | The one state a 'Par' or a 'Choice' draws: its name.
+-- | The one state a 'Par', a 'Choice' or a 'Route' draws: its name.
 namedState :: Name -> StateName
 namedState = StateName . nameText
 

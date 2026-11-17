@@ -20,6 +20,8 @@ module State.Cli.Command (
     failureText,
     initFix,
     tenXInitFix,
+    architectInitFix,
+    chiefInitFix,
     noteOf,
     explain,
     unknownEvent,
@@ -142,6 +144,14 @@ initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"
 -- | The 10x lead's @state init@ line, run in the run directory its skill names.
 tenXInitFix :: Text
 tenXInitFix = "state init --notes \"$PWD\" --flow 10x"
+
+-- | The architect's @state init@ line: its notes hold the research, its ticket the design.
+architectInitFix :: Text
+architectInitFix = "state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --flow architect"
+
+-- | The chief's @state init@ line: one run holds every request of the session.
+chiefInitFix :: Text
+chiefInitFix = "state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief"
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
 noteOf :: Failure -> Note
@@ -445,9 +455,11 @@ explain g fuel at meters = \case
     StillOpen open -> refused ("leaving " <> atText at) (tshow open <> " spawned here have yet to hand back") "state next"
     NothingToExtend -> refused "extend" ("the run is at " <> atText at <> ", where no budget asks the user to go on") "state next"
     FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
+    TargetOffHub -> refused "target" ("the run is at " <> atText at <> ": a target is named at a route's hub, before its branch") "state show"
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
     AskedTwice qid -> refused (qidText qid) "it was asked already" "state pending"
+    PickedOnce -> refused "the pick" "the user was asked this route's branch once already" (records (const True))
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))

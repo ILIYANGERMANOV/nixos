@@ -27,6 +27,7 @@ Supersedes ADR 0018's blocks and its loop `rounds`. The rest of 0018 holds.
   | `Capped limits atCap s` | a step whose `Meter` spends a budget |
   | `spawn limits atCap s` | `Capped`, for a step whose spend opens a child that must hand back |
   | `Choice name actions`, `choiceLoop` | the agent takes capped actions in any order, then `name.enough` |
+  | `Route name branches` | the agent picks one named branch, once, by `name.branch` |
   | `Opt name skips f` | a Fuel may skip the body |
   | `Par name f` | one child run per item (the 10x fan-out) |
   | `Scope name f` | the body's states named `name/...` |
@@ -47,6 +48,12 @@ Supersedes ADR 0018's blocks and its loop `rounds`. The rest of 0018 holds.
   `research.spawned` and `research.handed_back`, edges that stay at the
   state. `enough` waits for every open child: structured concurrency, an
   AND-join. At either cap the user says whether to `extend`.
+- **A route is a pick.** One state, the hub, with one edge per branch,
+  `name.branch`, into that branch; the branches share in, exit and out.
+  `state next` there tells the agent to guess the branch from the request,
+  say it, and ask the user once, `state ask --kind Pick`, only when the
+  request is ambiguous. The hub is no loop: a route picked again sits in a
+  `Loop`. Its picks decode by the fixed `routes` list beside `choices`.
 - **The review is a loop with a final pick.** `reviewed = Catch (review :>
   fixReReview)`, with `fixReReview = Loop "fix" (Capped Re-reviews Refuse
   Pick :> Do Fix :> Do ReReview)`. `pick.loop` spends a re-review;
@@ -73,12 +80,14 @@ generated terms, unless noted.
 | Elgot fixpoint | `Loop n f = Catch (f :> Loop n f)` |
 | Scope | keeps the graph but its names; distributes over series; `Scope s . Scope t = Scope (s/t)` |
 | Choice | the Kleene star of a sum: the order of the actions changes only the order they are shown in |
+| Route | the order of the branches changes nothing a run walks; series distributes over it, `Route n [(b, f), (c, g)] :> h = Route n [(b, f :> h), (c, g :> h)]` (both up to bisimulation) |
 | PerFuel monotone | each Fuel allows at least the spends and runs of the level below, in every named flow |
 
 Type rules are compile errors, pinned by should-not-typecheck cases in
 `FlowSpec` (capping a step with no meter, spawning a step that opens no
 child). Graph rules are `Clash`es in `GraphSpec` (an unbounded loop, a
-`Refuse` with no way out, a choice branch that is not a capped action).
+`Refuse` with no way out, a choice branch that is not a capped action, a
+route's branch name twice).
 
 ## Consequences
 

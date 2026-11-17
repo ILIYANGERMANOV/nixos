@@ -253,12 +253,14 @@ data SomeStep k where
 data Special
     = -- | Run it as its row says.
       Ordinary
-    | -- | Ask the user to confirm the plan, once, before recording.
-      AsksConfirm
+    | -- | Ask the user to confirm this, once, before recording: @the simplified plan@.
+      AsksConfirm Text
     | -- | Wait on the PR's CI.
       AwaitsCi
     | -- | Wait on the tasks' PRs to merge.
       AwaitsMerge
+    | -- | Name the url the run recorded last, what the request ended in.
+      TellsResult
     deriving stock (Eq, Show)
 
 -- | A state of a flow's graph, by name: what people read, and an override's target.

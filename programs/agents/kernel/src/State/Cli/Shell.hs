@@ -3,7 +3,7 @@ in pure code, then append to the log and print. Every decision is the
 kernel's; this module moves data between them and the effects, whose IO
 interpreters 'runShellIO' runs.
 -}
-module State.Cli.Shell (Shell, main, hook, runShellIO) where
+module State.Cli.Shell (Shell, main, hook, runShellIO, recordedEvent) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
@@ -42,9 +42,9 @@ import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
-import State.Category.Graph (Node (..), OpenGraph, graph)
+import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
 import State.Category.Step (StateName, stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
@@ -58,9 +58,9 @@ import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
-import State.Role (RoleDef (..))
+import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, principalShape, qidText)
+import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
@@ -135,9 +135,9 @@ hook argv = case parseHook argv of
     usage line = Console.err (line <> "\n") $> ExitFailure 2
 
 {- | A hook's reply to its job: how work begins needs no run, a lead skill
-marking its agent a lead; a route denies a @state@ call at another run than
-the caller's, and an unbound lead's write; the rest is what the caller's run
-says. A disk or git error is context naming the run once one is
+marking its agent a lead; a route denies a write where the caller's run is
+read-only, a @state@ call at another run than the caller's, and an unbound
+lead's write; the rest is what the caller's run says. A disk or git error is context naming the run once one is
 known: the bound one, then the one found. One before either, such as reading
 the caller's binding, names none, as no run is known yet.
 -}
@@ -152,19 +152,51 @@ jobReply steps name input call job = case job of
         pure (replyOf job (beginText steps begin <> marked))
     Routes gate ->
         callerBinding call >>= \(slot, bound) -> case (bound, gate) of
-            (Just binding, RunsShell command) -> case stateCalls steps call.cwd command of
-                [] -> pure Quiet
-                calls ->
-                    standing binding >>= \case
-                        (_, Standing) -> maybe Quiet Deny . route binding <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
-                        -- A removed worktree's run is done: no call strays from it.
-                        (_, Removed) -> pure Quiet
-            (Just _, _) -> pure Quiet
+            (Just binding, _) ->
+                readOnlyAt binding.notes gate >>= \case
+                    Just why -> pure (Deny why)
+                    Nothing -> case gate of
+                        RunsShell command -> case stateCalls steps call.cwd command of
+                            [] -> pure Quiet
+                            calls ->
+                                standing binding >>= \case
+                                    (_, Standing) -> maybe Quiet Deny . route binding <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
+                                    -- A removed worktree's run is done: no call strays from it.
+                                    (_, Removed) -> pure Quiet
+                        Edits -> pure Quiet
+                        Writes -> pure Quiet
+                        Spawns -> pure Quiet
             (Nothing, _) -> do
                 began <- maybe (pure Nothing) (fmap (leadSkill . Text.strip =<<) . FileSystem.readText . leadFile) slot
                 pure (maybe Quiet Deny (Route.gate (leadOf ((.role) =<< call.agent) began) gate))
     Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (wantAnswer steps name input call want slot bound)
     Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (bindAnswer steps name call bind slot bound)
+
+{- | Why the bound run denies the call where it is: by the flow running
+there. Read under the log's lock, appending nothing; no git is read, as a
+route runs before every edit. The run is replayed, as a scope inside it may
+run another flow, unless its first line starts a flow that writes code in
+every scope: an engineer's or a 10x's route reads one line, however long its
+log. A run that is gone or does not replay denies nothing: its other hooks
+tell what is wrong with it.
+-}
+readOnlyAt :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => FilePath -> Gate -> Eff es (Maybe Text)
+readOnlyAt notes gate =
+    Log.firstLine path >>= \first -> case startedFlow =<< first of
+        Just flow | mayDeny flow -> denialAt
+        _ -> pure Nothing
+  where
+    path = logOf notes
+    startedFlow line = either (const Nothing) (fmap (.flow) . Fold.runStart . (.event)) (decodeLine line)
+    denialAt =
+        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) path <&> \case
+            Ran (Right denial) -> denial
+            Ran (Left _) -> Nothing
+            NoRun -> Nothing
+
+-- | Whether a run of this flow may deny a write: some state of its graph runs, by its scopes, a flow that writes no code.
+mayDeny :: FlowName -> Bool
+mayDeny flow = any (Route.writesNoCode . Role.flowAt flow . placeName . fst) (Map.keys (graphOf flow).edges)
 
 -- | Marks the caller a lead of the skill it began; a disk error is told, the skill begins regardless.
 markLead :: (Shell es) => Call -> LeadSkill -> Eff es Text
@@ -400,7 +432,11 @@ execute :: (Shell es) => Steps -> Command -> Eff es (Either Failure Text)
 execute steps = \case
     Help -> pure (Right (help steps))
     Render block flow -> pure (Right (rendered steps block flow))
-    Init args -> inWorktree (`initRun` args)
+    Init args ->
+        inWorktree $ \gd ->
+            scopeRuns gd args >>= \case
+                True -> execute steps Next
+                False -> initRun gd args
     Move target -> inWorktree (`moveRun` target)
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
@@ -465,14 +501,7 @@ recorded = printed . recordedLines
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
 planOf :: Steps -> Maybe Sha -> Maybe Text -> OpenGraph -> RunState -> RunCommand -> Either Failure Plan
 planOf steps worktreeHead file g state = \case
-    Record (Plain event) -> Right (Plan [event] (const recorded))
-    Record (AtHead event) -> case worktreeHead of
-        Just sha -> Right (Plan [event sha] (const recorded))
-        Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
-    Record (FromFile path parse) -> case parse <$> file of
-        Just (Right event) -> Right (Plan [event] (const recorded))
-        Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
-        Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
+    Record recording -> (\event -> Plan [event] (const recorded)) <$> recordedEvent g state worktreeHead file recording
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskQuestion kind Itself text ->
@@ -508,6 +537,24 @@ planOf steps worktreeHead file g state = \case
     raised raise qid = case raise of
         AsAsked -> []
         ToSecurity -> [RetaggedSecurity qid]
+
+{- | The event @state record@ appends: the one its recording names, placed in
+the scope the run is in.
+-}
+recordedEvent :: OpenGraph -> RunState -> Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+recordedEvent g state worktreeHead file recording = Fold.inScope g state <$> namedEvent worktreeHead file recording
+
+-- | The event a recording names, from HEAD or the file it read beforehand.
+namedEvent :: Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+namedEvent worktreeHead file = \case
+    Plain event -> Right event
+    AtHead event -> case worktreeHead of
+        Just sha -> Right (event sha)
+        Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
+    FromFile path parse -> case parse <$> file of
+        Just (Right event) -> Right event
+        Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
+        Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
 
 {- | A worker's hand-back as the run records it. One with no kind on its
 question, or a worker's BLOCKED or FAILED, is the run's to triage.
@@ -822,6 +869,25 @@ initRun gd args = do
         ByRole {} -> Set.empty
     initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
 
+{- | Whether the user's init is the flow a scope of the worktree's unfinished
+run runs where it is, as when the chief, inside its @engineer@ branch, loads
+the engineer's skill: that init prints the run's next step instead, so the
+branch stays inline and the session bound to the run. A child's init, or one
+naming the run's own flow or a flow no scope there runs, starts as ever.
+-}
+scopeRuns :: (Shell es) => FilePath -> InitArgs -> Eff es Bool
+scopeRuns gd args = case args.origin of
+    FromParent _ -> pure False
+    FromUser _ ->
+        readPointer gd >>= \case
+            Nothing -> pure False
+            Just held -> fromRight False <$> onLog (\_ run -> ([], Right (inScope run.state))) (logOf held)
+  where
+    wanted = fromMaybe defaultFlow args.flow
+    inScope state = case liveness state of
+        Live -> wanted /= state.start.flow && Role.flowAt state.start.flow (askedAt state) == wanted
+        Ended _ -> False
+
 {- | @state move@: the worktree's run moves to the worktree the directory is
 in, as a run started in the wrong worktree must. Its notes stay, so the
 parent's and the children's logs still name them; the parent's record of the
@@ -1042,12 +1108,15 @@ rendered steps block flow = case block of
     InitLine -> case flow of
         EngineerFlow -> initFix <> "\n"
         TenXFlow -> tenXInitFix <> "\n"
+        ArchitectFlow -> architectInitFix <> "\n"
+        ChiefFlow -> chiefInitFix <> "\n"
   where
     g = graphOf flow
 
 -- | Each flow's graph glues, as its test holds: a clash here is a bug.
 graphOf :: FlowName -> OpenGraph
-graphOf = either (error . ("the flow does not glue: " <>) . show) id . graph . (.flow) . Role.role
+graphOf flowName = case (Role.role flowName).flow of
+    SomeFlow flow -> either (error . ("the flow does not glue: " <>) . show) id (graph flow)
 
 -- | The worktree's git dir, where the pointer to its run lives.
 gitDir :: (Git :> es) => Eff es (Either Failure FilePath)
@@ -1064,15 +1133,16 @@ writePointer dir notes = FileSystem.writeText (pointerOf dir) (Text.pack notes <
 pointerOf :: FilePath -> FilePath
 pointerOf dir = dir </> "state-notes"
 
-{- | What the worktree's run does to its PR, by its start: a round reads its
-PR by URL. No run, or a log that does not read, is a PR of its own, as
-before rounds.
+{- | What the worktree's run does to its PR now, by its start or its
+request's target: a round reads its PR by URL. No run, or a log that does
+not replay, is a PR of its own, as before rounds.
 -}
 runShape :: (Shell es) => Eff es Shape
 runShape =
-    pointedRun <&> \case
-        Just (_, Right Envelope {event = Started start}) -> principalShape start.principal
-        _ -> OwnPr
+    onRun (\_ run -> ([], Right (Fold.shape run.state))) <&> \case
+        Ran (Right shape) -> shape
+        Ran (Left _) -> OwnPr
+        NoRun -> OwnPr
 
 {- | The run's PR on GitHub and the lines it changes, each 'Nothing' when
 it cannot be read, with a line saying why, and the children that ended.

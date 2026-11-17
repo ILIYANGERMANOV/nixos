@@ -1,0 +1,180 @@
+== exploring
+RUN one option below
+  at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state record exploring.enough - on to open_ticket
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== open_ticket
+RUN state record open_ticket.done <url>
+  at open_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record open_ticket.done <url> - on to discussing
+  fuel: low
+Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, its body the skill's `references/issue.md` sections filled with what is known so far (the research in What & Why, Decisions candidates, Open questions), from a quoted heredoc (`<<'EOF'`): `gh issue create --repo <owner>/<repo>`, or a Linear issue when the request names Linear. Record its url.
+
+== discussing
+RUN one option below
+  at discussing: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state ask --kind <kind> <question> - asks one question; what it prints says who answers
+    state record discussing.enough - on to update_ticket
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Discussion questions: 0 of 15 used, 15 left
+  Design rounds: 0 of 3 used, 3 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+
+== update_ticket
+RUN state record update_ticket.done
+  at update_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record update_ticket.done - on to confirm_design
+  fuel: low
+  Design rounds: 0 of 3 used, 3 left
+Ticket: write the design into the ticket, as the skill's `references/issue.md` says: a quoted heredoc (`<<'EOF'`) into `gh issue edit <number> --repo <owner>/<repo> --body-file -`, or through the `linear` MCP when the request names Linear.
+
+== confirm_design
+ASK Confirm the design ticket: confirmed, or adjusted?
+  at confirm_design: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record confirm_design.adjusted - back to discussing, the design loop's next round
+    state record confirm_design.confirmed - on to finalize_ticket
+  fuel: low
+  Design rounds: 0 of 3 used, 3 left
+Design: the ticket as one Confirm question, its url in it. `confirmed` finalizes it; `adjusted` discusses again.
+
+== finalize_ticket
+RUN state record finalize_ticket.done
+  at finalize_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record finalize_ticket.done - the flow ends
+  fuel: low
+Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.
+
+
+== exploring
+RUN one option below
+  at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state record exploring.enough - on to open_ticket
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== open_ticket
+RUN state record open_ticket.done <url>
+  at open_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record open_ticket.done <url> - on to discussing
+  fuel: balanced
+Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, its body the skill's `references/issue.md` sections filled with what is known so far (the research in What & Why, Decisions candidates, Open questions), from a quoted heredoc (`<<'EOF'`): `gh issue create --repo <owner>/<repo>`, or a Linear issue when the request names Linear. Record its url.
+
+== discussing
+RUN one option below
+  at discussing: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state ask --kind <kind> <question> - asks one question; what it prints says who answers
+    state record discussing.enough - on to update_ticket
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Discussion questions: 0 of 30 used, 30 left
+  Design rounds: 0 of 3 used, 3 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+
+== update_ticket
+RUN state record update_ticket.done
+  at update_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record update_ticket.done - on to confirm_design
+  fuel: balanced
+  Design rounds: 0 of 3 used, 3 left
+Ticket: write the design into the ticket, as the skill's `references/issue.md` says: a quoted heredoc (`<<'EOF'`) into `gh issue edit <number> --repo <owner>/<repo> --body-file -`, or through the `linear` MCP when the request names Linear.
+
+== confirm_design
+ASK Confirm the design ticket: confirmed, or adjusted?
+  at confirm_design: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record confirm_design.adjusted - back to discussing, the design loop's next round
+    state record confirm_design.confirmed - on to finalize_ticket
+  fuel: balanced
+  Design rounds: 0 of 3 used, 3 left
+Design: the ticket as one Confirm question, its url in it. `confirmed` finalizes it; `adjusted` discusses again.
+
+== finalize_ticket
+RUN state record finalize_ticket.done
+  at finalize_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record finalize_ticket.done - the flow ends
+  fuel: balanced
+Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.
+
+
+== exploring
+RUN one option below
+  at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state record exploring.enough - on to open_ticket
+  fuel: max
+  Researchers: 0 used, one per group
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== open_ticket
+RUN state record open_ticket.done <url>
+  at open_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record open_ticket.done <url> - on to discussing
+  fuel: max
+Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, its body the skill's `references/issue.md` sections filled with what is known so far (the research in What & Why, Decisions candidates, Open questions), from a quoted heredoc (`<<'EOF'`): `gh issue create --repo <owner>/<repo>`, or a Linear issue when the request names Linear. Record its url.
+
+== discussing
+RUN one option below
+  at discussing: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state ask --kind <kind> <question> - asks one question; what it prints says who answers
+    state record discussing.enough - on to update_ticket
+  fuel: max
+  Researchers: 0 used, one per group
+  Discussion questions: 0 of 50 used, 50 left
+  Design rounds: 0 of 3 used, 3 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+
+== update_ticket
+RUN state record update_ticket.done
+  at update_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record update_ticket.done - on to confirm_design
+  fuel: max
+  Design rounds: 0 of 3 used, 3 left
+Ticket: write the design into the ticket, as the skill's `references/issue.md` says: a quoted heredoc (`<<'EOF'`) into `gh issue edit <number> --repo <owner>/<repo> --body-file -`, or through the `linear` MCP when the request names Linear.
+
+== confirm_design
+ASK Confirm the design ticket: confirmed, or adjusted?
+  at confirm_design: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record confirm_design.adjusted - back to discussing, the design loop's next round
+    state record confirm_design.confirmed - on to finalize_ticket
+  fuel: max
+  Design rounds: 0 of 3 used, 3 left
+Design: the ticket as one Confirm question, its url in it. `confirmed` finalizes it; `adjusted` discusses again.
+
+== finalize_ticket
+RUN state record finalize_ticket.done
+  at finalize_ticket: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record finalize_ticket.done - the flow ends
+  fuel: max
+Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.
+
+

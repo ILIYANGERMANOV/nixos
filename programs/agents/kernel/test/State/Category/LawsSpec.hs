@@ -7,7 +7,10 @@ the copy sits under @Scope "u"@, so a copied loop keeps a name of its own.
 module State.Category.LawsSpec (spec) where
 
 import Data.Either (isRight)
+import Data.Foldable (toList)
 import Data.List (sortOn)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -16,11 +19,11 @@ import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Flow (..), Name (..), inl, inr, nameText, qualify, qualifyText, scoped, spawn, unqualify, (|||))
-import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, redrawn)
+import State.Category.FlowGen (Kit (..), diffKit, genBranches, genBranching, genEndo, genExiting, genFlow, genScopePath, redrawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
 import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places, shownOrder)
 import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
-import State.Category.Step (EventName (..), OutcomeEdge (..), StateName (..), StepSet (stepName), stateNameText)
+import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..), StepSet (stepName), stateNameText)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
@@ -36,6 +39,10 @@ spec = describe "laws" $ do
         it "identity_is_a_unit_of_series" . hedgehog $ do
             f <- forAll (Gen.filter (isRight . graph) genFlow)
             (drawn (Id :> f), drawn (f :> Id)) === (drawn f, drawn f)
+
+        it "into_walks_as_identity" . hedgehog $ do
+            f <- forAll (Gen.filter (isRight . graph) genFlow)
+            drawn (f :> Into) === drawn f
 
         it "series_is_associative" . hedgehog $ do
             (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph ((f :> g) :> h))) ((,,) <$> genExiting diffKit <*> genEndo diffKit <*> genBranching))
@@ -124,6 +131,21 @@ spec = describe "laws" $ do
         it "shows_the_actions_in_the_order_the_term_declares_them" . hedgehog $ do
             actions <- forAll genActions
             fmap shown (graph (Choice "gather" (map snd actions))) === Right (map fst actions)
+
+    {- A route's branches sit at their term positions, so a law that moves
+    them holds up to bisimulation: a run picks the same branch by the same
+    event and walks on through the same names.
+    -}
+    describe "Route, a pick of one branch" $ do
+        it "the_order_of_the_branches_changes_nothing_a_run_walks" . hedgehog $ do
+            branches <- forAll (Gen.filter (isRight . graph . Route "route") (genBranches genBranching))
+            shuffled <- forAll (Gen.shuffle (toList branches))
+            (bisimilar <$> graph (Route "route" (NonEmpty.fromList shuffled)) <*> graph (Route "route" branches)) === Right []
+
+        it "series_distributes_over_a_route" . hedgehog $ do
+            let routed f g = Route "route" ((OutcomeName "small", f) :| [(OutcomeName "big", g)])
+            (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph (routed f g :> h))) ((,,) <$> genEndo diffKit <*> genEndo diffKit <*> genBranching))
+            (bisimilar <$> graph (routed f g :> h) <*> graph (routed (f :> h) (g :> Scope copy h))) === Right []
 
     describe "PerFuel" $
         it "allows each level at least the spends and runs of the level below, in every named flow" $
@@ -229,6 +251,7 @@ unscoped scope g =
         , edges = Map.fromList [((place from, renameEvent bare event), renameEdge edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = Map.fromList [(renameName bare loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
         , caps = Map.mapKeys (\metered -> metered {place = place metered.place}) g.caps
+        , routes = Set.map place g.routes
         }
   where
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
@@ -269,6 +292,7 @@ budgetsOf = \case
     Do _ -> []
     Capped limit _ s -> [(Name (meterName s), capped limit)]
     Id -> []
+    Into -> []
     f :> g -> budgetsOf f <> budgetsOf g
     Loop _ body -> budgetsOf body
     Opt name skips body -> (name, skipped skips) : budgetsOf body
@@ -279,6 +303,7 @@ budgetsOf = \case
     Catch body -> budgetsOf body
     Scope _ body -> budgetsOf body
     Choice _ branches -> concatMap budgetsOf branches
+    Route _ branches -> concatMap (budgetsOf . snd) branches
   where
     capped :: PerFuel Limit -> Bool
     capped = monotone limitAtMost

@@ -11,7 +11,11 @@ import Doubles.Gh (printedPr)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.Flow (scopePath)
+import State.Category.FlowGen (threeWayGraph)
 import State.Category.Fuel (Fuel (..))
+import State.Category.Step (OutcomeName (..))
+import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
@@ -19,12 +23,17 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, securityGraph, securityScope, sha, tenXAt, tenXGraph)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Build (Outcome (..))
+import State.Step.Catalog (outcome)
+import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -67,6 +76,56 @@ spec = describe "State.Protocol.Advice" $ do
         it "asks the engineer's Fuel first, the 10x's never: it runs at Balanced" $
             map (next noFacts) [runAt [], tenXStarted]
                 `shouldBe` [offering ["state record fuel <low|balanced|max>"], choosing]
+
+    describe "a route" $ do
+        let atHub events = advise steps threeWayGraph noFacts (either (error . show) id (replay threeWayGraph (logOf (started :| knobs Balanced <> events))))
+            pickAsked = [Asked (Asking (Question (QId run 1) Pick (oneLine "which branch?")) (StateName "route") Itself), Forwarded (QId run 1) TheUser, Answered (QId run 1) "big" TheUser]
+        it "offers one pick per branch, each with where it goes" $
+            explained start (atHub [])
+                `shouldBe` [ "at route: a route you pick - take one option below, once, then state next"
+                           , "options:"
+                           , "  state record route.big - on to refactor"
+                           , "  state record route.other - on to describe"
+                           , "  state record route.small - on to describe"
+                           ]
+        it "tells the agent to guess the branch, say it, and ask the user once only when the request is ambiguous" $
+            (atHub []).prompt `shouldBe` "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
+        it "asks no more once the user was asked the branch" $
+            (atHub pickAsked).prompt `shouldBe` "The user was asked the branch once: record the branch the answer names."
+
+    describe "the chief" $ do
+        let chiefAt events = either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)))
+            atChief events = advise steps chiefGraph noFacts (chiefAt events)
+            routed branch = stepTook (Picked "route" (OutcomeName branch))
+            onPr = Targeted (OnPr prUrl)
+            designAsked = Asked (Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "engineer/gather") Itself)
+            inScope scope = map (Took (scopePath scope))
+        it "routes a new run's first request at once, asking no Fuel: each request sets its own at the hub" $
+            Set.fromList [option.command | Run options <- [(atChief []).action], option <- toList options]
+                `shouldBe` Set.fromList ["state record route." <> branch | branch <- ["architect", "engineer", "10x", "blocks", "discussion", "other"]]
+        it "tells the agent at the hub to guess the branch and ask the user once only when the request is ambiguous" $
+            (atChief []).prompt `shouldSatisfy` Text.isPrefixOf "Guess the branch from the request"
+        it "names the url the request recorded last at next, the PR an engineer request ended in" $
+            (atChief (routed "engineer" : inScope "engineer" happyPath)).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: u"
+        it "names no url at next after a request that recorded none" $
+            (atChief [routed "other", stepTook (DirectDone "renamed a file")]).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: none recorded"
+        it "settles a targeted request's plan itself: skips its simplify and confirms it" $
+            map (\n -> due chiefGraph noFacts (chiefAt (onPr : routed "engineer" : inScope "engineer" (take n happyPath)))) [4, 5]
+                `shouldBe` [Just (Took (scopePath "engineer") (outcome SimplifyPlanSkipped)), Just (Took (scopePath "engineer") (outcome ConfirmConfirmed))]
+        it "leaves a targeted request's plan to the user once a Design question was asked" $
+            due chiefGraph noFacts (chiefAt (onPr : routed "engineer" : designAsked : inScope "engineer" (take 5 happyPath))) `shouldBe` Nothing
+        it "asks the user to confirm a request's plan with no target, as before targets" $
+            next noFacts (chiefAt (routed "engineer" : inScope "engineer" (take 5 happyPath))) `shouldSatisfy` \case
+                Ask Confirm _ -> True
+                _ -> False
+        it "skips ready on a targeted PR, as GitHub reads it by its url" $
+            due chiefGraph withPr (chiefAt (onPr : routed "engineer" : inScope "engineer" (take 13 happyPath)))
+                `shouldBe` Just (Took (scopePath "engineer") (outcome (ReadySkipped prUrl)))
+        it "adopts a targeted ticket, opening none" $
+            due chiefGraph noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" : [Took (scopePath "architect") o | Took _ o <- take 3 ticketOpened]))
+                `shouldBe` Just (Took (scopePath "architect") (outcome (OpenTicketDone ticketUrl)))
+        it "explains each discussion question before it is asked, as the architect's discussion does" $
+            (atChief [routed "discussion"]).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
 
     describe "gather" $ do
         it "offers each action in the order the flow declares them, and enough, each with what it does" $
@@ -140,6 +199,29 @@ spec = describe "State.Protocol.Advice" $ do
                 answered = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
             next noFacts answered `shouldBe` offering ["state record confirm.confirmed", "state record confirm.adjusted"]
 
+    describe "the architect" $ do
+        let architectFrom events = either (error . show) id (replay architectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
+            architectRun = architectFrom . (knobs Balanced <>)
+            atCap = ticketOpened <> concat (replicate 3 (designWritten <> [stepTook ConfirmDesignAdjusted])) <> designWritten
+            designGoOn = Question (QId run 100) Stuck (oneLine "go on?")
+            wentOn = [Asked (Asking designGoOn (StateName "design/confirm_design") Itself), Forwarded designGoOn.qid TheUser, Answered designGoOn.qid "yes" TheUser]
+        it "asks the architect's Fuel first, as the engineer's" $
+            next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
+
+        it "asks the user to confirm the design ticket" $
+            next noFacts (architectRun (ticketOpened <> designWritten)) `shouldBe` Ask Confirm "the design ticket: confirmed, or adjusted?"
+
+        it "asks whether to go on at the design rounds' cap, then the confirm again after extend" $ do
+            next noFacts (architectRun atCap) `shouldBe` Ask Stuck "Design rounds: 3 of 3 used, none left: go on?"
+            next noFacts (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design ticket: confirmed, or adjusted?"
+
+        it "tells the discussion to send its Explain message before each question, in the same turn" $
+            (advise steps architectGraph noFacts (architectRun ticketOpened)).prompt
+                `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
+
+        it "ends with the ticket's url" $
+            next noFacts (architectRun (ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])) `shouldBe` Done (Just ticketUrl)
+
     it "advises a scoped step's outcomes under their qualified names" $ do
         let atSecurityPick =
                 either (error . show) id . replay securityGraph . logOf $
@@ -170,6 +252,13 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "records ready once GitHub says the PR is ready" $
             due g withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
+
+        it "asks the user to confirm a user's round's plan, as before targets" $ do
+            let roundAtConfirm = runUnder userRound (knobs Balanced <> map (Took mempty) (take 5 happyPath))
+            (due g withPr roundAtConfirm, next withPr roundAtConfirm)
+                `shouldSatisfy` \case
+                    (Nothing, Ask Confirm _) -> True
+                    _ -> False
 
         it "records a user's round's PR in review as its draft, and skips ready though GitHub says it is ready" $
             [ due g withPr {pr = Just (PullRequest draftPr IsReady)} (runUnder userRound (knobs Balanced <> map (Took mempty) (take n happyPath)))
@@ -372,6 +461,10 @@ spec = describe "State.Protocol.Advice" $ do
             ]
                 `shouldBe` concat (replicate 3 ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
 
+        it "answers a Design question itself inside a 10x scope, where the unscoped run forwards it" $
+            [line | state <- [atImplement, inTenXScope], let (_, _, line) = ownAsk state Design (oneLine "which store?")]
+                `shouldBe` ["ASK user", "ANSWER yourself"]
+
         it "leaves a Pick question to the run itself" $
             ownAsk atImplement Pick (oneLine "which rows?")
                 `shouldBe` (Question (QId run 1) Pick (oneLine "which rows?"), [Asked (Asking (Question (QId run 1) Pick (oneLine "which rows?")) implement Itself)], "ANSWER yourself")
@@ -387,6 +480,8 @@ spec = describe "State.Protocol.Advice" $ do
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
     atImplement = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
+    -- An engineer run inlining 10x, at the scope's first state.
+    inTenXScope = either (error . show) id (replay (scopedIn "10x" tenX) (logOf (started :| [])))
     atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath))
     atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 8 happyPath))
     tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {Event.flow = TenXFlow} :| events)))

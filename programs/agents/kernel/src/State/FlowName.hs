@@ -12,7 +12,7 @@ module State.FlowName (
 import Data.Text (Text)
 
 -- | A flow a run follows, named after the role that leads it.
-data FlowName = EngineerFlow | TenXFlow
+data FlowName = EngineerFlow | TenXFlow | ArchitectFlow | ChiefFlow
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | The flow a run, or a breakdown's task, follows when none is named.
@@ -24,6 +24,8 @@ flowText :: FlowName -> Text
 flowText = \case
     EngineerFlow -> "engineer"
     TenXFlow -> "10x"
+    ArchitectFlow -> "architect"
+    ChiefFlow -> "chief"
 
 {- | Its wire name, unless it is 'defaultFlow', which a line or an encoding
 leaves out so it reads as it did before flows.

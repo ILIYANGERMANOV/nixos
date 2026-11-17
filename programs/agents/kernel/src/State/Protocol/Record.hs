@@ -37,7 +37,7 @@ import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Protocol.Handback (parseTouches, refusalText)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
+import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, Target (..), TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
 import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
@@ -46,8 +46,10 @@ import State.Step.Choice qualified as Choice
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
+import State.Step.Request (Outcome (..), Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
 import State.Step.Ship (Outcome (..), Sing (..))
+import State.Step.Ticket (Outcome (..), Sing (..))
 
 {- | An event to record. Most carry the commit the worktree is at, which only
 the shell can read; a breakdown or an added task is read from a file, by the shell too.
@@ -149,6 +151,14 @@ recordables =
     , nothing ResearchHandedBack
     ]
         <> [nothing (Enough choice) | choice <- Choice.choices]
+        <> [ -- Named at a route's hub, before its branch.
+             stay "target" "<pr <url>|branch <name>|ticket <url>>" $ \case
+                ["pr", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Targeted . OnPr) (parsePrUrl pr)
+                ["branch", name] -> Right (Targeted (OnBranch (Branch name)))
+                ["ticket", link] -> Right (Targeted (OnTicket (Url link)))
+                _ -> Left "pr and its url, branch and its name, or ticket and its url"
+           ]
+        <> [nothing (Picked route branch) | (route, branches) <- Choice.routes, branch <- branches]
         <> [ extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
                 -- Read as a file only to refuse a plan not written yet.
@@ -181,8 +191,23 @@ recordables =
                 check : more -> Right (AtHead (\sha -> tookIn a.scope (AwaitCiRed sha (fmap Check (check :| more)))))
                 [] -> Left "the failing checks"
            , atHead FixPR FixPrDone
-           , url Ready ReadyDone
-           , url Ready ReadySkipped
+           , url "the PR's url" Ready ReadyDone
+           , url "the PR's url" Ready ReadySkipped
+           , url "the issue's url" OpenTicket OpenTicketDone
+           , nothing UpdateTicketDone
+           , nothing ConfirmDesignConfirmed
+           , nothing ConfirmDesignAdjusted
+           , nothing FinalizeTicketDone
+           , url "the issue's url" OpenPlan OpenPlanDone
+           , outcome (builtEvent OpenBranch OpenBranchDone) "<branch|sha>" [] $ \a -> case a.positional of
+                [ref] -> Right (Plain (tookIn a.scope (OpenBranchDone (Branch ref))))
+                _ -> Left "the branch or sha"
+           , url "the PR's url" OpenPr OpenPrDone
+           , outcome (builtEvent Direct DirectDone) "<note>" [] $ \a -> case a.positional of
+                [] -> Left "what was asked and done"
+                note -> Right (Plain (tookIn a.scope (DirectDone (Text.unwords note))))
+           , nothing NextRequest
+           , nothing NextDone
            ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
         <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
@@ -205,7 +230,7 @@ recordables =
                 [child] -> maybe (Left (child <> " is no run id")) (Right . Resumed) (parseRunId child)
                 _ -> Left "the child run you resume"
            ]
-        <> concat [[url (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
+        <> concat [[url "the PR's url" (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
   where
     breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (tookIn a.scope . BreakdownDone fan) . Codec.decodeBreakdown))
@@ -224,9 +249,9 @@ recordables =
     picks s done = outcome (builtEvent s done) "" [Flag "row" "<label>" Repeated, Flag "verdict" ("<requirement>=<" <> choices judgementText <> ">") Repeated] $ \a -> case a.positional of
         [] -> Plain . tookIn a.scope . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)
         _ -> Left "rows and verdicts are options"
-    url s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
+    url noun s done = outcome (builtEvent s done) "<url>" [] $ \a -> case a.positional of
         [raw] -> Right (Plain (tookIn a.scope (done (Url raw))))
-        _ -> Left "the PR's url"
+        _ -> Left noun
     verdict raw = case Text.breakOnEnd "=" raw of
         (requirement, judgement) | Just r <- Text.stripSuffix "=" requirement, not (Text.null r) -> (Requirement r,) <$> known "verdict" (parseByName judgementText) judgement
         _ -> Left (raw <> " is not <requirement>=<verdict>")

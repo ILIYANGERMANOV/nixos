@@ -50,6 +50,26 @@ spec = describe "the state binary" $ do
             done <- succeeded =<< state bin repo ["next"]
             take 1 done `shouldBe` ["DONE " <> Text.pack roundUrlString]
 
+        it "runs a chief's request on a targeted PR: plan unconfirmed, GitHub's PR its draft, ready skipped" $ \repo -> do
+            _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
+            transcript <- driveOn bin repo (Record ["fuel", "low"] : Record ["target", "pr", roundUrlString] : Record ["route.engineer"] : targetedPath)
+            transcript `shouldBe` ["fuel -> route", "target -> route", "route.engineer -> engineer/gather"] <> targetedTranscript
+            atNext <- succeeded =<< state bin repo ["next"]
+            atNext `shouldSatisfy` any (Text.isSuffixOf ("The last result: " <> Text.pack roundUrlString))
+
+        it "asks the user to confirm the next request's plan when it names no target" $ \repo -> do
+            _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
+            _ <- driveOn bin repo (Record ["fuel", "low"] : Record ["target", "pr", roundUrlString] : Record ["route.engineer"] : targetedPath)
+            transcript <- driveOn bin repo [Record ["next.request"], Record ["route.engineer"], Record ["gather.enough"], Planned, Record ["simplify_plan.skipped"]]
+            transcript `shouldBe` ["next.request -> route", "route.engineer -> engineer/gather", "engineer/gather.enough -> engineer/plan", "engineer/plan.done -> engineer/simplify_plan", "engineer/simplify_plan.skipped -> engineer/confirm"]
+            asked <- succeeded =<< state bin repo ["next"]
+            take 1 asked `shouldSatisfy` all (Text.isInfixOf "confirmed, or adjusted?")
+
+        it "adopts a chief's targeted ticket, opening none" $ \repo -> do
+            _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
+            transcript <- driveOn bin repo [Record ["fuel", "low"], Record ["target", "ticket", "https://github.com/o/r/issues/3"], Record ["route.architect"], Record ["exploring.enough"]]
+            transcript `shouldBe` ["fuel -> route", "target -> route", "route.architect -> architect/exploring", "architect/exploring.enough -> architect/open_ticket", "architect/open_ticket.done -> architect/discussing"]
+
         it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
             refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]
             (refused.code, refused.err)
@@ -1367,6 +1387,30 @@ trivialTranscript =
     , "simplify_pr.done -> await_ci"
     , "await_ci.green -> ready"
     , "ready.done -> out"
+    ]
+
+{- | 'trivialPath' from the gather, in a chief's request on a targeted PR:
+the plan is neither simplified nor confirmed, no draft PR opened, as GitHub
+has the target's, and no ready, which the request skips.
+-}
+targetedPath :: [Act]
+targetedPath = take 2 (drop 1 trivialPath) <> drop 6 (init trivialPath)
+
+targetedTranscript :: [Text]
+targetedTranscript =
+    [ "engineer/gather.enough -> engineer/plan"
+    , "engineer/plan.done -> engineer/simplify_plan"
+    , "engineer/simplify_plan.skipped -> engineer/confirm"
+    , "engineer/confirm.confirmed -> engineer/draft"
+    , "engineer/draft.done -> engineer/implement"
+    , "engineer/implement.done -> engineer/refactor"
+    , "engineer/refactor.skipped -> engineer/review"
+    , "engineer/review.rows -> engineer/pick"
+    , "engineer/pick.final -> engineer/describe"
+    , "engineer/describe.done -> engineer/simplify_pr"
+    , "engineer/simplify_pr.done -> engineer/await_ci"
+    , "engineer/await_ci.green -> engineer/ready"
+    , "engineer/ready.skipped -> next"
     ]
 
 {- | 'trivialPath' as a round on 'roundUrlString': no draft PR opened, as

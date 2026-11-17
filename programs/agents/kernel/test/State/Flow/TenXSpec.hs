@@ -6,7 +6,7 @@ import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
 import State.Flow.TenX (tenX)
-import State.Role (FlowName (EngineerFlow), RoleDef (..), role)
+import State.Role (FlowName (EngineerFlow), RoleDef (..), SomeFlow (..), role)
 import State.Step.Fan (engineers)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
@@ -24,7 +24,7 @@ spec = describe "State.Flow.TenX" $ do
 
     -- The graph draws the fan-out's body as a task's default flow; each child runs its own task's.
     it "draws the registry's engineer flow as its fan-out's body" $
-        lookup engineers (parBodies tenX) `shouldBe` Just (show (role EngineerFlow).flow)
+        lookup engineers (parBodies tenX) `shouldBe` Just (case (role EngineerFlow).flow of SomeFlow flow -> show flow)
 
 {- | Each fan-out's body, shown. Compared by 'show', not 'graph': 'graph'
 draws a 'Par' as one state, and a 'Par' hides the types 'graph' needs of its
@@ -36,6 +36,7 @@ parBodies = \case
     Capped {} -> []
     f :> g -> parBodies f <> parBodies g
     Id -> []
+    Into -> []
     Loop _ body -> parBodies body
     Opt _ _ body -> parBodies body
     Par fan body -> (fan, show body) : parBodies body
@@ -45,3 +46,4 @@ parBodies = \case
     Catch body -> parBodies body
     Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]
     Choice _ branches -> concatMap parBodies branches
+    Route _ branches -> concatMap (parBodies . snd) branches

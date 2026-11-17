@@ -53,6 +53,8 @@ library
     State.Cli.Route
     State.Cli.Shell
     State.Cli.View
+    State.Flow.Architect
+    State.Flow.Chief
     State.Flow.Engineer
     State.Flow.Library
     State.Flow.TenX
@@ -77,8 +79,10 @@ library
     State.Step.Fan
     State.Step.Gather
     State.Step.Plan
+    State.Step.Request
     State.Step.Review
     State.Step.Ship
+    State.Step.Ticket
     State.Table
 
   build-depends:
@@ -143,15 +147,19 @@ test-suite state-test
     State.Cli.Shell.World
     State.Cli.ViewSpec
     State.E2ESpec
+    State.Flow.ChiefSpec
     State.Flow.EngineerSpec
+    State.Flow.InlineSpec
     State.Flow.LibrarySpec
     State.Flow.TenXSpec
     State.Flow.Triage
     State.Golden
+    State.Protocol.AdviceGoldenSpec
     State.Protocol.AdviceSpec
     State.Protocol.BindingSpec
     State.Protocol.HandbackSpec
     State.Protocol.HookSpec
+    State.RoleSpec
     State.Run.AskSpec
     State.Run.CodecSpec
     State.Run.EventGen

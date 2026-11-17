@@ -47,7 +47,8 @@ let
     "10x-engineer" # /10x-engineer - run engineers across issues and repos, merge what the user approved, factory only
     "android" # Android and Kotlin Multiplatform builds on the factory's global toolchain, factory only
     "address-pr-feedback" # /address-pr-feedback - answer PR review threads, explicit invocation only
-    "architect" # /architect - read-only design partner led in free text, hands changes to /engineer, explicit invocation only
+    "architect" # /architect - read-only design partner on the state kernel, writes a design ticket /engineer plans from; the chief loads it
+    "chief" # /chief - one run per session that routes each request to a flow, a block, a discussion or a direct fix, explicit invocation only
     "engineer" # /engineer - deliver a feature end to end; preloaded by the engineer agent
     "engineering" # coding style and engineering principles, model-invoked on any code work
     "final-review" # /final-review - independent last review of a ready PR, the user answers the pickers

@@ -4,13 +4,18 @@
 {- | The state a 'State.Category.Flow.Choice' draws, named by its choice: a
 step of this layer for its one outcome, @enough@, never one
 'State.Category.Flow.Do' draws. Its actions' events are their own steps'.
+A 'State.Category.Flow.Route''s hub is a step of this layer per branch,
+each for its one outcome, the branch.
 -}
 module State.Step.Choice (
     ChoiceStep,
     Sing (..),
     Outcome (..),
     gathering,
+    exploring,
+    discussing,
     choices,
+    routes,
     choiceNamed,
     nodeChoice,
 ) where
@@ -23,40 +28,61 @@ import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step
 import State.Category.Ty (Ty (..))
 
-type data ChoiceStep = Hub
+type data ChoiceStep = Hub | Fork
 
 type DrawnHub :: ChoiceStep -> Bool
 type family DrawnHub s where
     DrawnHub Hub = TypeError ('Text "A choice's state is drawn by Choice, not Do")
+    DrawnHub Fork = TypeError ('Text "A route's state is drawn by Route, not Do")
 
 instance StepSet ChoiceStep where
     type Sig Hub = '( 'Ctx, 'Nothing, 'Ctx)
+    type Sig Fork = '( 'Ctx, 'Nothing, 'Ctx)
     type Drawn s = DrawnHub s
 
     data Sing s where
         Hub :: Name -> Sing Hub
+        -- \| A route's hub, by one of its branches.
+        Pick :: Name -> OutcomeName -> Sing Fork
 
     data Outcome s l where
         -- \| Nothing is open: the run leaves the choice.
         Enough :: Name -> Outcome Hub 'Continued
+        -- \| The route goes on into this branch.
+        Picked :: Name -> OutcomeName -> Outcome Fork 'Continued
 
-    -- No row: 'State.Category.Flow.Choice' draws it, not 'State.Category.Flow.Do'.
+    -- No row: 'State.Category.Flow.Choice' and 'State.Category.Flow.Route' draw them, not 'State.Category.Flow.Do'.
     layerSteps = []
 
-    stepName (Hub name) = namedState name
+    stepName = \case
+        Hub name -> namedState name
+        Pick route _ -> namedState route
 
-    outcomes (Hub _) = Continues enoughOutcome
+    outcomes = \case
+        Hub _ -> Continues enoughOutcome
+        Pick _ branch -> Continues branch
 
-    special (Hub _) = Ordinary
+    special = \case
+        Hub _ -> Ordinary
+        Pick _ _ -> Ordinary
 
-    sameStep (Hub _) (Hub _) = Just Refl
+    sameStep a b = case (a, b) of
+        (Hub _, Hub _) -> Just Refl
+        (Hub _, Pick _ _) -> Nothing
+        (Pick _ _, Pick _ _) -> Just Refl
+        (Pick _ _, Hub _) -> Nothing
 
     pack = \case
         o@(Enough name) -> packed (Hub name) o
+        o@(Picked route branch) -> packed (Pick route branch) o
 
-    encodeOutcome (Enough _) = mempty
+    encodeOutcome = \case
+        Enough _ -> mempty
+        Picked _ _ -> mempty
 
-    decoders = [Decoder (Hub name) (const (pure (Enough name))) | name <- choices]
+    decoders =
+        [Decoder (Hub name) (const (pure (Enough name))) | name <- choices]
+            <> [Decoder (Pick route branch) (const (pure (Picked route branch))) | (route, branches) <- routes, branch <- branches]
 
 deriving stock instance Show (Sing (s :: ChoiceStep))
 deriving stock instance Show (Outcome (s :: ChoiceStep) l)
@@ -66,9 +92,29 @@ deriving stock instance Eq (Outcome (s :: ChoiceStep) l)
 gathering :: Name
 gathering = "gather"
 
+{- | The architect's research before its ticket opens. Named apart from its
+action, @research@: a choice's state and loop take its name.
+-}
+exploring :: Name
+exploring = "exploring"
+
+-- | The architect's design discussion: research and design questions, as the agent chooses.
+discussing :: Name
+discussing = "discussing"
+
 -- | Every choice a run may hold, so the log's decoders know each one's @enough@.
 choices :: [Name]
-choices = [gathering]
+choices = [gathering, exploring, discussing]
+
+{- | Every route a run may hold, with its branches, so the log's decoders
+know each pick: the chief's request route and its block route. A test holds
+it equal to the routes the flows draw.
+-}
+routes :: [(Name, [OutcomeName])]
+routes =
+    [ ("route", map OutcomeName ["architect", "engineer", "10x", "blocks", "discussion", "other"])
+    , ("block", map OutcomeName ["researching", "gathering", "agreeing", "proposing", "building", "reviewing", "describing", "shipping"])
+    ]
 
 -- | The choice whose state this is.
 choiceNamed :: StateName -> Maybe Name

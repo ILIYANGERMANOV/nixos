@@ -5,6 +5,8 @@ values, so a flow names these flows rather than their steps.
 module State.Flow.Library (
     agree,
     gather,
+    research,
+    discuss,
     propose,
     build,
     review,
@@ -12,16 +14,21 @@ module State.Flow.Library (
     reviewed,
     describe,
     ship,
+    blocks,
+    branch,
 ) where
 
-import State.Category.Flow (Flow (..), choiceLoop, spawn)
+import Data.List.NonEmpty (NonEmpty (..))
+import State.Category.Flow (Flow (..), Name, choiceLoop, nameText, spawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Step (OutcomeName (..))
+import State.Category.Ty (KnownTy, NotSum, Ty (..))
 import State.Step.Build (Sing (..))
-import State.Step.Choice (gathering)
+import State.Step.Choice (discussing, exploring, gathering)
 import State.Step.Gather (Sing (..))
 import State.Step.Plan (Sing (..))
+import State.Step.Request (Sing (..))
 import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
 
@@ -42,9 +49,33 @@ gather :: Flow 'Ctx 'Nothing 'Ctx
 gather =
     choiceLoop
         gathering
-        [ spawn (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research
-        , Capped (UpTo <$> PerFuel 15 30 50) Extend Interview
+        [ researchers
+        , Capped questions Extend Interview
         ]
+
+-- | Researchers alone, until the agent has enough: the facts before a ticket opens.
+research :: Flow 'Ctx 'Nothing 'Ctx
+research = choiceLoop exploring [researchers]
+
+{- | The design discussion: spawn a researcher on a fact gap, or ask the user
+a design question, each explained before it is asked; @extend@ grants both
+budgets again at the user's yes.
+-}
+discuss :: Flow 'Ctx 'Nothing 'Ctx
+discuss =
+    choiceLoop
+        discussing
+        [ researchers
+        , Capped questions Extend Discuss
+        ]
+
+-- | A researcher per open fact group, one at Low: each spawn opens a child.
+researchers :: Flow 'Ctx 'Nothing 'Ctx
+researchers = spawn (PerFuel (UpTo 1) (UpTo 5) PerGroup) Extend Research
+
+-- | The questions the user is asked, by Fuel: an interview's or a discussion's.
+questions :: PerFuel Limit
+questions = UpTo <$> PerFuel 15 30 50
 
 -- | A confirmed plan exits; an adjusted one goes back to gathering. Confirm is asked at every level.
 propose :: Flow 'Ctx ('Just 'Plan) 'Ctx
@@ -85,6 +116,27 @@ describe = Do Describe :> Opt "simplify_pr" (always Never) (Do SimplifyPR)
 -- | No level skips @ready@: a round on an existing PR skips it by its task's shape.
 ship :: Flow 'PR 'Nothing 'PR
 ship = Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR) :> Opt "ready" (always Never) (Do Ready)
+
+{- | Each block a request may run alone, as a branch of a route: a block
+that starts past 'Ctx' opens its input first, from the issue, branch or PR
+the request names. Each sits in a scope of its branch's name, so its states
+never meet a whole flow's, and ends in 'Result'.
+-}
+blocks :: NonEmpty (OutcomeName, Flow 'Ctx 'Nothing 'Result)
+blocks =
+    branch "researching" research
+        :| [ branch "gathering" gather
+           , branch "agreeing" agree
+           , branch "proposing" (Loop "proposals" propose)
+           , branch "building" (Do OpenPlan :> build)
+           , branch "reviewing" (Do OpenBranch :> reviewed)
+           , branch "describing" (Do OpenBranch :> describe)
+           , branch "shipping" (Do OpenPr :> ship)
+           ]
+
+-- | A route's branch: the flow in a scope of the branch's name, its out retyped as 'Result'.
+branch :: (KnownTy o, NotSum o) => Name -> Flow 'Ctx 'Nothing o -> (OutcomeName, Flow 'Ctx 'Nothing 'Result)
+branch name flow = (OutcomeName (nameText name), Scope name flow :> Into)
 
 -- | Low may skip the step of a trivial task; Balanced and Max run it.
 skippableAtLow :: PerFuel SkipWhen

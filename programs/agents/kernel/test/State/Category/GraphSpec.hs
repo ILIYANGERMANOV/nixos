@@ -1,19 +1,21 @@
 module State.Category.GraphSpec (spec) where
 
 import Control.Monad (foldM)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..))
-import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo)
+import State.Category.Flow (Flow (..), qualifyEvent, scopePath)
+import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
 import State.Category.Fuel (SkipWhen (..), always)
-import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, isRouteHub, places)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, Ty (..))
+import State.Run.RunGen qualified as RunGen
 import State.Step.Build (Sing (..))
 import State.Step.Gather (Sing (..))
 import State.Step.Ship (Sing (..))
@@ -99,6 +101,28 @@ spec = describe "State.Category.Graph" $ do
             graph questions
                 `shouldBe` Left (StaysOutside (Place [] mempty (StateName "interview")))
 
+    describe "a route" $ do
+        let picks scope = [(qualifyEvent scope (EventName (StateName "route") (OutcomeName branch)), At (Place path scope (StateName entry))) | (branch, path, entry) <- [("big", [1, 0], "refactor"), ("other", [2, 0], "describe"), ("small", [0], "describe")]]
+        it "draws one hub, its start, with one edge per branch into that branch's first state" $
+            outOfStart <$> graph threeWay `shouldBe` Right (picks mempty)
+
+        it "is the one hub the run picks a branch at" $
+            (\g -> filter (isRouteHub g . At) (Set.toList (places g))) <$> graph threeWay `shouldBe` Right [Place [] mempty (StateName "route")]
+
+        it "names its hub and its picks inside a scope" $
+            outOfStart <$> graph (Scope "x" threeWay) `shouldBe` Right (picks (scopePath "x"))
+
+        it "is in neither the engineer nor the 10x flow: they run as before the route" $
+            map (.routes) [RunGen.g, RunGen.tenXGraph] `shouldBe` [Set.empty, Set.empty]
+
+        it "refuses one branch name twice: a pick would not say which" $
+            graph (Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "small", Do Refactor :> Do Describe)]))
+                `shouldBe` Left (SameEvent (Place [] mempty (StateName "route")) (EventName (StateName "route") (OutcomeName "small")))
+
+-- | The edges out of the graph's first state: each event and where it goes.
+outOfStart :: OpenGraph -> [(EventName, Node)]
+outOfStart g = [(event, edge.to) | ((from, event), edge) <- Map.toList g.edges, from == g.inPort]
+
 -- | The gather's questions, capped as an action of its choice.
 questions :: Flow 'Ctx 'Nothing 'Ctx
 questions = Capped (always (UpTo 3)) Extend Interview
@@ -120,13 +144,14 @@ endOf g = foldM next (At g.inPort)
         Out -> Nothing
         Exit -> Nothing
 
--- | One per outcome of each step, one per skip, and a fan-out's three events.
+-- | One per outcome of each step, one per skip, a fan-out's three events, and one per route's branch.
 arrows :: Flow i e o -> Int
 arrows = \case
     Do s -> length (outcomeNames (outcomes s))
     Capped _ _ s -> length (outcomeNames (outcomes s))
     f :> g -> arrows f + arrows g
     Id -> 0
+    Into -> 0
     Loop _ body -> arrows body
     Opt _ _ body -> 1 + arrows body
     Par _ _ -> 3
@@ -136,6 +161,7 @@ arrows = \case
     Catch body -> arrows body
     Scope _ body -> arrows body
     Choice _ branches -> 1 + sum (map arrows branches)
+    Route _ branches -> sum (fmap ((1 +) . arrows . snd) branches)
 
 -- | A fix of a red CI, capped as the ship flow caps it.
 fixCapped :: Flow 'PR 'Nothing 'PR

@@ -10,16 +10,22 @@ import Data.Time.Calendar (fromGregorian)
 import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.Flow (scopePath)
 import State.Category.Fuel (Fuel (Low))
+import State.Category.Step (OutcomeName (..))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Branch (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Target (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
+import State.Step.Catalog (outcome)
+import State.Step.Choice (Outcome (..), gathering)
 import State.Step.Fan (Outcome (..), engineers)
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -67,6 +73,34 @@ spec = describe "State.Run.Codec" $ do
     it "reads a step's outcome inside a scope under its qualified type" $
         decodeLine (encodeLine reviewRows `replacing` ("\"type\":\"review.rows\"", "\"type\":\"security/review.rows\""))
             `shouldBe` Right reviewRows {event = tookIn securityScope (ReviewRows (Sha "abc123"))}
+
+    it "reads a choice's enough inside a scope under its qualified type" $
+        decodeLine (encodeLine reviewRows {event = stepTook (Enough gathering)} `replacing` ("\"type\":\"gather.enough\"", "\"type\":\"x/gather.enough\""))
+            `shouldBe` Right reviewRows {event = tookIn (scopePath "x") (Enough gathering)}
+
+    it "writes and reads the chief's picks by their route's and branch's names, a block's inside the blocks' route" $ do
+        let picks = [reviewRows {event = stepTook (Picked "route" (OutcomeName "engineer"))}, reviewRows {event = stepTook (Picked "block" (OutcomeName "shipping"))}]
+        and (zipWith Text.isInfixOf ["\"type\":\"route.engineer\"", "\"type\":\"block.shipping\""] (map encodeLine picks)) `shouldBe` True
+        map (fmap (.event) . decodeLine . encodeLine) picks `shouldBe` map (Right . (.event)) picks
+
+    it "writes and reads a request's outcomes with what each carries" $ do
+        let recorded =
+                map
+                    (\o -> reviewRows {event = Took (scopePath "shipping") o})
+                    [ outcome (OpenPrDone (Url "https://github.com/o/r/pull/7"))
+                    , outcome (OpenPlanDone (Url "https://github.com/o/r/issues/3"))
+                    , outcome (OpenBranchDone (Branch "feature"))
+                    , outcome (DirectDone "renamed the README's title")
+                    , outcome NextRequest
+                    , outcome NextDone
+                    ]
+        map (fmap (.event) . decodeLine . encodeLine) recorded `shouldBe` map (Right . (.event)) recorded
+
+    it "writes a request's target as one key, its kind, holding its url or branch" $ do
+        let targets = [OnPr (Url "https://github.com/o/r/pull/7"), OnBranch (Branch "feature"), OnTicket (Url "https://github.com/o/r/issues/3")]
+            lines' = map (\target -> encodeLine reviewRows {event = Targeted target}) targets
+        and (zipWith Text.isInfixOf ["\"type\":\"target\",\"data\":{\"pr\":\"https://github.com/o/r/pull/7\"}", "\"data\":{\"branch\":\"feature\"}", "\"data\":{\"ticket\":\"https://github.com/o/r/issues/3\"}"] lines') `shouldBe` True
+        map (fmap (.event) . decodeLine) lines' `shouldBe` map (Right . Targeted) targets
 
     it "refuses a run's event inside a scope: only a step's outcome is named so" $
         decodeLine (encodeLine reviewRows {event = FuelSet Low} `replacing` ("\"type\":\"fuel\"", "\"type\":\"security/fuel\"")) `shouldSatisfy` malformed
@@ -148,8 +182,17 @@ spec = describe "State.Run.Codec" $ do
     it "writes a 10x task's flow under the key a breakdown names it by" $
         encodeLine reviewRows {event = stepTook (BreakdownDone engineers (tasksOf (ledBy10x :| [])))} `shouldSatisfy` Text.isInfixOf "\"flow\":\"10x\""
 
+    it "writes and reads an architect run's start by its flow's name, and its ticket by its url" $ do
+        let architectStart = reviewRows {event = Started (Start ArchitectFlow "/n" (ByUser OwnPr) Set.empty)}
+            opened = reviewRows {event = stepTook (OpenTicketDone (Url "https://github.com/o/r/issues/1"))}
+        (encodeLine architectStart, encodeLine opened) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
+        map (fmap (.event) . decodeLine . encodeLine) [architectStart, opened] `shouldBe` map (Right . (.event)) [architectStart, opened]
+
+    it "reads a task the chief leads by its flow's name" $
+        fmap (.flow) (decodeTask (taskFileJson ledBy10x `replacing` ("\"10x\"", "\"chief\""))) `shouldBe` Right ChiefFlow
+
     it "refuses a task's flow no role leads" $
-        decodeTask (taskFileJson ledBy10x `replacing` ("\"10x\"", "\"chief\"")) `shouldBe` Left "Error in $: unknown flow \"chief\""
+        decodeTask (taskFileJson ledBy10x `replacing` ("\"10x\"", "\"qa\"")) `shouldBe` Left "Error in $: unknown flow \"qa\""
 
     it "refuses a repo not OWNER/REPO of shell-inert characters" $
         [decodeTask (taskFileJson placed `replacing` ("\"o/r\"", hostile)) | hostile <- ["\"o/r/x\"", "\"/r\"", "\"o /r\"", "\"o;x/r\"", "\"o/$(x)\"", "\"o/r|x\"", "\"o/\\u00e9\""]]

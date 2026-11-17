@@ -2,8 +2,14 @@
 module State.Run.RunGen (
     g,
     tenXGraph,
+    architectGraph,
+    chiefGraph,
+    ticketUrl,
+    ticketOpened,
+    designWritten,
     securityGraph,
     securityScope,
+    scopedIn,
     flowGraph,
     tenXAt,
     plainTask,
@@ -37,10 +43,13 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), ScopePath, scopePath, unqualify)
+import State.Category.Flow (Flow (..), Name, ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Step (EventName (..), stateNameText)
+import State.Category.Ty (NotSum, Ty (..))
+import State.Flow.Architect (architect)
+import State.Flow.Chief (chief)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
@@ -52,12 +61,13 @@ import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
-import State.Step.Choice (Outcome (..), gathering)
+import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 import State.Table (Steps, parseSteps)
 import System.Environment (getEnv)
 
@@ -72,14 +82,38 @@ securityGraph = either (error . show) id (graph (reviewed :> Scope "security" re
 securityScope :: ScopePath
 securityScope = scopePath "security"
 
+-- | A whole flow run inline, under a scope named after it.
+scopedIn :: (NotSum o) => Name -> Flow 'Ctx 'Nothing o -> OpenGraph
+scopedIn name flow = either (error . show) id (graph (Scope name flow))
+
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
+
+architectGraph :: OpenGraph
+architectGraph = either (error . show) id (graph architect)
+
+chiefGraph :: OpenGraph
+chiefGraph = either (error . show) id (graph chief)
+
+-- | The ticket an architect run opens.
+ticketUrl :: Url
+ticketUrl = Url "https://github.com/o/r/issues/1"
+
+-- | An architect run up to its ticket: researched, explored enough, the ticket opened.
+ticketOpened :: [Event]
+ticketOpened = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring), stepTook (OpenTicketDone ticketUrl)]
+
+-- | A design round up to the user's verdict: discussed, written into the ticket.
+designWritten :: [Event]
+designWritten = [stepTook (Enough discussing), stepTook UpdateTicketDone]
 
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph
 flowGraph = \case
     EngineerFlow -> g
     TenXFlow -> tenXGraph
+    ArchitectFlow -> architectGraph
+    ChiefFlow -> chiefGraph
 
 {- | A 10x run, by the user, at its fan-out with these
 tasks, then these events.
@@ -144,6 +178,8 @@ taskJson task =
             <> case task.flow of
                 EngineerFlow -> []
                 TenXFlow -> ["flow" .= ("10x" :: Text)]
+                ArchitectFlow -> ["flow" .= ("architect" :: Text)]
+                ChiefFlow -> ["flow" .= ("chief" :: Text)]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

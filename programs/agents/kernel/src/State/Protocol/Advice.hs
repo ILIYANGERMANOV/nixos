@@ -45,22 +45,23 @@ import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), isRouteHub, placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
+import State.Category.Ty (Ty (..))
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (FlowName (..), RoleDef (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, oneLineText, principalPlan, qidText, questionLine)
+import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, oneLineText, qidText, questionLine)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (reasonText, taskIdText, taskStateArgs, taskStateName, urlText, waitingText)
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), PlanCall (..), Requirement (..), RunId, Said (..), Start (..), Stop (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..), Branch (..), Child (..), DraftPr (..), Event (Asked, Forwarded), Requirement (..), RunId, Said (..), Start (..), Stop (..), Target (..), Task (..), TaskId, TaskState (..), Url (..), Waiting (..), roleText, runIdText)
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, stuckExits, usedUp)
+import State.Run.Fold (Budget (..), OnTarget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -69,6 +70,7 @@ import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
 import State.Step.Plan (Outcome (..), Sing (Confirm, SimplifyP))
 import State.Step.Ship (Outcome (..), Sing (Ready))
+import State.Step.Ticket (Outcome (OpenTicketDone), Sing (OpenTicket))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
 
 {- | What GitHub, git and the children's logs say, read by the shell before
@@ -175,12 +177,13 @@ data Action
 
 {- | The one outcome the shell records before advising, when the facts or the
 Fuel already decide it: the draft PR or its readiness seen on GitHub, a
-skip the Fuel makes, or the plan a parent decided, at the step's scope. The shell records it and asks
+skip the Fuel makes, the plan settled without the user, or the ticket a
+request targets, at the step's scope. The shell records it and asks
 again, until 'Nothing'.
 -}
 due :: OpenGraph -> Facts -> RunState -> Maybe Event
 due g facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> fromGitHub place.name <> skipped place <> leaves place)
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> adopted place.name <> fromGitHub place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -192,11 +195,14 @@ due g facts state = case (state.stopped, state.at) of
         _ -> []
     -- A round on an existing PR leaves it as it is, at every Fuel: the run's shape skips ready,
     -- before GitHub's ready PR, which a round's PR in review is, would record it done.
-    kept name = [Catalog.outcome (ReadySkipped url) | name == stepName Ready, onRound state.start.principal, Just url <- [prUrl facts state]]
-    -- A plan its parent decided: the child neither simplifies nor confirms it again.
-    decided name = case principalPlan state.start.principal of
-        ParentDecided -> [Catalog.outcome SimplifyPlanSkipped | name == stepName SimplifyP] <> [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
-        ChildConfirms -> []
+    kept name = [Catalog.outcome (ReadySkipped url) | name == stepName Ready, onRound (shape state), Just url <- [prUrl facts state]]
+    -- A plan its parent decided, or feedback on a target with no Design or Scope question open:
+    -- the run neither simplifies nor confirms it with the user.
+    decided name
+        | planSettled state = [Catalog.outcome SimplifyPlanSkipped | name == stepName SimplifyP] <> [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
+        | otherwise = []
+    -- A request on a ticket works on that one: it opens none.
+    adopted name = [Catalog.outcome (OpenTicketDone url) | name == stepName OpenTicket, Just (OnTicket url) <- [(.target) <$> state.onTarget]]
     -- Before the run drafts, a merged or closed PR is an old one on a reused branch name: no PR.
     open = \case
         IsDraft -> True
@@ -260,7 +266,7 @@ skipsHere g state = case (state.stopped, state.at) of
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
-advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
+advise steps g facts state = Advice action more (atLine steps g state) leads (factLines g facts state) prompt notify
   where
     plain next = (next, "")
     more = case (state.stopped, fanHere) of
@@ -300,22 +306,28 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (Nothing, [], True) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
-    -- The 10x picks each task's Fuel and never asks one: it runs at the default.
+    {- The 10x picks each task's Fuel and never asks one: it runs at the default.
+    The chief's Fuel is each request's, set at its route's hub only when it differs.
+    -}
     fuelAsked = case state.start.flow of
         EngineerFlow -> isJust state.fuel
         TenXFlow -> True
+        ArchitectFlow -> isJust state.fuel
+        ChiefFlow -> True
+    output = outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
         Out -> Nothing
         Exit -> Nothing
     going = case (state.at, stuck state) of
-        (Out, _) -> plain (Done (prUrl facts state))
-        (Exit, _) -> plain (Done (prUrl facts state))
+        (Out, _) -> plain (Done output)
+        (Exit, _) -> plain (Done output)
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
+        (At place, _) | isRouteHub g state.at -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
-            Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s))
+            Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s) <> told s)
             Nothing -> case fanNamed place.name of
                 Just fan -> plain (atFan (ScopedFan place.scope fan) facts.ended state)
                 Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " fan-out's outcome") "ends the fan-out"))
@@ -337,6 +349,10 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
             (Nothing, _) -> commandOption (recordCommand enough) "leaves the choice"
         option step = maybe (commandOption (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
+    -- A route asks the user its branch at most once, and only when the request leaves it open.
+    routePrompt
+        | Ask.Pick `elem` state.askedHere = "The user was asked the branch once: record the branch the answer names."
+        | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
     actionAt :: Place -> AnyStep -> Option
@@ -352,6 +368,13 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         Continues _ -> NonEmpty.head (recordOutcomes g place s)
         ExitsOr _ _ -> NonEmpty.head (recordOutcomes g place s)
         Branches _ _ -> NonEmpty.head (recordOutcomes g place s)
+    told :: (StepSet k) => Sing (s :: k) -> Text
+    told s = case special s of
+        TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
+        Ordinary -> ""
+        AsksConfirm _ -> ""
+        Step.AwaitsCi -> ""
+        AwaitsMerge -> ""
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
         | Ask.Stuck `notElem` state.askedHere = goOn budget
@@ -366,9 +389,10 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             (Agent role _, Nothing) -> Spawn role Nothing
             (Agent _ _, Just _) -> Run records
             (Inline, _) -> Run records
-        AsksConfirm -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm "the simplified plan: confirmed, or adjusted?"
+        AsksConfirm what -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm (what <> ": confirmed, or adjusted?")
         Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
+        TellsResult -> Run records
       where
         records = maybe (recordOutcomes g place s) (someOptions . capRecords g place . (.cap.atCap)) (usedUpAt place)
 
@@ -521,6 +545,22 @@ recordsFinished fan = [(task.id, Run (one (recordTask task) "its child finished:
 
 recordTask :: Task -> Text
 recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (InReview (Url "<url>"))
+
+{- | The url of what the run's flow ends in, when the run keeps one: a PR's,
+a ticket's, or a request's, the url recorded last. No step records a url for
+any other type yet.
+-}
+outputUrl :: Ty -> Facts -> RunState -> Maybe Url
+outputUrl out facts state = case out of
+    PR -> prUrl facts state
+    Ticket -> state.ticket
+    Result -> state.latest
+    Ctx -> Nothing
+    Plan -> Nothing
+    Diff -> Nothing
+    Findings -> Nothing
+    List _ -> Nothing
+    _ :+ _ -> Nothing
 
 -- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url
@@ -696,7 +736,7 @@ ownAsk :: RunState -> Kind -> OneLine -> (Question, [Event], Text)
 ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
   where
     question = Question (nextQId state) kind text
-    (forward, line) = case Ask.ask state.start.principal (flowRole state.start.flow) kind of
+    (forward, line) = case Ask.ask state.start.principal (Role.rungAt state.start.flow (askedAt state)) kind of
         AnswerSelf -> ([], "ANSWER yourself")
         Up above ->
             ( [Forwarded question.qid above]
@@ -708,18 +748,20 @@ ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itsel
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.
 -}
-atLine :: Steps -> RunState -> Text
-atLine steps state = case state.at of
-    At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place.name
+atLine :: Steps -> OpenGraph -> RunState -> Text
+atLine steps g state = case state.at of
+    At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place
     Out -> "at the end: the flow is done"
     Exit -> "at the end: the flow is done"
   where
-    meaning name = case (stepNamed name, choiceNamed name) of
-        (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
-            Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
-            Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
-        (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
-        (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
+    meaning place
+        | isRouteHub g (At place) = "a route you pick - take one option below, once, then state next"
+        | otherwise = case (stepNamed place.name, choiceNamed place.name) of
+            (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
+                Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
+                Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
+            (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
+            (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
 
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.

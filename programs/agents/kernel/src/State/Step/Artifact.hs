@@ -16,6 +16,7 @@ module State.Step.Artifact (
     TaskId (..),
     Task (..),
     Shape (..),
+    Target (..),
     PlanCall (..),
     Repo (..),
     parsePrUrl,
@@ -47,6 +48,7 @@ module State.Step.Artifact (
     tasksData,
     taskEncoding,
     shapeData,
+    targetData,
     planData,
     headOf,
     urlOf,
@@ -57,6 +59,7 @@ module State.Step.Artifact (
     decodeBreakdown,
     taskOf,
     shapeOf,
+    targetOf,
     planOf,
     decodeTask,
     distinct,
@@ -64,6 +67,7 @@ module State.Step.Artifact (
     named,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Monad (foldM)
 import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Encoding (Encoding, list, pair, pairs)
@@ -222,6 +226,12 @@ exists leaves it open: its run skips @ready@, and the task settles kept.
 data Shape = OwnPr | RoundOn Url
     deriving stock (Eq, Show)
 
+{- | The existing work a request applies feedback to: a PR, a branch or a
+ticket. A request that names none opens new work.
+-}
+data Target = OnPr Url | OnBranch Branch | OnTicket Url
+    deriving stock (Eq, Show)
+
 {- | Who settles the task's plan: its child confirms it with its parent, or
 the parent decided it already, so the child neither simplifies nor confirms it.
 -}
@@ -344,6 +354,13 @@ shapeData = \case
     OwnPr -> mempty
     RoundOn url -> "pr" .= urlText url
 
+-- | One key, the target's kind, holding its url or branch.
+targetData :: Target -> Series
+targetData = \case
+    OnPr url -> "pr" .= urlText url
+    OnBranch branch -> "branch" .= branchText branch
+    OnTicket url -> "ticket" .= urlText url
+
 headOf :: Object -> Parser Sha
 headOf obj = Sha <$> obj .: "head"
 
@@ -411,6 +428,9 @@ taskFieldsOf obj = do
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"
+
+targetOf :: Object -> Parser Target
+targetOf obj = OnPr . Url <$> obj .: "pr" <|> OnBranch . Branch <$> obj .: "branch" <|> OnTicket . Url <$> obj .: "ticket"
 
 planOf :: Object -> Parser PlanCall
 planOf obj = bool ChildConfirms ParentDecided . fromMaybe False <$> obj .:? "planDecided"

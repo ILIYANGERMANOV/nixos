@@ -43,15 +43,17 @@ import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId, r
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
-import State.Step.Choice (Sing (Hub), nodeChoice)
+import State.Step.Choice (Sing (Hub, Pick), nodeChoice)
 import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
 import State.Step.Plan qualified as Plan
+import State.Step.Request qualified as Request
 import State.Step.Review (Outcome (..))
 import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..))
 import State.Step.Ship qualified as Ship
+import State.Step.Ticket qualified as Ticket
 import State.Table (Row (..), Runner (..), Steps, row, stepsRunBy)
 
 data Handback = Handback
@@ -318,6 +320,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
         GatherLayer -> case s of
             Gather.Research -> took Gather.ResearchHandedBack
             Gather.Interview -> inline s
+            Gather.Discuss -> inline s
         PlanLayer -> case s of
             Plan.SimplifyP -> took SimplifyPlanDone
             Plan.PlanS -> inline s
@@ -338,12 +341,24 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Ship.FixPR -> took . FixPrDone =<< atHead
             Ship.AwaitCi -> inline s
             Ship.Ready -> inline s
+        TicketLayer -> case s of
+            Ticket.OpenTicket -> inline s
+            Ticket.UpdateTicket -> inline s
+            Ticket.ConfirmDesign -> inline s
+            Ticket.FinalizeTicket -> inline s
+        RequestLayer -> case s of
+            Request.OpenPlan -> inline s
+            Request.OpenBranch -> inline s
+            Request.OpenPr -> inline s
+            Request.Direct -> inline s
+            Request.Next -> inline s
         FanLayer -> case s of
             Fan.Breakdown _ -> inline s
             Fan.FanOut _ -> inline s
             Fan.Merge _ -> inline s
         ChoiceLayer -> case s of
             Hub _ -> inline s
+            Pick _ _ -> inline s
       where
         took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
         took outcome = Right [tookIn scope outcome]

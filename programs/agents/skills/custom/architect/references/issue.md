@@ -4,9 +4,8 @@ The body of a design issue: the user's confirmed decisions, in a form a person
 reads first and `/engineer` or `/10x-engineer` plans from. This file is its only
 source; no `.github/ISSUE_TEMPLATE` copies it.
 
-Write it to a file under `/tmp/<unique-dir>/` and file it with
-`gh issue create --title "<what, in the domain's words>" --body-file <file>`.
-One issue per deliverable a single PR can close.
+The title says what, in the domain's words; the skill's `## The ticket` says
+how it is filed. One issue per deliverable a single PR can close.
 
 ## Format
 

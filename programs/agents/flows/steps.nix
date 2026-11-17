@@ -14,9 +14,9 @@
 # comes from a `spawn:` op); `skills` its runner preloads; `prose` the
 # instruction fragments it reads, by name (programs/agents/default.nix);
 # `ops` what it may call: `ask`, `await`, `notify`, `spawn:<role>`. `flows`
-# names the flows the step is in, `engineer` or `10x`. A role leads the flow
+# names the flows the step is in, `engineer`, `10x`, `architect` or `chief`. A role leads the flow
 # named after it (the kernel's `State.Role`), so the `engineer` flow's inline rows are the engineer
-# role's. `offFlow` is a `role`'s work outside the two flows: it has no types,
+# role's. `offFlow` is a `role`'s work outside the flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
 let
   # The lead's Fuel table, read at every step it decides to run or skip.
@@ -61,6 +61,135 @@ let
       flows = [ "10x" ];
     };
   };
+
+  # The architect's steps: its design discussion and the ticket it writes,
+  # each run by the lead, who changes no code.
+  architectSteps = {
+    discuss = {
+      dom = "Ctx";
+      cod = "Ctx";
+      exit = null;
+      outcomes = [ ];
+      runner = "inline";
+      task = "Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.";
+      tools = [
+        "read"
+        "web"
+      ];
+      skills = [ "architect" ];
+      prose = leadProse;
+      ops = [ "ask" ];
+      flows = [ "architect" ];
+    };
+    open_ticket = {
+      dom = "Ctx";
+      cod = "Ctx";
+      exit = null;
+      outcomes = [ "done" ];
+      runner = "inline";
+      task = "Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, its body the skill's `references/issue.md` sections filled with what is known so far (the research in What & Why, Decisions candidates, Open questions), from a quoted heredoc (`<<'EOF'`): `gh issue create --repo <owner>/<repo>`, or a Linear issue when the request names Linear. Record its url.";
+      tools = [ "shell" ];
+      skills = [ "architect" ];
+      prose = leadProse;
+      ops = [ ];
+      flows = [ "architect" ];
+    };
+    update_ticket = {
+      dom = "Ctx";
+      cod = "Ticket";
+      exit = null;
+      outcomes = [ "done" ];
+      runner = "inline";
+      task = "Ticket: write the design into the ticket, as the skill's `references/issue.md` says: a quoted heredoc (`<<'EOF'`) into `gh issue edit <number> --repo <owner>/<repo> --body-file -`, or through the `linear` MCP when the request names Linear.";
+      tools = [ "shell" ];
+      skills = [ "architect" ];
+      prose = leadProse;
+      ops = [ ];
+      flows = [ "architect" ];
+    };
+    confirm_design = {
+      dom = "Ticket";
+      cod = "Ctx";
+      exit = "Ticket";
+      outcomes = [
+        "confirmed"
+        "adjusted"
+      ];
+      runner = "inline";
+      task = "Design: the ticket as one Confirm question, its url in it. `confirmed` finalizes it; `adjusted` discusses again.";
+      tools = [ ];
+      skills = [ "architect" ];
+      prose = leadProse;
+      ops = [ "ask" ];
+      flows = [ "architect" ];
+    };
+    finalize_ticket = {
+      dom = "Ticket";
+      cod = "Ticket";
+      exit = null;
+      outcomes = [ "done" ];
+      runner = "inline";
+      task = "Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.";
+      tools = [ "shell" ];
+      skills = [ "architect" ];
+      prose = leadProse;
+      ops = [ ];
+      flows = [ "architect" ];
+    };
+  };
+
+  # The chief's steps around a request: the inputs a block opens, a request
+  # no flow fits, and the next request. The lead runs each.
+  chiefSteps =
+    let
+      chiefStep =
+        step:
+        {
+          exit = null;
+          outcomes = [ "done" ];
+          runner = "inline";
+          tools = [ "shell" ];
+          skills = [ "chief" ];
+          prose = leadProse;
+          ops = [ ];
+          flows = [ "chief" ];
+        }
+        // step;
+    in
+    {
+      open_plan = chiefStep {
+        dom = "Ctx";
+        cod = "Plan";
+        task = "Open: the issue the request names holds the plan to build. Read it with `gh issue view <url>` and record its url; the block builds what its plan says.";
+      };
+      open_branch = chiefStep {
+        dom = "Ctx";
+        cod = "Diff";
+        task = "Open: the branch or sha the request names is what the block works on. Fetch it and check it out: when `git worktree list` shows a worktree holding the branch, `state move <that worktree>` and work there instead. Record it.";
+      };
+      open_pr = chiefStep {
+        dom = "Ctx";
+        cod = "PR";
+        task = "Open: the PR the request names is what the block works on. Check out its branch (`gh pr checkout <url>`): when `git worktree list` shows a worktree holding it, `state move <that worktree>` and work there instead. Record its url.";
+      };
+      direct = chiefStep {
+        dom = "Ctx";
+        cod = "Ctx";
+        task = "Direct: no flow fits the request, so do it yourself, the hooks and the context guard as everywhere; you may commit and open PRs. Record one line: what was asked and what you did.";
+      };
+      next = chiefStep {
+        dom = "Result";
+        cod = "Ctx";
+        exit = "Result";
+        outcomes = [
+          "done"
+          "request"
+        ];
+        tools = [ ];
+        ops = [ "ask" ];
+        task = "Next: tell the user in one line what the request ended in, the last result below, then ask for the next request or whether they are done, and end the turn. `request` when they name one, carrying that result as its context; `done` when they are done. At the Fuel's cap, asked whether to go on: yes is `extend <why>`, no is `done`.";
+      };
+    };
 in
 {
   steps = {
@@ -86,6 +215,7 @@ in
       flows = [
         "engineer"
         "10x"
+        "architect"
       ];
     };
     interview = {
@@ -390,7 +520,9 @@ in
       flows = [ "engineer" ];
     };
   }
-  // fanSteps;
+  // fanSteps
+  // architectSteps
+  // chiefSteps;
 
   # Role work outside the flows: only lib/derive.nix reads it.
   offFlow = {

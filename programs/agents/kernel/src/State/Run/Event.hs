@@ -50,6 +50,7 @@ module State.Run.Event (
     TaskId (..),
     Task (..),
     Shape (..),
+    Target (..),
     PlanCall (..),
     Repo (..),
     Topic (..),
@@ -73,7 +74,7 @@ import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
 import State.Run.Id (AgentId (..), Digest (..), EventId (..), RunId, TaskId (..), parseRunId, runIdText)
-import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
+import State.Step.Artifact (Branch (..), BreakdownError (..), Check (..), Commit (..), DraftPr (..), Judgement (..), Label (..), Picks (..), PlanCall (..), Repo (..), Requirement (..), Sha (..), Shape (..), Target (..), Task (..), Tasks, Topic (..), Url (..), breakdown, taskList)
 import State.Step.Catalog (AnyOutcome, KnownLayer, outcome, outcomeEvent)
 
 {- | The id is not stored: a CLI record's is its run and seq, so only a hook
@@ -108,6 +109,10 @@ data Event
     = Started Start
     | -- | Set once.
       FuelSet Fuel
+    | {- | The existing work the request applies feedback to, named at a
+      route's hub before its branch: none is new work, so none is logged.
+      -}
+      Targeted Target
     | {- | The user let the gather loop go on, and why: its researchers and
       questions start afresh.
       -}
