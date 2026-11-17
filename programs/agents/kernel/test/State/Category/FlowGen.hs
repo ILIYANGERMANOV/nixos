@@ -25,12 +25,12 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Data.Typeable (Typeable)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), ScopePath, scopePath)
-import Data.Text qualified as Text
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Graph qualified as Graph

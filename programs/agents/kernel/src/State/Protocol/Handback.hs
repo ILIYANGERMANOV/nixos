@@ -23,8 +23,8 @@ module State.Protocol.Handback (
     typeHandback,
 ) where
 
-import Data.Bifunctor qualified as Bifunctor
 import Control.Applicative ((<|>))
+import Data.Bifunctor qualified as Bifunctor
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set

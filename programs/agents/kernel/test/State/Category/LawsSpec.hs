@@ -319,7 +319,6 @@ skipOf s = case eqT @k @FuelStep of
         Fuel -> Nothing
     Nothing -> Nothing
 
-
 -- | The caps spent at a state, by the step each meters.
 capsAt :: Place -> OpenGraph -> [(StateName, Cap)]
 capsAt place g = [(metered.step, cap) | (metered, cap) <- Map.toList g.caps, metered.place == place]

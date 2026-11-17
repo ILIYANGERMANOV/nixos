@@ -9,10 +9,11 @@ import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.Flow (scopePath)
 import State.Category.Fuel (Area (..), Fuel (Balanced))
 import State.Protocol.Handback
 import State.Run.Ask (Kind (..), QId (..), Question (..))
-import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook)
+import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.EventGen (fuelSet, genOneLine, genQuestion, genRunId, oneLine, run, runId)
 import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
@@ -91,7 +92,7 @@ typing = describe "typeHandback" $ do
 
     it "closes a researcher's child at the gather on its report, which opens with no token" $
         typed atGather "researcher" "The Index, ranked\n1. src/State.hs:12"
-            `shouldBe` Right (Typed [stepTook ResearchHandedBack] Nothing)
+            `shouldBe` Right (Typed [tookIn (scopePath "gather") ResearchHandedBack] Nothing)
 
     it "records simplify_plan.done on a researcher's report, which opens with no token" $
         typed atSimplifyPlan "researcher" "# t5 plan (simplify proposal)\n## Goals"

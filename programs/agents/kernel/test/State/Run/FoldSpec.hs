@@ -34,7 +34,7 @@ import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genRea
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, enoughIn, researchedIn, spawnedIn, within, plainTask, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, tenXGraph, ticketOpened, ticketUrl)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXGraph, ticketOpened, ticketUrl, within)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
@@ -536,7 +536,6 @@ gatherBudgets = describe "the gather's choice" $ do
       where
         spawned = (spawnedIn "gather" <>) <$> genHandBacks (toSpawn - 1) toHandBack (open + 1)
         handed = (handedBack :) <$> genHandBacks toSpawn (toHandBack - 1) (open - 1)
-
 
 -- | The interview picked at the gather, these questions asked at it, then back at the pick.
 interviewed :: [Event] -> [Event]

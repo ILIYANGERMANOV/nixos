@@ -22,7 +22,7 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runOf, runUnder, scopedIn, within, securityGraph, securityScope, sha, skipOf, tenXAt, tenXGraph, ticketOpened, ticketUrl)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketOpened, ticketUrl, within)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Choice (Outcome (..))
@@ -42,12 +42,13 @@ spec = describe "State.Protocol.Advice" $ do
     let next facts state = commandsOnly (advise steps (flowGraph state.start.flow) facts state).action
         explainedAt state = explained state.start (advise steps (flowGraph state.start.flow) noFacts state)
 
-    it "advice_is_equal_under_any_principal_up_to_delivery" . hedgehog $ do
+    it "advice_is_equal_under_any_principal_of_one_task_shape_up_to_delivery" . hedgehog $ do
         events <- forAll genAccepted
         facts <- forAll genFacts
         one <- forAll genStart
         other <- forAll genStart
-        let under from = runUnder start {principal = confirming from.principal, interface = from.interface} events
+        -- One task shape for both: a round on an existing PR skips ready by its shape, not by who asks.
+        let under from = runUnder start {principal = confirming (shapedAs one.principal from.principal), interface = from.interface} events
             decided state = (due facts state, advise steps g facts state)
         decided (under one) === decided (under other)
 
@@ -97,7 +98,7 @@ spec = describe "State.Protocol.Advice" $ do
             Set.fromList [option.command | Run options <- [(atChief [fuelSet Balanced]).action], option <- toList options]
                 `shouldBe` Set.fromList ["state record route." <> branch | branch <- ["architect", "engineer", "10x", "blocks", "discussion", "other"]]
         it "names the pick a branch the agent picks" $
-            (atChief [fuelSet Balanced]).at `shouldBe` "at route: a branch you pick - take one option below, once, then state next"
+            (atChief [fuelSet Balanced]).at `shouldBe` "at route: a branch you pick - take one option below, then state next"
         it "tells the agent at the pick to guess the branch and ask the user once only when the request is ambiguous" $
             (atChief [fuelSet Balanced]).prompt `shouldSatisfy` Text.isPrefixOf "Guess the branch from the request"
         it "asks no more once the user was asked the branch" $
@@ -125,13 +126,15 @@ spec = describe "State.Protocol.Advice" $ do
             (atChief (routed "discussion")).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
 
     describe "gather" $ do
-        it "offers each action in the order the flow declares them, and enough, each with what it does" $
-            explainedAt (runAt (knobs Balanced)) `shouldBe` gatherHub ["  state record gather.enough - on to plan"]
+        it "offers each action and enough at the gather's pick, each by its pick and where it leads" $
+            explainedAt (runAt (knobs Balanced)) `shouldBe` gatherPick
 
-        it "tells a run without the background to spawn its researcher in the foreground, as its SPAWN says" $ do
-            let spawnOption interface = [fst (Text.breakOn " - " line) | line <- explained interface (advise steps g noFacts (runAt (knobs Balanced))), "  spawn" `Text.isPrefixOf` line]
-            map spawnOption [child, start {interface = Set.fromList [Background]}]
-                `shouldBe` [["  spawn a researcher in the foreground"], ["  spawn a researcher in the background"]]
+        it "advises a researcher's spawn at the research state, the hook recording it, as its SPAWN says" $ do
+            explained child (advise steps g noFacts (runAt (knobs Balanced <> [pickResearch])))
+                `shouldBe` [ "at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next"
+                           , "outcomes:"
+                           , "  gather/research.spawned - back to gather, the gather loop's next round"
+                           ]
             deliver child (Spawn (AgentRole "researcher") Nothing) `shouldBe` "SPAWN researcher background: no"
 
         it "prints each action's task on its own line, so the researcher's reads apart from the interview's" $
@@ -140,9 +143,8 @@ spec = describe "State.Protocol.Advice" $ do
         it "advises the 10x's gather as the engineer's, with no Fuel ask" $
             next noFacts tenXStarted `shouldBe` choosing
 
-        it "waits for an open researcher before enough" $
-            explainedAt (runAt (knobs Balanced <> researched))
-                `shouldBe` gatherHub ["  state record gather.enough - on to plan, after the open ones hand back (1 open): end your turn until then"]
+        it "waits at the researchers' await after enough while a researcher is open" $
+            next noFacts (runAt (knobs Balanced <> researched <> [Took mempty (pickOf "gather" "enough")])) `shouldBe` offering ["end your turn"]
 
         it "offers enough again once every researcher handed back" $
             explainedAt (runAt (knobs Balanced <> researched <> [stepTook ResearchHandedBack])) `shouldBe` explainedAt (runAt (knobs Balanced))
@@ -159,7 +161,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "extends on the user's yes, or ends the gather" $ do
             let onStuck = knobs Balanced <> questions 30 <> [Asked (Asking goOn gathering Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "yes" TheUser]
-            next noFacts (runAt onStuck) `shouldBe` offering ["spawn a researcher", "state record extend <why>", "state record gather.enough"]
+            next noFacts (runAt onStuck) `shouldBe` offering ["state record gather.enough", "state record gather.research", "state record extend <why>"]
             next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing
 
     it "names where a spawned step's outcomes lead, for the hook records them" $
@@ -485,19 +487,20 @@ spec = describe "State.Protocol.Advice" $ do
     -- As init starts a 10x: at Balanced, given.
     tenXStarted = tenXRun [fuelSet Balanced]
     gathering = StateName "gather"
-    researched = [stepTook ResearchSpawned]
-    -- Each put to the user and answered.
-    questions n = concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) gathering Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]]
+    researched = spawnedIn "gather"
+    pickResearch = Took mempty (pickOf "gather" "research")
+    -- Each put to the user at the interview and answered, then back at the gather's pick.
+    questions n = Took mempty (pickOf "gather" "interview") : concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) (StateName "interview") Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]] <> [stepTook InterviewAsked]
     goOn = Question (QId run 100) Stuck (oneLine "go on?")
-    -- What @state next@ explains at the gather's choice, ending in this @enough@ line.
-    gatherHub enough =
-        [ "at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
+    -- What @state next@ explains at the gather's pick.
+    gatherPick =
+        [ "at gather: a branch you pick - take one option below, then state next"
         , "options:"
-        , "  spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back"
-        , "  state ask --kind <kind> <question> - asks one question; what it prints says who answers"
+        , "  state record gather.enough - on to gather/researchers"
+        , "  state record gather.interview - on to interview"
+        , "  state record gather.research - on to gather/research"
         ]
-            <> enough
-    choosing = offering ["spawn a researcher", "state ask --kind <kind> <question>", "state record gather.enough"]
+    choosing = offering ["state record gather.enough", "state record gather.interview", "state record gather.research"]
     atReady = runAt (knobs Balanced <> take 17 happyPath)
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
@@ -533,7 +536,18 @@ genPullRequest =
         <$> (DraftPr . Url <$> genText <*> pure (Branch "main") <*> pure (Branch "b"))
         <*> Gen.element [IsDraft, IsReady, IsMerged, IsClosed]
 
--- | The principal with the plan left to its run: a plan its parent decided is advice of its own.
+{- | The principal with the plan left to its run: a plan its parent decided is advice of its own.
+| The second principal with the first's task shape.
+-}
+shapedAs :: Principal -> Principal -> Principal
+shapedAs like = \case
+    ByRole parent _ plan -> ByRole parent shape plan
+    ByUser _ -> ByUser shape
+  where
+    shape = case like of
+        ByRole _ s _ -> s
+        ByUser s -> s
+
 confirming :: Principal -> Principal
 confirming = \case
     ByRole parent shape _ -> ByRole parent shape ChildConfirms
