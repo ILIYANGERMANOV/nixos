@@ -13,7 +13,7 @@ main() {
     free-disk) cmd_free_disk "$@" ;;
     root-shells) cmd_root_shells ;;
     deploy) cmd_deploy ;;
-    rollback | reboot | gc) cmd_root_op "$cmd" ;;
+    rollback | reboot | poweroff | gc) cmd_root_op "$cmd" ;;
     boot) cmd_boot "$@" ;;
     help | --help | -h) usage ;;
     *)
@@ -37,7 +37,8 @@ factory-ctl - run the software factory
   free-disk plan|apply          list or delete what can be reclaimed
   root-shells                   keep main's dev shells and flake inputs from GC
   deploy                        deploy main's tip once CI is green
-  rollback | reboot | gc        root operations, run by fixed units
+  rollback | reboot | poweroff | gc
+                                root operations, run by fixed units
 
 Exit codes: 2 = refused, rerun with --force; 3 = not cloned, needs a URL.
 EOF

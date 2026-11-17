@@ -1,15 +1,16 @@
 # shellcheck shell=bash disable=SC2154 # set by another fragment: the assembled script is checked whole
-# rollback | reboot | gc, as root. Each is started by a unit the agent account
+# rollback | reboot | poweroff | gc, as root. Each is started by a unit the agent account
 # may start through polkit, so each takes no input: what it does is fixed here.
 
 main() {
-  op="${1:?usage: factory-maintenance rollback|reboot|gc}"
+  op="${1:?usage: factory-maintenance rollback|reboot|poweroff|gc}"
   # errtrace carries the trap into the functions below.
   set -o errtrace
   trap 'record "$op" failure "" "Failed; see journalctl -u factory-$op"' ERR
   case "$op" in
     rollback) rollback ;;
     reboot) reboot_box ;;
+    poweroff) poweroff_box ;;
     gc) gc ;;
     *) exit 1 ;;
   esac
@@ -36,6 +37,12 @@ reboot_box() {
   fi
   record reboot success "" "Rebooting"
   systemctl reboot
+}
+
+# No uptime guard, unlike reboot: a powered-off box cannot loop.
+poweroff_box() {
+  record poweroff success "" "Powering off"
+  systemctl poweroff
 }
 
 # Keeps the current generation of every profile and the one before it, which
