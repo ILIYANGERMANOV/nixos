@@ -465,14 +465,7 @@ recorded = printed . recordedLines
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
 planOf :: Steps -> Maybe Sha -> Maybe Text -> OpenGraph -> RunState -> RunCommand -> Either Failure Plan
 planOf steps worktreeHead file g state = \case
-    Record (Plain event) -> Right (Plan [event] (const recorded))
-    Record (AtHead event) -> case worktreeHead of
-        Just sha -> Right (Plan [event sha] (const recorded))
-        Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
-    Record (FromFile path parse) -> case parse <$> file of
-        Just (Right event) -> Right (Plan [event] (const recorded))
-        Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
-        Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
+    Record recording -> (\event -> Plan [Fold.inScope g state event] (const recorded)) <$> recordedEvent worktreeHead file recording
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskQuestion kind Itself text ->
@@ -508,6 +501,18 @@ planOf steps worktreeHead file g state = \case
     raised raise qid = case raise of
         AsAsked -> []
         ToSecurity -> [RetaggedSecurity qid]
+
+-- | The event a recording names, from HEAD or the file it read beforehand.
+recordedEvent :: Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+recordedEvent worktreeHead file = \case
+    Plain event -> Right event
+    AtHead event -> case worktreeHead of
+        Just sha -> Right (event sha)
+        Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
+    FromFile path parse -> case parse <$> file of
+        Just (Right event) -> Right event
+        Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
+        Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
 
 {- | A worker's hand-back as the run records it. One with no kind on its
 question, or a worker's BLOCKED or FAILED, is the run's to triage.

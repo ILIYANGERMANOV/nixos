@@ -45,6 +45,7 @@ module State.Run.Fold (
     fanAt,
     fanIn,
     currentFan,
+    inScope,
 ) where
 
 import Control.Applicative ((<|>))
@@ -420,10 +421,7 @@ meter and its problems join the rounds it ends.
 took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
 took g state scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
-    (from, edge) <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
-        At place -> (place,) <$> (step g place name <|> lookup name (stuckExits g state place))
-        Out -> Nothing
-        Exit -> Nothing
+    (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     case edge.arrow of
         Skip opt when | not (skips state from when) -> Left (NotSkippable opt)
         Skip _ _ -> Right ()
@@ -439,6 +437,28 @@ took g state scope outcome@(AnyOutcome _ some) = do
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
     Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
+
+-- | The edge an event takes where the run is, and the state it leaves.
+edgeHere :: OpenGraph -> RunState -> EventName -> Maybe (Place, Edge Node)
+edgeHere g state name = case state.at of
+    At place -> (place,) <$> (step g place name <|> lookup name (stuckExits g state place))
+    Out -> Nothing
+    Exit -> Nothing
+
+{- | A step's outcome named bare, as a flow's skill names its own, while
+the run sits inside a scope: the outcome of the step of that scope, when
+only it has an edge here. A flow runs inline under a scope with its skill
+unchanged so. An event an edge here takes as named is that event, so a run
+outside every scope records each event as named.
+-}
+inScope :: OpenGraph -> RunState -> Event -> Event
+inScope g state event = case (event, state.at) of
+    (Took bare outcome, At place)
+        | bare == mempty
+        , Nothing <- edgeHere g state (tookEvent bare outcome)
+        , Just _ <- edgeHere g state (tookEvent place.scope outcome) ->
+            Took place.scope outcome
+    _ -> event
 
 {- | What an outcome changes besides the run's place: its problems join the
 rounds it ends, and it may move a fan-out or name the run's PR.

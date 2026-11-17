@@ -17,7 +17,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Name, scopePath)
 import State.Category.FlowGen (composes, genFlow, genWalk)
 import State.Category.Fuel (Fuel (..), always)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
 import State.Category.Ty (NotSum, Ty (..))
@@ -147,6 +147,10 @@ spec = describe "State.Run.Fold" $ do
             toSecurity = [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty))]
         it "takes the copy's outcome in its scope, to the copy's next state" $
             atName <$> securityRun (toSecurity <> [tookIn securityScope (ReviewRows sha)]) `shouldBe` Right (Just (StateName "security/pick"))
+        it "records the copy's outcome named bare in the copy's scope, where only the copy takes it" $
+            (\state -> inScope securityGraph state (stepTook (ReviewRows sha))) <$> securityRun toSecurity `shouldBe` Right (tookIn securityScope (ReviewRows sha))
+        it "records an outcome named bare as named where an edge takes it so" $
+            (\state -> inScope securityGraph state (stepTook (ReviewRows sha))) <$> securityRun [] `shouldBe` Right (stepTook (ReviewRows sha))
         it "refuses the copy's outcome named bare: it is the other review's" $
             securityRun (toSecurity <> [stepTook (ReviewRows sha)]) `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
@@ -180,6 +184,13 @@ spec = describe "State.Run.Fold" $ do
                 cover 5 "reached the end" (state.at == Out)
                 path <- evalMaybe (ty g [tookEvent scope took | Took scope took <- events])
                 assert (composes path)
+
+    it "records_every_event_as_named_outside_any_scope" . hedgehog $ do
+        flow <- forAll (Gen.element [g, tenXGraph])
+        events <- forAll (genAcceptedOn flow)
+        state <- evalEither (replay flow (logOf (started :| events)))
+        event <- forAll (Gen.element (events <> map (Took mempty) happyPath))
+        inScope flow state event === event
 
     it "every_accepted_log_of_a_scoped_flow_is_a_path" . hedgehog $ do
         f <- forAll (Gen.filter (isRight . graph) genFlow)
@@ -316,6 +327,10 @@ spec = describe "State.Run.Fold" $ do
 
     it "refuses a second Fuel" $
         replay g (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
+
+    it "refuses a second Fuel at every state of the engineer and 10x flows: neither has a Route hub" $
+        [replay flow (logOf (started :| [FuelSet Max, Overridden (placeName place) "moved", FuelSet Low])) | flow <- [g, tenXGraph], place <- Set.toList (places flow)]
+            `shouldSatisfy` all (== Left (FuelSetOnce Max))
 
     it "takes a new Fuel at a Route hub, one per request" $
         fuelOf <$> replay routed (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Right Low
