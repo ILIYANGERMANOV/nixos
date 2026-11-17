@@ -99,7 +99,7 @@ import State.Run.Event (
     tookEvent,
  )
 import State.Run.Id (eventIdText, parseEventId)
-import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, planData, planOf, repoText, shaText, shapeData, shapeOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
+import State.Step.Artifact (Shape (..), areaText, branchText, decodeBreakdown, decodeTask, judgementText, named, planData, planOf, repoText, shaText, shapeData, shapeOf, targetData, targetOf, taskEncoding, taskIdText, topicText, urlData, urlOf, urlText)
 import State.Step.Artifact qualified as Artifact
 import State.Step.Catalog (outcomeData, outcomeDecoders)
 import System.FilePath ((</>))
@@ -207,6 +207,7 @@ eventType :: Event -> Text
 eventType = \case
     Started _ -> "started"
     FuelSet _ -> "fuel"
+    Targeted _ -> "target"
     Extended _ -> "extend"
     Took scope outcome -> eventText (tookEvent scope outcome)
     Stopped _ -> "stop"
@@ -239,6 +240,7 @@ eventData = \case
             <> pair "principal" (principalEncoding start.principal)
             <> "interface" .= map opText (Set.toList start.interface)
     FuelSet fuel -> "level" .= fuelName fuel
+    Targeted target -> targetData target
     Extended why -> "why" .= why
     Took _ outcome -> outcomeData outcome
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
@@ -284,6 +286,7 @@ eventOf :: Text -> Object -> Parser Event
 eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
     "fuel" -> FuelSet <$> (obj .: "level" >>= named "fuel" parseFuel)
+    "target" -> Targeted <$> targetOf obj
     "extend" -> Extended <$> obj .: "why"
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"

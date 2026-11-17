@@ -14,7 +14,7 @@ import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), 
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
-import State.Run.Event (Asker (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), TaskId (..), stepTook, tookIn)
+import State.Run.Event (Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
 import State.Run.EventGen (runId)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, runAt, securityScope, sha)
@@ -49,6 +49,15 @@ spec = describe "State.Cli.Command" $ do
     describe "record" $ do
         it "parses a stay event's argument" $
             recorded ["fuel", "low"] `shouldBe` Right (FuelSet Low)
+
+        it "parses a request's target: a PR by its GitHub url, a branch, a ticket" $
+            map recorded [["target", "pr", "https://github.com/o/r/pull/7"], ["target", "branch", "feat"], ["target", "ticket", "https://github.com/o/r/issues/3"]]
+                `shouldBe` map (Right . Targeted) [OnPr (Url "https://github.com/o/r/pull/7"), OnBranch (Branch "feat"), OnTicket (Url "https://github.com/o/r/issues/3")]
+
+        it "refuses a PR target that is no GitHub PR url" $
+            case parseCommand steps ["record", "target", "pr", "https://github.com/o/r/issues/3"] of
+                Right (_, Left failure) -> failure.why `shouldSatisfy` Text.isInfixOf "is not a GitHub PR URL"
+                _ -> expectationFailure "not a refusal"
 
         it "records an extend with its why" $
             recorded ["extend", "the", "user", "goes", "on"] `shouldBe` Right (Extended "the user goes on")

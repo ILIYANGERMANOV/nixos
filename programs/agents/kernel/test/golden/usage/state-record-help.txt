@@ -12,6 +12,7 @@ Available commands:
   gather.enough            no arguments
   exploring.enough         no arguments
   discussing.enough        no arguments
+  target                   <pr <url>|branch <name>|ticket <url>>
   route.architect          no arguments
   route.engineer           no arguments
   route.10x                no arguments

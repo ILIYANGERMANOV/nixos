@@ -78,6 +78,7 @@ genEvent =
     Gen.choice
         [ Started <$> genStart
         , FuelSet <$> Gen.enumBounded
+        , Targeted <$> genTarget
         , Extended <$> genText
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
@@ -170,6 +171,9 @@ genWorktree = Gen.mapMaybe (shellPath . ('/' :)) (Gen.string (Range.linear 0 20)
 
 genShape :: Gen Shape
 genShape = Gen.choice [pure OwnPr, RoundOn . Url <$> genText]
+
+genTarget :: Gen Target
+genTarget = Gen.choice [OnPr . Url <$> genText, OnBranch . Branch <$> genText, OnTicket . Url <$> genText]
 
 -- | A breakdown the test spells, which must be one 'breakdown' accepts.
 tasksOf :: NonEmpty Task -> Tasks

@@ -26,7 +26,10 @@ module State.Run.Fold (
     append,
     appendTo,
     fuelOf,
+    OnTarget (..),
+    shape,
     onRound,
+    planSettled,
     Stuck (..),
     stuck,
     stuckExits,
@@ -70,7 +73,7 @@ import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..),
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, TaskId, TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, tookEvent)
+import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, Target (..), TaskId, TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, tookEvent)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
@@ -131,7 +134,15 @@ data RunState = RunState
     {- ^ The PR or ticket url any step recorded last: what a chief's request
     ended in, as an earlier request's PR must not stand for a later ticket.
     -}
+    , onTarget :: Maybe OnTarget
+    -- ^ The existing work the request applies feedback to: none for new work, and on each new request.
     }
+    deriving stock (Eq, Show)
+
+{- | A request's target, and whether a Design or Scope question was asked
+since it was named: then the user confirms its plan after all.
+-}
+data OnTarget = OnTarget {target :: Target, designAsked :: Bool}
     deriving stock (Eq, Show)
 
 -- | A worker at work: its role, its id, and the seq of the line that logged its spawn.
@@ -180,6 +191,8 @@ data Refusal
     | -- | An @extend@ where no budget the user may extend holds the run.
       NothingToExtend
     | FuelSetOnce Fuel
+    | -- | A target named off a route's hub: only a request, before its branch, has one.
+      TargetOffHub
     | -- | An override names a state the flow does not have, or more than one.
       NoSingleState StateName
     | -- | The question was asked already, whether pending or closed.
@@ -301,6 +314,7 @@ begin g envelope = case runStart envelope.event of
                 , fans = Map.empty
                 , ticket = Nothing
                 , latest = Nothing
+                , onTarget = Nothing
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -308,6 +322,7 @@ runStart :: Event -> Maybe Start
 runStart = \case
     Started start -> Just start
     FuelSet _ -> Nothing
+    Targeted _ -> Nothing
     Extended _ -> Nothing
     Took _ _ -> Nothing
     Stopped _ -> Nothing
@@ -338,6 +353,7 @@ applyEvent g state n = \case
     Refused note -> Right state {refused = Just note}
     Started _ -> going (Left StartedTwice)
     FuelSet fuel -> going (fuelSet g state fuel)
+    Targeted target -> going (targeted g state target)
     Extended _ -> going (extended g state)
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
@@ -393,6 +409,14 @@ fuelSet g state fuel = case state.fuel of
     Just set | set /= fuel, not (isRouteHub g state.at) -> Left (FuelSetOnce set)
     _ -> Right state {fuel = Just fuel}
 
+{- | A target is named at a route's hub, as Fuel is: its request's work is
+on it, so a PR, draft or ticket an earlier request recorded is not its own.
+-}
+targeted :: OpenGraph -> RunState -> Target -> Either Refusal RunState
+targeted g state target
+    | isRouteHub g state.at = Right state {onTarget = Just (OnTarget target False), drafted = Nothing, published = Nothing, ticket = Nothing}
+    | otherwise = Left TargetOffHub
+
 {- | The worker gone from those at work: the one of that id, else the oldest
 of that role, as a hand-back piped in by hand names no id.
 -}
@@ -435,7 +459,7 @@ took g state scope outcome@(AnyOutcome _ some) = do
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
-    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
+    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
 
 -- | The edge an event takes where the run is, and the state it leaves.
 edgeHere :: OpenGraph -> RunState -> EventName -> Maybe (Place, Edge Node)
@@ -468,6 +492,8 @@ data Effect = Effect
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
     , opened :: Maybe Url
+    , anew :: Bool
+    -- ^ A new request starts: it has no target until one is named.
     }
 
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
@@ -482,11 +508,11 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
     TicketLayer -> none {opened = ticketOf o}
-    RequestLayer -> none {pr = openedPr o}
+    RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
     ChoiceLayer -> none
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False}
 
 -- | The ticket an @open_ticket@ names.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
@@ -506,6 +532,16 @@ openedPr = \case
     DirectDone _ -> Nothing
     NextDone -> Nothing
     NextRequest -> Nothing
+
+-- | The next request starts: the chief's loop goes round.
+startsRequest :: Outcome (s :: RequestStep) l -> Bool
+startsRequest = \case
+    NextRequest -> True
+    NextDone -> False
+    OpenPlanDone _ -> False
+    OpenBranchDone _ -> False
+    OpenPrDone _ -> False
+    DirectDone _ -> False
 
 -- | The draft PR a draft names.
 built :: Outcome (s :: BuildStep) l -> Maybe DraftPr
@@ -527,19 +563,35 @@ fanOutcome scope outcome fans = case outcome of
 
 {- | The Fuel's skips, @ready@ for a round on an existing PR at every
 Fuel: the PR stays as it is, by the task's shape, and @simplify_plan@ for a
-plan its parent decided.
+plan settled without the user.
 -}
 skips :: RunState -> Place -> PerFuel SkipWhen -> Bool
 skips state from when =
     atFuel (fuelOf state) when /= Never
-        || (from.name == stepName Ready && onRound state.start.principal)
-        || (from.name == stepName SimplifyP && principalPlan state.start.principal == ParentDecided)
+        || (from.name == stepName Ready && onRound (shape state))
+        || (from.name == stepName SimplifyP && planSettled state)
 
--- | The run is a round on a PR that exists already, named at init or by its parent's breakdown.
-onRound :: Principal -> Bool
-onRound principal = case principalShape principal of
+{- | What the run does to its PR now: its request's target's, else its
+start's. A branch's work opens its PR from that branch, or adopts the one open.
+-}
+shape :: RunState -> Shape
+shape state = case (.target) <$> state.onTarget of
+    Just (OnPr url) -> RoundOn url
+    Just (OnBranch _) -> OwnPr
+    Just (OnTicket _) -> principalShape state.start.principal
+    Nothing -> principalShape state.start.principal
+
+-- | The run is a round on a PR that exists already, named at init, by its parent's breakdown or by its request's target.
+onRound :: Shape -> Bool
+onRound = \case
     OwnPr -> False
     RoundOn _ -> True
+
+{- | The run's plan needs no confirm from the user: its parent decided it, or
+the request applies feedback to a target and no Design or Scope question opened.
+-}
+planSettled :: RunState -> Bool
+planSettled state = principalPlan state.start.principal == ParentDecided || maybe False (not . (.designAsked)) state.onTarget
 
 {- | A task added, or a round asked, at a fan-out's merge reopens the fan-out, where it is
 spawned as any task is; the fan-out is left again once every task is settled.
@@ -596,9 +648,11 @@ asked g state asking
                 , everAsked = Set.insert qid state.everAsked
                 , meters
                 , askedHere = if spends && any usedUp (spentByAsk g state {meters}) then [] else state.askedHere <> [asking.question.kind]
+                , onTarget = (\on -> on {designAsked = on.designAsked || opens asking.question.kind}) <$> state.onTarget
                 }
   where
     qid = asking.question.qid
+    opens kind = kind == Ask.Design || kind == Ask.Scope
     spends = case (asking.from, asking.question.kind) of
         (Itself, Ask.Stuck) -> False
         (Itself, _) -> True
