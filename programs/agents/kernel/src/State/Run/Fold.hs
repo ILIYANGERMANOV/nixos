@@ -35,7 +35,6 @@ module State.Run.Fold (
     budgets,
     extendable,
     usedUp,
-    flowRole,
     nextQId,
     given,
     heldAnswer,
@@ -67,7 +66,6 @@ import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Meter
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName))
-import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
@@ -326,9 +324,7 @@ applyEvent :: OpenGraph -> RunState -> Natural -> Event -> Either Refusal RunSta
 applyEvent g state n = \case
     Refused note -> Right state {refused = Just note}
     Started _ -> going (Left StartedTwice)
-    FuelSet fuel -> going $ case state.fuel of
-        Just set | set /= fuel -> Left (FuelSetOnce set)
-        _ -> Right state {fuel = Just fuel}
+    FuelSet fuel -> going (fuelSet state fuel)
     Extended _ -> going (extended g state)
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
@@ -374,6 +370,28 @@ applyEvent g state n = \case
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
         Nothing -> (\moved -> moved {refused = Nothing}) <$> next
+
+{- | Fuel is set once, and again at each Route hub: each request a run routes
+there may run at a Fuel of its own. Requests run one after another, so the
+run holds one Fuel, the one set last.
+-}
+fuelSet :: RunState -> Fuel -> Either Refusal RunState
+fuelSet state fuel = case state.fuel of
+    Just set | set /= fuel, not (atRouteHub state.at) -> Left (FuelSetOnce set)
+    _ -> Right state {fuel = Just fuel}
+
+atRouteHub :: Node -> Bool
+atRouteHub = \case
+    At place -> isRouteHub place
+    Out -> False
+    Exit -> False
+
+{- | Stub for the Route hub predicate t1 exports (#417): a state named
+@route@, the name t1's Route is expected to take. Whichever of t1 and t2
+merges second replaces this with t1's predicate.
+-}
+isRouteHub :: Place -> Bool
+isRouteHub place = place.name == StateName "route"
 
 {- | The worker gone from those at work: the one of that id, else the oldest
 of that role, as a hand-back piped in by hand names no id.
@@ -639,20 +657,20 @@ heldIn g place node = case (innermost g place, node) of
 
 retagged :: RunState -> QId -> Either Refusal RunState
 retagged state qid = do
-    question <- forTriage qid state.pending
+    question <- (.question) <$> forTriage qid state.pending
     let raised pending = pending {asking = pending.asking {question = Question qid Security question.text}}
     Right state {pending = adjust qid raised state.pending}
 
 ruledOn :: RunState -> QId -> Proposal -> Either Refusal RunState
 ruledOn state qid proposal = do
-    question <- forTriage qid state.pending
-    ruling <- Bifunctor.first NotAllowed (Ask.rule (flowRole state.start.flow) question.kind question proposal)
+    asking <- forTriage qid state.pending
+    ruling <- Bifunctor.first NotAllowed (Ask.rule (Role.rungAt state.start.flow asking.step) asking.question.kind asking.question proposal)
     Right state {pending = close qid state.pending, rulings = state.rulings <> [ruling]}
 
 forwarded :: RunState -> QId -> Above -> Either Refusal RunState
 forwarded state qid to = do
-    question <- forTriage qid state.pending
-    void (Bifunctor.first NotAllowed (Ask.pass (flowRole state.start.flow) question.kind question))
+    asking <- forTriage qid state.pending
+    void (Bifunctor.first NotAllowed (Ask.pass (Role.rungAt state.start.flow asking.step) asking.question.kind asking.question))
     fromAbove state.start.principal to
     Right state {pending = adjust qid (\pending -> pending {waits = ForAnswer}) state.pending}
 
@@ -672,10 +690,10 @@ firstAnswer state qid answer by = do
     Right state {pending = close qid state.pending, answers = state.answers <> [Answer pending.asking.question answer]}
 
 -- | The question this run has yet to rule on or forward.
-forTriage :: QId -> [Pending] -> Either Refusal Question
+forTriage :: QId -> [Pending] -> Either Refusal Asking
 forTriage qid pending =
     pendingOf qid pending >>= \open -> case open.waits of
-        ForTriage -> Right open.asking.question
+        ForTriage -> Right open.asking
         ForAnswer -> Left (AlreadyForwarded qid)
 
 pendingOf :: QId -> [Pending] -> Either Refusal Pending
@@ -738,10 +756,6 @@ fromAbove :: Principal -> Above -> Either Refusal ()
 fromAbove principal named
     | named == deliver principal = Right ()
     | otherwise = Left (NotAbove named)
-
--- | The rung of the chain the run's flow stands on.
-flowRole :: FlowName -> Rung
-flowRole = (.rung) . Role.role
 
 overridden :: OpenGraph -> RunState -> StateName -> Either Refusal RunState
 overridden g state target = case Set.toList (Set.filter (\place -> placeName place == target) (places g)) of

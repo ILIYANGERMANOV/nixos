@@ -58,7 +58,7 @@ import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
-import State.Role (RoleDef (..))
+import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, principalShape, qidText)
 import State.Run.Ask qualified as Ask
@@ -1047,7 +1047,8 @@ rendered steps block flow = case block of
 
 -- | Each flow's graph glues, as its test holds: a clash here is a bug.
 graphOf :: FlowName -> OpenGraph
-graphOf = either (error . ("the flow does not glue: " <>) . show) id . graph . (.flow) . Role.role
+graphOf flowName = case (Role.role flowName).flow of
+    SomeFlow flow -> either (error . ("the flow does not glue: " <>) . show) id (graph flow)
 
 -- | The worktree's git dir, where the pointer to its run lives.
 gitDir :: (Git :> es) => Eff es (Either Failure FilePath)

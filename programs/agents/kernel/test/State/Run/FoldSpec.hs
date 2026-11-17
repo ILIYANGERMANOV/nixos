@@ -14,13 +14,15 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), scopePath)
+import State.Category.Flow (Flow (..), Name, scopePath)
 import State.Category.FlowGen (composes, genFlow, genWalk)
-import State.Category.Fuel (Fuel (..))
+import State.Category.Fuel (Fuel (..), always)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName)
-import State.Category.Meter (someMeterName)
+import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
+import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
+import State.Flow.TenX (tenX)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
@@ -33,7 +35,7 @@ import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnob
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), choiceNamed, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
-import State.Step.Gather (Outcome (..))
+import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
@@ -315,6 +317,12 @@ spec = describe "State.Run.Fold" $ do
     it "refuses a second Fuel" $
         replay g (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
 
+    it "takes a new Fuel at a Route hub, one per request" $
+        fuelOf <$> replay routed (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Right Low
+
+    it "refuses a new Fuel past the Route hub" $
+        replay routed (logOf (started :| [FuelSet Max, Overridden (StateName "chief/plan") "routed", FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
+
     it "takes the same Fuel again" $
         fuelOf <$> replay g (logOf (started :| [FuelSet Max, FuelSet Max])) `shouldBe` Right Max
 
@@ -517,6 +525,14 @@ questions = describe "questions" $ do
     it "refuses a ruling where the run's row forwards" $
         replay g (logOf (started :| [ask 1 Design, RuledOn (q 1) proposal])) `shouldBe` Left (NotAllowed (MayNotRule Role.Lead Design))
 
+    it "rules as the Orchestrator on a question asked inside a scoped 10x, under an engineer run" $
+        length . (.rulings) <$> replay (scopedIn "10x" tenX) (logOf (started :| [askIn "10x/gather" Design, RuledOn (q 1) proposal]))
+            `shouldBe` Right 1
+
+    it "refuses a ruling as the Lead on a question asked inside a scoped engineer, under a 10x run" $
+        replay (scopedIn "engineer" engineer) (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| [askIn "engineer/gather" Design, RuledOn (q 1) proposal]))
+            `shouldBe` Left (NotAllowed (MayNotRule Role.Lead Design))
+
     it "refuses a forward of a question the run's row must answer, so no Fact climbs" $
         replay g (logOf (started :| [ask 1 Fact, Forwarded (q 1) TheUser])) `shouldBe` Left (NotAllowed (MustAnswer Role.Lead Fact))
 
@@ -589,6 +605,7 @@ questions = describe "questions" $ do
   where
     q = QId run
     ask n kind = Asked (Asking (Question (q n) kind (oneLine "a question")) (StateName "implement") Itself)
+    askIn at kind = Asked (Asking (Question (q 1) kind (oneLine "a question")) (StateName at) Itself)
     proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
     parent = ParentRun (runId "p1")
     forwardedTo events = [to | Forwarded _ to <- events]
@@ -603,6 +620,16 @@ scopedFans :: OpenGraph
 scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Scope "b" fanned))
   where
     fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
+
+-- | A whole flow run inline, under a scope named after it.
+scopedIn :: (NotSum o) => Name -> Flow 'Ctx 'Nothing o -> OpenGraph
+scopedIn name flow = either (error . show) id (graph (Scope name flow))
+
+{- | A request routed at a hub, then planned. The hub is a choice named
+@route@, the name the Route hub stub reads, until Route lands.
+-}
+routed :: OpenGraph
+routed = either (error . show) id (graph (Scope "chief" (Choice "route" [Capped (always (UpTo 1)) Extend Interview] :> Do PlanS)))
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
 first's PRs. No step goes from a PR back to a plan, so the second has no

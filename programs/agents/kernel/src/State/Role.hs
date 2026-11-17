@@ -3,25 +3,33 @@ rung of the chain a question climbs. A role is a named flow with a rung; the
 other agents (researchers, implementers, fixers) are workers that run one step
 and lead nothing, so they are no entry here. Adding a role is a 'FlowName'
 constructor, its 'flowText' and its 'role' arm; @flows/steps.nix@ names it in a row's
-@flows@, which "State.Table" checks against 'roles'.
+@flows@, which "State.Table" checks against 'roles'. A flow runs inline as a
+branch of a larger one under a 'Scope' named after it: 'scopeFlow' reads the
+scope back as the flow, and 'rungAt' the rung a question asked there climbs from.
 -}
 module State.Role (
     FlowName (..),
     defaultFlow,
     flowText,
     RoleDef (..),
+    SomeFlow (..),
+    flowOut,
     Rung (..),
     AgentRole (..),
     role,
     roles,
     leads,
     roleText,
+    scopeFlow,
+    rungAt,
 ) where
 
 import Data.List (find)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
-import State.Category.Flow (Flow)
-import State.Category.Ty (Ty (..))
+import State.Category.Flow (Flow, Name (..), scopeNames, unqualify)
+import State.Category.Step (StateName (..))
+import State.Category.Ty (KnownTy (..), NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.FlowName (FlowName (..), defaultFlow, flowText)
@@ -35,12 +43,20 @@ newtype AgentRole = AgentRole Text
     deriving stock (Eq, Show)
 
 -- | A role that leads a flow: its wire name, its flow, and its rung.
-data RoleDef = RoleDef {name :: AgentRole, flow :: Flow 'Ctx 'Nothing 'PR, rung :: Rung}
+data RoleDef = RoleDef {name :: AgentRole, flow :: SomeFlow, rung :: Rung}
+
+-- | A whole flow, whatever it ends in: a PR, a plan, a ticket.
+data SomeFlow where
+    SomeFlow :: (KnownTy o, NotSum o) => Flow 'Ctx 'Nothing o -> SomeFlow
+
+-- | What the flow ends in.
+flowOut :: SomeFlow -> Ty
+flowOut (SomeFlow (_ :: Flow 'Ctx 'Nothing o)) = tyVal @o
 
 role :: FlowName -> RoleDef
 role flowName = case flowName of
-    EngineerFlow -> RoleDef (AgentRole (flowText flowName)) engineer Lead
-    TenXFlow -> RoleDef (AgentRole (flowText flowName)) tenX Orchestrator
+    EngineerFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow engineer) Lead
+    TenXFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow tenX) Orchestrator
 
 roles :: [RoleDef]
 roles = map role [minBound .. maxBound]
@@ -51,3 +67,18 @@ leads agent = find (\flowName -> (role flowName).name == agent) [minBound .. max
 
 roleText :: AgentRole -> Text
 roleText (AgentRole name) = name
+
+{- | The flow a scope runs inline: a scope named after a flow's wire name,
+@Scope "10x" tenX@, runs that flow. Other scopes (@security@) run no flow of
+their own.
+-}
+scopeFlow :: Name -> Maybe FlowName
+scopeFlow (Name scope) = find ((== scope) . flowText) [minBound .. maxBound]
+
+{- | The rung a question asked at this state climbs from: that of the
+innermost scope around it that runs a flow, else that of the run's own flow.
+-}
+rungAt :: FlowName -> StateName -> Rung
+rungAt runFlow (StateName asked) = case reverse (mapMaybe scopeFlow (scopeNames (fst (unqualify asked)))) of
+    innermost : _ -> (role innermost).rung
+    [] -> (role runFlow).rung
