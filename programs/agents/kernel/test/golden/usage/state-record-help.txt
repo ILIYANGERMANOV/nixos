@@ -12,6 +12,20 @@ Available commands:
   gather.enough            no arguments
   exploring.enough         no arguments
   discussing.enough        no arguments
+  route.architect          no arguments
+  route.engineer           no arguments
+  route.10x                no arguments
+  route.blocks             no arguments
+  route.discussion         no arguments
+  route.other              no arguments
+  block.researching        no arguments
+  block.gathering          no arguments
+  block.agreeing           no arguments
+  block.proposing          no arguments
+  block.building           no arguments
+  block.reviewing          no arguments
+  block.describing         no arguments
+  block.shipping           no arguments
   extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments
@@ -44,6 +58,12 @@ Available commands:
   confirm_design.confirmed no arguments
   confirm_design.adjusted  no arguments
   finalize_ticket.done     no arguments
+  open_plan.done           <url>
+  open_branch.done         <branch|sha>
+  open_pr.done             <url>
+  direct.done              <note>
+  next.request             no arguments
+  next.done                no arguments
   breakdown.done           --tasks <file.json>
   engineers.done           no arguments
   task                     <id> <ci|review|merged|kept|round> <pr> | add

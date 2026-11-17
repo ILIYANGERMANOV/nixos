@@ -11,8 +11,10 @@ import Doubles.Gh (printedPr)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.Flow (scopePath)
 import State.Category.FlowGen (threeWayGraph)
 import State.Category.Fuel (Fuel (..))
+import State.Category.Step (OutcomeName (..))
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
@@ -21,10 +23,12 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (architectGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph, ticketOpened, ticketUrl)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Build (Outcome (..))
+import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
 import State.Step.Ticket (Outcome (..))
@@ -86,6 +90,23 @@ spec = describe "State.Protocol.Advice" $ do
             (atHub []).prompt `shouldBe` "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
         it "asks no more once the user was asked the branch" $
             (atHub pickAsked).prompt `shouldBe` "The user was asked the branch once: record the branch the answer names."
+
+    describe "the chief" $ do
+        let chiefAt events = either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)))
+            atChief events = advise steps chiefGraph noFacts (chiefAt events)
+            routed branch = stepTook (Picked "route" (OutcomeName branch))
+            inScope scope = map (Took (scopePath scope))
+        it "routes a new run's first request at once, asking no Fuel: each request sets its own at the hub" $
+            Set.fromList [option.command | Run options <- [(atChief []).action], option <- toList options]
+                `shouldBe` Set.fromList ["state record route." <> branch | branch <- ["architect", "engineer", "10x", "blocks", "discussion", "other"]]
+        it "tells the agent at the hub to guess the branch and ask the user once only when the request is ambiguous" $
+            (atChief []).prompt `shouldSatisfy` Text.isPrefixOf "Guess the branch from the request"
+        it "names the url the request recorded last at next, the PR an engineer request ended in" $
+            (atChief (routed "engineer" : inScope "engineer" happyPath)).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: u"
+        it "names no url at next after a request that recorded none" $
+            (atChief [routed "other", stepTook (DirectDone "renamed a file")]).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: none recorded"
+        it "explains each discussion question before it is asked, as the architect's discussion does" $
+            (atChief [routed "discussion"]).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
 
     describe "gather" $ do
         it "offers each action in the order the flow declares them, and enough, each with what it does" $

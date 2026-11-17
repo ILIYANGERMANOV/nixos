@@ -53,10 +53,11 @@ import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
+import State.Step.Choice (Outcome (..), discussing, exploring, gathering, routes)
 import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
 import State.Step.Ticket (Outcome (..))
@@ -235,7 +236,14 @@ templates =
     , outcome ConfirmDesignConfirmed
     , outcome ConfirmDesignAdjusted
     , outcome FinalizeTicketDone
+    , outcome (OpenPlanDone (Url ""))
+    , outcome (OpenBranchDone (Branch ""))
+    , outcome (OpenPrDone (Url ""))
+    , outcome (DirectDone "")
+    , outcome NextDone
+    , outcome NextRequest
     ]
+        <> [outcome (Picked route branch) | (route, branches) <- routes, branch <- branches]
         <> concat
             [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
               , outcome (FanDone fan)
@@ -288,6 +296,13 @@ likeIn = \case
         ConfirmDesignConfirmed -> pure ConfirmDesignConfirmed
         ConfirmDesignAdjusted -> pure ConfirmDesignAdjusted
         FinalizeTicketDone -> pure FinalizeTicketDone
+    RequestLayer -> \case
+        OpenPlanDone _ -> OpenPlanDone . Url <$> genText
+        OpenBranchDone _ -> OpenBranchDone . Branch <$> genText
+        OpenPrDone _ -> OpenPrDone . Url <$> genText
+        DirectDone _ -> DirectDone <$> genText
+        NextDone -> pure NextDone
+        NextRequest -> pure NextRequest
     FanLayer -> \case
         BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
         FanDone fan -> pure (FanDone fan)

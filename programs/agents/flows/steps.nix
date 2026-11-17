@@ -14,7 +14,7 @@
 # comes from a `spawn:` op); `skills` its runner preloads; `prose` the
 # instruction fragments it reads, by name (programs/agents/default.nix);
 # `ops` what it may call: `ask`, `await`, `notify`, `spawn:<role>`. `flows`
-# names the flows the step is in, `engineer`, `10x` or `architect`. A role leads the flow
+# names the flows the step is in, `engineer`, `10x`, `architect` or `chief`. A role leads the flow
 # named after it (the kernel's `State.Role`), so the `engineer` flow's inline rows are the engineer
 # role's. `offFlow` is a `role`'s work outside the flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
@@ -137,6 +137,59 @@ let
       flows = [ "architect" ];
     };
   };
+
+  # The chief's steps around a request: the inputs a block opens, a request
+  # no flow fits, and the next request. The lead runs each.
+  chiefSteps =
+    let
+      chiefStep =
+        step:
+        {
+          exit = null;
+          outcomes = [ "done" ];
+          runner = "inline";
+          tools = [ "shell" ];
+          skills = [ ];
+          prose = leadProse;
+          ops = [ ];
+          flows = [ "chief" ];
+        }
+        // step;
+    in
+    {
+      open_plan = chiefStep {
+        dom = "Ctx";
+        cod = "Plan";
+        task = "Open: read the issue the request names, which holds the plan to build. Record its url.";
+      };
+      open_branch = chiefStep {
+        dom = "Ctx";
+        cod = "Diff";
+        task = "Open: check out the branch, or the sha, the request names: its diff is what the block works on. Record it.";
+      };
+      open_pr = chiefStep {
+        dom = "Ctx";
+        cod = "PR";
+        task = "Open: check out the branch of the PR the request names. Record its url.";
+      };
+      direct = chiefStep {
+        dom = "Ctx";
+        cod = "Ctx";
+        task = "Direct: do the request no flow fits yourself; you may commit and open PRs. Record what was asked and what you did.";
+      };
+      next = chiefStep {
+        dom = "Result";
+        cod = "Ctx";
+        exit = "Result";
+        outcomes = [
+          "done"
+          "request"
+        ];
+        tools = [ ];
+        ops = [ "ask" ];
+        task = "Next: say what the request ended in, its url if it has one. `request` takes the user's next request, carrying that result as its context; `done` ends the run.";
+      };
+    };
 in
 {
   steps = {
@@ -468,7 +521,8 @@ in
     };
   }
   // fanSteps
-  // architectSteps;
+  // architectSteps
+  // chiefSteps;
 
   # Role work outside the flows: only lib/derive.nix reads it.
   offFlow = {

@@ -3,6 +3,7 @@ module State.Run.RunGen (
     g,
     tenXGraph,
     architectGraph,
+    chiefGraph,
     ticketUrl,
     ticketOpened,
     designWritten,
@@ -48,6 +49,7 @@ import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), 
 import State.Category.Step (EventName (..), stateNameText)
 import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Architect (architect)
+import State.Flow.Chief (chief)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
@@ -90,6 +92,9 @@ tenXGraph = either (error . show) id (graph tenX)
 architectGraph :: OpenGraph
 architectGraph = either (error . show) id (graph architect)
 
+chiefGraph :: OpenGraph
+chiefGraph = either (error . show) id (graph chief)
+
 -- | The ticket an architect run opens.
 ticketUrl :: Url
 ticketUrl = Url "https://github.com/o/r/issues/1"
@@ -108,6 +113,7 @@ flowGraph = \case
     EngineerFlow -> g
     TenXFlow -> tenXGraph
     ArchitectFlow -> architectGraph
+    ChiefFlow -> chiefGraph
 
 {- | A 10x run, by the user, at its fan-out with these
 tasks, then these events.
@@ -173,6 +179,7 @@ taskJson task =
                 EngineerFlow -> []
                 TenXFlow -> ["flow" .= ("10x" :: Text)]
                 ArchitectFlow -> ["flow" .= ("architect" :: Text)]
+                ChiefFlow -> ["flow" .= ("chief" :: Text)]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

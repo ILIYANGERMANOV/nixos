@@ -40,6 +40,10 @@ spec = describe "laws" $ do
             f <- forAll (Gen.filter (isRight . graph) genFlow)
             (drawn (Id :> f), drawn (f :> Id)) === (drawn f, drawn f)
 
+        it "into_walks_as_identity" . hedgehog $ do
+            f <- forAll (Gen.filter (isRight . graph) genFlow)
+            drawn (f :> Into) === drawn f
+
         it "series_is_associative" . hedgehog $ do
             (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph ((f :> g) :> h))) ((,,) <$> genExiting diffKit <*> genEndo diffKit <*> genBranching))
             drawn ((f :> g) :> h) === drawn (f :> (g :> h))
@@ -288,6 +292,7 @@ budgetsOf = \case
     Do _ -> []
     Capped limit _ s -> [(Name (meterName s), capped limit)]
     Id -> []
+    Into -> []
     f :> g -> budgetsOf f <> budgetsOf g
     Loop _ body -> budgetsOf body
     Opt name skips body -> (name, skipped skips) : budgetsOf body

@@ -30,6 +30,7 @@ let
     "engineer"
     "10x"
     "architect"
+    "chief"
   ];
 
   # The fields a step must have: a role's step adds `lead`.

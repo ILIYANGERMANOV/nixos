@@ -33,6 +33,7 @@ import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (KnownTy (..), NotSum, Ty (..))
 import State.Flow.Architect (architect)
+import State.Flow.Chief (chief, discussion)
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.FlowName (FlowName (..), defaultFlow, flowText)
@@ -61,6 +62,7 @@ role flowName = case flowName of
     EngineerFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow engineer) Lead
     TenXFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow tenX) Orchestrator
     ArchitectFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow architect) Lead
+    ChiefFlow -> RoleDef (AgentRole (flowText flowName)) (SomeFlow chief) Lead
 
 roles :: [RoleDef]
 roles = map role [minBound .. maxBound]
@@ -73,11 +75,14 @@ roleText :: AgentRole -> Text
 roleText (AgentRole name) = name
 
 {- | The flow a scope runs inline: a scope named after a flow's wire name,
-@Scope "10x" tenX@, runs that flow. Other scopes (@security@) run no flow of
-their own.
+@Scope "10x" tenX@, runs that flow. The chief's @discussion@ runs as the
+architect's, read-only and at its rung. Other scopes (@security@) run no flow
+of their own.
 -}
 scopeFlow :: Name -> Maybe FlowName
-scopeFlow (Name scope) = parseByName flowText scope
+scopeFlow = \case
+    scope | scope == discussion -> Just ArchitectFlow
+    Name scope -> parseByName flowText scope
 
 -- | The flow running at this state: the innermost scope around it that runs one, else the run's own.
 flowAt :: FlowName -> StateName -> FlowName

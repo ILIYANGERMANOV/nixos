@@ -21,6 +21,7 @@ module State.Cli.Command (
     initFix,
     tenXInitFix,
     architectInitFix,
+    chiefInitFix,
     noteOf,
     explain,
     unknownEvent,
@@ -147,6 +148,10 @@ tenXInitFix = "state init --notes \"$PWD\" --flow 10x"
 -- | The architect's @state init@ line: its notes hold the research, its ticket the design.
 architectInitFix :: Text
 architectInitFix = "state init --notes /tmp/architect-<owner>-<repo>-<slug>/ --flow architect"
+
+-- | The chief's @state init@ line: one run holds every request of the session.
+chiefInitFix :: Text
+chiefInitFix = "state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief"
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
 noteOf :: Failure -> Note
@@ -453,6 +458,7 @@ explain g fuel at meters = \case
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
     AskedTwice qid -> refused (qidText qid) "it was asked already" "state pending"
+    PickedOnce -> refused "the pick" "the user was asked this route's branch once already" (records (const True))
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))

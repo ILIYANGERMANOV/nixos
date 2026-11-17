@@ -47,7 +47,7 @@ import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), isRouteHub, placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (Ty (..))
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
@@ -301,11 +301,14 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (Nothing, [], True) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
-    -- The 10x picks each task's Fuel and never asks one: it runs at the default.
+    {- The 10x picks each task's Fuel and never asks one: it runs at the default.
+    The chief's Fuel is each request's, set at its route's hub only when it differs.
+    -}
     fuelAsked = case state.start.flow of
         EngineerFlow -> isJust state.fuel
         TenXFlow -> True
         ArchitectFlow -> isJust state.fuel
+        ChiefFlow -> True
     output = outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
@@ -319,7 +322,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (At place, _) | isRouteHub g state.at -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
-            Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s))
+            Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s) <> told s)
             Nothing -> case fanNamed place.name of
                 Just fan -> plain (atFan (ScopedFan place.scope fan) facts.ended state)
                 Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " fan-out's outcome") "ends the fan-out"))
@@ -360,6 +363,13 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         Continues _ -> NonEmpty.head (recordOutcomes g place s)
         ExitsOr _ _ -> NonEmpty.head (recordOutcomes g place s)
         Branches _ _ -> NonEmpty.head (recordOutcomes g place s)
+    told :: (StepSet k) => Sing (s :: k) -> Text
+    told s = case special s of
+        TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
+        Ordinary -> ""
+        AsksConfirm _ -> ""
+        Step.AwaitsCi -> ""
+        AwaitsMerge -> ""
     -- At a used-up budget the user says whether to go on, once; then extend, or leave the loop.
     extendOrGo place budget
         | Ask.Stuck `notElem` state.askedHere = goOn budget
@@ -377,6 +387,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         AsksConfirm what -> if Ask.Confirm `elem` state.askedHere then Run records else Ask Ask.Confirm (what <> ": confirmed, or adjusted?")
         Step.AwaitsCi -> AwaitOn Ci (maybe "the PR" urlText (prUrl facts state))
         AwaitsMerge -> atMerge records (currentFan state)
+        TellsResult -> Run records
       where
         records = maybe (recordOutcomes g place s) (someOptions . capRecords g place . (.cap.atCap)) (usedUpAt place)
 
@@ -530,13 +541,15 @@ recordsFinished fan = [(task.id, Run (one (recordTask task) "its child finished:
 recordTask :: Task -> Text
 recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (InReview (Url "<url>"))
 
-{- | The url of what the run's flow ends in, when the run keeps one: a PR's
-or a ticket's. No step records a url for any other type yet.
+{- | The url of what the run's flow ends in, when the run keeps one: a PR's,
+a ticket's, or a request's, the url recorded last. No step records a url for
+any other type yet.
 -}
 outputUrl :: Ty -> Facts -> RunState -> Maybe Url
 outputUrl out facts state = case out of
     PR -> prUrl facts state
     Ticket -> state.ticket
+    Result -> state.latest
     Ctx -> Nothing
     Plan -> Nothing
     Diff -> Nothing

@@ -46,6 +46,7 @@ import State.Step.Choice qualified as Choice
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
+import State.Step.Request (Outcome (..), Sing (..))
 import State.Step.Review (Outcome (..), Sing (..))
 import State.Step.Ship (Outcome (..), Sing (..))
 import State.Step.Ticket (Outcome (..), Sing (..))
@@ -190,6 +191,16 @@ recordables =
            , nothing ConfirmDesignConfirmed
            , nothing ConfirmDesignAdjusted
            , nothing FinalizeTicketDone
+           , url "the issue's url" OpenPlan OpenPlanDone
+           , outcome (builtEvent OpenBranch OpenBranchDone) "<branch|sha>" [] $ \a -> case a.positional of
+                [ref] -> Right (Plain (tookIn a.scope (OpenBranchDone (Branch ref))))
+                _ -> Left "the branch or sha"
+           , url "the PR's url" OpenPr OpenPrDone
+           , outcome (builtEvent Direct DirectDone) "<note>" [] $ \a -> case a.positional of
+                [] -> Left "what was asked and done"
+                note -> Right (Plain (tookIn a.scope (DirectDone (Text.unwords note))))
+           , nothing NextRequest
+           , nothing NextDone
            ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
         <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of

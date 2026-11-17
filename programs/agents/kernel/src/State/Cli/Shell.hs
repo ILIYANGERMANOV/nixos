@@ -44,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (StateName, stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
@@ -1073,6 +1073,7 @@ rendered steps block flow = case block of
         EngineerFlow -> initFix <> "\n"
         TenXFlow -> tenXInitFix <> "\n"
         ArchitectFlow -> architectInitFix <> "\n"
+        ChiefFlow -> chiefInitFix <> "\n"
   where
     g = graphOf flow
 

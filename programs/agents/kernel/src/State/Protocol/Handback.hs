@@ -48,6 +48,7 @@ import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
 import State.Step.Plan qualified as Plan
+import State.Step.Request qualified as Request
 import State.Step.Review (Outcome (..))
 import State.Step.Review qualified as Review
 import State.Step.Ship (Outcome (..))
@@ -345,6 +346,12 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Ticket.UpdateTicket -> inline s
             Ticket.ConfirmDesign -> inline s
             Ticket.FinalizeTicket -> inline s
+        RequestLayer -> case s of
+            Request.OpenPlan -> inline s
+            Request.OpenBranch -> inline s
+            Request.OpenPr -> inline s
+            Request.Direct -> inline s
+            Request.Next -> inline s
         FanLayer -> case s of
             Fan.Breakdown _ -> inline s
             Fan.FanOut _ -> inline s
