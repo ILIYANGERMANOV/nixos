@@ -769,8 +769,10 @@ atLine steps g state = case state.at of
 option to take, or where the step's outcomes lead, one per line.
 -}
 explained :: Start -> Advice -> [Text]
-explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads
+explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads <> callerAnswers
   where
+    -- No parent log records the caller's answer, so the resumed run records it itself.
+    callerAnswers = ["resumed with the answer: state answer " <> qidText question.qid <> " <answer>" | AwaitAnswer question <- [advice.action], TheCaller <- [Ask.deliver start.principal]]
     listed _ [] = []
     listed heading options = heading : ["  " <> optionCommand start option <> " - " <> option.means | option <- options]
 

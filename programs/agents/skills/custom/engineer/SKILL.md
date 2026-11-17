@@ -29,7 +29,7 @@ who owns each decision.
     `state forward <qid>`, and do what that prints.
   - `HANDBACK <line>`: end your turn with `<line>` and the lines under it
     (`Run:`, `Ruling`), then your last finished step and the head SHA, all
-    work pushed. Resumed with the answer: it is in your run already. After
+    work pushed. Resumed with the answer: record it if `state next` says. After
     `AWAIT ci`: `gh pr checks <n>` once, `state record await_ci.green` or
     `await_ci.red <check>...`. Then `state next`.
 

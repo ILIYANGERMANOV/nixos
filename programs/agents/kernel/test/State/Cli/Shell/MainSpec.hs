@@ -500,6 +500,18 @@ spec = describe "state over the doubles" $ do
             map (take 1) [drop 1 asked, again] `shouldSatisfy` all (all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`))
             filter (== "ASK user") (asked <> again) `shouldBe` []
 
+        it "tells a --child run resumed with its caller's answer how to record it, as no parent log does" $ \world -> do
+            _ <- startedIn world ["--child"]
+            asked : _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            let qid = Text.drop (Text.length "asked ") asked
+
+            waiting <- succeeded =<< state world ["next"]
+            _ <- succeeded =<< state world ["answer", qid, "postgres"]
+            answered <- succeeded =<< state world ["next"]
+
+            waiting `shouldContain` ["  resumed with the answer: state answer " <> qid <> " <answer>"]
+            filter ("HANDBACK " `Text.isPrefixOf`) (take 1 answered) `shouldBe` []
+
         it "shows a forwarded question with the answer that came down for it" $ \world -> do
             _ <- startedRun world
             [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
