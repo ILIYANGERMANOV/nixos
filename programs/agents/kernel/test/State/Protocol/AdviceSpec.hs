@@ -11,9 +11,8 @@ import Doubles.Gh (printedPr)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.FlowGen (threeWay)
+import State.Category.FlowGen (threeWayGraph)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (graph)
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
@@ -72,8 +71,7 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` [offering ["state record fuel <low|balanced|max>"], choosing]
 
     describe "a route" $ do
-        let routed = either (error . show) id (graph threeWay)
-            atHub events = advise steps routed noFacts (either (error . show) id (replay routed (logOf (started :| knobs Balanced <> events))))
+        let atHub events = advise steps threeWayGraph noFacts (either (error . show) id (replay threeWayGraph (logOf (started :| knobs Balanced <> events))))
             pickAsked = [Asked (Asking (Question (QId run 1) Pick (oneLine "which branch?")) (StateName "route") Itself), Forwarded (QId run 1) TheUser, Answered (QId run 1) "big" TheUser]
         it "offers one pick per branch, each with where it goes" $
             explained start (atHub [])

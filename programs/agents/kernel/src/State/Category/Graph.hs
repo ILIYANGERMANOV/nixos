@@ -255,11 +255,15 @@ glue left right = do
     first = within 0 left
     second = within 1 right
     into = \case
-        ToOut sel -> case second.inPorts sel of
-            Enters place -> ToState place
-            Passes on -> ToOut on
+        ToOut sel -> entering (second.inPorts sel)
         ToState place -> ToState place
         ToExit -> ToExit
+
+-- | Where an edge into this in port goes: the state it enters, or on to the out.
+entering :: Entry o -> To o
+entering = \case
+    Enters place -> ToState place
+    Passes sel -> ToOut sel
 
 -- | Case: the left part takes the left summand's in ports, the right part the right's.
 copair :: Part a c -> Part b c -> Either Clash (Part (a ':+ b) c)
@@ -418,10 +422,7 @@ routePart name branches = do
     hub = rootPlace (namedState name)
     pick branch p =
         let event = EventName hub.name branch
-            to = case p.inPorts Here of
-                Enters place -> ToState place
-                Passes sel -> ToOut sel
-         in ((hub, event), Edge to (Along (OutcomeEdge event (tyVal @a) (tyVal @a))) Nothing)
+         in ((hub, event), Edge (entering (p.inPorts Here)) (Along (OutcomeEdge event (tyVal @a) (tyVal @a))) Nothing)
 
 exitTy :: forall x o. Outcomes ('Just x) o -> Ty
 exitTy (ExitsOr _ _) = tyVal @x

@@ -730,18 +730,18 @@ an agent that knows nothing of the kernel.
 -}
 atLine :: Steps -> OpenGraph -> RunState -> Text
 atLine steps g state = case state.at of
-    At place
-        | isRouteHub g state.at -> "at " <> stateNameText (placeName place) <> ": a route you pick - take one option below, once, then state next"
-        | otherwise -> "at " <> stateNameText (placeName place) <> ": " <> meaning place.name
+    At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place
     Out -> "at the end: the flow is done"
     Exit -> "at the end: the flow is done"
   where
-    meaning name = case (stepNamed name, choiceNamed name) of
-        (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
-            Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
-            Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
-        (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
-        (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
+    meaning place
+        | isRouteHub g (At place) = "a route you pick - take one option below, once, then state next"
+        | otherwise = case (stepNamed place.name, choiceNamed place.name) of
+            (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
+                Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
+                Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
+            (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
+            (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
 
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.

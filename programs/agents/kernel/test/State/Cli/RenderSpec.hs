@@ -2,8 +2,8 @@ module State.Cli.RenderSpec (spec) where
 
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import State.Category.FlowGen (threeWay)
-import State.Category.Graph (graph, places)
+import State.Category.FlowGen (threeWayGraph)
+import State.Category.Graph (places)
 import State.Cli.Render
 import State.Run.RunGen (g, loadSteps)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldContain)
@@ -25,7 +25,7 @@ spec = describe "State.Cli.Render" $ do
                                 ]
 
         it "names a route's hub as the lead's own, each pick going into its branch" $
-            take 1 (drop 2 (Text.lines (states (either (error . show) id (graph threeWay)) steps)))
+            take 1 (drop 2 (Text.lines (states threeWayGraph steps)))
                 `shouldBe` ["| route | you | big: refactor; other: describe; small: describe |"]
 
     it "renders the Fuel rows from the Fuel table: the meters by state, a choice's in the order it declares them, then Low's skips in the flow's order" $

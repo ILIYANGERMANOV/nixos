@@ -15,7 +15,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), scopePath)
-import State.Category.FlowGen (composes, genFlow, genWalk, threeWay)
+import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph)
 import State.Category.Fuel (Fuel (..), always)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
@@ -159,14 +159,13 @@ spec = describe "State.Run.Fold" $ do
 
     describe "a route" $ do
         let routeRun flowGraph events = replay flowGraph (logOf (started :| events))
-            routed = either (error . show) id (graph threeWay)
             scopedRoute = either (error . show) id (graph (Scope "x" threeWay))
             x = scopePath "x"
             picked = Picked "route" . OutcomeName
         it "moves into the branch the pick names" $
-            atName <$> routeRun routed [stepTook (picked "big")] `shouldBe` Right (Just (StateName "refactor"))
+            atName <$> routeRun threeWayGraph [stepTook (picked "big")] `shouldBe` Right (Just (StateName "refactor"))
         it "refuses a pick of a branch the route lacks" $
-            routeRun routed [stepTook (picked "huge")] `shouldSatisfy` \case
+            routeRun threeWayGraph [stepTook (picked "huge")] `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
                 _ -> False
         it "runs a scoped route from its scoped pick to the end" $

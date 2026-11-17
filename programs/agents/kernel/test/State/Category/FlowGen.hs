@@ -15,6 +15,7 @@ module State.Category.FlowGen (
     composes,
     redrawn,
     threeWay,
+    threeWayGraph,
     genBranches,
 ) where
 
@@ -28,7 +29,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Flow (..), Name, ScopePath, inl, inr, scopePath, (|||))
 import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
-import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName, OutcomeEdge (..), OutcomeName (..), StateName)
 import State.Category.Ty (KnownTy, NotSum, Ty (..))
@@ -89,6 +90,10 @@ state of its own: @describe@, @refactor@ and a second @describe@.
 -}
 threeWay :: Flow 'Diff 'Nothing 'PR
 threeWay = Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "big", Do Refactor :> Do Describe), (OutcomeName "other", Do Describe :> Do Ready)])
+
+-- | 'threeWay''s graph.
+threeWayGraph :: OpenGraph
+threeWayGraph = either (error . show) id (graph threeWay)
 
 -- | A route's branches, one to three, each under a name of its own.
 genBranches :: Gen (Flow a e c) -> Gen (NonEmpty (OutcomeName, Flow a e c))
