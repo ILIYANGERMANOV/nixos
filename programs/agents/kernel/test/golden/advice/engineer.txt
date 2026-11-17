@@ -18,7 +18,7 @@ RUN one option below
   Researchers: 0 of 1 used, 1 left
   Interview questions: 0 of 15 used, 15 left
   Plan rounds: 0 of 3 used, 3 left
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == gather/researchers
@@ -62,7 +62,7 @@ RUN state record interview.asked
   Researchers: 0 of 1 used, 1 left
   Interview questions: 0 of 15 used, 15 left
   Plan rounds: 0 of 3 used, 3 left
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
 RUN state record plan.done <path>
@@ -237,7 +237,7 @@ RUN one option below
   Researchers: 0 of 5 used, 5 left
   Interview questions: 0 of 30 used, 30 left
   Plan rounds: 0 of 3 used, 3 left
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == gather/researchers
@@ -281,7 +281,7 @@ RUN state record interview.asked
   Researchers: 0 of 5 used, 5 left
   Interview questions: 0 of 30 used, 30 left
   Plan rounds: 0 of 3 used, 3 left
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
 RUN state record plan.done <path>
@@ -453,7 +453,7 @@ RUN one option below
   Researchers: 0 used, one per group
   Interview questions: 0 of 50 used, 50 left
   Plan rounds: 0 of 3 used, 3 left
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == gather/researchers
@@ -497,7 +497,7 @@ RUN state record interview.asked
   Researchers: 0 used, one per group
   Interview questions: 0 of 50 used, 50 left
   Plan rounds: 0 of 3 used, 3 left
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
 RUN state record plan.done <path>

@@ -20,10 +20,9 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (Name, namedState)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullReview)
-import State.Category.Graph (Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
+import State.Category.Graph (Cap (..), Edge (..), GroupAt (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
-import State.Flow.Drawn (isPick)
 import State.Protocol.Handback (TokenWord (NeedsDecisionWord), tokenWordText, tokenWords)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
@@ -36,8 +35,8 @@ import State.Step.Review (Sing (PickRows))
 import State.Table (Row (runner), Runner (..), Steps, row)
 
 {- | The flow's states in the term's order: who runs each, and where each of
-its outcomes goes. A skip is an arrow like any other: 'fuel' says when a
-level takes it.
+its outcomes goes. An optional block's skip is a state of its own, the
+lead's: 'fuel' says when a level takes its @skip@.
 -}
 states :: OpenGraph -> Steps -> Text
 states g steps =
@@ -45,13 +44,14 @@ states g steps =
         ["State", "Run by", "Arrows out"]
         [[stateNameText (placeName place), runBy place, arrowsOut place] | place <- Set.toList (places g)]
   where
-    -- A pick is the lead's own: any other unnamed state is a fan-out or a group's await.
-    runBy place = case (stepNamed place.name, isPick place.name) of
+    -- A group's fork fans out and its await waits for the children; any other unnamed state, a pick or a skip, is the lead's own.
+    runBy place = case (stepNamed place.name, Map.lookup place g.groupStates) of
         (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
             Agent agent _ -> roleText agent
             Inline -> "you"
-        (Nothing, True) -> "you"
-        (Nothing, False) -> "fan-out"
+        (Nothing, Just (Forking _)) -> "fan-out"
+        (Nothing, Just (Awaiting _)) -> "await"
+        (Nothing, Nothing) -> "you"
     arrowsOut place =
         Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | (event, edge) <- shownEdges g place]
     target = \case

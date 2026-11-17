@@ -45,7 +45,8 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
   a `researcher`, outputs under `/tmp`, never running code from a PR or branch
   by anyone else. The one outside write is the ticket.
 - **Fuel** is in your instructions: a `Fuel:` line in your prompt is
-  `state record fuel <level>`; else ask it when `state next` says.
+  `state record fuel.set <level>` at the first state, `fuel`; else ask it
+  once, when `state next` says.
 - **Writing.** Follow "Writing for people". Each message fits a phone screen
   or two; code blocks stay under ~45 characters wide. Separate what you
   **verified** from what you **inferred**. Restate confirmed decisions; never
@@ -75,13 +76,25 @@ them again.
 
 ## States
 
-Each step is a state; `state next` names the one you are in.
+Each step is a state; `state next` names the one you are in. `exploring`
+and `discussing` are choices, one pick each: `research` spawns a researcher
+in the background, `discuss` asks design questions (then `discuss.asked`),
+`enough` waits at the `researchers` await for every researcher, which goes
+on by itself, then `notes` merges their hand-backs (`notes.done`).
 
 | State | Run by | Arrows out |
 |---|---|---|
-| exploring | you | research.spawned: exploring; research.handed_back: exploring; enough: open_ticket |
+| fuel | you | set: exploring |
+| exploring | you | enough: exploring/researchers; research: exploring/research |
+| exploring/researchers | await | done: exploring/notes; handed_back: exploring/researchers |
+| exploring/notes | you | done: open_ticket |
+| exploring/research | researcher | spawned: exploring |
 | open_ticket | you | done: discussing |
-| discussing | you | research.spawned: discussing; research.handed_back: discussing; enough: update_ticket |
+| discussing | you | discuss: discuss; enough: discussing/researchers; research: discussing/research |
+| discussing/researchers | await | done: discussing/notes; handed_back: discussing/researchers |
+| discussing/notes | you | done: update_ticket |
+| discussing/research | researcher | spawned: discussing |
+| discuss | you | asked: discussing |
 | update_ticket | you | done: confirm_design |
 | confirm_design | you | adjusted: discussing; confirmed: finalize_ticket |
 | finalize_ticket | you | done: end |

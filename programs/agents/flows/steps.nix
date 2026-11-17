@@ -71,7 +71,7 @@ let
       exit = null;
       outcomes = [ "asked" ];
       runner = "inline";
-      task = "Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.";
+      task = "Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Once this round's are answered, `discuss.asked` takes you back to the discussion. There `discussing.research` spawns a researcher for any fact an answer opens, and `discussing.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.";
       tools = [
         "read"
         "web"
@@ -238,7 +238,7 @@ in
       exit = null;
       outcomes = [ "asked" ];
       runner = "inline";
-      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.";
+      task = "Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.";
       # `skill` invokes grilling, which the engineer does not preload; `web`
       # reads a link or doc an answer points to.
       tools = [

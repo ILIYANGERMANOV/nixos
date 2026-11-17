@@ -23,7 +23,7 @@ RUN one option below
   Rounds: 0 of 9 used, 9 left
   task t1: not started, tries 0
   task t2: not started, tries 0
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
 
 == gather/researchers
@@ -79,7 +79,7 @@ RUN state record interview.asked
   Rounds: 0 of 9 used, 9 left
   task t1: not started, tries 0
   task t2: not started, tries 0
-Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: the `grilling` interview, one question at a time, each through `state ask`; once this round's are answered, `interview.asked` takes you back to the gather. There `gather.research` spawns a researcher for any fact an answer opens, and `gather.enough`, when nothing is open, waits for every researcher's hand-back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
 RUN state record plan.done <path>

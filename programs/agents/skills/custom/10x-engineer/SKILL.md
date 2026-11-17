@@ -61,7 +61,7 @@ Intake -> Gather -> Propose the breakdown -> user confirms
   `state show` prints them. It keeps one run per git work tree, so the run
   directory is one: every `state` command runs in `~/.10x/<run>/`. Loop:
   `state next`, do what each unindented line before the indented block says
-  (at a fan-out, one line per task that can move), record the outcome,
+  (at `engineers`, one line per task that can move), record the outcome,
   `state next` again, until `DONE`. The line table in `~/.claude/skills/engineer/SKILL.md`
   holds, but for these rows, which add to it or replace its own:
 
@@ -82,17 +82,27 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 
 | State | Run by | Arrows out |
 |---|---|---|
-| gather | you | research.spawned: gather; research.handed_back: gather; enough: plan |
-| plan | you | done: simplify_plan |
-| simplify_plan | researcher | done: confirm; skipped: confirm |
+| fuel | you | set: gather |
+| gather | you | enough: gather/researchers; interview: interview; research: gather/research |
+| gather/researchers | await | done: gather/notes; handed_back: gather/researchers |
+| gather/notes | you | done: plan |
+| gather/research | researcher | spawned: gather |
+| interview | you | asked: gather |
+| plan | you | done: skip_simplify_plan |
+| skip_simplify_plan | you | run: simplify_plan; skip: confirm |
+| simplify_plan | researcher | done: confirm |
 | confirm | you | adjusted: gather; confirmed: breakdown |
-| breakdown | you | done: engineers |
-| engineers | fan-out | done: merge; handed_back: engineers; spawned: engineers |
+| breakdown | you | done: spawn_engineers |
+| spawn_engineers | fan-out | each_done: engineers; spawned: spawn_engineers |
+| engineers | await | done: merge; handed_back: engineers |
 | merge | you | done: end; next_round: gather |
 
-`engineers` stays while children run. `state next` records `engineers.done`
-once every task is settled: its child finished, or it is in review, merged,
-kept or parked.
+`spawn_engineers` passes at once: it forks the group, one engineer per task.
+You spawn each at `engineers`, the group's await, once its task's
+dependencies merged, as `state next` says. `engineers` stays while children
+run and goes on to `merge` by itself, with no record, on the event that
+settles the last task: its child finished, or it is in review, merged, kept
+or parked. `merge` gets the PRs in the breakdown's task order.
 
 ## Steps
 
@@ -122,8 +132,10 @@ per group, background as the SPAWN line says, given each repo's clone path, with
 `/tmp/<unique-dir>/`, as many as your Fuel row's Researchers. Its prompt:
 `## Callers` in `~/.claude/skills/researcher/SKILL.md`, that section only.
 As the engineer's, the gather is a choice of research and questions, in any
-order; the hooks record each spawn and hand-back, and `gather.enough` waits
-for every researcher.
+order, one pick each: `gather.research`, `gather.interview` (then
+`interview.asked`), `gather.enough`. The hooks record each spawn and
+hand-back; `gather.enough` waits at `gather/researchers` for every
+researcher, then `gather/notes` merges their hand-backs.
 Check that each repo's CI runs on PRs to `epic/*` before planning an epic
 there; if it does not, say so in the breakdown.
 
