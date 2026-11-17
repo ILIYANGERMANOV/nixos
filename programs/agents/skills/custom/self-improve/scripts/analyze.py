@@ -2,8 +2,8 @@
 """Measure where Claude Code sessions spend tokens and wall time, what the
 quality loop bought for them, and how agents talk to each other.
 
-Reads the transcripts under ~/.claude/projects and the `state` event logs of
-engineer and 10x runs, and prints a compact markdown report for an agent to
+Reads the transcripts under ~/.claude/projects and the `state` kernel's run
+store of engineer and 10x runs, and prints a compact markdown report for an agent to
 read. Read-only, and offline unless `--gh` asks `gh pr view` for each linked
 PR's changed lines. Standard library only.
 
@@ -20,15 +20,18 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
+import sqlite3
 import statistics
 import subprocess
 from collections import Counter, defaultdict
+from contextlib import closing
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
 from enum import Enum
 from functools import cached_property
-from itertools import pairwise
+from itertools import groupby, pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, NewType, assert_never, cast, override
 
@@ -69,7 +72,7 @@ def main(argv: Sequence[str] | None = None, fetch: Fetch | None = None) -> None:
     args = parse_args(argv)
     sessions = load_sessions(args.root)
     window = select_window(sessions, args.since, args.project)
-    logs = load_logs(default_logs() if args.logs is None else args.logs)
+    logs = load_logs(default_store() if args.store is None else args.store)
     runs = select_logs(logs, window.since, args.project)
     sizes = (fetch or gh_pr_size) if args.gh else None
     scope = describe_window(window.since, args.project)
@@ -82,7 +85,7 @@ class Args(argparse.Namespace):
     compare: datetime | None = None
     gh: bool = False
     root: Path = Path.home() / ".claude" / "projects"
-    logs: list[Path] | None = None  # None: the logs under `default_logs`
+    store: Path | None = None  # None: the kernel's, `default_store`
 
 
 def parse_args(argv: Sequence[str] | None) -> Args:
@@ -111,7 +114,7 @@ def parse_args(argv: Sequence[str] | None) -> Args:
         type=Path,
         help=argparse.SUPPRESS,
     )
-    _ = parser.add_argument("--logs", type=Path, nargs="*", help=argparse.SUPPRESS)
+    _ = parser.add_argument("--store", type=Path, help=argparse.SUPPRESS)
     return parser.parse_args(argv, namespace=Args())
 
 
@@ -2970,22 +2973,36 @@ def state_ctx_row(name: str, outcomes: list[Outcome]) -> list[str]:
 
 # --- State event logs --------------------------------------------------------
 #
-# Each engineer or 10x run appends its steps to `<notes>/events.jsonl`, one JSON
-# object per line, version 4 (programs/agents/kernel/src/State/Run/Codec.hs). A 10x
-# re-asks a child's question in its own log under the child's qid, so a question
-# counts once, in the log of the run whose qid it bears.
+# Each engineer or 10x run appends its steps to the kernel's SQLite run store
+# (programs/agents/kernel/src/Effects/Store.hs): one `events` row per step, its
+# `json` one envelope of version 4 (programs/agents/kernel/src/State/Run/Codec.hs).
+# A 10x re-asks a child's question in its own log under the child's qid, so a
+# question counts once, in the log of the run whose qid it bears.
 
 LOG_VERSION = 4  # the version `read_log` matches on
 REPLAN = "replan"  # the stop reason that ends a run for a new plan
 STUCK = "Stuck"  # the question kind the stuck guard asks
 
 
-def default_logs() -> list[Path]:
-    """Where the engineer and 10x skills keep a run's notes."""
-    # The engineer skill's fixed path, not a temporary file: TMPDIR does not move it.
-    engineers = Path("/tmp").glob("engineer-*/events.jsonl")  # noqa: S108
-    tenx = (Path.home() / ".10x").glob("*/events.jsonl")
-    return sorted([*engineers, *tenx])
+def default_store() -> Path | None:
+    """The kernel's run store, as `runStore` in State/Protocol/Binding.hs resolves it:
+    an absolute XDG_STATE_HOME, else HOME/.local/state. None: neither is absolute."""
+    match (
+        absolute(os.environ.get("XDG_STATE_HOME")),
+        absolute(os.environ.get("HOME")),
+    ):
+        case (Path() as state, _):
+            base = state
+        case (None, Path() as home):
+            base = home / ".local" / "state"
+        case (None, None):
+            return None
+    return base / "state" / "kernel.db"
+
+
+def absolute(value: str | None) -> Path | None:
+    """`value` as a path, None when unset, empty or relative, as the XDG spec reads it."""
+    return Path(value) if value and Path(value).is_absolute() else None
 
 
 @dataclass(frozen=True)
@@ -3019,15 +3036,28 @@ class StateLogs:
     older: int  # logs of another version or with an unreadable start, not read
 
 
-def load_logs(paths: Iterable[Path]) -> StateLogs:
-    loaded = [read_log(path) for path in paths]
+def load_logs(store: Path | None) -> StateLogs:
+    """The runs `store` holds; none when there is no store yet."""
+    if store is None or not store.exists():
+        return StateLogs([], 0)
+    loaded = [read_log(lines) for lines in read_store(store)]
     runs = [log for log in loaded if log is not None]
     return StateLogs(runs, len(loaded) - len(runs))
 
 
-def read_log(path: Path) -> RunLog | None:
-    """The run `path` logs, None when its first line is not a `LOG_VERSION` start."""
-    match list(read_jsonl(path)):
+def read_store(store: Path) -> list[list[dict[str, Json]]]:
+    """Each run's events in order, read-only so the kernel's writes stay its own."""
+    with closing(sqlite3.connect(f"{store.as_uri()}?mode=ro", uri=True)) as db:
+        rows = db.execute("SELECT run, json FROM events ORDER BY run, seq").fetchall()
+    return [
+        [event for _, text in run if isinstance(event := parse_json(text), dict)]
+        for _, run in groupby(cast("list[tuple[str, str]]", rows), key=lambda r: r[0])
+    ]
+
+
+def read_log(lines: list[dict[str, Json]]) -> RunLog | None:
+    """The run `lines` log, None when the first is not a `LOG_VERSION` start."""
+    match lines:
         case [
             {"v": v, "type": "started", "run": str(run), "ts": str(ts)} as first,
             *rest,

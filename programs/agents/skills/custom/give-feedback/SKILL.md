@@ -122,10 +122,17 @@ No `refactor` per round: `/final-review` covers the whole PR.
   needed, so `/final-review` goes deep there.
 - If the rest of the description no longer matches, rewrite it with the
   `pr-description` skill, which keeps its shape and budget.
-- When a 10x run tracks this PR (`rg -l <PR URL> ~/.10x/` finds its notes), run
-  `state record held <task> <PR URL>` in that run's directory, `<task>` the
-  one its `state show` lists with this PR: the push voided the approval. Its
-  next wake reads it.
+- When a 10x run tracks this PR, run `state record held <task> <PR URL>` in
+  its notes directory, which this read-only query of the run store prints:
+
+  ```bash
+  sqlite3 -readonly "${XDG_STATE_HOME:-$HOME/.local/state}/state/kernel.db" \
+    "SELECT DISTINCT r.notes FROM runs r JOIN events e ON e.run = r.id
+     WHERE r.flow = '10x' AND instr(e.json, '<PR URL>') > 0"
+  ```
+
+  `<task>` is the one its `state show` lists with this PR: the push voided
+  the approval. Its next wake reads it.
 - Review the round: write its bullets, agreed changes and done-whens to a
   requirements file under `/tmp/<unique-dir>/`, then a fresh
   `subagent_type: review-lead` agent invokes `pragmatic-review` with

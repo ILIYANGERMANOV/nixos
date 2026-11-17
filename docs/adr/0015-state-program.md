@@ -42,6 +42,7 @@ mechanics, and not for enforcement or for token savings on prose.
   one object per line, append-only, parsed strictly (ADR 0014). JSONL over
   SQLite: stdlib, readable on a phone, diffs in git, one writer and about 50
   events per run, and the self-improve analyzer already parses JSONL.
+  Superseded by the kernel's SQLite run store (#466).
 - **The program is the source of the table; the prose holds pasted copies a
   test guards.** `state render` prints the skill's `## States` block and the
   engineer's rows of the Quality table; `test_flow.py` fails when a committed
@@ -166,7 +167,7 @@ state help
   the table row by row, and the prose guard (`test_flow.py`); `python-tests`
   runs them.
 - The self-improve analyzer can replay `events.jsonl` for the per-PR metrics
-  in #312.
+  in #312. Since #466 it reads the SQLite run store instead.
 - After a few runs, self-improve measures the before and after: record
   completeness, brief characters written by the lead, and the adherence
   counts above.
