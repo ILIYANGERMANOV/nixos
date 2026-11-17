@@ -98,3 +98,10 @@ registered() {
 
   called "systemctl reboot"
 }
+
+@test "factory-maintenance poweroff: records the run and powers off" {
+  factory-maintenance poweroff
+
+  called "systemctl poweroff"
+  [ "$(jq -r '.op + " " + .state' "$work/ops/last.json")" = "poweroff success" ] || fail "the run was not recorded"
+}

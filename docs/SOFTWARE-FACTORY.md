@@ -604,7 +604,7 @@ Starting work, running the box, adding repositories, status and logs.
   | `/stats` | RAM, disk, CPU, agents' memory, temperatures, fan, battery: each normal, warning or critical, then a health verdict |
   | `/free-disk` | plan, confirm, then prune pushed worktrees, caches and garbage |
   | `/deploy [rollback]` | Part 7 |
-  | `/reboot`, `/gc` | root operations through fixed units |
+  | `/reboot`, `/poweroff`, `/gc` | root operations through fixed units |
 
   The skills drive `factory-ctl`, which works the same in a shell **[box]**
   (`factory-ctl help`). Anything that would end live sessions or touches
