@@ -149,6 +149,7 @@ test-suite state-test
     State.Flow.TenXSpec
     State.Flow.Triage
     State.Golden
+    State.Protocol.AdviceGoldenSpec
     State.Protocol.AdviceSpec
     State.Protocol.BindingSpec
     State.Protocol.HandbackSpec

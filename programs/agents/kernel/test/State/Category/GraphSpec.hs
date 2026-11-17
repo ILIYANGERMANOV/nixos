@@ -15,6 +15,7 @@ import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, Ty (..))
+import State.Run.RunGen qualified as RunGen
 import State.Step.Build (Sing (..))
 import State.Step.Gather (Sing (..))
 import State.Step.Ship (Sing (..))
@@ -110,6 +111,9 @@ spec = describe "State.Category.Graph" $ do
 
         it "names its hub and its picks inside a scope" $
             outOfStart <$> graph (Scope "x" threeWay) `shouldBe` Right (picks (scopePath "x"))
+
+        it "is in neither the engineer nor the 10x flow: they run as before the route" $
+            map (.routes) [RunGen.g, RunGen.tenXGraph] `shouldBe` [Set.empty, Set.empty]
 
         it "refuses one branch name twice: a pick would not say which" $
             graph (Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "small", Do Refactor :> Do Describe)]))
