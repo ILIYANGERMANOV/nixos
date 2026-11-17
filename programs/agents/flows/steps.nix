@@ -157,6 +157,12 @@ let
         // step;
     in
     {
+      fuel = chiefStep {
+        dom = "Ctx";
+        cod = "Ctx";
+        outcomes = [ "set" ];
+        task = "Fuel: name the request's target first when it names one, `target pr <url>`, `branch <name>` or `ticket <url>`; then set its Fuel from what it asks, as the Fuel table says.";
+      };
       open_plan = chiefStep {
         dom = "Ctx";
         cod = "Plan";

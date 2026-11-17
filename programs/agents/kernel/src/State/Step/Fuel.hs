@@ -14,7 +14,7 @@ module State.Step.Fuel (
     skipOutcomes,
 ) where
 
-import Data.Aeson ((.=))
+import Data.Aeson ((.:), (.=))
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable, eqT)
 import State.Category.Flow (Name, nameText)
@@ -49,11 +49,8 @@ instance StepSet FuelStep where
         -- \| The block runs.
         Running :: Sing (Skip a) -> Outcome (Skip a) ('Took "run")
 
-    {- None yet: no flow draws 'Fuel' until the hub rules move into steps
-    (#457), and a listed step needs its row in @flows/steps.nix@. Each
-    optional block names its own skip.
-    -}
-    layerSteps = []
+    -- 'Fuel' has its row in @flows/steps.nix@; each optional block names its own skip.
+    layerSteps = [SomeStep Fuel]
 
     stepName = \case
         Fuel -> StateName "fuel"
@@ -83,10 +80,8 @@ instance StepSet FuelStep where
         Skipping _ -> mempty
         Running _ -> mempty
 
-    {- None yet, as no step is listed ('layerSteps'). A skip's events are its
-    block's, read where the flow is known ('skipOutcomes').
-    -}
-    decoders = []
+    -- A skip's events are its block's, read where the flow is known ('skipOutcomes').
+    decoders = [Decoder Fuel (\o -> LevelSet <$> (o .: "level" >>= maybe (fail "no such level") pure . Level.parseFuel))]
 
 {- | A skip's two outcomes, which a run may record at it: its block names
 the skip, so the layer has no reader of them ('decoders'). 'Fuel''s carries

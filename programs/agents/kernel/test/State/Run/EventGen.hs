@@ -54,7 +54,7 @@ import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), discussing, exploring, gathering, routes)
+import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Fuel (Outcome (..))
 import State.Step.Gather (Outcome (..))
@@ -247,7 +247,6 @@ templates =
     , outcome NextDone
     , outcome NextRequest
     ]
-        <> [outcome (Picked route branch) | (route, branches) <- routes, branch <- branches]
         <> concat
             [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
               , outcome (FanDone fan)

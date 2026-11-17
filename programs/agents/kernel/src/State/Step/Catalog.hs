@@ -35,7 +35,7 @@ import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutc
 import State.Category.Step qualified as Step
 import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
-import State.Step.Choice (ChoiceStep, Sing (Hub, Pick), choices, routes)
+import State.Step.Choice (ChoiceStep, Sing (Hub), choices)
 import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
 import State.Step.Fuel (FuelStep, Sing (Skip), skipOutcomes)
 import State.Step.Gather (GatherStep)
@@ -169,16 +169,14 @@ allSteps = concatMap stepsOf layers
     stepsOf (SomeLayer l) = map (AnyStep l) layerSteps
 
 {- | Every step with outcomes: those 'allSteps' lists, each fan-out's own
-state, which 'State.Category.Flow.Par' draws, each choice's, which
-'State.Category.Flow.Choice' draws, and each route's, per branch, which
-'State.Category.Flow.Route' draws.
+state, which 'State.Category.Flow.Par' draws, and each choice's, which
+'State.Category.Flow.Choice' draws.
 -}
 outcomeSteps :: [AnyStep]
 outcomeSteps =
     allSteps
         <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts]
         <> [AnyStep ChoiceLayer (SomeStep (Hub choice)) | choice <- choices]
-        <> [AnyStep ChoiceLayer (SomeStep (Pick route branch)) | (route, branches) <- routes, branch <- branches]
 
 {- | The pick and skip steps of a term: a flow names its own, with its
 labels, so no layer lists them. In the term's order; a fork's child is

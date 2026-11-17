@@ -20,16 +20,18 @@ module State.Flow.Library (
     ship,
     simplifyPlan,
     blocks,
+    Blocks,
     branch,
 ) where
 
-import Data.List.NonEmpty (NonEmpty (..))
+import Data.Proxy (Proxy (..))
+import Data.Text qualified as Text
 import Data.Typeable (Typeable)
-import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group, Name, nameText, spawn)
+import GHC.TypeLits (KnownSymbol, symbolVal)
+import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group, Label (..), Name (..), spawn)
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Step (OutcomeName (..))
 import State.Category.Ty (KnownTy, NotSum, Summands, TyOf (..))
 import State.Step.Build (Sing (..))
 import State.Step.Choice (discussing, exploring, gathering)
@@ -170,26 +172,38 @@ without the user skips it ('State.Run.Fold.planSettled').
 simplifyPlan :: Name
 simplifyPlan = "simplify_plan"
 
-{- | Each block a request may run alone, as a branch of a route: a block
+{- | Each block a request may run alone, as a branch of a 'choice': a block
 that starts past 'Ctx' opens its input first, from the issue, branch or PR
-the request names. Each sits in a scope of its branch's name, so its states
+the request names. Each sits in a scope of its branch's label, so its states
 never meet a whole flow's, and ends in 'Result'.
 -}
-blocks :: NonEmpty (OutcomeName, Flow 'Ctx 'Nothing 'Result)
+blocks :: Branches Blocks 'Nothing 'Result
 blocks =
-    branch "researching" research
-        :| [ branch "gathering" gather
-           , branch "agreeing" agree
-           , branch "proposing" (Loop "proposals" propose)
-           , branch "building" (Do OpenPlan :> build)
-           , branch "reviewing" (Do OpenBranch :> reviewed)
-           , branch "describing" (Do OpenBranch :> describe)
-           , branch "shipping" (Do OpenPr :> ship)
-           ]
+    branch @"researching" research
+        :& branch @"gathering" gather
+        :& branch @"agreeing" agree
+        :& branch @"proposing" (Loop "proposals" propose)
+        :& branch @"building" (Do OpenPlan :> build)
+        :& branch @"reviewing" (Do OpenBranch :> reviewed)
+        :& branch @"describing" (Do OpenBranch :> describe)
+        :& branch @"shipping" (Do OpenPr :> ship)
+        :& End
 
--- | A route's branch: the flow in a scope of the branch's name, its out retyped as 'Result'.
-branch :: (KnownTy o, NotSum o) => Name -> Flow 'Ctx 'Nothing o -> (OutcomeName, Flow 'Ctx 'Nothing 'Result)
-branch name flow = (OutcomeName (nameText name), Scope name flow :> Into)
+-- | The blocks' labels, each taking the request's context.
+type Blocks =
+    '[ '("researching", 'Ctx)
+     , '("gathering", 'Ctx)
+     , '("agreeing", 'Ctx)
+     , '("proposing", 'Ctx)
+     , '("building", 'Ctx)
+     , '("reviewing", 'Ctx)
+     , '("describing", 'Ctx)
+     , '("shipping", 'Ctx)
+     ]
+
+-- | A choice's branch: the flow in a scope of the branch's label, its out retyped as 'Result'.
+branch :: forall l o. (KnownSymbol l, KnownTy o, NotSum o) => Flow 'Ctx 'Nothing o -> Branch l 'Ctx 'Nothing 'Result
+branch flow = Label :-> Scope (Name (Text.pack (symbolVal (Proxy @l)))) flow :> Into
 
 -- | Low may skip the step of a trivial task; Balanced and Max run it.
 skippableAtLow :: PerFuel SkipWhen

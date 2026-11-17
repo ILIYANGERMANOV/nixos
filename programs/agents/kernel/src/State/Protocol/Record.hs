@@ -43,6 +43,7 @@ import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (Outcome (..))
+import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Choice qualified as Choice
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
 import State.Step.Gather (Outcome (..))
@@ -151,15 +152,17 @@ recordables =
     , nothing ResearchHandedBack
     ]
         <> [nothing (Enough choice) | choice <- Choice.choices]
-        <> [ -- Named at a route's hub, before its branch.
+        <> [ -- Named at a request's Fuel, before its level.
              stay "target" "<pr <url>|branch <name>|ticket <url>>" $ \case
                 ["pr", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Targeted . OnPr) (parsePrUrl pr)
                 ["branch", name] -> Right (Targeted (OnBranch (Branch name)))
                 ["ticket", link] -> Right (Targeted (OnTicket (Url link)))
                 _ -> Left "pr and its url, branch and its name, or ticket and its url"
            ]
-        <> [nothing (Picked route branch) | (route, branches) <- Choice.routes, branch <- branches]
-        <> [ extend
+        <> [ outcome (builtEvent Fuel LevelSet) ("<" <> choices fuelName <> ">") [] $ \a -> case a.positional of
+                [raw] -> Plain . tookIn a.scope . LevelSet <$> known "fuel" parseFuel raw
+                _ -> Left "one level"
+           , extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
                 -- Read as a file only to refuse a plan not written yet.
                 [path] -> Right (FromFile (Text.unpack path) (const (Right (tookIn a.scope (PlanDone (Text.unpack path))))))

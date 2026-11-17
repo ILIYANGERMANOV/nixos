@@ -5,7 +5,7 @@
 step of this layer for its one outcome, @enough@, never one
 'State.Category.Flow.Do' draws. Its actions' events are their own steps'.
 A 'State.Category.Flow.Route''s hub is a step of this layer per branch,
-each for its one outcome, the branch.
+each for its one outcome, the branch; no flow draws a route, so no log reads one.
 -}
 module State.Step.Choice (
     ChoiceStep,
@@ -15,7 +15,6 @@ module State.Step.Choice (
     exploring,
     discussing,
     choices,
-    routes,
     choiceNamed,
     nodeChoice,
 ) where
@@ -80,9 +79,7 @@ instance StepSet ChoiceStep where
         Enough _ -> mempty
         Picked _ _ -> mempty
 
-    decoders =
-        [Decoder (Hub name) (const (pure (Enough name))) | name <- choices]
-            <> [Decoder (Pick route branch) (const (pure (Picked route branch))) | (route, branches) <- routes, branch <- branches]
+    decoders = [Decoder (Hub name) (const (pure (Enough name))) | name <- choices]
 
 deriving stock instance Show (Sing (s :: ChoiceStep))
 deriving stock instance Show (Outcome (s :: ChoiceStep) l)
@@ -105,16 +102,6 @@ discussing = "discussing"
 -- | Every choice a run may hold, so the log's decoders know each one's @enough@.
 choices :: [Name]
 choices = [gathering, exploring, discussing]
-
-{- | Every route a run may hold, with its branches, so the log's decoders
-know each pick: the chief's request route and its block route. A test holds
-it equal to the routes the flows draw.
--}
-routes :: [(Name, [OutcomeName])]
-routes =
-    [ ("route", map OutcomeName ["architect", "engineer", "10x", "blocks", "discussion", "other"])
-    , ("block", map OutcomeName ["researching", "gathering", "agreeing", "proposing", "building", "reviewing", "describing", "shipping"])
-    ]
 
 -- | The choice whose state this is.
 choiceNamed :: StateName -> Maybe Name
