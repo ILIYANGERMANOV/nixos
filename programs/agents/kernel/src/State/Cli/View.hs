@@ -109,9 +109,9 @@ brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
 brief steps state agent task = case (leads agent, task) of
     (Just flow, Nothing) -> Right (initLine state flow "<dir>" "<id>")
     (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
-    (Nothing, _) -> Right $ case [step | step@(name, _) <- runsOf steps agent, At place <- [state.at], place.name == name] of
+    (Nothing, _) -> Right $ case [text | At place <- [state.at], Right text <- [briefSection steps agent place.name]] of
         [] -> briefOf steps agent
-        here -> sections here <> rulesOf agent
+        here : _ -> here
 
 {- | A child engineer's brief head: its task's fields, then the line that
 starts its run under this one, on the task's flow: in the task's worktree and
