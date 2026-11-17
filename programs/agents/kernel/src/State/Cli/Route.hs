@@ -21,6 +21,7 @@ module State.Cli.Route (
     leadOf,
     gate,
     readOnly,
+    writesNoCode,
 ) where
 
 import Control.Monad (guard)
@@ -147,11 +148,7 @@ heredoc into it included. Other flows write, the chief where no scope runs
 the architect's.
 -}
 readOnly :: FlowName -> Gate -> Maybe Text
-readOnly flow call = case flow of
-    ArchitectFlow -> denial <$> codeWrite
-    EngineerFlow -> Nothing
-    TenXFlow -> Nothing
-    ChiefFlow -> Nothing
+readOnly flow call = denial <$> (guard (writesNoCode flow) *> codeWrite)
   where
     codeWrite = case call of
         Spawns -> Nothing
@@ -167,6 +164,14 @@ readOnly flow call = case flow of
                 , why = "an architect run's design goes into its ticket"
                 , fix = "write the design into the ticket: a quoted heredoc (<<'EOF') into `gh issue edit <number> --body-file -`"
                 }
+
+-- | Whether a flow changes no code, so 'readOnly' denies its writes.
+writesNoCode :: FlowName -> Bool
+writesNoCode = \case
+    ArchitectFlow -> True
+    EngineerFlow -> False
+    TenXFlow -> False
+    ChiefFlow -> False
 
 -- | A write a run must see, as a denial names it; 'Nothing' for any other call.
 writeOf :: Gate -> Maybe Text

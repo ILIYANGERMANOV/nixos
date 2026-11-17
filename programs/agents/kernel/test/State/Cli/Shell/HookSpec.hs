@@ -415,6 +415,30 @@ spec = describe "state-hook over the doubles" $ do
 
                 map (.out) said `shouldBe` map (const []) (editCall : map stateCall writing)
 
+            it "denies a session bound to a chief run in its discussion or architect branch its edit, commit, push and PR, letting a spawn and a heredoc through" $ \_ ->
+                for_ ["route.discussion", "route.architect"] $ \branch -> do
+                    world <- newWorld
+                    run <- startedIn world ["--flow", "chief"]
+                    _ <- succeeded =<< state world ["record", branch]
+                    putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
+
+                    let denied = editCall : map stateCall writing
+                        allowed = spawned "researcher" : map stateCall issuing
+                    said <- traverse (fmap denies . hook world "route") (denied <> allowed)
+
+                    said `shouldBe` map (const True) denied <> map (const False) allowed
+
+            it "lets a session bound to a chief run edit, commit and push at its hub and in its engineer, 10x, blocks or other branch" $ \_ ->
+                for_ [[], ["route.engineer"], ["route.10x"], ["route.blocks"], ["route.other"]] $ \picks -> do
+                    world <- newWorld
+                    run <- startedIn world ["--flow", "chief"]
+                    for_ picks $ \pick -> succeeded =<< state world ["record", pick]
+                    putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
+
+                    said <- traverse (hook world "route") (editCall : map stateCall writing)
+
+                    map (.out) said `shouldBe` map (const []) (editCall : map stateCall writing)
+
             it "denies a bound session's state call at another run, naming its own" $ \world -> do
                 run <- startedRun world
                 putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /other\n")

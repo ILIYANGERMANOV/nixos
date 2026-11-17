@@ -42,7 +42,7 @@ import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
-import State.Category.Graph (Node (..), OpenGraph, graph)
+import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
 import State.Category.Step (StateName, stateNameText)
 import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
@@ -175,15 +175,28 @@ jobReply steps name input call job = case job of
 {- | Why the bound run denies the call where it is: by the flow running
 there. Read under the log's lock, appending nothing; no git is read, as a
 route runs before every edit. The run is replayed, as a scope inside it may
-run another flow. A run that is gone or does not replay denies nothing: its
-other hooks tell what is wrong with it.
+run another flow, unless its first line starts a flow that writes code in
+every scope: an engineer's or a 10x's route reads one line, however long its
+log. A run that is gone or does not replay denies nothing: its other hooks
+tell what is wrong with it.
 -}
 readOnlyAt :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => FilePath -> Gate -> Eff es (Maybe Text)
 readOnlyAt notes gate =
-    onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) (logOf notes) <&> \case
-        Ran (Right denial) -> denial
-        Ran (Left _) -> Nothing
-        NoRun -> Nothing
+    Log.firstLine path >>= \first -> case startedFlow =<< first of
+        Just flow | mayDeny flow -> denialAt
+        _ -> pure Nothing
+  where
+    path = logOf notes
+    startedFlow line = either (const Nothing) (fmap (.flow) . Fold.runStart . (.event)) (decodeLine line)
+    denialAt =
+        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) path <&> \case
+            Ran (Right denial) -> denial
+            Ran (Left _) -> Nothing
+            NoRun -> Nothing
+
+-- | Whether a run of this flow may deny a write: some state of its graph runs, by its scopes, a flow that writes no code.
+mayDeny :: FlowName -> Bool
+mayDeny flow = any (Route.writesNoCode . Role.flowAt flow . placeName . fst) (Map.keys (graphOf flow).edges)
 
 -- | Marks the caller a lead of the skill it began; a disk error is told, the skill begins regardless.
 markLead :: (Shell es) => Call -> LeadSkill -> Eff es Text
@@ -419,7 +432,11 @@ execute :: (Shell es) => Steps -> Command -> Eff es (Either Failure Text)
 execute steps = \case
     Help -> pure (Right (help steps))
     Render block flow -> pure (Right (rendered steps block flow))
-    Init args -> inWorktree (`initRun` args)
+    Init args ->
+        inWorktree $ \gd ->
+            scopeRuns gd args >>= \case
+                True -> execute steps Next
+                False -> initRun gd args
     Move target -> inWorktree (`moveRun` target)
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
@@ -851,6 +868,25 @@ initRun gd args = do
         ByUser _ -> Set.fromList [minBound .. maxBound]
         ByRole {} -> Set.empty
     initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
+
+{- | Whether the user's init is the flow a scope of the worktree's unfinished
+run runs where it is, as when the chief, inside its @engineer@ branch, loads
+the engineer's skill: that init prints the run's next step instead, so the
+branch stays inline and the session bound to the run. A child's init, or one
+naming the run's own flow or a flow no scope there runs, starts as ever.
+-}
+scopeRuns :: (Shell es) => FilePath -> InitArgs -> Eff es Bool
+scopeRuns gd args = case args.origin of
+    FromParent _ -> pure False
+    FromUser _ ->
+        readPointer gd >>= \case
+            Nothing -> pure False
+            Just held -> fromRight False <$> onLog (\_ run -> ([], Right (inScope run.state))) (logOf held)
+  where
+    wanted = fromMaybe defaultFlow args.flow
+    inScope state = case liveness state of
+        Live -> wanted /= state.start.flow && Role.flowAt state.start.flow (askedAt state) == wanted
+        Ended _ -> False
 
 {- | @state move@: the worktree's run moves to the worktree the directory is
 in, as a run started in the wrong worktree must. Its notes stay, so the
