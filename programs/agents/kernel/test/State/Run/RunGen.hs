@@ -20,6 +20,8 @@ module State.Run.RunGen (
     sha,
     commit,
     happyPath,
+    skipOf,
+    runOf,
     runAt,
     runUnder,
     loadSteps,
@@ -32,6 +34,7 @@ module State.Run.RunGen (
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -47,10 +50,11 @@ import State.Category.Flow (Flow (..), Name, ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Graph qualified as Graph
-import State.Category.Step (EventName (..), stateNameText)
+import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Architect (architect)
 import State.Flow.Chief (chief)
+import State.Flow.Drawn (drawnOutcomes)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
@@ -62,6 +66,7 @@ import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
+import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (Outcome (..), discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
@@ -194,9 +199,20 @@ commit = Commit sha Set.empty
 
 happyPath :: [AnyOutcome]
 happyPath =
-    [outcome ResearchSpawned, outcome ResearchHandedBack, outcome (Enough gathering), outcome (PlanDone "plan.md"), outcome SimplifyPlanDone, outcome ConfirmConfirmed]
-        <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), outcome (RefactorDone sha), outcome (ReviewClean sha)]
+    [outcome ResearchSpawned, outcome ResearchHandedBack, outcome (Enough gathering), outcome (PlanDone "plan.md"), runOf "simplify_plan", outcome SimplifyPlanDone, outcome ConfirmConfirmed]
+        <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), runOf "refactor", outcome (RefactorDone sha), outcome (ReviewClean sha)]
         <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
+
+-- | The outcome that skips the flows' optional block of this name.
+skipOf :: Text -> AnyOutcome
+skipOf = skipStep "skip"
+
+-- | The outcome that runs the flows' optional block of this name.
+runOf :: Text -> AnyOutcome
+runOf = skipStep "run"
+
+skipStep :: Text -> Text -> AnyOutcome
+skipStep way block = fromMaybe (error ("no optional block " <> Text.unpack block)) (find ((== EventName (StateName ("skip_" <> block)) (OutcomeName way)) . Catalog.outcomeEvent) drawnOutcomes)
 
 {- | Any Fuel, then up to 300 tries at an event on an edge out of where the
 run is, keeping those the fold accepts. Edges into a loop that leave none

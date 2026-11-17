@@ -5,7 +5,9 @@ import Data.Text qualified as Text
 import State.Category.FlowGen (threeWayGraph)
 import State.Category.Graph (places)
 import State.Cli.Render
+import State.Flow.Engineer (engineer)
 import State.Run.RunGen (g, loadSteps)
+import State.Step.Catalog (termSkips)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldContain)
 
 spec :: Spec
@@ -29,7 +31,7 @@ spec = describe "State.Cli.Render" $ do
                 `shouldBe` ["| route | you | big: refactor; other: describe; small: describe |"]
 
     it "renders the Fuel rows from the Fuel table: the meters by state, a choice's in the order it declares them, then Low's skips in the flow's order" $
-        fuel g
+        fuel (termSkips engineer) g
             `shouldBe` Text.unlines
                 [ "| Researchers | 1 for all, 8 calls, notes past the hand-back limit | up to 5, 15 calls, notes | one per group, 30 calls, notes, top 5 facts re-checked |"
                 , "| Interview questions | up to 15 | up to 30 | up to 50 |"

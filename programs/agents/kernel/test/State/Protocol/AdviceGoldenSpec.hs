@@ -36,7 +36,7 @@ spec = describe "the advice at every state" $ do
 everyState :: Steps -> OpenGraph -> RunState -> Text
 everyState steps flowGraph run =
     Text.unlines
-        [ "== " <> stateNameText (placeName place) <> "\n" <> printed flowGraph moved (advise steps flowGraph noFacts moved)
+        [ "== " <> stateNameText (placeName place) <> "\n" <> printed moved (advise steps flowGraph noFacts moved)
         | place <- Set.toList (places flowGraph)
         , let moved = run {at = At place}
         ]
@@ -46,11 +46,11 @@ everyState steps flowGraph run =
 {- | The advice as @state next@ prints it, less what only a live run adds: the
 events it records, its refusals and its unsynced PR notes.
 -}
-printed :: OpenGraph -> RunState -> Advice -> Text
-printed flowGraph run advice =
+printed :: RunState -> Advice -> Text
+printed run advice =
     Text.unlines
         ( deliver run.start advice.action
             : deliverMore run.start advice
-                <> ["  " <> line | line <- explained run.start advice <> advice.facts <> skippable flowGraph run]
+                <> ["  " <> line | line <- explained run.start advice <> advice.facts <> skippable run]
                 <> [deliverPrompt run.start advice | not (Text.null advice.prompt)]
         )

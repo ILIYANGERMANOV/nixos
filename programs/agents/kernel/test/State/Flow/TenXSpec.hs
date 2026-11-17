@@ -38,7 +38,6 @@ parBodies = \case
     Id -> []
     Into -> []
     Loop _ body -> parBodies body
-    Opt _ _ body -> parBodies body
     Par fan body -> (fan, show body) : parBodies body
     Case branches -> concat (branchesWith parBodies branches)
     Exit -> []

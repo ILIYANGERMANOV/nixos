@@ -505,9 +505,12 @@ in
     };
     ready = {
       dom = "PR";
-      cod = "PR";
+      cod = "(done: PR + skipped: PR)";
       exit = null;
-      outcomes = [ "done" ];
+      outcomes = [
+        "done"
+        "skipped"
+      ];
       runner = "inline";
       task = "Ship: the skill's gates, then mark the PR ready.";
       tools = [ "shell" ];

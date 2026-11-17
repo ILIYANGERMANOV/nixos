@@ -23,7 +23,7 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph, ticketOpened, ticketUrl)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, tenXAt, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Choice (Outcome (..))
@@ -49,7 +49,7 @@ spec = describe "State.Protocol.Advice" $ do
         one <- forAll genStart
         other <- forAll genStart
         let under from = runUnder start {principal = confirming from.principal, interface = from.interface} events
-            decided state = (due g facts state, advise steps g facts state)
+            decided state = (due facts state, advise steps g facts state)
         decided (under one) === decided (under other)
 
     describe "pullRequestOf" $ do
@@ -110,19 +110,19 @@ spec = describe "State.Protocol.Advice" $ do
         it "names no url at next after a request that recorded none" $
             (atChief [routed "other", stepTook (DirectDone "renamed a file")]).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: none recorded"
         it "settles a targeted request's plan itself: skips its simplify and confirms it" $
-            map (\n -> due chiefGraph noFacts (chiefAt (onPr : routed "engineer" : inScope "engineer" (take n happyPath)))) [4, 5]
-                `shouldBe` [Just (Took (scopePath "engineer") (outcome SimplifyPlanSkipped)), Just (Took (scopePath "engineer") (outcome ConfirmConfirmed))]
+            map (\n -> due noFacts (chiefAt (onPr : routed "engineer" : inScope "engineer" (take n happyPath)))) [4, 5]
+                `shouldBe` [Just (Took (scopePath "engineer") (skipOf "simplify_plan")), Just (Took (scopePath "engineer") (outcome ConfirmConfirmed))]
         it "leaves a targeted request's plan to the user once a Design question was asked" $
-            due chiefGraph noFacts (chiefAt (onPr : routed "engineer" : designAsked : inScope "engineer" (take 5 happyPath))) `shouldBe` Nothing
+            due noFacts (chiefAt (onPr : routed "engineer" : designAsked : inScope "engineer" (take 5 happyPath))) `shouldBe` Nothing
         it "asks the user to confirm a request's plan with no target, as before targets" $
             next noFacts (chiefAt (routed "engineer" : inScope "engineer" (take 5 happyPath))) `shouldSatisfy` \case
                 Ask Confirm _ -> True
                 _ -> False
         it "skips ready on a targeted PR, as GitHub reads it by its url" $
-            due chiefGraph withPr (chiefAt (onPr : routed "engineer" : inScope "engineer" (take 13 happyPath)))
+            due withPr (chiefAt (onPr : routed "engineer" : inScope "engineer" (take 13 happyPath)))
                 `shouldBe` Just (Took (scopePath "engineer") (outcome (ReadySkipped prUrl)))
         it "adopts a targeted ticket, opening none" $
-            due chiefGraph noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" : [Took (scopePath "architect") o | Took _ o <- take 3 ticketOpened]))
+            due noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" : [Took (scopePath "architect") o | Took _ o <- take 3 ticketOpened]))
                 `shouldBe` Just (Took (scopePath "architect") (outcome (OpenTicketDone ticketUrl)))
         it "explains each discussion question before it is asked, as the architect's discussion does" $
             (atChief [routed "discussion"]).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
@@ -231,37 +231,37 @@ spec = describe "State.Protocol.Advice" $ do
 
     describe "due" $ do
         it "records nothing at the gather's choice" $
-            due g noFacts (runAt (knobs Low)) `shouldBe` Nothing
+            due noFacts (runAt (knobs Low)) `shouldBe` Nothing
 
         it "skips the refactor at or below its changed lines" $
-            due g noFacts {changedLines = Just 100} atRefactor
-                `shouldBe` Just (stepTook (RefactorSkipped "100 changed lines, at or below 100"))
+            due noFacts {changedLines = Just 100} atRefactor
+                `shouldBe` Just (Took mempty (skipOf "refactor"))
 
-        it "runs the refactor above its changed lines, or when they are unknown" $
-            map (\changed -> due g noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Nothing, Nothing]
+        it "runs the refactor above its changed lines, and leaves it to the agent when they are unknown" $
+            map (\changed -> due noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Just (Took mempty (runOf "refactor")), Nothing]
 
         it "records the draft PR GitHub already has" $
-            due g withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
+            due withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
                 `shouldBe` Just (stepTook (DraftDone draftPr))
 
         it "takes a merged or closed PR on the branch for an old one, not the draft" $
-            [ due g withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
+            [ due withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
             | over <- [IsMerged, IsClosed]
             ]
                 `shouldBe` [Nothing, Nothing]
 
         it "records ready once GitHub says the PR is ready" $
-            due g withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
+            due withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
 
         it "asks the user to confirm a user's round's plan, as before targets" $ do
             let roundAtConfirm = runUnder userRound (knobs Balanced <> map (Took mempty) (take 5 happyPath))
-            (due g withPr roundAtConfirm, next withPr roundAtConfirm)
+            (due withPr roundAtConfirm, next withPr roundAtConfirm)
                 `shouldSatisfy` \case
                     (Nothing, Ask Confirm _) -> True
                     _ -> False
 
         it "records a user's round's PR in review as its draft, and skips ready though GitHub says it is ready" $
-            [ due g withPr {pr = Just (PullRequest draftPr IsReady)} (runUnder userRound (knobs Balanced <> map (Took mempty) (take n happyPath)))
+            [ due withPr {pr = Just (PullRequest draftPr IsReady)} (runUnder userRound (knobs Balanced <> map (Took mempty) (take n happyPath)))
             | n <- [6, 13]
             ]
                 `shouldBe` [Just (stepTook (DraftDone draftPr)), Just (stepTook (ReadySkipped prUrl))]
@@ -352,12 +352,12 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` [AwaitOn Ci "https://pr/1", AwaitOn Merge "https://pr/1"]
         it "leaves the fan-out itself once every task is settled, and not before" $ do
             let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
-            due tenXGraph noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
-            due tenXGraph noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (stepTook (FanDone engineers))
+            due noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
+            due noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (stepTook (FanDone engineers))
         it "waits on a finished task's CI, so the fan-out leaves only once it is recorded in review" $ do
             let inCi = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi prUrl)]
-            (next noFacts (tenXAt (t1 :| []) inCi), due tenXGraph noFacts (tenXAt (t1 :| []) inCi)) `shouldBe` (AwaitOn Ci "https://pr/1", Nothing)
-            due tenXGraph noFacts (tenXAt (t1 :| []) (inCi <> [TaskMoved (TaskId "t1") (InReview prUrl)])) `shouldBe` Just (stepTook (FanDone engineers))
+            (next noFacts (tenXAt (t1 :| []) inCi), due noFacts (tenXAt (t1 :| []) inCi)) `shouldBe` (AwaitOn Ci "https://pr/1", Nothing)
+            due noFacts (tenXAt (t1 :| []) (inCi <> [TaskMoved (TaskId "t1") (InReview prUrl)])) `shouldBe` Just (stepTook (FanDone engineers))
         it "advises each other task's own action beside the most urgent, one per task" $ do
             let ruled = fromChild <> [RuledOn asks.qid ruling]
                 advice = advise steps tenXGraph noFacts (tenXAt (t1 :| [t2, plainTask "t3" []]) ruled)

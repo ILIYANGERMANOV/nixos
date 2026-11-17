@@ -4,7 +4,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import State.Category.Flow (nameText, unqualify)
-import State.Category.Graph (Arrow (..), Edge (..), OpenGraph (..), placeName)
+import State.Category.Graph (OpenGraph (..), placeName)
 import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StepSet (stepName), stateNameText)
 import State.Run.RunGen (chiefGraph, flowGraph)
 import State.Step.Catalog (AnyStep (..), allSteps)
@@ -23,7 +23,7 @@ spec =
     otherNames = Set.fromList (map nameText choices <> [stateNameText (stepName s) | AnyStep _ (SomeStep s) <- allSteps] <> concatMap loopsAndSkips [minBound .. maxBound])
     loopsAndSkips flow =
         let drawn = flowGraph flow
-         in map (bare . nameText) (Map.keys drawn.loops) <> [bare (nameText skip) | Edge {arrow = Skip skip _} <- Map.elems drawn.edges]
+         in map (bare . nameText) (Map.keys drawn.loops)
     bare :: Text -> Text
     bare = snd . unqualify
     listedPicks = Set.fromList [(nameText route, branch) | (route, branches) <- routes, branch <- branches]

@@ -215,13 +215,11 @@ templates =
     , outcome (Enough discussing)
     , outcome (PlanDone "")
     , outcome SimplifyPlanDone
-    , outcome SimplifyPlanSkipped
     , outcome ConfirmConfirmed
     , outcome ConfirmAdjusted
     , outcome (DraftDone (DraftPr (Url "") (Branch "") (Branch "")))
     , outcome (ImplementDone (Commit (Sha "") Set.empty))
     , outcome (RefactorDone (Sha ""))
-    , outcome (RefactorSkipped "")
     , outcome (ReviewClean (Sha ""))
     , outcome (ReviewRows (Sha ""))
     , outcome (PickFinal (Picks Set.empty Map.empty))
@@ -231,7 +229,6 @@ templates =
     , outcome (ReReviewRows (Sha ""))
     , outcome (DescribeDone (Sha ""))
     , outcome (SimplifyPrDone (Sha ""))
-    , outcome (SimplifyPrSkipped (Sha ""))
     , outcome (AwaitCiGreen (Sha ""))
     , outcome (AwaitCiRed (Sha "") (Check "" :| []))
     , outcome (FixPrDone (Sha ""))
@@ -271,14 +268,12 @@ likeIn = \case
     PlanLayer -> \case
         PlanDone _ -> PlanDone <$> Gen.string (Range.linear 1 30) Gen.unicode
         SimplifyPlanDone -> pure SimplifyPlanDone
-        SimplifyPlanSkipped -> pure SimplifyPlanSkipped
         ConfirmConfirmed -> pure ConfirmConfirmed
         ConfirmAdjusted -> pure ConfirmAdjusted
     BuildLayer -> \case
         DraftDone _ -> DraftDone <$> (DraftPr . Url <$> genText <*> (Branch <$> genText) <*> (Branch <$> genText))
         ImplementDone _ -> ImplementDone <$> genCommit
         RefactorDone _ -> RefactorDone <$> genSha
-        RefactorSkipped _ -> RefactorSkipped <$> genText
     ReviewLayer -> \case
         ReviewClean _ -> ReviewClean <$> genSha
         ReviewRows _ -> ReviewRows <$> genSha
@@ -290,7 +285,6 @@ likeIn = \case
     ShipLayer -> \case
         DescribeDone _ -> DescribeDone <$> genSha
         SimplifyPrDone _ -> SimplifyPrDone <$> genSha
-        SimplifyPrSkipped _ -> SimplifyPrSkipped <$> genSha
         AwaitCiGreen _ -> AwaitCiGreen <$> genSha
         AwaitCiRed _ _ -> AwaitCiRed <$> genSha <*> Gen.nonEmpty (Range.linear 1 3) (Check <$> Gen.element ["lint", "test", "build"])
         FixPrDone _ -> FixPrDone <$> genSha

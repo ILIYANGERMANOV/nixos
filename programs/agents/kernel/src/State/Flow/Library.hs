@@ -18,6 +18,7 @@ module State.Flow.Library (
     reviewed,
     describe,
     ship,
+    simplifyPlan,
     blocks,
     branch,
 ) where
@@ -125,14 +126,14 @@ questions = UpTo <$> PerFuel 15 30 50
 propose :: Flow 'Ctx ('Just 'Plan) 'Ctx
 propose =
     Do PlanS
-        :> Opt "simplify_plan" skippableAtLow (Do SimplifyP)
+        :> opt simplifyPlan skippableAtLow (Do SimplifyP)
         :> Capped (always (UpTo 3)) Stop Confirm
 
 {- | @draft@ opens the draft PR before the first commit. Balanced skips the
 refactor at or below 100 changed lines, Low on a trivial task.
 -}
 build :: Flow 'Plan 'Nothing 'Diff
-build = Do Draft :> Do Implement :> Opt "refactor" (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
+build = Do Draft :> Do Implement :> opt "refactor" (PerFuel Skippable (AtOrBelow 100) Never) (Do Refactor)
 
 {- | The reviewed flow, one 'Diff' in and one out, so another flow can glue it
 in: whoever does supplies the requirements the diff must meet. A clean
@@ -155,11 +156,19 @@ fixReReview = Loop "fix" (Capped (UpTo <$> PerFuel 1 3 5) Refuse PickRows :> Do 
 
 -- | @describe@ is the final fixer, so @simplify_pr@ is never skipped: the Keep law.
 describe :: Flow 'Diff 'Nothing 'PR
-describe = Do Describe :> Opt "simplify_pr" (always Never) (Do SimplifyPR)
+describe = Do Describe :> Do SimplifyPR
 
--- | No level skips @ready@: a round on an existing PR skips it by its task's shape.
+{- | No level skips @ready@: a round on an existing PR leaves its PR as it
+is, by its task's shape, and records the url it keeps.
+-}
 ship :: Flow 'PR 'Nothing 'PR
-ship = Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR) :> Opt "ready" (always Never) (Do Ready)
+ship = Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR) :> Do Ready :> Case (#done :-> Id :& #skipped :-> Id :& End)
+
+{- | The optional @simplify_plan@: besides its Fuel, a plan settled
+without the user skips it ('State.Run.Fold.planSettled').
+-}
+simplifyPlan :: Name
+simplifyPlan = "simplify_plan"
 
 {- | Each block a request may run alone, as a branch of a route: a block
 that starts past 'Ctx' opens its input first, from the issue, branch or PR

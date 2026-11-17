@@ -36,8 +36,6 @@ module State.Category.Step (
     eventText,
     continueEvent,
     exitEvent,
-    skipEvent,
-    skippedOutcome,
     spawnedOutcome,
     handedBackOutcome,
     OutcomeEdge (..),
@@ -55,10 +53,7 @@ import GHC.TypeError (ErrorMessage (..), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, sameSymbol, symbolVal)
 import State.Category.Ty (HasLabel, KnownTy, NotSum, Summands, Ty, TyOf (..), TyVal, labelledTys)
 
-{- | A step's signature: @(in, exit, continue)@. Only an endo step (@in ~
-continue@, no exit) can sit under 'State.Category.Flow.Opt', so the steps a
-mode may skip are fixed by it.
--}
+-- | A step's signature: @(in, exit, continue)@.
 type Sig3 = (Ty, Maybe Ty, Ty)
 
 type DomOf :: Sig3 -> Ty
@@ -103,9 +98,7 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
     -- | The wire name: the state a run is at, and the first half of its events.
     stepName :: Sing (s :: k) -> StateName
 
-    {- | The names of the step's exit and continuing outcomes. None is
-    @skipped@: that word is the event a skip appends.
-    -}
+    -- | The names of the step's exit and continuing outcomes.
     outcomes :: Sing (s :: k) -> Outcomes (ExitOf (Sig s)) (CodOf (Sig s))
 
     special :: Sing (s :: k) -> Special
@@ -120,27 +113,25 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
     -- | A reader per outcome of the layer, each keyed by the event it reads.
     decoders :: [Decoder k]
 
-{- | How a step ends: by its exit, by continuing, skipped by a mode, or, when
+{- | How a step ends: by its exit, by continuing, or, when
 its out is a sum, by continuing into the summand labelled @l@, @'Took' l@.
 A choice's action ('State.Category.Flow.Choice') ends by none: it stays, and
 one that owes a hand-back opens a child or closes one. A kind only: no
 value of a 'Symbol' exists.
 -}
-data Leg = Exited | Continued | Skipped | Took Symbol | Opened | Closed
+data Leg = Exited | Continued | Took Symbol | Opened | Closed
 
 -- | The proof a leg fits a signature: matching it recovers the signature's shape.
 data LegOf (sig :: Sig3) (l :: Leg) where
     ByExit :: LegOf '(i, 'Just x, o) 'Exited
     ByContinuing :: (NotSum o) => LegOf '(i, e, o) 'Continued
-    BySkip :: LegOf '(i, 'Nothing, i) 'Skipped
     ByTaking :: (KnownSymbol l, HasLabel l ss ~ 'True) => LegOf '(i, e, 'Sum ss) ('Took l)
     ByOpening :: LegOf '(i, 'Nothing, i) 'Opened
     ByClosing :: LegOf '(i, 'Nothing, i) 'Closed
 
 deriving stock instance Show (LegOf sig l)
 
-{- | The legs a signature has: an exit only with an exit type, a skip only on
-an endo step with none, a plain continue only into one type and 'Took' only
+{- | The legs a signature has: an exit only with an exit type, a plain continue only into one type and 'Took' only
 into a sum with that label. A refusal names the signature, the sum or the
 label, where GHC would print a missing instance; 'Took' into one type is
 the missing instance itself, which names the signature too.
@@ -159,13 +150,6 @@ instance (NotSum o) => Fits '(i, e, o) 'Continued where
 
 instance (KnownSymbol l, HasLabel l ss ~ 'True) => Fits '(i, e, 'Sum ss) ('Took l) where
     legOf = ByTaking
-
--- | A skip on a step that changes the type fails on @i ~ o@: GHC names both types.
-instance (i ~ o) => Fits '(i, 'Nothing, o) 'Skipped where
-    legOf = BySkip
-
-instance (Unsatisfiable ('Text "Outcome leg Skipped does not fit step signature " ':<>: 'ShowType '(i, 'Just x, o))) => Fits '(i, 'Just x, o) 'Skipped where
-    legOf = unsatisfiable
 
 -- | A child opens or closes only at a choice, which an endo step with no exit sits in.
 instance (i ~ o) => Fits '(i, 'Nothing, o) 'Opened where
@@ -190,8 +174,6 @@ instance (StepSet k) => Eq (SomeOutcome k) where
             (ByExit, _) -> False
             (ByContinuing, ByContinuing) -> o == o'
             (ByContinuing, _) -> False
-            (BySkip, BySkip) -> o == o'
-            (BySkip, _) -> False
             (ByTaking, ByTaking) -> case sameTaken leg leg' of
                 Just Refl -> o == o'
                 Nothing -> False
@@ -221,7 +203,6 @@ legEvent :: (StepSet k) => Sing (s :: k) -> LegOf (Sig s) l -> EventName
 legEvent s = \case
     ByExit -> exitEvent s
     ByContinuing -> continueEvent s
-    BySkip -> skipEvent s
     leg@ByTaking -> EventName (stepName s) (OutcomeName (takenLabel leg))
     ByOpening -> EventName (stepName s) spawnedOutcome
     ByClosing -> EventName (stepName s) handedBackOutcome
@@ -328,14 +309,6 @@ continueEvent s = EventName (stepName s) $ case outcomes s of
 exitEvent :: (StepSet k, ExitOf (Sig s) ~ 'Just x) => Sing (s :: k) -> EventName
 exitEvent s = case outcomes s of
     ExitsOr exit _ -> EventName (stepName s) exit
-
--- | The event a skip appends: only an endo step can sit under an 'State.Category.Flow.Opt'.
-skipEvent :: (StepSet k, ExitOf (Sig s) ~ 'Nothing, DomOf (Sig s) ~ CodOf (Sig s)) => Sing (s :: k) -> EventName
-skipEvent s = EventName (stepName s) skippedOutcome
-
--- | The outcome of a step a mode skipped, which no step has of its own.
-skippedOutcome :: OutcomeName
-skippedOutcome = OutcomeName "skipped"
 
 -- | The outcome that opens a child, a fan-out's or a choice's: the run stays.
 spawnedOutcome :: OutcomeName

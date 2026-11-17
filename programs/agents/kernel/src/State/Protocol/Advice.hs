@@ -28,7 +28,7 @@ module State.Protocol.Advice (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (join, mfilter)
+import Control.Monad (mfilter)
 import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Containers.ListUtils (nubOrdOn)
@@ -43,13 +43,15 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify)
-import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
+import State.Category.Flow (FanEvent (Leaves), Name, enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
+import State.Category.Fuel (PerFuel, SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), isRouteHub, placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StateName, StepSet (..), eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
+import State.Flow.Drawn (drawnSteps)
+import State.Flow.Library (simplifyPlan)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (FlowName (..), RoleDef (..))
@@ -64,11 +66,12 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold (Budget (..), OnTarget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
-import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (FuelLayer), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
-import State.Step.Plan (Outcome (..), Sing (Confirm, SimplifyP))
+import State.Step.Fuel (Outcome (Running, Skipping), Sing (Skip))
+import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Step.Ticket (Outcome (OpenTicketDone), Sing (OpenTicket))
 import State.Table (Row (notifies, runner, task), Runner (..), Steps, row)
@@ -181,8 +184,8 @@ skip the Fuel makes, the plan settled without the user, or the ticket a
 request targets, at the step's scope. The shell records it and asks
 again, until 'Nothing'.
 -}
-due :: OpenGraph -> Facts -> RunState -> Maybe Event
-due g facts state = case (state.stopped, state.at) of
+due :: Facts -> RunState -> Maybe Event
+due facts state = case (state.stopped, state.at) of
     (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> adopted place.name <> fromGitHub place.name <> skipped place <> leaves place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
@@ -199,7 +202,7 @@ due g facts state = case (state.stopped, state.at) of
     -- A plan its parent decided, or feedback on a target with no Design or Scope question open:
     -- the run neither simplifies nor confirms it with the user.
     decided name
-        | planSettled state = [Catalog.outcome SimplifyPlanSkipped | name == stepName SimplifyP] <> [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
+        | planSettled state = [Catalog.outcome ConfirmConfirmed | name == stepName Confirm]
         | otherwise = []
     -- A request on a ticket works on that one: it opens none.
     adopted name = [Catalog.outcome (OpenTicketDone url) | name == stepName OpenTicket, Just (OnTicket url) <- [(.target) <$> state.onTarget]]
@@ -211,58 +214,39 @@ due g facts state = case (state.stopped, state.at) of
         IsClosed -> False
     -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
     leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans (ScopedFan place.scope fan))]]
-    -- The graph names the skip inside its scopes; its outcome is the step's own.
-    skipped place =
-        [ outcome
-        | (event, rule) <- skipsHere g state
-        , Just why <- [skipsBecause rule]
-        , Just outcome <- [skipOutcome facts state why (EventName place.name event.outcome)]
-        ]
-    skipsBecause = \case
-        Never -> Nothing
-        -- The agent's call: 'skippable' says so.
-        Skippable -> Nothing
-        AtOrBelow most -> case facts.changedLines of
-            Just changed | changed <= most -> Just (tshow changed <> " changed lines, at or below " <> tshow most)
-            _ -> Nothing
+    -- The Fuel decides a skip, or the facts at a level that skips by changed lines; a trivial task's is the agent's.
+    skipped place = case skipHere place.name of
+        Just skip
+            | skip.block == simplifyPlan && planSettled state -> [skip.skips]
+            | otherwise -> case atFuel (fuelOf state) skip.when of
+                Never -> [skip.runs]
+                Skippable -> []
+                AtOrBelow most -> [if changed <= most then skip.skips else skip.runs | Just changed <- [facts.changedLines]]
+        Nothing -> []
 
-{- | The outcome a skip appends. @simplify_pr@ has none here: no level skips
-it, and its skip names a head these facts lack.
--}
-skipOutcome :: Facts -> RunState -> Text -> EventName -> Maybe AnyOutcome
-skipOutcome facts state why event =
-    join . lookup event $
-        map
-            stated
-            [ Catalog.outcome SimplifyPlanSkipped
-            , Catalog.outcome (RefactorSkipped why)
-            ]
-            <> [(builtEvent Ready ReadySkipped, Catalog.outcome . ReadySkipped <$> prUrl facts state)]
-  where
-    stated skip = (Catalog.outcomeEvent skip, Just skip)
+-- | A skip step: its block, the levels that skip it, and its two outcomes.
+data SkipHere = SkipHere {block :: Name, when :: PerFuel SkipWhen, skips :: AnyOutcome, runs :: AnyOutcome}
+
+-- | The skip step of this name, when the flows draw one.
+skipHere :: StateName -> Maybe SkipHere
+skipHere name =
+    listToMaybe
+        [ SkipHere block when (Catalog.outcome (Skipping s)) (Catalog.outcome (Running s))
+        | AnyStep FuelLayer (SomeStep s@(Skip block when)) <- drawnSteps
+        , stepName s == name
+        ]
 
 {- | The skips the run's Fuel leaves to the agent here, each with the record
-that takes it: the agent skips the step of a trivial task and runs it
+that takes it: the agent skips the block of a trivial task and runs it
 otherwise, so 'due' never records these.
 -}
-skippable :: OpenGraph -> RunState -> [Text]
-skippable g state =
-    [ fuelLabel (fuelOf state) <> ": skip it when the task is trivial: " <> recordCommand event
-    | (event, Skippable) <- skipsHere g state
-    ]
-
--- | Each skip arrow out of a running run's state, with when its Fuel takes it.
-skipsHere :: OpenGraph -> RunState -> [(EventName, SkipWhen)]
-skipsHere g state = case (state.stopped, state.at) of
-    (Nothing, At place) ->
-        [ (event, atFuel (fuelOf state) skips)
-        | ((from, event), edge) <- Map.toList g.edges
-        , from == place
-        , Skip _ skips <- [edge.arrow]
-        ]
-    (Nothing, Out) -> []
-    (Nothing, Exit) -> []
-    (Just _, _) -> []
+skippable :: RunState -> [Text]
+skippable state = case (state.stopped, state.at) of
+    (Nothing, At place)
+        | Just skip <- skipHere place.name
+        , Skippable <- atFuel (fuelOf state) skip.when ->
+            [fuelLabel (fuelOf state) <> ": skip it when the task is trivial: " <> recordCommand (qualifyEvent place.scope (Catalog.outcomeEvent skip.skips))]
+    _ -> []
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
@@ -290,7 +274,6 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         Nothing -> []
     along edge = case edge.arrow of
         Along _ -> True
-        Skip _ _ -> False
         Stay -> False
     notify = case (state.at, Text.null prompt) of
         (At place, False) | Just (AnyStep _ (SomeStep s)) <- stepNamed place.name -> (row steps s).notifies
@@ -325,6 +308,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
         (At place, _) | isRouteHub g state.at -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
+        (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]))
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s) <> told s)

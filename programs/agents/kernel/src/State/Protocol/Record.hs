@@ -86,7 +86,6 @@ recordOption event edge = commandOption (recordCommand event) (goes edge)
 goes :: Edge Node -> Text
 goes edge = case (edge.arrow, edge.to, edge.back) of
     (Stay, _, _) -> "the run stays here"
-    (Skip _ _, to, _) -> "skips the step: " <> onTo to
     (Along _, At place, Just loop) -> "back to " <> stateNameText (placeName place) <> ", the " <> nameText loop <> " loop's next round"
     (Along _, to, _) -> onTo to
   where
@@ -166,7 +165,6 @@ recordables =
                 [path] -> Right (FromFile (Text.unpack path) (const (Right (tookIn a.scope (PlanDone (Text.unpack path))))))
                 _ -> Left "the plan's path"
            , nothing SimplifyPlanDone
-           , nothing SimplifyPlanSkipped
            , nothing ConfirmConfirmed
            , nothing ConfirmAdjusted
            , outcome (builtEvent Draft DraftDone) "<url> <base> <branch>" [] $ \a -> case a.positional of
@@ -175,7 +173,6 @@ recordables =
            , -- As a hand-back with no Touches line reads: an implementer may have touched any area.
              commitAt Implement ImplementDone (Set.fromList [minBound .. maxBound])
            , atHead Refactor RefactorDone
-           , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (\a -> Plain . tookIn a.scope . RefactorSkipped <$> because a.positional)
            , atHead Review ReviewClean
            , atHead Review ReviewRows
            , picks PickRows PickFinal
@@ -186,7 +183,6 @@ recordables =
            , atHead ReReview ReReviewRows
            , atHead Describe DescribeDone
            , atHead SimplifyPR SimplifyPrDone
-           , atHead SimplifyPR SimplifyPrSkipped
            , atHead AwaitCi AwaitCiGreen
            , outcome (builtEvent AwaitCi (uncurry AwaitCiRed)) "<check>..." [] $ \a -> case a.positional of
                 check : more -> Right (AtHead (\sha -> tookIn a.scope (AwaitCiRed sha (fmap Check (check :| more)))))

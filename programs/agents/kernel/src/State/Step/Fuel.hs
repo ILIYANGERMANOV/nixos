@@ -17,7 +17,7 @@ module State.Step.Fuel (
 import Data.Aeson ((.=))
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable, eqT)
-import State.Category.Flow (Name, namedState)
+import State.Category.Flow (Name, nameText)
 import State.Category.Fuel (PerFuel, SkipWhen, fuelName)
 import State.Category.Fuel qualified as Level
 import State.Category.Step
@@ -38,7 +38,7 @@ instance StepSet FuelStep where
 
     data Sing s where
         Fuel :: Sing Fuel
-        -- \| Named after the block it may skip, with the levels that may.
+        -- \| Named after the block it may skip, with the levels that may: its state is @skip_<block>@.
         Skip :: (KnownTy a, NotSum a, Typeable a) => Name -> PerFuel SkipWhen -> Sing (Skip a)
 
     data Outcome s l where
@@ -57,7 +57,7 @@ instance StepSet FuelStep where
 
     stepName = \case
         Fuel -> StateName "fuel"
-        Skip name _ -> namedState name
+        Skip name _ -> StateName ("skip_" <> nameText name)
 
     outcomes = \case
         Fuel -> Continues (OutcomeName "set")

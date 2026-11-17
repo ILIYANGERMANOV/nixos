@@ -7,8 +7,6 @@ module State.Step.Build (
     Outcome (..),
 ) where
 
-import Data.Aeson ((.:), (.=))
-import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Step
 import State.Category.Ty (TyOf (..))
@@ -31,8 +29,6 @@ instance StepSet BuildStep where
         DraftDone :: DraftPr -> Outcome Draft 'Continued
         ImplementDone :: Commit -> Outcome Implement 'Continued
         RefactorDone :: Sha -> Outcome Refactor 'Continued
-        -- \| Why it was skipped.
-        RefactorSkipped :: Text -> Outcome Refactor 'Skipped
 
     layerSteps = [SomeStep Draft, SomeStep Implement, SomeStep Refactor]
       where
@@ -70,19 +66,16 @@ instance StepSet BuildStep where
         o@(DraftDone _) -> packed Draft o
         o@(ImplementDone _) -> packed Implement o
         o@(RefactorDone _) -> packed Refactor o
-        o@(RefactorSkipped _) -> packed Refactor o
 
     encodeOutcome = \case
         DraftDone draft -> draftData draft
         ImplementDone commit -> commitData commit
         RefactorDone sha -> headData sha
-        RefactorSkipped why -> "why" .= why
 
     decoders =
         [ Decoder Draft (fmap DraftDone . draftOf)
         , Decoder Implement (fmap ImplementDone . commitOf)
         , Decoder Refactor (fmap RefactorDone . headOf)
-        , Decoder Refactor (\obj -> RefactorSkipped <$> obj .: "why")
         ]
 
 deriving stock instance Show (Sing (s :: BuildStep))

@@ -64,12 +64,13 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), Name, ScopePath, fanEvent, namedState, qualify)
+import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, namedState, qualify)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, isRouteHub, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
-import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName))
+import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
+import State.Flow.Library (simplifyPlan)
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
@@ -80,8 +81,7 @@ import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
-import State.Step.Fuel (FuelStep, Outcome (..))
-import State.Step.Plan (Sing (SimplifyP))
+import State.Step.Fuel (FuelStep, Outcome (..), Sing (Skip))
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
@@ -446,16 +446,12 @@ took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunSt
 took g state scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
-    case edge.arrow of
-        Skip opt when | not (skips state from when) -> Left (NotSkippable opt)
-        Skip _ _ -> Right ()
-        Along _ -> Right ()
-        Stay -> Right ()
+    let effect = effects scope outcome
+    maybe (Right ()) (skipped state) effect.skip
     case (edge.to == At from, openAt from state.meters) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
     meters <- spend g state (RecordedOutcome some)
-    let effect = effects scope outcome
     fans <- Bifunctor.first FanRefused (effect.fanned state.fans)
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
@@ -497,7 +493,12 @@ data Effect = Effect
     -- ^ A new request starts: it has no target until one is named.
     , level :: Maybe Fuel
     -- ^ The run's Fuel from here on, as a 'Fuel' step sets it.
+    , skip :: Maybe Skipping
+    -- ^ The outcome skips a block, which the run's Fuel or its shape must allow.
     }
+
+-- | Why a block may be skipped: a level that skips it, or a round on an existing PR, which keeps it.
+data Skipping = ByLevel Name (PerFuel SkipWhen) | ByShape
 
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
 in the layer's own match below. A fan-out's outcome moves the fan-out in the
@@ -509,15 +510,15 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     PlanLayer -> none
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
-    ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
+    ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url, skip = keeps o}
     TicketLayer -> none {opened = ticketOf o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
     ChoiceLayer -> none
     PickLayer -> none
-    FuelLayer -> none {level = fuelOutcome o}
+    FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False, level = Nothing}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False, level = Nothing, skip = Nothing}
 
 -- | The level a 'Fuel' step sets; a skip sets none.
 fuelOutcome :: Outcome (s :: FuelStep) l -> Maybe Fuel
@@ -525,6 +526,24 @@ fuelOutcome = \case
     LevelSet level -> Just level
     Skipping _ -> Nothing
     Running _ -> Nothing
+
+-- | The block a skip step skips, by the levels that may.
+skipOutcome :: Outcome (s :: FuelStep) l -> Maybe Skipping
+skipOutcome = \case
+    Skipping (Skip name when) -> Just (ByLevel name when)
+    LevelSet _ -> Nothing
+    Running _ -> Nothing
+
+-- | A @ready@ that leaves the PR as it is.
+keeps :: Outcome (s :: ShipStep) l -> Maybe Skipping
+keeps = \case
+    ReadySkipped _ -> Just ByShape
+    ReadyDone _ -> Nothing
+    DescribeDone _ -> Nothing
+    SimplifyPrDone _ -> Nothing
+    AwaitCiGreen _ -> Nothing
+    AwaitCiRed _ _ -> Nothing
+    FixPrDone _ -> Nothing
 
 -- | The ticket an @open_ticket@ names.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
@@ -561,7 +580,6 @@ built = \case
     DraftDone pr -> Just pr
     ImplementDone _ -> Nothing
     RefactorDone _ -> Nothing
-    RefactorSkipped _ -> Nothing
 
 -- | A breakdown sets its fan-out's tasks; its end is checked as it is written ('leaves').
 fanOutcome :: ScopePath -> Outcome (s :: FanStep) l -> Map ScopedFan Fan -> Either Fan.Refusal (Map ScopedFan Fan)
@@ -573,15 +591,18 @@ fanOutcome scope outcome fans = case outcome of
   where
     here = ScopedFan scope
 
-{- | The Fuel's skips, @ready@ for a round on an existing PR at every
-Fuel: the PR stays as it is, by the task's shape, and @simplify_plan@ for a
-plan settled without the user.
+{- | A skip the run may take: one its Fuel allows, @simplify_plan@'s for a
+plan settled without the user, and @ready@'s on a round on an existing PR
+at every Fuel, which leaves the PR as it is, by the task's shape.
 -}
-skips :: RunState -> Place -> PerFuel SkipWhen -> Bool
-skips state from when =
-    atFuel (fuelOf state) when /= Never
-        || (from.name == stepName Ready && onRound (shape state))
-        || (from.name == stepName SimplifyP && planSettled state)
+skipped :: RunState -> Skipping -> Either Refusal ()
+skipped state = \case
+    ByLevel name when
+        | atFuel (fuelOf state) when /= Never || (name == simplifyPlan && planSettled state) -> Right ()
+        | otherwise -> Left (NotSkippable name)
+    ByShape
+        | onRound (shape state) -> Right ()
+        | otherwise -> Left (NotSkippable (Name (stateNameText (stepName Ready))))
 
 {- | What the run does to its PR now: its request's target's, else its
 start's. A branch's work opens its PR from that branch, or adopts the one open.
@@ -933,7 +954,6 @@ shipped = \case
     ReadySkipped url -> (Set.empty, Just url)
     DescribeDone _ -> (Set.empty, Nothing)
     SimplifyPrDone _ -> (Set.empty, Nothing)
-    SimplifyPrSkipped _ -> (Set.empty, Nothing)
     AwaitCiGreen _ -> (Set.empty, Nothing)
     FixPrDone _ -> (Set.empty, Nothing)
 

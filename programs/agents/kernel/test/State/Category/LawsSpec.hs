@@ -16,6 +16,8 @@ import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Type.Equality ((:~:) (..))
+import Data.Typeable (eqT)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), Name (..), branchesWith, nameText, qualify, qualifyText, scoped, spawn, unqualify)
@@ -25,13 +27,14 @@ import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMos
 import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places, shownOrder)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..), limitAtMost, meterName)
-import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..), StepSet (stepName), stateNameText)
+import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Sing, StateName (..), StepSet (stepName), stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (choice, choiceLoop, par)
 import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
+import State.Step.Fuel (FuelStep, Sing (Fuel, Skip))
 import State.Step.Gather (Sing (..))
 import State.Step.Ship (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -283,7 +286,6 @@ unscoped scope g =
 renameArrow :: (Text -> Text) -> Arrow -> Arrow
 renameArrow f = \case
     Along along -> Along along {event = renameEvent f along.event}
-    Skip name skips -> Skip (renameName f name) skips
     Stay -> Stay
 
 renameEvent :: (Text -> Text) -> EventName -> EventName
@@ -303,13 +305,12 @@ more Fuel never allows less, nor skips where less Fuel runs.
 -}
 budgetsOf :: Flow i e o -> [(Name, Bool)]
 budgetsOf = \case
-    Do _ -> []
+    Do s -> [(name, skipped skips) | Just (name, skips) <- [skipOf s]]
     Capped limit _ s -> [(Name (meterName s), capped limit)]
     Id -> []
     Into -> []
     f :> g -> budgetsOf f <> budgetsOf g
     Loop _ body -> budgetsOf body
-    Opt name skips body -> (name, skipped skips) : budgetsOf body
     Par _ body -> budgetsOf body
     Case branches -> concat (branchesWith budgetsOf branches)
     Flow.Exit -> []
@@ -325,6 +326,14 @@ budgetsOf = \case
     capped = monotone limitAtMost
     skipped :: PerFuel SkipWhen -> Bool
     skipped = monotone (flip skipsAtMost)
+
+-- | A skip step's name and the levels that skip its block.
+skipOf :: forall k (s :: k). (StepSet k) => Sing s -> Maybe (Name, PerFuel SkipWhen)
+skipOf s = case eqT @k @FuelStep of
+    Just Refl -> case s of
+        Skip name skips -> Just (name, skips)
+        Fuel -> Nothing
+    Nothing -> Nothing
 
 -- | The graph with every cap's rank, its presentation, forgotten.
 unranked :: OpenGraph -> OpenGraph

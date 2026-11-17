@@ -10,7 +10,7 @@ import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), branchesWith, qualifyEvent, scopePath)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
-import State.Category.Fuel (SkipWhen (..), always)
+import State.Category.Fuel (always)
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, isRouteHub, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -90,10 +90,6 @@ spec = describe "State.Category.Graph" $ do
         graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))
             `shouldBe` Left (SameFan "engineers")
 
-    it "refuses two skips of one state: a log could not say which was skipped" $
-        graph (Opt "refactor" (always Skippable) (Opt "simplify" (always Skippable) (Do Refactor)))
-            `shouldBe` Left (SameEvent (Place [] mempty (StateName "refactor")) (EventName (StateName "refactor") (OutcomeName "skipped")))
-
     describe "a fork and its await" $ do
         it "refuses a fork no await follows: its children would outlive the flow" $
             graph (Fork engineerGroup engineerChild :> Do PlanS)
@@ -172,7 +168,6 @@ arrows = \case
     Id -> 0
     Into -> 0
     Loop _ body -> arrows body
-    Opt _ _ body -> 1 + arrows body
     Par _ _ -> 3
     Case branches -> sum (branchesWith arrows branches)
     Flow.Exit -> 0

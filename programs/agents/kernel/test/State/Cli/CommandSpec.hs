@@ -22,6 +22,7 @@ import State.Step.Artifact (Shape (..), Url (..), shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Plan (Outcome (..))
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import System.Exit (ExitCode (..))
 import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldSatisfy)
@@ -85,7 +86,7 @@ spec = describe "State.Cli.Command" $ do
             recorded ["pick.final", "--row", "R1", "--row", "R2"] `shouldBe` Right (stepTook (PickFinal (Picks (Set.fromList [Label "R1", Label "R2"]) Map.empty)))
 
         it "keeps an event's free words that start with a dash" $
-            recorded ["refactor.skipped", "-x", "--flag", "added"] `shouldBe` Right (stepTook (RefactorSkipped "-x --flag added"))
+            recorded ["direct.done", "-x", "--flag", "added"] `shouldBe` Right (stepTook (DirectDone "-x --flag added"))
 
         it "records a step's outcome named inside a scope in that scope" $
             recorded ["security/review.rows"] `shouldBe` Right (tookIn securityScope (ReviewRows sha))

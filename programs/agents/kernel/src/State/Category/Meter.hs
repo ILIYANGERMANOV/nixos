@@ -106,7 +106,6 @@ owedBy (SomeMeter s) = \case
         ByClosing -> Just Closes
         ByExit -> Nothing
         ByContinuing -> Nothing
-        BySkip -> Nothing
         ByTaking -> Nothing
 
 -- | An event a run records at a metered state, its step's kind hidden.

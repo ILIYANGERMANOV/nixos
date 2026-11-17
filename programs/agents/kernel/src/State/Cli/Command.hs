@@ -47,8 +47,8 @@ import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
-import State.Category.Fuel (Fuel, SkipWhen (Never), atFuel, fuelName, parseByName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), placeName, places)
+import State.Category.Fuel (Fuel, fuelName, parseByName)
+import State.Category.Graph (Cap (..), Metered (..), Node (..), OpenGraph (..), placeName, places)
 import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
@@ -444,8 +444,8 @@ explain g fuel at meters = \case
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
     AfterStop stop -> refused "the event" ("the run stopped: " <> reasonText stop.reason <> " " <> stop.why) "state init --notes <a new dir>"
-    NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText at) (records (taken fuel))
-    NotSkippable _ -> refused "the skip" "this Fuel never skips the step" (records (not . skips))
+    NoEdge _ event -> refused (eventText event) ("no such arrow out of " <> atText at) records
+    NotSkippable _ -> refused "the skip" "this Fuel never skips the block" "state next"
     OutOfBudget cap allowed ->
         refused
             ("the spend at " <> atText at)
@@ -459,7 +459,7 @@ explain g fuel at meters = \case
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
     AskedTwice qid -> refused (qidText qid) "it was asked already" "state pending"
-    PickedOnce -> refused "the pick" "the user was asked this route's branch once already" (records (const True))
+    PickedOnce -> refused "the pick" "the user was asked this route's branch once already" records
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))
@@ -492,17 +492,13 @@ explain g fuel at meters = \case
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"
   where
     refused = Failure BadInput
-    records keep = atPlace $ \place -> case [recordCommand event | (event, edge) <- shownEdges g place, keep edge, closesOpen place event] of
+    records = atPlace $ \place -> case [recordCommand event | (event, _) <- shownEdges g place, closesOpen place event] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
     atPlace fix = case at of
         At place -> fix place
         Out -> "state show"
         Exit -> "state show"
-    skips edge = case edge.arrow of
-        Skip _ _ -> True
-        Along _ -> False
-        Stay -> False
     closesOpen place event
         | event.outcome == handedBackOutcome = maybe False ((> 0) . (.open)) (Map.lookup (Metered place event.step) meters)
         | otherwise = True
@@ -517,13 +513,6 @@ atText = \case
     Out -> "the end"
     Exit -> "the end"
 
--- | An edge the run's Fuel takes: a skip it never makes is no way on.
-taken :: Fuel -> Edge Node -> Bool
-taken fuel edge = case edge.arrow of
-    Skip _ when -> atFuel fuel when /= Never
-    Along _ -> True
-    Stay -> True
-
 {- | An event the grammar lacks, at a run: refused with the events the run's
 Fuel takes where it is, an @extend@ too where a budget here grants one. A
 hand-back is listed even with no child open: the name is what the reader lacks.
@@ -534,7 +523,7 @@ unknownEvent g state name =
   where
     events = edgeEvents <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
-        At place -> [(eventText event, recordCommand event) | (event, edge) <- shownEdges g place, taken (Fold.fuelOf state) edge]
+        At place -> [(eventText event, recordCommand event) | (event, _) <- shownEdges g place]
         Out -> []
         Exit -> []
     listed = \case

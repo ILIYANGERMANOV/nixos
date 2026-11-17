@@ -30,8 +30,8 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), Name, ScopePath, scopePath)
-import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
-import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
+import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName, OutcomeEdge (..), OutcomeName (..), StateName)
@@ -61,7 +61,7 @@ diffKit :: Kit 'Diff
 diffKit = Kit [Do Refactor] [Do Review :> Capped (always (UpTo 3)) Refuse PickRows :> Do Fix, Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse PickRows :> Do Fix]
 
 prKit :: Kit 'PR
-prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR]
+prKit = Kit [Do SimplifyPR, Do FixPR] [Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR]
 
 -- | A term from @Ctx@ to @PR@ through every type, any combinator on each.
 genFlow :: Gen (Flow 'Ctx 'Nothing 'PR)
@@ -94,7 +94,7 @@ genBranching =
 state of its own: @describe@, @refactor@ and a second @describe@.
 -}
 threeWay :: Flow 'Diff 'Nothing 'PR
-threeWay = Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "big", Do Refactor :> Do Describe), (OutcomeName "other", Do Describe :> Do Ready)])
+threeWay = Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "big", Do Refactor :> Do Describe), (OutcomeName "other", Do Describe :> Do FixPR)])
 
 -- | 'threeWay''s graph.
 threeWayGraph :: OpenGraph
@@ -109,8 +109,7 @@ genEndo kit =
     Gen.recursive
         Gen.choice
         [Gen.element kit.endo]
-        ( [ Opt <$> genName <*> genSkips <*> genEndo kit
-          , opt <$> genName <*> genSkips <*> genEndo kit
+        ( [ opt <$> genName <*> genSkips <*> genEndo kit
           , (:>) <$> genEndo kit <*> genEndo kit
           , Scope <$> genName <*> genEndo kit
           , Route <$> genName <*> genBranches (genEndo kit)
@@ -170,23 +169,18 @@ pathTo g from target = go (Set.singleton from) [(from, [])]
             let next = [(edge.to, event : walked) | ((place, event), edge) <- Map.toList g.edges, At place == node, edge.to `Set.notMember` seen]
              in go (foldr (Set.insert . fst) seen next) (queue <> next)
 
-{- | Each level and kept state where that level bypasses the state: none, by
+{- | Each kept state a run can bypass: none, by
 #351's Keep law. A flow whose graph does not build skips them all.
 -}
-skipsKept :: Either e OpenGraph -> [StateName] -> [(Fuel, StateName)]
-skipsKept built kept = [(fuel, name) | fuel <- [minBound .. maxBound], name <- kept, either (const True) (\g -> bypasses fuel g name) built]
+skipsKept :: Either e OpenGraph -> [StateName] -> [StateName]
+skipsKept built kept = [name | name <- kept, either (const True) (`bypasses` name) built]
 
 {- | A run at this level can reach the end without running a step of this
-name: it takes a skip, which leaves the skipped step's state, only where the
+name: it takes a skip, which leaves the skipped step's state.
 level may skip.
 -}
-bypasses :: Fuel -> OpenGraph -> StateName -> Bool
-bypasses fuel g name = isJust (pathTo g {edges = Map.filterWithKey taken g.edges} (At g.inPort) Out)
-  where
-    taken (from, _) edge = case edge.arrow of
-        Skip _ when -> atFuel fuel when /= Never
-        Along _ -> from.name /= name
-        Stay -> from.name /= name
+bypasses :: OpenGraph -> StateName -> Bool
+bypasses g name = isJust (pathTo g {edges = Map.filterWithKey (\(from, _) _ -> from.name /= name) g.edges} (At g.inPort) Out)
 
 -- | Each edge starts where the one before it ends: a path of @Cap@.
 composes :: [OutcomeEdge] -> Bool

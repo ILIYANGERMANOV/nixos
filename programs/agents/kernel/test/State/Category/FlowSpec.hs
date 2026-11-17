@@ -16,6 +16,7 @@ import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
+import State.Flow.Library (opt)
 import State.Flow.Triage (Sing (..))
 import State.Role (SomeFlow (..), flowOut)
 import State.Step.Artifact (Commit (..), Sha (..))
@@ -38,12 +39,12 @@ spec = describe "State.Category.Flow" $ do
         it "an optional step that changes the type" $
             rejected
                 "Couldn't match type: State.Category.Ty.Diff with: State.Category.Ty.Plan"
-                (Opt "refactor" (always Never) (Do Implement))
+                (opt "refactor" (always Never) (Do Implement))
 
         it "an optional step with an exit" $
             rejected
                 "Couldn't match type: Just State.Category.Ty.Plan with: Nothing"
-                (Opt "simplify_plan" (always Never) (Do Confirm))
+                (opt "simplify_plan" (always Never) (Do Confirm))
 
         it "a loop whose body never exits" $
             rejected
@@ -105,23 +106,13 @@ spec = describe "State.Category.Flow" $ do
         it "an optional block over a sum: its skip would be one edge for two summands" $
             rejectedShown
                 "A sum State.Category.Ty.Sum"
-                (graph (Do Triage :> Opt "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
+                (graph (Do Triage :> opt "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
 
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $
             rejectedShown
                 "Outcome leg Exited does not fit step signature '(State.Category.Ty.Findings, Nothing, State.Category.Ty.Diff)"
                 (outcomeEvent (packed Fix (by @'Exited Fix)))
-
-        it "a skip of a step with an exit" $
-            rejectedShown
-                "Outcome leg Skipped does not fit step signature '(State.Category.Ty.Diff, Just State.Category.Ty.Diff, State.Category.Ty.Findings)"
-                (outcomeEvent (packed Review (by @'Skipped Review)))
-
-        it "a skip of a step that changes the type" $
-            rejectedShown
-                "Couldn't match type: State.Category.Ty.Plan with: State.Category.Ty.Diff"
-                (outcomeEvent (packed Implement (by @'Skipped Implement)))
 
         it "an outcome into a summand the sum lacks" $
             rejectedShown

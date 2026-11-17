@@ -15,6 +15,7 @@ module State.Step.Catalog (
     allSteps,
     outcomeSteps,
     termSteps,
+    termSkips,
     flowOutcomes,
     stepNamed,
     shownEdges,
@@ -26,8 +27,9 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
-import State.Category.Flow (Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Opt, Par, Route, Scope, (:>)), branchesWith)
+import State.Category.Flow (Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Par, Route, Scope, (:>)), Name, branchesWith)
 import State.Category.Flow qualified as Flow
+import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
@@ -35,7 +37,7 @@ import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
 import State.Step.Choice (ChoiceStep, Sing (Hub, Pick), choices, routes)
 import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
-import State.Step.Fuel (FuelStep, skipOutcomes)
+import State.Step.Fuel (FuelStep, Sing (Skip), skipOutcomes)
 import State.Step.Gather (GatherStep)
 import State.Step.Pick (PickStep, pickOutcomes)
 import State.Step.Plan (PlanStep)
@@ -190,7 +192,6 @@ termSteps = \case
     Into -> []
     f :> g -> termSteps f <> termSteps g
     Loop _ body -> termSteps body
-    Opt _ _ body -> termSteps body
     Par _ _ -> []
     Case branches -> concat (branchesWith termSteps branches)
     Flow.Exit -> []
@@ -201,6 +202,10 @@ termSteps = \case
     Scope _ body -> termSteps body
     Choice _ actions -> concatMap termSteps actions
     Route _ branches -> concatMap (termSteps . snd) branches
+
+-- | Each optional block of a term, by its name, with the levels that skip it: in the term's order.
+termSkips :: Flow i e o -> [(Name, PerFuel SkipWhen)]
+termSkips flow = [(name, when) | AnyStep FuelLayer (SomeStep (Skip name when)) <- termSteps flow]
 
 -- | The step, when it is a pick or a skip: a layer that lists its steps has it in 'allSteps'.
 drawnStep :: forall k (s :: k). (StepSet k, KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s))) => Sing s -> [AnyStep]

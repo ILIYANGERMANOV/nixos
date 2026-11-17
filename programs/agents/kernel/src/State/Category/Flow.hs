@@ -1,6 +1,6 @@
 {- | #351's category @Flow@: typed terms over the steps of "State.Category.Step"'s layers. The
-indexes make an ill-typed gluing a compile error (law Typed gluing), and 'Opt'
-and 'Loop' exist only on the shapes #351 allows (law Skip is endo). Every
+indexes make an ill-typed gluing a compile error (law Typed gluing), and
+'Loop' exists only on the shapes #351 allows. Every
 budget is a 'Capped' step's meter (decision 13). A flow
 is built by composing small flows ("State.Flow.Library"), each reusable in
 any flow.
@@ -39,7 +39,7 @@ import Data.Text qualified as Text
 import GHC.OverloadedLabels (IsLabel (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
 import GHC.TypeLits (KnownSymbol, Symbol)
-import State.Category.Fuel (PerFuel, SkipWhen)
+import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap, Limit, Meter (Owes))
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..), handedBackOutcome, spawnedOutcome)
 import State.Category.Ty (KnownTy, NotSum, Ty, TyOf (..))
@@ -94,11 +94,6 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     once, @Loop n f = Catch (f :> Loop n f)@.
     -}
     Loop :: (NotSum a, NotSum b) => Name -> Flow a ('Just b) a -> Flow a 'Nothing b
-    {- | A mark: the level may skip the body, so it must keep the type. Over
-    one type only: a skip is one edge, and a sum would need one per summand.
-    Law: a skip walks as 'Id'; at a level that never skips, the body alone.
-    -}
-    Opt :: (NotSum a) => Name -> PerFuel SkipWhen -> Flow a 'Nothing a -> Flow a 'Nothing a
     -- | One flow per item, as child runs. Law: one state, its children's events stay there.
     Par :: (KnownTy a, KnownTy b) => Name -> Flow a 'Nothing b -> Flow ('List a) 'Nothing ('List b)
     {- | The copairing: each summand runs its branch, the branch of its

@@ -4,13 +4,13 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import State.Category.Flow (Branch (..), Branches (..), Flow (..))
 import State.Category.Fuel (Fuel (..), PerFuel (..), SkipWhen (..), always, atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), OpenGraph (..), graph)
+import State.Category.Graph (Cap (..), OpenGraph (..), graph)
 import State.Category.Meter (AtCap (..), Limit (..), someMeterName)
 import State.Category.Step (eventText)
 import State.Category.Ty (TyOf (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (agree, build, choice, describe, fixReReview, gather, opt, propose, review, reviewed, ship)
-import State.Step.Catalog (flowOutcomes, outcomeEvent, termSteps)
+import State.Step.Catalog (flowOutcomes, outcomeEvent, termSkips, termSteps)
 import Test.Hspec (Spec, it, shouldBe)
 import Test.Hspec qualified as Hspec
 
@@ -49,14 +49,14 @@ spec = Hspec.describe "State.Flow.Library" $ do
 
     -- Research is no skip: the gather's agent chooses it, or enough.
     it "leaves the plan's simplify and the refactor skippable at Low only" $
-        [(level, skippable level <$> graph engineer) | level <- [minBound .. maxBound]]
-            `shouldBe` [(Low, Right (Set.fromList ["refactor", "simplify_plan"])), (Balanced, Right Set.empty), (Max, Right Set.empty)]
+        [(level, skippable level) | level <- [minBound .. maxBound]]
+            `shouldBe` [(Low, Set.fromList ["refactor", "simplify_plan"]), (Balanced, Set.empty), (Max, Set.empty)]
 
     -- No layer lists a flow's picks and skips: the flow's term names each way on.
     it "names each label of a choice and both ways of an opt as the events a run records" $
         map (eventText . outcomeEvent) (concatMap flowOutcomes (termSteps sized))
-            `shouldBe` ["size.small", "size.big", "tidy.skip", "tidy.run"]
+            `shouldBe` ["size.small", "size.big", "skip_tidy.skip", "skip_tidy.run"]
   where
     sized :: Flow 'Ctx 'Nothing 'Ctx
     sized = choice "size" (#small :-> Id :& #big :-> Id :& End) :> opt "tidy" (always Skippable) Id
-    skippable level g = Set.fromList [name | Edge {arrow = Skip name when} <- Map.elems g.edges, atFuel level when == Skippable]
+    skippable level = Set.fromList [name | (name, when) <- termSkips engineer, atFuel level when == Skippable]

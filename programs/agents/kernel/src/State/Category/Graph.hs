@@ -37,11 +37,11 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 
 -- Flow's 'Exit' is qualified: 'Exit' here is the 'Node'.
-import State.Category.Flow (Branch (..), Branches (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Opt, Par, Route, Scope, (:>)), Group (..), Name (..), ScopePath, enoughOutcome, fanEvent, namedState, qualify, qualifyEvent, scopePath, scoped)
+import State.Category.Flow (Branch (..), Branches (..), FanEvent (..), Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Par, Route, Scope, (:>)), Group (..), Name (..), ScopePath, enoughOutcome, fanEvent, namedState, qualify, qualifyEvent, scopePath, scoped)
 import State.Category.Flow qualified as Flow
-import State.Category.Fuel (PerFuel, SkipWhen)
+import State.Category.Fuel (PerFuel)
 import State.Category.Meter (AtCap (..), Limit, Meter, SomeMeter (..))
-import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), Sig, Sing, StateName (..), StepSet, eventText, handedBackOutcome, outcomes, skippedOutcome, spawnedOutcome, stepName)
+import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), Outcomes (..), Sig, Sing, StateName (..), StepSet, eventText, handedBackOutcome, outcomes, spawnedOutcome, stepName)
 import State.Category.Ty (Elem (..), IsSum, KnownTy (..), NotSum, Summand (..), Summands (..), Ty, TyOf (..), TyVal, elemLabel)
 
 {- | A state where a step, or a fan-out, runs next. The path is the step's
@@ -63,8 +63,6 @@ data Node = At Place | Out | Exit
 -- | What @ty@ sends an edge to.
 data Arrow
     = Along OutcomeEdge
-    | -- | @<step>.skipped@: a level skipped this 'Opt', the identity, when its 'SkipWhen' lets it.
-      Skip Name (PerFuel SkipWhen)
     | -- | A child spawned or handed back inside a fan-out or a choice, the identity.
       Stay
     deriving stock (Eq, Show)
@@ -249,7 +247,6 @@ part = \case
         right <- part g
         glue left right
     Loop name body -> closeLoop name =<< part body
-    Opt name skips body -> skippable name skips =<< part body
     Par fan body -> Right (fanOut fan body)
     Case branches -> casePart 0 branches
     Flow.Exit -> Right (passing (const Exits))
@@ -363,7 +360,6 @@ inScope scope p =
             { to = edge.to
             , arrow = case edge.arrow of
                 Along along -> Along along {event = eventIn along.event}
-                Skip name skips -> Skip (scoped scope name) skips
                 Stay -> Stay
             , back = scoped scope <$> edge.back
             }
@@ -431,7 +427,6 @@ choicePart name branches = do
         Into -> notAction
         _ :> _ -> notAction
         Loop _ _ -> notAction
-        Opt {} -> notAction
         Par _ _ -> notAction
         -- Case and Exit are absent: a sum in or an exit, which a branch's type refutes.
         Each _ -> notAction
@@ -486,17 +481,6 @@ closeLoop name body = do
     if any ((`Set.notMember` nested) . (.place)) (Map.keys body.caps)
         then pure body {inPorts = \Here -> Enters entry, edges = fmap closed body.edges, loops}
         else Left (Unbounded name)
-
-{- | A skip edge from the body's in port to its out, named after its first
-state. A body that runs no step is the identity already: it has nothing to skip.
--}
-skippable :: (NotSum a) => Name -> PerFuel SkipWhen -> Part a a -> Either Clash (Part a a)
-skippable name skips body = case body.inPorts Here of
-    Passes _ -> Right body
-    Exits -> Right body
-    Enters entry -> do
-        edges <- insertNew (entry, EventName entry.name skippedOutcome) (Edge (ToOut Here) (Skip name skips) Nothing) body.edges
-        pure Part {inPorts = body.inPorts, edges, loops = body.loops, fans = body.fans, caps = body.caps, routes = body.routes, groups = body.groups}
 
 -- | The state a part over one type starts at, if it runs a step before it ends.
 entryOf :: (NotSum a) => Part a o -> Either Clash Place

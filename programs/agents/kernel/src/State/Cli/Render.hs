@@ -19,8 +19,9 @@ import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Category.Flow (Name, namedState)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullReview)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, isRouteHub, placeName, places, shownOrder)
+import State.Category.Graph (Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, isRouteHub, placeName, places, shownOrder)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Protocol.Handback (TokenWord (NeedsDecisionWord), tokenWordText, tokenWords)
@@ -65,10 +66,10 @@ which carries its term's budgets, and 'fullReview', with each level's depth pros
 after it. A meter is a row by its name, in the flow's order, a choice's
 actions in the order the term declares them. One
 capped alike at every level is no row. A step the flow draws as optional
-('Skip' arrow) is skippable by its state's name.
+('State.Flow.Library.opt') is skippable by its block's name.
 -}
-fuel :: OpenGraph -> Text
-fuel g =
+fuel :: [(Name, PerFuel SkipWhen)] -> OpenGraph -> Text
+fuel skips g =
     rows $
         [someMeterName cap.meter : map (\level -> meterCell cap.meter level (atFuel level cap.limit)) levels | (_, cap) <- sortOn (uncurry shownOrder) (Map.toList g.caps), varies cap.limit]
             <> [ "Skippable when trivial" : map skippable levels
@@ -78,10 +79,9 @@ fuel g =
   where
     levels = [minBound .. maxBound]
     varies limit = nub (map (`atFuel` limit) levels) /= [atFuel Low limit]
-    -- An 'Opt' draws as a skip arrow out of its first state.
     optSteps :: [(StateName, PerFuel SkipWhen)]
-    optSteps = nub [(placeName from, skips) | ((from, _), Edge {arrow = Skip _ skips}) <- Map.toList g.edges]
-    skippable level = case ["`" <> stateNameText name <> "`" | (name, skips) <- optSteps, atFuel level skips == Skippable] of
+    optSteps = nub [(namedState name, when) | (name, when) <- skips]
+    skippable level = case ["`" <> stateNameText name <> "`" | (name, when) <- optSteps, atFuel level when == Skippable] of
         [] -> "none"
         names -> Text.intercalate ", " names
     skipAt level step = maybe Never (atFuel level) (lookup step optSteps)

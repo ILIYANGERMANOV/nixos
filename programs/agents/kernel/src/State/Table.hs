@@ -26,7 +26,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, skippedOutcome, stateNameText, stepName)
+import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, stateNameText, stepName)
 import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
 import State.Flow.Drawn (drawnDecoders, drawnSteps)
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
@@ -101,7 +101,7 @@ catalogProblems :: [Text]
 catalogProblems = namingProblems stepNames readers declared
   where
     readers = map fst (outcomeDecoders <> drawnDecoders)
-    declared = Set.fromList (concat [stepEvents s (EventName (stepName s) skippedOutcome `elem` readers) | AnyStep _ (SomeStep s) <- outcomeSteps <> drawnSteps])
+    declared = Set.fromList (concat [stepEvents s | AnyStep _ (SomeStep s) <- outcomeSteps <> drawnSteps])
 
 {- | Every way these names clash or miss an outcome: the steps' names, the
 event each outcome reader reads, and the events the steps declare.
@@ -116,9 +116,9 @@ namingProblems steps readers declared =
     twice :: (Ord a) => [a] -> [a]
     twice names = Map.keys (Map.filter (> (1 :: Int)) (Map.fromListWith (+) [(name, 1) | name <- names]))
 
--- | A step's events: its exit and continuing ones, and its skip if it has one.
-stepEvents :: (StepSet k) => Sing (s :: k) -> Bool -> [EventName]
-stepEvents s skips = map (EventName (stepName s)) (outcomeNames (outcomes s) <> [skippedOutcome | skips])
+-- | A step's events: its exit and continuing ones, or one per branch.
+stepEvents :: (StepSet k) => Sing (s :: k) -> [EventName]
+stepEvents s = map (EventName (stepName s)) (outcomeNames (outcomes s))
 
 check :: Map StateName Written -> AnyStep -> Either [Text] (StateName, Row)
 check rows (AnyStep _ (SomeStep s)) = case Map.lookup name rows of

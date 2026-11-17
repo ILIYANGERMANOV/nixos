@@ -41,7 +41,8 @@ import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
 import Options.Applicative qualified as Opt
-import State.Category.Fuel (Fuel (Balanced))
+import State.Category.Flow (Name)
+import State.Category.Fuel (Fuel (Balanced), PerFuel, SkipWhen)
 import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
 import State.Category.Step (StateName, stateNameText)
 import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
@@ -72,6 +73,7 @@ import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
 import State.Step.Artifact (Shape (..), shellPathText, shellWord)
+import State.Step.Catalog (termSkips)
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -594,10 +596,10 @@ adviceOf steps facts told stamp run = (map (.envelope) new, advice.action, out)
             <> printed
                 ( foldMap (<> "\n") (deliverMore settled.state.start advice)
                     <> foldMap (\note -> "refused: " <> note.message <> "\nfix: " <> note.fix <> "\n") settled.state.refused
-                    <> Text.concat ["  " <> line <> "\n" | line <- explained settled.state.start advice <> told <> unsynced <> advice.facts <> skippable settled.g settled.state]
+                    <> Text.concat ["  " <> line <> "\n" | line <- explained settled.state.start advice <> told <> unsynced <> advice.facts <> skippable settled.state]
                     <> (if Text.null advice.prompt then "" else "\n" <> deliverPrompt settled.state.start advice <> "\n")
                 )
-    settle current = case due current.g facts current.state of
+    settle current = case due facts current.state of
         Nothing -> ([], current, [])
         Just event -> case commit stamp current [(Cli, event)] of
             -- Nobody asked for it, so it is told and not stored.
@@ -1100,7 +1102,7 @@ unreplayed path refusal = Failure BadInput (Text.pack path <> " does not replay"
 rendered :: Steps -> Block -> FlowName -> Text
 rendered steps block flow = case block of
     States -> Render.states g steps
-    FuelRows -> Render.fuel g
+    FuelRows -> Render.fuel (flowSkips flow) g
     Mermaid -> mermaid g
     Kinds -> Render.kinds
     StopRule -> Render.stopRule
@@ -1112,6 +1114,11 @@ rendered steps block flow = case block of
         ChiefFlow -> chiefInitFix <> "\n"
   where
     g = graphOf flow
+
+-- | The optional blocks of the flow, with the levels that skip each.
+flowSkips :: FlowName -> [(Name, PerFuel SkipWhen)]
+flowSkips flowName = case (Role.role flowName).flow of
+    SomeFlow flow -> termSkips flow
 
 -- | Each flow's graph glues, as its test holds: a clash here is a bug.
 graphOf :: FlowName -> OpenGraph
