@@ -143,7 +143,10 @@ usageOf r = Text.unwords (filter (not . Text.null) (r.positional : map flagUsage
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
 recordables =
-    [ nothing ResearchSpawned
+    [ stay "gap" "<text>" $ \case
+        [] -> Left "the gap"
+        gap -> Right (Gapped (Text.unwords gap))
+    , nothing ResearchSpawned
     , nothing ResearchHandedBack
     , nothing InterviewAsked
     , nothing DiscussAsked

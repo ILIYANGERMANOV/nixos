@@ -63,6 +63,8 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   | `ANSWER yourself`, then `RUN state rule \| forward` | settle it yourself: `state rule <qid> --answer <a> --why <w> --cost <c>`; a choice that is the user's (the route of an ambiguous request): `state forward <qid>`, then as `ASK` |
 
   A `fix:` line names the command that works now: run it.
+- **Gaps.** Record each gap you meet in a flow, a skill or `state` with
+  `state record gap "<text>"`, never in a loose file; `state show` lists them.
 - **Writing.** Follow "Writing for people". Each message fits a phone screen
   or two. Separate what you **verified** from what you **inferred**.
 

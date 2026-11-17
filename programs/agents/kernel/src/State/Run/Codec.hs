@@ -209,6 +209,7 @@ eventType = \case
     Started _ -> "started"
     Targeted _ -> "target"
     Extended _ -> "extend"
+    Gapped _ -> "gap"
     Took scope outcome -> eventText (tookEvent scope outcome)
     Stopped _ -> "stop"
     Overridden _ _ -> "overridden"
@@ -241,6 +242,7 @@ eventData = \case
             <> "interface" .= map opText (Set.toList start.interface)
     Targeted target -> targetData target
     Extended why -> "why" .= why
+    Gapped gap -> "text" .= gap
     Took _ outcome -> outcomeData outcome
     Stopped stop -> "reason" .= reasonText stop.reason <> "why" .= stop.why
     Overridden (StateName to) why -> "to" .= to <> "why" .= why
@@ -286,6 +288,7 @@ eventOf kind obj = case kind of
     "started" -> Started <$> startOf obj
     "target" -> Targeted <$> targetOf obj
     "extend" -> Extended <$> obj .: "why"
+    "gap" -> Gapped <$> obj .: "text"
     "stop" -> Stopped <$> (Stop <$> (obj .: "reason" >>= named "stop reason" (parseByName reasonText)) <*> obj .: "why")
     "overridden" -> Overridden . StateName <$> obj .: "to" <*> obj .: "why"
     "refused" -> Refused <$> (Note <$> obj .: "message" <*> obj .: "fix")

@@ -82,6 +82,7 @@ genEvent =
         [ Started <$> genStart
         , Targeted <$> genTarget
         , Extended <$> genText
+        , Gapped <$> genText
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
         , Stopped <$> (Stop <$> Gen.enumBounded <*> genText)
         , Overridden . StateName <$> genText <*> genText

@@ -13,11 +13,11 @@ import State.Category.Graph (Cap (..), OpenGraph (..))
 import State.Category.Meter (someMeterName)
 import State.Category.Path (unrecorded)
 import State.Category.Step (eventText)
-import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
+import State.Cli.Command (BriefPart (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
-import State.Run.Event (Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
+import State.Run.Event (AgentRole (..), Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
 import State.Run.EventGen (fuelSet, runId)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, pickOf, runAt, securityScope, sha)
@@ -50,6 +50,20 @@ spec = describe "State.Cli.Command" $ do
             Left said -> fromRight "not help" (usage "state" said)
             Right _ -> "not help"
 
+    describe "brief" $ do
+        it "takes one step's section" $
+            case parse ["brief", "researcher", "--section", "research"] of
+                Right (OnRun (Brief (AgentRole "researcher") (Section (StateName "research")))) -> pure ()
+                _ -> expectationFailure "not the research section"
+
+        it "takes a whole brief, with a child engineer's task" $
+            case parse ["brief", "engineer", "--task", "t1"] of
+                Right (OnRun (Brief (AgentRole "engineer") (Whole (Just (TaskId "t1"))))) -> pure ()
+                _ -> expectationFailure "not the task's brief"
+
+        it "refuses a section and a task together" $
+            fromLeft "parsed" (parse ["brief", "engineer", "--task", "t1", "--section", "research"]) `shouldBe` "Invalid option `--section'"
+
     describe "record" $ do
         it "parses the Fuel step's level" $
             recorded ["fuel.set", "low"] `shouldBe` Right (fuelSet Low)
@@ -62,6 +76,12 @@ spec = describe "State.Cli.Command" $ do
             case parseCommand steps ["record", "target", "pr", "https://github.com/o/r/issues/3"] of
                 Right (_, Left failure) -> failure.why `shouldSatisfy` Text.isInfixOf "is not a GitHub PR URL"
                 _ -> expectationFailure "not a refusal"
+
+        it "records a gap with its text, words joined back" $
+            recorded ["gap", "no", "hook", "fact"] `shouldBe` Right (Gapped "no hook fact")
+
+        it "refuses a gap with no text" $
+            recorded ["gap"] `shouldBe` Left "record gap"
 
         it "records an extend with its why" $
             recorded ["extend", "the", "user", "goes", "on"] `shouldBe` Right (Extended "the user goes on")
@@ -266,7 +286,7 @@ spec = describe "State.Cli.Command" $ do
             (unknownEvent g (runAt fueled) "nope").fix `shouldBe` "state next"
 
         it "lists every event with no run, fixed by the help" $
-            (\failure -> (Text.isPrefixOf "the events are research.spawned, " failure.why, failure.fix)) (anyEvent "nope") `shouldBe` (True, "state help")
+            (\failure -> (Text.isPrefixOf "the events are gap, research.spawned, " failure.why, failure.fix)) (anyEvent "nope") `shouldBe` (True, "state help")
 
         it "refuses a question id that is not open, malformed or not" $
             [(failure.what, failure.why, failure.fix) | raw <- ["q1", "r1:99"], Left failure <- [openQid (runAt fueled) raw]]

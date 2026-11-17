@@ -45,12 +45,12 @@ import State.Category.Flow (Name)
 import State.Category.Fuel (Fuel (Balanced), PerFuel, SkipWhen)
 import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
 import State.Category.Step (StateName, stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
+import State.Cli.Command (Block (..), BriefPart (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, chiefInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
 import State.Cli.Route qualified as Route
-import State.Cli.View (beginText, brief, pendingLines, showRun, taskBrief)
+import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, taskBrief)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, rebound, renderBinding, resolve, slotOf, staleNote, stashFile, storeRoot)
@@ -370,7 +370,7 @@ runAnswer steps call bound found want = case want of
             Left refusal -> ([], failureText "resume" (explain run.g (Fold.fuelOf run.state) run.state.at refusal))
             Right (restart, after) ->
                 let (new, _, out) = adviceOf steps facts told stamp after
-                 in (map (.envelope) restart <> new, recordedLines restart <> showRun after.g after.state <> out.text)
+                 in (map (.envelope) restart <> new, recordedLines restart <> showRun steps after.g after.state <> out.text)
     SpawnRole spawned -> do
         (facts, told) <- readFacts
         onHook facts.pr $ \stamp run ->
@@ -529,12 +529,18 @@ planOf steps worktreeHead file g state = \case
             printed ("forwarded " <> qidText qid <> "\n") <> mconcat [delivered after (deliver after.start (AwaitAnswer p.asking.question)) | p <- after.pending, p.asking.question.qid == qid]
     Answer raw answer by -> answeredQid state raw >>= \qid -> Right (Plan [Answered qid answer (fromMaybe (Ask.deliver state.start.principal) by)] (\after _ -> printed ("answered " <> qidText qid <> "\n") <> writtenDown after qid))
     StopRun stop -> Right (Plan [Event.Stopped stop] (\after _ -> printed "stopped\n" <> delivered after (deliver after.start (Advice.Stopped stop))))
-    ShowRun -> Right (Plan [] (\_ _ -> printed (showRun g state)))
+    ShowRun -> Right (Plan [] (\_ _ -> printed (showRun steps g state)))
     Pending -> Right (Plan [] (\_ _ -> printed (Text.unlines (pendingLines state))))
-    Brief role task -> case brief steps state role task of
+    Brief role (Whole task) -> case brief steps state role task of
         Left unknown -> Left (Failure BadInput ("task " <> taskIdText unknown) "the breakdown has no such task" "state show")
         Right text -> Right (Plan [] (\_ _ -> printed text))
+    Brief role (Section name) -> case briefSection steps role name of
+        Left names -> Left (Failure BadInput ("section " <> stateNameText name) (sectionsText names) ("state brief " <> roleText role <> " --section <step>"))
+        Right text -> Right (Plan [] (\_ _ -> printed text))
   where
+    sectionsText = \case
+        [] -> "the role runs no step"
+        names -> "the role's sections are " <> Text.intercalate ", " (map stateNameText names)
     open = openQid state
     asked question = printed ("asked " <> qidText question.qid <> "\n")
     raised raise qid = case raise of
