@@ -26,14 +26,14 @@ request -> route -> branch, inline -> next -> request | done
 - **Route.** At the `route` hub, guess the branch and the request's Fuel
   from the request, and say both in one line. Ask once, through
   `state ask --kind Pick`, only when the request is ambiguous, your guess
-  first. Fuel is per request: Balanced unless the request says otherwise;
-  a different one is `state record fuel <level>` at the hub, before the
-  branch.
+  first. Fuel is per request and carries over from the last one: at each
+  hub, before the branch, record this request's, `state record fuel <level>`,
+  Balanced unless the request says otherwise.
 - **Branches.**
 
   | Branch | You |
   |---|---|
-  | `architect`, `engineer`, `10x` | load that skill with the Skill tool (`architect`, `engineer`, `10x-engineer`) and follow it; its `state init` line prints the current step of this run |
+  | `architect`, `engineer`, `10x` | load that skill with the Skill tool (`architect`, `engineer`, `10x-engineer`) and follow it; its `state init` line prints the current step of this run. For `10x`, skip Intake's directory, `git init` and `state init`, which start a separate run: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
   | `blocks` | pick the block at the `block` hub; an `open_*` step reads the issue, branch or PR the request names |
   | `discussion` | below |
   | `other` | do it yourself (`direct`) |
@@ -41,11 +41,25 @@ request -> route -> branch, inline -> next -> request | done
 - **Discussion.** Read-only: no edits, commits, pushes or PRs; the hooks deny
   them. Explain and show: findings, diagrams, pseudo-code, tables; then ask
   the next question, your recommendation first. Facts come from researchers,
-  never from memory. Record `enough` only when the user moves on. A ticket
+  never from memory. Record `discussing.enough` when the user moves on and
+  no researcher is open. A ticket
   only when the user asks: then record `enough` and route the next request
   to `architect`.
+- **Reviewing block.** Before it, write `requirements.md` in the notes
+  dir: the request's requirements, one per line, for the review to judge.
+  Pick rows as the review rules of `/engineer` say (load it with the Skill
+  tool). `final` goes to `next`, not to a describe: never `final` with
+  chosen rows while a Re-review is left, `loop` them to a fixer instead;
+  rows still chosen at `final` go in the result for the user.
 - **Ask through `state ask`.** Never call `AskUserQuestion` before
-  `state ask`. A `fix:` line names the command that works now: run it.
+  `state ask`; then do what it, or the next `state next`, prints:
+
+  | Prints | You |
+  |---|---|
+  | `ASK user`, `ASK <Kind> <qid>` | one `AskUserQuestion`, then `state answer <qid> <answer>` |
+  | `ANSWER yourself`, then `RUN state rule \| forward` | settle it yourself: `state rule <qid> --answer <a> --why <w> --cost <c>`; a choice that is the user's (the route of an ambiguous request): `state forward <qid>`, then as `ASK` |
+
+  A `fix:` line names the command that works now: run it.
 - **Writing.** Follow "Writing for people". Each message fits a phone screen
   or two. Separate what you **verified** from what you **inferred**.
 
@@ -117,6 +131,9 @@ Each step is a state; `state next` names the one you are in.
 
 ## Resume
 
-`/chief resume`: in the run's notes directory (the newest `/tmp/chief-*`
-unless the user names one), `state init --notes "$PWD"` (it resumes the
-run), then `state show`, then carry on with `state next`.
+`/chief resume`: the notes dir is the newest `/tmp/chief-*` unless the user
+names one. From the worktree the run started in (inside the notes dir it
+fails: not a git work tree), `state init --notes <notes dir>`: it resumes
+the run. Then `state show`. Stopped inside `architect`, `engineer` or `10x`:
+load that branch's skill again with the Skill tool. Carry on with
+`state next`.

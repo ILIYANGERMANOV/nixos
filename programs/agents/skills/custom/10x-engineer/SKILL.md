@@ -1,6 +1,6 @@
 ---
 name: 10x-engineer
-description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown with a Fuel per task, runs whole /engineer flows in worktrees, one per task, answers their questions as the authority table allows and asks the user the rest with context, owns CI waits and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Driven by the `state` kernel, resumable with `resume`. Factory only, invoked by the user.
+description: Runs a team of engineers as a principal engineer - takes issues, PR links or a big goal across repos, researches, spikes blockers, interviews the user, confirms a task breakdown with a Fuel per task, runs whole /engineer flows in worktrees, one per task, answers their questions as the authority table allows and asks the user the rest with context, owns CI waits and hand-over, keeps a batched review queue, merges what the user approved head-bound and never on red, and finishes with a fresh-context audit. Driven by the `state` kernel, resumable with `resume`. Factory only.
 argument-hint: "[issues, PR links, a goal] | resume [run]"
 ---
 

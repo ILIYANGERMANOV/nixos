@@ -541,12 +541,13 @@ chiefRequests = describe "the chief's requests" $ do
     it "refuses a new Fuel inside a request" $
         chief (firstRequest <> [FuelSet Low]) `shouldBe` Left (FuelSetOnce Max)
 
-    it "chains architect, a block and architect again through next, naming the latest result each time" $ do
+    it "chains architect, a block and architect again through next, naming the newest url each time" $ do
         let designed = pick "architect" : within "architect" (ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])
             researched = [pick "blocks", stepTook (Picked "block" (OutcomeName "researching"))] <> within "researching" [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring)]
             shipped = [pick "blocks", stepTook (Picked "block" (OutcomeName "shipping"))] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
-        map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed <> [stepTook NextRequest] <> researched, designed <> [stepTook NextRequest] <> shipped <> [stepTook NextRequest] <> designed]
-            `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl)]
+            andThen first later = first <> [stepTook NextRequest] <> later
+        map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
+            `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
   where
     chief events = replay chiefGraph (logOf (Started (startOf ChiefFlow (ByUser OwnPr)) :| events))
     pick branch = stepTook (Picked "route" (OutcomeName branch))
