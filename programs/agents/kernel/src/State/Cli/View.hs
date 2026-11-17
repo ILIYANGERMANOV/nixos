@@ -22,7 +22,7 @@ import State.Category.Step (EventName (..), SomeStep (..), StateName, eventText,
 import State.Cli.Render qualified as Render
 import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
-import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName)
+import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
@@ -59,13 +59,14 @@ showRun steps g state =
 
 {- | What the hooks record of the flow's events, so no agent records them
 by hand: the spawn and the hand-back of each step a subagent runs as a child
-of a choice, the only steps whose spawn a hook sees ('State.Protocol.Hook.spawnedAt').
+of a choice, the only steps whose spawn a hook sees ('opensChild'), that this flow takes.
 -}
 hookLines :: Steps -> OpenGraph -> [Text]
 hookLines steps g =
     [ line
     | role <- agentRoles steps
-    , AnyStep _ (SomeStep s) <- stepsRunBy steps role
+    , AnyStep l (SomeStep s) <- stepsRunBy steps role
+    , opensChild l s
     , let spawned = EventName (stepName s) spawnedOutcome
     , Set.member spawned flowEvents
     , line <-

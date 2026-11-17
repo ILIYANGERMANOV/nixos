@@ -1,6 +1,6 @@
 module State.Cli.CommandSpec (spec) where
 
-import Data.Either (fromLeft, fromRight, isLeft)
+import Data.Either (fromLeft, fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -58,7 +58,7 @@ spec = describe "State.Cli.Command" $ do
                 _ -> expectationFailure "not the task's brief"
 
         it "refuses a section and a task together" $
-            isLeft (parse ["brief", "engineer", "--task", "t1", "--section", "research"]) `shouldBe` True
+            fromLeft "parsed" (parse ["brief", "engineer", "--task", "t1", "--section", "research"]) `shouldBe` "Invalid option `--section'"
 
     describe "record" $ do
         it "parses a stay event's argument" $
