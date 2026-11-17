@@ -451,22 +451,27 @@ startOf obj =
 
 {- | The user on its own PR is a bare word, as a log older than rounds wrote
 it; the user's round is its PR; a parent run is its id, its log, the task it
-gave, a round's PR and a decided plan.
+gave, a round's PR and a decided plan; the caller is the user's form marked
+@caller@.
 -}
 principalEncoding :: Principal -> Encoding
 principalEncoding = \case
     ByUser OwnPr -> text "user"
     ByUser shape@(RoundOn _) -> pairs (shapeData shape)
     ByRole parent shape plan -> pairs ("run" .= runIdText parent.run <> "log" .= parent.log <> "task" .= taskIdText parent.task <> shapeData shape <> planData plan)
+    ByCaller OwnPr -> text "caller"
+    ByCaller shape@(RoundOn _) -> pairs ("caller" .= True <> shapeData shape)
 
 principalOf :: Value -> Parser Principal
 principalOf = \case
     String "user" -> pure (ByUser OwnPr)
+    String "caller" -> pure (ByCaller OwnPr)
     Object obj ->
-        obj .:? "run" >>= \case
-            Nothing -> ByUser . RoundOn . Url <$> obj .: "pr"
-            Just run -> ByRole <$> (Parent <$> runIdOf run <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj <*> planOf obj
-    other -> fail ("a principal is \"user\", {pr} or {run, log}, not " <> show other)
+        (,) <$> obj .:? "run" <*> obj .:? "caller" >>= \case
+            (Just run, _) -> ByRole <$> (Parent <$> runIdOf run <*> obj .: "log" <*> taskOf obj) <*> shapeOf obj <*> planOf obj
+            (Nothing, Just True) -> ByCaller . RoundOn . Url <$> obj .: "pr"
+            (Nothing, _) -> ByUser . RoundOn . Url <$> obj .: "pr"
+    other -> fail ("a principal is \"user\", \"caller\", {pr}, {caller, pr} or {run, log}, not " <> show other)
 
 askingOf :: Object -> Parser Asking
 askingOf obj = do
@@ -499,17 +504,19 @@ askerOf = \case
     Object obj -> obj .:? "role" >>= maybe (ChildRun <$> (obj .: "run" >>= runIdOf)) (pure . Subagent . AgentRole)
     other -> fail ("a question is from \"self\", {role} or {run}, not " <> show other)
 
--- | As a principal: the user is a bare word, a parent run is its id.
+-- | As a principal: the user and the caller are bare words, a parent run is its id.
 aboveEncoding :: Above -> Encoding
 aboveEncoding = \case
     TheUser -> text "user"
     ParentRun run -> pairs ("run" .= runIdText run)
+    TheCaller -> text "caller"
 
 aboveOf :: Value -> Parser Above
 aboveOf = \case
     String "user" -> pure TheUser
+    String "caller" -> pure TheCaller
     Object obj -> ParentRun <$> (obj .: "run" >>= runIdOf)
-    other -> fail ("\"user\" or {run}, not " <> show other)
+    other -> fail ("\"user\", \"caller\" or {run}, not " <> show other)
 
 basisEncoding :: Basis -> Encoding
 basisEncoding = \case

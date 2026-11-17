@@ -674,9 +674,7 @@ deliver start = \case
             <> qidText question.qid
             <> " - "
             <> questionLine question
-    AwaitAnswer question -> case Ask.deliver start.principal of
-        TheUser -> "ASK " <> questionLine question
-        ParentRun _ -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
+    AwaitAnswer question -> above ("ASK " <> questionLine question) (tokenLine (NeedsDecision (Asks question)))
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
     TriageStop child task stop -> "RUN " <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task <> askFrom (runIdText child) (stopLine stop)
@@ -689,13 +687,12 @@ deliver start = \case
         | otherwise -> awaiting Merge (Text.unwords [maybe (taskIdText task) urlText pr | (task, pr) <- toList tasks])
     Run (option :| []) -> "RUN " <> optionCommand start option
     Run (_ :| _ : _) -> "RUN one option below"
-    Stopped stop -> case Ask.deliver start.principal of
-        TheUser -> "STOP " <> reasonText stop.reason <> " " <> stop.why
-        ParentRun _ -> "HANDBACK " <> stopLine stop
-    Done url -> case Ask.deliver start.principal of
-        TheUser -> "DONE" <> foldMap ((" " <>) . urlText) url
-        ParentRun _ -> "HANDBACK " <> tokenWordText ReadyWord <> foldMap ((" " <>) . urlText) url
+    Stopped stop -> above ("STOP " <> reasonText stop.reason <> " " <> stop.why) (stopLine stop)
+    Done url -> above ("DONE" <> prs) (tokenWordText ReadyWord <> prs)
+      where
+        prs = foldMap ((" " <>) . urlText) url
   where
+    above = upTo (Ask.deliver start.principal)
     has op = Set.member op start.interface
     -- A run that cannot be woken hands the wait up to the run above (#360's AWAIT).
     awaiting waiting refs = (if has Event.Await then "" else "HANDBACK ") <> await <> " " <> waitingText waiting <> " " <> refs
@@ -709,6 +706,13 @@ deliverMore :: Start -> Advice -> [Text]
 deliverMore start advice
     | handsBack (deliver start advice.action) = []
     | otherwise = map (deliver start) advice.more
+
+-- | The user's own line, or the hand-back carrying it to a parent run or the caller.
+upTo :: Above -> Text -> Text -> Text
+upTo above user handback = case above of
+    TheUser -> user
+    ParentRun _ -> "HANDBACK " <> handback
+    TheCaller -> "HANDBACK " <> handback
 
 -- | A delivered line that hands the run back to its parent.
 handsBack :: Text -> Bool
@@ -740,9 +744,7 @@ ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itsel
         AnswerSelf -> ([], "ANSWER yourself")
         Up above ->
             ( [Forwarded question.qid above]
-            , case above of
-                TheUser -> "ASK user"
-                ParentRun _ -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
+            , upTo above "ASK user" (tokenLine (NeedsDecision (Asks question)))
             )
 
 {- | Where the run is, in one plain line: the state, and what it means to
@@ -767,8 +769,10 @@ atLine steps g state = case state.at of
 option to take, or where the step's outcomes lead, one per line.
 -}
 explained :: Start -> Advice -> [Text]
-explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads
+explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads <> callerAnswers
   where
+    -- No parent log records the caller's answer, so the resumed run records it itself.
+    callerAnswers = ["resumed with the answer: state answer " <> qidText question.qid <> " <answer>" | AwaitAnswer question <- [advice.action], TheCaller <- [Ask.deliver start.principal]]
     listed _ [] = []
     listed heading options = heading : ["  " <> optionCommand start option <> " - " <> option.means | option <- options]
 

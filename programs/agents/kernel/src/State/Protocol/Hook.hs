@@ -588,9 +588,10 @@ encodeReply = \case
     Note context -> Just (encode (object ["context" .= context]))
 
 {- | After the lead put a question to the user: the line recording each answer
-still awaited. A run started by a parent asks it, not the user.
+still awaited. A run started by a parent or a caller asks it, not the user.
 -}
 awaitingUser :: RunState -> [Text]
 awaitingUser state = case state.start.principal of
     ByUser _ -> ["state: record the user's answer: state answer " <> qidText p.asking.question.qid <> " <answer>" | p <- state.pending, p.waits == ForAnswer]
     ByRole {} -> []
+    ByCaller _ -> []

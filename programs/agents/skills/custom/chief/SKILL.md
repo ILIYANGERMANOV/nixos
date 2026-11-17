@@ -10,9 +10,12 @@ argument-hint: "[request] | resume"
 Begin with `state`: your first command is
 `state init --notes /tmp/chief-<owner>-<repo>-<slug>/ --flow chief`,
 the slug a short name for the session, each character but `[A-Za-z0-9._-]`
-a `-`. Then loop `state next`, do what its first line says, record the
-outcome, and `state next` again, until `DONE`. `$ARGUMENTS` starting with
-`resume`: go to Resume.
+a `-`. Then check you are current: `git fetch origin main`; when
+`git rev-list --count HEAD..origin/main` is not 0, tell the user this
+worktree is that many commits behind `origin/main`, and branch new work from
+`origin/main`. Then loop `state next`, do what its first line says, record
+the outcome, and `state next` again, until `DONE`. `$ARGUMENTS` starting
+with `resume`: go to Resume.
 
 You are the user's chief for `$ARGUMENTS`, or the conversation so far. The
 user speaks to you only; you route each request and decide nothing for them.
@@ -137,6 +140,6 @@ Each step is a state; `state next` names the one you are in.
 `/chief resume`: the notes dir is the newest `/tmp/chief-*` unless the user
 names one. From the worktree the run started in (inside the notes dir it
 fails: not a git work tree), `state init --notes <notes dir>`: it resumes
-the run. Then `state show`. Stopped inside `architect`, `engineer` or `10x`:
+the run. Then check you are current, as above, and `state show`. Stopped inside `architect`, `engineer` or `10x`:
 load that branch's skill again with the Skill tool. Carry on with
 `state next`.
