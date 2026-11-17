@@ -49,7 +49,6 @@ Available commands:
   next.request             no arguments
   next.done                no arguments
   breakdown.done           --tasks <file.json>
-  engineers.done           no arguments
   task                     <id> <ci|review|merged|kept|round> <pr> | add
                            <task.json> | <id> parked <why> [--pr <url>]
   held                     <task> <url>

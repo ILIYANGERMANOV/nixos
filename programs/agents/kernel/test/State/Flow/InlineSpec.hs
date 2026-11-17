@@ -50,11 +50,11 @@ spec = describe "a 10x run inline under a Scope" $ do
         map (fmap ((.held) . currentFan) . walked) [handedBack <> [held], handedBack <> [held, bare ["acted", "t1", wake]]]
             `shouldBe` [Right [(t1, Url wake)], Right []]
 
-    it "advises the fan-out's end by its qualified name" $
-        optionCommands <$> actionAt merged `shouldBe` Right ["state record 10x/engineers.done"]
+    it "goes on to its merge once every task is settled, advised by its qualified name" $
+        optionCommands <$> actionAt merged `shouldBe` Right ["state record 10x/merge.done <url>", "state record 10x/merge.next_round"]
 
-    it "ends the run through a bare fan-out end and a bare merge, every outcome in its scope" $
-        (\state -> (state.at, Map.keys state.fans)) <$> walked (merged <> [bare ["engineers.done"], bare ["merge.done", pr]])
+    it "ends the run through a bare merge, every outcome in its scope" $
+        (\state -> (state.at, Map.keys state.fans)) <$> walked (merged <> [bare ["merge.done", pr]])
             `shouldBe` Right (Out, [ScopedFan tenXScope engineers])
   where
     t1 = TaskId "t1"

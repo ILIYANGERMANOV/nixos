@@ -14,13 +14,13 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), scopePath, unqualify)
+import State.Category.Flow (Flow (..), Group (..), scopePath, unqualify)
 import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (someMeterName)
-import State.Category.Path (awaitDone, ty)
+import State.Category.Path (ty, unrecorded)
 import State.Category.Step (EventName (..), OutcomeName (..), StepSet (stepName), stateNameText)
 import State.Flow.Drawn (fuelTakes)
 import State.Flow.Engineer (engineer)
@@ -54,15 +54,11 @@ spec = describe "State.Run.Fold" $ do
         -- A fan-out's stays are its children's events. A scope's are named bare. An await goes on
         -- by no event, and a researcher hands back by no edge: wherever the run is.
         Set.delete (outcomeEvent (outcome ResearchHandedBack)) outcomeNames
-            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (awaitDone flow place)]
+            `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay, isNothing (unrecorded flow place)]
 
     describe "the 10x's fan-out" $ do
         let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
             tenXRun = replay tenXGraph . tenXLog
-            -- The writer's path: one more line to the replayed log.
-            tenXAppend events event = do
-                state <- tenXRun events
-                appendTo tenXGraph state (tenXLog events) (line (fromIntegral (length events) + 1) event)
             toEngineers = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))]
             child = childOf "c1" "t1"
             rePlan = [Overridden (StateName "breakdown") "re-plan", stepTook (BreakdownDone engineers (tasksOf (plainTask "t2" [] :| [])))]
@@ -73,23 +69,19 @@ spec = describe "State.Run.Fold" $ do
         it "logs a child's spawn and hand-back at the fan-out, staying there" $
             atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (AsksUp (QId (runId "c1") 1))])
                 `shouldBe` Right (Just (StateName "engineers"))
-        it "refuses to write the fan-out's end while a task is unsettled" $
-            tenXAppend (toEngineers <> [Spawned child]) (stepTook (FanDone engineers))
-                `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
-        it "refuses to write the fan-out's end while a finished task's PR is in CI" $
-            tenXAppend (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi (Url "pr"))]) (stepTook (FanDone engineers))
-                `shouldBe` Left (FanRefused (Fan.Unsettled (TaskId "t1" :| [])))
-        it "replays a v4 log's fan-out end with a finished task's PR in CI" $
-            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi (Url "pr")), stepTook (FanDone engineers)])
-                `shouldBe` Right (Just (StateName "merge"))
-        it "leaves the fan-out for the merge once every task is settled" $
-            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1")), stepTook (FanDone engineers)])
+        it "waits at the engineers' await while a task is unsettled" $
+            atName <$> tenXRun (toEngineers <> [Spawned child]) `shouldBe` Right (Just (StateName "engineers"))
+        it "waits at the engineers' await while a task's PR is in CI" $
+            atName <$> tenXRun (toEngineers <> [Spawned child, TaskMoved (TaskId "t1") (InCi (Url "pr")), HandedBack (runId "c1") (Finished (oneLine "PR #1"))])
+                `shouldBe` Right (Just (StateName "engineers"))
+        it "goes on to the merge by itself once every task is settled" $
+            atName <$> tenXRun (toEngineers <> [Spawned child, HandedBack (runId "c1") (Finished (oneLine "PR #1"))])
                 `shouldBe` Right (Just (StateName "merge"))
         it "refuses a task the breakdown lacks" $
             tenXRun (toEngineers <> [Held (TaskId "t9") (Url "u")]) `shouldBe` Left (FanRefused (Fan.UnknownTask (TaskId "t9")))
         it "takes a stop at the merge once every task is parked" $ do
             let allParked = Stop Blocked "all tasks parked"
-            (.stopped) <$> tenXRun (toEngineers <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), stepTook (FanDone engineers), Stopped allParked])
+            (.stopped) <$> tenXRun (toEngineers <> [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), Stopped allParked])
                 `shouldBe` Right (Just allParked)
         it "refuses a new breakdown while a child is at work" $
             tenXRun (toEngineers <> [Spawned child] <> rePlan) `shouldBe` Left (FanRefused (Fan.Busy (TaskId "t1" :| [])))
@@ -100,7 +92,7 @@ spec = describe "State.Run.Fold" $ do
             let fix = plainTask "fix" []
                 withFix = toEngineers <> [TaskAdded fix]
             fmap (.id) . (.tasks) . currentFan <$> tenXRun withFix `shouldBe` Right [TaskId "t1", TaskId "fix"]
-            tenXRun (withFix <> [TaskMoved (TaskId "t1") (Merged (Url "pr")), TaskMoved (TaskId "fix") (InReview (Url "fix-pr")), stepTook (FanDone engineers), stepTook (MergeDone engineers (Url "pr"))])
+            tenXRun (withFix <> [TaskMoved (TaskId "t1") (Merged (Url "pr")), TaskMoved (TaskId "fix") (InReview (Url "fix-pr")), stepTook (MergeDone engineers (Url "pr"))])
                 `shouldBe` Left (FanRefused (Fan.Unmerged (TaskId "fix" :| [])))
         it "refuses an added task under an id the fan-out has" $
             tenXRun (toEngineers <> [TaskAdded (plainTask "t1" [])]) `shouldBe` Left (FanRefused (Fan.TaskExists (TaskId "t1")))
@@ -136,12 +128,9 @@ spec = describe "State.Run.Fold" $ do
                 [ stepTook (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
                 , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                , stepTook (FanDone engineers)
                 ]
-            bothDone = firstDone <> [tookIn (scopePath "second") (FanDone engineers)]
-        it "keeps the first fan-out's tasks out of the second" $
-            twoFansRun (firstDone <> [Spawned (childOf "c2" "t1")]) `shouldBe` Left (FanRefused (Fan.UnknownTask t1))
-        it "leaves the second, empty fan-out by its own done record" $
+            bothDone = firstDone
+        it "passes the second, empty fan-out by itself" $
             atName <$> twoFansRun bothDone `shouldBe` Right (Just (StateName "merge"))
         it "refuses the first fan-out's merge while its task is unmerged" $
             twoFansRun (bothDone <> [stepTook (MergeDone engineers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
@@ -191,7 +180,6 @@ spec = describe "State.Run.Fold" $ do
                 [ inA (BreakdownDone engineers (tasksOf (plainTask "t1" [] :| [])))
                 , Spawned (childOf "c1" "t1")
                 , HandedBack (runId "c1") (Finished (oneLine "PR #1"))
-                , inA (FanDone engineers)
                 , TaskMoved (TaskId "t1") (Merged (Url "pr"))
                 , inA (MergeNextRound engineers)
                 , stepTook (PlanDone "plan.md")
@@ -436,7 +424,7 @@ genCandidate = do
     pure (fuelSet fuel : concatMap handedBackAtOnce events)
   where
     took name = let (scope, bare) = unqualify (stateNameText name.step) in Took scope <$> outcomeOf (EventName (StateName bare) name.outcome)
-    awaitNames = Set.fromList [name | ((from, name), _) <- Map.toList g.edges, isJust (awaitDone g from)]
+    awaitNames = Set.fromList [name | ((from, name), _) <- Map.toList g.edges, isJust (unrecorded g from)]
     handedBackAtOnce event = case event of
         Took _ spawned | outcomeEvent spawned == outcomeEvent (outcome ResearchSpawned) -> [event, stepTook ResearchHandedBack]
         _ -> [event]
@@ -690,9 +678,9 @@ tenXRounds = describe "the 10x's rounds" $ do
     planned = enoughIn "gather" <> [stepTook (PlanDone "p"), Took mempty (runOf "simplify_plan"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
     onPr = roundTask "t1" "https://pr/1"
     toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (task :| [])))]
-    settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved, stepTook (FanDone engineers)]
+    settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved]
     -- The first round spends Balanced's 5 researchers and 30 questions, then loops.
-    round1 = spent 1 <> [stepTook ResearchHandedBack] <> planned <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 (Kept pr), stepTook (FanDone engineers), stepTook (MergeNextRound engineers)]
+    round1 = spent 1 <> [stepTook ResearchHandedBack] <> planned <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 (Kept pr), stepTook (MergeNextRound engineers)]
     -- Balanced's 5 researchers, one handed back before the round ends, and 30 questions.
     spent from = concat (replicate 5 (spawnedIn "gather")) <> replicate 4 (stepTook ResearchHandedBack) <> interviewed (map askAt [from .. from + 29])
     askAt n = Asked (Asking (Question (QId run n) Fact (oneLine "a question")) (StateName "interview") Itself)
@@ -810,14 +798,14 @@ fan-out, with its own tasks and children.
 scopedFans :: OpenGraph
 scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Scope "b" fanned))
   where
-    fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
+    fanned = Do (Breakdown engineers) :> Library.par (Group engineers) engineer :> Do (Merge engineers)
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
 first's PRs. No step goes from a PR back to a plan, so the second has no
 breakdown of its own.
 -}
 twoFans :: OpenGraph
-twoFans = either (error . show) id (graph (Do (Breakdown engineers) :> Par engineers engineer :> Scope "second" (Par engineers (Do SimplifyPR)) :> Do (Merge engineers)))
+twoFans = either (error . show) id (graph (Do (Breakdown engineers) :> Library.par (Group engineers) engineer :> Scope "second" (Library.par (Group engineers) (Do SimplifyPR)) :> Do (Merge engineers)))
 
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName

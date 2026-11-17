@@ -70,7 +70,7 @@ import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameT
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
-import State.Category.Path (awaitDone, step)
+import State.Category.Path (awaitDone, forkPasses, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
 import State.Flow.Drawn (isPick)
 import State.Flow.Library (simplifyPlan)
@@ -83,7 +83,7 @@ import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
-import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
+import State.Step.Fan (FanStep, Outcome (..), fanNamed, fanOf, mergeName)
 import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Review (Outcome (..), ReviewStep)
@@ -246,29 +246,16 @@ unvoided logged = partition (\envelope -> Set.notMember envelope.seq voided) log
 
 {- | One more line to the log the state replays. A void is no step of the
 fold, so the log is replayed with it: it must name a line the replay keeps,
-and the log without that line must still replay. A fan-out's end is written
-only once every task is settled ('leaves').
+and the log without that line must still replay.
 -}
 appendTo :: OpenGraph -> RunState -> NonEmpty Envelope -> Envelope -> Either Refusal Append
 appendTo g state logged envelope
     | Voided n _ <- envelope.event = voiding n
-    | otherwise =
-        append g state envelope >>= \case
-            Appended next -> Appended next <$ leaves state envelope.event
-            AlreadyLogged -> Right AlreadyLogged
+    | otherwise = append g state envelope
   where
     voiding n
         | n `notElem` map (.seq) (fst (unvoided (NonEmpty.toList logged))) = Left (NotVoidable n)
         | otherwise = Appended <$> Bifunctor.first (VoidBreaks n) (replay g (logged <> pure envelope))
-
-{- | A fan-out's end needs every task settled as it is written, not as it
-replays: what settles a task changes, and a logged end stays a fact. A v4 log
-left a fan-out with a finished task's PR still in CI, settled then.
--}
-leaves :: RunState -> Event -> Either Refusal ()
-leaves state = \case
-    Took scope (AnyOutcome FanLayer (SomeOutcome _ _ (FanDone fan))) -> Bifunctor.first FanRefused (Fan.leave (fanIn state.fans (ScopedFan scope fan)))
-    _ -> Right ()
 
 -- | The log's events after a state: @fold (a <> b) = fold a >=> fold b@.
 fold :: OpenGraph -> RunState -> [Envelope] -> Either Refusal RunState
@@ -363,7 +350,7 @@ applyEvent g state n = \case
     Forwarded qid to -> going (forwarded state qid to)
     Answered qid answer by -> going (answered state qid answer by)
     Spawning task -> going (inFan (Fan.spawning (askingChildren state) task))
-    Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned (askingChildren state) child))
+    Spawned child -> going (atAwait g state >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
     TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= afterMove task moved)
@@ -395,9 +382,10 @@ applyEvent g state n = \case
     inFan change = case fanAt state.at of
         Just fan -> (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (change (fanIn state.fans fan))
         Nothing -> Left NotAtFan
+    -- After any event, a state that goes on by itself does ('joined').
     going next = case state.stopped of
         Just stop -> Left (AfterStop stop)
-        Nothing -> (\moved -> moved {refused = Nothing}) <$> next
+        Nothing -> (\moved -> joined g moved {refused = Nothing}) <$> next
 
 {- | A target is named at a request's Fuel step, before its level: its
 request's work is on it, so a PR, draft or ticket an earlier request
@@ -434,8 +422,8 @@ meter and its problems join the rounds it ends.
 -}
 took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
 took g state scope outcome@(AnyOutcome _ some) = case NonEmpty.nonEmpty [metered | (metered, cap) <- Map.toList g.caps, owedBy cap.meter (RecordedOutcome some) == Just Closes] of
-    Nothing -> joined g <$> walked g state scope outcome
-    Just forks -> joined g <$> handedBack state forks
+    Nothing -> walked g state scope outcome
+    Just forks -> handedBack state forks
 
 {- | A child's hand-back closes one open child of a fork of its step,
 wherever the run is while the group is open (structured concurrency): the
@@ -450,17 +438,21 @@ handedBack state forks@(first :| _) = case filter (`elem` openForks state) (NonE
 
 {- | A group's 'State.Category.Flow.Await' goes on by itself once every
 child handed back (an AND-join): no one records its @done@, as the
-run's ledger already holds the fact. At any other state, the run stays.
+run's ledger already holds the fact. A par's fork state goes on at once
+('forkPasses'). At any other state, the run stays.
 -}
 joined :: OpenGraph -> RunState -> RunState
 joined g state = case state.at of
     At place
         | Just edge <- awaitDone g place
-        , awaitedOpen g state.meters place == 0 ->
-            state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
+        , awaitedOpen g state place == 0 ->
+            joined g (movedOn edge)
+        | Just edge <- forkPasses g place -> joined g (movedOn edge)
     At _ -> state
     Out -> state
     Exit -> state
+  where
+    movedOn edge = state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
 
 -- | Each forked step's ledger with a child yet to hand back: a hand-back closes one.
 openForks :: RunState -> [Metered]
@@ -473,7 +465,7 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     let effect = effects scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
     maybe (Right ()) Left (pickedUsedUp g state from edge)
-    case (edge.to == At from, awaitedOpen g state.meters from) of
+    case (edge.to == At from, awaitedOpen g state from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
     meters <- spend g state (RecordedOutcome some)
@@ -629,7 +621,6 @@ built = \case
 fanOutcome :: ScopePath -> Outcome (s :: FanStep) l -> Map ScopedFan Fan -> Either Fan.Refusal (Map ScopedFan Fan)
 fanOutcome scope outcome fans = case outcome of
     BreakdownDone fan tasks -> (\fresh -> Map.insert (here fan) fresh fans) <$> Fan.broken tasks (fanIn fans (here fan))
-    FanDone _ -> Right fans
     MergeDone fan _ -> fans <$ Fan.closed (fanIn fans (here fan))
     MergeNextRound fan -> fans <$ Fan.closed (fanIn fans (here fan))
   where
@@ -703,7 +694,16 @@ fanIn fans fan = Map.findWithDefault emptyFan fan fans
 currentFan :: RunState -> Fan
 currentFan state = maybe emptyFan (fanIn state.fans) (fanAt state.at)
 
--- | A child's spawn or hand-back stays where the graph has that fan-out event: at the fan-out.
+{- | A child of a 'State.Flow.Library.par' is spawned while the run waits
+for its group, at its 'State.Category.Flow.Await': the 10x spawns an
+engineer once its task's dependencies merged.
+-}
+atAwait :: OpenGraph -> RunState -> Either Refusal ()
+atAwait g state = case state.at of
+    At place | Just (Awaiting _) <- Map.lookup place g.groupStates -> Right ()
+    _ -> Left (NoEdge state.at (fanEvent Spawns (askedAt state)))
+
+-- | A child's hand-back stays where the graph has that fan-out event: at the fan-out.
 atFan :: OpenGraph -> RunState -> FanEvent -> Either Refusal ()
 atFan g state event = case state.at of
     At place | Just Edge {arrow = Stay} <- step g place name -> Right ()
@@ -799,12 +799,14 @@ ledger :: Spent -> Maybe Spent
 ledger spent = if spent == empty then Nothing else Just spent
 
 {- | At a group's 'State.Category.Flow.Await', the children its forks
-opened that have yet to hand back: the state is left only at none (an
-AND-join). None elsewhere.
+opened that have yet to hand back, and a fan-out's tasks not yet settled:
+the state is left only at none (an AND-join). None elsewhere.
 -}
-awaitedOpen :: OpenGraph -> Map Metered Spent -> Place -> Natural
-awaitedOpen g meters place = case Map.lookup place g.groupStates of
-    Just (Awaiting group) -> sum [spent.open | (metered, spent) <- Map.toList meters, Map.lookup metered.place g.groupStates == Just (Forking group)]
+awaitedOpen :: OpenGraph -> RunState -> Place -> Natural
+awaitedOpen g state place = case Map.lookup place g.groupStates of
+    Just (Awaiting group) ->
+        sum [spent.open | (metered, spent) <- Map.toList state.meters, Map.lookup metered.place g.groupStates == Just (Forking group)]
+            + sum [fromIntegral (length (Fan.unsettled (fanIn state.fans (ScopedFan place.scope fan)))) | Just fan <- [fanNamed place.name]]
     Just (Forking _) -> 0
     Nothing -> 0
 

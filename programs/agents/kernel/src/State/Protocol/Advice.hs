@@ -68,7 +68,7 @@ import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
-import State.Step.Fan (Outcome (..), fanNamed)
+import State.Step.Fan (fanNamed)
 import State.Step.Fuel (Sing (Fuel))
 import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
@@ -185,7 +185,7 @@ again, until 'Nothing'.
 -}
 due :: Facts -> RunState -> Maybe Event
 due facts state = case (state.stopped, state.at) of
-    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> adopted place.name <> fromGitHub place.name <> skipped place <> leaves place)
+    (Nothing, At place) -> Event.Took place.scope <$> listToMaybe (kept place.name <> decided place.name <> adopted place.name <> fromGitHub place.name <> skipped place)
     (Nothing, Out) -> Nothing
     (Nothing, Exit) -> Nothing
     (Just _, _) -> Nothing
@@ -211,8 +211,6 @@ due facts state = case (state.stopped, state.at) of
         IsReady -> True
         IsMerged -> False
         IsClosed -> False
-    -- Every task settled: the fan-out is done, as GitHub's facts are recorded, with no one to run.
-    leaves place = [Catalog.outcome (FanDone fan) | Just fan <- [fanNamed place.name], Right () <- [Fan.leave (fanIn state.fans (ScopedFan place.scope fan))]]
     -- The Fuel decides a skip, or the facts at a level that skips by changed lines; a trivial task's is the agent's.
     skipped place = case skipHere place.name of
         Just skip
@@ -286,15 +284,14 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | isPick place.name, Map.member (place, enoughAt place) g.edges -> (atChoice place, choicePrompt place)
         (At place, _) | isPick place.name -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
+        (At _, _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
         (At place, _) | Just (Awaiting _) <- Map.lookup place g.groupStates -> plain (atAwait place)
         (At place, _) | place.name == stepName Fuel -> (atStep place Fuel, promptOf (row steps Fuel) <> fuelGiven)
         (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place, fuelTakes (fuelOf state) place.name event]))
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s) <> told s)
-            Nothing -> case fanNamed place.name of
-                Just fan -> plain (atFan (ScopedFan place.scope fan) facts.ended state)
-                Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " fan-out's outcome") "ends the fan-out"))
+            Nothing -> plain (Run (one ("state record the " <> stateNameText (placeName place) <> " state's outcome") "goes on"))
     usedUpAt place = mfilter usedUp (listToMaybe [budget | (_, budget) <- budgetsAt place])
     budgetsAt place = [(metered.step, budget) | (metered, budget) <- shownBudgets g state, metered.place == place]
     {- At a choice's pick: the user says whether to go on at a used-up
@@ -321,7 +318,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     {- At a group's await, children are open: the run goes on by itself
     once the last hands back, so it only waits.
     -}
-    atAwait place = Run (commandOption "end your turn" ("until the " <> tshow (awaitedOpen g state.meters place) <> " open hand back: each hand-back is recorded, and the last moves the run on") :| [])
+    atAwait place = Run (commandOption "end your turn" ("until the " <> tshow (awaitedOpen g state place) <> " open hand back: each hand-back is recorded, and the last moves the run on") :| [])
     {- Fuel is an input: the level a caller gave, or one an earlier request
     set, is recorded as given; the user is asked only when none is.
     -}

@@ -5,11 +5,13 @@ leave what @state next@ tells an agent in these flows as it was.
 module State.Protocol.AdviceGoldenSpec (spec) where
 
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Node (..), OpenGraph, placeName, places)
+import State.Category.Path (forkPasses)
 import State.Category.Step (stateNameText)
 import State.Golden (golden)
 import State.Protocol.Advice (Advice (action, facts, prompt), Facts (..), advise, deliver, deliverMore, deliverPrompt, explained, skippable)
@@ -38,6 +40,8 @@ everyState steps flowGraph run =
     Text.unlines
         [ "== " <> stateNameText (placeName place) <> "\n" <> printed moved (advise steps flowGraph noFacts moved)
         | place <- Set.toList (places flowGraph)
+        , -- A par's fork state passes at once: no run rests there.
+        isNothing (forkPasses flowGraph place)
         , let moved = run {at = At place}
         ]
   where

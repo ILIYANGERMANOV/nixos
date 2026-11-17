@@ -30,7 +30,7 @@ import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outc
 import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
 import State.Flow.Drawn (drawnDecoders, drawnSteps)
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
-import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)
+import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders)
 
 {- | A row for every step of the layers and no other, each with the step's
 types and outcomes. Only 'parseSteps' builds one.
@@ -101,7 +101,7 @@ catalogProblems :: [Text]
 catalogProblems = namingProblems stepNames readers declared
   where
     readers = map fst (outcomeDecoders <> drawnDecoders)
-    declared = Set.fromList (concat [stepEvents s | AnyStep _ (SomeStep s) <- outcomeSteps <> drawnSteps])
+    declared = Set.fromList (concat [stepEvents s | AnyStep _ (SomeStep s) <- allSteps <> drawnSteps])
 
 {- | Every way these names clash or miss an outcome: the steps' names, the
 event each outcome reader reads, and the events the steps declare.

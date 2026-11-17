@@ -250,7 +250,6 @@ templates =
     ]
         <> concat
             [ [ outcome (BreakdownDone fan (tasksOf (Task (TaskId "t1") [] (Branch "") (Branch "") Balanced False False Set.empty OwnPr ChildConfirms Nothing Nothing EngineerFlow :| [])))
-              , outcome (FanDone fan)
               , outcome (MergeDone fan (Url ""))
               , outcome (MergeNextRound fan)
               ]
@@ -310,7 +309,6 @@ likeIn = \case
         NextRequest -> pure NextRequest
     FanLayer -> \case
         BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
-        FanDone fan -> pure (FanDone fan)
         MergeDone fan _ -> MergeDone fan . Url <$> genText
         MergeNextRound fan -> pure (MergeNextRound fan)
     ChoiceLayer -> \case

@@ -19,9 +19,10 @@ stateDiagram-v2
   simplify_plan --> confirm: done
   confirm --> gather: adjusted
   confirm --> breakdown: confirmed
-  breakdown --> engineers: done
+  breakdown --> spawn_engineers: done
+  spawn_engineers --> engineers: each_done
+  spawn_engineers --> spawn_engineers: spawned
   engineers --> merge: done
   engineers --> engineers: handed_back
-  engineers --> engineers: spawned
   merge --> [*]: done
   merge --> gather: next_round

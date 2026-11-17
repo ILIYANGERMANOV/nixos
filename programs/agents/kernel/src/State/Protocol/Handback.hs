@@ -359,7 +359,6 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Request.Next -> inline s
         FanLayer -> case s of
             Fan.Breakdown _ -> inline s
-            Fan.FanOut _ -> inline s
             Fan.Merge _ -> inline s
         ChoiceLayer -> case s of
             Hub _ -> inline s

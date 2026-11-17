@@ -26,7 +26,6 @@ import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWrit
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Choice (Outcome (..))
-import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
@@ -289,7 +288,7 @@ spec = describe "State.Protocol.Advice" $ do
             map (next noFacts . tenXAt (t1 :| [plainTask "t2" ["t1"]])) [reviewed, reviewed <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge ((TaskId "t1", Just prUrl) :| []), Spawn (AgentRole "engineer") (Just (TaskId "t2"))]
         it "stops the run at merge once every task is parked" $
-            next noFacts (tenXAt (t1 :| [t2]) [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), TaskMoved (TaskId "t2") (Parked "not needed" Nothing), stepTook (FanDone engineers)])
+            next noFacts (tenXAt (t1 :| [t2]) [TaskMoved (TaskId "t1") (Parked "out of scope" Nothing), TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])
                 `shouldBe` offering ["state stop blocked \"all tasks parked\""]
         it "waits on the children while a task's dependencies run" $
             next noFacts (tenXAt (t1 :| [plainTask "t2" ["t1"]]) [Spawned (childOf "c1" "t1")]) `shouldBe` AwaitChildren (TaskId "t1" :| [])
@@ -326,11 +325,16 @@ spec = describe "State.Protocol.Advice" $ do
             map (next noFacts . tenXAt (t1 :| [])) [forwarded, forwarded <> [Answered stuckOn.qid "retry" TheUser]]
                 `shouldBe` [AwaitAnswer stuckOn, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
         it "waits on the merge loop at merge, and ends only once every task is merged or parked" $ do
-            let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl), stepTook (FanDone engineers)]
+            let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge ((TaskId "t1", Just prUrl) :| []), offering ["state record merge.done <url>", "state record merge.next_round"]]
+        it "gives the merge the PRs in fork order, whatever order the engineers hand back in" $ do
+            let spawned = [Spawned (childOf "c1" "t1"), Spawned (childOf "c2" "t2")]
+                back c task url = [HandedBack (runId c) (Finished (oneLine "PR")), TaskMoved (TaskId task) (InReview (Url url))]
+            map (next noFacts . tenXAt (t1 :| [t2]) . (spawned <>)) [back "c1" "t1" "pr1" <> back "c2" "t2" "pr2", back "c2" "t2" "pr2" <> back "c1" "t1" "pr1"]
+                `shouldBe` replicate 2 (AwaitMerge ((TaskId "t1", Just (Url "pr1")) :| [(TaskId "t2", Just (Url "pr2"))]))
         it "spawns a task added at the merge" $ do
-            let merged = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (Merged prUrl), stepTook (FanDone engineers)]
+            let merged = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (Merged prUrl)]
             next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded (plainTask "fix" [])])) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))
         it "resumes a ruled child while the user holds another child's question" $ do
             let asks2 = Question (QId (runId "c2") 1) Security (oneLine "token in env?")
@@ -353,14 +357,9 @@ spec = describe "State.Protocol.Advice" $ do
         it "waits on the CI or merge a child handed back" $
             [next noFacts (tenXAt (t1 :| []) [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Awaits on (oneLine "https://pr/1"))]) | on <- [Ci, Merge]]
                 `shouldBe` [AwaitOn Ci "https://pr/1", AwaitOn Merge "https://pr/1"]
-        it "leaves the fan-out itself once every task is settled, and not before" $ do
-            let finished = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
-            due noFacts (tenXAt (t1 :| [t2]) finished) `shouldBe` Nothing
-            due noFacts (tenXAt (t1 :| [t2]) (finished <> [TaskMoved (TaskId "t2") (Parked "not needed" Nothing)])) `shouldBe` Just (stepTook (FanDone engineers))
-        it "waits on a finished task's CI, so the fan-out leaves only once it is recorded in review" $ do
-            let inCi = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InCi prUrl)]
+        it "waits on a finished task's CI, recording nothing" $ do
+            let inCi = [Spawned (childOf "c1" "t1"), TaskMoved (TaskId "t1") (InCi prUrl), HandedBack (runId "c1") (Finished (oneLine "PR #1"))]
             (next noFacts (tenXAt (t1 :| []) inCi), due noFacts (tenXAt (t1 :| []) inCi)) `shouldBe` (AwaitOn Ci "https://pr/1", Nothing)
-            due noFacts (tenXAt (t1 :| []) (inCi <> [TaskMoved (TaskId "t1") (InReview prUrl)])) `shouldBe` Just (stepTook (FanDone engineers))
         it "advises each other task's own action beside the most urgent, one per task" $ do
             let ruled = fromChild <> [RuledOn asks.qid ruling]
                 advice = advise steps tenXGraph noFacts (tenXAt (t1 :| [t2, plainTask "t3" []]) ruled)

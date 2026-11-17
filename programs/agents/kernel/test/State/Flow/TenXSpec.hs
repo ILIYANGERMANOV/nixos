@@ -1,7 +1,7 @@
 module State.Flow.TenXSpec (spec) where
 
 import Data.Either (isRight)
-import State.Category.Flow (Flow (..), Name, branchesWith, scoped)
+import State.Category.Flow (Flow (..), Group (..), Name, branchesWith, scoped)
 import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
@@ -26,9 +26,9 @@ spec = describe "State.Flow.TenX" $ do
     it "draws the registry's engineer flow as its fan-out's body" $
         lookup engineers (parBodies tenX) `shouldBe` Just (case (role EngineerFlow).flow of SomeFlow flow -> show flow)
 
-{- | Each fan-out's body, shown. Compared by 'show', not 'graph': 'graph'
-draws a 'Par' as one state, and a 'Par' hides the types 'graph' needs of its
-body.
+{- | Each fork's body, by its group, shown. Compared by 'show', not
+'graph': 'graph' draws a 'Fork' as one state, and a 'Fork' hides the types
+'graph' needs of its body.
 -}
 parBodies :: Flow i e o -> [(Name, String)]
 parBodies = \case
@@ -38,12 +38,12 @@ parBodies = \case
     Id -> []
     Into -> []
     Loop _ body -> parBodies body
-    Par fan body -> (fan, show body) : parBodies body
     Case branches -> concat (branchesWith parBodies branches)
     Exit -> []
     Each body -> parBodies body
-    Fork _ body -> parBodies body
+    Fork (Group group) body -> (group, show body) : parBodies body
     Await _ -> []
+    Par _ _ -> []
     Catch body -> parBodies body
     Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]
     Choice _ branches -> concatMap parBodies branches

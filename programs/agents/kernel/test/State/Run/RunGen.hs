@@ -54,7 +54,7 @@ import State.Category.Flow (Flow (..), Name (..), ScopePath, scopePath, unqualif
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Graph qualified as Graph
-import State.Category.Path (awaitDone)
+import State.Category.Path (unrecorded)
 import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Architect (architect)
@@ -273,12 +273,15 @@ genAcceptedOn own on = do
     go :: Int -> RunState -> Natural -> Gen [Event]
     go 0 _ _ = pure []
     go k state n = case state.at of
-        At place -> do
-            took <- Gen.frequency (handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | ((from, name), edge) <- Map.toList on.edges, from == place, isNothing (awaitDone on place)])
-            case append on state (line n took) of
-                Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
-                Right AlreadyLogged -> go (k - 1) state n
-                Left _ -> go (k - 1) state n
+        -- At a fan-out's await, only the 10x's own events, which this draws none of, move the run.
+        At place -> case handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | ((from, name), edge) <- Map.toList on.edges, from == place, isNothing (unrecorded on place)] of
+            [] -> pure []
+            choices -> do
+                took <- Gen.frequency choices
+                case append on state (line n took) of
+                    Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
+                    Right AlreadyLogged -> go (k - 1) state n
+                    Left _ -> go (k - 1) state n
         Out -> pure []
         Graph.Exit -> pure []
     -- The edge is named in the place's scope; the outcome is its step's own.

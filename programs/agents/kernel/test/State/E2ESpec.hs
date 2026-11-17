@@ -491,8 +491,8 @@ spec = describe "the state binary" $ do
                 for_ [["await_ci.green"], ["ready.done", prUrlString]] $ \argv -> succeeded =<< state bin w1 ("record" : argv)
                 _ <- succeeded =<< state bin w1 ["next"]
                 left <- succeeded =<< state bin repo ["next"]
-                recorded left `shouldBe` ["engineers.done -> merge"]
-                drop 1 left `shouldSatisfy` mentions "AWAIT merge t1"
+                recorded left `shouldBe` []
+                left `shouldSatisfy` mentions "AWAIT merge t1"
                 early <- state bin repo ["record", "merge.done", prUrlString]
                 early.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["record", "task", "t1", "merged", prUrlString]
@@ -505,12 +505,12 @@ spec = describe "the state binary" $ do
                 w1 <- worktree repo "w1"
                 c1 <- childRun bin w1 parent "n1" "t1"
                 _ <- succeeded =<< stateIn bin repo (Text.unpack (Text.unlines ["READY " <> prUrl, "Run: " <> c1])) ["handback", "engineer"]
-                for_ [["task", "t2", "parked", "out", "of", "scope"], ["task", "t1", "ci", prUrlString]] (succeeded <=< state bin repo . ("record" :))
+                for_ [["task", "t1", "ci", prUrlString], ["task", "t2", "parked", "out", "of", "scope"]] (succeeded <=< state bin repo . ("record" :))
                 waits <- succeeded =<< state bin repo ["next"]
                 (recorded waits, take 1 waits) `shouldBe` ([], ["AWAIT ci " <> prUrl])
                 _ <- succeeded =<< state bin repo ["record", "task", "t1", "review", prUrlString]
                 left <- succeeded =<< state bin repo ["next"]
-                recorded left `shouldBe` ["engineers.done -> merge"]
+                recorded left `shouldBe` []
 
             it "prints a line per task it can act on: the resume first, then a free task's spawn" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
@@ -536,7 +536,7 @@ spec = describe "the state binary" $ do
                 child <- driveOn bin w1 (drop 1 trivialPath)
                 child `shouldBe` drop 1 trivialTranscript
                 merging <- succeeded =<< state bin repo ["next"]
-                recorded merging `shouldBe` ["engineers.done -> merge"]
+                recorded merging `shouldBe` []
                 for_ [["task", "t1", "merged", prUrlString], ["merge.done", prUrlString]] (succeeded <=< state bin repo . ("record" :))
                 done <- succeeded =<< state bin repo ["next"]
                 take 1 done `shouldBe` ["DONE " <> prUrl]
@@ -557,8 +557,8 @@ spec = describe "the state binary" $ do
                 skipped <- succeeded =<< state bin w1 ["next"]
                 recorded skipped `shouldBe` ["ready.skipped -> out"]
                 merging <- succeeded =<< state bin repo ["next"]
-                recorded merging `shouldBe` ["engineers.done -> merge"]
-                drop 1 merging `shouldSatisfy` mentions "state record merge.next_round - back to gather, the round loop's next round"
+                recorded merging `shouldBe` []
+                merging `shouldSatisfy` mentions "state record merge.next_round - back to gather, the round loop's next round"
                 for_ (["merge.next_round"] : fiveResearched) (succeeded <=< state bin repo . ("record" :))
                 spent <- state bin repo ["record", "gather.research"]
                 spent.code `shouldBe` 2
@@ -577,7 +577,7 @@ spec = describe "the state binary" $ do
                 for_ [["override", "ready", "the", "test", "starts", "here"], ["record", "ready.done", prUrlString]] (succeeded <=< state bin w1)
                 _ <- succeeded =<< state bin w1 ["next"]
                 inReview <- succeeded =<< state bin repo ["next"]
-                recorded inReview `shouldBe` ["engineers.done -> merge"]
+                recorded inReview `shouldBe` []
                 notPr <- state bin repo ["record", "task", "t1", "round", "https://example.com/o/r/pull/1"]
                 notPr.code `shouldBe` 2
                 _ <- succeeded =<< state bin repo ["record", "task", "t1", "round", prUrlString]
@@ -593,7 +593,7 @@ spec = describe "the state binary" $ do
                 skipped <- succeeded =<< state bin w2 ["next"]
                 recorded skipped `shouldBe` ["ready.skipped -> out"]
                 kept <- succeeded =<< state bin repo ["next"]
-                recorded kept `shouldBe` ["engineers.done -> merge"]
+                recorded kept `shouldBe` []
                 shown <- succeeded =<< state bin repo ["show"]
                 shown `shouldSatisfy` mentions ("PR kept " <> prUrl)
 

@@ -13,7 +13,6 @@ module State.Step.Catalog (
     outcomeDecoders,
     AnyStep (..),
     allSteps,
-    outcomeSteps,
     termSteps,
     termSkips,
     flowOutcomes,
@@ -36,7 +35,7 @@ import State.Category.Step qualified as Step
 import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
 import State.Step.Choice (ChoiceStep)
-import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
+import State.Step.Fan (FanStep)
 import State.Step.Fuel (FuelStep, Sing (Skip), skipOutcomes)
 import State.Step.Gather (GatherStep)
 import State.Step.Pick (PickStep, pickOutcomes)
@@ -167,14 +166,6 @@ allSteps :: [AnyStep]
 allSteps = concatMap stepsOf layers
   where
     stepsOf (SomeLayer l) = map (AnyStep l) layerSteps
-
-{- | Every step with outcomes: those 'allSteps' lists, and each fan-out's own
-state, which 'State.Category.Flow.Par' draws.
--}
-outcomeSteps :: [AnyStep]
-outcomeSteps =
-    allSteps
-        <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts]
 
 {- | The pick and skip steps of a term: a flow names its own, with its
 labels, so no layer lists them. In the term's order; a fork's child is

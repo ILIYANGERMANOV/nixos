@@ -11,7 +11,7 @@ import State.Category.Flow (unqualify)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Cap (..), OpenGraph (..))
 import State.Category.Meter (someMeterName)
-import State.Category.Path (awaitDone)
+import State.Category.Path (unrecorded)
 import State.Category.Step (eventText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (..), Usage (..), anyEvent, explain, failureText, help, openQid, optparseText, parseCommand, parseHook, unknownEvent)
 import State.Golden (golden)
@@ -275,7 +275,7 @@ spec = describe "State.Cli.Command" $ do
     describe "help" $ do
         it "record's help lists every event the flow's arrows take" $
             -- An await's edges take no event; a scoped event is recorded by its step's bare name.
-            [event | ((from, event), _) <- Map.toList g.edges, isNothing (awaitDone g from), not (snd (unqualify (eventText event)) `Text.isInfixOf` helpOf ["record", "--help"])] `shouldBe` []
+            [event | ((from, event), _) <- Map.toList g.edges, isNothing (unrecorded g from), not (snd (unqualify (eventText event)) `Text.isInfixOf` helpOf ["record", "--help"])] `shouldBe` []
 
         it "is what --help prints" $
             helpOf ["--help"] `shouldBe` help steps

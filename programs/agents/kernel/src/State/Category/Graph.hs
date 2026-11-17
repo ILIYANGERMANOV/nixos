@@ -17,6 +17,7 @@ module State.Category.Graph (
     Cap (..),
     Metered (..),
     GroupAt (..),
+    eachDoneOutcome,
     shownOrder,
     Clash (..),
     graph,

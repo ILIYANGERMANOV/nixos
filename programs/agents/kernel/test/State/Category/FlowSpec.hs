@@ -76,11 +76,6 @@ spec = describe "State.Category.Flow" $ do
                 "Couldn't match expected type: Cappable"
                 (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
 
-        it "a fan-out's state drawn as a step" $
-            rejected
-                "A fan-out's state is drawn by Par, not Do"
-                (Do (FanOut engineers))
-
         it "a case after a step whose out is not a sum" $
             rejected
                 "Couldn't match type: State.Category.Ty.Diff with: State.Category.Ty.Sum"

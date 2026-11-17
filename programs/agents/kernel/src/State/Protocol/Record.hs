@@ -206,7 +206,7 @@ recordables =
            , nothing NextRequest
            , nothing NextDone
            ]
-        <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
+        <> [breakdown fan | fan <- fanOuts]
         <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, "round", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Plain . TaskMoved (TaskId task) . Round) (parsePrUrl pr)
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
