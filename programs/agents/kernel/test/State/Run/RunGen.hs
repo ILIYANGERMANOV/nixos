@@ -20,6 +20,10 @@ module State.Run.RunGen (
     sha,
     commit,
     happyPath,
+    researchedIn,
+    spawnedIn,
+    enoughIn,
+    within,
     skipOf,
     runOf,
     pickOf,
@@ -37,7 +41,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -46,9 +50,10 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), Name, ScopePath, scopePath, unqualify)
+import State.Category.Flow (Flow (..), Name (..), ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
+import State.Category.Path (awaitDone)
 import State.Category.Graph qualified as Graph
 import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
@@ -62,7 +67,7 @@ import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
-import State.Run.Fold (Append (..), RunState (..), append, replay)
+import State.Run.Fold (Append (..), RunState (..), append, openForks, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
@@ -106,11 +111,11 @@ ticketUrl = Url "https://github.com/o/r/issues/1"
 
 -- | An architect run up to its ticket: researched, explored enough, the ticket opened.
 ticketOpened :: [Event]
-ticketOpened = map (Took mempty) [pickOf "exploring" "research", outcome ResearchSpawned, outcome ResearchHandedBack, pickOf "exploring" "enough", outcome NotesDone] <> [stepTook (OpenTicketDone ticketUrl)]
+ticketOpened = researchedIn "exploring" <> enoughIn "exploring" <> [stepTook (OpenTicketDone ticketUrl)]
 
 -- | A design round up to the user's verdict: discussed, written into the ticket.
 designWritten :: [Event]
-designWritten = map (Took mempty) [pickOf "discussing" "enough", outcome NotesDone] <> [stepTook UpdateTicketDone]
+designWritten = enoughIn "discussing" <> [stepTook UpdateTicketDone]
 
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph
@@ -196,11 +201,35 @@ sha = Sha "abc123"
 commit :: Commit
 commit = Commit sha Set.empty
 
-happyPath :: [AnyOutcome]
+-- | An engineer run from its gather to its PR ready: one researcher, the plan confirmed, a clean review.
+happyPath :: [Event]
 happyPath =
-    [pickOf "gather" "research", outcome ResearchSpawned, outcome ResearchHandedBack, pickOf "gather" "enough", outcome NotesDone, outcome (PlanDone "plan.md"), runOf "simplify_plan", outcome SimplifyPlanDone, outcome ConfirmConfirmed]
-        <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), runOf "refactor", outcome (RefactorDone sha), outcome (ReviewClean sha)]
-        <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
+    researchedIn "gather"
+        <> enoughIn "gather"
+        <> map
+            (Took mempty)
+            ( [outcome (PlanDone "plan.md"), runOf "simplify_plan", outcome SimplifyPlanDone, outcome ConfirmConfirmed]
+                <> [outcome (DraftDone (DraftPr (Url "u") (Branch "main") (Branch "b"))), outcome (ImplementDone commit), runOf "refactor", outcome (RefactorDone sha), outcome (ReviewClean sha)]
+                <> [outcome (DescribeDone sha), outcome (SimplifyPrDone sha), outcome (AwaitCiGreen sha), outcome (ReadyDone (Url "u"))]
+            )
+
+-- | A researcher spawned from this choice's pick, then its hand-back: the run is back at the pick.
+researchedIn :: Text -> [Event]
+researchedIn choice = spawnedIn choice <> [stepTook ResearchHandedBack]
+
+-- | A researcher spawned from this choice's pick, in the background: the run is back at the pick.
+spawnedIn :: Text -> [Event]
+spawnedIn choice = [Took mempty (pickOf choice "research"), tookIn (scopePath (Name choice)) ResearchSpawned]
+
+-- | This choice's enough with no researcher open: past its await, the notes merged.
+enoughIn :: Text -> [Event]
+enoughIn choice = [Took mempty (pickOf choice "enough"), tookIn (scopePath (Name choice)) NotesDone]
+
+-- | These events as a flow run inline under this scope records them.
+within :: Name -> [Event] -> [Event]
+within scope = map $ \case
+    Took bare o -> Took (scopePath scope <> bare) o
+    other -> other
 
 -- | The outcome that skips the flows' optional block of this name.
 skipOf :: Text -> AnyOutcome
@@ -221,8 +250,10 @@ pickOf = drawn
 drawn :: Text -> Text -> AnyOutcome
 drawn step way = fromMaybe (error ("no drawn " <> Text.unpack step <> "." <> Text.unpack way)) (find ((== EventName (StateName step) (OutcomeName way)) . Catalog.outcomeEvent) drawnOutcomes)
 
-{- | Up to 300 tries at an event on an edge out of where the run is, any
-Fuel at a Fuel step, keeping those the fold accepts. Edges into a loop that leave none
+{- | Up to 300 tries at an event on an edge out of where the run is, or a
+researcher's hand-back while one is open, any Fuel at a Fuel step, keeping
+those the fold accepts. An await's edges take no event: the run goes on by
+itself once its group handed back. Edges into a loop that leave none
 are likelier, so loops run out of rounds: a review with rows enters the fix
 loop rather than exiting clean.
 -}
@@ -240,15 +271,17 @@ genAcceptedOn on = do
     go 0 _ _ = pure []
     go k state n = case state.at of
         At place -> do
-            name <- Gen.frequency [(if stays place edge then 5 else 1, pure name) | ((from, name), edge) <- Map.toList on.edges, from == place]
-            -- The edge is named in the place's scope; the outcome is its step's own, a choice's action's at a choice.
-            took <- Took place.scope <$> outcomeOf (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
+            took <- Gen.frequency (handBacks place state <> [(if stays place edge then 5 else 1, tookBy place name) | ((from, name), edge) <- Map.toList on.edges, from == place, isNothing (awaitDone on place)])
             case append on state (line n took) of
                 Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
                 Right AlreadyLogged -> go (k - 1) state n
                 Left _ -> go (k - 1) state n
         Out -> pure []
         Graph.Exit -> pure []
+    -- The edge is named in the place's scope; the outcome is its step's own.
+    tookBy place name = Took place.scope <$> outcomeOf (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
+    -- A researcher in the background may hand back wherever the run is; at an await, only it moves the run on.
+    handBacks place state = [(3, pure (Took place.scope (outcome ResearchHandedBack))) | not (null (openForks state))]
     stays place edge = case edge.to of
         At to ->
             all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems on.loops)

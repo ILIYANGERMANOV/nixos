@@ -28,7 +28,7 @@ spec = describe "State.Cli.Render" $ do
 
         it "names a route's hub as the lead's own, each pick going into its branch" $
             take 1 (drop 2 (Text.lines (states threeWayGraph steps)))
-                `shouldBe` ["| route | you | big: refactor; other: describe; small: describe |"]
+                `shouldBe` ["| route | you | big: big/refactor; other: other/describe; small: describe |"]
 
     it "renders the Fuel rows from the Fuel table: the meters by state, a choice's in the order it declares them, then Low's skips in the flow's order" $
         fuel (termSkips engineer) g

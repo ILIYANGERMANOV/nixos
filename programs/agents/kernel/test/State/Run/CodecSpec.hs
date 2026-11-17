@@ -19,7 +19,6 @@ import State.Run.RunGen (breakdownJson, pickOf, plainTask, roundTask, securitySc
 import State.Step.Artifact (shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
 import State.Step.Catalog (outcome)
-import State.Step.Choice (Outcome (..), gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -73,8 +72,8 @@ spec = describe "State.Run.Codec" $ do
             `shouldBe` Right reviewRows {event = tookIn securityScope (ReviewRows (Sha "abc123"))}
 
     it "reads a choice's enough inside a scope under its qualified type" $
-        decodeLine (encodeLine reviewRows {event = stepTook (Enough gathering)} `replacing` ("\"type\":\"gather.enough\"", "\"type\":\"x/gather.enough\""))
-            `shouldBe` Right reviewRows {event = tookIn (scopePath "x") (Enough gathering)}
+        decodeLine (encodeLine reviewRows {event = Took mempty (pickOf "gather" "enough")} `replacing` ("\"type\":\"gather.enough\"", "\"type\":\"x/gather.enough\""))
+            `shouldBe` Right reviewRows {event = Took (scopePath "x") (pickOf "gather" "enough")}
 
     it "writes and reads the chief's picks by their route's and branch's names, a block's inside the blocks' route" $ do
         let picks = [reviewRows {event = Took mempty (pickOf "route" "engineer")}, reviewRows {event = Took mempty (pickOf "block" "shipping")}]

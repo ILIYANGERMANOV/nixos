@@ -117,7 +117,7 @@ spec = describe "State.Category.Graph" $ do
                 `shouldBe` Left (StaysOutside (Place [] mempty (StateName "interview")))
 
     describe "a route" $ do
-        let picks scope = [(qualifyEvent scope (EventName (StateName "route") (OutcomeName branch)), At (Place path scope (StateName entry))) | (branch, path, entry) <- [("big", [1, 0], "refactor"), ("other", [2, 0], "describe"), ("small", [0], "describe")]]
+        let picks scope = [(qualifyEvent scope (EventName (StateName "route") (OutcomeName branch)), At (Place path (scope <> inner) (StateName entry))) | (branch, path, inner, entry) <- [("big", [1, 0], scopePath "big", "refactor"), ("other", [2, 0], scopePath "other", "describe"), ("small", [0], mempty, "describe")]]
         it "draws one hub, its start, with one edge per branch into that branch's first state" $
             outOfStart <$> graph threeWay `shouldBe` Right (picks mempty)
 

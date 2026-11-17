@@ -70,7 +70,7 @@ import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameT
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
-import State.Category.Path (step)
+import State.Category.Path (awaitDone, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
 import State.Flow.Library (simplifyPlan)
 import State.Role qualified as Role
@@ -454,9 +454,8 @@ run's ledger already holds the fact. At any other state, the run stays.
 joined :: OpenGraph -> RunState -> RunState
 joined g state = case state.at of
     At place
-        | Just (Awaiting _) <- Map.lookup place g.groupStates
-        , awaitedOpen g state.meters place == 0
-        , Just edge <- step g place (fanEvent Leaves (placeName place)) ->
+        | Just edge <- awaitDone g place
+        , awaitedOpen g state.meters place == 0 ->
             state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
     At _ -> state
     Out -> state

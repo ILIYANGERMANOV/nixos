@@ -91,10 +91,12 @@ genBranching =
         ]
 
 {- | A route from a diff to its PR over three branches, each entering a
-state of its own: @describe@, @refactor@ and a second @describe@.
+state of its own: @describe@, @big/refactor@ and @other/describe@. A
+branch that draws a step another branch draws is scoped, as a flow names
+each state once.
 -}
 threeWay :: Flow 'Diff 'Nothing 'PR
-threeWay = Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "big", Do Refactor :> Do Describe), (OutcomeName "other", Do Describe :> Do FixPR)])
+threeWay = Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "big", Scope "big" (Do Refactor :> Do Describe)), (OutcomeName "other", Scope "other" (Do Describe :> Do FixPR))])
 
 -- | 'threeWay''s graph.
 threeWayGraph :: OpenGraph

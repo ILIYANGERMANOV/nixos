@@ -9,20 +9,19 @@ import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), Ste
 import State.Flow.Drawn (drawnOutcomes, isPick)
 import State.Run.RunGen (chiefGraph, flowGraph)
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (PickLayer), allSteps, outcomeEvent)
-import State.Step.Choice (choices)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
 spec :: Spec
 spec =
     describe "State.Flow.Chief" $ do
-        it "names no pick nor label as any choice, step, loop or skip is named, so a pick never reads as one of them" $
+        it "names no pick nor label as any step, loop or skip is named, so a pick never reads as one of them" $
             Set.intersection pickNames otherNames `shouldBe` Set.empty
         it "reads every pick and label the chief draws, so the log decodes each pick" $
             drawnPicks `shouldBe` decodedPicks
   where
     decodedPicks = Set.fromList [(stateNameText event.step, label) | AnyOutcome PickLayer some <- drawnOutcomes, let event = outcomeEvent (AnyOutcome PickLayer some), OutcomeName label <- [event.outcome]]
     pickNames = Set.fromList (concat [[pick, label] | (pick, label) <- Set.toList decodedPicks])
-    otherNames = Set.fromList (map nameText choices <> [stateNameText (stepName s) | AnyStep _ (SomeStep s) <- allSteps] <> concatMap loopsAndSkips [minBound .. maxBound])
+    otherNames = Set.fromList ([stateNameText (stepName s) | AnyStep _ (SomeStep s) <- allSteps] <> concatMap loopsAndSkips [minBound .. maxBound])
     loopsAndSkips flow =
         let drawn = flowGraph flow
          in map (bare . nameText) (Map.keys drawn.loops)
