@@ -14,13 +14,12 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), Name, scopePath)
+import State.Category.Flow (Flow (..), scopePath)
 import State.Category.FlowGen (composes, genFlow, genWalk)
 import State.Category.Fuel (Fuel (..), always)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
-import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.TenX (tenX)
 import State.Role qualified as Role
@@ -31,7 +30,7 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, securityGraph, securityScope, sha, tenXGraph)
+import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), choiceNamed, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
@@ -635,10 +634,6 @@ scopedFans :: OpenGraph
 scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Scope "b" fanned))
   where
     fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
-
--- | A whole flow run inline, under a scope named after it.
-scopedIn :: (NotSum o) => Name -> Flow 'Ctx 'Nothing o -> OpenGraph
-scopedIn name flow = either (error . show) id (graph (Scope name flow))
 
 {- | A request routed at a hub, then planned. The hub is a choice named
 @route@, the name the Route hub stub reads, until Route lands.

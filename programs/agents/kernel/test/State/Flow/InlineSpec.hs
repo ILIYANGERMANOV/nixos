@@ -8,8 +8,8 @@ import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import State.Category.Flow (Flow (Scope), ScopePath, scopePath)
-import State.Category.Graph (Node (..), OpenGraph, graph)
+import State.Category.Flow (ScopePath, scopePath)
+import State.Category.Graph (Node (..), OpenGraph)
 import State.Category.Step (StateName (..))
 import State.Cli.Command (Command (OnRun), RunCommand (Record), parseCommand)
 import State.Flow.TenX (tenX)
@@ -21,7 +21,7 @@ import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (logOf, oneLine, runId, start)
 import State.Run.Fan (Fan (..), lookupTask)
 import State.Run.Fold (Refusal, RunState (..), ScopedFan (..), currentFan, fanAt, inScope, replay)
-import State.Run.RunGen (breakdownJson, childOf, loadSteps, plainTask)
+import State.Run.RunGen (breakdownJson, childOf, loadSteps, plainTask, scopedIn)
 import State.Step.Fan (engineers)
 import State.Table (Steps)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe)
@@ -71,7 +71,7 @@ spec = describe "a 10x run inline under a Scope" $ do
 
 -- | The 10x, run inline under a scope named after it.
 inline :: OpenGraph
-inline = either (error . show) id (graph (Scope "10x" tenX))
+inline = scopedIn "10x" tenX
 
 tenXScope :: ScopePath
 tenXScope = scopePath "10x"
