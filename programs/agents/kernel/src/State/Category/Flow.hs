@@ -19,6 +19,7 @@ module State.Category.Flow (
     scoped,
     ScopePath,
     scopePath,
+    scopeNames,
     qualify,
     qualifyEvent,
     qualifyText,
@@ -186,6 +187,10 @@ has one spelling and reads back as it was written.
 newtype ScopePath = ScopePath [Name]
     deriving stock (Eq, Ord, Show)
     deriving newtype (Semigroup, Monoid)
+
+-- | The scopes, outermost first.
+scopeNames :: ScopePath -> [Name]
+scopeNames (ScopePath scopes) = scopes
 
 -- | A scope's name as a path: @Scope "s/t"@ is @Scope "s" (Scope "t" ..)@ (law Nested scopes).
 scopePath :: Name -> ScopePath

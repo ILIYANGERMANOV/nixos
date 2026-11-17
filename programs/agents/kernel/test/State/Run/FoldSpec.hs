@@ -16,11 +16,12 @@ import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), scopePath)
 import State.Category.FlowGen (composes, genFlow, genWalk)
-import State.Category.Fuel (Fuel (..))
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName)
-import State.Category.Meter (someMeterName)
+import State.Category.Fuel (Fuel (..), always)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
 import State.Flow.Engineer (engineer)
+import State.Flow.TenX (tenX)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
@@ -29,11 +30,11 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, securityGraph, securityScope, sha, tenXGraph)
+import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), choiceNamed, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
-import State.Step.Gather (Outcome (..))
+import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
@@ -145,6 +146,10 @@ spec = describe "State.Run.Fold" $ do
             toSecurity = [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty))]
         it "takes the copy's outcome in its scope, to the copy's next state" $
             atName <$> securityRun (toSecurity <> [tookIn securityScope (ReviewRows sha)]) `shouldBe` Right (Just (StateName "security/pick"))
+        it "records the copy's outcome named bare in the copy's scope, where only the copy takes it" $
+            (\state -> inScope securityGraph state (stepTook (ReviewRows sha))) <$> securityRun toSecurity `shouldBe` Right (tookIn securityScope (ReviewRows sha))
+        it "records an outcome named bare as named where an edge takes it so" $
+            (\state -> inScope securityGraph state (stepTook (ReviewRows sha))) <$> securityRun [] `shouldBe` Right (stepTook (ReviewRows sha))
         it "refuses the copy's outcome named bare: it is the other review's" $
             securityRun (toSecurity <> [stepTook (ReviewRows sha)]) `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
@@ -178,6 +183,13 @@ spec = describe "State.Run.Fold" $ do
                 cover 5 "reached the end" (state.at == Out)
                 path <- evalMaybe (ty g [tookEvent scope took | Took scope took <- events])
                 assert (composes path)
+
+    it "records_every_event_as_named_outside_any_scope" . hedgehog $ do
+        flow <- forAll (Gen.element [g, tenXGraph])
+        events <- forAll (genAcceptedOn flow)
+        state <- evalEither (replay flow (logOf (started :| events)))
+        event <- forAll (Gen.element (events <> map (Took mempty) happyPath))
+        inScope flow state event === event
 
     it "every_accepted_log_of_a_scoped_flow_is_a_path" . hedgehog $ do
         f <- forAll (Gen.filter (isRight . graph) genFlow)
@@ -314,6 +326,16 @@ spec = describe "State.Run.Fold" $ do
 
     it "refuses a second Fuel" $
         replay g (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
+
+    it "refuses a second Fuel at every state of the engineer and 10x flows: neither has a Route hub" $
+        [replay flow (logOf (started :| [FuelSet Max, Overridden (placeName place) "moved", FuelSet Low])) | flow <- [g, tenXGraph], place <- Set.toList (places flow)]
+            `shouldSatisfy` all (== Left (FuelSetOnce Max))
+
+    it "takes a new Fuel at a Route hub, one per request" $
+        fuelOf <$> replay routed (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Right Low
+
+    it "refuses a new Fuel past the Route hub" $
+        replay routed (logOf (started :| [FuelSet Max, Overridden (StateName "chief/plan") "routed", FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
 
     it "takes the same Fuel again" $
         fuelOf <$> replay g (logOf (started :| [FuelSet Max, FuelSet Max])) `shouldBe` Right Max
@@ -517,6 +539,14 @@ questions = describe "questions" $ do
     it "refuses a ruling where the run's row forwards" $
         replay g (logOf (started :| [ask 1 Design, RuledOn (q 1) proposal])) `shouldBe` Left (NotAllowed (MayNotRule Role.Lead Design))
 
+    it "rules as the Orchestrator on a question asked inside a scoped 10x, under an engineer run" $
+        length . (.rulings) <$> replay (scopedIn "10x" tenX) (logOf (started :| [askIn "10x/gather" Design, RuledOn (q 1) proposal]))
+            `shouldBe` Right 1
+
+    it "refuses a ruling as the Lead on a question asked inside a scoped engineer, under a 10x run" $
+        replay (scopedIn "engineer" engineer) (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| [askIn "engineer/gather" Design, RuledOn (q 1) proposal]))
+            `shouldBe` Left (NotAllowed (MayNotRule Role.Lead Design))
+
     it "refuses a forward of a question the run's row must answer, so no Fact climbs" $
         replay g (logOf (started :| [ask 1 Fact, Forwarded (q 1) TheUser])) `shouldBe` Left (NotAllowed (MustAnswer Role.Lead Fact))
 
@@ -589,6 +619,7 @@ questions = describe "questions" $ do
   where
     q = QId run
     ask n kind = Asked (Asking (Question (q n) kind (oneLine "a question")) (StateName "implement") Itself)
+    askIn at kind = Asked (Asking (Question (q 1) kind (oneLine "a question")) (StateName at) Itself)
     proposal = Proposal (oneLine "yes") (oneLine "reversible") (oneLine "an hour") Nothing
     parent = ParentRun (runId "p1")
     forwardedTo events = [to | Forwarded _ to <- events]
@@ -603,6 +634,12 @@ scopedFans :: OpenGraph
 scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Scope "b" fanned))
   where
     fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
+
+{- | A request routed at a hub, then planned. The hub is a choice named
+@route@, the name the Route hub stub reads, until Route lands.
+-}
+routed :: OpenGraph
+routed = either (error . show) id (graph (Scope "chief" (Choice "route" [Capped (always (UpTo 1)) Extend Interview] :> Do PlanS)))
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
 first's PRs. No step goes from a PR back to a plan, so the second has no

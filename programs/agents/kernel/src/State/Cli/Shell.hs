@@ -3,7 +3,7 @@ in pure code, then append to the log and print. Every decision is the
 kernel's; this module moves data between them and the effects, whose IO
 interpreters 'runShellIO' runs.
 -}
-module State.Cli.Shell (Shell, main, hook, runShellIO) where
+module State.Cli.Shell (Shell, main, hook, runShellIO, recordedEvent) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
@@ -58,7 +58,7 @@ import State.Protocol.Handback qualified as Handback
 import State.Protocol.Hook (Bind (..), Call (..), Delivery (..), Gate (..), HookName (BeginHook, HandbackHook), Job (..), LeadSkill, Reply (..), Want (..), aboutKnown, aboutRun, awaitingUser, callOf, delivery, encodeReply, followedAt, hookName, hookSources, keyOf, leadSkill, leadSkillName, loggedAlready, offAdvice, parseHookEvent, replyOf, restartOf, silent, spawnedAt, toldOf, wants)
 import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
-import State.Role (RoleDef (..))
+import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, principalShape, qidText)
 import State.Run.Ask qualified as Ask
@@ -465,14 +465,7 @@ recorded = printed . recordedLines
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
 planOf :: Steps -> Maybe Sha -> Maybe Text -> OpenGraph -> RunState -> RunCommand -> Either Failure Plan
 planOf steps worktreeHead file g state = \case
-    Record (Plain event) -> Right (Plan [event] (const recorded))
-    Record (AtHead event) -> case worktreeHead of
-        Just sha -> Right (Plan [event sha] (const recorded))
-        Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
-    Record (FromFile path parse) -> case parse <$> file of
-        Just (Right event) -> Right (Plan [event] (const recorded))
-        Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
-        Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
+    Record recording -> (\event -> Plan [event] (const recorded)) <$> recordedEvent g state worktreeHead file recording
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskQuestion kind Itself text ->
@@ -508,6 +501,24 @@ planOf steps worktreeHead file g state = \case
     raised raise qid = case raise of
         AsAsked -> []
         ToSecurity -> [RetaggedSecurity qid]
+
+{- | The event @state record@ appends: the one its recording names, placed in
+the scope the run is in.
+-}
+recordedEvent :: OpenGraph -> RunState -> Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+recordedEvent g state worktreeHead file recording = Fold.inScope g state <$> namedEvent worktreeHead file recording
+
+-- | The event a recording names, from HEAD or the file it read beforehand.
+namedEvent :: Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+namedEvent worktreeHead file = \case
+    Plain event -> Right event
+    AtHead event -> case worktreeHead of
+        Just sha -> Right (event sha)
+        Nothing -> Left (Failure BadInput "no commit" "the event records HEAD and the worktree has none" "git commit")
+    FromFile path parse -> case parse <$> file of
+        Just (Right event) -> Right event
+        Just (Left why) -> Left (Failure BadInput (Text.pack path) why "fix the file")
+        Nothing -> Left (Failure BadInput (Text.pack path) "no such file" "write it first")
 
 {- | A worker's hand-back as the run records it. One with no kind on its
 question, or a worker's BLOCKED or FAILED, is the run's to triage.
@@ -1047,7 +1058,8 @@ rendered steps block flow = case block of
 
 -- | Each flow's graph glues, as its test holds: a clash here is a bug.
 graphOf :: FlowName -> OpenGraph
-graphOf = either (error . ("the flow does not glue: " <>) . show) id . graph . (.flow) . Role.role
+graphOf flowName = case (Role.role flowName).flow of
+    SomeFlow flow -> either (error . ("the flow does not glue: " <>) . show) id (graph flow)
 
 -- | The worktree's git dir, where the pointer to its run lives.
 gitDir :: (Git :> es) => Eff es (Either Failure FilePath)

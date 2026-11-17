@@ -49,6 +49,7 @@ import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
+import State.Category.Ty (Ty (..))
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (FlowName (..), RoleDef (..))
@@ -60,7 +61,7 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, flowRole, fuelOf, given, nextQId, onRound, stuck, stuckExits, usedUp)
+import State.Run.Fold (Budget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -304,13 +305,14 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     fuelAsked = case state.start.flow of
         EngineerFlow -> isJust state.fuel
         TenXFlow -> True
+    output = outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
         Out -> Nothing
         Exit -> Nothing
     going = case (state.at, stuck state) of
-        (Out, _) -> plain (Done (prUrl facts state))
-        (Exit, _) -> plain (Done (prUrl facts state))
+        (Out, _) -> plain (Done output)
+        (Exit, _) -> plain (Done output)
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
@@ -522,6 +524,19 @@ recordsFinished fan = [(task.id, Run (one (recordTask task) "its child finished:
 recordTask :: Task -> Text
 recordTask task = "state record task " <> taskIdText task.id <> " " <> taskStateArgs (InReview (Url "<url>"))
 
+{- | The url of what the run's flow ends in, when the run keeps one: a PR's.
+No step records a url for any other type yet.
+-}
+outputUrl :: Ty -> Facts -> RunState -> Maybe Url
+outputUrl out facts state = case out of
+    PR -> prUrl facts state
+    Ctx -> Nothing
+    Plan -> Nothing
+    Diff -> Nothing
+    Findings -> Nothing
+    List _ -> Nothing
+    _ :+ _ -> Nothing
+
 -- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url
 prUrl facts state = (.draft.url) <$> facts.pr <|> state.published <|> (.url) <$> state.drafted
@@ -696,7 +711,7 @@ ownAsk :: RunState -> Kind -> OneLine -> (Question, [Event], Text)
 ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itself) : forward, line)
   where
     question = Question (nextQId state) kind text
-    (forward, line) = case Ask.ask state.start.principal (flowRole state.start.flow) kind of
+    (forward, line) = case Ask.ask state.start.principal (Role.rungAt state.start.flow (askedAt state)) kind of
         AnswerSelf -> ([], "ANSWER yourself")
         Up above ->
             ( [Forwarded question.qid above]

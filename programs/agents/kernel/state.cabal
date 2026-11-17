@@ -144,6 +144,7 @@ test-suite state-test
     State.Cli.ViewSpec
     State.E2ESpec
     State.Flow.EngineerSpec
+    State.Flow.InlineSpec
     State.Flow.LibrarySpec
     State.Flow.TenXSpec
     State.Flow.Triage
@@ -152,6 +153,7 @@ test-suite state-test
     State.Protocol.BindingSpec
     State.Protocol.HandbackSpec
     State.Protocol.HookSpec
+    State.RoleSpec
     State.Run.AskSpec
     State.Run.CodecSpec
     State.Run.EventGen

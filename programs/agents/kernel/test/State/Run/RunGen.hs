@@ -4,6 +4,7 @@ module State.Run.RunGen (
     tenXGraph,
     securityGraph,
     securityScope,
+    scopedIn,
     flowGraph,
     tenXAt,
     plainTask,
@@ -37,10 +38,11 @@ import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), ScopePath, scopePath, unqualify)
+import State.Category.Flow (Flow (..), Name, ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Step (EventName (..), stateNameText)
+import State.Category.Ty (NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
@@ -71,6 +73,10 @@ securityGraph = either (error . show) id (graph (reviewed :> Scope "security" re
 -- | The @security@ scope.
 securityScope :: ScopePath
 securityScope = scopePath "security"
+
+-- | A whole flow run inline, under a scope named after it.
+scopedIn :: (NotSum o) => Name -> Flow 'Ctx 'Nothing o -> OpenGraph
+scopedIn name flow = either (error . show) id (graph (Scope name flow))
 
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
