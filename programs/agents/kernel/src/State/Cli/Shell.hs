@@ -153,6 +153,10 @@ jobReply steps name input call job = case job of
             Hook.SpawnedLead -> pure ""
             Hook.SpawnedWorker _ -> pure ""
         pure (replyOf job (beginText steps begin <> marked))
+    Routes (RunsShell command)
+        | Just _ <- call.agent
+        , Just why <- Route.parentlessInit steps command ->
+            pure (Deny why)
     Routes gate ->
         callerBinding call >>= \(slot, bound) -> case (bound, gate) of
             (Just binding, _) ->
@@ -706,6 +710,8 @@ resume is news.
 upOf :: Loaded -> [Envelope] -> Text -> Maybe Up
 upOf run new text = case run.state.start.principal of
     ByUser _ -> Nothing
+    -- Its caller holds no run to record the hand-back in: the agent reads it from the reply.
+    ByCaller _ -> Nothing
     ByRole parent _ _ -> Just (Up parent run.state.run (Role.role run.state.start.flow).name once text)
   where
     once = maybe (tshow (nextSeq run - 1 + fromIntegral (length new))) qidText (asks =<< either (const Nothing) (.token) (parseHandback text))
@@ -868,6 +874,7 @@ initRun gd args = do
             accepted <- case (result, args.origin) of
                 (Right said@(_, run), FromParent parent) -> fmap (const said) <$> spawnedIn parent.run parent.log (Child run parent.task path worktree)
                 (Right said, FromUser _) -> pure (Right said)
+                (Right said, FromCaller _) -> pure (Right said)
                 (Left failure, _) -> pure (Left failure)
             traverse (\(verb, run) -> writePointer gd notes $> initLines verb run worktree) accepted
   where
@@ -877,6 +884,7 @@ initRun gd args = do
     interfaceOf = \case
         ByUser _ -> Set.fromList [minBound .. maxBound]
         ByRole {} -> Set.empty
+        ByCaller _ -> Set.empty
     initLines verb run worktree = Text.unlines [verb <> " " <> runIdText run, renderBinding (Binding run notes worktree)]
 
 {- | Whether the user's init is the flow a scope of the worktree's unfinished
@@ -888,6 +896,7 @@ naming the run's own flow or a flow no scope there runs, starts as ever.
 scopeRuns :: (Shell es) => FilePath -> InitArgs -> Eff es Bool
 scopeRuns gd args = case args.origin of
     FromParent _ -> pure False
+    FromCaller _ -> pure False
     FromUser _ ->
         readPointer gd >>= \case
             Nothing -> pure False
@@ -1026,11 +1035,14 @@ task's Fuel, the task read from the parent's log.
 -}
 startOf :: (Shell es) => InitArgs -> Eff es (Either Failure Begin)
 startOf args = case args.origin of
-    FromUser shape -> let flow = fromMaybe defaultFlow args.flow in pure (Right (Begin (ByUser shape) flow (fixedFuel flow)))
+    FromUser shape -> pure (Right (atFixedFuel (ByUser shape)))
+    FromCaller shape -> pure (Right (atFixedFuel (ByCaller shape)))
     FromParent parent ->
         parentStarts parent >>= \case
             Left failure -> pure (Left failure)
             Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
+  where
+    atFixedFuel principal = let flow = fromMaybe defaultFlow args.flow in Begin principal flow (fixedFuel flow)
 
 {- | The Fuel a flow runs at whoever starts it: the 10x picks each task's
 Fuel and runs at Balanced itself, so its user is asked none. The chief has

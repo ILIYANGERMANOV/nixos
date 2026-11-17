@@ -38,10 +38,11 @@ Intake -> Gather -> Propose the breakdown -> user confirms
 - **Only you own wakes.** A subagent cannot receive one. `add_repo`,
   `subscribe_pr_activity`, CI waits, `AskUserQuestion`, `PushNotification` and
   `gh pr merge` stay here.
-- **Under a parent**, your brief's `state init` line naming a `--parent`: no
-  wakes, no merges, no user questions, Confirm's included (`state next` hands
-  it up), no READY notify, no review queue. Spawn every subagent in the
-  foreground, and end your turn with what `state next` hands back.
+- **Under a parent**, your brief's `state init` line naming a `--parent`, or
+  `--child` as a subagent: no wakes, no merges, no user questions, Confirm's
+  included (`state next` hands it up), no READY notify, no review queue. Spawn
+  every subagent in the foreground, and end your turn with what `state next`
+  hands back.
 - **One agent per task.** At most one agent per task, so any wake for a task
   with a live agent is held: `state record held <task> <url>`. Held wakes
   stay on the task's line in `state next`; once its agent hands back, re-read
@@ -117,6 +118,7 @@ Create `~/.10x/<yyyy-mm-dd>-<slug>/`, `git init -q` it, and in it run
 run's own research and proposals. `state init` records it, so the run starts
 at `gather`, past `fuel`: record no `fuel.set`. Under a parent, run your brief's
 `state init` line as written, in its worktree, instead; your Fuel is the task's.
+Spawned with no such line, add `--child` to yours.
 
 Once per repo, before anything reads it: `add_repo` with `access: "read"` as
 your instructions say, then, as this run's own step, `git clone` its SSH URL

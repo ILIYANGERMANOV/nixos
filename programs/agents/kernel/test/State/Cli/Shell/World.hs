@@ -17,6 +17,7 @@ module State.Cli.Shell.World (
     putFile,
     tenXAtFanOut,
     tenXAtFanOutOf,
+    tenXAtFanOutBy,
     childRun,
     atWorktree,
     addWorktree,
@@ -207,8 +208,12 @@ tenXAtFanOut world = tenXAtFanOutOf world [plainTask "t1" [], (plainTask "t2" ["
 
 -- | A 10x run at its fan-out with these tasks; the run's id.
 tenXAtFanOutOf :: IORef World -> [Task] -> IO Text
-tenXAtFanOutOf world tasks = do
-    tenX <- startedIn world ["--flow", "10x"]
+tenXAtFanOutOf world = tenXAtFanOutBy world []
+
+-- | A 10x run started with these further init arguments, at its fan-out with these tasks; the run's id.
+tenXAtFanOutBy :: IORef World -> [Text] -> [Task] -> IO Text
+tenXAtFanOutBy world argv tasks = do
+    tenX <- startedIn world (["--flow", "10x"] <> argv)
     putFile world (notes </> "tasks.json") (breakdownJson tasks)
     _ <- succeeded =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
     _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (notes </> "tasks.json")]

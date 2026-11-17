@@ -143,6 +143,16 @@ spec = describe "State.Run.Codec" $ do
                         && "\"principal\":{\"pr\":\"https://github.com/o/r/pull/7\"}" `Text.isInfixOf` round'
                 _ -> False
 
+    it "writes the caller on its own PR as a bare word, and its round as its PR marked caller" $
+        [ encodeLine reviewRows {event = Started (Start EngineerFlow "/n" (ByCaller shape) Set.empty)}
+        | shape <- [OwnPr, RoundOn (Url "https://github.com/o/r/pull/7")]
+        ]
+            `shouldSatisfy` \case
+                [own, round'] ->
+                    "\"principal\":\"caller\"" `Text.isInfixOf` own
+                        && "\"principal\":{\"caller\":true,\"pr\":\"https://github.com/o/r/pull/7\"}" `Text.isInfixOf` round'
+                _ -> False
+
     it "reads an AWAIT an older log wrote, with no on, as awaiting CI" $
         (.event) <$> decodeLine (encodeLine reviewRows {event = HandedBack (runId "c1") (Awaits Merge (oneLine "https://pr/1"))} `replacing` (",\"on\":\"merge\"", ""))
             `shouldBe` Right (HandedBack (runId "c1") (Awaits Ci (oneLine "https://pr/1")))

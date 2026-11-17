@@ -38,6 +38,7 @@ module State.Cli.Command (
 import Control.Applicative (many, optional, some, (<**>), (<|>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -114,9 +115,11 @@ is 'defaultFlow'.
 data InitArgs = InitArgs {notes :: ShellPath, flow :: Maybe FlowName, origin :: Origin}
 
 {- | Who starts the run: the user, on a PR of its own or a round on the one
-@--pr@ names, or a parent run, whose task gives the shape.
+@--pr@ names; a parent run, whose task gives the shape; or, with @--child@,
+the agent that spawned this subagent with no run of its own to link, on a PR
+of its own or a round as the user's.
 -}
-data Origin = FromUser Shape | FromParent Parent
+data Origin = FromUser Shape | FromParent Parent | FromCaller Shape
     deriving stock (Eq, Show)
 
 -- | A question kept at its kind, or raised to 'Ask.Security' first.
@@ -319,17 +322,21 @@ initArgs =
         <*> optional (textOption "parent-log" "<path>" "the parent's events.jsonl, an absolute path")
         <*> optional (textOption "task" "<id>" "the parent's task this child run takes")
         <*> optional (textOption "pr" "<url>" "the open PR a user's run takes another round on")
+        <*> Optparse.switch (Optparse.long "child" <> Optparse.help "a subagent's run whose spawner holds no run to link: it hands everything back")
   where
-    init' notesRaw flowRaw parentRaw logRaw taskRaw prRaw = do
+    init' notesRaw flowRaw parentRaw logRaw taskRaw prRaw child = do
         notes <- notesDir notesRaw
         flow <- traverse flowNamed flowRaw
+        let mine = if child then FromCaller else FromUser
         origin <- case (prRaw, parentRaw, logRaw, taskRaw) of
-            (Nothing, Nothing, Nothing, Nothing) -> Right (FromUser OwnPr)
-            (Just pr, Nothing, Nothing, Nothing) -> FromUser . RoundOn <$> roundPr pr
+            _ | child, any isJust [parentRaw, logRaw, taskRaw] -> Left childWithParent
+            (Nothing, Nothing, Nothing, Nothing) -> Right (mine OwnPr)
+            (Just pr, Nothing, Nothing, Nothing) -> mine . RoundOn <$> roundPr pr
             (Just _, _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
             (Nothing, Just run, Just logPath, Just task) -> (\r l -> FromParent (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
             (Nothing, _, _, _) -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
         Right (Init InitArgs {notes, flow, origin})
+    childWithParent = usage "--child with --parent" "a --child run links to no parent run; a fan-out's child names --parent, --parent-log and --task alone"
     roundPr raw = maybe (Left (Failure BadInput ("--pr " <> raw) ("the PR is " <> prUrlRule) "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>")) Right (parsePrUrl raw)
 
 -- | One subcommand per event the table holds, its flags its options.

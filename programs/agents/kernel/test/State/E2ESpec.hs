@@ -885,6 +885,24 @@ spec = describe "the state binary" $ do
                     replyField "decision" said `shouldBe` Just "deny"
                     replyField "reason" said `shouldSatisfy` maybe False ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`)
 
+                it "deny a subagent's state init that would start a user's run, naming --child" $ \repo -> do
+                    said <- succeeded =<< hook hookBin repo "route" (ranIn repo (worker "e9" "engineer") ("state init --notes " <> Text.pack repo.notes))
+
+                    replyField "decision" said `shouldBe` Just "deny"
+                    replyField "reason" said `shouldSatisfy` maybe False ("else with --child\n" `Text.isSuffixOf`)
+
+                it "let a subagent init with --child or --parent, and a top-level session with neither" $ \repo -> do
+                    let notes = "state init --notes " <> Text.pack repo.notes
+                    said <-
+                        traverse
+                            (succeeded <=< hook hookBin repo "route")
+                            [ ranIn repo (worker "e9" "engineer") (notes <> " --child")
+                            , ranIn repo (worker "e9" "engineer") (notes <> " --parent r1 --parent-log /p/events.jsonl --task t1")
+                            , ranIn repo Null notes
+                            ]
+
+                    said `shouldBe` [[], [], []]
+
                 it "never gate a plain session or an implementer" $ \repo -> do
                     said <- traverse (succeeded <=< hook hookBin repo "route") [edited repo Null, ranIn repo Null "git commit -m x", edited repo (worker "i1" "implementer")]
 
