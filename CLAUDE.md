@@ -136,6 +136,8 @@ thin backend.**
 **The logic ladder: pure Haskell >> impure Haskell >> hooks >> prose**
 (`.claude/rules/agents-logic-ladder.md`).
 
+The vision, read before any agent design: `programs/agents/VISION.md`.
+
 Details: `.claude/rules/agents-*.md` and `claude-code-*.md`, each loaded only
 under the folder it covers; why: `docs/adr/0011-agent-compiler.md`.
 
