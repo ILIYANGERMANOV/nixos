@@ -80,6 +80,7 @@ import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
 import State.Step.Plan (Sing (SimplifyP))
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
+import State.Step.Ticket (Outcome (..), TicketStep)
 
 data RunState = RunState
     { run :: RunId
@@ -123,6 +124,8 @@ data RunState = RunState
     -}
     , fans :: Map ScopedFan Fan
     -- ^ Each fan-out's tasks and child runs, by its name in its scopes: none before its breakdown.
+    , ticket :: Maybe Url
+    -- ^ The ticket @open_ticket@ recorded last: the url an architect run hands back.
     }
     deriving stock (Eq, Show)
 
@@ -289,6 +292,7 @@ begin g envelope = case runStart envelope.event of
                 , untriaged = []
                 , live = []
                 , fans = Map.empty
+                , ticket = Nothing
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -423,7 +427,7 @@ took g state scope outcome@(AnyOutcome _ some) = do
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
-    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published}
+    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket}
 
 -- | The edge an event takes where the run is, and the state it leaves.
 edgeHere :: OpenGraph -> RunState -> EventName -> Maybe (Place, Edge Node)
@@ -448,13 +452,15 @@ inScope g state event = case (event, state.at) of
     _ -> event
 
 {- | What an outcome changes besides the run's place: its problems join the
-rounds it ends, and it may move a fan-out or name the run's PR.
+rounds it ends, and it may move a fan-out or name the run's PR or ticket.
 -}
 data Effect = Effect
     { fanned :: Map ScopedFan Fan -> Either Fan.Refusal (Map ScopedFan Fan)
     , problems :: Set Problem
     , draft :: Maybe DraftPr
     , pr :: Maybe Url
+    , opened :: Maybe Url
+    -- ^ The ticket opened.
     }
 
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
@@ -468,10 +474,20 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     BuildLayer -> none {draft = built o}
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
+    TicketLayer -> none {opened = ticketOf o}
     FanLayer -> none {fanned = fanOutcome scope o}
     ChoiceLayer -> none
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing}
+
+-- | The ticket an @open_ticket@ names.
+ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url
+ticketOf = \case
+    OpenTicketDone url -> Just url
+    UpdateTicketDone -> Nothing
+    ConfirmDesignConfirmed -> Nothing
+    ConfirmDesignAdjusted -> Nothing
+    FinalizeTicketDone -> Nothing
 
 -- | The draft PR a draft names.
 built :: Outcome (s :: BuildStep) l -> Maybe DraftPr
@@ -858,7 +874,7 @@ stuckExits g state place = case innermost g place of
             AwaitsCi -> True
             AwaitsMerge -> True
             Ordinary -> False
-            AsksConfirm -> False
+            AsksConfirm _ -> False
         Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses

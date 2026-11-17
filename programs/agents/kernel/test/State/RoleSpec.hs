@@ -16,9 +16,9 @@ spec = describe "State.Role" $ do
         it "climbs from the run's own rung outside any flow's scope" $
             map (rungAt TenXFlow . StateName) ["implement", "security/review", "out"] `shouldBe` [Orchestrator, Orchestrator, Orchestrator]
 
-        it "climbs from the run's own rung at every state of the engineer and 10x flows, as before scopes ran flows" $
+        it "climbs from the run's own rung at every state of the engineer, 10x and architect flows, as before scopes ran flows" $
             [(flowName, rungAt flowName (placeName place)) | flowName <- [minBound .. maxBound], place <- Set.toList (places (flowGraph flowName))]
-                `shouldBe` [(flowName, rung) | (flowName, rung) <- [(EngineerFlow, Lead), (TenXFlow, Orchestrator)], _ <- Set.toList (places (flowGraph flowName))]
+                `shouldBe` [(flowName, rung) | (flowName, rung) <- [(EngineerFlow, Lead), (TenXFlow, Orchestrator), (ArchitectFlow, Lead)], _ <- Set.toList (places (flowGraph flowName))]
 
         it "climbs from the 10x's rung inside a scoped 10x, whatever flow the run follows" $
             rungAt EngineerFlow (StateName "10x/gather") `shouldBe` Orchestrator
@@ -36,5 +36,5 @@ spec = describe "State.Role" $ do
             case planner.flow of
                 SomeFlow flow -> graph flow `shouldSatisfy` isRight
 
-        it "keeps the engineer's and the 10x's flows ending in a PR" $
-            map (flowOut . (.flow) . role) [minBound .. maxBound] `shouldBe` [PR, PR]
+        it "keeps the engineer's and the 10x's flows ending in a PR, the architect's in a ticket" $
+            map (flowOut . (.flow) . role) [minBound .. maxBound] `shouldBe` [PR, PR, Ticket]

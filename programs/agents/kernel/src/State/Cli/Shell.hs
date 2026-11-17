@@ -44,7 +44,7 @@ import Options.Applicative qualified as Opt
 import State.Category.Fuel (Fuel (Balanced))
 import State.Category.Graph (Node (..), OpenGraph, graph)
 import State.Category.Step (StateName, stateNameText)
-import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
+import State.Cli.Command (Block (..), Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), Raise (..), RunCommand (..), Usage (..), answeredQid, anyEvent, architectInitFix, defaultFlow, explain, failureText, help, initFix, notOpenYet, notStarted, noteOf, openQid, optparseText, parseCommand, parseHook, retryOf, tenXInitFix, unknownEvent)
 import State.Cli.Render qualified as Render
 import State.Cli.Render.Mermaid (mermaid)
 import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
@@ -135,9 +135,9 @@ hook argv = case parseHook argv of
     usage line = Console.err (line <> "\n") $> ExitFailure 2
 
 {- | A hook's reply to its job: how work begins needs no run, a lead skill
-marking its agent a lead; a route denies a @state@ call at another run than
-the caller's, and an unbound lead's write; the rest is what the caller's run
-says. A disk or git error is context naming the run once one is
+marking its agent a lead; a route denies a write where the caller's run is
+read-only, a @state@ call at another run than the caller's, and an unbound
+lead's write; the rest is what the caller's run says. A disk or git error is context naming the run once one is
 known: the bound one, then the one found. One before either, such as reading
 the caller's binding, names none, as no run is known yet.
 -}
@@ -152,19 +152,40 @@ jobReply steps name input call job = case job of
         pure (replyOf job (beginText steps begin <> marked))
     Routes gate ->
         callerBinding call >>= \(slot, bound) -> case (bound, gate) of
-            (Just binding, RunsShell command) -> case stateCalls steps call.cwd command of
-                [] -> pure Quiet
-                calls ->
-                    standing binding >>= \case
-                        (_, Standing) -> maybe Quiet Deny . route binding <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
-                        -- A removed worktree's run is done: no call strays from it.
-                        (_, Removed) -> pure Quiet
-            (Just _, _) -> pure Quiet
+            (Just binding, _) ->
+                readOnlyAt binding gate >>= \case
+                    Just why -> pure (Deny why)
+                    Nothing -> case gate of
+                        RunsShell command -> case stateCalls steps call.cwd command of
+                            [] -> pure Quiet
+                            calls ->
+                                standing binding >>= \case
+                                    (_, Standing) -> maybe Quiet Deny . route binding <$> traverse (\c -> (c,) <$> toplevelAt c.dir) calls
+                                    -- A removed worktree's run is done: no call strays from it.
+                                    (_, Removed) -> pure Quiet
+                        Edits -> pure Quiet
+                        Writes -> pure Quiet
+                        Spawns -> pure Quiet
             (Nothing, _) -> do
                 began <- maybe (pure Nothing) (fmap (leadSkill . Text.strip =<<) . FileSystem.readText . leadFile) slot
                 pure (maybe Quiet Deny (Route.gate (leadOf ((.role) =<< call.agent) began) gate))
     Asks want -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (wantAnswer steps name input call want slot bound)
     Binds bind -> callerBinding call >>= \(slot, bound) -> replyOf job <$> telling name ((.run) <$> bound) (bindAnswer steps name call bind slot bound)
+
+{- | Why the bound run denies the call where it is: by the flow running
+there. Read under the log's lock, appending nothing; no git is read, as a
+route runs before every edit. A run that is gone or does not replay denies
+nothing: its other hooks tell what is wrong with it.
+-}
+readOnlyAt :: (Log :> es) => Binding -> Gate -> Eff es (Maybe Text)
+readOnlyAt binding gate =
+    Log.exists path >>= \case
+        False -> pure Nothing
+        True -> Log.locked path $ \case
+            Right (first : rest) | Right (_, state) <- replayed path (first :| rest) -> ([], Route.readOnly (Role.flowAt state.start.flow (askedAt state)) gate)
+            _ -> ([], Nothing)
+  where
+    path = logOf binding.notes
 
 -- | Marks the caller a lead of the skill it began; a disk error is told, the skill begins regardless.
 markLead :: (Shell es) => Call -> LeadSkill -> Eff es Text
@@ -1053,6 +1074,7 @@ rendered steps block flow = case block of
     InitLine -> case flow of
         EngineerFlow -> initFix <> "\n"
         TenXFlow -> tenXInitFix <> "\n"
+        ArchitectFlow -> architectInitFix <> "\n"
   where
     g = graphOf flow
 

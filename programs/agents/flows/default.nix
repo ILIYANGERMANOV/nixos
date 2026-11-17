@@ -29,6 +29,7 @@ let
   flowNames = [
     "engineer"
     "10x"
+    "architect"
   ];
 
   # The fields a step must have: a role's step adds `lead`.

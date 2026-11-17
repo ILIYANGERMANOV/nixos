@@ -21,12 +21,14 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph)
+import State.Run.RunGen (architectGraph, childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph)
 import State.Step.Build (Outcome (..))
+import State.Step.Choice (Outcome (..), discussing, exploring)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -157,6 +159,32 @@ spec = describe "State.Protocol.Advice" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
                 answered = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
             next noFacts answered `shouldBe` offering ["state record confirm.confirmed", "state record confirm.adjusted"]
+
+    describe "the architect" $ do
+        let architectFrom events = either (error . show) id (replay architectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
+            architectRun = architectFrom . (knobs Balanced <>)
+            ticket = Url "https://github.com/o/r/issues/1"
+            opened = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring), stepTook (OpenTicketDone ticket)]
+            designRound verdict = [stepTook (Enough discussing), stepTook UpdateTicketDone] <> verdict
+            atCap = opened <> concat (replicate 3 (designRound [stepTook ConfirmDesignAdjusted])) <> designRound []
+            designGoOn = Question (QId run 100) Stuck (oneLine "go on?")
+            wentOn = [Asked (Asking designGoOn (StateName "design/confirm_design") Itself), Forwarded designGoOn.qid TheUser, Answered designGoOn.qid "yes" TheUser]
+        it "asks the architect's Fuel first, as the engineer's" $
+            next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
+
+        it "asks the user to confirm the design ticket" $
+            next noFacts (architectRun (opened <> designRound [])) `shouldBe` Ask Confirm "the design ticket: confirmed, or adjusted?"
+
+        it "asks whether to go on at the design rounds' cap, then the confirm again after extend" $ do
+            next noFacts (architectRun atCap) `shouldBe` Ask Stuck "Design rounds: 3 of 3 used, none left: go on?"
+            next noFacts (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design ticket: confirmed, or adjusted?"
+
+        it "tells the discussion to send its Explain message before each question, in the same turn" $
+            (advise steps architectGraph noFacts (architectRun opened)).prompt
+                `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
+
+        it "ends with the ticket's url" $
+            next noFacts (architectRun (opened <> designRound [stepTook ConfirmDesignConfirmed] <> [stepTook FinalizeTicketDone])) `shouldBe` Done (Just ticket)
 
     it "advises a scoped step's outcomes under their qualified names" $ do
         let atSecurityPick =

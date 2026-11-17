@@ -2,6 +2,7 @@
 module State.Run.RunGen (
     g,
     tenXGraph,
+    architectGraph,
     securityGraph,
     securityScope,
     scopedIn,
@@ -43,6 +44,7 @@ import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
 import State.Category.Step (EventName (..), stateNameText)
 import State.Category.Ty (NotSum, Ty (..))
+import State.Flow.Architect (architect)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (reviewed)
 import State.Flow.TenX (tenX)
@@ -81,11 +83,15 @@ scopedIn name flow = either (error . show) id (graph (Scope name flow))
 tenXGraph :: OpenGraph
 tenXGraph = either (error . show) id (graph tenX)
 
+architectGraph :: OpenGraph
+architectGraph = either (error . show) id (graph architect)
+
 -- | The graph a run of this flow walks.
 flowGraph :: FlowName -> OpenGraph
 flowGraph = \case
     EngineerFlow -> g
     TenXFlow -> tenXGraph
+    ArchitectFlow -> architectGraph
 
 {- | A 10x run, by the user, at its fan-out with these
 tasks, then these events.
@@ -150,6 +156,7 @@ taskJson task =
             <> case task.flow of
                 EngineerFlow -> []
                 TenXFlow -> ["flow" .= ("10x" :: Text)]
+                ArchitectFlow -> ["flow" .= ("architect" :: Text)]
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child

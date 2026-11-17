@@ -22,6 +22,7 @@ import State.Step.Artifact qualified as Artifact (Task (..))
 import State.Step.Choice (Outcome (..), gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Review (Outcome (..))
+import State.Step.Ticket (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
@@ -153,6 +154,12 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes a 10x task's flow under the key a breakdown names it by" $
         encodeLine reviewRows {event = stepTook (BreakdownDone engineers (tasksOf (ledBy10x :| [])))} `shouldSatisfy` Text.isInfixOf "\"flow\":\"10x\""
+
+    it "writes and reads an architect run's start by its flow's name, and its ticket by its url" $ do
+        let architectStart = reviewRows {event = Started (Start ArchitectFlow "/n" (ByUser OwnPr) Set.empty)}
+            opened = reviewRows {event = stepTook (OpenTicketDone (Url "https://github.com/o/r/issues/1"))}
+        (encodeLine architectStart, encodeLine opened) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
+        map (fmap (.event) . decodeLine . encodeLine) [architectStart, opened] `shouldBe` map (Right . (.event)) [architectStart, opened]
 
     it "refuses a task's flow no role leads" $
         decodeTask (taskFileJson ledBy10x `replacing` ("\"10x\"", "\"chief\"")) `shouldBe` Left "Error in $: unknown flow \"chief\""

@@ -32,22 +32,23 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph)
+import State.Run.RunGen (architectGraph, childOf, commit, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph)
 import State.Step.Catalog (outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), choiceNamed, gathering)
+import State.Step.Choice (Outcome (..), choiceNamed, discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
+import State.Step.Ticket (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
-    it "names every edge of the engineer and 10x flows by exactly one kind of outcome" $
+    it "names every edge of the engineer, 10x and architect flows by exactly one kind of outcome" $
         -- A fan-out's stays are its children's events; a choice's are its actions' outcomes.
-        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
+        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph, architectGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
 
     describe "the 10x's fan-out" $ do
         let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
@@ -298,6 +299,7 @@ spec = describe "State.Run.Fold" $ do
 
     gatherBudgets
     tenXRounds
+    architectRun
 
     it "append_is_idempotent_by_id" . hedgehog $ do
         events <- forAll genAccepted
@@ -486,6 +488,28 @@ gatherBudgets = describe "the gather's choice" $ do
     spent = spawns 5 <> asks 1 30
     asks from n = [askAt i Fact | i <- [from .. from + n - 1]]
     askAt n kind = Asked (Asking (Question (QId run n) kind (oneLine "a question")) (StateName "gather") Itself)
+
+{- | The architect's run: research, a ticket opened, design rounds until the
+user confirms one, the ticket finalized and its url kept.
+-}
+architectRun :: Spec
+architectRun = describe "the architect's run" $ do
+    it "researches, opens the ticket, adjusts the design once, then finalizes the confirmed one, keeping the ticket's url" $
+        (\state -> (state.at, state.ticket)) <$> architect (opened <> designRound ConfirmDesignAdjusted <> designRound ConfirmDesignConfirmed <> [stepTook FinalizeTicketDone])
+            `shouldBe` Right (Out, Just ticket)
+
+    it "refuses a fourth adjusted design at Balanced's three rounds" $
+        architect (opened <> concat (replicate 4 (designRound ConfirmDesignAdjusted))) `shouldSatisfy` outOf "Design rounds" 3
+
+    it "grants three more design rounds after extend" $ do
+        let extended = opened <> concat (replicate 3 (designRound ConfirmDesignAdjusted)) <> [stepTook (Enough discussing), stepTook UpdateTicketDone, Extended "the user goes on"]
+        architect (extended <> [stepTook ConfirmDesignAdjusted]) `shouldSatisfy` isRight
+  where
+    architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| FuelSet Balanced : events))
+    ticket = Url "https://github.com/o/r/issues/1"
+    opened = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring), stepTook (OpenTicketDone ticket)]
+    -- One design round: discussed, written into the ticket, and the user's verdict.
+    designRound verdict = [stepTook (Enough discussing), stepTook UpdateTicketDone, stepTook verdict]
 
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.
@@ -685,12 +709,13 @@ atName state = case state.at of
 startOf :: FlowName -> Principal -> Start
 startOf flow principal = Start flow "notes" principal Set.empty
 
-{- | Up to 60 tries at an ask event on a run of either flow, under the user
-or a parent, keeping those the fold accepts: the run state and the events.
+{- | Up to 60 tries at an ask event on a run of the engineer or the 10x flow,
+one per rung that rules, under the user or a parent, keeping those the fold
+accepts: the run state and the events.
 -}
 genAskLog :: Gen (RunState, [Event])
 genAskLog = do
-    flow <- Gen.enumBounded
+    flow <- Gen.element [EngineerFlow, TenXFlow]
     principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms]
     first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
