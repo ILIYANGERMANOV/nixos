@@ -213,6 +213,7 @@ part = \case
     Do s -> stepPart s
     Capped limit atCap s -> cappedPart limit atCap s
     Id -> Right (passing id)
+    Into -> Right (passing (\Here -> Here))
     f :> g -> do
         left <- part f
         right <- part g
@@ -392,6 +393,7 @@ choicePart name branches = do
                     Continues _ -> Left (NotAnAction name)
         Do _ -> notAction
         Id -> notAction
+        Into -> notAction
         _ :> _ -> notAction
         Loop _ _ -> notAction
         Opt {} -> notAction

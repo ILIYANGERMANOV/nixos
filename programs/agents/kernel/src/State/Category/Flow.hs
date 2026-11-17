@@ -69,6 +69,10 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     Do :: (StepSet k, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Flow i e o
     -- | Identity: no step runs. Law: @Id :> f = f = f :> Id@.
     Id :: Flow a 'Nothing a
+    {- | Retype as 'Result': no step runs, nothing is recorded, as 'Id'. The
+    chief's route joins its branches' outs here. Law: @f :> Into@ walks as @f@.
+    -}
+    Into :: (KnownTy a, NotSum a) => Flow a 'Nothing 'Result
     {- | Series: an exit of either side exits the whole. Law: associative,
     @(f :> g) :> h = f :> (g :> h)@.
     -}

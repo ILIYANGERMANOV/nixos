@@ -107,10 +107,14 @@ choices :: [Name]
 choices = [gathering, exploring, discussing]
 
 {- | Every route a run may hold, with its branches, so the log's decoders
-know each pick. None yet: the chief's routes join here.
+know each pick: the chief's request route and its block route. A test holds
+it equal to the routes the flows draw.
 -}
 routes :: [(Name, [OutcomeName])]
-routes = []
+routes =
+    [ ("route", map OutcomeName ["architect", "engineer", "10x", "blocks", "discussion", "other"])
+    , ("block", map OutcomeName ["researching", "gathering", "agreeing", "proposing", "building", "reviewing", "describing", "shipping"])
+    ]
 
 -- | The choice whose state this is.
 choiceNamed :: StateName -> Maybe Name

@@ -325,14 +325,15 @@ spawnedBegin steps spawned = case leads spawned of
         | otherwise -> Nothing
 
 {- | The skills a lead's run begins under, as the skill catalog names them
-(@programs/agents/skills/custom@): the engineer's, the 10x's and the architect's.
+(@programs/agents/skills/custom@): the engineer's, the 10x's, the architect's
+and the chief's.
 
 Typed here, as no source names them apart: the step table's @skills@ (which
 the kernel does not read) puts them on the leads' inline steps beside
 @engineering@, which begins no run, and a flow's name is not its skill's
 (the @10x@ flow runs under @10x-engineer@).
 -}
-data LeadSkill = EngineerSkill | TenXSkill | ArchitectSkill
+data LeadSkill = EngineerSkill | TenXSkill | ArchitectSkill | ChiefSkill
     deriving stock (Eq, Show, Enum, Bounded)
 
 -- | The lead skill a name names; 'Nothing' for any other skill.
@@ -344,6 +345,7 @@ leadSkillName = \case
     EngineerSkill -> "engineer"
     TenXSkill -> "10x-engineer"
     ArchitectSkill -> "architect"
+    ChiefSkill -> "chief"
 
 {- | What a tool's result binds: a shell command that ran @state init@ binds
 its caller to the run init printed, a rerun (a resume) again; a spawn of a
@@ -466,6 +468,7 @@ opening scope l s = case l of
     ReviewLayer -> Nothing
     ShipLayer -> Nothing
     TicketLayer -> Nothing
+    RequestLayer -> Nothing
     FanLayer -> Nothing
     ChoiceLayer -> Nothing
 

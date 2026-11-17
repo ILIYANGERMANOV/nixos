@@ -14,6 +14,7 @@
   skills = [
     "address-pr-feedback"
     "architect"
+    "chief"
     "engineer"
     "engineering"
     "final-review"

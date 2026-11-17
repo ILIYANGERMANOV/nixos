@@ -36,6 +36,7 @@ parBodies = \case
     Capped {} -> []
     f :> g -> parBodies f <> parBodies g
     Id -> []
+    Into -> []
     Loop _ body -> parBodies body
     Opt _ _ body -> parBodies body
     Par fan body -> (fan, show body) : parBodies body

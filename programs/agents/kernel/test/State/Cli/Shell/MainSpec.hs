@@ -67,6 +67,48 @@ spec = describe "state over the doubles" $ do
                                )
                 take 1 shown `shouldBe` ["run: " <> run <> " (engineer)"]
 
+            it "prints the chief's next step to the init of the flow its branch runs, starting no run" $ \_ ->
+                for_ [("engineer", []), ("10x", ["--flow", "10x"]), ("architect", ["--flow", "architect"])] $ \(branch, flag) -> do
+                    fresh <- newWorld
+                    chief <- startedIn fresh ["--flow", "chief"]
+                    _ <- succeeded =<< state fresh ["record", "route." <> branch]
+                    next <- succeeded =<< state fresh ["next"]
+                    before' <- loggedEvents fresh
+
+                    inner <- succeeded =<< state fresh (["init", "--notes", "/tmp/inner"] <> flag)
+
+                    after <- loggedEvents fresh
+                    shown <- succeeded =<< state fresh ["show"]
+                    (inner, after, take 1 shown) `shouldBe` (next, before', ["run: " <> chief <> " (chief)"])
+
+            it "starts an engineer, 10x or architect run in a free worktree as before" $ \_ ->
+                for_ [[], ["--flow", "10x"], ["--flow", "architect"]] $ \flag -> do
+                    fresh <- newWorld
+
+                    ran <- state fresh (["init", "--notes", "/notes"] <> flag)
+
+                    events <- loggedEvents fresh
+                    (ran.code, ran.out, ran.err, events) `shouldBe` (0, ["started 00010203", "run 00010203 /notes /work"], [], ["started"])
+
+            it "refuses an engineer, 10x or architect init over a run no branch of which runs that flow, as before" $ \_ -> do
+                let engineer = []
+                    tenX = ["--flow", "10x"]
+                    architect = ["--flow", "architect"]
+                    chief = ["--flow", "chief"]
+                    standalone = [(held, [], flag) | held <- [engineer, tenX, architect], flag <- [engineer, tenX, architect]]
+                    atHub = [(chief, [], flag) | flag <- [engineer, tenX, architect]]
+                    otherBranch = [(chief, ["route.engineer"], tenX), (chief, ["route.engineer"], architect), (chief, ["route.10x"], engineer)]
+                    inBlocks = [(chief, ["route.blocks"], flag) | flag <- [engineer, tenX, architect]]
+                for_ (standalone <> atHub <> otherBranch <> inBlocks) $ \(held, picks, flag) -> do
+                    fresh <- newWorld
+                    run <- startedIn fresh held
+                    for_ picks $ \pick -> succeeded =<< state fresh ["record", pick]
+
+                    refused <- state fresh (["init", "--notes", "/other"] <> flag)
+
+                    (refused.code, refused.out, refused.err)
+                        `shouldBe` (2, [], ["state init: --notes /other - the worktree holds unfinished run " <> run <> " in /notes", "fix: state init --notes /notes resumes it, or state stop <reason> <why> ends it"])
+
             it "starts a run in another notes dir once the worktree's run stopped" $ \world -> do
                 _ <- startedRun world
                 _ <- succeeded =<< state world ["stop", "replan", "the", "plan", "is", "wrong"]

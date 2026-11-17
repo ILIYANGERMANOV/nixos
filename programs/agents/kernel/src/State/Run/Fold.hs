@@ -78,6 +78,7 @@ import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
 import State.Step.Plan (Sing (SimplifyP))
+import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
 import State.Step.Ticket (Outcome (..), TicketStep)
@@ -126,6 +127,10 @@ data RunState = RunState
     -- ^ Each fan-out's tasks and child runs, by its name in its scopes: none before its breakdown.
     , ticket :: Maybe Url
     -- ^ The ticket @open_ticket@ recorded last: the url an architect run hands back.
+    , latest :: Maybe Url
+    {- ^ The PR or ticket url any step recorded last: what a chief's request
+    ended in, as an earlier request's PR must not stand for a later ticket.
+    -}
     }
     deriving stock (Eq, Show)
 
@@ -179,6 +184,8 @@ data Refusal
       NoSingleState StateName
     | -- | The question was asked already, whether pending or closed.
       AskedTwice QId
+    | -- | A second pick of the branch asked at a route's hub: the user names it once.
+      PickedOnce
     | NotPending QId
     | -- | Forwarded already: only its answer is left.
       AlreadyForwarded QId
@@ -293,6 +300,7 @@ begin g envelope = case runStart envelope.event of
                 , live = []
                 , fans = Map.empty
                 , ticket = Nothing
+                , latest = Nothing
                 }
 
 -- | The run an event starts: a log's first line must start one.
@@ -427,7 +435,7 @@ took g state scope outcome@(AnyOutcome _ some) = do
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
-    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket}
+    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
 
 -- | The edge an event takes where the run is, and the state it leaves.
 edgeHere :: OpenGraph -> RunState -> EventName -> Maybe (Place, Edge Node)
@@ -474,6 +482,7 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     ReviewLayer -> none {problems = reviewProblems o}
     ShipLayer -> let (found, url) = shipped o in none {problems = found, pr = url}
     TicketLayer -> none {opened = ticketOf o}
+    RequestLayer -> none {pr = openedPr o}
     FanLayer -> none {fanned = fanOutcome scope o}
     ChoiceLayer -> none
   where
@@ -487,6 +496,16 @@ ticketOf = \case
     ConfirmDesignConfirmed -> Nothing
     ConfirmDesignAdjusted -> Nothing
     FinalizeTicketDone -> Nothing
+
+-- | The PR an @open_pr@ names: a ship from it waits on that PR's CI.
+openedPr :: Outcome (s :: RequestStep) l -> Maybe Url
+openedPr = \case
+    OpenPrDone url -> Just url
+    OpenPlanDone _ -> Nothing
+    OpenBranchDone _ -> Nothing
+    DirectDone _ -> Nothing
+    NextDone -> Nothing
+    NextRequest -> Nothing
 
 -- | The draft PR a draft names.
 built :: Outcome (s :: BuildStep) l -> Maybe DraftPr
@@ -563,10 +582,12 @@ atFan g state event = case state.at of
 
 {- | A question the run asks: its own question at a capped step, as the
 interview's, spends the step's meter. Asking whether to go on spends none.
+At a route's hub the run asks the user its branch once.
 -}
 asked :: OpenGraph -> RunState -> Asking -> Either Refusal RunState
 asked g state asking
     | Set.member qid state.everAsked = Left (AskedTwice qid)
+    | asking.question.kind == Ask.Pick, isRouteHub g state.at, Ask.Pick `elem` state.askedHere = Left PickedOnce
     | otherwise = do
         meters <- if spends then spend g state RecordedAsk else Right state.meters
         Right
@@ -874,6 +895,7 @@ stuckExits g state place = case innermost g place of
             AwaitsMerge -> True
             Ordinary -> False
             AsksConfirm _ -> False
+            TellsResult -> False
         Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses

@@ -14,13 +14,13 @@ import Hedgehog (Gen, PropertyT, annotate, assert, cover, evalEither, evalMaybe,
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
-import State.Category.Flow (Flow (..), scopePath)
+import State.Category.Flow (Flow (..), scopePath, unqualify)
 import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph)
 import State.Category.Fuel (Fuel (..), always)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
-import State.Category.Step (OutcomeName (..))
+import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library qualified as Library
 import State.Flow.TenX (tenX)
@@ -32,12 +32,13 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, childOf, commit, designWritten, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph, ticketOpened, ticketUrl)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Catalog (outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..), choiceNamed, gathering)
+import State.Step.Choice (Outcome (..), choiceNamed, discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Gather (Outcome (..), Sing (Interview))
 import State.Step.Plan (Outcome (..), Sing (PlanS))
+import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..), Sing (SimplifyPR))
 import State.Step.Ticket (Outcome (..))
@@ -46,9 +47,9 @@ import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
 spec = describe "State.Run.Fold" $ do
-    it "names every edge of the engineer, 10x and architect flows by exactly one kind of outcome" $
-        -- A fan-out's stays are its children's events; a choice's are its actions' outcomes.
-        outcomeNames `shouldBe` Set.fromList [name | flow <- [g, tenXGraph, architectGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
+    it "names every edge of the engineer, 10x, architect and chief flows by exactly one kind of outcome" $
+        -- A fan-out's stays are its children's events; a choice's are its actions' outcomes. A scope's are named bare.
+        outcomeNames `shouldBe` Set.fromList [EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome | flow <- [g, tenXGraph, architectGraph, chiefGraph], ((place, name), edge) <- Map.toList flow.edges, edge.arrow /= Stay || isJust (choiceNamed place.name)]
 
     describe "the 10x's fan-out" $ do
         let tenXLog events = logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events)
@@ -300,6 +301,7 @@ spec = describe "State.Run.Fold" $ do
     gatherBudgets
     tenXRounds
     architectRun
+    chiefRequests
 
     it "append_is_idempotent_by_id" . hedgehog $ do
         events <- forAll genAccepted
@@ -507,6 +509,61 @@ architectRun = describe "the architect's run" $ do
   where
     architect events = replay architectGraph (logOf (Started (startOf ArchitectFlow (ByUser OwnPr)) :| FuelSet Balanced : events))
     designRound verdict = designWritten <> [stepTook verdict]
+
+{- | The chief's requests: each is picked at the hub, runs inline in its
+branch's scope by the events its own skill records bare, and ends at @next@,
+which takes the next request at the hub or ends the run.
+-}
+chiefRequests :: Spec
+chiefRequests = describe "the chief's requests" $ do
+    it "routes a request to the engineer, runs it inline to its PR, and names that PR at next" $
+        (\state -> (nameAt state, state.latest)) <$> chief (pick "engineer" : engineered) `shouldBe` Right (Just "next", Just (Url "u"))
+
+    it "takes the next request at the hub, and ends the run at next.done" $
+        map (fmap nameAt . chief) [pick "engineer" : engineered <> [stepTook NextRequest], pick "engineer" : engineered <> [stepTook NextDone]]
+            `shouldBe` [Right (Just "route"), Right Nothing]
+
+    it "discusses a request in its scope and moves on to next when the discussion has enough" $
+        nameAt <$> chief (pick "discussion" : within "discussion" [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough discussing)]) `shouldBe` Right (Just "next")
+
+    it "does a request no flow fits directly, keeping no url" $
+        (\state -> (nameAt state, state.latest)) <$> chief [pick "other", stepTook (DirectDone "renamed a file")] `shouldBe` Right (Just "next", Nothing)
+
+    it "refuses a second pick question at the hub" $
+        chief [askAtHub 1, askAtHub 2] `shouldBe` Left PickedOnce
+
+    it "takes a pick question at the next request's hub" $
+        chief [askAtHub 1, pick "other", stepTook (DirectDone "done"), stepTook NextRequest, askAtHub 2] `shouldSatisfy` isRight
+
+    it "takes a new Fuel at the hub of each request" $
+        fuelOf <$> chief (firstRequest <> [stepTook NextRequest, FuelSet Low]) `shouldBe` Right Low
+
+    it "refuses a new Fuel inside a request" $
+        chief (firstRequest <> [FuelSet Low]) `shouldBe` Left (FuelSetOnce Max)
+
+    it "chains architect, a block and architect again through next, naming the newest url each time" $ do
+        let designed = pick "architect" : within "architect" (ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])
+            researched = [pick "blocks", stepTook (Picked "block" (OutcomeName "researching"))] <> within "researching" [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring)]
+            shipped = [pick "blocks", stepTook (Picked "block" (OutcomeName "shipping"))] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
+            andThen first later = first <> [stepTook NextRequest] <> later
+        map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
+            `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
+  where
+    chief events = replay chiefGraph (logOf (Started (startOf ChiefFlow (ByUser OwnPr)) :| events))
+    pick branch = stepTook (Picked "route" (OutcomeName branch))
+    engineered = within "engineer" (map (Took mempty) happyPath)
+    -- As the log holds a branch's events: in the branch's scope.
+    within scope = map $ \case
+        Took bare o -> Took (scopePath scope <> bare) o
+        other -> other
+    askAtHub n = Asked (Asking (Question (QId run n) Pick (oneLine "which branch?")) (StateName "route") Itself)
+    nameAt :: RunState -> Maybe Text
+    nameAt state = case state.at of
+        At place -> Just (stateNameText (placeName place))
+        Out -> Nothing
+        Exit -> Nothing
+    pr = Url "https://github.com/o/r/pull/7"
+    firstRequest = [FuelSet Max, pick "other", stepTook (DirectDone "done")]
 
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.

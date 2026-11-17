@@ -54,6 +54,7 @@ library
     State.Cli.Shell
     State.Cli.View
     State.Flow.Architect
+    State.Flow.Chief
     State.Flow.Engineer
     State.Flow.Library
     State.Flow.TenX
@@ -78,6 +79,7 @@ library
     State.Step.Fan
     State.Step.Gather
     State.Step.Plan
+    State.Step.Request
     State.Step.Review
     State.Step.Ship
     State.Step.Ticket
@@ -145,6 +147,7 @@ test-suite state-test
     State.Cli.Shell.World
     State.Cli.ViewSpec
     State.E2ESpec
+    State.Flow.ChiefSpec
     State.Flow.EngineerSpec
     State.Flow.InlineSpec
     State.Flow.LibrarySpec

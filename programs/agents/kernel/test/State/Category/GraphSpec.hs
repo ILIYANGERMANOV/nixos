@@ -151,6 +151,7 @@ arrows = \case
     Capped _ _ s -> length (outcomeNames (outcomes s))
     f :> g -> arrows f + arrows g
     Id -> 0
+    Into -> 0
     Loop _ body -> arrows body
     Opt _ _ body -> 1 + arrows body
     Par _ _ -> 3

@@ -31,6 +31,7 @@ import State.Step.Choice (ChoiceStep, Sing (Hub, Pick), choices, routes)
 import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
 import State.Step.Gather (GatherStep)
 import State.Step.Plan (PlanStep)
+import State.Step.Request (RequestStep)
 import State.Step.Review (ReviewStep)
 import State.Step.Ship (ShipStep)
 import State.Step.Ticket (TicketStep)
@@ -43,6 +44,7 @@ data Layer k where
     ReviewLayer :: Layer ReviewStep
     ShipLayer :: Layer ShipStep
     TicketLayer :: Layer TicketStep
+    RequestLayer :: Layer RequestStep
     FanLayer :: Layer FanStep
     ChoiceLayer :: Layer ChoiceStep
 
@@ -58,12 +60,13 @@ instance KnownLayer BuildStep where layer = BuildLayer
 instance KnownLayer ReviewStep where layer = ReviewLayer
 instance KnownLayer ShipStep where layer = ShipLayer
 instance KnownLayer TicketStep where layer = TicketLayer
+instance KnownLayer RequestStep where layer = RequestLayer
 instance KnownLayer FanStep where layer = FanLayer
 instance KnownLayer ChoiceStep where layer = ChoiceLayer
 
 -- | The layers, in the order the flows run them.
 layers :: [SomeLayer]
-layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer]
+layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer RequestLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer]
   where
     _listsEvery :: Layer k -> ()
     _listsEvery = \case
@@ -73,6 +76,7 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
         ReviewLayer -> ()
         ShipLayer -> ()
         TicketLayer -> ()
+        RequestLayer -> ()
         FanLayer -> ()
         ChoiceLayer -> ()
 
@@ -93,6 +97,8 @@ sameLayer a b = case (a, b) of
     (ShipLayer, _) -> Nothing
     (TicketLayer, TicketLayer) -> Just Refl
     (TicketLayer, _) -> Nothing
+    (RequestLayer, RequestLayer) -> Just Refl
+    (RequestLayer, _) -> Nothing
     (FanLayer, FanLayer) -> Just Refl
     (FanLayer, _) -> Nothing
     (ChoiceLayer, ChoiceLayer) -> Just Refl

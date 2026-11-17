@@ -259,6 +259,8 @@ data Special
       AwaitsCi
     | -- | Wait on the tasks' PRs to merge.
       AwaitsMerge
+    | -- | Name the url the run recorded last, what the request ended in.
+      TellsResult
     deriving stock (Eq, Show)
 
 -- | A state of a flow's graph, by name: what people read, and an override's target.

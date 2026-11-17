@@ -21,6 +21,7 @@ module State.Cli.Route (
     leadOf,
     gate,
     readOnly,
+    writesNoCode,
 ) where
 
 import Control.Monad (guard)
@@ -28,7 +29,7 @@ import Data.Char (isDigit, isSpace)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Cli.Command (Command (..), Exit (..), Failure (..), RunCommand (ShowRun), architectInitFix, failureText, initFix, parseCommand, tenXInitFix)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), RunCommand (ShowRun), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (FlowName (..), leads)
@@ -127,6 +128,7 @@ gate lead call = case lead of
     SkillLead EngineerSkill -> denial initFix <$> writeOf call
     SkillLead TenXSkill -> denial (tenXInitFix <> ", in the run directory Intake or Resume names") <$> writeOf call
     SkillLead ArchitectSkill -> denial architectInitFix <$> writeOf call
+    SkillLead ChiefSkill -> denial chiefInitFix <$> writeOf call
     RoleLead -> denial "run the `state init` line in your prompt, as written" <$> writeOf call
   where
     denial fix act =
@@ -142,13 +144,11 @@ gate lead call = case lead of
 {- | Why a call is denied where this flow runs: the architect's design goes
 into its ticket, so it edits, writes, commits, pushes and opens or merges a
 PR nowhere. Its researchers spawn, and its shell runs, @gh issue@ and a
-heredoc into it included. Other flows write.
+heredoc into it included. Other flows write, the chief where no scope runs
+the architect's.
 -}
 readOnly :: FlowName -> Gate -> Maybe Text
-readOnly flow call = case flow of
-    ArchitectFlow -> denial <$> codeWrite
-    EngineerFlow -> Nothing
-    TenXFlow -> Nothing
+readOnly flow call = denial <$> (guard (writesNoCode flow) *> codeWrite)
   where
     codeWrite = case call of
         Spawns -> Nothing
@@ -164,6 +164,14 @@ readOnly flow call = case flow of
                 , why = "an architect run's design goes into its ticket"
                 , fix = "write the design into the ticket: a quoted heredoc (<<'EOF') into `gh issue edit <number> --body-file -`"
                 }
+
+-- | Whether a flow changes no code, so 'readOnly' denies its writes.
+writesNoCode :: FlowName -> Bool
+writesNoCode = \case
+    ArchitectFlow -> True
+    EngineerFlow -> False
+    TenXFlow -> False
+    ChiefFlow -> False
 
 -- | A write a run must see, as a denial names it; 'Nothing' for any other call.
 writeOf :: Gate -> Maybe Text

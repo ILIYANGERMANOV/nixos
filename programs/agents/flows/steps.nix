@@ -14,7 +14,7 @@
 # comes from a `spawn:` op); `skills` its runner preloads; `prose` the
 # instruction fragments it reads, by name (programs/agents/default.nix);
 # `ops` what it may call: `ask`, `await`, `notify`, `spawn:<role>`. `flows`
-# names the flows the step is in, `engineer`, `10x` or `architect`. A role leads the flow
+# names the flows the step is in, `engineer`, `10x`, `architect` or `chief`. A role leads the flow
 # named after it (the kernel's `State.Role`), so the `engineer` flow's inline rows are the engineer
 # role's. `offFlow` is a `role`'s work outside the flows: it has no types,
 # the kernel never sees it, and only the derivation reads it.
@@ -137,6 +137,59 @@ let
       flows = [ "architect" ];
     };
   };
+
+  # The chief's steps around a request: the inputs a block opens, a request
+  # no flow fits, and the next request. The lead runs each.
+  chiefSteps =
+    let
+      chiefStep =
+        step:
+        {
+          exit = null;
+          outcomes = [ "done" ];
+          runner = "inline";
+          tools = [ "shell" ];
+          skills = [ "chief" ];
+          prose = leadProse;
+          ops = [ ];
+          flows = [ "chief" ];
+        }
+        // step;
+    in
+    {
+      open_plan = chiefStep {
+        dom = "Ctx";
+        cod = "Plan";
+        task = "Open: the issue the request names holds the plan to build. Read it with `gh issue view <url>` and record its url; the block builds what its plan says.";
+      };
+      open_branch = chiefStep {
+        dom = "Ctx";
+        cod = "Diff";
+        task = "Open: the branch or sha the request names is what the block works on. Fetch it, check it out, and record it.";
+      };
+      open_pr = chiefStep {
+        dom = "Ctx";
+        cod = "PR";
+        task = "Open: the PR the request names is what the block works on. Check out its branch (`gh pr checkout <url>`) and record its url.";
+      };
+      direct = chiefStep {
+        dom = "Ctx";
+        cod = "Ctx";
+        task = "Direct: no flow fits the request, so do it yourself, the hooks and the context guard as everywhere; you may commit and open PRs. Record one line: what was asked and what you did.";
+      };
+      next = chiefStep {
+        dom = "Result";
+        cod = "Ctx";
+        exit = "Result";
+        outcomes = [
+          "done"
+          "request"
+        ];
+        tools = [ ];
+        ops = [ "ask" ];
+        task = "Next: tell the user in one line what the request ended in, the last result below, then ask for the next request or whether they are done, and end the turn. `request` when they name one, carrying that result as its context; `done` when they are done. At the Fuel's cap, asked whether to go on: yes is `extend <why>`, no is `done`.";
+      };
+    };
 in
 {
   steps = {
@@ -468,7 +521,8 @@ in
     };
   }
   // fanSteps
-  // architectSteps;
+  // architectSteps
+  // chiefSteps;
 
   # Role work outside the flows: only lib/derive.nix reads it.
   offFlow = {
