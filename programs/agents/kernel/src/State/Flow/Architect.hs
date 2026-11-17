@@ -9,7 +9,7 @@ module State.Flow.Architect (architect) where
 import State.Category.Flow (Flow (..))
 import State.Category.Fuel (always)
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Flow.Library (discuss, research)
 import State.Step.Ticket (Sing (..))
 

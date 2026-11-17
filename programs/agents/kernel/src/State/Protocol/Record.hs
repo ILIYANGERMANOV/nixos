@@ -177,8 +177,8 @@ recordables =
            , outcome (builtEvent Refactor RefactorSkipped) "<why>" [] (\a -> Plain . tookIn a.scope . RefactorSkipped <$> because a.positional)
            , atHead Review ReviewClean
            , atHead Review ReviewRows
-           , picks Pick PickFinal
-           , picks Pick PickLoop
+           , picks PickRows PickFinal
+           , picks PickRows PickLoop
            , -- A fixer's hand-back with no Touches line touches no area.
              commitAt Fix FixDone Set.empty
            , atHead ReReview ReReviewClean

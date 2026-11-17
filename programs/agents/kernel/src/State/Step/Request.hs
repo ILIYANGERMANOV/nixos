@@ -15,7 +15,7 @@ import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Branch (..), Url, branchText, urlData, urlOf)
 
 type data RequestStep = OpenPlan | OpenBranch | OpenPr | Direct | Next

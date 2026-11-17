@@ -13,7 +13,7 @@ module State.Step.Ticket (
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Url, urlData, urlOf)
 
 type data TicketStep = OpenTicket | UpdateTicket | ConfirmDesign | FinalizeTicket

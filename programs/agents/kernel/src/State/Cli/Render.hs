@@ -32,7 +32,7 @@ import State.Step.Build (Sing (Refactor))
 import State.Step.Catalog (AnyStep (..), shownEdges, stepNamed)
 import State.Step.Choice (choiceNamed)
 import State.Step.Gather (Sing (Research))
-import State.Step.Review (Sing (Pick))
+import State.Step.Review (Sing (PickRows))
 import State.Table (Row (runner), Runner (..), Steps, row)
 
 {- | The flow's states in the term's order: who runs each, and where each of
@@ -97,7 +97,7 @@ re-reviews how deep each goes.
 meterCell :: SomeMeter -> Fuel -> Limit -> Text
 meterCell meter level limit
     | meter == SomeMeter Research = researchers limit <> researchDepth level
-    | meter == SomeMeter Pick = upTo limit <> reReviewDepth level
+    | meter == SomeMeter PickRows = upTo limit <> reReviewDepth level
     | otherwise = upTo limit
   where
     researchers = \case

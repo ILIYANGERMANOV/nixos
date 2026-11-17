@@ -333,7 +333,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
         ReviewLayer -> case s of
             Review.Review -> took . ReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
             Review.Fix -> took . FixDone =<< commit Set.empty
-            Review.Pick -> inline s
+            Review.PickRows -> inline s
             Review.ReReview -> took . ReReviewRows =<< required "Reviewed head: <sha>" handback.reviewedHead
         ShipLayer -> case s of
             Ship.Describe -> took . DescribeDone =<< atHead

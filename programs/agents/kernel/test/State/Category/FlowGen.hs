@@ -3,6 +3,7 @@ module State.Category.FlowGen (
     Kit (..),
     ctxKit,
     diffKit,
+    prKit,
     genEndo,
     genExiting,
     genFlow,
@@ -24,16 +25,18 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
+import Data.Typeable (Typeable)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (Flow (..), Name, ScopePath, inl, inr, scopePath, (|||))
+import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), Name, ScopePath, scopePath)
 import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
 import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
+import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (EventName, OutcomeEdge (..), OutcomeName (..), StateName)
-import State.Category.Ty (KnownTy, NotSum, Ty (..))
-import State.Flow.Library (gather)
+import State.Category.Ty (KnownTy, NotSum, TyOf (..))
+import State.Flow.Library (choice, gather, opt, par)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..), engineers)
@@ -55,7 +58,7 @@ planKit = Kit [Do SimplifyP, Do Draft] []
 
 -- | A review with rows always fixes them before the diff goes on.
 diffKit :: Kit 'Diff
-diffKit = Kit [Do Refactor] [Do Review :> Capped (always (UpTo 3)) Refuse Pick :> Do Fix, Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse Pick :> Do Fix]
+diffKit = Kit [Do Refactor] [Do Review :> Capped (always (UpTo 3)) Refuse PickRows :> Do Fix, Do ReReview :> Capped (UpTo <$> PerFuel 1 3 5) Refuse PickRows :> Do Fix]
 
 prKit :: Kit 'PR
 prKit = Kit [Do SimplifyPR, Do FixPR, Do Ready] [Do AwaitCi :> Capped (always (UpTo 5)) Stop FixPR]
@@ -67,11 +70,14 @@ genFlow = do
     plan <- genEndo planKit
     Gen.choice
         [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers (Do PlanS :> Do Implement :> Do Describe) :> Capped (always (UpTo 9)) Stop (Merge engineers)))
+        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers engineer :> Capped (always (UpTo 9)) Stop (Merge engineers)))
+        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> par (Group "engineers") engineer :> Capped (always (UpTo 9)) Stop (Merge engineers)))
         ]
+  where
+    engineer = Do PlanS :> Do Implement :> Do Describe
 
 {- | A term from @Diff@ to @PR@ that branches: a triage whose two branches go
-on, or an injection into a case, whose other branch no run takes.
+on, or a pick of one of two.
 -}
 genBranching :: Gen (Flow 'Diff 'Nothing 'PR)
 genBranching =
@@ -79,9 +85,8 @@ genBranching =
         Gen.choice
         [pure (Do Describe)]
         [ (:>) <$> genEndo diffKit <*> genBranching
-        , (\small big -> Do Triage :> (small ||| Do Implement :> big)) <$> genBranching <*> genBranching
-        , (\f g -> inl :> (f ||| g)) <$> genBranching <*> genBranching
-        , (\f g -> inr :> (f ||| g)) <$> genBranching <*> genBranching
+        , (\small big -> Do Triage :> Case (#small :-> small :& #big :-> Do Implement :> big :& End)) <$> genBranching <*> genBranching
+        , (\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genBranching <*> genBranching
         , Route <$> genName <*> genBranches genBranching
         ]
 
@@ -99,12 +104,13 @@ threeWayGraph = either (error . show) id (graph threeWay)
 genBranches :: Gen (Flow a e c) -> Gen (NonEmpty (OutcomeName, Flow a e c))
 genBranches gen = NonEmpty.zip (OutcomeName "small" :| [OutcomeName "big", OutcomeName "other"]) <$> Gen.nonEmpty (Range.linear 1 3) gen
 
-genEndo :: (KnownTy a, NotSum a) => Kit a -> Gen (Flow a 'Nothing a)
+genEndo :: (KnownTy a, NotSum a, Typeable a) => Kit a -> Gen (Flow a 'Nothing a)
 genEndo kit =
     Gen.recursive
         Gen.choice
         [Gen.element kit.endo]
         ( [ Opt <$> genName <*> genSkips <*> genEndo kit
+          , opt <$> genName <*> genSkips <*> genEndo kit
           , (:>) <$> genEndo kit <*> genEndo kit
           , Scope <$> genName <*> genEndo kit
           , Route <$> genName <*> genBranches (genEndo kit)
@@ -126,7 +132,7 @@ genSkips = PerFuel <$> skip <*> skip <*> skip
     skip = Gen.element [Never, AtOrBelow 100, Skippable]
 
 -- | A term with an exit, an exiting step glued on either side of an endo term.
-genExiting :: (KnownTy a, NotSum a) => Kit a -> Gen (Flow a ('Just a) a)
+genExiting :: (KnownTy a, NotSum a, Typeable a) => Kit a -> Gen (Flow a ('Just a) a)
 genExiting kit =
     Gen.choice
         [ (:>) <$> Gen.element kit.exiting <*> genEndo kit
@@ -205,4 +211,4 @@ redrawn g =
     node = \case
         At place -> At (ranked place)
         Out -> Out
-        Exit -> Exit
+        Graph.Exit -> Graph.Exit

@@ -7,9 +7,11 @@ any flow.
 -}
 module State.Category.Flow (
     Flow (..),
-    inl,
-    inr,
-    (|||),
+    Branches (..),
+    Branch (..),
+    branchesWith,
+    Label (..),
+    Group (..),
     alternateLoop,
     choiceLoop,
     spawn,
@@ -34,11 +36,13 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import GHC.OverloadedLabels (IsLabel (..))
 import GHC.TypeError (ErrorMessage (..), TypeError)
+import GHC.TypeLits (KnownSymbol, Symbol)
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Meter (AtCap, Limit, Meter (Owes))
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), StepSet (..), handedBackOutcome, spawnedOutcome)
-import State.Category.Ty (KnownTy, NotSum, Ty (..))
+import State.Category.Ty (KnownTy, NotSum, Ty, TyOf (..))
 
 {- | The exit of @f ':>' g@: either side's, and the same type when both have
 one. The last equation turns a mismatch into a message naming both types,
@@ -97,18 +101,39 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     Opt :: (NotSum a) => Name -> PerFuel SkipWhen -> Flow a 'Nothing a -> Flow a 'Nothing a
     -- | One flow per item, as child runs. Law: one state, its children's events stay there.
     Par :: (KnownTy a, KnownTy b) => Name -> Flow a 'Nothing b -> Flow ('List a) 'Nothing ('List b)
-    -- | Into the left summand: no step runs, the next block's left branch does.
-    InL :: Flow a 'Nothing (a ':+ b)
-    -- | Into the right summand.
-    InR :: Flow b 'Nothing (a ':+ b)
-    {- | Case: the left branch on the left summand, the right on the right.
-    Laws: @inl :> (f ||| g) = f@, @inr :> (f ||| g) = g@, and
-    @(inl :> h) ||| (inr :> h) = h@.
+    {- | The copairing: each summand runs its branch, the branch of its
+    label, so a branch missing or out of the sum's order does not compile.
+    Laws, read off a step @t@ into the sum: beta, @t@'s edge @l@ walks as
+    branch @l@; fusion, @Case bs :> h = Case (each b :> h)@.
     -}
-    (:|||) :: Flow a e1 c -> Flow b e2 c -> Flow (a ':+ b) (Join e1 e2) c
+    Case :: Branches ss e c -> Flow ('Sum ss) e c
+    {- | Leave by the exit: the innermost 'Catch' or 'Loop' goes on from
+    here. Uncaught, the flow's exit type is not 'Nothing', which a whole
+    flow must be. Law: @Catch (Exit) = Id@.
+    -}
+    Exit :: Flow b ('Just b) c
+    {- | The body once per item, in order, in this run: #351's @map@.
+    Law: a fold over the list, the body's states drawn once, its out going
+    back to its first state for the next item; @<first>.each_done@ leaves.
+    -}
+    Each :: (KnownTy a, KnownTy b, NotSum a, NotSum b) => Flow a 'Nothing b -> Flow ('List a) 'Nothing ('List b)
+    {- | Start the body as a child run in the group, and go on with the
+    input: the child runs beside the parent. One state, the group's, its
+    @spawned@ event the edge on. The body is not drawn: it is the child's
+    own run. Law: every way out of the flow from here passes an 'Await' of
+    the group (structured concurrency), else 'State.Category.Graph.graph'
+    refuses the flow.
+    -}
+    Fork :: (KnownTy a, KnownTy b, NotSum a) => Group b -> Flow a 'Nothing b -> Flow a 'Nothing a
+    {- | Wait for every child of the group to hand back: their results, in
+    the order they were forked. One state, the group's: @handed_back@ stays,
+    @done@ goes on. Law: @par g f = Each (Fork g f) :> Await g@ is
+    @traverse f@ on the list.
+    -}
+    Await :: (KnownTy a, KnownTy b, NotSum a) => Group b -> Flow a 'Nothing ('List b)
     {- | The codiagonal @b + b -> b@: the exit goes on as the out. Laws:
     @Catch (f :> g) = f :> Catch g@ for an @f@ with no exit, and
-    @Catch (f ||| g) = Catch f ||| Catch g@.
+    @Catch (Case bs) = Case (each b, Catch b)@.
     -}
     Catch :: (NotSum b) => Flow a ('Just b) b -> Flow a 'Nothing b
     {- | The body's states, loops, skips and fan-outs named @scope/name@, so
@@ -139,22 +164,41 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
 
 infixr 5 :>
 
-infixr 4 :|||
-
-{- | #351's names for the injections and the case. A branch may be a series
-without parentheses (@:>@ binds tighter), a case after a step needs them:
-@Do Triage :> (f ||| g :> h)@.
+{- | A 'Case''s branches, one per summand, in the sum's order: the shape of
+sop-core's @NP@, each branch labelled. A branch may be a series without
+parentheses (@:>@ binds tighter):
+@Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)@.
 -}
-inl :: Flow a 'Nothing (a ':+ b)
-inl = InL
+data Branches (ss :: [(Symbol, Ty)]) (e :: Maybe Ty) (c :: Ty) where
+    End :: Branches '[] 'Nothing c
+    (:&) :: Branch l a e1 c -> Branches ss e2 c -> Branches ('(l, a) ': ss) (Join e1 e2) c
 
-inr :: Flow b 'Nothing (a ':+ b)
-inr = InR
+infixr 3 :&
 
-(|||) :: Flow a e1 c -> Flow b e2 c -> Flow (a ':+ b) (Join e1 e2) c
-(|||) = (:|||)
+-- | The branch of summand @l@: the flow its input runs.
+data Branch (l :: Symbol) (a :: Ty) (e :: Maybe Ty) (c :: Ty) where
+    (:->) :: (KnownSymbol l) => Label l -> Flow a e c -> Branch l a e c
 
-infixr 4 |||
+infixr 4 :->
+
+-- | Each branch's flow, in the sum's order, through a function of any branch.
+branchesWith :: (forall a e1. Flow a e1 c -> r) -> Branches ss e c -> [r]
+branchesWith f = \case
+    End -> []
+    (_ :-> branch) :& rest -> f branch : branchesWith f rest
+
+-- | A summand's label as a value: @#small@.
+data Label (l :: Symbol) = Label
+    deriving stock (Show)
+
+instance (l ~ l') => IsLabel l (Label l') where
+    fromLabel = Label
+
+{- | The children a 'Fork' starts and an 'Await' waits for, each ending in
+a @b@. A group is a name, like a loop's: one ledger of open children each.
+-}
+newtype Group (b :: Ty) = Group Name
+    deriving stock (Eq, Show)
 
 {- | The steps in a fixed order, round after round: a loop over their series.
 Law: @alternateLoop n (f :| [g]) = Loop n (f :> g)@.
@@ -176,6 +220,10 @@ spawn :: (StepSet k, Meter s, Owes s ~ 'True, Drawn s ~ 'True, Sig s ~ '(i, 'Not
 spawn = Capped
 
 deriving stock instance Show (Flow i e o)
+
+deriving stock instance Show (Branches ss e c)
+
+deriving stock instance Show (Branch l a e c)
 
 {- | A loop's, skip's, fan-out's or scope's name. A fan-out's is its state's
 too; a scope's prefixes every name inside it.

@@ -7,7 +7,7 @@ module State.Flow.TenX (tenX) where
 import State.Category.Flow (Flow (..))
 import State.Category.Fuel (always)
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (agree)
 import State.Step.Fan (Sing (Breakdown, Merge), engineers)

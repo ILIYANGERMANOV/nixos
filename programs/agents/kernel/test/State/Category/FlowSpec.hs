@@ -10,13 +10,14 @@ module State.Category.FlowSpec (spec) where
 import Control.Exception (TypeError (..), evaluate, try)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (Flow (..), inl, inr, spawn, (|||))
+import State.Category.Flow (Branch (..), Branches (..), Flow (..), spawn)
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
 import State.Flow.Triage (Sing (..))
+import State.Role (SomeFlow (..), flowOut)
 import State.Step.Artifact (Commit (..), Sha (..))
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..), engineers)
@@ -31,12 +32,12 @@ spec = describe "State.Category.Flow" $ do
     describe "ill_typed_terms_do_not_compile" $ do
         it "a block whose out is not the next block's in" $
             rejected
-                "Couldn't match type ‘State.Category.Ty.Ctx’ with ‘State.Category.Ty.Diff’"
+                "Couldn't match type: State.Category.Ty.Ctx with: State.Category.Ty.Diff"
                 (Do Implement :> Do Research)
 
         it "an optional step that changes the type" $
             rejected
-                "Couldn't match type ‘State.Category.Ty.Diff’ with ‘State.Category.Ty.Plan’"
+                "Couldn't match type: State.Category.Ty.Diff with: State.Category.Ty.Plan"
                 (Opt "refactor" (always Never) (Do Implement))
 
         it "an optional step with an exit" $
@@ -51,7 +52,7 @@ spec = describe "State.Category.Flow" $ do
 
         it "a loop whose body ends at another type than its in" $
             rejected
-                "Couldn't match type ‘State.Category.Ty.Findings’ with ‘State.Category.Ty.Plan’"
+                "Couldn't match type: State.Category.Ty.Findings with: State.Category.Ty.Plan"
                 (Loop "review" (Do Implement :> Do Review) :: Flow 'State.Category.Ty.Plan 'Nothing 'State.Category.Ty.Diff)
 
         it "capping a step with no meter" $
@@ -80,16 +81,31 @@ spec = describe "State.Category.Flow" $ do
 
         it "a case after a step whose out is not a sum" $
             rejected
-                "Couldn't match type ‘State.Category.Ty.Diff’ with ‘State.Category.Ty.Diff State.Category.Ty.:+ State.Category.Ty.Plan’"
-                (Do Fix :> (Do Describe ||| Do Implement :> Do Describe))
+                "Couldn't match type: State.Category.Ty.Diff with: State.Category.Ty.Sum"
+                (Do Fix :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End))
+
+        it "a case branch under another summand's label" $
+            rejected
+                "Couldn't match type ‘\"small\"’ with ‘\"big\"’"
+                (Do Triage :> Case (#big :-> Do Describe :& #small :-> Do Implement :> Do Describe :& End))
+
+        it "a case missing a summand's branch" $
+            rejected
+                "Couldn't match type: '[ '(\"big\", State.Category.Ty.Plan)] with: '[]"
+                (Do Triage :> Case (#small :-> Do Describe :& End))
+
+        it "a whole flow with an uncaught exit" $
+            rejectedShown
+                "Couldn't match type: Just State.Category.Ty.Ctx with: Nothing"
+                (flowOut (SomeFlow (Exit :> Do PlanS)))
 
         {- A class constraint, unlike an equality, is evidence the term only
         carries: 'graph' forces it where it draws the skip.
         -}
         it "an optional block over a sum: its skip would be one edge for two summands" $
             rejectedShown
-                "A sum State.Category.Ty.Diff State.Category.Ty.:+ State.Category.Ty.Plan where one type is needed"
-                (graph (Do Triage :> Opt "refactor" (always Never) (inl ||| inr) :> (Do Describe ||| Do Implement :> Do Describe)))
+                "A sum State.Category.Ty.Sum"
+                (graph (Do Triage :> Opt "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
 
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $
@@ -104,8 +120,13 @@ spec = describe "State.Category.Flow" $ do
 
         it "a skip of a step that changes the type" $
             rejectedShown
-                "Couldn't match type ‘State.Category.Ty.Plan’ with ‘State.Category.Ty.Diff’"
+                "Couldn't match type: State.Category.Ty.Plan with: State.Category.Ty.Diff"
                 (outcomeEvent (packed Implement (by @'Skipped Implement)))
+
+        it "an outcome into a summand the sum lacks" $
+            rejectedShown
+                "No summand labelled \"huge\""
+                (outcomeEvent (packed Triage (by @('Took "huge") Triage)))
 
         it "an outcome packed as another step's" $
             rejectedShown

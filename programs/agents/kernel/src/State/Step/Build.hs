@@ -11,7 +11,7 @@ import Data.Aeson ((.:), (.=))
 import Data.Text (Text)
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Commit, DraftPr, Sha, commitData, commitOf, draftData, draftOf, headData, headOf)
 
 type data BuildStep = Draft | Implement | Refactor

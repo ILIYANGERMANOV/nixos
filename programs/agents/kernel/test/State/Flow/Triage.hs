@@ -13,9 +13,9 @@ module State.Flow.Triage (
 ) where
 
 import Data.Type.Equality ((:~:) (..))
-import State.Category.Flow (Flow (..), (|||))
+import State.Category.Flow (Branch (..), Branches (..), Flow (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Sha, headData, headOf)
 import State.Step.Build (Sing (..))
 import State.Step.Ship (Sing (..))
@@ -23,21 +23,21 @@ import State.Step.Ship (Sing (..))
 type data TriageStep = Triage
 
 instance StepSet TriageStep where
-    type Sig Triage = '( 'Diff, 'Nothing, 'Diff ':+ 'Plan)
+    type Sig Triage = '( 'Diff, 'Nothing, 'Sum '[ '("small", 'Diff), '("big", 'Plan)])
     type Drawn s = 'True
 
     data Sing s where
         Triage :: Sing Triage
 
     data Outcome s l where
-        TriageSmall :: Sha -> Outcome Triage 'Inl
-        TriageBig :: Sha -> Outcome Triage 'Inr
+        TriageSmall :: Sha -> Outcome Triage ('Took "small")
+        TriageBig :: Sha -> Outcome Triage ('Took "big")
 
     layerSteps = [SomeStep Triage]
 
     stepName Triage = StateName "triage"
 
-    outcomes Triage = Branches (OutcomeName "small") (OutcomeName "big")
+    outcomes Triage = Branches
 
     special Triage = Ordinary
 
@@ -61,4 +61,4 @@ deriving stock instance Show (Outcome (s :: TriageStep) l)
 deriving stock instance Eq (Outcome (s :: TriageStep) l)
 
 triaged :: Flow 'Diff 'Nothing 'PR
-triaged = Do Triage :> (Do Describe ||| Do Implement :> Do Refactor :> Do Describe)
+triaged = Do Triage :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Refactor :> Do Describe :& End)

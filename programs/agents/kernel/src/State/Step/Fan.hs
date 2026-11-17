@@ -26,7 +26,7 @@ import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Flow (FanEvent (Leaves), Name, fanEvent, nameText, namedState)
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Step.Artifact (Tasks, Url, breakdownOf, tasksData, urlData, urlOf)
 
 {- | 'FanOut' is the state a 'State.Category.Flow.Par' draws, named by its

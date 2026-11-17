@@ -107,8 +107,7 @@ owedBy (SomeMeter s) = \case
         ByExit -> Nothing
         ByContinuing -> Nothing
         BySkip -> Nothing
-        ByInl -> Nothing
-        ByInr -> Nothing
+        ByTaking -> Nothing
 
 -- | An event a run records at a metered state, its step's kind hidden.
 data Recorded where

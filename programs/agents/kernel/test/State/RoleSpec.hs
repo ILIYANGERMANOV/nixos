@@ -5,7 +5,7 @@ import Data.Set qualified as Set
 import State.Category.Flow (scopeNames)
 import State.Category.Graph (Place (..), graph, placeName, places)
 import State.Category.Step (StateName (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Flow.Library (agree)
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), Rung (..), SomeFlow (..), flowOut, role, rungAt)
 import State.Run.RunGen (chiefGraph, flowGraph)

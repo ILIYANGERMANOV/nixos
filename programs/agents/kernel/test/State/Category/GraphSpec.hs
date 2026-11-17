@@ -7,17 +7,23 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Flow (..), qualifyEvent, scopePath)
+import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), branchesWith, qualifyEvent, scopePath)
+import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, isRouteHub, places)
+import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
-import State.Category.Ty (NotSum, Ty (..))
+import State.Category.Ty (NotSum, TyOf (..))
+import State.Flow.Library (par)
+import State.Flow.Triage (Sing (..))
 import State.Run.RunGen qualified as RunGen
 import State.Step.Build (Sing (..))
+import State.Step.Fan (Sing (..))
 import State.Step.Gather (Sing (..))
+import State.Step.Plan (Sing (..))
 import State.Step.Ship (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -43,14 +49,14 @@ spec = describe "State.Category.Graph" $ do
         it "walks the first side to its end, then the second to its end or exit" . hedgehog $ do
             (left, right, whole) <- seqGraphs (genExiting diffKit) (genExiting diffKit)
             walkF <- forAll (genWalk left)
-            port <- forAll (Gen.element [Out, Exit])
+            port <- forAll (Gen.element [Out, Graph.Exit])
             walkG <- forAll (genWalkTo port right)
             (endOf whole (walkF <> walkG), ty whole (walkF <> walkG)) === (Just port, (<>) <$> ty left walkF <*> ty right walkG)
 
         it "takes an exit of the first side as the whole's exit" . hedgehog $ do
             (left, _, whole) <- seqGraphs (genExiting diffKit) (genExiting diffKit)
-            walkF <- forAll (genWalkTo Exit left)
-            (endOf whole walkF, ty whole walkF) === (Just Exit, ty left walkF)
+            walkF <- forAll (genWalkTo Graph.Exit left)
+            (endOf whole walkF, ty whole walkF) === (Just Graph.Exit, ty left walkF)
 
     {- A 'Map' keyed by (state, event) holds one target per pair, so the law
     can only break by an edge silently merged into another's key: the graph
@@ -87,6 +93,19 @@ spec = describe "State.Category.Graph" $ do
     it "refuses two skips of one state: a log could not say which was skipped" $
         graph (Opt "refactor" (always Skippable) (Opt "simplify" (always Skippable) (Do Refactor)))
             `shouldBe` Left (SameEvent (Place [] mempty (StateName "refactor")) (EventName (StateName "refactor") (OutcomeName "skipped")))
+
+    describe "a fork and its await" $ do
+        it "refuses a fork no await follows: its children would outlive the flow" $
+            graph (Fork engineerGroup engineerChild :> Do PlanS)
+                `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "engineers")) "engineers")
+
+        it "refuses a fork whose way out by an exit passes no await" $
+            graph (Fork engineerGroup (Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> Capped (always (UpTo 9)) Stop (Merge "engineers") :& End))
+                `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "engineers")) "engineers")
+
+        it "walks par as a spawn per item, the items done, a hand-back per child, then on" $
+            (`endOf` map (EventName (StateName "engineers") . OutcomeName) ["spawned", "spawned", "each_done", "handed_back", "handed_back", "done"]) <$> graph (par engineerGroup engineerChild)
+                `shouldBe` Right (Just Out)
 
     describe "a choice" $ do
         it "refuses a branch that is not a capped action: it would leave the choice" $
@@ -142,7 +161,7 @@ endOf g = foldM next (At g.inPort)
     next node event = case node of
         At place -> (.to) <$> step g place event
         Out -> Nothing
-        Exit -> Nothing
+        Graph.Exit -> Nothing
 
 -- | One per outcome of each step, one per skip, a fan-out's three events, and one per route's branch.
 arrows :: Flow i e o -> Int
@@ -155,13 +174,22 @@ arrows = \case
     Loop _ body -> arrows body
     Opt _ _ body -> 1 + arrows body
     Par _ _ -> 3
-    InL -> 0
-    InR -> 0
-    f :||| g -> arrows f + arrows g
+    Case branches -> sum (branchesWith arrows branches)
+    Flow.Exit -> 0
+    Each body -> 1 + arrows body
+    Fork _ _ -> 1
+    Await _ -> 2
     Catch body -> arrows body
     Scope _ body -> arrows body
     Choice _ branches -> 1 + sum (map arrows branches)
     Route _ branches -> sum (fmap ((1 +) . arrows . snd) branches)
+
+-- | The 10x's engineers, each a child run from a task's context to its PR.
+engineerGroup :: Group 'PR
+engineerGroup = Group "engineers"
+
+engineerChild :: Flow 'Ctx 'Nothing 'PR
+engineerChild = Do PlanS :> Do Implement :> Do Describe
 
 -- | A fix of a red CI, capped as the ship flow caps it.
 fixCapped :: Flow 'PR 'Nothing 'PR

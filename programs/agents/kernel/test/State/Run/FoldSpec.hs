@@ -18,6 +18,7 @@ import State.Category.Flow (Flow (..), scopePath, unqualify)
 import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph)
 import State.Category.Fuel (Fuel (..), always)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
+import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
 import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
@@ -141,7 +142,7 @@ spec = describe "State.Run.Fold" $ do
         it "refuses the first fan-out's merge while its task is unmerged" $
             twoFansRun (bothDone <> [stepTook (MergeDone engineers (Url "pr"))]) `shouldBe` Left (FanRefused (Fan.Unmerged (t1 :| [])))
         it "credits a task's move at a merge to that merge's fan-out" $
-            (.at) <$> twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]) `shouldBe` Right Exit
+            (.at) <$> twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr"))]) `shouldBe` Right Graph.Exit
         it "refuses a task's move off every fan-out's state" $
             twoFansRun (bothDone <> [TaskMoved t1 (Merged (Url "pr")), stepTook (MergeDone engineers (Url "pr")), TaskMoved t1 (Merged (Url "pr"))]) `shouldBe` Left NotAtFan
 
@@ -584,7 +585,7 @@ chiefRequests = describe "the chief's requests" $ do
     nameAt state = case state.at of
         At place -> Just (stateNameText (placeName place))
         Out -> Nothing
-        Exit -> Nothing
+        Graph.Exit -> Nothing
     pr = Url "https://github.com/o/r/pull/7"
     firstRequest = [FuelSet Max, pick "other", stepTook (DirectDone "done")]
     toReadySkipped = FuelSet Balanced : pick "engineer" : within "engineer" (map (Took mempty) (init happyPath) <> [stepTook (ReadySkipped pr)])
@@ -782,7 +783,7 @@ atName :: RunState -> Maybe StateName
 atName state = case state.at of
     At place -> Just (placeName place)
     Out -> Nothing
-    Exit -> Nothing
+    Graph.Exit -> Nothing
 
 -- | A run of this flow under this principal, with no ops.
 startOf :: FlowName -> Principal -> Start

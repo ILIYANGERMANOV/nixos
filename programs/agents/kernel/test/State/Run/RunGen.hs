@@ -46,8 +46,9 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Name, ScopePath, scopePath, unqualify)
 import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph)
+import State.Category.Graph qualified as Graph
 import State.Category.Step (EventName (..), stateNameText)
-import State.Category.Ty (NotSum, Ty (..))
+import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Architect (architect)
 import State.Flow.Chief (chief)
 import State.Flow.Engineer (engineer)
@@ -225,13 +226,13 @@ genAcceptedOn on = do
                 Right AlreadyLogged -> go (k - 1) state n
                 Left _ -> go (k - 1) state n
         Out -> pure []
-        Exit -> pure []
+        Graph.Exit -> pure []
     stays place edge = case edge.to of
         At to ->
             all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems on.loops)
                 && any (Set.member to . (.body)) (Map.elems on.loops)
         Out -> False
-        Exit -> False
+        Graph.Exit -> False
 
 genKnobs :: Gen [Event]
 genKnobs = (\fuel -> [FuelSet fuel]) <$> Gen.enumBounded

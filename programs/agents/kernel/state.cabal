@@ -77,7 +77,9 @@ library
     State.Step.Catalog
     State.Step.Choice
     State.Step.Fan
+    State.Step.Fuel
     State.Step.Gather
+    State.Step.Pick
     State.Step.Plan
     State.Step.Request
     State.Step.Review

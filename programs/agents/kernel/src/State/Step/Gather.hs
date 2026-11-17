@@ -14,7 +14,7 @@ module State.Step.Gather (
 import Data.Type.Equality ((:~:) (..))
 import State.Category.Meter (Meter (..), Spend (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 
 type data GatherStep = Research | Interview | Discuss
 

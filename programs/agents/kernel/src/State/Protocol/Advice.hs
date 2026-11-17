@@ -49,7 +49,7 @@ import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..), TyVal)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
 import State.Role (FlowName (..), RoleDef (..))
@@ -367,7 +367,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         AsksOnly -> commandOption "state ask --kind <kind> <question>" "asks one question; what it prints says who answers"
         Continues _ -> NonEmpty.head (recordOutcomes g place s)
         ExitsOr _ _ -> NonEmpty.head (recordOutcomes g place s)
-        Branches _ _ -> NonEmpty.head (recordOutcomes g place s)
+        Branches -> NonEmpty.head (recordOutcomes g place s)
     told :: (StepSet k) => Sing (s :: k) -> Text
     told s = case special s of
         TellsResult -> "\nThe last result: " <> maybe "none recorded" urlText state.latest
@@ -550,7 +550,7 @@ recordTask task = "state record task " <> taskIdText task.id <> " " <> taskState
 a ticket's, or a request's, the url recorded last. No step records a url for
 any other type yet.
 -}
-outputUrl :: Ty -> Facts -> RunState -> Maybe Url
+outputUrl :: TyVal -> Facts -> RunState -> Maybe Url
 outputUrl out facts state = case out of
     PR -> prUrl facts state
     Ticket -> state.ticket
@@ -560,7 +560,7 @@ outputUrl out facts state = case out of
     Diff -> Nothing
     Findings -> Nothing
     List _ -> Nothing
-    _ :+ _ -> Nothing
+    Sum _ -> Nothing
 
 -- | The PR's url as GitHub reports it, else the PR the run recorded.
 prUrl :: Facts -> RunState -> Maybe Url

@@ -27,7 +27,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, skippedOutcome, stateNameText, stepName)
-import State.Category.Ty (KnownTy (..), Ty (..))
+import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)
 
@@ -151,16 +151,16 @@ roleProblems written =
   where
     leads = map (\def -> roleText def.name) roles
 
-exitOf :: forall e o. Outcomes e o -> Maybe Ty
+exitOf :: forall e o. Outcomes e o -> Maybe TyVal
 exitOf = \case
     Continues _ -> Nothing
     ExitsOr @x _ _ -> Just (tyVal @x)
-    Branches _ _ -> Nothing
+    Branches -> Nothing
     OpensChildren -> Nothing
     AsksOnly -> Nothing
 
 -- | As the table spells a type: @[Ctx]@ for a list.
-tyText :: Ty -> Text
+tyText :: TyVal -> Text
 tyText = \case
     Ctx -> "Ctx"
     Plan -> "Plan"
@@ -170,7 +170,7 @@ tyText = \case
     Ticket -> "Ticket"
     Result -> "Result"
     List t -> "[" <> tyText t <> "]"
-    a :+ b -> "(" <> tyText a <> " + " <> tyText b <> ")"
+    Sum summands -> "(" <> Text.intercalate " + " [label <> ": " <> tyText t | (label, t) <- summands] <> ")"
 
 -- | The runner sum: an inline step has no lead, a role's step has one.
 runnerOf :: Text -> Maybe Text -> Either Text Runner

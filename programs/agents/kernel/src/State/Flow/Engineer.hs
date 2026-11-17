@@ -2,7 +2,7 @@
 module State.Flow.Engineer (engineer) where
 
 import State.Category.Flow (Flow (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 import State.Flow.Library (agree, build, describe, reviewed, ship)
 
 engineer :: Flow 'Ctx 'Nothing 'PR

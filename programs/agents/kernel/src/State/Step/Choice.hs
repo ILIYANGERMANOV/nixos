@@ -26,7 +26,7 @@ import GHC.TypeError (ErrorMessage (..), TypeError)
 import State.Category.Flow (Name, enoughOutcome, namedState)
 import State.Category.Graph (Node (..), Place (..))
 import State.Category.Step
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..))
 
 type data ChoiceStep = Hub | Fork
 

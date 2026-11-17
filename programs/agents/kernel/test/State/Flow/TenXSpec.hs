@@ -1,7 +1,7 @@
 module State.Flow.TenXSpec (spec) where
 
 import Data.Either (isRight)
-import State.Category.Flow (Flow (..), Name, scoped)
+import State.Category.Flow (Flow (..), Name, branchesWith, scoped)
 import State.Category.FlowGen (skipsKept)
 import State.Category.Graph (graph)
 import State.Category.Step (StateName (..))
@@ -40,9 +40,11 @@ parBodies = \case
     Loop _ body -> parBodies body
     Opt _ _ body -> parBodies body
     Par fan body -> (fan, show body) : parBodies body
-    InL -> []
-    InR -> []
-    f :||| g -> parBodies f <> parBodies g
+    Case branches -> concat (branchesWith parBodies branches)
+    Exit -> []
+    Each body -> parBodies body
+    Fork _ body -> parBodies body
+    Await _ -> []
     Catch body -> parBodies body
     Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]
     Choice _ branches -> concatMap parBodies branches

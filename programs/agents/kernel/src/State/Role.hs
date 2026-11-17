@@ -31,7 +31,7 @@ import Data.Text (Text)
 import State.Category.Flow (Flow, Name (..), scopeNames, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
-import State.Category.Ty (KnownTy (..), NotSum, Ty (..))
+import State.Category.Ty (KnownTy (..), NotSum, TyOf (..), TyVal)
 import State.Flow.Architect (architect)
 import State.Flow.Chief (chief, discussion)
 import State.Flow.Engineer (engineer)
@@ -54,7 +54,7 @@ data SomeFlow where
     SomeFlow :: (KnownTy o, NotSum o) => Flow 'Ctx 'Nothing o -> SomeFlow
 
 -- | What the flow ends in.
-flowOut :: SomeFlow -> Ty
+flowOut :: SomeFlow -> TyVal
 flowOut (SomeFlow (_ :: Flow 'Ctx 'Nothing o)) = tyVal @o
 
 role :: FlowName -> RoleDef

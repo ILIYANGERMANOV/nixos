@@ -11,7 +11,7 @@ import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, graph)
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName (..))
-import State.Category.Ty (Ty (..))
+import State.Category.Ty (TyOf (..), TyVal)
 import State.Step.Build (Sing (..))
 import State.Step.Review (Sing (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldNotBe)
@@ -50,7 +50,7 @@ genSkip = do
         skips <- nonEmpty [(place, event, edge) | ((place, event), edge@Edge {arrow = Skip _ _}) <- Map.toList g.edges]
         Just (g, skips)
 
-ends :: [OutcomeEdge] -> Maybe (Ty, Ty)
+ends :: [OutcomeEdge] -> Maybe (TyVal, TyVal)
 ends path = do
     first <- listToMaybe path
     final <- listToMaybe (reverse path)
