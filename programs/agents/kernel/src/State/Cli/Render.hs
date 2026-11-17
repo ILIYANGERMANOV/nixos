@@ -15,11 +15,12 @@ module State.Cli.Render (
 
 import Data.List (nub, sortOn)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullReview)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, isRouteHub, placeName, places, shownOrder)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
 import State.Protocol.Handback (TokenWord (NeedsDecisionWord), tokenWordText, tokenWords)
@@ -42,14 +43,15 @@ states :: OpenGraph -> Steps -> Text
 states g steps =
     table
         ["State", "Run by", "Arrows out"]
-        [[stateNameText (placeName place), runBy place.name, arrowsOut place] | place <- Set.toList (places g)]
+        [[stateNameText (placeName place), runBy place, arrowsOut place] | place <- Set.toList (places g)]
   where
-    runBy name = case (stepNamed name, choiceNamed name) of
+    -- A choice's and a route's hub are the lead's own: any other unnamed state is a fan-out.
+    runBy place = case (stepNamed place.name, isJust (choiceNamed place.name) || isRouteHub g (At place)) of
         (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
             Agent agent _ -> roleText agent
             Inline -> "you"
-        (Nothing, Just _) -> "you"
-        (Nothing, Nothing) -> "fan-out"
+        (Nothing, True) -> "you"
+        (Nothing, False) -> "fan-out"
     arrowsOut place =
         Text.intercalate "; " [eventLabel place event <> ": " <> target edge.to | (event, edge) <- shownEdges g place]
     target = \case

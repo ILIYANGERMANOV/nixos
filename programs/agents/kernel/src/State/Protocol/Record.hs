@@ -149,6 +149,7 @@ recordables =
     , nothing ResearchHandedBack
     ]
         <> [nothing (Enough choice) | choice <- Choice.choices]
+        <> [nothing (Picked route branch) | (route, branches) <- Choice.routes, branch <- branches]
         <> [ extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of
                 -- Read as a file only to refuse a plan not written yet.

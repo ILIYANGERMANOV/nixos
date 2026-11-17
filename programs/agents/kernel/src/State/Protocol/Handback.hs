@@ -43,7 +43,7 @@ import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId, r
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
-import State.Step.Choice (Sing (Hub), nodeChoice)
+import State.Step.Choice (Sing (Hub, Pick), nodeChoice)
 import State.Step.Fan qualified as Fan
 import State.Step.Gather qualified as Gather
 import State.Step.Plan (Outcome (..))
@@ -344,6 +344,7 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
             Fan.Merge _ -> inline s
         ChoiceLayer -> case s of
             Hub _ -> inline s
+            Pick _ _ -> inline s
       where
         took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
         took outcome = Right [tookIn scope outcome]

@@ -281,6 +281,7 @@ likeIn = \case
         MergeNextRound fan -> pure (MergeNextRound fan)
     ChoiceLayer -> \case
         Enough choice -> pure (Enough choice)
+        Picked route branch -> pure (Picked route branch)
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

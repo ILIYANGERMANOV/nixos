@@ -11,7 +11,9 @@ import Doubles.Gh (printedPr)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.FlowGen (threeWay)
 import State.Category.Fuel (Fuel (..))
+import State.Category.Graph (graph)
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
@@ -68,6 +70,23 @@ spec = describe "State.Protocol.Advice" $ do
         it "asks the engineer's Fuel first, the 10x's never: it runs at Balanced" $
             map (next noFacts) [runAt [], tenXStarted]
                 `shouldBe` [offering ["state record fuel <low|balanced|max>"], choosing]
+
+    describe "a route" $ do
+        let routed = either (error . show) id (graph threeWay)
+            atHub events = advise steps routed noFacts (either (error . show) id (replay routed (logOf (started :| knobs Balanced <> events))))
+            pickAsked = [Asked (Asking (Question (QId run 1) Pick (oneLine "which branch?")) (StateName "route") Itself), Forwarded (QId run 1) TheUser, Answered (QId run 1) "big" TheUser]
+        it "offers one pick per branch, each with where it goes" $
+            explained start (atHub [])
+                `shouldBe` [ "at route: a route you pick - take one option below, once, then state next"
+                           , "options:"
+                           , "  state record route.big - on to refactor"
+                           , "  state record route.other - on to describe"
+                           , "  state record route.small - on to describe"
+                           ]
+        it "tells the agent to guess the branch, say it, and ask the user once only when the request is ambiguous" $
+            (atHub []).prompt `shouldBe` "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
+        it "asks no more once the user was asked the branch" $
+            (atHub pickAsked).prompt `shouldBe` "The user was asked the branch once: record the branch the answer names."
 
     describe "gather" $ do
         it "offers each action in the order the flow declares them, and enough, each with what it does" $

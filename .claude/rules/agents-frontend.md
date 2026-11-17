@@ -74,6 +74,8 @@ law in `LawsSpec`:
   `spawn`, one whose spend opens a child that must hand back.
 - `choiceLoop name actions`: the agent takes capped actions in any order,
   then `<name>.enough`, which waits for open children.
+- `Route name branches`: the agent picks one named branch, once, by
+  `<name>.<branch>`; it asks the user only when the request is ambiguous.
 - `Opt name skips f`: a Fuel may skip it. `Par name f`: one child run per item.
 - `Scope name f`: its states record `name/step.outcome`.
 
