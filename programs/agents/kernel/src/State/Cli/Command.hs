@@ -48,9 +48,10 @@ import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, fuelName, parseByName)
-import State.Category.Graph (Cap (..), Metered (..), Node (..), OpenGraph (..), placeName, places)
+import State.Category.Graph (Cap (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, places)
 import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
+import State.Flow.Drawn (fuelTakes)
 import State.Protocol.Hook (HookName, hookName, hookPurpose)
 import State.Protocol.Record (Args (..), Arity (..), Flag (..), Option (..), Recordable (..), Recording (..), capRecords, choices, extend, extendOption, recordCommand, recordables, usageOf)
 import State.Role (RoleDef (..), defaultFlow)
@@ -492,7 +493,7 @@ explain g fuel at meters = \case
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"
   where
     refused = Failure BadInput
-    records = atPlace $ \place -> case [recordCommand event | (event, _) <- shownEdges g place, closesOpen place event] of
+    records = atPlace $ \place -> case [recordCommand event | (event, _) <- shownEdges g place, fuelTakes fuel place.name event, closesOpen place event] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
     atPlace fix = case at of
@@ -523,7 +524,7 @@ unknownEvent g state name =
   where
     events = edgeEvents <> [(extend.name, extendOption.command) | not (null (Fold.extendable g state))]
     edgeEvents = case state.at of
-        At place -> [(eventText event, recordCommand event) | (event, _) <- shownEdges g place]
+        At place -> [(eventText event, recordCommand event) | (event, _) <- shownEdges g place, fuelTakes (Fold.fuelOf state) place.name event]
         Out -> []
         Exit -> []
     listed = \case

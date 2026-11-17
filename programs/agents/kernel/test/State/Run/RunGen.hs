@@ -27,7 +27,6 @@ module State.Run.RunGen (
     loadSteps,
     genAccepted,
     genAcceptedOn,
-    genKnobs,
     outcomeOf,
 ) where
 

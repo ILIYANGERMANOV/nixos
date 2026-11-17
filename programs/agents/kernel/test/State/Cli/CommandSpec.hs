@@ -241,10 +241,10 @@ spec = describe "State.Cli.Command" $ do
             (explain g Balanced (runAt []).at (runAt []).meters NothingToExtend).fix `shouldBe` "state next"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
-            [ (explain g fuel (runAt simplifying).at (runAt simplifying).meters (NoEdge (runAt simplifying).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            [ (explain g fuel (runAt skipping).at (runAt skipping).meters (NoEdge (runAt skipping).at (outcomeEvent (outcome (ReviewClean sha))))).fix
             | fuel <- [Balanced, Low]
             ]
-                `shouldBe` ["state record simplify_plan.done", "state record simplify_plan.done | state record simplify_plan.skipped"]
+                `shouldBe` ["state record skip_simplify_plan.run", "state record skip_simplify_plan.run | state record skip_simplify_plan.skip"]
 
         it "names a choice's hand-back in the fix only while a child is open" $
             [ (explain g Balanced (runAt events).at (runAt events).meters (NoEdge (runAt events).at (outcomeEvent (outcome (ReviewClean sha))))).fix
@@ -293,11 +293,12 @@ spec = describe "State.Cli.Command" $ do
         it "of state rule" $ golden "usage/state-rule-help.txt" (helpOf ["rule", "--help"])
         it "of an unknown hook" $ golden "usage/state-hook-bad.txt" (usageError "state-hook" (parseHook ["bad"]))
   where
-    -- At the gather with a researcher open, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
+    -- At the gather with a researcher open, at simplify_plan's skip, at simplify_plan, at confirm and at the fix loop's pick, past the happy path's first steps.
     researched = map (Took mempty) (take 1 happyPath)
-    simplifying = map (Took mempty) (take 4 happyPath)
-    planned = map (Took mempty) (take 5 happyPath)
-    picking = map (Took mempty) (take 9 happyPath) <> [stepTook (ReviewRows sha)]
+    skipping = map (Took mempty) (take 4 happyPath)
+    simplifying = map (Took mempty) (take 5 happyPath)
+    planned = map (Took mempty) (take 6 happyPath)
+    picking = map (Took mempty) (take 11 happyPath) <> [stepTook (ReviewRows sha)]
     -- The engineer's cap of this meter.
     capOf :: Text -> Cap
     capOf meter = case [cap | cap <- Map.elems g.caps, someMeterName cap.meter == meter] of

@@ -60,8 +60,8 @@ spec = describe "the state binary" $ do
         it "asks the user to confirm the next request's plan when it names no target" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
             _ <- driveOn bin repo (Record ["fuel", "low"] : Record ["target", "pr", roundUrlString] : Record ["route.engineer"] : targetedPath)
-            transcript <- driveOn bin repo [Record ["next.request"], Record ["route.engineer"], Record ["gather.enough"], Planned, Record ["simplify_plan.skipped"]]
-            transcript `shouldBe` ["next.request -> route", "route.engineer -> engineer/gather", "engineer/gather.enough -> engineer/plan", "engineer/plan.done -> engineer/simplify_plan", "engineer/simplify_plan.skipped -> engineer/confirm"]
+            transcript <- driveOn bin repo [Record ["next.request"], Record ["route.engineer"], Record ["gather.enough"], Planned, Record ["skip_simplify_plan.skip"]]
+            transcript `shouldBe` ["next.request -> route", "route.engineer -> engineer/gather", "engineer/gather.enough -> engineer/plan", "engineer/plan.done -> engineer/skip_simplify_plan", "engineer/skip_simplify_plan.skip -> engineer/confirm"]
             asked <- succeeded =<< state bin repo ["next"]
             take 1 asked `shouldSatisfy` all (Text.isInfixOf "confirmed, or adjusted?")
 
@@ -218,7 +218,7 @@ spec = describe "the state binary" $ do
                 `shouldBe` ( 2
                            ,
                                [ "state override: override to nowhere - the flow has no single state of that name"
-                               , "fix: state override <gather|plan|simplify_plan|confirm|draft|implement|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                               , "fix: state override <gather|plan|skip_simplify_plan|simplify_plan|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                ]
                            )
 
@@ -528,7 +528,7 @@ spec = describe "the state binary" $ do
                 let tasks = repo.root </> "tasks.json"
                 Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {fuel = Low}])
                 plan <- writtenPlan repo
-                for_ [["fuel", "balanced"], ["gather.enough"], ["plan.done", plan], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
+                for_ [["fuel", "balanced"], ["gather.enough"], ["plan.done", plan], ["skip_simplify_plan.run"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
                 w1 <- worktree repo "w1"
@@ -548,7 +548,7 @@ spec = describe "the state binary" $ do
                 let tasks = repo.root </> "tasks.json"
                     gathered = concat (replicate 5 [["research.spawned"], ["research.handed_back"]])
                 plan <- writtenPlan repo
-                let agreed = [["gather.enough"], ["plan.done", plan], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
+                let agreed = [["gather.enough"], ["plan.done", plan], ["skip_simplify_plan.run"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
                 Text.writeFile tasks (breakdownJson [roundTask "t1" prUrl])
                 for_ (gathered <> agreed) (succeeded <=< state bin repo . ("record" :))
                 w1 <- worktree repo "w1"
@@ -1310,12 +1310,13 @@ balancedTranscript =
     , "research.handed_back -> gather"
     , "worker_returned -> gather"
     , "gather.enough -> plan"
-    , "plan.done -> simplify_plan"
+    , "plan.done -> skip_simplify_plan"
+    , "skip_simplify_plan.run -> simplify_plan"
     , "simplify_plan.done -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
-    , "implement.done -> refactor"
-    , "refactor.skipped -> review"
+    , "implement.done -> skip_refactor"
+    , "skip_refactor.skip -> review"
     , "review.rows -> pick"
     , "pick.final -> describe"
     , "describe.done -> simplify_pr"
@@ -1338,12 +1339,13 @@ cleanTranscript =
     , "research.handed_back -> gather"
     , "worker_returned -> gather"
     , "gather.enough -> plan"
-    , "plan.done -> simplify_plan"
+    , "plan.done -> skip_simplify_plan"
+    , "skip_simplify_plan.run -> simplify_plan"
     , "simplify_plan.done -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
-    , "implement.done -> refactor"
-    , "refactor.skipped -> review"
+    , "implement.done -> skip_refactor"
+    , "skip_refactor.skip -> review"
     , "review.clean -> describe"
     , "describe.done -> simplify_pr"
     , "simplify_pr.done -> await_ci"
@@ -1357,12 +1359,12 @@ trivialPath =
     [ Record ["fuel", "low"]
     , Record ["gather.enough"]
     , Planned
-    , Record ["simplify_plan.skipped"]
+    , Record ["skip_simplify_plan.skip"]
     , Record ["confirm.confirmed"]
     , OpenPr
     , Commit
     , Handback "implementer" ready
-    , Record ["refactor.skipped", "a", "one-line", "change"]
+    , Record ["skip_refactor.skip"]
     , Handback "review-lead" reviewed
     , Record ["pick.final"]
     , Handback "fixer" ready
@@ -1375,12 +1377,12 @@ trivialTranscript :: [Text]
 trivialTranscript =
     [ "fuel -> gather"
     , "gather.enough -> plan"
-    , "plan.done -> simplify_plan"
-    , "simplify_plan.skipped -> confirm"
+    , "plan.done -> skip_simplify_plan"
+    , "skip_simplify_plan.skip -> confirm"
     , "confirm.confirmed -> draft"
     , "draft.done -> implement"
-    , "implement.done -> refactor"
-    , "refactor.skipped -> review"
+    , "implement.done -> skip_refactor"
+    , "skip_refactor.skip -> review"
     , "review.rows -> pick"
     , "pick.final -> describe"
     , "describe.done -> simplify_pr"
@@ -1399,12 +1401,12 @@ targetedPath = take 2 (drop 1 trivialPath) <> drop 6 (init trivialPath)
 targetedTranscript :: [Text]
 targetedTranscript =
     [ "engineer/gather.enough -> engineer/plan"
-    , "engineer/plan.done -> engineer/simplify_plan"
-    , "engineer/simplify_plan.skipped -> engineer/confirm"
+    , "engineer/plan.done -> engineer/skip_simplify_plan"
+    , "engineer/skip_simplify_plan.skip -> engineer/confirm"
     , "engineer/confirm.confirmed -> engineer/draft"
     , "engineer/draft.done -> engineer/implement"
-    , "engineer/implement.done -> engineer/refactor"
-    , "engineer/refactor.skipped -> engineer/review"
+    , "engineer/implement.done -> engineer/skip_refactor"
+    , "engineer/skip_refactor.skip -> engineer/review"
     , "engineer/review.rows -> engineer/pick"
     , "engineer/pick.final -> engineer/describe"
     , "engineer/describe.done -> engineer/simplify_pr"

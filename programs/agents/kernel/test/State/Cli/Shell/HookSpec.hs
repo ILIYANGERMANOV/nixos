@@ -118,7 +118,7 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 first.code `shouldBe` 0
-                contextOf first `shouldBe` Just ("run " <> run <> ": state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor\n")
+                contextOf first `shouldBe` Just ("run " <> run <> ": state: recorded 11 implement.done -> skip_refactor\nstate: recorded 12 worker_returned -> skip_refactor\n")
                 first.out `shouldSatisfy` not . any (Text.isInfixOf "updatedInput")
                 length once `shouldSatisfy` (> length before')
                 (again.out, length twice) `shouldBe` ([], length once)
@@ -276,7 +276,7 @@ spec = describe "state-hook over the doubles" $ do
                 twice <- logged world
 
                 (early.code, early.out, length unbound) `shouldBe` (0, [], length before')
-                contextOf bound `shouldSatisfy` maybe False ("state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor" `Text.isInfixOf`)
+                contextOf bound `shouldSatisfy` maybe False ("state: recorded 11 implement.done -> skip_refactor\nstate: recorded 12 worker_returned -> skip_refactor" `Text.isInfixOf`)
                 (length once, length twice) `shouldBe` (length before' + 3, length once)
                 contextOf again `shouldSatisfy` maybe False (not . Text.isInfixOf "recorded")
 
@@ -288,7 +288,7 @@ spec = describe "state-hook over the doubles" $ do
                 back <- hook world "handback" (handedBack "implementer")
 
                 contextOf bound `shouldBe` Just ("run " <> run <> ": state: implementer a1 works in this run\n")
-                contextOf back `shouldBe` Just ("run " <> run <> ": state: recorded 10 implement.done -> refactor\nstate: recorded 11 worker_returned -> refactor\n")
+                contextOf back `shouldBe` Just ("run " <> run <> ": state: recorded 11 implement.done -> skip_refactor\nstate: recorded 12 worker_returned -> skip_refactor\n")
 
             it "binds no subagent no flow knows, whose hand-back stays its own" $ \world -> do
                 _ <- drive world (init toImplement)

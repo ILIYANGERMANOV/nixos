@@ -30,13 +30,11 @@ Available commands:
   extend                   <why>
   plan.done                <path>
   simplify_plan.done       no arguments
-  simplify_plan.skipped    no arguments
   confirm.confirmed        no arguments
   confirm.adjusted         no arguments
   draft.done               <url> <base> <branch>
   implement.done           [--touches <area>,...|none]
   refactor.done            no arguments
-  refactor.skipped         <why>
   review.clean             no arguments
   review.rows              no arguments
   pick.final               [--row <label>]... [--verdict
@@ -48,7 +46,6 @@ Available commands:
   re_review.rows           no arguments
   describe.done            no arguments
   simplify_pr.done         no arguments
-  simplify_pr.skipped      no arguments
   await_ci.green           no arguments
   await_ci.red             <check>...
   fix_pr.done              no arguments
@@ -75,5 +72,9 @@ Available commands:
   resumed                  <child run>
   merge.done               <url>
   merge.next_round         no arguments
+  skip_simplify_plan.skip  no arguments
+  skip_simplify_plan.run   no arguments
+  skip_refactor.skip       no arguments
+  skip_refactor.run        no arguments
 
 A commit event records HEAD.

@@ -19,13 +19,24 @@ Gather: the `grilling` interview, one question at a time, each through `state as
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to simplify_plan
+    state record plan.done <path> - on to skip_simplify_plan
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
   Rounds: 0 of 9 used, 9 left
   task t1: not started, tries 0
   task t2: not started, tries 0
 Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== skip_simplify_plan
+RUN state record skip_simplify_plan.run
+  at skip_simplify_plan: an optional block - take one option below, then state next
+  options:
+    state record skip_simplify_plan.run - on to simplify_plan
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
 
 == simplify_plan
 SPAWN researcher background: no

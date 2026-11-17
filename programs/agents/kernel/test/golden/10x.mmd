@@ -4,9 +4,10 @@ stateDiagram-v2
   gather --> plan: enough
   gather --> gather: research.handed_back
   gather --> gather: research.spawned
-  plan --> simplify_plan: done
+  plan --> skip_simplify_plan: done
+  skip_simplify_plan --> simplify_plan: run
+  skip_simplify_plan --> confirm: skip
   simplify_plan --> confirm: done
-  simplify_plan --> confirm: skipped
   confirm --> gather: adjusted
   confirm --> breakdown: confirmed
   breakdown --> engineers: done

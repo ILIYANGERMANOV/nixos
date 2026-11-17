@@ -64,7 +64,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, namedState, qualify)
+import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, isRouteHub, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
@@ -447,7 +447,7 @@ took g state scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects scope outcome
-    maybe (Right ()) (skipped state) effect.skip
+    maybe (Right ()) (skipped state scope) effect.skip
     case (edge.to == At from, openAt from state.meters) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
@@ -595,14 +595,16 @@ fanOutcome scope outcome fans = case outcome of
 plan settled without the user, and @ready@'s on a round on an existing PR
 at every Fuel, which leaves the PR as it is, by the task's shape.
 -}
-skipped :: RunState -> Skipping -> Either Refusal ()
-skipped state = \case
+skipped :: RunState -> ScopePath -> Skipping -> Either Refusal ()
+skipped state scope = \case
     ByLevel name when
         | atFuel (fuelOf state) when /= Never || (name == simplifyPlan && planSettled state) -> Right ()
-        | otherwise -> Left (NotSkippable name)
+        | otherwise -> refused (nameText name)
     ByShape
         | onRound (shape state) -> Right ()
-        | otherwise -> Left (NotSkippable (Name (stateNameText (stepName Ready))))
+        | otherwise -> refused (stateNameText (stepName Ready))
+  where
+    refused block = Left (NotSkippable (Name (qualifyText scope block)))
 
 {- | What the run does to its PR now: its request's target's, else its
 start's. A branch's work opens its PR from that branch, or adopts the one open.

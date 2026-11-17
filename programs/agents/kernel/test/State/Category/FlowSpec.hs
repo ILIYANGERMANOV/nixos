@@ -8,6 +8,7 @@ deferral hides no real mistake.
 module State.Category.FlowSpec (spec) where
 
 import Control.Exception (TypeError (..), evaluate, try)
+import Data.Char (isAlphaNum, isDigit)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
 import State.Category.Flow (Branch (..), Branches (..), Flow (..), spawn)
@@ -146,6 +147,18 @@ rejectedShown fragment term =
             | otherwise -> expectationFailure ("another type error:\n" <> message)
         Right _ -> expectationFailure "the term type-checked"
 
--- | Its words one space apart: GHC wraps a long type over lines.
+{- | Its words one space apart: GHC wraps a long type over lines. A session
+that loads the library beside its package (the quick test's) has GHC qualify
+a name by its package; the fragments name it as @cabal test@ prints it.
+-}
 headline :: String -> String
-headline = unwords . concatMap words . takeWhile (not . ("In the " `isInfixOf`)) . lines
+headline = unwords . map unpackaged . concatMap words . takeWhile (not . ("In the " `isInfixOf`)) . lines
+
+-- | A word without the @state-0.1.0.0:@ before its name, its opening quote kept.
+unpackaged :: String -> String
+unpackaged word = case break (== ':') rest of
+    (package, ':' : name) | isPackageId package -> opening <> name
+    _ -> word
+  where
+    (opening, rest) = span (`elem` ("\x2018(" :: String)) word
+    isPackageId package = '-' `elem` package && all (\c -> isAlphaNum c || c `elem` ("-." :: String)) package && any isDigit (take 1 (reverse package))

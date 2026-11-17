@@ -110,16 +110,16 @@ spec = describe "State.Protocol.Advice" $ do
         it "names no url at next after a request that recorded none" $
             (atChief [routed "other", stepTook (DirectDone "renamed a file")]).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: none recorded"
         it "settles a targeted request's plan itself: skips its simplify and confirms it" $
-            map (\n -> due noFacts (chiefAt (onPr : routed "engineer" : inScope "engineer" (take n happyPath)))) [4, 5]
+            map (\n -> due noFacts (chiefAt (onPr : routed "engineer" : inScope "engineer" (take n happyPath)))) [4, 6]
                 `shouldBe` [Just (Took (scopePath "engineer") (skipOf "simplify_plan")), Just (Took (scopePath "engineer") (outcome ConfirmConfirmed))]
         it "leaves a targeted request's plan to the user once a Design question was asked" $
-            due noFacts (chiefAt (onPr : routed "engineer" : designAsked : inScope "engineer" (take 5 happyPath))) `shouldBe` Nothing
+            due noFacts (chiefAt (onPr : routed "engineer" : designAsked : inScope "engineer" (take 6 happyPath))) `shouldBe` Nothing
         it "asks the user to confirm a request's plan with no target, as before targets" $
-            next noFacts (chiefAt (routed "engineer" : inScope "engineer" (take 5 happyPath))) `shouldSatisfy` \case
+            next noFacts (chiefAt (routed "engineer" : inScope "engineer" (take 6 happyPath))) `shouldSatisfy` \case
                 Ask Confirm _ -> True
                 _ -> False
         it "skips ready on a targeted PR, as GitHub reads it by its url" $
-            due withPr (chiefAt (onPr : routed "engineer" : inScope "engineer" (take 13 happyPath)))
+            due withPr (chiefAt (onPr : routed "engineer" : inScope "engineer" (take 15 happyPath)))
                 `shouldBe` Just (Took (scopePath "engineer") (outcome (ReadySkipped prUrl)))
         it "adopts a targeted ticket, opening none" $
             due noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" : [Took (scopePath "architect") o | Took _ o <- take 3 ticketOpened]))
@@ -166,7 +166,7 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts (runAt (onStuck <> [Extended "the user goes on"])) `shouldBe` choosing
 
     it "names where a spawned step's outcomes lead, for the hook records them" $
-        explainedAt (runAt (knobs Balanced <> map (Took mempty) (take 9 happyPath)))
+        explainedAt (runAt (knobs Balanced <> map (Took mempty) (take 11 happyPath)))
             `shouldBe` [ "at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next"
                        , "outcomes:"
                        , "  review.clean - on to describe"
@@ -196,7 +196,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "asks Confirm once, then advises its outcome" $ do
             let (question, asked, _) = ownAsk atConfirm Confirm (oneLine "the plan holds?")
-                answered = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
+                answered = runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath) <> asked <> [Answered question.qid "confirmed" TheUser])
             next noFacts answered `shouldBe` offering ["state record confirm.confirmed", "state record confirm.adjusted"]
 
     describe "the architect" $ do
@@ -241,11 +241,11 @@ spec = describe "State.Protocol.Advice" $ do
             map (\changed -> due noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Just (Took mempty (runOf "refactor")), Nothing]
 
         it "records the draft PR GitHub already has" $
-            due withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
+            due withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath)))
                 `shouldBe` Just (stepTook (DraftDone draftPr))
 
         it "takes a merged or closed PR on the branch for an old one, not the draft" $
-            [ due withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath)))
+            [ due withPr {pr = Just (PullRequest draftPr over)} (runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath)))
             | over <- [IsMerged, IsClosed]
             ]
                 `shouldBe` [Nothing, Nothing]
@@ -254,7 +254,7 @@ spec = describe "State.Protocol.Advice" $ do
             due withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
 
         it "asks the user to confirm a user's round's plan, as before targets" $ do
-            let roundAtConfirm = runUnder userRound (knobs Balanced <> map (Took mempty) (take 5 happyPath))
+            let roundAtConfirm = runUnder userRound (knobs Balanced <> map (Took mempty) (take 6 happyPath))
             (due withPr roundAtConfirm, next withPr roundAtConfirm)
                 `shouldSatisfy` \case
                     (Nothing, Ask Confirm _) -> True
@@ -262,7 +262,7 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "records a user's round's PR in review as its draft, and skips ready though GitHub says it is ready" $
             [ due withPr {pr = Just (PullRequest draftPr IsReady)} (runUnder userRound (knobs Balanced <> map (Took mempty) (take n happyPath)))
-            | n <- [6, 13]
+            | n <- [7, 15]
             ]
                 `shouldBe` [Just (stepTook (DraftDone draftPr)), Just (stepTook (ReadySkipped prUrl))]
 
@@ -450,14 +450,14 @@ spec = describe "State.Protocol.Advice" $ do
             ownAsk atImplement Design (oneLine "which store?") `shouldBe` askedUp "ASK user" TheUser
 
         it "hands a Design question back to a parent run" $
-            ownAsk (runUnder child (knobs Balanced <> map (Took mempty) (take 7 happyPath))) Design (oneLine "which store?")
+            ownAsk (runUnder child (knobs Balanced <> map (Took mempty) (take 8 happyPath))) Design (oneLine "which store?")
                 `shouldBe` askedUp "HANDBACK NEEDS_DECISION Design r7f2:1: which store?" (ParentRun parent)
 
         it "forwards the Confirm to whoever started the run, at every Fuel" $
             [ line
             | fuel <- [minBound .. maxBound]
             , from <- [start, child]
-            , let (_, _, line) = ownAsk (runUnder from (knobs fuel <> map (Took mempty) (take 5 happyPath))) Confirm (oneLine "the plan holds?")
+            , let (_, _, line) = ownAsk (runUnder from (knobs fuel <> map (Took mempty) (take 6 happyPath))) Confirm (oneLine "the plan holds?")
             ]
                 `shouldBe` concat (replicate 3 ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
 
@@ -479,11 +479,11 @@ spec = describe "State.Protocol.Advice" $ do
     which = Question (QId run 1) Design (oneLine "which store?")
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
-    atImplement = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
+    atImplement = runAt (knobs Balanced <> map (Took mempty) (take 8 happyPath))
     -- An engineer run inlining 10x, at the scope's first state.
     inTenXScope = either (error . show) id (replay (scopedIn "10x" tenX) (logOf (started :| [])))
-    atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath))
-    atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 8 happyPath))
+    atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath))
+    atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 9 happyPath))
     tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {Event.flow = TenXFlow} :| events)))
     tenXStarted = tenXRun []
     gathering = StateName "gather"
@@ -500,10 +500,10 @@ spec = describe "State.Protocol.Advice" $ do
         ]
             <> enough
     choosing = offering ["spawn a researcher", "state ask --kind <kind> <question>", "state record gather.enough"]
-    atReady = runAt (knobs Balanced <> map (Took mempty) (take 13 happyPath))
+    atReady = runAt (knobs Balanced <> map (Took mempty) (take 15 happyPath))
     -- One review round with a row, fixed, and the next round's rows.
     looped = [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty)), stepTook (FixDone commit), stepTook (ReReviewRows sha)]
-    atPick fuel rest = runAt (knobs fuel <> map (Took mempty) (take 9 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
+    atPick fuel rest = runAt (knobs fuel <> map (Took mempty) (take 11 happyPath) <> [stepTook (ReviewRows sha)] <> rest)
     -- A Design question the run's own row forwards: asked, then forwarded at once.
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)
 

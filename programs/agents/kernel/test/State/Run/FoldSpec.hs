@@ -22,6 +22,7 @@ import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
 import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
+import State.Flow.Drawn (fuelTakes)
 import State.Flow.Engineer (engineer)
 import State.Flow.Library qualified as Library
 import State.Flow.TenX (tenX)
@@ -33,7 +34,7 @@ import State.Run.EventGen (genOneLine, genProposal, genQuestion, genReading, gen
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, g, genAccepted, genAcceptedOn, genKnobs, happyPath, outcomeOf, plainTask, roundTask, scopedIn, securityGraph, securityScope, sha, tenXGraph, ticketOpened, ticketUrl)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, plainTask, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Catalog (outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), choiceNamed, discussing, exploring, gathering)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
@@ -295,7 +296,7 @@ spec = describe "State.Run.Fold" $ do
 
     it "restarts gathering in each round of the plan loop" $ do
         let gather = [outcome ResearchSpawned, outcome ResearchHandedBack]
-            gathered = concat (replicate 4 gather) <> [outcome (Enough gathering), outcome (PlanDone "p"), outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
+            gathered = concat (replicate 4 gather) <> [outcome (Enough gathering), outcome (PlanDone "p"), runOf "simplify_plan", outcome SimplifyPlanDone, outcome ConfirmAdjusted] <> gather
         Map.map length . (.rounds) <$> replay g (logOf (started :| map (Took mempty) gathered))
             `shouldBe` Right (Map.fromList [("gather", 1), ("plan", 2)])
 
@@ -400,11 +401,11 @@ ofRun other (Envelope source n ts _ sha' session event) = Envelope source n ts o
 
 -- | From the start to the first review.
 toReview :: [Event]
-toReview = map (Took mempty) (take 9 happyPath)
+toReview = map (Took mempty) (take 11 happyPath)
 
 -- | From the start to the first CI result.
 toCi :: [Event]
-toCi = map (Took mempty) (take 9 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
+toCi = map (Took mempty) (take 11 happyPath <> [outcome (ReviewClean sha), outcome (DescribeDone sha), outcome (SimplifyPrDone sha)])
 
 -- | Fix rounds that pick these rows, as 'pickRounds'.
 reviewRounds :: [[Text]] -> [Event]
@@ -422,16 +423,19 @@ outOf meter most = \case
     Left (OutOfBudget cap n) -> someMeterName cap.meter == meter && n == most
     _ -> False
 
--- | Any Fuel, then a walk to the end, sometimes with an event from anywhere in the flow.
+{- | Any Fuel, then a walk to the end, sometimes with an event from anywhere
+in the flow. The walk takes no skip its Fuel never makes, which the fold
+refuses: a walk's shortest way on is a skip, so most walks would be refused.
+-}
 genCandidate :: Gen [Event]
 genCandidate = do
-    knobs <- genKnobs
-    walk <- genWalk g
+    fuel <- Gen.enumBounded
+    walk <- genWalk g {edges = Map.filterWithKey (\(from, event) _ -> fuelTakes fuel from.name event) g.edges}
     noise <- Gen.element (Set.toList outcomeNames)
     at <- Gen.int (Range.linear 0 (length walk))
     names <- Gen.element [walk, take at walk <> [noise] <> drop at walk]
     outcomes <- traverse outcomeOf names
-    pure (knobs <> map (Took mempty) outcomes)
+    pure (FuelSet fuel : map (Took mempty) outcomes)
 
 {- | The gather's choice: researchers spawned in the background and
 questions asked, as the agent picks; neither budget spends the other,
@@ -478,11 +482,11 @@ gatherBudgets = describe "the gather's choice" $ do
         replay g (logOf (started :| extended <> replicate 10 handedBack <> [enough])) `shouldSatisfy` isRight
 
     it "starts both budgets afresh when the run gathers again after an adjusted plan" $ do
-        let adjusted = spent <> replicate 5 handedBack <> [enough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted]
+        let adjusted = spent <> replicate 5 handedBack <> [enough, stepTook (PlanDone "p"), Took mempty (runOf "simplify_plan"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted]
         replay g (logOf (started :| adjusted <> asks 31 30 <> spawns 5)) `shouldSatisfy` isRight
 
     it "refuses extend outside the gather" $
-        replay g (logOf (started :| map (Took mempty) (take 7 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
+        replay g (logOf (started :| map (Took mempty) (take 8 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where
     spawns n = replicate n (stepTook ResearchSpawned)
     handedBack = stepTook ResearchHandedBack
@@ -638,7 +642,7 @@ tenXRounds = describe "the 10x's rounds" $ do
     parent = Parent (runId "p1") "p1/events.jsonl" t1
     engineerRun principal fuel = replay g (logOf (Started (startOf EngineerFlow principal) :| FuelSet fuel : map (Took mempty) (init happyPath) <> [stepTook (ReadySkipped pr)]))
     tenXRun events = replay tenXGraph (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
-    agreed = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough gathering), stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
+    agreed = [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough gathering), stepTook (PlanDone "p"), Took mempty (runOf "simplify_plan"), stepTook SimplifyPlanDone, stepTook ConfirmConfirmed, stepTook (BreakdownDone engineers (tasksOf (onPr :| [])))]
     onPr = roundTask "t1" "https://pr/1"
     toEngineers task = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf (task :| [])))]
     settled task moved = toEngineers task <> [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "READY")), TaskMoved t1 moved, stepTook (FanDone engineers)]

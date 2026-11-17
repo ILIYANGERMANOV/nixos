@@ -43,14 +43,14 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (Leaves), Name, enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
-import State.Category.Fuel (PerFuel, SkipWhen (..), atFuel, fuelLabel, fuelName)
+import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
+import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), isRouteHub, placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
-import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StateName, StepSet (..), eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
+import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
-import State.Flow.Drawn (drawnSteps)
+import State.Flow.Drawn (SkipHere (..), fuelTakes, skipHere)
 import State.Flow.Library (simplifyPlan)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
@@ -66,11 +66,10 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold (Budget (..), OnTarget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
-import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (FuelLayer), shownEdges, stepNamed)
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
-import State.Step.Fuel (Outcome (Running, Skipping), Sing (Skip))
 import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Step.Ticket (Outcome (OpenTicketDone), Sing (OpenTicket))
@@ -224,18 +223,6 @@ due facts state = case (state.stopped, state.at) of
                 AtOrBelow most -> [if changed <= most then skip.skips else skip.runs | Just changed <- [facts.changedLines]]
         Nothing -> []
 
--- | A skip step: its block, the levels that skip it, and its two outcomes.
-data SkipHere = SkipHere {block :: Name, when :: PerFuel SkipWhen, skips :: AnyOutcome, runs :: AnyOutcome}
-
--- | The skip step of this name, when the flows draw one.
-skipHere :: StateName -> Maybe SkipHere
-skipHere name =
-    listToMaybe
-        [ SkipHere block when (Catalog.outcome (Skipping s)) (Catalog.outcome (Running s))
-        | AnyStep FuelLayer (SomeStep s@(Skip block when)) <- drawnSteps
-        , stepName s == name
-        ]
-
 {- | The skips the run's Fuel leaves to the agent here, each with the record
 that takes it: the agent skips the block of a trivial task and runs it
 otherwise, so 'due' never records these.
@@ -308,7 +295,7 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
         (At place, _) | isRouteHub g state.at -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
-        (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]))
+        (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place, fuelTakes (fuelOf state) place.name event]))
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s) <> told s)
@@ -556,8 +543,13 @@ recordOutcomes g place s =
     someOptions
         [ maybe (commandOption (recordCommand event) "") (recordOption event) (Map.lookup (place, event) g.edges)
         | outcome <- outcomeNames (outcomes s)
+        , EventName place.name outcome /= shapeSkip
         , let event = EventName (placeName place) outcome
         ]
+
+-- | @ready.skipped@: a round's shape takes it ('due'), the fold refuses it elsewhere, so it is no option of the agent's.
+shapeSkip :: EventName
+shapeSkip = Catalog.outcomeEvent (Catalog.outcome (ReadySkipped (Url "")))
 
 recordOne :: Text -> [Text] -> Text
 recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"
@@ -740,6 +732,7 @@ atLine steps g state = case state.at of
   where
     meaning place
         | isRouteHub g (At place) = "a route you pick - take one option below, once, then state next"
+        | Just _ <- skipHere place.name = "an optional block - take one option below, then state next"
         | otherwise = case (stepNamed place.name, choiceNamed place.name) of
             (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
                 Inline -> "a step you run - do the task below, run the option that fits its result, then state next"

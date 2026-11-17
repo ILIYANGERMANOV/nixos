@@ -16,10 +16,20 @@ Gather: the `grilling` interview, one question at a time, each through `state as
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to simplify_plan
+    state record plan.done <path> - on to skip_simplify_plan
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
 Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== skip_simplify_plan
+RUN one option below
+  at skip_simplify_plan: an optional block - take one option below, then state next
+  options:
+    state record skip_simplify_plan.run - on to simplify_plan
+    state record skip_simplify_plan.skip - on to confirm
+  fuel: low
+  Plan rounds: 0 of 3 used, 3 left
+  Low: skip it when the task is trivial: state record skip_simplify_plan.skip
 
 == simplify_plan
 SPAWN researcher background: no
@@ -28,7 +38,6 @@ SPAWN researcher background: no
     simplify_plan.done - on to confirm
   fuel: low
   Plan rounds: 0 of 3 used, 3 left
-  Low: skip it when the task is trivial: state record simplify_plan.skipped
 Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal. Run the researcher skill's `references/proposal.md` on the plan your prompt names.
 
 == confirm
@@ -53,9 +62,18 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 SPAWN implementer background: no
   at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
   outcomes:
-    implement.done - on to refactor
+    implement.done - on to skip_refactor
   fuel: low
 Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== skip_refactor
+RUN one option below
+  at skip_refactor: an optional block - take one option below, then state next
+  options:
+    state record skip_refactor.run - on to refactor
+    state record skip_refactor.skip - on to review
+  fuel: low
+  Low: skip it when the task is trivial: state record skip_refactor.skip
 
 == refactor
 SPAWN refactorer background: no
@@ -63,7 +81,6 @@ SPAWN refactorer background: no
   outcomes:
     refactor.done - on to review
   fuel: low
-  Low: skip it when the task is trivial: state record refactor.skipped <why>
 Build: one refactorer, briefed with `state brief refactorer`. Refactor the branch's diff; hand back each bigger proposal as a Scope question.
 
 == review
@@ -166,10 +183,18 @@ Gather: the `grilling` interview, one question at a time, each through `state as
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to simplify_plan
+    state record plan.done <path> - on to skip_simplify_plan
   fuel: balanced
   Plan rounds: 0 of 3 used, 3 left
 Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== skip_simplify_plan
+RUN state record skip_simplify_plan.run
+  at skip_simplify_plan: an optional block - take one option below, then state next
+  options:
+    state record skip_simplify_plan.run - on to simplify_plan
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
 
 == simplify_plan
 SPAWN researcher background: no
@@ -202,9 +227,17 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 SPAWN implementer background: no
   at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
   outcomes:
-    implement.done - on to refactor
+    implement.done - on to skip_refactor
   fuel: balanced
 Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== skip_refactor
+RUN one option below
+  at skip_refactor: an optional block - take one option below, then state next
+  options:
+    state record skip_refactor.run - on to refactor
+    state record skip_refactor.skip - on to review
+  fuel: balanced
 
 == refactor
 SPAWN refactorer background: no
@@ -314,10 +347,18 @@ Gather: the `grilling` interview, one question at a time, each through `state as
 RUN state record plan.done <path>
   at plan: a step you run - do the task below, run the option that fits its result, then state next
   options:
-    state record plan.done <path> - on to simplify_plan
+    state record plan.done <path> - on to skip_simplify_plan
   fuel: max
   Plan rounds: 0 of 3 used, 3 left
 Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== skip_simplify_plan
+RUN state record skip_simplify_plan.run
+  at skip_simplify_plan: an optional block - take one option below, then state next
+  options:
+    state record skip_simplify_plan.run - on to simplify_plan
+  fuel: max
+  Plan rounds: 0 of 3 used, 3 left
 
 == simplify_plan
 SPAWN researcher background: no
@@ -350,9 +391,16 @@ Build: branch from origin/<base>, or keep the worktree's task branch; an empty c
 SPAWN implementer background: no
   at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
   outcomes:
-    implement.done - on to refactor
+    implement.done - on to skip_refactor
   fuel: max
 Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== skip_refactor
+RUN state record skip_refactor.run
+  at skip_refactor: an optional block - take one option below, then state next
+  options:
+    state record skip_refactor.run - on to refactor
+  fuel: max
 
 == refactor
 SPAWN refactorer background: no

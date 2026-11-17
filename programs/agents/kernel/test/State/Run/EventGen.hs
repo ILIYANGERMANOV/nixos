@@ -47,6 +47,7 @@ import Numeric.Natural (Natural)
 import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
+import State.Flow.Drawn (drawnOutcomes)
 import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
@@ -255,6 +256,7 @@ templates =
               ]
             | fan <- fanOuts
             ]
+        <> drawnOutcomes
 
 -- | The same outcome, with generated data: of the same step, by the same leg.
 like :: AnyOutcome -> Gen AnyOutcome
