@@ -15,7 +15,7 @@ import State.Category.Fuel (Fuel (Low))
 import State.Category.Step (OutcomeName (..))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
-import State.Run.Event (Branch (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
+import State.Run.Event (Branch (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Target (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
@@ -95,6 +95,12 @@ spec = describe "State.Run.Codec" $ do
                     , outcome NextDone
                     ]
         map (fmap (.event) . decodeLine . encodeLine) recorded `shouldBe` map (Right . (.event)) recorded
+
+    it "writes a request's target as one key, its kind, holding its url or branch" $ do
+        let targets = [OnPr (Url "https://github.com/o/r/pull/7"), OnBranch (Branch "feature"), OnTicket (Url "https://github.com/o/r/issues/3")]
+            lines' = map (\target -> encodeLine reviewRows {event = Targeted target}) targets
+        and (zipWith Text.isInfixOf ["\"type\":\"target\",\"data\":{\"pr\":\"https://github.com/o/r/pull/7\"}", "\"data\":{\"branch\":\"feature\"}", "\"data\":{\"ticket\":\"https://github.com/o/r/issues/3\"}"] lines') `shouldBe` True
+        map (fmap (.event) . decodeLine) lines' `shouldBe` map (Right . Targeted) targets
 
     it "refuses a run's event inside a scope: only a step's outcome is named so" $
         decodeLine (encodeLine reviewRows {event = FuelSet Low} `replacing` ("\"type\":\"fuel\"", "\"type\":\"security/fuel\"")) `shouldSatisfy` malformed

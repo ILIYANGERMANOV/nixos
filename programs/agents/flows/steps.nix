@@ -165,12 +165,12 @@ let
       open_branch = chiefStep {
         dom = "Ctx";
         cod = "Diff";
-        task = "Open: the branch or sha the request names is what the block works on. Fetch it, check it out, and record it.";
+        task = "Open: the branch or sha the request names is what the block works on. Fetch it and check it out: when `git worktree list` shows a worktree holding the branch, `state move <that worktree>` and work there instead. Record it.";
       };
       open_pr = chiefStep {
         dom = "Ctx";
         cod = "PR";
-        task = "Open: the PR the request names is what the block works on. Check out its branch (`gh pr checkout <url>`) and record its url.";
+        task = "Open: the PR the request names is what the block works on. Check out its branch (`gh pr checkout <url>`): when `git worktree list` shows a worktree holding it, `state move <that worktree>` and work there instead. Record its url.";
       };
       direct = chiefStep {
         dom = "Ctx";

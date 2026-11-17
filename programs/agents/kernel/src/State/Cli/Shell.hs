@@ -60,7 +60,7 @@ import State.Protocol.Hook qualified as Hook
 import State.Protocol.Record (Recording (..))
 import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
-import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, principalShape, qidText)
+import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
@@ -1133,15 +1133,16 @@ writePointer dir notes = FileSystem.writeText (pointerOf dir) (Text.pack notes <
 pointerOf :: FilePath -> FilePath
 pointerOf dir = dir </> "state-notes"
 
-{- | What the worktree's run does to its PR, by its start: a round reads its
-PR by URL. No run, or a log that does not read, is a PR of its own, as
-before rounds.
+{- | What the worktree's run does to its PR now, by its start or its
+request's target: a round reads its PR by URL. No run, or a log that does
+not replay, is a PR of its own, as before rounds.
 -}
 runShape :: (Shell es) => Eff es Shape
 runShape =
-    pointedRun <&> \case
-        Just (_, Right Envelope {event = Started start}) -> principalShape start.principal
-        _ -> OwnPr
+    onRun (\_ run -> ([], Right (Fold.shape run.state))) <&> \case
+        Ran (Right shape) -> shape
+        Ran (Left _) -> OwnPr
+        NoRun -> OwnPr
 
 {- | The run's PR on GitHub and the lines it changes, each 'Nothing' when
 it cannot be read, with a line saying why, and the children that ended.

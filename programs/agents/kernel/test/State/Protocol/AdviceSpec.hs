@@ -25,9 +25,11 @@ import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start,
 import State.Run.Fold (RunState (..), Worker (..), replay)
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Build (Outcome (..))
+import State.Step.Catalog (outcome)
 import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
@@ -95,6 +97,8 @@ spec = describe "State.Protocol.Advice" $ do
         let chiefAt events = either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)))
             atChief events = advise steps chiefGraph noFacts (chiefAt events)
             routed branch = stepTook (Picked "route" (OutcomeName branch))
+            onPr = Targeted (OnPr prUrl)
+            designAsked = Asked (Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "engineer/gather") Itself)
             inScope scope = map (Took (scopePath scope))
         it "routes a new run's first request at once, asking no Fuel: each request sets its own at the hub" $
             Set.fromList [option.command | Run options <- [(atChief []).action], option <- toList options]
@@ -105,6 +109,21 @@ spec = describe "State.Protocol.Advice" $ do
             (atChief (routed "engineer" : inScope "engineer" happyPath)).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: u"
         it "names no url at next after a request that recorded none" $
             (atChief [routed "other", stepTook (DirectDone "renamed a file")]).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: none recorded"
+        it "settles a targeted request's plan itself: skips its simplify and confirms it" $
+            map (\n -> due chiefGraph noFacts (chiefAt (onPr : routed "engineer" : inScope "engineer" (take n happyPath)))) [4, 5]
+                `shouldBe` [Just (Took (scopePath "engineer") (outcome SimplifyPlanSkipped)), Just (Took (scopePath "engineer") (outcome ConfirmConfirmed))]
+        it "leaves a targeted request's plan to the user once a Design question was asked" $
+            due chiefGraph noFacts (chiefAt (onPr : routed "engineer" : designAsked : inScope "engineer" (take 5 happyPath))) `shouldBe` Nothing
+        it "asks the user to confirm a request's plan with no target, as before targets" $
+            next noFacts (chiefAt (routed "engineer" : inScope "engineer" (take 5 happyPath))) `shouldSatisfy` \case
+                Ask Confirm _ -> True
+                _ -> False
+        it "skips ready on a targeted PR, as GitHub reads it by its url" $
+            due chiefGraph withPr (chiefAt (onPr : routed "engineer" : inScope "engineer" (take 13 happyPath)))
+                `shouldBe` Just (Took (scopePath "engineer") (outcome (ReadySkipped prUrl)))
+        it "adopts a targeted ticket, opening none" $
+            due chiefGraph noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" : [Took (scopePath "architect") o | Took _ o <- take 3 ticketOpened]))
+                `shouldBe` Just (Took (scopePath "architect") (outcome (OpenTicketDone ticketUrl)))
         it "explains each discussion question before it is asked, as the architect's discussion does" $
             (atChief [routed "discussion"]).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
 
@@ -233,6 +252,13 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "records ready once GitHub says the PR is ready" $
             due g withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
+
+        it "asks the user to confirm a user's round's plan, as before targets" $ do
+            let roundAtConfirm = runUnder userRound (knobs Balanced <> map (Took mempty) (take 5 happyPath))
+            (due g withPr roundAtConfirm, next withPr roundAtConfirm)
+                `shouldSatisfy` \case
+                    (Nothing, Ask Confirm _) -> True
+                    _ -> False
 
         it "records a user's round's PR in review as its draft, and skips ready though GitHub says it is ready" $
             [ due g withPr {pr = Just (PullRequest draftPr IsReady)} (runUnder userRound (knobs Balanced <> map (Took mempty) (take n happyPath)))

@@ -37,7 +37,7 @@ import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
 import State.Protocol.Handback (parseTouches, refusalText)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
+import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, Target (..), TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
 import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
@@ -151,6 +151,13 @@ recordables =
     , nothing ResearchHandedBack
     ]
         <> [nothing (Enough choice) | choice <- Choice.choices]
+        <> [ -- Named at a route's hub, before its branch.
+             stay "target" "<pr <url>|branch <name>|ticket <url>>" $ \case
+                ["pr", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Targeted . OnPr) (parsePrUrl pr)
+                ["branch", name] -> Right (Targeted (OnBranch (Branch name)))
+                ["ticket", link] -> Right (Targeted (OnTicket (Url link)))
+                _ -> Left "pr and its url, branch and its name, or ticket and its url"
+           ]
         <> [nothing (Picked route branch) | (route, branches) <- Choice.routes, branch <- branches]
         <> [ extend
            , outcome (builtEvent PlanS PlanDone) "<path>" [] $ \a -> case a.positional of

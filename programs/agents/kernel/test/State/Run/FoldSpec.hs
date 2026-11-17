@@ -541,6 +541,29 @@ chiefRequests = describe "the chief's requests" $ do
     it "refuses a new Fuel inside a request" $
         chief (firstRequest <> [FuelSet Low]) `shouldBe` Left (FuelSetOnce Max)
 
+    it "takes a target at the hub, the PR an earlier request recorded not its own" $
+        (\state -> (state.drafted, state.published, shape state)) <$> chief (pick "engineer" : engineered <> [stepTook NextRequest, Targeted (OnPr pr)])
+            `shouldBe` Right (Nothing, Nothing, RoundOn pr)
+
+    it "refuses a target inside a request" $
+        chief [pick "other", Targeted (OnPr pr)] `shouldBe` Left TargetOffHub
+
+    it "drops the target at the next request, which is new work again" $
+        (\state -> (state.onTarget, shape state)) <$> chief [Targeted (OnPr pr), pick "other", stepTook (DirectDone "done"), stepTook NextRequest] `shouldBe` Right (Nothing, OwnPr)
+
+    it "lets a request on a PR skip ready, as a round does, and refuses the skip with no target" $
+        map (fmap nameAt . chief) [Targeted (OnPr pr) : toReadySkipped, toReadySkipped]
+            `shouldBe` [Right (Just "next"), Left (NotSkippable "engineer/ready")]
+
+    it "settles a targeted request's plan without the user until a Design or Scope question is asked" $
+        map (fmap planSettled . chief) ([Targeted (OnPr pr)] : [] : [[Targeted (OnPr pr), pick "engineer", askIn kind] | kind <- [Fact, Design, Ask.Scope]])
+            `shouldBe` [Right True, Right False, Right True, Right False, Right False]
+
+    it "keeps a request on a branch its own PR: ready not skipped, its plan settled without the user" $
+        let onBranch = Targeted (OnBranch (Branch "feature"))
+         in ((\state -> (shape state, planSettled state)) <$> chief [onBranch], nameAt <$> chief (onBranch : toReadySkipped))
+                `shouldBe` (Right (OwnPr, True), Left (NotSkippable "engineer/ready"))
+
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
         let designed = pick "architect" : within "architect" (ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])
             researched = [pick "blocks", stepTook (Picked "block" (OutcomeName "researching"))] <> within "researching" [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring)]
@@ -564,6 +587,8 @@ chiefRequests = describe "the chief's requests" $ do
         Exit -> Nothing
     pr = Url "https://github.com/o/r/pull/7"
     firstRequest = [FuelSet Max, pick "other", stepTook (DirectDone "done")]
+    toReadySkipped = FuelSet Balanced : pick "engineer" : within "engineer" (map (Took mempty) (init happyPath) <> [stepTook (ReadySkipped pr)])
+    askIn kind = Asked (Asking (Question (QId run 1) kind (oneLine "a question")) (StateName "engineer/gather") Itself)
 
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.
