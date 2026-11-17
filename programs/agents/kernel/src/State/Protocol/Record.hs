@@ -66,9 +66,9 @@ recordCommand event = Text.strip ("state record " <> name <> " " <> foldMap usag
     step = snd (unqualify name)
 
 {- | One way on from where the run is: the exact command, and what taking
-it means, where the run goes next among it. A spawn's command names the
-agent, not how it runs: whether in the background is the run's interface's
-to say, told when the option is printed.
+it means, where the run goes next among it. An option that spawns names
+the agent, not how it runs: whether in the background is the run's
+interface's to say, told when the option is printed.
 -}
 data Option = Option {command :: Text, means :: Text, spawns :: Bool}
     deriving stock (Eq, Show)

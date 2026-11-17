@@ -9,10 +9,36 @@ The Fuel given: low. Record it, unless the request names another.
 
 == exploring
 RUN one option below
-  at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at exploring: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state record exploring.enough - on to open_ticket
+    state record exploring.enough - on to exploring/researchers
+    state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== exploring/researchers
+RUN end your turn
+  at exploring/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+
+== exploring/notes
+RUN state record exploring/notes.done
+  at exploring/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record exploring/notes.done - on to open_ticket
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== exploring/research
+SPAWN researcher background: no
+  at exploring/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    exploring/research.spawned - back to exploring, the exploring loop's next round
   fuel: low
   Researchers: 0 of 1 used, 1 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
@@ -27,16 +53,59 @@ Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, it
 
 == discussing
 RUN one option below
-  at discussing: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at discussing: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state ask --kind <kind> <question> - asks one question; what it prints says who answers
-    state record discussing.enough - on to update_ticket
+    state record discussing.discuss - on to discuss
+    state record discussing.enough - on to discussing/researchers
+    state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Discussion questions: 0 of 15 used, 15 left
+  Design rounds: 0 of 3 used, 3 left
+Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== discussing/researchers
+RUN end your turn
+  at discussing/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Discussion questions: 0 of 15 used, 15 left
+  Design rounds: 0 of 3 used, 3 left
+
+== discussing/notes
+RUN state record discussing/notes.done
+  at discussing/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record discussing/notes.done - on to update_ticket
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Discussion questions: 0 of 15 used, 15 left
+  Design rounds: 0 of 3 used, 3 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== discussing/research
+SPAWN researcher background: no
+  at discussing/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    discussing/research.spawned - back to discussing, the discussing loop's next round
   fuel: low
   Researchers: 0 of 1 used, 1 left
   Discussion questions: 0 of 15 used, 15 left
   Design rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== discuss
+RUN state record discuss.asked
+  at discuss: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record discuss.asked - back to discussing, the discussing loop's next round
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Discussion questions: 0 of 15 used, 15 left
+  Design rounds: 0 of 3 used, 3 left
 Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 
 == update_ticket
@@ -78,10 +147,36 @@ The Fuel given: balanced. Record it, unless the request names another.
 
 == exploring
 RUN one option below
-  at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at exploring: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state record exploring.enough - on to open_ticket
+    state record exploring.enough - on to exploring/researchers
+    state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== exploring/researchers
+RUN end your turn
+  at exploring/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+
+== exploring/notes
+RUN state record exploring/notes.done
+  at exploring/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record exploring/notes.done - on to open_ticket
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== exploring/research
+SPAWN researcher background: no
+  at exploring/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    exploring/research.spawned - back to exploring, the exploring loop's next round
   fuel: balanced
   Researchers: 0 of 5 used, 5 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
@@ -96,16 +191,59 @@ Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, it
 
 == discussing
 RUN one option below
-  at discussing: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at discussing: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state ask --kind <kind> <question> - asks one question; what it prints says who answers
-    state record discussing.enough - on to update_ticket
+    state record discussing.discuss - on to discuss
+    state record discussing.enough - on to discussing/researchers
+    state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Discussion questions: 0 of 30 used, 30 left
+  Design rounds: 0 of 3 used, 3 left
+Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== discussing/researchers
+RUN end your turn
+  at discussing/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Discussion questions: 0 of 30 used, 30 left
+  Design rounds: 0 of 3 used, 3 left
+
+== discussing/notes
+RUN state record discussing/notes.done
+  at discussing/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record discussing/notes.done - on to update_ticket
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Discussion questions: 0 of 30 used, 30 left
+  Design rounds: 0 of 3 used, 3 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== discussing/research
+SPAWN researcher background: no
+  at discussing/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    discussing/research.spawned - back to discussing, the discussing loop's next round
   fuel: balanced
   Researchers: 0 of 5 used, 5 left
   Discussion questions: 0 of 30 used, 30 left
   Design rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== discuss
+RUN state record discuss.asked
+  at discuss: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record discuss.asked - back to discussing, the discussing loop's next round
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Discussion questions: 0 of 30 used, 30 left
+  Design rounds: 0 of 3 used, 3 left
 Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 
 == update_ticket
@@ -147,10 +285,36 @@ The Fuel given: max. Record it, unless the request names another.
 
 == exploring
 RUN one option below
-  at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at exploring: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state record exploring.enough - on to open_ticket
+    state record exploring.enough - on to exploring/researchers
+    state record exploring.research - on to exploring/research, which spawns a researcher in the foreground
+  fuel: max
+  Researchers: 0 used, one per group
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== exploring/researchers
+RUN end your turn
+  at exploring/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: max
+  Researchers: 0 used, one per group
+
+== exploring/notes
+RUN state record exploring/notes.done
+  at exploring/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record exploring/notes.done - on to open_ticket
+  fuel: max
+  Researchers: 0 used, one per group
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== exploring/research
+SPAWN researcher background: no
+  at exploring/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    exploring/research.spawned - back to exploring, the exploring loop's next round
   fuel: max
   Researchers: 0 used, one per group
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
@@ -165,16 +329,59 @@ Ticket: open the design ticket as a work in progress, titled `[WIP] <title>`, it
 
 == discussing
 RUN one option below
-  at discussing: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at discussing: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state ask --kind <kind> <question> - asks one question; what it prints says who answers
-    state record discussing.enough - on to update_ticket
+    state record discussing.discuss - on to discuss
+    state record discussing.enough - on to discussing/researchers
+    state record discussing.research - on to discussing/research, which spawns a researcher in the foreground
+  fuel: max
+  Researchers: 0 used, one per group
+  Discussion questions: 0 of 50 used, 50 left
+  Design rounds: 0 of 3 used, 3 left
+Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== discussing/researchers
+RUN end your turn
+  at discussing/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: max
+  Researchers: 0 used, one per group
+  Discussion questions: 0 of 50 used, 50 left
+  Design rounds: 0 of 3 used, 3 left
+
+== discussing/notes
+RUN state record discussing/notes.done
+  at discussing/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record discussing/notes.done - on to update_ticket
+  fuel: max
+  Researchers: 0 used, one per group
+  Discussion questions: 0 of 50 used, 50 left
+  Design rounds: 0 of 3 used, 3 left
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== discussing/research
+SPAWN researcher background: no
+  at discussing/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    discussing/research.spawned - back to discussing, the discussing loop's next round
   fuel: max
   Researchers: 0 used, one per group
   Discussion questions: 0 of 50 used, 50 left
   Design rounds: 0 of 3 used, 3 left
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== discuss
+RUN state record discuss.asked
+  at discuss: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record discuss.asked - back to discussing, the discussing loop's next round
+  fuel: max
+  Researchers: 0 used, one per group
+  Discussion questions: 0 of 50 used, 50 left
+  Design rounds: 0 of 3 used, 3 left
 Discuss: one design question at a time, each through `state ask`. First send the Explain message: the context, and pseudo-code or a diagram; then the picker question, your recommendation first, in the same turn. Spawn a researcher for any fact an answer opens. `discussing.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `discussing.enough`.
 
 == update_ticket

@@ -129,6 +129,10 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers each action and enough at the gather's pick, each by its pick and where it leads" $
             explainedAt (runAt (knobs Balanced)) `shouldBe` gatherPick
 
+        it "says the research pick spawns a researcher in the background where the interface can" $
+            last (explained start {interface = Set.insert Background start.interface} (advise steps g noFacts (runAt (knobs Balanced))))
+                `shouldBe` "  state record gather.research - on to gather/research, which spawns a researcher in the background"
+
         it "advises a researcher's spawn at the research state, the hook recording it, as its SPAWN says" $ do
             explained child (advise steps g noFacts (runAt (knobs Balanced <> [pickResearch])))
                 `shouldBe` [ "at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next"
@@ -498,7 +502,7 @@ spec = describe "State.Protocol.Advice" $ do
         , "options:"
         , "  state record gather.enough - on to gather/researchers"
         , "  state record gather.interview - on to interview"
-        , "  state record gather.research - on to gather/research"
+        , "  state record gather.research - on to gather/research, which spawns a researcher in the foreground"
         ]
     choosing = offering ["state record gather.enough", "state record gather.interview", "state record gather.research"]
     atReady = runAt (knobs Balanced <> take 17 happyPath)

@@ -1,11 +1,12 @@
 stateDiagram-v2
   direction LR
-  state "describe" as describe_1_0
-  state "describe" as describe_1_1_1_1
+  state "big/implement" as big__implement
+  state "big/refactor" as big__refactor
+  state "big/describe" as big__describe
   [*] --> triage
-  triage --> implement: big
-  triage --> describe_1_0: small
-  describe_1_0 --> [*]: done
-  implement --> refactor: done
-  refactor --> describe_1_1_1_1: done
-  describe_1_1_1_1 --> [*]: done
+  triage --> big__implement: big
+  triage --> describe: small
+  describe --> [*]: done
+  big__implement --> big__refactor: done
+  big__refactor --> big__describe: done
+  big__describe --> [*]: done

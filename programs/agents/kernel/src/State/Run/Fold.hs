@@ -56,22 +56,23 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
-import Data.List (find, partition)
+import Data.List (find, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Numeric.Natural (Natural)
-import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText)
+import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText, scopeNames)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (awaitDone, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
+import State.Flow.Drawn (isPick)
 import State.Flow.Library (simplifyPlan)
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
@@ -471,6 +472,7 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right (edgeHere g state name)
     let effect = effects scope outcome
     maybe (Right ()) (skipped state scope) effect.skip
+    maybe (Right ()) Left (pickedUsedUp g state from edge)
     case (edge.to == At from, awaitedOpen g state.meters from) of
         (False, open) | open > 0 -> Left (StillOpen open)
         _ -> Right ()
@@ -481,6 +483,24 @@ walked g state scope outcome@(AnyOutcome _ some) = do
     -- A stay is no move: the questions asked here still are.
     Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
 
+{- | A pick into a step whose budget is used up: refused, as the advice
+offers only the actions a budget leaves, so a pick never strands the run
+at a step it may not spend.
+-}
+pickedUsedUp :: OpenGraph -> RunState -> Place -> Edge Node -> Maybe Refusal
+pickedUsedUp g state from edge = case edge.to of
+    At next
+        | isPick from.name ->
+            listToMaybe
+                [ OutOfBudget budget.cap most
+                | (metered, budget@Budget {allows = Just most}) <- Map.toList (budgets g state)
+                , metered.place == next
+                , budget.ledger.spent >= most
+                ]
+    At _ -> Nothing
+    Out -> Nothing
+    Exit -> Nothing
+
 -- | The edge an event takes where the run is, and the state it leaves.
 edgeHere :: OpenGraph -> RunState -> EventName -> Maybe (Place, Edge Node)
 edgeHere g state name = case state.at of
@@ -488,17 +508,18 @@ edgeHere g state name = case state.at of
     Out -> Nothing
     Exit -> Nothing
 
-{- | A step's outcome named bare, as a flow's skill names its own, while
-the run sits inside a scope: the outcome of the step of that scope, when
-only it has an edge here. A flow runs inline under a scope with its skill
-unchanged so. An event an edge here takes as named is that event, so a run
-outside every scope records each event as named.
+{- | A step's outcome named in its flow's own scopes, as a flow's skill
+names it (@gather.enough@, @gather/notes.done@), while the run sits inside
+more scopes: the outcome of the step of the place's scope, when the named
+scopes end it and only it has an edge here. A flow runs inline under a
+scope with its skill unchanged so. An event an edge here takes as named is
+that event, so a run outside every scope records each event as named.
 -}
 inScope :: OpenGraph -> RunState -> Event -> Event
 inScope g state event = case (event, state.at) of
-    (Took bare outcome, At place)
-        | bare == mempty
-        , Nothing <- edgeHere g state (tookEvent bare outcome)
+    (Took named outcome, At place)
+        | scopeNames named `isSuffixOf` scopeNames place.scope
+        , Nothing <- edgeHere g state (tookEvent named outcome)
         , Just _ <- edgeHere g state (tookEvent place.scope outcome) ->
             Took place.scope outcome
     _ -> event

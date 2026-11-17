@@ -302,9 +302,17 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     -}
     atChoice place = case [budget | (_, budget) <- spentOn, budget.cap.atCap == Extend] of
         used : _ | Ask.Stuck `notElem` state.askedHere -> goOn used
-        used -> Run (someOptions ([recordOption event edge | (event, edge) <- shownEdges g place, isNothing (usedUpOn edge)] <> [extendOption | not (null used)]))
+        used -> Run (someOptions ([pickOption event edge | (event, edge) <- shownEdges g place, isNothing (usedUpOn edge)] <> [extendOption | not (null used)]))
       where
         spentOn = [(event, budget) | (event, edge) <- shownEdges g place, Just budget <- [usedUpOn edge]]
+    -- An action that forks an agent's child says so, and how it runs, as a spawn's option does.
+    pickOption event edge = case edge.to of
+        At next
+            | Just (Forking _) <- Map.lookup next g.groupStates
+            , Just (AnyStep _ (SomeStep s)) <- stepNamed next.name
+            , Agent (AgentRole role) _ <- (row steps s).runner ->
+                (recordOption event edge) {means = goes edge <> ", which spawns a " <> role, spawns = True}
+        _ -> recordOption event edge
     usedUpOn edge = case edge.to of
         At next -> usedUpAt next
         Out -> Nothing
@@ -647,7 +655,7 @@ deliver start = \case
     AwaitMerge tasks
         | has Event.Await -> awaiting Merge (Text.unwords (map (taskIdText . fst) (toList tasks)))
         | otherwise -> awaiting Merge (Text.unwords [maybe (taskIdText task) urlText pr | (task, pr) <- toList tasks])
-    Run (option :| []) -> "RUN " <> optionCommand start option
+    Run (option :| []) -> "RUN " <> option.command
     Run (_ :| _ : _) -> "RUN one option below"
     Stopped stop -> case Ask.deliver start.principal of
         TheUser -> "STOP " <> reasonText stop.reason <> " " <> stop.why
@@ -730,15 +738,15 @@ explained :: Start -> Advice -> [Text]
 explained start advice = advice.at : listed "options:" (runOptions advice.action) <> listed "outcomes:" advice.leads
   where
     listed _ [] = []
-    listed heading options = heading : ["  " <> optionCommand start option <> " - " <> option.means | option <- options]
+    listed heading options = heading : ["  " <> option.command <> " - " <> optionMeans start option | option <- options]
 
-{- | An option's command for this interface: a spawn runs in the background
+{- | What an option means for this interface: a spawn runs in the background
 only where the interface can, as 'deliver' says of a @SPAWN@.
 -}
-optionCommand :: Start -> Option -> Text
-optionCommand start option
-    | option.spawns = option.command <> if Set.member Event.Background start.interface then " in the background" else " in the foreground"
-    | otherwise = option.command
+optionMeans :: Start -> Option -> Text
+optionMeans start option
+    | option.spawns = option.means <> if Set.member Event.Background start.interface then " in the background" else " in the foreground"
+    | otherwise = option.means
 
 -- | The options a 'Run' offers.
 runOptions :: Action -> [Option]

@@ -50,6 +50,7 @@ module State.Cli.Shell.World (
     reviewed,
     simplified,
     toImplement,
+    gathered,
 ) where
 
 import Data.Aeson (Value (..), encode, object, (.=))
@@ -387,13 +388,19 @@ simplified sha = "READY\nSimplified: " <> sha <> "\n"
 -- | From the start to the draft PR and a first commit on it.
 toImplement :: [Act]
 toImplement =
-    [ Record ["research.spawned"]
+    [ Record ["gather.research"]
+    , Record ["gather/research.spawned"]
     , Handback "researcher" ready
-    , Record ["gather.enough"]
-    , Planned
-    , Handback "researcher" ready
-    , Record ["confirm.confirmed"]
-    , OpenPr
-    , Commit
-    , Handback "implementer" ready
     ]
+        <> gathered
+        <> [ Planned
+           , Handback "researcher" ready
+           , Record ["confirm.confirmed"]
+           , OpenPr
+           , Commit
+           , Handback "implementer" ready
+           ]
+
+-- | The gather ended with no researcher open: its await goes on by itself to the notes.
+gathered :: [Act]
+gathered = [Record ["gather.enough"], Record ["gather/notes.done"]]

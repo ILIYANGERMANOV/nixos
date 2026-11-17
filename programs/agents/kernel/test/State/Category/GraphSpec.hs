@@ -1,6 +1,6 @@
 module State.Category.GraphSpec (spec) where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, void)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
@@ -112,7 +112,7 @@ spec = describe "State.Category.Graph" $ do
                 `shouldBe` Right [(EventName (StateName "research") (OutcomeName "spawned"), At (Place [1] mempty (StateName "researchers")))]
 
         it "refuses two states of one name: an event names its state, so one would stand for both" $
-            map (fmap (const ()) . graph) [Do Describe :> Do FixPR :> Do FixPR, Do Describe :> Do FixPR :> Scope "x" (Do FixPR)]
+            map (void . graph) [Do Describe :> Do FixPR :> Do FixPR, Do Describe :> Do FixPR :> Scope "x" (Do FixPR)]
                 `shouldBe` [Left (SameState (StateName "fix_pr")), Right ()]
 
     describe "a choice" $ do

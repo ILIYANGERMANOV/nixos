@@ -11,11 +11,53 @@ The Fuel given: balanced. Record it, unless the request names another.
 
 == gather
 RUN one option below
-  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  at gather: a branch you pick - take one option below, then state next
   options:
-    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
-    state ask --kind <kind> <question> - asks one question; what it prints says who answers
-    state record gather.enough - on to plan
+    state record gather.enough - on to gather/researchers
+    state record gather.interview - on to interview
+    state record gather.research - on to gather/research, which spawns a researcher in the foreground
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== gather/researchers
+RUN end your turn
+  at gather/researchers: children at work - each runs on its own; do what each unindented line says, then state next
+  options:
+    end your turn - until the 0 open hand back: each hand-back is recorded, and the last moves the run on
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+
+== gather/notes
+RUN state record gather/notes.done
+  at gather/notes: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record gather/notes.done - on to plan
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Notes: merge every researcher's hand-back into your notes, each fact once, then record `notes.done`.
+
+== gather/research
+SPAWN researcher background: no
+  at gather/research: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    gather/research.spawned - back to gather, the gather loop's next round
   fuel: balanced
   Researchers: 0 of 5 used, 5 left
   Interview questions: 0 of 30 used, 30 left
@@ -24,6 +66,19 @@ RUN one option below
   task t1: not started, tries 0
   task t2: not started, tries 0
 Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+
+== interview
+RUN state record interview.asked
+  at interview: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record interview.asked - back to gather, the gather loop's next round
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
 Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
 
 == plan
@@ -87,7 +142,7 @@ Break the confirmed plan into tasks.
 
 == engineers
 SPAWN engineer --task t1 background: no
-  at engineers: a fan-out - its tasks run as child runs; do what each unindented line says, then state next
+  at engineers: children at work - each runs on its own; do what each unindented line says, then state next
   fuel: balanced
   Rounds: 0 of 9 used, 9 left
   task t1: not started, tries 0

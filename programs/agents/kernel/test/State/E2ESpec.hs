@@ -52,23 +52,23 @@ spec = describe "the state binary" $ do
 
         it "runs a chief's request on a targeted PR: plan unconfirmed, GitHub's PR its draft, ready skipped" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            transcript <- driveOn bin repo (Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : Record ["route.engineer"] : Record ["fuel.set", "low"] : targetedPath)
-            transcript `shouldBe` ["target -> fuel", "fuel.set -> route", "route.engineer -> engineer/fuel", "engineer/fuel.set -> engineer/gather"] <> targetedTranscript
+            transcript <- driveOn bin repo (Record ["route.engineer"] : Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : targetedPath)
+            transcript `shouldBe` ["route.engineer -> engineer/fuel", "target -> engineer/fuel", "engineer/fuel.set -> engineer/gather"] <> targetedTranscript
             atNext <- succeeded =<< state bin repo ["next"]
             atNext `shouldSatisfy` any (Text.isSuffixOf ("The last result: " <> Text.pack roundUrlString))
 
         it "asks the user to confirm the next request's plan when it names no target" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            _ <- driveOn bin repo (Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : Record ["route.engineer"] : Record ["fuel.set", "low"] : targetedPath)
-            transcript <- driveOn bin repo [Record ["next.request"], Record ["fuel.set", "low"], Record ["route.engineer"], Record ["fuel.set", "low"], Record ["gather.enough"], Planned, Record ["skip_simplify_plan.skip"]]
-            transcript `shouldBe` ["next.request -> fuel", "fuel.set -> route", "route.engineer -> engineer/fuel", "engineer/fuel.set -> engineer/gather", "engineer/gather.enough -> engineer/plan", "engineer/plan.done -> engineer/skip_simplify_plan", "engineer/skip_simplify_plan.skip -> engineer/confirm"]
+            _ <- driveOn bin repo (Record ["route.engineer"] : Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : targetedPath)
+            transcript <- driveOn bin repo ([Record ["next.request"], Record ["fuel.set", "low"], Record ["route.engineer"], Record ["fuel.set", "low"]] <> gathered <> [Planned, Record ["skip_simplify_plan.skip"]])
+            transcript `shouldBe` ["next.request -> fuel", "fuel.set -> route", "route.engineer -> engineer/fuel", "engineer/fuel.set -> engineer/gather", "engineer/gather.enough -> engineer/gather/notes", "engineer/gather/notes.done -> engineer/plan", "engineer/plan.done -> engineer/skip_simplify_plan", "engineer/skip_simplify_plan.skip -> engineer/confirm"]
             asked <- succeeded =<< state bin repo ["next"]
             take 1 asked `shouldSatisfy` all (Text.isInfixOf "confirmed, or adjusted?")
 
         it "adopts a chief's targeted ticket, opening none" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            transcript <- driveOn bin repo [Record ["target", "ticket", "https://github.com/o/r/issues/3"], Record ["fuel.set", "low"], Record ["route.architect"], Record ["fuel.set", "low"], Record ["exploring.enough"]]
-            transcript `shouldBe` ["target -> fuel", "fuel.set -> route", "route.architect -> architect/fuel", "architect/fuel.set -> architect/exploring", "architect/exploring.enough -> architect/open_ticket", "architect/open_ticket.done -> architect/discussing"]
+            transcript <- driveOn bin repo [Record ["route.architect"], Record ["target", "ticket", "https://github.com/o/r/issues/3"], Record ["fuel.set", "low"], Record ["exploring.enough"], Record ["exploring/notes.done"]]
+            transcript `shouldBe` ["route.architect -> architect/fuel", "target -> architect/fuel", "architect/fuel.set -> architect/exploring", "architect/exploring.enough -> architect/exploring/notes", "architect/exploring/notes.done -> architect/open_ticket", "architect/open_ticket.done -> architect/discussing"]
 
         it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
             refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]
@@ -96,15 +96,15 @@ spec = describe "the state binary" $ do
             _ <- drive bin repo [Record ["fuel.set", "balanced"]]
             refused <- state bin repo ["record", "ready.done", prUrlString]
             (refused.code, refused.err)
-                `shouldBe` (2, ["state record: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"])
+                `shouldBe` (2, ["state record: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record gather.interview | state record gather.research"])
             warned <- succeeded =<< state bin repo ["next"]
             take 3 warned
-                `shouldBe` ["RUN one option below", "refused: ready.done - no such arrow out of gather", "fix: state record research.spawned | state record gather.enough"]
+                `shouldBe` ["RUN one option below", "refused: ready.done - no such arrow out of gather", "fix: state record gather.enough | state record gather.interview | state record gather.research"]
             _ <- succeeded =<< state bin repo ["record", "gather.enough"]
             moved <- succeeded =<< state bin repo ["next"]
             moved `shouldSatisfy` (not . mentions "refused:")
 
-        it "refuses an unknown event, listing the gather's events and fixing it by its step's, unlogged" $ \repo -> do
+        it "refuses an unknown event, listing the gather's picks and fixing it by state next, unlogged" $ \repo -> do
             _ <- drive bin repo [Record ["fuel.set", "balanced"]]
             before <- logLines repo
             refused <- state bin repo ["record", "gather.bogus"]
@@ -112,8 +112,8 @@ spec = describe "the state binary" $ do
             (refused.code, refused.err, after - before)
                 `shouldBe` ( 2
                            ,
-                               [ "state record: no event gather.bogus - at gather the run takes research.spawned, research.handed_back, gather.enough, extend"
-                               , "fix: state record gather.enough"
+                               [ "state record: no event gather.bogus - at gather the run takes gather.enough, gather.interview, gather.research, extend"
+                               , "fix: state next"
                                ]
                            , 0
                            )
@@ -149,21 +149,20 @@ spec = describe "the state binary" $ do
 
         -- A written plan is taken on every path the transcripts below drive.
         it "refuses a plan.done whose plan is not written" $ \repo -> do
-            _ <- drive bin repo [Record ["fuel.set", "balanced"], Record ["gather.enough"]]
+            _ <- drive bin repo (Record ["fuel.set", "balanced"] : gathered)
             missing <- state bin repo ["record", "plan.done", "/no/such"]
             (missing.code, missing.err) `shouldBe` (2, ["state record: /no/such - no such file", "fix: write it first"])
 
-        it "closes a researcher's child on its report, which has no token, so the gather ends" $ \repo -> do
-            _ <- drive bin repo [Record ["fuel.set", "balanced"], Spawn "researcher"]
-            early <- state bin repo ["record", "gather.enough"]
-            back <- succeeded =<< hook hookBin repo "handback" (reportedBack repo "researcher" researched)
+        it "closes a researcher's child on its report, which has no token, so the waiting gather goes on to its notes" $ \repo -> do
+            _ <- drive bin repo [Record ["fuel.set", "balanced"], Record ["gather.research"], Spawn "researcher"]
             enough <- succeeded =<< state bin repo ["record", "gather.enough"]
-            (early.code, back, recorded enough) `shouldSatisfy` \case
-                (2, [reply], ["gather.enough -> plan"]) -> "research.handed_back -> gather" `Text.isInfixOf` reply
+            back <- succeeded =<< hook hookBin repo "handback" (reportedBack repo "researcher" researched)
+            (recorded enough, back) `shouldSatisfy` \case
+                (["gather.enough -> gather/researchers"], [reply]) -> "gather/research.handed_back -> gather/notes" `Text.isInfixOf` reply
                 _ -> False
 
         it "prints each record it advises with its arguments" $ \repo -> do
-            _ <- drive bin repo [Record ["fuel.set", "balanced"], Record ["gather.enough"]]
+            _ <- drive bin repo (Record ["fuel.set", "balanced"] : gathered)
             advice <- succeeded =<< state bin repo ["next"]
             take 1 advice `shouldBe` ["RUN state record plan.done <path>"]
 
@@ -218,7 +217,7 @@ spec = describe "the state binary" $ do
                 `shouldBe` ( 2
                            ,
                                [ "state override: override to nowhere - the flow has no single state of that name"
-                               , "fix: state override <fuel|gather|plan|skip_simplify_plan|simplify_plan|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
+                               , "fix: state override <fuel|gather|gather/researchers|gather/notes|gather/research|interview|plan|skip_simplify_plan|simplify_plan|confirm|draft|implement|skip_refactor|refactor|review|pick|fix|re_review|describe|simplify_pr|await_ci|fix_pr|ready> <why>"
                                ]
                            )
 
@@ -521,14 +520,14 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin w1 ["ask", "--kind", "Confirm", "the", "plan", "holds?"]
                 _ <- succeeded =<< state bin repo ["rule", Text.unpack c1 <> ":1", "--answer", "confirmed", "--why", "fits t1", "--cost", "none"]
                 advice <- succeeded =<< state bin repo ["next"]
-                take 3 advice `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed", "SPAWN engineer --task fix background: yes", "  at engineers: a fan-out - its tasks run as child runs; do what each unindented line says, then state next"]
+                take 3 advice `shouldBe` ["RESUME " <> c1 <> " with the answer to " <> c1 <> ":1: confirmed", "SPAWN engineer --task fix background: yes", "  at engineers: children at work - each runs on its own; do what each unindented line says, then state next"]
 
             it "runs from init to done, its child through the engineer flow" $ \repo -> do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 let tasks = repo.root </> "tasks.json"
                 Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {fuel = Low}])
                 plan <- writtenPlan repo
-                for_ [["gather.enough"], ["plan.done", plan], ["skip_simplify_plan.run"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
+                for_ [["gather.enough"], ["gather/notes.done"], ["plan.done", plan], ["skip_simplify_plan.run"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo . ("record" :))
                 spawn <- succeeded =<< state bin repo ["next"]
                 take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
                 w1 <- worktree repo "w1"
@@ -546,11 +545,12 @@ spec = describe "the state binary" $ do
                 parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
                 writeFile repo.prJson (pullRequest True "OPEN")
                 let tasks = repo.root </> "tasks.json"
-                    gathered = concat (replicate 5 [["research.spawned"], ["research.handed_back"]])
+                    -- Balanced's five researchers, each picked, spawned and handed back.
+                    fiveResearched = concat (replicate 5 [["gather.research"], ["gather/research.spawned"], ["gather/research.handed_back"]])
                 plan <- writtenPlan repo
-                let agreed = [["gather.enough"], ["plan.done", plan], ["skip_simplify_plan.run"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
+                let agreed = [["gather.enough"], ["gather/notes.done"], ["plan.done", plan], ["skip_simplify_plan.run"], ["simplify_plan.done"], ["confirm.confirmed"], ["breakdown.done", "--tasks", tasks]]
                 Text.writeFile tasks (breakdownJson [roundTask "t1" prUrl])
-                for_ (gathered <> agreed) (succeeded <=< state bin repo . ("record" :))
+                for_ (fiveResearched <> agreed) (succeeded <=< state bin repo . ("record" :))
                 w1 <- worktree repo "w1"
                 _ <- childRun bin w1 parent "n1" "t1"
                 for_ [["override", "ready", "the", "test", "starts", "here"]] (succeeded <=< state bin w1)
@@ -559,8 +559,8 @@ spec = describe "the state binary" $ do
                 merging <- succeeded =<< state bin repo ["next"]
                 recorded merging `shouldBe` ["engineers.done -> merge"]
                 drop 1 merging `shouldSatisfy` mentions "state record merge.next_round - back to gather, the round loop's next round"
-                for_ (["merge.next_round"] : gathered) (succeeded <=< state bin repo . ("record" :))
-                spent <- state bin repo ["record", "research.spawned"]
+                for_ (["merge.next_round"] : fiveResearched) (succeeded <=< state bin repo . ("record" :))
+                spent <- state bin repo ["record", "gather.research"]
                 spent.code `shouldBe` 2
                 for_ agreed (succeeded <=< state bin repo . ("record" :))
                 respawn <- succeeded =<< state bin repo ["next"]
@@ -635,7 +635,7 @@ spec = describe "the state binary" $ do
                 lastMaybe brief `shouldSatisfy` any (" --flow 10x " `Text.isInfixOf`)
                 -- The task's Fuel is the grandchild's from init: it gathers at once, its researchers in the foreground.
                 take 1 grandFirst `shouldBe` ["RUN one option below"]
-                grandFirst `shouldSatisfy` mentions "spawn a researcher in the foreground"
+                grandFirst `shouldSatisfy` mentions "which spawns a researcher in the foreground"
                 map (take 1) [midSpawn, grandSpawn] `shouldBe` [["SPAWN engineer --task g1 background: no"], ["SPAWN researcher background: no"]]
                 map (take 1) [grandAwait, midAwait] `shouldBe` replicate 2 ["HANDBACK AWAIT ci " <> prUrl]
                 take 1 topAwait `shouldBe` ["AWAIT ci " <> prUrl]
@@ -747,36 +747,40 @@ spec = describe "the state binary" $ do
                 it "record the main session's worker spawn and hand-back in the run its init bound it to" $ \repo -> do
                     run <- initBound bin hookBin repo Null repo ["--notes", repo.notes]
                     _ <- succeeded =<< state bin repo ["record", "fuel.set", "balanced"]
+                    _ <- succeeded =<< state bin repo ["record", "gather.research"]
 
                     said <- workerAt hookBin repo Null "w1"
 
                     said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
-                    loggedTypes repo.notes `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+                    loggedTypes repo.notes `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "record a 10x session's, whose run is outside the repo its hooks fire in" $ \repo -> do
                     let tenX = repo.root </> "tenx"
                     createDirectory tenX
                     git repo {work = tenX} ["init", "-q"]
                     run <- initBound bin hookBin repo Null repo {work = tenX} ["--notes", tenX, "--flow", "10x"]
+                    _ <- succeeded =<< state bin repo {work = tenX} ["record", "gather.research"]
 
                     said <- workerAt hookBin repo Null "w1"
 
                     said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
-                    loggedTypes tenX `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+                    loggedTypes tenX `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "record a child engineer's worker spawn in its own run, not its parent's, at depth 1" $ \repo -> do
-                    (engineer, _) <- childEngineer bin hookBin repo
+                    (engineer, w1) <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< state bin w1 ["record", "gather.research"]
                     before <- logLines repo
 
                     said <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
 
                     after <- logLines repo
-                    said `shouldSatisfy` mentions "research.spawned"
-                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned"]
+                    said `shouldSatisfy` mentions "gather/research.spawned"
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["gather/research.spawned"]
                     after `shouldBe` before
 
                 it "record a depth-2 worker's hand-back made before its spawner's hook bound it, as a foreground one is" $ \repo -> do
-                    (engineer, _) <- childEngineer bin hookBin repo
+                    (engineer, w1) <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< state bin w1 ["record", "gather.research"]
                     _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
 
                     early <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
@@ -784,17 +788,18 @@ spec = describe "the state binary" $ do
 
                     early `shouldBe` []
                     bound `shouldSatisfy` mentions "state: recorded"
-                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "record a depth-2 worker's hand-back made after its spawner's hook bound it, as a background one is" $ \repo -> do
-                    (engineer, _) <- childEngineer bin hookBin repo
+                    (engineer, w1) <- childEngineer bin hookBin repo
+                    _ <- succeeded =<< state bin w1 ["record", "gather.research"]
                     _ <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
 
                     _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "w2")
                     back <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
 
                     back `shouldSatisfy` mentions "state: recorded"
-                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["research.spawned", "research.handed_back"]
+                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "hold a child engineer's hand-back while its worker is at work, and hand it back once the worker returned" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo
@@ -1280,17 +1285,25 @@ simplified sha = "READY\nSimplified: " <> sha <> "\n"
 -- | From the start to the draft PR and a first commit on it.
 toImplement :: [Act]
 toImplement =
-    [ Spawn "researcher"
+    [ Record ["gather.research"]
+    , Spawn "researcher"
+    , Record ["gather.interview"]
     , AskUser "Scope" ["which", "scope?"]
+    , Record ["interview.asked"]
     , HandsBack "researcher" researched
-    , Record ["gather.enough"]
-    , Planned
-    , Handback "researcher" ready
-    , Record ["confirm.confirmed"]
-    , OpenPr
-    , Commit
-    , Handback "implementer" ready
     ]
+        <> gathered
+        <> [ Planned
+           , Handback "researcher" ready
+           , Record ["confirm.confirmed"]
+           , OpenPr
+           , Commit
+           , Handback "implementer" ready
+           ]
+
+-- | The gather ended with no researcher open: its await goes on by itself to the notes.
+gathered :: [Act]
+gathered = [Record ["gather.enough"], Record ["gather/notes.done"]]
 
 -- | A Balanced run to its first Simplify of the PR.
 toSimplifyPr :: [Act]
@@ -1305,10 +1318,14 @@ balancedPath = toSimplifyPr <> [Handback "fixer" simplified, Record ["await_ci.g
 balancedTranscript :: [Text]
 balancedTranscript =
     [ "fuel.set -> gather"
-    , "research.spawned -> gather"
-    , "research.handed_back -> gather"
+    , "gather.research -> gather/research"
+    , "gather/research.spawned -> gather"
+    , "gather.interview -> interview"
+    , "interview.asked -> gather"
+    , "gather/research.handed_back -> gather"
     , "worker_returned -> gather"
-    , "gather.enough -> plan"
+    , "gather.enough -> gather/notes"
+    , "gather/notes.done -> plan"
     , "plan.done -> skip_simplify_plan"
     , "skip_simplify_plan.run -> simplify_plan"
     , "simplify_plan.done -> confirm"
@@ -1334,10 +1351,14 @@ cleanPath =
 cleanTranscript :: [Text]
 cleanTranscript =
     [ "fuel.set -> gather"
-    , "research.spawned -> gather"
-    , "research.handed_back -> gather"
+    , "gather.research -> gather/research"
+    , "gather/research.spawned -> gather"
+    , "gather.interview -> interview"
+    , "interview.asked -> gather"
+    , "gather/research.handed_back -> gather"
     , "worker_returned -> gather"
-    , "gather.enough -> plan"
+    , "gather.enough -> gather/notes"
+    , "gather/notes.done -> plan"
     , "plan.done -> skip_simplify_plan"
     , "skip_simplify_plan.run -> simplify_plan"
     , "simplify_plan.done -> confirm"
@@ -1355,27 +1376,28 @@ cleanTranscript =
 -- | Low, a trivial task: the agent gathers nothing, skips the proposal and the refactor, so no hand-back of theirs.
 trivialPath :: [Act]
 trivialPath =
-    [ Record ["fuel.set", "low"]
-    , Record ["gather.enough"]
-    , Planned
-    , Record ["skip_simplify_plan.skip"]
-    , Record ["confirm.confirmed"]
-    , OpenPr
-    , Commit
-    , Handback "implementer" ready
-    , Record ["skip_refactor.skip"]
-    , Handback "review-lead" reviewed
-    , Record ["pick.final"]
-    , Handback "fixer" ready
-    , Handback "fixer" simplified
-    , Record ["await_ci.green"]
-    , Record ["ready.done", prUrlString]
-    ]
+    Record ["fuel.set", "low"]
+        : gathered
+            <> [ Planned
+               , Record ["skip_simplify_plan.skip"]
+               , Record ["confirm.confirmed"]
+               , OpenPr
+               , Commit
+               , Handback "implementer" ready
+               , Record ["skip_refactor.skip"]
+               , Handback "review-lead" reviewed
+               , Record ["pick.final"]
+               , Handback "fixer" ready
+               , Handback "fixer" simplified
+               , Record ["await_ci.green"]
+               , Record ["ready.done", prUrlString]
+               ]
 
 trivialTranscript :: [Text]
 trivialTranscript =
     [ "fuel.set -> gather"
-    , "gather.enough -> plan"
+    , "gather.enough -> gather/notes"
+    , "gather/notes.done -> plan"
     , "plan.done -> skip_simplify_plan"
     , "skip_simplify_plan.skip -> confirm"
     , "confirm.confirmed -> draft"
@@ -1395,11 +1417,12 @@ the plan is neither simplified nor confirmed, no draft PR opened, as GitHub
 has the target's, and no ready, which the request skips.
 -}
 targetedPath :: [Act]
-targetedPath = take 2 (drop 1 trivialPath) <> drop 6 (init trivialPath)
+targetedPath = take 3 (drop 1 trivialPath) <> drop 8 (init trivialPath)
 
 targetedTranscript :: [Text]
 targetedTranscript =
-    [ "engineer/gather.enough -> engineer/plan"
+    [ "engineer/gather.enough -> engineer/gather/notes"
+    , "engineer/gather/notes.done -> engineer/plan"
     , "engineer/plan.done -> engineer/skip_simplify_plan"
     , "engineer/skip_simplify_plan.skip -> engineer/confirm"
     , "engineer/confirm.confirmed -> engineer/draft"
@@ -1418,7 +1441,7 @@ targetedTranscript =
 GitHub has the round's, and no ready, which the round skips.
 -}
 roundPath :: [Act]
-roundPath = take 5 trivialPath <> drop 6 (init trivialPath)
+roundPath = take 6 trivialPath <> drop 7 (init trivialPath)
 
 -- | The PR a user's round names, which the scripted @gh@ reports by URL alone.
 roundUrlString :: String

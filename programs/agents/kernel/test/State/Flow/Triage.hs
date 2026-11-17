@@ -60,5 +60,6 @@ deriving stock instance Show (Sing (s :: TriageStep))
 deriving stock instance Show (Outcome (s :: TriageStep) l)
 deriving stock instance Eq (Outcome (s :: TriageStep) l)
 
+-- | The big branch is scoped: a flow names each state once, and both branches describe.
 triaged :: Flow 'Diff 'Nothing 'PR
-triaged = Do Triage :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Refactor :> Do Describe :& End)
+triaged = Do Triage :> Case (#small :-> Do Describe :& #big :-> Scope "big" (Do Implement :> Do Refactor :> Do Describe) :& End)

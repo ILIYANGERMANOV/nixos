@@ -8,9 +8,9 @@ Available options:
 Available commands:
   research.spawned         no arguments
   research.handed_back     no arguments
-  gather.enough            no arguments
-  exploring.enough         no arguments
-  discussing.enough        no arguments
+  interview.asked          no arguments
+  discuss.asked            no arguments
+  notes.done               no arguments
   target                   <pr <url>|branch <name>|ticket <url>>
   fuel.set                 <low|balanced|max>
   extend                   <why>
@@ -58,10 +58,18 @@ Available commands:
   resumed                  <child run>
   merge.done               <url>
   merge.next_round         no arguments
+  gather.enough            no arguments
+  gather.research          no arguments
+  gather.interview         no arguments
   skip_simplify_plan.skip  no arguments
   skip_simplify_plan.run   no arguments
   skip_refactor.skip       no arguments
   skip_refactor.run        no arguments
+  exploring.enough         no arguments
+  exploring.research       no arguments
+  discussing.enough        no arguments
+  discussing.research      no arguments
+  discussing.discuss       no arguments
   route.architect          no arguments
   route.engineer           no arguments
   route.10x                no arguments

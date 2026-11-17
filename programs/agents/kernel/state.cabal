@@ -134,6 +134,7 @@ test-suite state-test
     Effects.FileSystemSpec
     Effects.LogSpec
     Effects.RandomSpec
+    SpecHook
     State.ArchitectureSpec
     State.Category.FlowGen
     State.Category.FlowSpec

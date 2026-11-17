@@ -258,11 +258,14 @@ are likelier, so loops run out of rounds: a review with rows enters the fix
 loop rather than exiting clean.
 -}
 genAccepted :: Gen [Event]
-genAccepted = genAcceptedOn g
+genAccepted = genAcceptedOn [] g
 
--- | 'genAccepted' on any graph: an edge inside a scope is taken in its place's scope.
-genAcceptedOn :: OpenGraph -> Gen [Event]
-genAcceptedOn on = do
+{- | 'genAccepted' on any graph: an edge inside a scope is taken in its
+place's scope. The outcomes given are the flow's own picks and skips, which
+no role's flow draws (a generated term's), found before the drawn ones.
+-}
+genAcceptedOn :: [AnyOutcome] -> OpenGraph -> Gen [Event]
+genAcceptedOn own on = do
     steps <- Gen.int (Range.linear 0 300)
     first <- either (fail . show) pure (replay on (logOf (started :| [])))
     go steps first 1
@@ -279,7 +282,7 @@ genAcceptedOn on = do
         Out -> pure []
         Graph.Exit -> pure []
     -- The edge is named in the place's scope; the outcome is its step's own.
-    tookBy place name = Took place.scope <$> outcomeOf (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
+    tookBy place name = Took place.scope <$> outcomeIn own (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
     -- A researcher in the background may hand back wherever the run is; at an await, only it moves the run on.
     handBacks place state = [(3, pure (Took place.scope (outcome ResearchHandedBack))) | not (null (openForks state))]
     stays place edge = case edge.to of
@@ -290,7 +293,11 @@ genAcceptedOn on = do
         Graph.Exit -> False
 
 outcomeOf :: EventName -> Gen AnyOutcome
-outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
+outcomeOf = outcomeIn []
+
+-- | 'outcomeOf', one of these outcomes first.
+outcomeIn :: [AnyOutcome] -> EventName -> Gen AnyOutcome
+outcomeIn own name = maybe (fromMaybe Gen.discard (genOutcomeNamed name)) pure (find ((== name) . Catalog.outcomeEvent) own)
 
 -- | The run after these events, from 'started'; the events must be a log the fold accepts.
 runAt :: [Event] -> RunState

@@ -35,7 +35,7 @@ import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXGraph, ticketOpened, ticketUrl, within)
-import State.Step.Catalog (outcome, outcomeEvent)
+import State.Step.Catalog (flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
@@ -215,7 +215,7 @@ spec = describe "State.Run.Fold" $ do
 
     it "records_every_event_as_named_outside_any_scope" . hedgehog $ do
         flow <- forAll (Gen.element [g, tenXGraph])
-        events <- forAll (genAcceptedOn flow)
+        events <- forAll (genAcceptedOn [] flow)
         state <- evalEither (replay flow (logOf (started :| events)))
         event <- forAll (Gen.element (events <> happyPath))
         inScope flow state event === event
@@ -223,7 +223,7 @@ spec = describe "State.Run.Fold" $ do
     it "every_accepted_log_of_a_scoped_flow_is_a_path" . hedgehog $ do
         f <- forAll (Gen.filter (isRight . graph) genFlow)
         flow <- evalEither (graph f)
-        events <- forAll (genAcceptedOn flow)
+        events <- forAll (genAcceptedOn (concatMap flowOutcomes (termSteps f)) flow)
         cover 10 "a step's outcome inside a scope" (or [scope /= mempty | Took scope _ <- events])
         path <- evalMaybe (ty flow [tookEvent scope took | Took scope took <- events, not (handsBack took)])
         assert (composes path)
@@ -460,7 +460,10 @@ gatherBudgets = describe "the gather's choice" $ do
         replay g (logOf (started :| fuelSet Balanced : asks 1 31)) `shouldSatisfy` outOf "Interview questions" 30
 
     it "takes a Stuck question past the questions, as asking whether to go on" $
-        replay g (logOf (started :| fuelSet Balanced : asks 1 30 <> interviewed [askAt 31 Ask.Stuck])) `shouldSatisfy` isRight
+        replay g (logOf (started :| fuelSet Balanced : interviewed ([askAt i Fact | i <- [1 .. 30]] <> [askAt 31 Ask.Stuck]))) `shouldSatisfy` isRight
+
+    it "refuses the interview's pick once its questions are used up, as the advice offers it no more" $
+        replay g (logOf (started :| fuelSet Balanced : asks 1 30 <> interviewed [])) `shouldSatisfy` outOf "Interview questions" 30
 
     it "counts no question asked off the gather" $
         replay g (logOf (started :| fuelSet Balanced : enoughIn "gather" <> [askAt i Fact | i <- [1 .. 31]])) `shouldSatisfy` isRight
