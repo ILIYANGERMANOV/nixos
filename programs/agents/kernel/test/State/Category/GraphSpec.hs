@@ -17,7 +17,7 @@ import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
 import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), outcomeNames, outcomes)
 import State.Category.Ty (NotSum, TyOf (..))
-import State.Flow.Library (par)
+import State.Flow.Library (choiceLoop, par)
 import State.Flow.Triage (Sing (..))
 import State.Run.RunGen qualified as RunGen
 import State.Step.Build (Sing (..))
@@ -93,28 +93,36 @@ spec = describe "State.Category.Graph" $ do
     describe "a fork and its await" $ do
         it "refuses a fork no await follows: its children would outlive the flow" $
             graph (Fork engineerGroup engineerChild :> Do PlanS)
-                `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "engineers")) "engineers")
+                `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "spawn_engineers")) "engineers")
 
         it "refuses a fork whose way out by an exit passes no await" $
-            graph (Fork engineerGroup (Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> Capped (always (UpTo 9)) Stop (Step (Merge "engineers")) :& End))
-                `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "engineers")) "engineers")
+            graph (Fork engineerGroup (Do Refactor :> Do Describe) :> Do Triage :> Case (#small :-> Do Describe :> Flow.Exit :& #big :-> Do Implement :> Await engineerGroup :> Capped (always (UpTo 9)) Stop (Step (Merge "engineers")) :& End))
+                `shouldBe` Left (NotAwaited (Place [0] mempty (StateName "spawn_engineers")) "engineers")
+
+        -- par's fork, then its await: each its own state.
+        let forked = map (EventName (StateName "spawn_engineers") . OutcomeName)
+            awaited = map (EventName (StateName "engineers") . OutcomeName)
 
         it "walks par as a spawn per item, the items done, a hand-back per child, then on" $
-            (`endOf` map (EventName (StateName "engineers") . OutcomeName) ["spawned", "spawned", "each_done", "handed_back", "handed_back", "done"]) <$> graph (par engineerGroup engineerChild)
+            (`endOf` (forked ["spawned", "spawned", "each_done"] <> awaited ["handed_back", "handed_back", "done"])) <$> graph (par engineerGroup engineerChild)
                 `shouldBe` Right (Just Out)
+
+        it "draws a fork of one step as that step's state, its spawn the step's own outcome" $
+            outOfStart <$> graph (researchers :> Await researcherGroup)
+                `shouldBe` Right [(EventName (StateName "research") (OutcomeName "spawned"), At (Place [1] mempty (StateName "researchers")))]
+
+        it "refuses two states of one name: an event names its state, so one would stand for both" $
+            map (fmap (const ()) . graph) [Do Describe :> Do FixPR :> Do FixPR, Do Describe :> Do FixPR :> Scope "x" (Do FixPR)]
+                `shouldBe` [Left (SameState (StateName "fix_pr")), Right ()]
 
     describe "a choice" $ do
         it "refuses a branch that is not a capped action: it would leave the choice" $
             graph (Choice "gather" [Do Interview])
                 `shouldBe` Left (NotAnAction "gather")
 
-        it "refuses one action twice: their meters would be one" $
-            graph (Choice "gather" [questions, questions])
-                `shouldBe` Left (SameAction "gather" (StateName "interview"))
-
-        it "refuses an action outside a choice: its events would stay nowhere" $
-            graph questions
-                `shouldBe` Left (StaysOutside (Place [] mempty (StateName "interview")))
+        it "refuses one capped action under two labels of a choice loop: one state would stand for both" $
+            graph (choiceLoop "gather" Id (#ask :-> questions :& #again :-> questions :& End))
+                `shouldBe` Left (SameState (StateName "interview"))
 
     describe "a route" $ do
         let picks scope = [(qualifyEvent scope (EventName (StateName "route") (OutcomeName branch)), At (Place path (scope <> inner) (StateName entry))) | (branch, path, inner, entry) <- [("big", [1, 0], scopePath "big", "refactor"), ("other", [2, 0], scopePath "other", "describe"), ("small", [0], mempty, "describe")]]
@@ -180,6 +188,13 @@ arrows = \case
 -- | The 10x's engineers, each a child run from a task's context to its PR.
 engineerGroup :: Group 'PR
 engineerGroup = Group "engineers"
+
+-- | Researchers forked one at a time, three at most: a fork of one step.
+researchers :: Flow 'Ctx 'Nothing 'Ctx
+researchers = Capped (always (UpTo 3)) Extend (ForkOf researcherGroup Research)
+
+researcherGroup :: Group 'Ctx
+researcherGroup = Group "researchers"
 
 engineerChild :: Flow 'Ctx 'Nothing 'PR
 engineerChild = Do PlanS :> Do Implement :> Do Describe

@@ -29,7 +29,8 @@ import Data.Typeable (Typeable)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name, ScopePath, scopePath)
+import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), ScopePath, scopePath)
+import Data.Text qualified as Text
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Graph qualified as Graph
@@ -83,11 +84,11 @@ genBranching :: Gen (Flow 'Diff 'Nothing 'PR)
 genBranching =
     Gen.recursive
         Gen.choice
-        [pure (Do Describe)]
+        [inFresh (pure (Do Describe))]
         [ (:>) <$> genEndo diffKit <*> genBranching
-        , (\small big -> Do Triage :> Case (#small :-> small :& #big :-> Do Implement :> big :& End)) <$> genBranching <*> genBranching
-        , (\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genBranching <*> genBranching
-        , Route <$> genName <*> genBranches genBranching
+        , inFresh ((\small big -> Do Triage :> Case (#small :-> small :& #big :-> Do Implement :> big :& End)) <$> genBranching <*> genBranching)
+        , inFresh ((\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genBranching <*> genBranching)
+        , inFresh (Route <$> genName <*> genBranches genBranching)
         ]
 
 {- | A route from a diff to its PR over three branches, each entering a
@@ -110,18 +111,25 @@ genEndo :: (KnownTy a, NotSum a, Typeable a) => Kit a -> Gen (Flow a 'Nothing a)
 genEndo kit =
     Gen.recursive
         Gen.choice
-        [Gen.element kit.endo]
-        ( [ opt <$> genName <*> genSkips <*> genEndo kit
+        [inFresh (Gen.element kit.endo)]
+        ( [ inFresh (opt <$> genName <*> genSkips <*> genEndo kit)
           , (:>) <$> genEndo kit <*> genEndo kit
           , Scope <$> genName <*> genEndo kit
-          , Route <$> genName <*> genBranches (genEndo kit)
+          , inFresh (Route <$> genName <*> genBranches (genEndo kit))
           ]
-            <> [Loop <$> genName <*> genExiting kit | not (null kit.exiting)]
+            <> [inFresh (Loop <$> genName <*> genExiting kit) | not (null kit.exiting)]
         )
 
 -- | A loop or skip name from a small pool, so nested terms sometimes reuse one.
 genName :: Gen Name
 genName = Gen.element ["gather", "plan", "review", "ci", "round"]
+
+{- | The term under a scope of its own: a flow names each state once, and
+two terms drawn alike would draw one state twice. Never shrunk, so a shrink
+never makes two scopes one.
+-}
+inFresh :: Gen (Flow a e b) -> Gen (Flow a e b)
+inFresh gen = Scope <$> Gen.prune (Name . ("t" <>) . Text.pack . show <$> Gen.int (Range.constant 0 (999999 :: Int))) <*> gen
 
 -- | The root or a nesting of up to three scopes from 'genName''s pool.
 genScopePath :: Gen ScopePath
@@ -136,8 +144,8 @@ genSkips = PerFuel <$> skip <*> skip <*> skip
 genExiting :: (KnownTy a, NotSum a, Typeable a) => Kit a -> Gen (Flow a ('Just a) a)
 genExiting kit =
     Gen.choice
-        [ (:>) <$> Gen.element kit.exiting <*> genEndo kit
-        , (:>) <$> genEndo kit <*> Gen.element kit.exiting
+        [ (:>) <$> inFresh (Gen.element kit.exiting) <*> genEndo kit
+        , (:>) <$> genEndo kit <*> inFresh (Gen.element kit.exiting)
         ]
 
 -- | A walk from the in port to 'Out'.

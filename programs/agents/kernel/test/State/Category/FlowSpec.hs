@@ -72,9 +72,9 @@ spec = describe "State.Category.Flow" $ do
                 (Do (Merge engineers) :> Do PlanS :> Do Confirm :: Flow ('State.Category.Ty.List 'State.Category.Ty.PR) ('Just 'State.Category.Ty.PR) 'State.Category.Ty.Ctx)
 
         it "capping a flow that is neither a step nor a fork of one" $
-            rejectedShown
-                "Couldn't match expected type: State.Category.Flow.Cappable"
-                (graph (Capped (always (UpTo 1)) Stop (Do Fix :> Do ReReview)))
+            rejected
+                "Couldn't match expected type: Cappable"
+                (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
 
         it "a fan-out's state drawn as a step" $
             rejected
