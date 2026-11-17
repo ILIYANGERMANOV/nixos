@@ -559,6 +559,11 @@ chiefRequests = describe "the chief's requests" $ do
         map (fmap planSettled . chief) ([Targeted (OnPr pr)] : [] : [[Targeted (OnPr pr), pick "engineer", askIn kind] | kind <- [Fact, Design, Ask.Scope]])
             `shouldBe` [Right True, Right False, Right True, Right False, Right False]
 
+    it "keeps a request on a branch its own PR: ready not skipped, its plan settled without the user" $
+        let onBranch = Targeted (OnBranch (Branch "feature"))
+         in ((\state -> (shape state, planSettled state)) <$> chief [onBranch], nameAt <$> chief (onBranch : toReadySkipped))
+                `shouldBe` (Right (OwnPr, True), Left (NotSkippable "engineer/ready"))
+
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
         let designed = pick "architect" : within "architect" (ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])
             researched = [pick "blocks", stepTook (Picked "block" (OutcomeName "researching"))] <> within "researching" [stepTook ResearchSpawned, stepTook ResearchHandedBack, stepTook (Enough exploring)]
