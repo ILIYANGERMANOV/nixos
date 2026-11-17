@@ -63,7 +63,7 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), OnTarget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
+import State.Run.Fold (Budget (..), OnTarget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, targetsAt, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -221,17 +221,19 @@ due facts state = case (state.stopped, state.at) of
                 AtOrBelow most -> [if changed <= most then skip.skips else skip.runs | Just changed <- [facts.changedLines]]
         Nothing -> []
 
-{- | The skips the run's Fuel leaves to the agent here, each with the record
-that takes it: the agent skips the block of a trivial task and runs it
-otherwise, so 'due' never records these.
+{- | What decides the skip the run's Fuel leaves to the agent here: a
+trivial task's, with the record that takes it, or the changed lines 'due'
+could not read.
 -}
 skippable :: RunState -> [Text]
 skippable state = case (state.stopped, state.at) of
-    (Nothing, At place)
-        | Just skip <- skipHere place.name
-        , Skippable <- atFuel (fuelOf state) skip.when ->
-            [fuelLabel (fuelOf state) <> ": skip it when the task is trivial: " <> recordCommand (qualifyEvent place.scope (Catalog.outcomeEvent skip.skips))]
+    (Nothing, At place) | Just skip <- skipHere place.name -> case atFuel level skip.when of
+        Skippable -> [fuelLabel level <> ": skip it when the task is trivial: " <> recordCommand (qualifyEvent place.scope (Catalog.outcomeEvent skip.skips))]
+        AtOrBelow most -> [fuelLabel level <> ": skip it at or below " <> tshow most <> " changed lines, else run it"]
+        Never -> []
     _ -> []
+  where
+    level = fuelOf state
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
@@ -286,7 +288,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (At place, _) | isPick place.name -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
         (At _, _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
         (At place, _) | Just (Awaiting _) <- Map.lookup place g.groupStates -> plain (atAwait place)
-        (At place, _) | place.name == stepName Fuel -> (atStep place Fuel, promptOf (row steps Fuel) <> fuelGiven)
+        (At place, _) | place.name == stepName Fuel -> (atStep place Fuel, promptOf (row steps Fuel) <> targetFirst place <> fuelGiven)
         (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place, fuelTakes (fuelOf state) place.name event]))
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
@@ -308,7 +310,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             | Just (Forking _) <- Map.lookup next g.groupStates
             , Just (AnyStep _ (SomeStep s)) <- stepNamed next.name
             , Agent (AgentRole role) _ <- (row steps s).runner ->
-                (recordOption event edge) {means = goes edge <> ", which spawns a " <> role, spawns = True}
+                (recordOption event edge) {means = goes edge <> ", which spawns " <> withArticle role, spawns = True}
         _ -> recordOption event edge
     usedUpOn edge = case edge.to of
         At next -> usedUpAt next
@@ -319,6 +321,9 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
     once the last hands back, so it only waits.
     -}
     atAwait place = Run (commandOption "end your turn" ("until the " <> tshow (awaitedOpen g state place) <> " open hand back: each hand-back is recorded, and the last moves the run on") :| [])
+    targetFirst place
+        | targetsAt state.start.flow place = "\nA request on existing work names its target first, before its Fuel: `target pr <url>`, `target branch <name>` or `target ticket <url>`."
+        | otherwise = ""
     {- Fuel is an input: the level a caller gave, or one an earlier request
     set, is recorded as given; the user is asked only when none is.
     -}
@@ -730,8 +735,14 @@ atLine steps state = case state.at of
         | otherwise = case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> case (row steps s).runner of
                 Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
-                Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
+                Agent role _ -> "a step " <> withArticle (roleText role) <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
             Nothing -> "children at work - each runs on its own; do what each unindented line says, then state next"
+
+-- | A role after its indefinite article, by the role's first letter: @an implementer@, @a fixer@.
+withArticle :: Text -> Text
+withArticle role = case Text.uncons role of
+    Just (first, _) | first `elem` ("aeiou" :: String) -> "an " <> role
+    _ -> "a " <> role
 
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.

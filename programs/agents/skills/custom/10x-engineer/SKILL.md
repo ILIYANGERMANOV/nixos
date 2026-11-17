@@ -114,7 +114,8 @@ links and free text, across repos. Touch only the PRs the user named.
 Create `~/.10x/<yyyy-mm-dd>-<slug>/`, `git init -q` it, and in it run
 `state init --notes "$PWD" --flow 10x`. Write the user's words verbatim to
 `intent.md` there, never edited. The run's own Fuel is Balanced: it sets the
-run's own research and proposals. Under a parent, run your brief's
+run's own research and proposals. `state init` records it, so the run starts
+at `gather`, past `fuel`: record no `fuel.set`. Under a parent, run your brief's
 `state init` line as written, in its worktree, instead; your Fuel is the task's.
 
 Once per repo, before anything reads it: `add_repo` with `access: "read"` as

@@ -29,6 +29,7 @@ module State.Run.Fold (
     append,
     appendTo,
     fuelOf,
+    targetsAt,
     OnTarget (..),
     shape,
     onRound,
@@ -76,6 +77,7 @@ import State.Category.Path (awaitDone, forkPasses, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
 import State.Flow.Drawn (isPick)
 import State.Flow.Library (simplifyPlan)
+import State.FlowName (FlowName (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
@@ -423,8 +425,19 @@ recorded is not its own.
 -}
 targeted :: RunState -> Target -> Either Refusal RunState
 targeted state target = case state.at of
-    At place | place.name == stepName Fuel -> Right state {onTarget = Just (OnTarget target False), drafted = Nothing, published = Nothing, ticket = Nothing}
+    At place | targetsAt state.start.flow place -> Right state {onTarget = Just (OnTarget target False), drafted = Nothing, published = Nothing, ticket = Nothing}
     _ -> Left TargetOffFuel
+
+{- | Whether a target may be named here: only at a chief request's Fuel
+steps, its own or its routed flow's. A flow run on its own takes its PR
+from its init, never a target.
+-}
+targetsAt :: FlowName -> Place -> Bool
+targetsAt flow place = case flow of
+    ChiefFlow -> place.name == stepName Fuel
+    EngineerFlow -> False
+    TenXFlow -> False
+    ArchitectFlow -> False
 
 {- | The worker gone from those at work: the one of that id, else the oldest
 of that role, as a hand-back piped in by hand names no id.

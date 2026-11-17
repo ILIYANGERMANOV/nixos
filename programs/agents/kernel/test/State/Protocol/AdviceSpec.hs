@@ -30,7 +30,7 @@ import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
 import State.Step.Ship (Outcome (..))
 import State.Step.Ticket (Outcome (..))
-import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldNotSatisfy, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
 
 spec :: Spec
@@ -78,6 +78,9 @@ spec = describe "State.Protocol.Advice" $ do
             last (Text.lines (advise steps chiefGraph noFacts (either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| [fuelSet Max, Took mempty (pickOf "route" "engineer")]))))).prompt)
                 `shouldBe` "The Fuel given: max. Record it, unless the request names another."
 
+        it "names no target at the Fuel of a flow run on its own: only a chief request names one" $
+            (advise steps g noFacts (runAt [])).prompt `shouldNotSatisfy` Text.isInfixOf "target"
+
     describe "the chief" $ do
         let chiefAt events = either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)))
             atChief events = advise steps chiefGraph noFacts (chiefAt events)
@@ -91,6 +94,8 @@ spec = describe "State.Protocol.Advice" $ do
         it "sets each request's Fuel first, its target named before it" $
             (\advice -> (commandsOnly advice.action, advice.at)) (atChief [])
                 `shouldBe` (offering ["state record fuel.set <low|balanced|max>"], "at fuel: a step you run - do the task below, run the option that fits its result, then state next")
+        it "names the target a request may record before its Fuel" $
+            (atChief []).prompt `shouldSatisfy` Text.isInfixOf "`target pr <url>`"
         it "then offers one pick per branch" $
             Set.fromList [option.command | Run options <- [(atChief [fuelSet Balanced]).action], option <- toList options]
                 `shouldBe` Set.fromList ["state record route." <> branch | branch <- ["architect", "engineer", "10x", "blocks", "discussion", "other"]]
@@ -222,6 +227,10 @@ spec = describe "State.Protocol.Advice" $ do
         it "ends with the ticket's url" $
             next noFacts (architectRun (ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])) `shouldBe` Done (Just ticketUrl)
 
+    it "names a subagent's role with its article" $
+        map (Text.isPrefixOf "at implement: a step an implementer subagent runs") (take 1 (explainedAt (runAt (knobs Balanced <> take 10 happyPath))))
+            `shouldBe` [True]
+
     it "advises a scoped step's outcomes under their qualified names" $ do
         let atSecurityPick =
                 either (error . show) id . replay securityGraph . logOf $
@@ -239,6 +248,9 @@ spec = describe "State.Protocol.Advice" $ do
 
         it "runs the refactor above its changed lines, and leaves it to the agent when they are unknown" $
             map (\changed -> due noFacts {changedLines = changed} atRefactor) [Just 101, Nothing] `shouldBe` [Just (Took mempty (runOf "refactor")), Nothing]
+
+        it "says what decides the refactor when its changed lines are unknown" $
+            skippable atRefactor `shouldBe` ["Balanced: skip it at or below 100 changed lines, else run it"]
 
         it "records the draft PR GitHub already has" $
             due withPr {pr = Just (PullRequest draftPr IsDraft)} (runAt (knobs Balanced <> take 9 happyPath))

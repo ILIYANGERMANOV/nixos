@@ -631,6 +631,9 @@ chiefRequests = describe "the chief's requests" $ do
     it "refuses a target off a Fuel step" $
         chief (request "other" <> [Targeted (OnPr pr)]) `shouldBe` Left TargetOffFuel
 
+    it "refuses a target at the Fuel of a flow run on its own: only a chief request names one" $
+        replay g (logOf (started :| [Targeted (OnPr pr)])) `shouldBe` Left TargetOffFuel
+
     it "drops the target at the next request, which is new work again" $
         (\state -> (state.onTarget, shape state)) <$> chief (Targeted (OnPr pr) : request "other" <> [stepTook (DirectDone "done"), stepTook NextRequest]) `shouldBe` Right (Nothing, OwnPr)
 
