@@ -28,6 +28,7 @@ import Data.List (find)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import State.Category.Flow (Flow, Name (..), scopeNames, unqualify)
+import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (KnownTy (..), NotSum, Ty (..))
 import State.Flow.Engineer (engineer)
@@ -73,7 +74,7 @@ roleText (AgentRole name) = name
 their own.
 -}
 scopeFlow :: Name -> Maybe FlowName
-scopeFlow (Name scope) = find ((== scope) . flowText) [minBound .. maxBound]
+scopeFlow (Name scope) = parseByName flowText scope
 
 {- | The rung a question asked at this state climbs from: that of the
 innermost scope around it that runs a flow, else that of the run's own flow.

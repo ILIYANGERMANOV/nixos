@@ -12,6 +12,7 @@ import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Fuel (Fuel (..))
+import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
@@ -19,7 +20,7 @@ import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, securityGraph, securityScope, sha, tenXAt, tenXGraph)
+import State.Run.RunGen (childOf, commit, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runUnder, scopedIn, securityGraph, securityScope, sha, tenXAt, tenXGraph)
 import State.Step.Build (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Gather (Outcome (..))
@@ -372,6 +373,10 @@ spec = describe "State.Protocol.Advice" $ do
             ]
                 `shouldBe` concat (replicate 3 ["ASK user", "HANDBACK NEEDS_DECISION Confirm r7f2:1: the plan holds?"])
 
+        it "answers a Design question itself inside a 10x scope, where the unscoped run forwards it" $
+            [line | state <- [atImplement, inTenXScope], let (_, _, line) = ownAsk state Design (oneLine "which store?")]
+                `shouldBe` ["ASK user", "ANSWER yourself"]
+
         it "leaves a Pick question to the run itself" $
             ownAsk atImplement Pick (oneLine "which rows?")
                 `shouldBe` (Question (QId run 1) Pick (oneLine "which rows?"), [Asked (Asking (Question (QId run 1) Pick (oneLine "which rows?")) implement Itself)], "ANSWER yourself")
@@ -387,6 +392,8 @@ spec = describe "State.Protocol.Advice" $ do
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
     atImplement = runAt (knobs Balanced <> map (Took mempty) (take 7 happyPath))
+    -- An engineer run inlining 10x, at the scope's first state.
+    inTenXScope = either (error . show) id (replay (scopedIn "10x" tenX) (logOf (started :| [])))
     atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 5 happyPath))
     atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 8 happyPath))
     tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {Event.flow = TenXFlow} :| events)))

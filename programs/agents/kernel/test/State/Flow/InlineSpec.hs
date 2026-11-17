@@ -12,15 +12,16 @@ import State.Category.Flow (ScopePath, scopePath)
 import State.Category.Graph (Node (..), OpenGraph)
 import State.Category.Step (StateName (..))
 import State.Cli.Command (Command (OnRun), RunCommand (Record), parseCommand)
+import State.Cli.Shell (recordedEvent)
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice (Action (..), Advice (..), Facts (..), advise)
-import State.Protocol.Record (Option (..), Recording (..))
+import State.Protocol.Record (Option (..))
 import State.Role (AgentRole (..), FlowName (TenXFlow))
 import State.Run.Event (Event (..), Said (Finished), Task (..), TaskId (..), Url (..))
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (logOf, oneLine, runId, start)
 import State.Run.Fan (Fan (..), lookupTask)
-import State.Run.Fold (Refusal, RunState (..), ScopedFan (..), currentFan, fanAt, inScope, replay)
+import State.Run.Fold (Refusal, RunState (..), ScopedFan (..), currentFan, fanAt, replay)
 import State.Run.RunGen (breakdownJson, childOf, loadSteps, plainTask, scopedIn)
 import State.Step.Fan (engineers)
 import State.Table (Steps)
@@ -103,7 +104,6 @@ bareFile :: [Text] -> Text -> Step
 bareFile words' = recorded words' . Just
 
 recorded :: [Text] -> Maybe Text -> Step
-recorded words' file steps state = case (parseCommand steps ("record" : words'), file) of
-    (Right (_, Right (OnRun (Record (Plain event)))), Nothing) -> inScope inline state event
-    (Right (_, Right (OnRun (Record (FromFile _ parse)))), Just text) | Right event <- parse text -> inScope inline state event
+recorded words' file steps state = case parseCommand steps ("record" : words') of
+    Right (_, Right (OnRun (Record recording))) | Right event <- recordedEvent inline state Nothing file recording -> event
     _ -> error ("not a recording of this test: " <> show words')

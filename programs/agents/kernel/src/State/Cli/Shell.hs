@@ -3,7 +3,7 @@ in pure code, then append to the log and print. Every decision is the
 kernel's; this module moves data between them and the effects, whose IO
 interpreters 'runShellIO' runs.
 -}
-module State.Cli.Shell (Shell, main, hook, runShellIO) where
+module State.Cli.Shell (Shell, main, hook, runShellIO, recordedEvent) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (IOException)
@@ -465,7 +465,7 @@ recorded = printed . recordedLines
 -- | The file a recording reads, read beforehand: 'Nothing' when it does not exist.
 planOf :: Steps -> Maybe Sha -> Maybe Text -> OpenGraph -> RunState -> RunCommand -> Either Failure Plan
 planOf steps worktreeHead file g state = \case
-    Record recording -> (\event -> Plan [Fold.inScope g state event] (const recorded)) <$> recordedEvent worktreeHead file recording
+    Record recording -> (\event -> Plan [event] (const recorded)) <$> recordedEvent g state worktreeHead file recording
     Override target why -> Right (Plan [Overridden target why] (const recorded))
     Void n why -> Right (Plan [Voided n why] (const recorded))
     AskQuestion kind Itself text ->
@@ -502,9 +502,15 @@ planOf steps worktreeHead file g state = \case
         AsAsked -> []
         ToSecurity -> [RetaggedSecurity qid]
 
+{- | The event @state record@ appends: the one its recording names, placed in
+the scope the run is in.
+-}
+recordedEvent :: OpenGraph -> RunState -> Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+recordedEvent g state worktreeHead file recording = Fold.inScope g state <$> namedEvent worktreeHead file recording
+
 -- | The event a recording names, from HEAD or the file it read beforehand.
-recordedEvent :: Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
-recordedEvent worktreeHead file = \case
+namedEvent :: Maybe Sha -> Maybe Text -> Recording -> Either Failure Event
+namedEvent worktreeHead file = \case
     Plain event -> Right event
     AtHead event -> case worktreeHead of
         Just sha -> Right (event sha)
