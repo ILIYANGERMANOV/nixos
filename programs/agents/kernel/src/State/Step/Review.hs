@@ -22,7 +22,6 @@ instance StepSet ReviewStep where
     type Sig PickRows = '( 'Findings, 'Just 'Diff, 'Findings)
     type Sig Fix = '( 'Findings, 'Nothing, 'Diff)
     type Sig ReReview = '( 'Diff, 'Just 'Diff, 'Findings)
-    type Drawn s = 'True
 
     data Sing s where
         Review :: Sing Review

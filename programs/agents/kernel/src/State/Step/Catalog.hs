@@ -26,7 +26,7 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
-import State.Category.Flow (Cappable (..), Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Par, Route, Scope, (:>)), Name, branchesWith)
+import State.Category.Flow (Cappable (..), Flow (Await, Capped, Case, Catch, Do, Each, Fork, Id, Into, Loop, Scope, (:>)), Name, branchesWith)
 import State.Category.Flow qualified as Flow
 import State.Category.Fuel (PerFuel, SkipWhen)
 import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..))
@@ -34,7 +34,6 @@ import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutc
 import State.Category.Step qualified as Step
 import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
-import State.Step.Choice (ChoiceStep)
 import State.Step.Fan (FanStep)
 import State.Step.Fuel (FuelStep, Sing (Skip), skipOutcomes)
 import State.Step.Gather (GatherStep)
@@ -55,7 +54,6 @@ data Layer k where
     TicketLayer :: Layer TicketStep
     RequestLayer :: Layer RequestStep
     FanLayer :: Layer FanStep
-    ChoiceLayer :: Layer ChoiceStep
     PickLayer :: Layer PickStep
     FuelLayer :: Layer FuelStep
 
@@ -73,13 +71,12 @@ instance KnownLayer ShipStep where layer = ShipLayer
 instance KnownLayer TicketStep where layer = TicketLayer
 instance KnownLayer RequestStep where layer = RequestLayer
 instance KnownLayer FanStep where layer = FanLayer
-instance KnownLayer ChoiceStep where layer = ChoiceLayer
 instance KnownLayer PickStep where layer = PickLayer
 instance KnownLayer FuelStep where layer = FuelLayer
 
 -- | The layers, in the order the flows run them.
 layers :: [SomeLayer]
-layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer RequestLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer, SomeLayer PickLayer, SomeLayer FuelLayer]
+layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer RequestLayer, SomeLayer FanLayer, SomeLayer PickLayer, SomeLayer FuelLayer]
   where
     _listsEvery :: Layer k -> ()
     _listsEvery = \case
@@ -91,7 +88,6 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
         TicketLayer -> ()
         RequestLayer -> ()
         FanLayer -> ()
-        ChoiceLayer -> ()
         PickLayer -> ()
         FuelLayer -> ()
 
@@ -116,8 +112,6 @@ sameLayer a b = case (a, b) of
     (RequestLayer, _) -> Nothing
     (FanLayer, FanLayer) -> Just Refl
     (FanLayer, _) -> Nothing
-    (ChoiceLayer, ChoiceLayer) -> Just Refl
-    (ChoiceLayer, _) -> Nothing
     (PickLayer, PickLayer) -> Just Refl
     (PickLayer, _) -> Nothing
     (FuelLayer, FuelLayer) -> Just Refl
@@ -181,7 +175,6 @@ termSteps = \case
     Into -> []
     f :> g -> termSteps f <> termSteps g
     Loop _ body -> termSteps body
-    Par _ _ -> []
     Case branches -> concat (branchesWith termSteps branches)
     Flow.Exit -> []
     Each body -> termSteps body
@@ -189,8 +182,6 @@ termSteps = \case
     Await _ -> []
     Catch body -> termSteps body
     Scope _ body -> termSteps body
-    Choice _ actions -> concatMap termSteps actions
-    Route _ branches -> concatMap (termSteps . snd) branches
 
 -- | Each optional block of a term, by its name, with the levels that skip it: in the term's order.
 termSkips :: Flow i e o -> [(Name, PerFuel SkipWhen)]
@@ -216,7 +207,6 @@ flowOutcomes (AnyStep l (SomeStep s)) = case l of
     TicketLayer -> []
     RequestLayer -> []
     FanLayer -> []
-    ChoiceLayer -> []
 
 -- | The step a state is named after; a fan-out's state names none.
 stepNamed :: StateName -> Maybe AnyStep

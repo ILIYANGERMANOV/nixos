@@ -64,8 +64,8 @@ type family IsSum t where
     IsSum ('Sum ss) = 'True
     IsSum t = 'False
 
-{- | A type that is one thing, not a sum: what 'State.Category.Flow.Opt' and
-'State.Category.Flow.Loop' keep, and what a single port takes. The
+{- | A type that is one thing, not a sum: what 'State.Category.Flow.Loop' and
+'State.Category.Flow.Catch' keep, and what a single port takes. The
 superclass is the evidence a match uses: given @NotSum t@, a pattern that
 makes @t@ a sum is inaccessible, so a match needs no arm for it.
 -}

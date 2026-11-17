@@ -17,11 +17,9 @@ module State.Category.FlowGen (
     redrawn,
     threeWay,
     threeWayGraph,
-    genBranches,
+    threeWayPick,
 ) where
 
-import Data.List.NonEmpty (NonEmpty (..))
-import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -35,12 +33,14 @@ import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Step (EventName, OutcomeEdge (..), OutcomeName (..), StateName)
+import State.Category.Step (EventName (..), OutcomeEdge (..), OutcomeName (..), StateName)
 import State.Category.Ty (KnownTy, NotSum, TyOf (..))
 import State.Flow.Library (choice, gather, opt, par)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
+import State.Step.Catalog (AnyOutcome (..), Layer (PickLayer), outcomeEvent)
 import State.Step.Fan (Sing (..), engineers)
+import State.Step.Pick (Sing (Pick), pickOutcomes)
 import State.Step.Plan (Sing (..))
 import State.Step.Review (Sing (..))
 import State.Step.Ship (Sing (..))
@@ -71,7 +71,6 @@ genFlow = do
     plan <- genEndo planKit
     Gen.choice
         [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> Par engineers engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers))))
         , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> par (Group "engineers") engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers))))
         ]
   where
@@ -88,24 +87,28 @@ genBranching =
         [ (:>) <$> genEndo diffKit <*> genBranching
         , inFresh ((\small big -> Do Triage :> Case (#small :-> small :& #big :-> Do Implement :> big :& End)) <$> genBranching <*> genBranching)
         , inFresh ((\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genBranching <*> genBranching)
-        , inFresh (Route <$> genName <*> genBranches genBranching)
         ]
 
-{- | A route from a diff to its PR over three branches, each entering a
+{- | A choice from a diff to its PR over three branches, each entering a
 state of its own: @describe@, @big/refactor@ and @other/describe@. A
 branch that draws a step another branch draws is scoped, as a flow names
 each state once.
 -}
 threeWay :: Flow 'Diff 'Nothing 'PR
-threeWay = Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "big", Scope "big" (Do Refactor :> Do Describe)), (OutcomeName "other", Scope "other" (Do Describe :> Do FixPR))])
+threeWay = choice "route" (#small :-> Do Describe :& #big :-> Scope "big" (Do Refactor :> Do Describe) :& #other :-> Scope "other" (Do Describe :> Do FixPR) :& End)
+
+-- | The labels 'threeWay' picks from.
+type ThreeWay = '[ '("small", 'Diff), '("big", 'Diff), '("other", 'Diff)]
+
+-- | 'threeWay''s pick of the branch of this label.
+threeWayPick :: OutcomeName -> AnyOutcome
+threeWayPick label = case [picked | some <- pickOutcomes (Pick @'Diff @ThreeWay "route"), let picked = AnyOutcome PickLayer some, (outcomeEvent picked).outcome == label] of
+    picked : _ -> picked
+    [] -> error ("threeWay has no branch " <> show label)
 
 -- | 'threeWay''s graph.
 threeWayGraph :: OpenGraph
 threeWayGraph = either (error . show) id (graph threeWay)
-
--- | A route's branches, one to three, each under a name of its own.
-genBranches :: Gen (Flow a e c) -> Gen (NonEmpty (OutcomeName, Flow a e c))
-genBranches gen = NonEmpty.zip (OutcomeName "small" :| [OutcomeName "big", OutcomeName "other"]) <$> Gen.nonEmpty (Range.linear 1 3) gen
 
 genEndo :: (KnownTy a, NotSum a, Typeable a) => Kit a -> Gen (Flow a 'Nothing a)
 genEndo kit =
@@ -115,7 +118,7 @@ genEndo kit =
         ( [ inFresh (opt <$> genName <*> genSkips <*> genEndo kit)
           , (:>) <$> genEndo kit <*> genEndo kit
           , Scope <$> genName <*> genEndo kit
-          , inFresh (Route <$> genName <*> genBranches (genEndo kit))
+          , inFresh ((\name f g -> choice name (#small :-> f :& #big :-> g :& End)) <$> genName <*> genEndo kit <*> genEndo kit)
           ]
             <> [inFresh (Loop <$> genName <*> genExiting kit) | not (null kit.exiting)]
         )
@@ -207,7 +210,6 @@ redrawn g =
         , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
         , caps = Map.mapKeys (\metered -> metered {place = ranked metered.place}) g.caps
-        , routes = Set.map ranked g.routes
         , groupStates = Map.mapKeys ranked g.groupStates
         }
   where

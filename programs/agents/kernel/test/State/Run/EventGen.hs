@@ -49,13 +49,12 @@ import State.Category.FlowGen (genScopePath)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (EventName, Outcome, SomeOutcome (..))
 import State.Flow.Drawn (drawnOutcomes)
-import State.Run.Ask (Above (..), Basis (..), Choice (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
+import State.Run.Ask (Above (..), Basis (..), Decision (..), OneLine, Proposal (..), QId (..), Question (..), Reading (..), parseOneLine)
 import State.Run.Event
 import State.Run.Id (breaksLine, parseEventId)
 import State.Step.Artifact (ShellPath, shellPath)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
-import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), fanOuts)
 import State.Step.Fuel (Outcome (..))
 import State.Step.Gather (Outcome (..))
@@ -311,9 +310,6 @@ likeIn = \case
         BreakdownDone fan _ -> BreakdownDone fan <$> genTasks
         MergeDone fan _ -> MergeDone fan . Url <$> genText
         MergeNextRound fan -> pure (MergeNextRound fan)
-    ChoiceLayer -> \case
-        Enough choice -> pure (Enough choice)
-        Picked route branch -> pure (Picked route branch)
     PickLayer -> \case
         o@(Pick.Picked _) -> pure o
     FuelLayer -> \case

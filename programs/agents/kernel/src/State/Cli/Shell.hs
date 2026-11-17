@@ -40,7 +40,7 @@ import Effects.Log qualified as Log
 import Effects.Random (Random, randomBytes, runRandomIO)
 import Numeric (showHex)
 import Numeric.Natural (Natural)
-import Options.Applicative qualified as Opt
+import Options.Applicative qualified as Optparse
 import State.Category.Flow (Name)
 import State.Category.Fuel (Fuel (Balanced), PerFuel, SkipWhen)
 import State.Category.Graph (Node (..), OpenGraph (..), graph, placeName)
@@ -106,7 +106,7 @@ main argv =
 
 -- | Help asked for goes to stdout, exit 0; a usage error to stderr, exit 2.
 usageOut :: (Console :> es) => String -> Usage -> Eff es ExitCode
-usageOut program (Usage failure) = case Opt.renderFailure failure program of
+usageOut program (Usage failure) = case Optparse.renderFailure failure program of
     (text, ExitSuccess) -> Console.out (optparseText text) $> ExitSuccess
     (text, ExitFailure _) -> Console.err (optparseText text) $> ExitFailure 2
 

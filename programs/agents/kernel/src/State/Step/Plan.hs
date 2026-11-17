@@ -19,7 +19,6 @@ instance StepSet PlanStep where
     type Sig PlanS = '( 'Ctx, 'Nothing, 'Plan)
     type Sig SimplifyP = '( 'Plan, 'Nothing, 'Plan)
     type Sig Confirm = '( 'Plan, 'Just 'Plan, 'Ctx)
-    type Drawn s = 'True
 
     data Sing s where
         PlanS :: Sing PlanS

@@ -79,13 +79,6 @@ missing arm is an incomplete match.
 class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outcome s l), forall (s :: k) l. Eq (Outcome s l)) => StepSet k where
     type Sig (s :: k) :: Sig3
 
-    {- | Whether 'State.Category.Flow.Do' draws the step: every one, but a
-    fan-out's own state, which 'State.Category.Flow.Par' draws, whose 'Drawn' is a
-    type error. 'State.Category.Flow.Do' asks for @Drawn s ~ 'True@, an equality, so
-    the refusal is also raised by a term built with its type errors deferred.
-    -}
-    type Drawn (s :: k) :: Bool
-
     -- | The value of a step: 'State.Category.Flow.Do' takes it.
     data Sing (s :: k) :: Type
 
@@ -115,8 +108,8 @@ class (Typeable k, forall (s :: k). Show (Sing s), forall (s :: k) l. Show (Outc
 
 {- | How a step ends: by its exit, by continuing, or, when
 its out is a sum, by continuing into the summand labelled @l@, @'Took' l@.
-A choice's action ('State.Category.Flow.Choice') ends by none: it stays, and
-one that owes a hand-back opens a child or closes one. A kind only: no
+A forked step ('State.Category.Flow.Fork') ends by none: it opens a child,
+which closes by its hand-back. A kind only: no
 value of a 'Symbol' exists.
 -}
 data Leg = Exited | Continued | Took Symbol | Opened | Closed
@@ -151,7 +144,7 @@ instance (NotSum o) => Fits '(i, e, o) 'Continued where
 instance (KnownSymbol l, HasLabel l ss ~ 'True) => Fits '(i, e, 'Sum ss) ('Took l) where
     legOf = ByTaking
 
--- | A child opens or closes only at a choice, which an endo step with no exit sits in.
+-- | A child opens or closes only at a fork, of an endo step with no exit.
 instance (i ~ o) => Fits '(i, 'Nothing, o) 'Opened where
     legOf = ByOpening
 
@@ -269,12 +262,10 @@ data Outcomes (e :: Maybe Ty) (o :: Ty) where
     ExitsOr :: (KnownTy x, NotSum o) => OutcomeName -> OutcomeName -> Outcomes ('Just x) o
     -- | One outcome per summand, named by its label, in the sum's order.
     Branches :: (Summands ss) => Outcomes 'Nothing ('Sum ss)
-    {- | A choice's action that spawns a child, which hands back: both
-    events stay at the choice ('State.Category.Flow.Choice').
+    {- | A step that spawns a child, which hands back: drawn only by a
+    'State.Category.Flow.Fork', whose group's await takes the hand-back.
     -}
     OpensChildren :: (NotSum o) => Outcomes 'Nothing o
-    -- | A choice's action whose only events are the questions it asks: it has no outcome.
-    AsksOnly :: (NotSum o) => Outcomes 'Nothing o
 
 -- | Every outcome name, exit first.
 outcomeNames :: Outcomes e o -> [OutcomeName]
@@ -283,7 +274,6 @@ outcomeNames = \case
     ExitsOr exit continue -> [exit, continue]
     branches@Branches -> branchNames branches
     OpensChildren -> [spawnedOutcome, handedBackOutcome]
-    AsksOnly -> []
 
 -- | A branching step's outcome names: its summands' labels, in the sum's order.
 branchNames :: forall ss. Outcomes 'Nothing ('Sum ss) -> [OutcomeName]
@@ -301,16 +291,15 @@ continueEvent :: (StepSet k, NotSum (CodOf (Sig s))) => Sing (s :: k) -> EventNa
 continueEvent s = EventName (stepName s) $ case outcomes s of
     Continues continue -> continue
     ExitsOr _ continue -> continue
-    -- Unreached: a choice's action declares no continuing outcome, and the step table's catalog check refuses a reader of one.
-    OpensChildren -> error (show (stepName s) <> " stays at its choice: it has no continuing outcome")
-    AsksOnly -> error (show (stepName s) <> " stays at its choice: it has no continuing outcome")
+    -- Unreached: a forked step declares no continuing outcome, and the step table's catalog check refuses a reader of one.
+    OpensChildren -> error (show (stepName s) <> " is forked: it has no continuing outcome")
 
 -- | The event a step's exit outcome appends: only a step with an exit has one.
 exitEvent :: (StepSet k, ExitOf (Sig s) ~ 'Just x) => Sing (s :: k) -> EventName
 exitEvent s = case outcomes s of
     ExitsOr exit _ -> EventName (stepName s) exit
 
--- | The outcome that opens a child, a fan-out's or a choice's: the run stays.
+-- | The outcome that opens a child: a fork's, the run going on.
 spawnedOutcome :: OutcomeName
 spawnedOutcome = OutcomeName "spawned"
 

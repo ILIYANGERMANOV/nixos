@@ -550,7 +550,6 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     TicketLayer -> none {opened = ticketOf o}
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
-    ChoiceLayer -> none
     PickLayer -> none
     FuelLayer -> none {level = fuelOutcome o, skip = skipOutcome o}
   where

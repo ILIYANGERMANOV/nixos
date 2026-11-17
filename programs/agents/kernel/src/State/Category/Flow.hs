@@ -62,14 +62,14 @@ type family Join a b where
 
 {- | @i@: in. @e@: the exit, if any. @o@: continue. Each constructor's
 comment states its law, read off the graph a run walks ("State.Category.Graph").
-A loop, skip or fan-out is known by its 'Name'; a budget is a 'Capped'
+A loop, skip or group is known by its 'Name'; a budget is a 'Capped'
 step, carrying its limits as 'PerFuel' data: no global table of ids.
 -}
 data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     {- | One step, of any layer: its signature is the term's type. A step takes
     one type, never a sum. Law: one state, one edge per outcome.
     -}
-    Do :: (StepSet k, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Flow i e o
+    Do :: (StepSet k, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Flow i e o
     -- | Identity: no step runs. Law: @Id :> f = f = f :> Id@.
     Id :: Flow a 'Nothing a
     {- | Retype as 'Result': no step runs, nothing is recorded, as 'Id'. The
@@ -94,8 +94,6 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     once, @Loop n f = Catch (f :> Loop n f)@.
     -}
     Loop :: (NotSum a, NotSum b) => Name -> Flow a ('Just b) a -> Flow a 'Nothing b
-    -- | One flow per item, as child runs. Law: one state, its children's events stay there.
-    Par :: (KnownTy a, KnownTy b) => Name -> Flow a 'Nothing b -> Flow ('List a) 'Nothing ('List b)
     {- | The copairing: each summand runs its branch, the branch of its
     label, so a branch missing or out of the sum's order does not compile.
     Laws, read off a step @t@ into the sum: beta, @t@'s edge @l@ walks as
@@ -131,31 +129,12 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     @Catch (Case bs) = Case (each b, Catch b)@.
     -}
     Catch :: (NotSum b) => Flow a ('Just b) b -> Flow a 'Nothing b
-    {- | The body's states, loops, skips and fan-outs named @scope/name@, so
+    {- | The body's states, loops, skips and groups named @scope/name@, so
     a flow can sit twice in one graph. The root is unprefixed. Laws:
     @Scope s (f :> g) = Scope s f :> Scope s g@, and
     @Scope s (Scope t f) = Scope (s/t) f@.
     -}
     Scope :: Name -> Flow i e o -> Flow i e o
-    {- | The agent's choice, round after round, of one of the actions, or
-    @<name>.enough@: one state, the actions' events staying there. Each
-    action is a 'Capped' step whose events stay (a choice's action, as
-    'State.Category.Step.OpensChildren' or 'State.Category.Step.AsksOnly'
-    declare), so its meter, not a count of rounds, bounds the choice; any
-    other branch is a clash. A child an action opens hands back while the
-    run stays, and @enough@ waits for every one (an AND-join). Law, the
-    Kleene star of a sum, @(a1 + .. + an)*@: the order of the actions does
-    not matter.
-    -}
-    Choice :: (KnownTy a, NotSum a) => Name -> [Flow a 'Nothing a] -> Flow a 'Nothing a
-    {- | The agent's pick, once, of one of the named branches: one state, the
-    hub, with one edge per branch, @<name>.<branch>@, into that branch. The
-    branches share the in, the exit and the out, so the whole goes on as any
-    of them; a route picked again sits in a 'Loop'. Laws: the order of the
-    branches changes nothing a run walks, and series distributes over it,
-    @Route n ((b, f) :| [(c, g)]) :> h = Route n ((b, f :> h) :| [(c, g :> h)])@.
-    -}
-    Route :: (KnownTy a, NotSum a) => Name -> NonEmpty (OutcomeName, Flow a e c) -> Flow a e c
 
 infixr 5 :>
 
@@ -206,8 +185,8 @@ one step, whose cap counts the children it starts. No other flow has a
 meter, so capping one does not compile.
 -}
 data Cappable (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
-    Step :: (StepSet k, Meter s, Drawn s ~ 'True, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Cappable i e o
-    ForkOf :: (StepSet k, Meter s, Drawn s ~ 'True, Sig s ~ '(a, 'Nothing, b), KnownTy a, KnownTy b, NotSum a) => Group b -> Sing (s :: k) -> Cappable a 'Nothing a
+    Step :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Cappable i e o
+    ForkOf :: (StepSet k, Meter s, Sig s ~ '(a, 'Nothing, b), KnownTy a, KnownTy b, NotSum a) => Group b -> Sing (s :: k) -> Cappable a 'Nothing a
 
 deriving stock instance Show (Cappable i e o)
 
@@ -217,7 +196,7 @@ deriving stock instance Show (Branches ss e c)
 
 deriving stock instance Show (Branch l a e c)
 
-{- | A loop's, skip's, fan-out's or scope's name. A fan-out's is its state's
+{- | A loop's, skip's, group's or scope's name. A group's is its 'Await''s state's
 too; a scope's prefixes every name inside it.
 -}
 newtype Name = Name Text
@@ -270,21 +249,21 @@ unqualify qualified = case Text.breakOnEnd "/" qualified of
     ("", name) -> (mempty, name)
     (scopes, name) -> (scopePath (Name (Text.dropEnd 1 scopes)), name)
 
--- | The outcome that leaves a 'Choice': @gather.enough@.
+-- | The pick that leaves a 'State.Flow.Library.choiceLoop': @gather.enough@.
 enoughOutcome :: OutcomeName
 enoughOutcome = OutcomeName "enough"
 
--- | The one state a 'Par', a 'Choice' or a 'Route' draws: its name.
+-- | The one state a name draws: a pick's, or a group's 'Await'.
 namedState :: Name -> StateName
 namedState = StateName . nameText
 
-{- | The events at a fan-out's state: a child is spawned or hands back while
-the run stays there; the fan-out is done when it leaves.
+{- | The events at a group's state: a child is spawned or hands back while
+the run stays there; the group is done when it leaves.
 -}
 data FanEvent = Spawns | HandsBack | Leaves
     deriving stock (Eq, Show, Enum, Bounded)
 
--- | @engineers.spawned@: the graph's name for a fan-out's event.
+-- | @engineers.spawned@: the graph's name for a group's event.
 fanEvent :: FanEvent -> StateName -> EventName
 fanEvent event fan =
     EventName fan $ case event of

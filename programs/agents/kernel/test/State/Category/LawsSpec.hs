@@ -7,9 +7,6 @@ the copy sits under @Scope "u"@, so a copied loop keeps a name of its own.
 module State.Category.LawsSpec (spec) where
 
 import Data.Either (isRight)
-import Data.Foldable (toList)
-import Data.List.NonEmpty (NonEmpty (..))
-import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -21,7 +18,7 @@ import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
 import State.Category.Flow qualified as Flow
-import State.Category.FlowGen (Kit (..), diffKit, genBranches, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn)
+import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
 import State.Category.Graph (Arrow (..), Cap (..), Clash, Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Graph qualified as Graph
@@ -142,21 +139,6 @@ spec = describe "laws" $ do
             (f, g) <- forAll (Gen.filter (\(f, g) -> isRight (graph (f :> Scope "inner" g))) ((,) <$> genExiting diffKit <*> genBranching))
             (stateNames <$> graph (f :> Scope "inner" g)) === liftA2 (<>) (stateNames <$> graph f) (stateNames <$> graph (Scope "inner" g))
 
-    {- A route's branches sit at their term positions, so a law that moves
-    them holds up to bisimulation: a run picks the same branch by the same
-    event and walks on through the same names.
-    -}
-    describe "Route, a pick of one branch" $ do
-        it "the_order_of_the_branches_changes_nothing_a_run_walks" . hedgehog $ do
-            branches <- forAll (Gen.filter (isRight . graph . Route "route") (genBranches genBranching))
-            shuffled <- forAll (Gen.shuffle (toList branches))
-            (bisimilar <$> graph (Route "route" (NonEmpty.fromList shuffled)) <*> graph (Route "route" branches)) === Right []
-
-        it "series_distributes_over_a_route" . hedgehog $ do
-            let routed f g = Route "route" ((OutcomeName "small", f) :| [(OutcomeName "big", g)])
-            (f, g, h) <- forAll (Gen.filter (\(f, g, h) -> isRight (graph (routed f g :> h))) ((,,) <$> genEndo diffKit <*> genEndo diffKit <*> genBranching))
-            (bisimilar <$> graph (routed f g :> h) <*> graph (routed (f :> h) (g :> Scope copy h))) === Right []
-
     describe "PerFuel" $
         it "allows each level at least the spends and runs of the level below, in every named flow" $
             [(flow, name) | (flow, budgets) <- [("engineer" :: String, budgetsOf engineer), ("tenX", budgetsOf tenX)], (name, False) <- budgets]
@@ -247,7 +229,6 @@ unscoped scope g =
         , edges = Map.fromList [((place from, renameEvent bare event), renameEdge edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = Map.fromList [(renameName bare loop, at {entry = place at.entry, body = Set.map place at.body}) | (loop, at) <- Map.toList g.loops]
         , caps = Map.mapKeys (\metered -> metered {place = place metered.place}) g.caps
-        , routes = Set.map place g.routes
         , groupStates = Map.mapKeys place (fmap renameGroup g.groupStates)
         }
   where
@@ -295,7 +276,6 @@ budgetsOf = \case
     Into -> []
     f :> g -> budgetsOf f <> budgetsOf g
     Loop _ body -> budgetsOf body
-    Par _ body -> budgetsOf body
     Case branches -> concat (branchesWith budgetsOf branches)
     Flow.Exit -> []
     Each body -> budgetsOf body
@@ -303,8 +283,6 @@ budgetsOf = \case
     Await _ -> []
     Catch body -> budgetsOf body
     Scope _ body -> budgetsOf body
-    Choice _ branches -> concatMap budgetsOf branches
-    Route _ branches -> concatMap (budgetsOf . snd) branches
   where
     capped :: PerFuel Limit -> Bool
     capped = monotone limitAtMost

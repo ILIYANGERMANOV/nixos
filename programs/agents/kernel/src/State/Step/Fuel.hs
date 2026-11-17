@@ -34,7 +34,6 @@ type SkipOrRun a = '[ '("skip", a), '("run", a)]
 instance StepSet FuelStep where
     type Sig Fuel = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig (Skip a) = '(a, 'Nothing, 'Sum (SkipOrRun a))
-    type Drawn s = 'True
 
     data Sing s where
         Fuel :: Sing Fuel

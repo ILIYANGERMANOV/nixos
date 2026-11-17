@@ -6,7 +6,7 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Options.Applicative qualified as Opt
+import Options.Applicative qualified as Optparse
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Cap (..), OpenGraph (..))
@@ -310,7 +310,7 @@ spec = describe "State.Cli.Command" $ do
         caps -> error ("no single cap of " <> show meter <> ": " <> show caps)
     -- optparse's text: help asked for on the right, a usage error on the left.
     usage :: String -> Usage -> Either Text Text
-    usage program (Usage failure) = case Opt.renderFailure failure program of
+    usage program (Usage failure) = case Optparse.renderFailure failure program of
         (text, ExitSuccess) -> Right (optparseText text)
         (text, ExitFailure _) -> Left (optparseText text)
     usageError :: String -> Either Usage a -> Text

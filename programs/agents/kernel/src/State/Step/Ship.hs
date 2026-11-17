@@ -24,7 +24,6 @@ instance StepSet ShipStep where
     type Sig AwaitCi = '( 'PR, 'Just 'PR, 'PR)
     type Sig FixPR = '( 'PR, 'Nothing, 'PR)
     type Sig Ready = '( 'PR, 'Nothing, 'Sum '[ '("done", 'PR), '("skipped", 'PR)])
-    type Drawn s = 'True
 
     data Sing s where
         Describe :: Sing Describe

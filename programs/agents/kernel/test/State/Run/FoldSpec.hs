@@ -15,7 +15,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), Group (..), scopePath, unqualify)
-import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph)
+import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph, threeWayPick)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Graph qualified as Graph
@@ -27,7 +27,7 @@ import State.Flow.Engineer (engineer)
 import State.Flow.Library qualified as Library
 import State.Flow.TenX (tenX)
 import State.Role qualified as Role
-import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
+import State.Run.Ask (Above (..), Basis (..), Decision (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
 import State.Run.Ask qualified as Ask
 import State.Run.Event hiding (Merge)
 import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genReading, genText, hookLine, line, lineOf, logOf, oneLine, outcomeNames, run, runId, started, tasksOf)
@@ -36,7 +36,6 @@ import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXGraph, ticketOpened, ticketUrl, within)
 import State.Step.Catalog (flowOutcomes, outcome, outcomeEvent, termSteps)
-import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Gather (Outcome (..))
@@ -153,19 +152,19 @@ spec = describe "State.Run.Fold" $ do
                 Left (NoEdge _ _) -> True
                 _ -> False
 
-    describe "a route" $ do
+    describe "a choice's pick" $ do
         let routeRun flowGraph events = replay flowGraph (logOf (started :| events))
             scopedRoute = either (error . show) id (graph (Scope "x" threeWay))
             x = scopePath "x"
-            picked = Picked "route" . OutcomeName
+            picked scope = Took scope . threeWayPick . OutcomeName
         it "moves into the branch the pick names" $
-            atName <$> routeRun threeWayGraph [stepTook (picked "big")] `shouldBe` Right (Just (StateName "big/refactor"))
-        it "refuses a pick of a branch the route lacks" $
-            routeRun threeWayGraph [stepTook (picked "huge")] `shouldSatisfy` \case
+            atName <$> routeRun threeWayGraph [picked mempty "big"] `shouldBe` Right (Just (StateName "big/refactor"))
+        it "refuses a pick of a label the choice lacks: the chief's route.engineer" $
+            routeRun threeWayGraph [Took mempty (pickOf "route" "engineer")] `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
                 _ -> False
-        it "runs a scoped route from its scoped pick to the end" $
-            (.at) <$> routeRun scopedRoute [tookIn x (picked "small"), tookIn x (DescribeDone sha)] `shouldBe` Right Out
+        it "runs a scoped choice from its scoped pick to the end" $
+            (.at) <$> routeRun scopedRoute [picked x "small", tookIn x (DescribeDone sha)] `shouldBe` Right Out
 
     it "runs a scoped choice's actions, then leaves it by its scoped enough" $ do
         let scopedGather = either (error . show) id (graph (Scope "x" Library.gather))
@@ -606,8 +605,8 @@ chiefRequests = describe "the chief's requests" $ do
 
     it "chains architect, a block and architect again through next, naming the newest url each time" $ do
         let designed = request "architect" <> within "architect" (fuelSet Balanced : ticketOpened <> designWritten <> [stepTook ConfirmDesignConfirmed, stepTook FinalizeTicketDone])
-            researched = request "blocks" <> [stepTook (Picked "block" (OutcomeName "researching"))] <> within "researching" (researchedIn "exploring" <> enoughIn "exploring")
-            shipped = request "blocks" <> [stepTook (Picked "block" (OutcomeName "shipping"))] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
+            researched = request "blocks" <> [Took mempty (pickOf "block" "researching")] <> within "researching" (researchedIn "exploring" <> enoughIn "exploring")
+            shipped = request "blocks" <> [Took mempty (pickOf "block" "shipping")] <> within "shipping" [stepTook (OpenPrDone pr), stepTook (AwaitCiGreen sha), stepTook (ReadyDone pr)]
             andThen first later = first <> [stepTook NextRequest] <> later
         map (fmap (\state -> (nameAt state, state.latest)) . chief) [designed, designed `andThen` researched, designed `andThen` shipped, shipped `andThen` designed]
             `shouldBe` [Right (Just "next", Just ticketUrl), Right (Just "next", Just ticketUrl), Right (Just "next", Just pr), Right (Just "next", Just ticketUrl)]
@@ -615,7 +614,7 @@ chiefRequests = describe "the chief's requests" $ do
     chief events = replay chiefGraph (logOf (Started (startOf ChiefFlow (ByUser OwnPr)) :| events))
     -- A request: its Fuel, then its pick.
     request branch = [fuelSet Balanced, pick branch]
-    pick branch = stepTook (Picked "route" (OutcomeName branch))
+    pick branch = Took mempty (pickOf "route" branch)
     engineered = within "engineer" (fuelSet Balanced : happyPath)
     nameAt :: RunState -> Maybe Text
     nameAt state = case state.at of

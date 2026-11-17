@@ -40,7 +40,6 @@ type family Over a ss where
 
 instance StepSet PickStep where
     type Sig (Pick a ss) = '(a, 'Nothing, 'Sum ss)
-    type Drawn s = 'True
 
     data Sing s where
         Pick :: (KnownTy a, NotSum a, Summands ss, Over a ss, PickLabels ss ss, Typeable a, Typeable ss) => Name -> Sing (Pick a ss)

@@ -44,7 +44,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Numeric.Natural (Natural)
 import Options.Applicative (ParserInfo)
-import Options.Applicative qualified as Opt
+import Options.Applicative qualified as Optparse
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, parseByName)
@@ -161,7 +161,7 @@ noteOf failure = Note (failure.what <> " - " <> failure.why) failure.fix
 {- | Help asked for, or argv the grammar rejects: optparse's verdict. Its
 exit code tells the two apart, so the shell, which owns exit codes, renders it.
 -}
-newtype Usage = Usage (Opt.ParserFailure Opt.ParserHelp)
+newtype Usage = Usage (Optparse.ParserFailure Optparse.ParserHelp)
 
 {- | The subcommand, for the failure line, and the command or why it is not
 one; else optparse's help or usage error. No command at all is help.
@@ -183,44 +183,44 @@ parseHook = runCli hookInfo
 
 -- | The full usage: every command, then the run's kinds, stop reasons, roles and areas.
 help :: Steps -> Text
-help steps = optparseText (fst (Opt.renderFailure (Opt.parserFailure cliPrefs (commandInfo steps mempty) (Opt.ShowHelpText Nothing) []) "state"))
+help steps = optparseText (fst (Optparse.renderFailure (Optparse.parserFailure cliPrefs (commandInfo steps mempty) (Optparse.ShowHelpText Nothing) []) "state"))
 
 {- | optparse's own parse: a misuse prints its error, then the help of the
 command it reached, so @state record nope@ lists every event. The completion
 it answers is refused: this CLI offers none, and only a shell asks for it.
 -}
 runCli :: ParserInfo a -> [Text] -> Either Usage a
-runCli pinfo argv = case Opt.execParserPure cliPrefs pinfo (map Text.unpack argv) of
-    Opt.Success parsed -> Right parsed
-    Opt.Failure failure -> Left (Usage failure)
-    Opt.CompletionInvoked _ -> Left (Usage (Opt.parserFailure cliPrefs pinfo (Opt.ErrorMsg "shell completion is not offered") []))
+runCli pinfo argv = case Optparse.execParserPure cliPrefs pinfo (map Text.unpack argv) of
+    Optparse.Success parsed -> Right parsed
+    Optparse.Failure failure -> Left (Usage failure)
+    Optparse.CompletionInvoked _ -> Left (Usage (Optparse.parserFailure cliPrefs pinfo (Optparse.ErrorMsg "shell completion is not offered") []))
 
 {- | No backtracking: a surplus argument fails in the subcommand it follows,
 so its help, not the top-level one, follows the error.
 -}
-cliPrefs :: Opt.ParserPrefs
-cliPrefs = Opt.prefs (Opt.showHelpOnError <> Opt.noBacktrack)
+cliPrefs :: Optparse.ParserPrefs
+cliPrefs = Optparse.prefs (Optparse.showHelpOnError <> Optparse.noBacktrack)
 
 -- | optparse's text, less the trailing spaces it leaves where it wraps a usage line.
 optparseText :: String -> Text
 optparseText = Text.unlines . map Text.stripEnd . Text.lines . Text.pack
 
 hookInfo :: ParserInfo HookName
-hookInfo = Opt.info (Opt.hsubparser (foldMap hookCommand [minBound .. maxBound]) <**> Opt.helper) (Opt.progDesc "One hook event on stdin, its reply on stdout.")
+hookInfo = Optparse.info (Optparse.hsubparser (foldMap hookCommand [minBound .. maxBound]) <**> Optparse.helper) (Optparse.progDesc "One hook event on stdin, its reply on stdout.")
   where
-    hookCommand name = Opt.command (Text.unpack (hookName name)) (Opt.info (pure name) (Opt.progDesc (Text.unpack (hookPurpose name))))
+    hookCommand name = Optparse.command (Text.unpack (hookName name)) (Optparse.info (pure name) (Optparse.progDesc (Text.unpack (hookPurpose name))))
 
 -- | The grammar, its @record@ events inside the scope their name gave.
 commandInfo :: Steps -> ScopePath -> ParserInfo (Either Failure Command)
 commandInfo steps scope =
-    Opt.info
-        (Opt.hsubparser commands <**> Opt.helper)
-        (Opt.header "state - the run of an agent flow, kept in the worktree's log" <> Opt.footerDoc (Just (vsep (map pretty footer))))
+    Optparse.info
+        (Optparse.hsubparser commands <**> Optparse.helper)
+        (Optparse.header "state - the run of an agent flow, kept in the worktree's log" <> Optparse.footerDoc (Just (vsep (map pretty footer))))
   where
     commands =
         mconcat
             [ sub "init" "Start a run: a child of --parent, a round on --pr" initArgs
-            , Opt.command "record" (Opt.info (recordEvent scope) (Opt.progDesc "Record an event: 'state record --help' lists them" <> Opt.footer "A commit event records HEAD."))
+            , Optparse.command "record" (Optparse.info (recordEvent scope) (Optparse.progDesc "Record an event: 'state record --help' lists them" <> Optparse.footer "A commit event records HEAD."))
             , sub "handback" "Record a role's hand-back, read from stdin" $
                 (\role child -> HandbackOf <$> knownRole anyRole role <*> traverse runId child)
                     <$> textArgument "<role>"
@@ -253,7 +253,7 @@ commandInfo steps scope =
                 (\qid strays answer why cost basis raise -> OnRun <$> (RuleOn <$> oneWordEach qid strays <*> raising raise <*> (Proposal <$> oneLine answer <*> oneLine why <*> oneLine cost <*> traverse basisOf basis)))
                     <$> textArgument "<qid>"
                     -- The words past an option's one: an unquoted answer, why or cost, refused below.
-                    <*> many (Opt.strArgument @Text (Opt.metavar "" <> Opt.internal))
+                    <*> many (Optparse.strArgument @Text (Optparse.metavar "" <> Optparse.internal))
                     <*> textOption "answer" "<a>" "the answer"
                     <*> textOption "why" "<w>" "why it is the answer"
                     <*> textOption "cost" "<c>" "what the answer costs"
@@ -288,9 +288,9 @@ commandInfo steps scope =
         , "Run 'state <command> --help' for a command's arguments."
         ]
     anyRole = agentRoles steps <> map (.name) Role.roles
-    sub name about parser = Opt.command name (Opt.info parser (Opt.progDesc about))
+    sub name about parser = Optparse.command name (Optparse.info parser (Optparse.progDesc about))
     -- Its last words are free text, which may start with a dash: an option it does not take is a word.
-    freeText name about parser = Opt.command name (Opt.info parser (Opt.progDesc about <> Opt.forwardOptions))
+    freeText name about parser = Optparse.command name (Optparse.info parser (Optparse.progDesc about <> Optparse.forwardOptions))
     raiseOption = textOption "raise" "security" "raise the question to a Security one first"
     raising = \case
         Nothing -> Right AsAsked
@@ -306,7 +306,7 @@ commandInfo steps scope =
         [] -> Right qid
         _ : _ -> Left (Failure BadInput "--answer, --why and --cost" "each takes one word: quote a longer one" ("state rule " <> qid <> " --answer \"<a>\" --why \"<w>\" --cost \"<c>\""))
 
-initArgs :: Opt.Parser (Either Failure Command)
+initArgs :: Optparse.Parser (Either Failure Command)
 initArgs =
     init'
         <$> textOption "notes" "<dir>" "the directory of the run's notes, an absolute path"
@@ -329,10 +329,10 @@ initArgs =
     roundPr raw = maybe (Left (Failure BadInput ("--pr " <> raw) ("the PR is " <> prUrlRule) "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>")) Right (parsePrUrl raw)
 
 -- | One subcommand per event the table holds, its flags its options.
-recordEvent :: ScopePath -> Opt.Parser (Either Failure Command)
-recordEvent scope = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recordables)
+recordEvent :: ScopePath -> Optparse.Parser (Either Failure Command)
+recordEvent scope = Optparse.hsubparser (Optparse.metavar "EVENT" <> foldMap event recordables)
   where
-    event r = Opt.command (Text.unpack r.name) (Opt.info (recording r <$> positionals r <*> flags r) (Opt.progDesc (Text.unpack (describe r)) <> freeWords r))
+    event r = Optparse.command (Text.unpack r.name) (Optparse.info (recording r <$> positionals r <*> flags r) (Optparse.progDesc (Text.unpack (describe r)) <> freeWords r))
     recording r positional options = OnRun . Record <$> first (refused r) (r.parse (Args scope positional options))
     refused r why = Failure BadInput ("record " <> qualified r) why (Text.strip ("state record " <> qualified r <> " " <> usageOf r))
     qualified r = qualifyText scope r.name
@@ -340,16 +340,16 @@ recordEvent scope = Opt.hsubparser (Opt.metavar "EVENT" <> foldMap event recorda
         | Text.null r.positional = pure []
         | otherwise = many (textArgument r.positional)
     flags r = concat <$> traverse flag r.flags
-    flag f = map (f.name,) <$> arity f.arity (Opt.strOption (Opt.long (Text.unpack f.name) <> Opt.metavar (Text.unpack f.value)))
+    flag f = map (f.name,) <$> arity f.arity (Optparse.strOption (Optparse.long (Text.unpack f.name) <> Optparse.metavar (Text.unpack f.value)))
     arity = \case
         Required -> fmap pure
         Optional -> fmap toList . optional
         Repeated -> many
     -- An event's positionals may be free text, which may start with a dash.
-    freeWords r = if Text.null r.positional then mempty else Opt.forwardOptions
+    freeWords r = if Text.null r.positional then mempty else Optparse.forwardOptions
     describe r = if Text.null (usageOf r) then "no arguments" else usageOf r
 
-flowOption :: Opt.Parser Text
+flowOption :: Optparse.Parser Text
 flowOption = textOption "flow" (choices Codec.flowText) "the flow (default engineer)"
 
 flowOf :: Maybe Text -> Either Failure FlowName
@@ -358,14 +358,14 @@ flowOf = maybe (Right defaultFlow) flowNamed
 flowNamed :: Text -> Either Failure FlowName
 flowNamed = named "flow" (parseByName Codec.flowText)
 
-textOption :: String -> Text -> String -> Opt.Parser Text
-textOption name value about = Opt.strOption (Opt.long name <> Opt.metavar (Text.unpack value) <> Opt.help about)
+textOption :: String -> Text -> String -> Optparse.Parser Text
+textOption name value about = Optparse.strOption (Optparse.long name <> Optparse.metavar (Text.unpack value) <> Optparse.help about)
 
-textArgument :: Text -> Opt.Parser Text
-textArgument value = Opt.strArgument (Opt.metavar (Text.unpack value))
+textArgument :: Text -> Optparse.Parser Text
+textArgument value = Optparse.strArgument (Optparse.metavar (Text.unpack value))
 
 -- | One or more words, joined: a shell user need not quote a sentence.
-sentence :: Text -> Opt.Parser Text
+sentence :: Text -> Optparse.Parser Text
 sentence value = Text.unwords <$> some (textArgument value)
 
 -- | The usage failure, with @state help@ as the fix.

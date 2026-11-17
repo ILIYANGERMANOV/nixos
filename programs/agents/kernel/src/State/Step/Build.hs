@@ -18,7 +18,6 @@ instance StepSet BuildStep where
     type Sig Draft = '( 'Plan, 'Nothing, 'Plan)
     type Sig Implement = '( 'Plan, 'Nothing, 'Diff)
     type Sig Refactor = '( 'Diff, 'Nothing, 'Diff)
-    type Drawn s = 'True
 
     data Sing s where
         Draft :: Sing Draft

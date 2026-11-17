@@ -13,7 +13,6 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
 import State.Category.Fuel (Fuel (..))
-import State.Category.Step (OutcomeName (..))
 import State.Flow.TenX (tenX)
 import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
@@ -25,7 +24,6 @@ import State.Run.Fold (RunState (..), Worker (..), replay)
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketOpened, ticketUrl, within)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
-import State.Step.Choice (Outcome (..))
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
@@ -77,14 +75,14 @@ spec = describe "State.Protocol.Advice" $ do
                 `shouldBe` (offering ["state record fuel.set <low|balanced|max>"], "No Fuel given yet: take your brief's or the request's Fuel line; with none, ask the user once.")
 
         it "records a given Fuel at a whole flow's root as given, asking nothing: the chief's request gave it" $
-            last (Text.lines (advise steps chiefGraph noFacts (either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| [fuelSet Max, stepTook (Picked "route" (OutcomeName "engineer"))]))))).prompt)
+            last (Text.lines (advise steps chiefGraph noFacts (either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| [fuelSet Max, Took mempty (pickOf "route" "engineer")]))))).prompt)
                 `shouldBe` "The Fuel given: max. Record it, unless the request names another."
 
     describe "the chief" $ do
         let chiefAt events = either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)))
             atChief events = advise steps chiefGraph noFacts (chiefAt events)
             -- A request's Fuel, then its pick.
-            routed branch = [fuelSet Balanced, stepTook (Picked "route" (OutcomeName branch))]
+            routed branch = [fuelSet Balanced, Took mempty (pickOf "route" branch)]
             onPr = Targeted (OnPr prUrl)
             designAsked = Asked (Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "engineer/gather") Itself)
             -- A whole flow's events in its scope, past its root's Fuel.

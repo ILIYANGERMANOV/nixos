@@ -24,7 +24,6 @@ instance StepSet GatherStep where
     type Sig Interview = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Discuss = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Notes = '( 'List 'Ctx, 'Nothing, 'Ctx)
-    type Drawn s = 'True
 
     data Sing s where
         Research :: Sing Research

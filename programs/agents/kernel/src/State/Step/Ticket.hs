@@ -23,7 +23,6 @@ instance StepSet TicketStep where
     type Sig UpdateTicket = '( 'Ctx, 'Nothing, 'Ticket)
     type Sig ConfirmDesign = '( 'Ticket, 'Just 'Ticket, 'Ctx)
     type Sig FinalizeTicket = '( 'Ticket, 'Nothing, 'Ticket)
-    type Drawn s = 'True
 
     data Sing s where
         OpenTicket :: Sing OpenTicket

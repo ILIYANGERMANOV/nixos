@@ -24,7 +24,6 @@ type data TriageStep = Triage
 
 instance StepSet TriageStep where
     type Sig Triage = '( 'Diff, 'Nothing, 'Sum '[ '("small", 'Diff), '("big", 'Plan)])
-    type Drawn s = 'True
 
     data Sing s where
         Triage :: Sing Triage

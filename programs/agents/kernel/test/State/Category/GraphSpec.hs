@@ -1,7 +1,6 @@
 module State.Category.GraphSpec (spec) where
 
 import Control.Monad (foldM, void)
-import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
@@ -19,7 +18,6 @@ import State.Category.Step (EventName (..), OutcomeName (..), StateName (..), ou
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Library (choiceLoop, par)
 import State.Flow.Triage (Sing (..))
-import State.Run.RunGen qualified as RunGen
 import State.Step.Build (Sing (..))
 import State.Step.Fan (Sing (..))
 import State.Step.Gather (Sing (..))
@@ -86,10 +84,6 @@ spec = describe "State.Category.Graph" $ do
         graph (Loop "ci" (Do AwaitCi :> Capped (always (UpTo 5)) Refuse (Step FixPR)))
             `shouldBe` Left (RefuseWithoutWayOut (Place [1] mempty (StateName "fix_pr")))
 
-    it "refuses a fan id drawn twice: a run keeps one fan-out's tasks per fan id" $
-        graph (Par "engineers" (Do SimplifyPR) :> Par "engineers" (Do SimplifyPR))
-            `shouldBe` Left (SameFan "engineers")
-
     describe "a fork and its await" $ do
         it "refuses a fork no await follows: its children would outlive the flow" $
             graph (Fork engineerGroup engineerChild :> Do PlanS)
@@ -116,28 +110,17 @@ spec = describe "State.Category.Graph" $ do
                 `shouldBe` [Left (SameState (StateName "fix_pr")), Right ()]
 
     describe "a choice" $ do
-        it "refuses a branch that is not a capped action: it would leave the choice" $
-            graph (Choice "gather" [Do Interview])
-                `shouldBe` Left (NotAnAction "gather")
-
         it "refuses one capped action under two labels of a choice loop: one state would stand for both" $
             graph (choiceLoop "gather" Id (#ask :-> questions :& #again :-> questions :& End))
                 `shouldBe` Left (SameState (StateName "interview"))
 
-    describe "a route" $ do
-        let picks scope = [(qualifyEvent scope (EventName (StateName "route") (OutcomeName branch)), At (Place path (scope <> inner) (StateName entry))) | (branch, path, inner, entry) <- [("big", [1, 0], scopePath "big", "refactor"), ("other", [2, 0], scopePath "other", "describe"), ("small", [0], mempty, "describe")]]
-        it "draws one hub, its start, with one edge per branch into that branch's first state" $
+    describe "a choice's pick" $ do
+        let picks scope = [(qualifyEvent scope (EventName (StateName "route") (OutcomeName branch)), At (Place path (scope <> inner) (StateName entry))) | (branch, path, inner, entry) <- [("big", [1, 1, 0], scopePath "big", "refactor"), ("other", [1, 2, 0], scopePath "other", "describe"), ("small", [1, 0], mempty, "describe")]]
+        it "draws one pick, its start, with one edge per branch into that branch's first state" $
             outOfStart <$> graph threeWay `shouldBe` Right (picks mempty)
 
-        it "names its hub and its picks inside a scope" $
+        it "names its pick and its events inside a scope" $
             outOfStart <$> graph (Scope "x" threeWay) `shouldBe` Right (picks (scopePath "x"))
-
-        it "is in neither the engineer nor the 10x flow: they run as before the route" $
-            map (.routes) [RunGen.g, RunGen.tenXGraph] `shouldBe` [Set.empty, Set.empty]
-
-        it "refuses one branch name twice: a pick would not say which" $
-            graph (Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "small", Do Refactor :> Do Describe)]))
-                `shouldBe` Left (SameEvent (Place [] mempty (StateName "route")) (EventName (StateName "route") (OutcomeName "small")))
 
 -- | The edges out of the graph's first state: each event and where it goes.
 outOfStart :: OpenGraph -> [(EventName, Node)]
@@ -164,7 +147,7 @@ endOf g = foldM next (At g.inPort)
         Out -> Nothing
         Graph.Exit -> Nothing
 
--- | One per outcome of each step, one per skip, a fan-out's three events, and one per route's branch.
+-- | One per outcome of each step, a fork's spawn, an each's done and an await's two events.
 arrows :: Flow i e o -> Int
 arrows = \case
     Do s -> length (outcomeNames (outcomes s))
@@ -174,7 +157,6 @@ arrows = \case
     Id -> 0
     Into -> 0
     Loop _ body -> arrows body
-    Par _ _ -> 3
     Case branches -> sum (branchesWith arrows branches)
     Flow.Exit -> 0
     Each body -> 1 + arrows body
@@ -182,8 +164,6 @@ arrows = \case
     Await _ -> 2
     Catch body -> arrows body
     Scope _ body -> arrows body
-    Choice _ branches -> 1 + sum (map arrows branches)
-    Route _ branches -> sum (fmap ((1 +) . arrows . snd) branches)
 
 -- | The 10x's engineers, each a child run from a task's context to its PR.
 engineerGroup :: Group 'PR

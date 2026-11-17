@@ -26,7 +26,6 @@ instance StepSet RequestStep where
     type Sig OpenPr = '( 'Ctx, 'Nothing, 'PR)
     type Sig Direct = '( 'Ctx, 'Nothing, 'Ctx)
     type Sig Next = '( 'Result, 'Just 'Result, 'Ctx)
-    type Drawn s = 'True
 
     data Sing s where
         OpenPlan :: Sing OpenPlan

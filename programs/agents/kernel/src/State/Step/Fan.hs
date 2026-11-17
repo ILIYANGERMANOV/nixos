@@ -33,7 +33,6 @@ type data FanStep = Breakdown | Merge
 instance StepSet FanStep where
     type Sig Breakdown = '( 'Plan, 'Nothing, 'List 'Ctx)
     type Sig Merge = '( 'List 'PR, 'Just 'PR, 'Ctx)
-    type Drawn s = 'True
 
     data Sing s where
         Breakdown :: Name -> Sing Breakdown

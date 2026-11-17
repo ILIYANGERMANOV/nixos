@@ -467,7 +467,6 @@ opening scope l s = case l of
     TicketLayer -> Nothing
     RequestLayer -> Nothing
     FanLayer -> Nothing
-    ChoiceLayer -> Nothing
     PickLayer -> Nothing
     FuelLayer -> Nothing
 
