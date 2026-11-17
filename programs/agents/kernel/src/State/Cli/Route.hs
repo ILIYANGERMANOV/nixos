@@ -81,8 +81,7 @@ parentlessInit steps command = listToMaybe [denial sub written | (_, sub, Init a
 
 {- | Every @state@ call of a command that parses, in order: the directory it
 runs in ('Nothing': unknown, as a @cd@ this reader leaves be moved it, or
-none was given), its
-subcommand, the command and its text as written.
+none was given), its subcommand, the command and its text as written.
 -}
 stateCommands :: Steps -> Maybe FilePath -> Text -> [(Maybe FilePath, Text, Command, Text)]
 stateCommands steps cwd command = maybe [] (walk cwd) (segments command)
