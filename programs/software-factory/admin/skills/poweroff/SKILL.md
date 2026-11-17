@@ -6,10 +6,11 @@ description: Power off the software factory server. Every live session ends and 
 # Power off
 
 1. Run `factory-ctl status` and tell the person how many live sessions will
-   end.
+   end, this admin session included.
 2. Warn them the box stays off until someone powers it on:
    - Lenovo: press the power button, or unplug and replug AC.
    - Hetzner: power it on from the Hetzner Cloud console.
-3. Ask for a clear yes. Anything else: change nothing.
-4. Run `factory-ctl poweroff`.
-5. Tell the person this session ends with the poweroff.
+3. Tell them this session ends with the poweroff, and ask for a clear yes.
+   Anything else: change nothing.
+4. Run `factory-ctl poweroff` and stop: it returns at once and the session
+   may die before any later message reaches the phone.
