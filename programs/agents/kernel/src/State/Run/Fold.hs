@@ -80,6 +80,7 @@ import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
+import State.Step.Fuel (FuelStep, Outcome (..))
 import State.Step.Plan (Sing (SimplifyP))
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Review (Outcome (..), ReviewStep)
@@ -459,7 +460,7 @@ took g state scope outcome@(AnyOutcome _ some) = do
     let noted = fmap (noteProblems effect.problems) state.rounds
         rounds = enter g edge.back state.at edge.to noted
     -- A stay is no move: the questions asked here still are.
-    Right state {at = edge.to, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
+    Right state {at = edge.to, fuel = effect.level <|> state.fuel, rounds, fans, meters = kept g edge.to meters, askedHere = if edge.to == state.at then state.askedHere else [], onTarget = if effect.anew then Nothing else state.onTarget, drafted = effect.draft <|> state.drafted, published = effect.pr <|> state.published, ticket = effect.opened <|> state.ticket, latest = (.url) <$> effect.draft <|> effect.pr <|> effect.opened <|> state.latest}
 
 -- | The edge an event takes where the run is, and the state it leaves.
 edgeHere :: OpenGraph -> RunState -> EventName -> Maybe (Place, Edge Node)
@@ -494,6 +495,8 @@ data Effect = Effect
     , opened :: Maybe Url
     , anew :: Bool
     -- ^ A new request starts: it has no target until one is named.
+    , level :: Maybe Fuel
+    -- ^ The run's Fuel from here on, as a 'Fuel' step sets it.
     }
 
 {- | One arm per layer: a new layer breaks the build here, and a new outcome
@@ -511,8 +514,17 @@ effects scope (AnyOutcome l (SomeOutcome _ _ o)) = case l of
     RequestLayer -> none {pr = openedPr o, anew = startsRequest o}
     FanLayer -> none {fanned = fanOutcome scope o}
     ChoiceLayer -> none
+    PickLayer -> none
+    FuelLayer -> none {level = fuelOutcome o}
   where
-    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False}
+    none = Effect {fanned = Right, problems = Set.empty, draft = Nothing, pr = Nothing, opened = Nothing, anew = False, level = Nothing}
+
+-- | The level a 'Fuel' step sets; a skip sets none.
+fuelOutcome :: Outcome (s :: FuelStep) l -> Maybe Fuel
+fuelOutcome = \case
+    LevelSet level -> Just level
+    Skipping _ -> Nothing
+    Running _ -> Nothing
 
 -- | The ticket an @open_ticket@ names.
 ticketOf :: Outcome (s :: TicketStep) l -> Maybe Url

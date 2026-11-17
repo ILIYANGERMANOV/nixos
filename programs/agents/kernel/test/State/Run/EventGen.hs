@@ -55,7 +55,9 @@ import State.Step.Build (Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), Layer (..), outcome, outcomeEvent)
 import State.Step.Choice (Outcome (..), discussing, exploring, gathering, routes)
 import State.Step.Fan (Outcome (..), fanOuts)
+import State.Step.Fuel (Outcome (..))
 import State.Step.Gather (Outcome (..))
+import State.Step.Pick qualified as Pick
 import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
 import State.Step.Review (Outcome (..))
@@ -315,6 +317,12 @@ likeIn = \case
     ChoiceLayer -> \case
         Enough choice -> pure (Enough choice)
         Picked route branch -> pure (Picked route branch)
+    PickLayer -> \case
+        o@(Pick.Picked _) -> pure o
+    FuelLayer -> \case
+        LevelSet _ -> LevelSet <$> Gen.enumBounded
+        o@(Skipping _) -> pure o
+        o@(Running _) -> pure o
 
 -- | Few labels and requirements, so rounds share them often.
 genPicks :: Gen Picks

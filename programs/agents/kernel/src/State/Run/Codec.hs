@@ -64,6 +64,7 @@ import Numeric.Natural (Natural)
 import State.Category.Flow (unqualify)
 import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Step (eventText)
+import State.Flow.Drawn (drawnDecoders)
 import State.Role (flowText)
 import State.Run.Ask (Above (..), Basis (..), Kind (Security), OneLine, Proposal (..), QId, Question (..), kindName, oneLineText, parseKind, parseOneLine, parseQId, qidText)
 import State.Run.Event (
@@ -320,7 +321,7 @@ outcome changes the wire with it. A step inside a scope logs its outcome
 under the qualified name, @security/review.rows@.
 -}
 outcomeParsers :: Map Text (Object -> Parser AnyOutcome)
-outcomeParsers = Map.fromList (map (first eventText) outcomeDecoders)
+outcomeParsers = Map.fromList (map (first eventText) (outcomeDecoders <> drawnDecoders))
 
 childOf :: Object -> Parser RunId
 childOf obj = obj .: "child" >>= runIdOf

@@ -14,6 +14,8 @@ module State.Step.Catalog (
     AnyStep (..),
     allSteps,
     outcomeSteps,
+    termSteps,
+    flowOutcomes,
     stepNamed,
     shownEdges,
 ) where
@@ -23,13 +25,19 @@ import Data.Aeson.Types (Parser, Series)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Type.Equality ((:~:) (..))
+import Data.Typeable (eqT)
+import State.Category.Flow (Flow (Await, Capped, Case, Catch, Choice, Do, Each, Fork, Id, Into, Loop, Opt, Par, Route, Scope, (:>)), branchesWith)
+import State.Category.Flow qualified as Flow
 import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph (..), Place (..))
-import State.Category.Step (Decoder, EventName (..), SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
+import State.Category.Step (CodOf, Decoder, DomOf, EventName (..), Sig, SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
+import State.Category.Ty (KnownTy)
 import State.Step.Build (BuildStep)
 import State.Step.Choice (ChoiceStep, Sing (Hub, Pick), choices, routes)
 import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
+import State.Step.Fuel (FuelStep, skipOutcomes)
 import State.Step.Gather (GatherStep)
+import State.Step.Pick (PickStep, pickOutcomes)
 import State.Step.Plan (PlanStep)
 import State.Step.Request (RequestStep)
 import State.Step.Review (ReviewStep)
@@ -47,6 +55,8 @@ data Layer k where
     RequestLayer :: Layer RequestStep
     FanLayer :: Layer FanStep
     ChoiceLayer :: Layer ChoiceStep
+    PickLayer :: Layer PickStep
+    FuelLayer :: Layer FuelStep
 
 deriving stock instance Show (Layer k)
 
@@ -63,10 +73,12 @@ instance KnownLayer TicketStep where layer = TicketLayer
 instance KnownLayer RequestStep where layer = RequestLayer
 instance KnownLayer FanStep where layer = FanLayer
 instance KnownLayer ChoiceStep where layer = ChoiceLayer
+instance KnownLayer PickStep where layer = PickLayer
+instance KnownLayer FuelStep where layer = FuelLayer
 
 -- | The layers, in the order the flows run them.
 layers :: [SomeLayer]
-layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer RequestLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer]
+layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, SomeLayer ReviewLayer, SomeLayer ShipLayer, SomeLayer TicketLayer, SomeLayer RequestLayer, SomeLayer FanLayer, SomeLayer ChoiceLayer, SomeLayer PickLayer, SomeLayer FuelLayer]
   where
     _listsEvery :: Layer k -> ()
     _listsEvery = \case
@@ -79,6 +91,8 @@ layers = [SomeLayer GatherLayer, SomeLayer PlanLayer, SomeLayer BuildLayer, Some
         RequestLayer -> ()
         FanLayer -> ()
         ChoiceLayer -> ()
+        PickLayer -> ()
+        FuelLayer -> ()
 
 data SomeLayer where
     SomeLayer :: (KnownLayer k) => Layer k -> SomeLayer
@@ -103,6 +117,10 @@ sameLayer a b = case (a, b) of
     (FanLayer, _) -> Nothing
     (ChoiceLayer, ChoiceLayer) -> Just Refl
     (ChoiceLayer, _) -> Nothing
+    (PickLayer, PickLayer) -> Just Refl
+    (PickLayer, _) -> Nothing
+    (FuelLayer, FuelLayer) -> Just Refl
+    (FuelLayer, _) -> Nothing
 
 -- | A step's outcome, or a mode's skip, with the layer it is of.
 data AnyOutcome where
@@ -128,7 +146,9 @@ outcomeEvent (AnyOutcome _ o) = Step.outcomeEvent o
 outcomeData :: AnyOutcome -> Series
 outcomeData (AnyOutcome _ o) = payload o
 
--- | A reader per outcome of every layer, each keyed by the event it reads.
+{- | A reader per outcome of every layer, each keyed by the event it reads:
+a flow's picks and skips are read where the flows are known ("State.Flow.Drawn").
+-}
 outcomeDecoders :: [(EventName, Object -> Parser AnyOutcome)]
 outcomeDecoders = concatMap readers layers
   where
@@ -157,6 +177,52 @@ outcomeSteps =
         <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts]
         <> [AnyStep ChoiceLayer (SomeStep (Hub choice)) | choice <- choices]
         <> [AnyStep ChoiceLayer (SomeStep (Pick route branch)) | (route, branches) <- routes, branch <- branches]
+
+{- | The pick and skip steps of a term: a flow names its own, with its
+labels, so no layer lists them. In the term's order; a fork's child is
+its own run, of its own flow.
+-}
+termSteps :: Flow i e o -> [AnyStep]
+termSteps = \case
+    Do s -> drawnStep s
+    Capped _ _ s -> drawnStep s
+    Id -> []
+    Into -> []
+    f :> g -> termSteps f <> termSteps g
+    Loop _ body -> termSteps body
+    Opt _ _ body -> termSteps body
+    Par _ _ -> []
+    Case branches -> concat (branchesWith termSteps branches)
+    Flow.Exit -> []
+    Each body -> termSteps body
+    Fork _ _ -> []
+    Await _ -> []
+    Catch body -> termSteps body
+    Scope _ body -> termSteps body
+    Choice _ actions -> concatMap termSteps actions
+    Route _ branches -> concatMap (termSteps . snd) branches
+
+-- | The step, when it is a pick or a skip: a layer that lists its steps has it in 'allSteps'.
+drawnStep :: forall k (s :: k). (StepSet k, KnownTy (DomOf (Sig s)), KnownTy (CodOf (Sig s))) => Sing s -> [AnyStep]
+drawnStep s = case (eqT @k @PickStep, eqT @k @FuelStep) of
+    (Just Refl, _) -> [AnyStep PickLayer (SomeStep s)]
+    (_, Just Refl) -> [AnyStep FuelLayer (SomeStep s) | not (null (skipOutcomes s))]
+    (Nothing, Nothing) -> []
+
+-- | The outcomes of a flow's pick or skip, which carry no data.
+flowOutcomes :: AnyStep -> [AnyOutcome]
+flowOutcomes (AnyStep l (SomeStep s)) = case l of
+    PickLayer -> map (AnyOutcome PickLayer) (pickOutcomes s)
+    FuelLayer -> map (AnyOutcome FuelLayer) (skipOutcomes s)
+    GatherLayer -> []
+    PlanLayer -> []
+    BuildLayer -> []
+    ReviewLayer -> []
+    ShipLayer -> []
+    TicketLayer -> []
+    RequestLayer -> []
+    FanLayer -> []
+    ChoiceLayer -> []
 
 -- | The step a state is named after; a fan-out's state names none.
 stepNamed :: StateName -> Maybe AnyStep

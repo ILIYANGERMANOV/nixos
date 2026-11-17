@@ -28,6 +28,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Step (CodOf, DomOf, EventName (..), OutcomeName (..), Outcomes (..), Sig, Sing, SomeStep (..), StateName (..), StepSet, eventText, outcomeNames, outcomes, skippedOutcome, stateNameText, stepName)
 import State.Category.Ty (KnownTy (..), TyOf (..), TyVal)
+import State.Flow.Drawn (drawnDecoders, drawnSteps)
 import State.Role (AgentRole (..), RoleDef (..), roleText, roles)
 import State.Step.Catalog (AnyStep (..), allSteps, outcomeDecoders, outcomeSteps)
 
@@ -99,8 +100,8 @@ stepNames = [stepName s | AnyStep _ (SomeStep s) <- allSteps]
 catalogProblems :: [Text]
 catalogProblems = namingProblems stepNames readers declared
   where
-    readers = map fst outcomeDecoders
-    declared = Set.fromList (concat [stepEvents s (EventName (stepName s) skippedOutcome `elem` readers) | AnyStep _ (SomeStep s) <- outcomeSteps])
+    readers = map fst (outcomeDecoders <> drawnDecoders)
+    declared = Set.fromList (concat [stepEvents s (EventName (stepName s) skippedOutcome `elem` readers) | AnyStep _ (SomeStep s) <- outcomeSteps <> drawnSteps])
 
 {- | Every way these names clash or miss an outcome: the steps' names, the
 event each outcome reader reads, and the events the steps declare.

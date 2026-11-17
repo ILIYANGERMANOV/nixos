@@ -471,6 +471,8 @@ opening scope l s = case l of
     RequestLayer -> Nothing
     FanLayer -> Nothing
     ChoiceLayer -> Nothing
+    PickLayer -> Nothing
+    FuelLayer -> Nothing
 
 {- | Spawned beside the advised role, never instead of it: a dry-run reviewer
 next to the review-lead, a fact-gap researcher, a checker for the full check.

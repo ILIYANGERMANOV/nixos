@@ -34,7 +34,7 @@ import State.Step.Build (Sing (..))
 import State.Step.Choice (discussing, exploring, gathering)
 import State.Step.Fuel (Sing (Skip))
 import State.Step.Gather (Sing (..))
-import State.Step.Pick (Over, Sing (Pick))
+import State.Step.Pick (Over, PickLabels, Sing (Pick))
 import State.Step.Plan (Sing (..))
 import State.Step.Request (Sing (..))
 import State.Step.Review (Sing (..))
@@ -44,7 +44,7 @@ import State.Step.Ship (Sing (..))
 'Pick' then a 'Case'. Two steps, two events: @<name>.<label>@, then the
 branch's own.
 -}
-choice :: (KnownTy a, NotSum a, Summands ss, Over a ss, Typeable a, Typeable ss) => Name -> Branches ss e c -> Flow a e c
+choice :: (KnownTy a, NotSum a, Summands ss, Over a ss, PickLabels ss ss, Typeable a, Typeable ss) => Name -> Branches ss e c -> Flow a e c
 choice name branches = Do (Pick name) :> Case branches
 
 {- | The agent's choice, round after round, of one of the actions, or
@@ -54,7 +54,7 @@ bounds the rounds ('State.Category.Graph.graph' refuses a loop with none).
 Law, the Kleene star of a sum: the order of the actions does not matter.
 -}
 choiceLoop ::
-    (KnownTy a, NotSum a, NotSum b, Summands ('("enough", a) ': ss), Over a ss, Typeable a, Typeable ss) =>
+    (KnownTy a, NotSum a, NotSum b, Summands ('("enough", a) ': ss), Over a ss, PickLabels ('("enough", a) ': ss) ('("enough", a) ': ss), Typeable a, Typeable ss) =>
     Name ->
     Flow a 'Nothing b ->
     Branches ss 'Nothing a ->

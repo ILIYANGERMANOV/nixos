@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeData #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -13,6 +14,8 @@ module State.Step.Pick (
     Sing (Pick),
     Outcome (Picked),
     Over,
+    PickLabels,
+    pickOutcomes,
 ) where
 
 import Data.Kind (Constraint)
@@ -40,7 +43,7 @@ instance StepSet PickStep where
     type Drawn s = 'True
 
     data Sing s where
-        Pick :: (KnownTy a, NotSum a, Summands ss, Over a ss, Typeable a, Typeable ss) => Name -> Sing (Pick a ss)
+        Pick :: (KnownTy a, NotSum a, Summands ss, Over a ss, PickLabels ss ss, Typeable a, Typeable ss) => Name -> Sing (Pick a ss)
 
     data Outcome s l where
         -- \| The branch labelled @l@ goes on.
@@ -67,6 +70,31 @@ instance StepSet PickStep where
 
     -- None: a pick's events are its flow's labels, read where the flow is known.
     decoders = []
+
+{- | Every outcome of the pick, one per label, in the sum's order: what a
+run may record at it. Its flow names its labels, so the layer has no reader
+of its own ('decoders').
+-}
+pickOutcomes :: Sing (s :: PickStep) -> [SomeOutcome PickStep]
+pickOutcomes = \case
+    p@(Pick @_ @ss _) -> labelOutcomes @ss @ss p
+
+{- | The outcomes of the labels @ss@ of the pick into @all@: one per label,
+each with the proof its label is one of @all@'s, found where @all@ is known.
+-}
+type PickLabels :: [(Symbol, Ty)] -> [(Symbol, Ty)] -> Constraint
+class PickLabels all ss where
+    labelOutcomes :: Sing (Pick a all) -> [SomeOutcome PickStep]
+
+instance PickLabels all '[] where
+    labelOutcomes _ = []
+
+instance (KnownSymbol l, HasLabel l all ~ 'True, PickLabels all ss) => PickLabels all ('(l, b) ': ss) where
+    labelOutcomes p = packed p (picked @l p) : labelOutcomes @all @ss p
+
+-- | The outcome of label @l@: its type names the label, which the pick's argument does not.
+picked :: forall l a ss. (KnownSymbol l, HasLabel l ss ~ 'True) => Sing (Pick a ss) -> Outcome (Pick a ss) ('Took l)
+picked = Picked
 
 deriving stock instance Show (Sing (s :: PickStep))
 deriving stock instance Eq (Sing (s :: PickStep))

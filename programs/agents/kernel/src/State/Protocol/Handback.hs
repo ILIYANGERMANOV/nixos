@@ -359,6 +359,8 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
         ChoiceLayer -> case s of
             Hub _ -> inline s
             Pick _ _ -> inline s
+        PickLayer -> inline s
+        FuelLayer -> inline s
       where
         took :: (KnownLayer k) => Outcome (s :: k) l -> Either Text [Event]
         took outcome = Right [tookIn scope outcome]

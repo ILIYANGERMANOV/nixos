@@ -34,6 +34,7 @@ import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, placeName)
 import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
+import State.Flow.Drawn (drawnOutcomes)
 import State.Protocol.Handback (parseTouches, refusalText)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
@@ -231,7 +232,12 @@ recordables =
                 _ -> Left "the child run you resume"
            ]
         <> concat [[url "the PR's url" (Merge fan) (MergeDone fan), nothing (MergeNextRound fan)] | fan <- fanOuts]
+        -- Each pick's label and each skip's choice, as the flows draw them.
+        <> [flowOutcome o | o <- drawnOutcomes]
   where
+    flowOutcome o = outcome (Catalog.outcomeEvent o) "" [] $ \a -> case a.positional of
+        [] -> Right (Plain (Took a.scope o))
+        _ -> Left "no arguments"
     breakdown fan = outcome (builtEvent (Breakdown fan) (BreakdownDone fan)) "" [Flag "tasks" "<file.json>" Required] $ \a -> case (a.positional, option "tasks" a) of
         ([], Just path) -> Right (FromFile (Text.unpack path) (fmap (tookIn a.scope . BreakdownDone fan) . Codec.decodeBreakdown))
         _ -> Left "the tasks file, as --tasks <file.json>"

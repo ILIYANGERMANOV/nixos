@@ -11,17 +11,17 @@ module State.Step.Fuel (
     Sing (Fuel, Skip),
     Outcome (LevelSet, Skipping, Running),
     SkipOrRun,
+    skipOutcomes,
 ) where
 
-import Data.Aeson ((.:), (.=))
+import Data.Aeson ((.=))
 import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (Typeable, eqT)
 import State.Category.Flow (Name, namedState)
-import State.Category.Fuel (PerFuel, SkipWhen, fuelName, parseFuel)
+import State.Category.Fuel (PerFuel, SkipWhen, fuelName)
 import State.Category.Fuel qualified as Level
 import State.Category.Step
 import State.Category.Ty (KnownTy, NotSum, Ty, TyOf (..))
-import State.Step.Artifact (named)
 
 {- | 'Fuel' sets the level, at the request's start, where its context is
 all there is. 'Skip' sits before an optional block over any one type.
@@ -49,8 +49,11 @@ instance StepSet FuelStep where
         -- \| The block runs.
         Running :: Sing (Skip a) -> Outcome (Skip a) ('Took "run")
 
-    -- Only 'Fuel': each optional block names its own skip.
-    layerSteps = [SomeStep Fuel]
+    {- None yet: no flow draws 'Fuel' until the hub rules move into steps
+    (#457), and a listed step needs its row in @flows/steps.nix@. Each
+    optional block names its own skip.
+    -}
+    layerSteps = []
 
     stepName = \case
         Fuel -> StateName "fuel"
@@ -80,8 +83,19 @@ instance StepSet FuelStep where
         Skipping _ -> mempty
         Running _ -> mempty
 
-    -- Only 'Fuel''s: a skip's events are its block's, read where the flow is known.
-    decoders = [Decoder Fuel (\obj -> LevelSet <$> (obj .: "level" >>= named "fuel" parseFuel))]
+    {- None yet, as no step is listed ('layerSteps'). A skip's events are its
+    block's, read where the flow is known ('skipOutcomes').
+    -}
+    decoders = []
+
+{- | A skip's two outcomes, which a run may record at it: its block names
+the skip, so the layer has no reader of them ('decoders'). 'Fuel''s carries
+a level, which its reader reads.
+-}
+skipOutcomes :: Sing (s :: FuelStep) -> [SomeOutcome FuelStep]
+skipOutcomes = \case
+    Fuel -> []
+    skip@(Skip _ _) -> [pack (Skipping skip), pack (Running skip)]
 
 deriving stock instance Show (Sing (s :: FuelStep))
 deriving stock instance Eq (Sing (s :: FuelStep))
