@@ -529,13 +529,16 @@ chiefRequests = describe "the chief's requests" $ do
     it "does a request no flow fits directly, keeping no url" $
         (\state -> (nameAt state, state.latest)) <$> chief [pick "other", stepTook (DirectDone "renamed a file")] `shouldBe` Right (Just "next", Nothing)
 
-    it "refuses a second pick question at the hub, and takes one at the next request's" $ do
+    it "refuses a second pick question at the hub" $
         chief [askAtHub 1, askAtHub 2] `shouldBe` Left PickedOnce
+
+    it "takes a pick question at the next request's hub" $
         chief [askAtHub 1, pick "other", stepTook (DirectDone "done"), stepTook NextRequest, askAtHub 2] `shouldSatisfy` isRight
 
-    it "takes a new Fuel at the hub of each request, and refuses one inside a request" $ do
-        let firstRequest = [FuelSet Max, pick "other", stepTook (DirectDone "done")]
+    it "takes a new Fuel at the hub of each request" $
         fuelOf <$> chief (firstRequest <> [stepTook NextRequest, FuelSet Low]) `shouldBe` Right Low
+
+    it "refuses a new Fuel inside a request" $
         chief (firstRequest <> [FuelSet Low]) `shouldBe` Left (FuelSetOnce Max)
 
     it "chains architect, a block and architect again through next, naming the latest result each time" $ do
@@ -559,6 +562,7 @@ chiefRequests = describe "the chief's requests" $ do
         Out -> Nothing
         Exit -> Nothing
     pr = Url "https://github.com/o/r/pull/7"
+    firstRequest = [FuelSet Max, pick "other", stepTook (DirectDone "done")]
 
 {- | The 10x's rounds: a round task keeps its PR open, the merge ends the run
 or loops back to gather for the next round, with fresh budgets.
