@@ -67,6 +67,10 @@ spec = describe "the agent-to-run binding" $ do
             [storeRoot (Just "/xdg") (Just "/home/me"), storeRoot Nothing (Just "/home/me"), storeRoot (Just "rel") (Just "/home/me"), storeRoot Nothing Nothing]
                 `shouldBe` [Just "/xdg/state/bindings", Just "/home/me/.local/state/state/bindings", Just "/home/me/.local/state/state/bindings", Nothing]
 
+        it "keeps the run store beside the bindings, in one file" $
+            [runStore (Just "/xdg") (Just "/home/me"), runStore Nothing (Just "/home/me"), runStore Nothing Nothing]
+                `shouldBe` [Just "/xdg/state/kernel.db", Just "/home/me/.local/state/state/kernel.db", Nothing]
+
         it "keeps a session's agents and their stashed hand-backs side by side" $
             [(bindingFile <$> slotOf "/b" (SessionId "s1") key, stashFile <$> slotOf "/b" (SessionId "s1") key) | key <- [Main, AgentKey (AgentId "a1")]]
                 `shouldBe` [(Just "/b/s1/main", Just "/b/s1/handback-main.json"), (Just "/b/s1/a1", Just "/b/s1/handback-a1.json")]

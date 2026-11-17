@@ -5,7 +5,8 @@ slice C's.
 -}
 module State.E2ESpec (spec) where
 
-import Control.Monad (void, (<=<))
+import Concurrently (bothAtOnce)
+import Control.Monad (replicateM_, void, (<=<))
 import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -18,10 +19,14 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
+import Database.SQLite.Simple qualified as SQLite
+import Effects.Store (withStore)
+import Effects.Store qualified as Store
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Codec (decodeLine, eventType)
 import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
+import State.Run.EventGen (runId)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
@@ -106,9 +111,9 @@ spec = describe "the state binary" $ do
 
         it "refuses an unknown event, listing the gather's picks and fixing it by state next, unlogged" $ \repo -> do
             _ <- drive bin repo [Record ["fuel.set", "balanced"]]
-            before <- logLines repo
+            before <- logLines bin repo
             refused <- state bin repo ["record", "gather.bogus"]
-            after <- logLines repo
+            after <- logLines bin repo
             (refused.code, refused.err, after - before)
                 `shouldBe` ( 2
                            ,
@@ -231,7 +236,7 @@ spec = describe "the state binary" $ do
                 `shouldBe` ( ["recorded 3 voided -> fuel"]
                            , False
                            , 2
-                           , ["state void: seq 2 - no line the run replays has it: none does, it is voided, or it is a void", "fix: state void <seq of a line in events.jsonl> <why>"]
+                           , ["state void: seq 2 - no line the run replays has it: none does, it is voided, or it is a void", "fix: state void <the seq of an event state dump prints> <why>"]
                            )
 
         it "moves a run started in the wrong worktree: next and the agent's calls go there, not to the old one" $ \repo -> do
@@ -257,17 +262,34 @@ spec = describe "the state binary" $ do
                            , (2, ["state move: " <> Text.pack target.work <> " - its worktree holds unfinished run " <> other <> " in " <> Text.pack (repo.root </> "other")])
                            ]
 
-        it "names a hand-edited bad line and appends nothing after it" $ \repo -> do
+        it "names a hand-edited bad event and appends nothing after it" $ \repo -> do
             _ <- drive bin repo []
-            appendFile (eventsOf repo) "{\"v\":3,broken\n"
-            before <- readFile (eventsOf repo)
-            let events = Text.pack (eventsOf repo)
+            run <- runOf bin repo
+            appendByHand repo run 2 olderEvent
+            before <- storedRows repo run
             for_ [("next", []), ("show", []), ("record", ["fuel.set", "max"])] $ \(sub, args) -> do
                 bad <- state bin repo (sub : args)
-                (bad.code, map (fst . Text.breakOn " - ") bad.err)
-                    `shouldBe` (2, ["state " <> Text.pack sub <> ": " <> events <> " line 2 is not read", "fix: repair or move " <> events])
-            after <- readFile (eventsOf repo)
+                (bad.code, bad.err)
+                    `shouldBe` (2, ["state " <> Text.pack sub <> ": run " <> run <> " event 2 is not read - log version 3, this state reads 4", "fix: state init --notes <a new dir> starts afresh"])
+            after <- storedRows repo run
             after `shouldBe` before
+
+        it "loses no event of two state processes appending to one run at once" $ \repo -> do
+            _ <- drive bin repo []
+            before <- logLines bin repo
+            let perProcess = 10
+                -- Each call appends one event: a gap never moves the run.
+                appending = replicateM_ perProcess (void (state bin repo ["record", "gap", "a gap"]))
+            bothAtOnce appending appending
+            seqs <- map (.seq) . rights . map decodeLine <$> dumped bin repo
+            seqs `shouldBe` [1 .. fromIntegral (before + 2 * perProcess)]
+
+        it "records a child's parent run, and the store lists it among the parent's children" $ \repo -> do
+            parent <- tenXAtFanOut bin repo
+            w1 <- worktree repo "w1"
+            child <- childRun bin w1 parent "n1" "t1"
+            listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
+            listed `shouldBe` [runId child]
 
         describe "the review loop" $ do
             it "asks Stuck when rounds 1 and 2 pick the same row" $ \repo -> do
@@ -393,9 +415,9 @@ spec = describe "the state binary" $ do
                 w1 <- worktree repo "w1"
                 c1 <- childRun bin w1 parent "n1" "t1"
                 _ <- succeeded =<< state bin w1 ["stop", "failed", "no", "access"]
-                once <- logLines repo
+                once <- logLines bin repo
                 _ <- succeeded =<< state bin w1 ["next"]
-                again <- logLines repo
+                again <- logLines bin repo
                 triage <- succeeded =<< state bin repo ["next"]
                 again `shouldBe` once
                 take 1 triage `shouldBe` ["RUN state retry t1 --why <w> | state ask --kind <kind> --from " <> c1 <> " <question> - triage: FAILED no access"]
@@ -409,9 +431,9 @@ spec = describe "the state binary" $ do
                 _ <- succeeded =<< state bin w1 ["next"]
                 _ <- succeeded =<< state bin repo ["record", "task", "t2", "parked", "out", "of", "scope"]
                 _ <- succeeded =<< state bin repo ["next"]
-                once <- logLines repo
+                once <- logLines bin repo
                 again <- succeeded =<< state bin w1 ["next"]
-                after <- logLines repo
+                after <- logLines bin repo
                 (after, filter (Text.isPrefixOf "parent: ") again) `shouldBe` (once, [])
 
             it "tells a child its parent off the fan-out refused its hand-back, and the parent's next names it back there" $ \repo -> do
@@ -667,7 +689,7 @@ spec = describe "the state binary" $ do
             it "ends an engineer's brief with the line that starts its run under this one" $ \repo -> do
                 run <- tenXAtFanOut bin repo
                 brief <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
-                drop 1 (dropWhile (/= "") brief) `shouldBe` ["state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack (eventsOf repo) <> " --task t1"]
+                drop 1 (dropWhile (/= "") brief) `shouldBe` ["state init --notes <dir> --parent " <> run <> " --task t1"]
 
         describe "the hooks" $ do
             it "are silent in a worktree with no run" $ \repo -> do
@@ -682,11 +704,11 @@ spec = describe "the state binary" $ do
             it "record a hand-back seen twice once, appending what they recorded" $ \repo -> do
                 _ <- drive bin repo (Record ["fuel.set", "balanced"] : init toImplement)
                 _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "implementer" "a1")
-                before <- logLines repo
+                before <- logLines bin repo
                 first <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
-                once <- logLines repo
+                once <- logLines bin repo
                 again <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
-                twice <- logLines repo
+                twice <- logLines bin repo
                 first `shouldSatisfy` mentions "state: recorded"
                 once `shouldSatisfy` (> before)
                 (again, twice) `shouldBe` ([], once)
@@ -700,26 +722,27 @@ spec = describe "the state binary" $ do
             it "are silent once the drafted PR is merged or closed" $ \repo -> do
                 _ <- drive bin repo (Record ["fuel.set", "balanced"] : init toImplement)
                 _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo Null "implementer" "a1")
-                before <- logLines repo
+                before <- logLines bin repo
                 for_ ["MERGED", "CLOSED"] $ \over -> do
                     writeFile repo.prJson (pullRequest False over)
                     resumed <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
                     handed <- succeeded =<< hook hookBin repo "handback" (handedBack repo "implementer")
                     (resumed, handed) `shouldBe` ([], [])
-                after <- logLines repo
+                after <- logLines bin repo
                 after `shouldBe` before
 
             it "are silent on a log they do not read" $ \repo -> do
-                _ <- startedRun bin repo
-                writeFile (eventsOf repo) "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n"
+                run <- startedRun bin repo
+                replaceByHand repo run 1 "{\"v\":2,\"ts\":\"t\",\"type\":\"started\"}"
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
                 said `shouldBe` []
 
-            it "tell a log line they do not read, as context" $ \repo -> do
+            it "tell an event they do not read, as context" $ \repo -> do
                 _ <- drive bin repo []
-                appendFile (eventsOf repo) "{\"v\":3,broken\n"
+                run <- runOf bin repo
+                appendByHand repo run 2 olderEvent
                 said <- succeeded =<< hook hookBin repo "resume" (sessionStart repo)
-                said `shouldSatisfy` mentions "line 2 is not read"
+                said `shouldSatisfy` mentions "event 2 is not read"
 
             it "records a restart of the lead's resumed session, so its lost child is sent again" $ \repo -> do
                 c1 <- childAtWork bin repo
@@ -752,7 +775,7 @@ spec = describe "the state binary" $ do
                     said <- workerAt hookBin repo Null "w1"
 
                     said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
-                    loggedTypes repo.notes `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
+                    loggedTypes bin repo `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "record a 10x session's, whose run is outside the repo its hooks fire in" $ \repo -> do
                     let tenX = repo.root </> "tenx"
@@ -764,18 +787,18 @@ spec = describe "the state binary" $ do
                     said <- workerAt hookBin repo Null "w1"
 
                     said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
-                    loggedTypes tenX `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
+                    loggedTypes bin repo {work = tenX} `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "record a child engineer's worker spawn in its own run, not its parent's, at depth 1" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo
                     _ <- succeeded =<< state bin w1 ["record", "gather.research"]
-                    before <- logLines repo
+                    before <- logLines bin repo
 
                     said <- succeeded =<< hook hookBin repo "spawn" (spawned' repo engineer "researcher")
 
-                    after <- logLines repo
+                    after <- logLines bin repo
                     said `shouldSatisfy` mentions "gather/research.spawned"
-                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["gather/research.spawned"]
+                    loggedTypes bin w1 `shouldReturnContaining` ["gather/research.spawned"]
                     after `shouldBe` before
 
                 it "record a depth-2 worker's hand-back made before its spawner's hook bound it, as a foreground one is" $ \repo -> do
@@ -788,7 +811,7 @@ spec = describe "the state binary" $ do
 
                     early `shouldBe` []
                     bound `shouldSatisfy` mentions "state: recorded"
-                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
+                    loggedTypes bin w1 `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "record a depth-2 worker's hand-back made after its spawner's hook bound it, as a background one is" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo
@@ -799,19 +822,19 @@ spec = describe "the state binary" $ do
                     back <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "w2" "researcher") researched)
 
                     back `shouldSatisfy` mentions "state: recorded"
-                    loggedTypes (repo.root </> "n1") `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
+                    loggedTypes bin w1 `shouldReturnContaining` ["gather/research.spawned", "gather/research.handed_back"]
 
                 it "hold a child engineer's hand-back while its worker is at work, and hand it back once the worker returned" $ \repo -> do
                     (engineer, w1) <- childEngineer bin hookBin repo
                     _ <- succeeded =<< state bin w1 ["override", "await_ci", "the", "test", "starts", "here"]
                     _ <- succeeded =<< hook hookBin repo "bind" (spawnResult repo engineer "researcher" "r1")
-                    before <- logLines repo
+                    before <- logLines bin repo
 
                     held <- succeeded =<< state bin w1 ["next"]
-                    heldUp <- logLines repo
+                    heldUp <- logLines bin repo
                     _ <- succeeded =<< hook hookBin repo "handback" (reportedBy repo (worker "r1" "researcher") researched)
                     released <- succeeded =<< state bin w1 ["next"]
-                    after <- logLines repo
+                    after <- logLines bin repo
 
                     take 1 held `shouldBe` ["AWAIT worker researcher r1"]
                     held `shouldSatisfy` mentions "state handback: researcher r1 is still at work - its hand-back is not recorded"
@@ -823,11 +846,11 @@ spec = describe "the state binary" $ do
                     (engineer, w1) <- childEngineer bin hookBin repo
 
                     _ <- succeeded =<< state bin w1 ["stop", "failed", "no", "access"]
-                    once <- logLines repo
+                    once <- logLines bin repo
                     hooked <- succeeded =<< hook hookBin repo "handback" (reportedBy repo engineer "FAILED no access\n")
-                    after <- logLines repo
+                    after <- logLines bin repo
 
-                    loggedTypes repo.notes `shouldReturnContaining` ["handed_back"]
+                    loggedTypes bin repo `shouldReturnContaining` ["handed_back"]
                     (hooked, after) `shouldBe` ([], once)
 
             describe "route each agent's state calls to its run" $ do
@@ -897,7 +920,7 @@ spec = describe "the state binary" $ do
                         traverse
                             (succeeded <=< hook hookBin repo "route")
                             [ ranIn repo (worker "e9" "engineer") (notes <> " --child")
-                            , ranIn repo (worker "e9" "engineer") (notes <> " --parent r1 --parent-log /p/events.jsonl --task t1")
+                            , ranIn repo (worker "e9" "engineer") (notes <> " --parent r1 --task t1")
                             , ranIn repo Null notes
                             ]
 
@@ -1044,12 +1067,45 @@ childEngineer bin hookBin repo = do
     -- Inside the parent's checkout, as Claude Code puts a worktree: a path prefix of none.
     w1 <- worktreeAt repo (repo.work </> ".claude" </> "worktrees" </> "w1") "w1"
     let engineer = worker "e1" "engineer"
-    _ <- initBound bin hookBin repo engineer w1 ["--notes", repo.root </> "n1", "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", "t1"]
+    _ <- initBound bin hookBin repo engineer w1 ["--notes", repo.root </> "n1", "--parent", Text.unpack parent, "--task", "t1"]
     pure (engineer, w1)
 
--- | The event types a run's log holds, its notes dir given.
-loggedTypes :: FilePath -> IO [Text]
-loggedTypes dir = map (eventType . (.event)) . rights . map decodeLine . Text.lines <$> Text.readFile (dir </> "events.jsonl")
+-- | The event types the worktree's run holds.
+loggedTypes :: FilePath -> Repo -> IO [Text]
+loggedTypes bin repo = map (eventType . (.event)) . rights . map decodeLine <$> dumped bin repo
+
+-- | The worktree's run's events as @state dump@ prints them, one envelope a line.
+dumped :: FilePath -> Repo -> IO [Text]
+dumped bin repo = runOf bin repo >>= \run -> succeeded =<< state bin repo ["dump", Text.unpack run]
+
+-- | The worktree's run's id, as @state show@ names it.
+runOf :: FilePath -> Repo -> IO Text
+runOf bin repo =
+    (succeeded =<< state bin repo ["show"]) >>= \case
+        shown : _ | Just named <- Text.stripPrefix "run: " shown -> pure (Text.takeWhile (/= ' ') named)
+        other -> fail ("no run shown: " <> show other)
+
+{- | The run store's file: the environment's @XDG_STATE_HOME@ is the repo's
+own, never the user's.
+-}
+storeOf :: Repo -> FilePath
+storeOf repo = repo.root </> ".local" </> "state" </> "state" </> "kernel.db"
+
+-- | An event row written by hand, at this seq, as another kernel would write it.
+appendByHand :: Repo -> Text -> Int -> Text -> IO ()
+appendByHand repo run n json = SQLite.withConnection (storeOf repo) $ \c -> SQLite.execute c "INSERT INTO events (run, seq, json) VALUES (?, ?, ?)" (run, n, json)
+
+-- | An event row rewritten by hand, at this seq.
+replaceByHand :: Repo -> Text -> Int -> Text -> IO ()
+replaceByHand repo run n json = SQLite.withConnection (storeOf repo) $ \c -> SQLite.execute c "UPDATE events SET json = ? WHERE run = ? AND seq = ?" (json, run, n)
+
+-- | The run's rows as stored.
+storedRows :: Repo -> Text -> IO [Text]
+storedRows repo run = SQLite.withConnection (storeOf repo) $ \c -> map SQLite.fromOnly <$> SQLite.query c "SELECT json FROM events WHERE run = ? ORDER BY seq" (SQLite.Only run)
+
+-- | An event of log version 3, which this kernel does not read.
+olderEvent :: Text
+olderEvent = "{\"v\":3,\"ts\":\"2025-11-21T00:00:00Z\",\"type\":\"fuel\"}"
 
 -- | Each expected entry is in the list.
 shouldReturnContaining :: IO [Text] -> [Text] -> IO ()
@@ -1087,8 +1143,8 @@ hookEvent repo agent fields = LBS8.unpack (encode (object (["session" .= String 
 mentions :: Text -> [Text] -> Bool
 mentions needle = any (needle `Text.isInfixOf`)
 
-logLines :: Repo -> IO Int
-logLines repo = length . Text.lines <$> Text.readFile (eventsOf repo)
+logLines :: FilePath -> Repo -> IO Int
+logLines bin repo = length <$> dumped bin repo
 
 -- | The output of a call that must succeed.
 succeeded :: Ran -> IO [Text]
@@ -1120,7 +1176,7 @@ tenXAtFanOut bin repo = do
 
 -- | The child run a parent's brief starts for this task, its notes in @dir@ under the repo's root; its id.
 childRun :: FilePath -> Repo -> Text -> FilePath -> Text -> IO Text
-childRun bin repo parent dir task = startedIn bin repo ["--notes", repo.root </> dir, "--parent", Text.unpack parent, "--parent-log", eventsOf repo, "--task", Text.unpack task]
+childRun bin repo parent dir task = startedIn bin repo ["--notes", repo.root </> dir, "--parent", Text.unpack parent, "--task", Text.unpack task]
 
 -- | A 10x run at its fan-out with task t1's child started in its own worktree; the child's run id.
 childAtWork :: FilePath -> Repo -> IO Text
@@ -1487,9 +1543,6 @@ pullRequest isDraft prState =
 -- | A temp worktree, its notes, the file the scripted @gh@ reads, and the environment of every call.
 data Repo = Repo {root :: FilePath, work :: FilePath, notes :: FilePath, prJson :: FilePath, env :: [(String, String)]}
 
-eventsOf :: Repo -> FilePath
-eventsOf repo = repo.notes </> "events.jsonl"
-
 withRepo :: (Repo -> IO ()) -> IO ()
 withRepo test = withSystemTempDirectory "state-e2e" $ \root -> do
     inherited <- getEnvironment
@@ -1500,6 +1553,7 @@ withRepo test = withSystemTempDirectory "state-e2e" $ \root -> do
         fixed =
             [ ("PATH", path)
             , ("HOME", root)
+            , ("XDG_STATE_HOME", root </> ".local" </> "state")
             , ("GIT_CONFIG_NOSYSTEM", "1")
             , ("GIT_AUTHOR_NAME", "e2e")
             , ("GIT_AUTHOR_EMAIL", "e2e@example.com")

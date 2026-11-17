@@ -63,7 +63,7 @@ import State.Role (RoleDef (..), SomeFlow (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (ParentRun), Parent (..), Principal (..), Proposal (..), QId, Question (..), oneLineText, qidText)
 import State.Run.Ask qualified as Ask
-import State.Run.Codec (LineError (..), LogError (..), decodeLine, eventType, logOf, reasonText, taskIdText)
+import State.Run.Codec (LineError (..), LogError (..), decodeLine, encodeLine, eventType, reasonText, taskIdText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), DraftPr (..), Envelope (..), Event (..), FlowName (..), Note (..), RunId, SessionId (..), Sha, Source (..), Start (..), Task (..), parseRunId, roleText, runIdText)
 import State.Run.Event qualified as Event
@@ -160,7 +160,7 @@ jobReply steps name input call job = case job of
     Routes gate ->
         callerBinding call >>= \(slot, bound) -> case (bound, gate) of
             (Just binding, _) ->
-                readOnlyAt binding.notes gate >>= \case
+                readOnlyAt binding.run gate >>= \case
                     Just why -> pure (Deny why)
                     Nothing -> case gate of
                         RunsShell command -> case stateCalls steps call.cwd command of
@@ -187,16 +187,15 @@ every scope: an engineer's or a 10x's route reads one line, however long its
 log. A run that is gone or does not replay denies nothing: its other hooks
 tell what is wrong with it.
 -}
-readOnlyAt :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => FilePath -> Gate -> Eff es (Maybe Text)
-readOnlyAt notes gate =
-    Log.firstLine path >>= \first -> case startedFlow =<< first of
+readOnlyAt :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => RunId -> Gate -> Eff es (Maybe Text)
+readOnlyAt run gate =
+    Log.firstLine run >>= \first -> case startedFlow =<< first of
         Just flow | mayDeny flow -> denialAt
         _ -> pure Nothing
   where
-    path = logOf notes
     startedFlow line = either (const Nothing) (fmap (.flow) . Fold.runStart . (.event)) (decodeLine line)
     denialAt =
-        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) path <&> \case
+        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) run <&> \case
             Ran (Right denial) -> denial
             Ran (Left _) -> Nothing
             NoRun -> Nothing
@@ -281,7 +280,7 @@ by an id hashed from the run and the worker, so a bind seen twice appends it
 once: the run hands back only once the worker returned. A refusal is told.
 -}
 workerSpawned :: (Shell es) => Binding -> SessionId -> AgentId -> AgentRole -> Eff es Text
-workerSpawned binding session child role = either (failureText "bind") (const "") <$> onLog append (logOf binding.notes)
+workerSpawned binding session child role = either (failureText "bind") (const "") <$> onLog append binding.run
   where
     source = Hook (digestOf [runIdText binding.run, child.agentIdText, "worker_spawned"])
     append stamp run = record (Stamp stamp.ts stamp.head (Just session)) run [source] (Right (Plan [WorkerSpawned role child] (\_ _ -> mempty)))
@@ -336,19 +335,19 @@ runHere :: (Shell es) => FilePath -> Eff es (Maybe Binding)
 runHere dir =
     FileSystem.inDirectory dir $
         pointedRun >>= \case
-            Just (notes, Right started) -> either (const Nothing) (Just . Binding started.run notes) <$> Git.toplevel
-            Just (_, Left _) -> pure Nothing
+            Just (Right started) | Just start <- Fold.runStart started.event -> either (const Nothing) (Just . Binding started.run start.notes) <$> Git.toplevel
+            Just _ -> pure Nothing
             Nothing -> pure Nothing
 
--- | The run the worktree's pointer names: its notes dir and its log's first line, decoded; none without either.
-pointedRun :: (Git :> es, Log :> es, RoFileSystem :> es) => Eff es (Maybe (FilePath, Either LineError Envelope))
+-- | The first event of the run the worktree's pointer names, decoded; none without a pointer or a run.
+pointedRun :: (Git :> es, Log :> es, RoFileSystem :> es) => Eff es (Maybe (Either LineError Envelope))
 pointedRun =
     gitDir >>= \case
         Left _ -> pure Nothing
         Right gd ->
             readPointer gd >>= \case
                 Nothing -> pure Nothing
-                Just notes -> fmap ((notes,) . decodeLine) <$> Log.firstLine (logOf notes)
+                Just run -> fmap decodeLine <$> Log.firstLine run
 
 {- | What the worktree's run says to a hook's want, naming it, a disk or git
 error too. A log of another log version, as an older one, the hooks leave be
@@ -358,9 +357,9 @@ hookAnswer :: (Shell es) => Steps -> HookName -> Call -> Maybe Binding -> Want -
 hookAnswer steps name call bound want =
     pointedRun >>= \case
         Nothing -> pure ""
-        Just (_, Left (Unsupported _)) -> pure ""
-        Just (_, Left (Malformed _)) -> at ((.run) <$> bound)
-        Just (_, Right started) -> at (Just started.run)
+        Just (Left (Unsupported _)) -> pure ""
+        Just (Left (Malformed _)) -> at ((.run) <$> bound)
+        Just (Right started) -> at (Just started.run)
   where
     at found = telling name found (runAnswer steps call bound found want)
 
@@ -445,6 +444,7 @@ execute steps = \case
                 True -> execute steps Next
                 False -> initRun gd args
     Move target -> inWorktree (`moveRun` target)
+    Dump run -> dump run
     Next -> do
         -- Read before the lock: GitHub may take its whole timeout.
         (facts, told) <- readFacts
@@ -480,6 +480,17 @@ execute steps = \case
         Answer {} -> Nothing
         StopRun _ -> Nothing
         Pending -> Nothing
+
+{- | @state dump <run>@: the run's events, one envelope per line in seq
+order, read under its lock. A run whose events do not read is named, as
+every command names it.
+-}
+dump :: (Log :> es) => RunId -> Eff es (Either Failure Text)
+dump run =
+    Log.locked run $ \case
+        Left bad -> ([], Left (unreadLine run bad))
+        Right [] -> ([], Left (Failure BadInput ("run " <> runIdText run) "no such run in the run store" "state show names the worktree's run"))
+        Right events -> ([], Right (foldMap ((<> "\n") . encodeLine) events))
 
 -- | What a command appends, and what it prints from the state reached and the lines written.
 data Plan = Plan {events :: [Event], say :: RunState -> [Written] -> Output}
@@ -733,7 +744,7 @@ which tells it; the parent's @state next@ names a child that ended unrecorded.
 -}
 handedUp :: (Shell es) => Steps -> Up -> Eff es Text
 handedUp steps up =
-    try (onLog append up.parent.log) <&> \case
+    try (onLog append up.parent.run) <&> \case
         Right (Right ()) -> ""
         Right (Left failure) -> told (failure.what <> " - " <> failure.why)
         Left (e :: IOException) -> told (tshow e)
@@ -767,7 +778,7 @@ writes it there by hand.
 -}
 answeredDown :: (Shell es) => Down -> Eff es Text
 answeredDown down =
-    try (onLog write down.child.log) >>= \case
+    try (onLog write down.child.run) >>= \case
         Right (Right below) -> maybe (pure "") answeredDown (downOf below down.qid)
         Right (Left failure) -> pure (told (failure.what <> " - " <> failure.why))
         Left (e :: IOException) -> pure (told (tshow e))
@@ -797,24 +808,21 @@ onRun :: (Clock :> es, Environment :> es, Git :> es, Log :> es, RoFileSystem :> 
 onRun act =
     gitDir >>= \case
         Left failure -> pure (Ran (Left failure))
-        Right gd -> readPointer gd >>= maybe (pure NoRun) (onRunLog act . logOf)
+        Right gd -> readPointer gd >>= maybe (pure NoRun) (onRunLog act)
 
--- | The run this log holds, locked for one command.
-onLog :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> FilePath -> Eff es (Either Failure a)
-onLog act path = orNoRun <$> onRunLog act path
+-- | The run, locked for one command.
+onLog :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> RunId -> Eff es (Either Failure a)
+onLog act run = orNoRun <$> onRunLog act run
 
-onRunLog :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> FilePath -> Eff es (Ran a)
-onRunLog act path =
-    Log.exists path >>= \case
-        False -> pure NoRun
-        True -> do
-            stamp <- now
-            Log.locked path $ \case
-                Left bad -> ([], Ran (Left (unreadLine path bad)))
-                Right [] -> ([], NoRun)
-                Right (first : rest) -> case replayed path (first :| rest) of
-                    Left failure -> ([], Ran (Left failure))
-                    Right (g, state) -> Ran <$> act stamp (Loaded g state (first :| rest))
+onRunLog :: (Clock :> es, Environment :> es, Git :> es, Log :> es) => (Stamp -> Loaded -> ([Envelope], Either Failure a)) -> RunId -> Eff es (Ran a)
+onRunLog act run = do
+    stamp <- now
+    Log.locked run $ \case
+        Left bad -> ([], Ran (Left (unreadLine run bad)))
+        Right [] -> ([], NoRun)
+        Right (first : rest) -> case replayed run (first :| rest) of
+            Left failure -> ([], Ran (Left failure))
+            Right (g, state) -> Ran <$> act stamp (Loaded g state (first :| rest))
 
 -- | A run command's outcome: no run to command, or the command's own.
 data Ran a = NoRun | Ran (Either Failure a)
@@ -828,18 +836,19 @@ noRun :: Failure
 noRun = Failure BadInput "no run in this worktree" "no state init ran here" initFix
 
 -- | A log replayed under the flow its first line starts.
-replayed :: FilePath -> NonEmpty Envelope -> Either Failure (OpenGraph, RunState)
-replayed path logged@(first :| _) = case Fold.runStart first.event of
-    Nothing -> Left (unreplayed path notStarted)
+replayed :: RunId -> NonEmpty Envelope -> Either Failure (OpenGraph, RunState)
+replayed run logged@(first :| _) = case Fold.runStart first.event of
+    Nothing -> Left (unreplayed run notStarted)
     Just start ->
         let g = graphOf start.flow
          in -- Balanced, the Fuel until recorded: only what and why are read.
-            either (Left . unreplayed path . explain g Balanced Out) (Right . (g,)) (replay g logged)
+            either (Left . unreplayed run . explain g Balanced Out) (Right . (g,)) (replay g logged)
 
-{- | @state init@: idempotent, as a retried brief runs it again. A child names
-its parent's log, which is checked to hold that run before this one starts.
-A worktree holds one run: init refuses to start one over the unfinished run
-the worktree's pointer names in another notes dir.
+{- | @state init@: idempotent, as a retried brief runs it again: the run
+the worktree's pointer names in these notes resumes. A child names its
+parent's run, which must exist before this one starts. A worktree holds one
+run: init refuses to start one over the unfinished run the pointer names in
+another notes dir.
 
 On success it prints two lines, the second the interface a hook parses:
 
@@ -853,30 +862,32 @@ comes last and is the rest of the line, as git may name a path with spaces.
 initRun :: (Shell es) => FilePath -> InitArgs -> Eff es (Either Failure Text)
 initRun gd args = do
     -- Every read before the first write, the first refusal told.
-    free <- unfinishedHere gd notes
+    held <- heldHere gd notes
     began <- startOf args
     top <- worktreeTop
-    case (,,) <$> free <*> began <*> top of
+    case (,,) <$> held <*> began <*> top of
         Left failure -> pure (Left failure)
-        Right ((), Begin {principal, flow, fuel}, worktree) -> do
+        Right (resuming, Begin {principal, flow, fuel}, worktree) -> do
             FileSystem.createDirectory notes
-            stamp <- now
-            fresh <- newRunId
-            let path = logOf notes
-                start = Start {flow, notes = notes, principal, interface = interfaceOf principal}
-                -- The run starts at its root's Fuel step: a Fuel given takes it at once.
-                begun = Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
-            result <- Log.locked path $ \case
-                Left bad -> ([], Left (unreadLine path bad))
-                Right [] -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
-                Right (first : rest) -> ([], ("resumed",) <$> joined notes (first :| rest))
+            result <- case resuming of
+                Just run -> pure (Right ("resumed", run))
+                Nothing -> do
+                    stamp <- now
+                    fresh <- newRunId
+                    let start = Start {flow, notes = notes, principal, interface = interfaceOf principal}
+                        -- The run starts at its root's Fuel step: a Fuel given takes it at once.
+                        begun = Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
+                    Log.locked fresh $ \case
+                        Right [] -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
+                        -- Eight random hex digits may meet a run of the same id.
+                        _ -> ([], Left (Failure Outage ("run id " <> runIdText fresh) "another run in the store has it" "retry the same state init"))
             -- The pointer only once the parent took the child: a refused child has no run here.
             accepted <- case (result, args.origin) of
-                (Right said@(_, run), FromParent parent) -> fmap (const said) <$> spawnedIn parent.run parent.log (Child run parent.task path worktree)
+                (Right said@(_, run), FromParent parent) -> fmap (const said) <$> spawnedIn parent.run (Child run parent.task worktree)
                 (Right said, FromUser _) -> pure (Right said)
                 (Right said, FromCaller _) -> pure (Right said)
                 (Left failure, _) -> pure (Left failure)
-            traverse (\(verb, run) -> writePointer gd notes $> initLines verb run worktree) accepted
+            traverse (\(verb, run) -> writePointer gd run $> initLines verb run worktree) accepted
   where
     notes = shellPathText args.notes
     -- A subagent has no wakes, notifications or background of its own (#351 s4). Hooks
@@ -898,9 +909,7 @@ scopeRuns gd args = case args.origin of
     FromParent _ -> pure False
     FromCaller _ -> pure False
     FromUser _ ->
-        readPointer gd >>= \case
-            Nothing -> pure False
-            Just held -> fromRight False <$> onLog (\_ run -> ([], Right (inScope run.state))) (logOf held)
+        maybe False inScope <$> pointed gd
   where
     wanted = fromMaybe defaultFlow args.flow
     inScope state = case liveness state of
@@ -922,13 +931,13 @@ moveRun gd target = do
     to <- worktreeAt target
     case (,,) <$> maybe (Left noRun) Right here <*> from <*> (to >>= elsewhere) of
         Left failure -> pure (Left failure)
-        Right (notes, fromTop, (toGd, toTop)) -> do
-            run <- onLog (\_ loaded -> ([], Right loaded.state.run)) (logOf notes)
-            held <- unfinishedOther toGd notes
-            case (,) <$> run <*> maybe (Right ()) (Left . holding) held of
+        Right (run, fromTop, (toGd, toTop)) -> do
+            moving <- onLog (\_ loaded -> ([], Right loaded.state.run)) run
+            there <- pointed toGd
+            case (,) <$> moving <*> maybe (Right ()) holding (live run =<< there) of
                 Left failure -> pure (Left failure)
                 Right (moved, ()) -> do
-                    writePointer toGd notes
+                    writePointer toGd moved
                     rebind moved fromTop toTop
                     FileSystem.removeFile (pointerOf gd)
                     pure (Right ("moved " <> runIdText moved <> " to " <> Text.pack toTop <> "\n"))
@@ -936,12 +945,19 @@ moveRun gd target = do
     elsewhere (toGd, toTop)
         | equalFilePath toGd gd = Left (Failure BadInput (Text.pack target) "it is this worktree, which holds the run already" "state next")
         | otherwise = Right (toGd, toTop)
-    holding (run, held) =
-        Failure
-            BadInput
-            (Text.pack target)
-            ("its worktree holds unfinished run " <> runIdText run <> " in " <> Text.pack held)
-            "state stop <reason> <why> there ends it, or state move <another worktree>"
+    -- A move cut short left the target's pointer naming this run already.
+    live run state = case liveness state of
+        Live | state.run /= run -> Just state
+        Live -> Nothing
+        Ended _ -> Nothing
+    holding state =
+        Left
+            ( Failure
+                BadInput
+                (Text.pack target)
+                ("its worktree holds unfinished run " <> runIdText state.run <> " in " <> Text.pack state.start.notes)
+                "state stop <reason> <why> there ends it, or state move <another worktree>"
+            )
 
 -- | The git dir and the top of the worktree a directory is in.
 worktreeAt :: (Git :> es, RoFileSystem :> es) => FilePath -> Eff es (Either Failure (FilePath, FilePath))
@@ -967,56 +983,45 @@ rebind run from to = bindingsRoot >>= traverse_ inStore
 worktreeTop :: (Git :> es) => Eff es (Either Failure FilePath)
 worktreeTop = Bifunctor.first (\why -> Failure BadInput "not inside a git work tree" why "cd <worktree>") <$> Git.toplevel
 
-{- | Refuses a start in this notes dir while the worktree's pointer names an
-unfinished run in another: the fix resumes that run or stops it. A run that
-ended, or whose log is gone or does not read or replay, holds the worktree no
-more.
+{- | The run init resumes here: the one the worktree's pointer names, if it
+keeps these notes and goes on. One that ended leaves the notes to no other
+start in this worktree: a 10x's next round gives its engineer a fresh dir.
+Refuses a start in these notes while the pointer names an unfinished run in
+another: the fix resumes that run or stops it. A run that ended elsewhere,
+or that is gone or does not read or replay, holds the worktree no more.
 -}
-unfinishedHere :: (Shell es) => FilePath -> FilePath -> Eff es (Either Failure ())
-unfinishedHere gd notes = maybe (Right ()) (Left . holding) <$> unfinishedOther gd notes
-  where
-    holding (run, held) =
-        Failure
-            BadInput
-            ("--notes " <> Text.pack notes)
-            ("the worktree holds unfinished run " <> runIdText run <> " in " <> Text.pack held)
-            ("state init --notes " <> Text.pack held <> " resumes it, or state stop <reason> <why> ends it")
+heldHere :: (Shell es) => FilePath -> FilePath -> Eff es (Either Failure (Maybe RunId))
+heldHere gd notes =
+    pointed gd <&> \case
+        Nothing -> Right Nothing
+        Just state -> case (equalFilePath state.start.notes notes, liveness state) of
+            (True, Live) -> Right (Just state.run)
+            (True, Ended why) -> Left (Failure BadInput ("--notes " <> Text.pack notes) ("its run " <> runIdText state.run <> " " <> why) "state init --notes <a new dir>")
+            (False, Live) ->
+                Left
+                    ( Failure
+                        BadInput
+                        ("--notes " <> Text.pack notes)
+                        ("the worktree holds unfinished run " <> runIdText state.run <> " in " <> Text.pack state.start.notes)
+                        ("state init --notes " <> Text.pack state.start.notes <> " resumes it, or state stop <reason> <why> ends it")
+                    )
+            (False, Ended _) -> Right Nothing
 
--- | The unfinished run, and its notes dir, that the worktree's pointer names in another notes dir than this.
-unfinishedOther :: (Shell es) => FilePath -> FilePath -> Eff es (Maybe (RunId, FilePath))
-unfinishedOther gd notes =
+-- | The run the worktree's pointer names, replayed; none without a pointer, or with a run gone or that does not read or replay.
+pointed :: (Shell es) => FilePath -> Eff es (Maybe RunState)
+pointed gd =
     readPointer gd >>= \case
         Nothing -> pure Nothing
-        Just held
-            -- A pointer an older init wrote may end in a separator.
-            | equalFilePath held notes -> pure Nothing
-            | otherwise -> fmap (,held) . live <$> onLog (\_ run -> ([], Right run.state)) (logOf held)
-  where
-    live = \case
-        Left _ -> Nothing
-        Right state -> case liveness state of
-            Ended _ -> Nothing
-            Live -> Just state.run
+        Just run -> either (const Nothing) Just <$> onLog (\_ loaded -> ([], Right loaded.state)) run
 
 {- | The child's @spawned@, appended to its parent's log under the parent's
 lock, by an id hashed from both runs: a retried init appends it once.
 -}
-spawnedIn :: (Shell es) => RunId -> FilePath -> Child -> Eff es (Either Failure ())
-spawnedIn parent parentLog child =
-    Monad.void <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> mempty)))) parentLog
+spawnedIn :: (Shell es) => RunId -> Child -> Eff es (Either Failure ())
+spawnedIn parent child =
+    Monad.void <$> onLog (\stamp run -> record stamp run [source] (Right (Plan [Spawned child] (\_ _ -> mempty)))) parent
   where
     source = Hook (digestOf [runIdText parent, runIdText child.run])
-
-{- | The run a retried init joins: the one its log holds. One log holds one
-run, so a run stopped or finished there leaves the dir to no other: a 10x's
-next round gives its engineer a fresh one.
--}
-joined :: FilePath -> NonEmpty Envelope -> Either Failure RunId
-joined notes logged@(first :| _) = case liveness . snd <$> replayed (logOf notes) logged of
-    Right (Ended why) -> Left (Failure BadInput ("--notes " <> Text.pack notes) ("its run " <> runIdText first.run <> " " <> why) "state init --notes <a new dir>")
-    Right Live -> Right first.run
-    -- A log that does not replay is named by next and show; init leaves it be.
-    Left _ -> Right first.run
 
 -- | Whether a run goes on, or how it ended.
 data Liveness = Live | Ended Text
@@ -1040,7 +1045,7 @@ startOf args = case args.origin of
     FromParent parent ->
         parentStarts parent >>= \case
             Left failure -> pure (Left failure)
-            Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
+            Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.run
   where
     atFixedFuel principal = let flow = fromMaybe defaultFlow args.flow in Begin principal flow (fixedFuel flow)
 
@@ -1055,15 +1060,12 @@ fixedFuel = \case
     EngineerFlow -> Nothing
     ArchitectFlow -> Nothing
 
-{- | A parent's log path was checked by the parser; here its first line must
-be that run's start.
--}
+-- | The parent run must have started.
 parentStarts :: (Log :> es) => Parent -> Eff es (Either Failure ())
-parentStarts parent = do
-    first <- Log.firstLine parent.log
-    pure $ case decodeLine (fromMaybe "" first) of
-        Right envelope | envelope.run == parent.run, Started _ <- envelope.event -> Right ()
-        _ -> Left (Failure BadInput ("--parent " <> runIdText parent.run) (Text.pack parent.log <> " does not start that run") initLineFix)
+parentStarts parent =
+    Log.exists parent.run <&> \case
+        True -> Right ()
+        False -> Left (Failure BadInput ("--parent " <> runIdText parent.run) "no such run in the run store" initLineFix)
 
 -- | The child's principal, with its task's shape, its flow and its Fuel.
 childStart :: Parent -> Maybe FlowName -> RunState -> Either Failure Begin
@@ -1112,23 +1114,26 @@ newRunId = do
     let hex = Text.pack (concatMap (\b -> (if b < 16 then ('0' :) else id) (showHex b "")) (BS.unpack bytes))
     maybe (throwIO (userError "a hex run id did not parse")) pure (parseRunId hex)
 
-{- | An older state's log (Python's versions 1 and 2) is not migrated: its
-run is set aside and a fresh one started in its place.
+{- | A run whose events do not read, as another kernel's version wrote them:
+it is not migrated, and a fresh run in another notes dir holds the worktree
+in its place.
 -}
-unreadLine :: FilePath -> LogError -> Failure
-unreadLine path bad = Failure BadInput (Text.pack path <> " line " <> tshow bad.line <> " is not read") why fix
+unreadLine :: RunId -> LogError -> Failure
+unreadLine run bad = Failure BadInput ("run " <> runIdText run <> " event " <> tshow bad.line <> " is not read") why fix
   where
-    notes = Text.pack (takeDirectory path)
-    (why, fix) = case bad.why of
-        Unsupported v ->
-            ( "log version " <> tshow v <> ", this state reads " <> tshow Codec.version
-            , "move the old run aside and start fresh: mv " <> notes <> " " <> notes <> ".old, then state init --notes " <> notes
-            )
-        Malformed what -> (what, "repair or move " <> Text.pack path)
+    why = case bad.why of
+        Unsupported v -> "log version " <> tshow v <> ", this state reads " <> tshow Codec.version
+        Malformed what -> what
+    fix = "state init --notes <a new dir> starts afresh"
 
--- | A log whose lines read but whose events the flow refuses: edited by hand.
-unreplayed :: FilePath -> Failure -> Failure
-unreplayed path refusal = Failure BadInput (Text.pack path <> " does not replay") (refusal.what <> " - " <> refusal.why) ("repair or move " <> Text.pack path)
+-- | A log whose events read but the flow refuses: written by another kernel, or edited by hand.
+unreplayed :: RunId -> Failure -> Failure
+unreplayed run refusal =
+    Failure
+        BadInput
+        ("run " <> runIdText run <> " does not replay")
+        (refusal.what <> " - " <> refusal.why)
+        ("state dump " <> runIdText run <> " prints its events; state init --notes <a new dir> starts afresh")
 
 rendered :: Steps -> Block -> FlowName -> Text
 rendered steps block flow = case block of
@@ -1160,16 +1165,16 @@ graphOf flowName = case (Role.role flowName).flow of
 gitDir :: (Git :> es) => Eff es (Either Failure FilePath)
 gitDir = Bifunctor.first (\why -> Failure BadInput "not inside a git work tree" why "cd <worktree>; state keeps one run per worktree") <$> Git.gitDir
 
--- | The notes dir the worktree's run keeps, if a run was started here.
-readPointer :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe FilePath)
-readPointer dir = fmap (Text.unpack . Text.strip) <$> FileSystem.readText (pointerOf dir)
+-- | The worktree's run, if one was started here; a pointer that names no run id is none.
+readPointer :: (RoFileSystem :> es) => FilePath -> Eff es (Maybe RunId)
+readPointer dir = (>>= parseRunId . Text.strip) <$> FileSystem.readText (pointerOf dir)
 
-writePointer :: (WrFileSystem :> es) => FilePath -> FilePath -> Eff es ()
-writePointer dir notes = FileSystem.writeText (pointerOf dir) (Text.pack notes <> "\n")
+writePointer :: (WrFileSystem :> es) => FilePath -> RunId -> Eff es ()
+writePointer dir run = FileSystem.writeText (pointerOf dir) (runIdText run <> "\n")
 
--- | A pointer file in the git dir names the notes dir, which holds @events.jsonl@.
+-- | A pointer file in the git dir names the run id, the run's key in the run store.
 pointerOf :: FilePath -> FilePath
-pointerOf dir = dir </> "state-notes"
+pointerOf dir = dir </> "state-run"
 
 {- | What the worktree's run does to its PR now, by its start or its
 request's target: a round reads its PR by URL. No run, or a log that does
@@ -1208,4 +1213,4 @@ endedChildren =
         Ran (Left _) -> pure []
         Ran (Right children) -> concat <$> traverse ended children
   where
-    ended child = fromRight [] <$> onLog (\_ run -> ([], Right [child.run | Fold.over run.state])) child.log
+    ended child = fromRight [] <$> onLog (\_ run -> ([], Right [child.run | Fold.over run.state])) child.run

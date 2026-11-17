@@ -40,6 +40,7 @@ library
     Effects.Git
     Effects.Log
     Effects.Random
+    Effects.Store
     State.Category.Flow
     State.Category.Fuel
     State.Category.Graph
@@ -96,6 +97,7 @@ library
     , filepath
     , optparse-applicative
     , process
+    , sqlite-simple
     , text
     , time
 
@@ -121,7 +123,12 @@ test-suite state-test
   hs-source-dirs:     test
   main-is:            Main.hs
   build-tool-depends: hspec-discover:hspec-discover
+
+  -- Threaded: the run store's spec runs two writers at once, and one waiting
+  -- on SQLite's lock must not stop the other.
+  ghc-options:        -threaded
   other-modules:
+    Concurrently
     Doubles.Clock
     Doubles.Console
     Doubles.Environment
@@ -185,6 +192,7 @@ test-suite state-test
     , hspec-hedgehog
     , optparse-applicative
     , process
+    , sqlite-simple
     , state
     , temporary
     , text

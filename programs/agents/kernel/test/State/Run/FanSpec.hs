@@ -207,7 +207,7 @@ t1 = TaskId "t1"
 t2 = TaskId "t2"
 
 childFor :: Text.Text -> TaskId -> Child
-childFor child taskId = Child (runId child) taskId "log" "worktree"
+childFor child taskId = Child (runId child) taskId "worktree"
 
 -- | A breakdown's fan-out: a first breakdown has no agent at work to refuse it.
 fresh :: Tasks -> Fan

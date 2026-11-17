@@ -23,6 +23,7 @@ module State.Protocol.Binding (
     Key (..),
     Slot,
     storeRoot,
+    runStore,
     slotOf,
     bindingFile,
     stashFile,
@@ -74,11 +75,20 @@ data Key = Main | AgentKey AgentId
 data Slot = Slot {dir :: FilePath, name :: FilePath}
     deriving stock (Eq, Show)
 
-{- | The store's root from @XDG_STATE_HOME@ and @HOME@, as the XDG base
-directory spec reads them: a relative or empty one is unset. No root, no store.
--}
+-- | The bindings' store's root, in 'stateHome'.
 storeRoot :: Maybe FilePath -> Maybe FilePath -> Maybe FilePath
-storeRoot xdgStateHome home = (</> "state" </> "bindings") <$> base
+storeRoot xdgStateHome home = (</> "bindings") <$> stateHome xdgStateHome home
+
+-- | The kernel's run store, one SQLite database ("Effects.Store"), in 'stateHome'.
+runStore :: Maybe FilePath -> Maybe FilePath -> Maybe FilePath
+runStore xdgStateHome home = (</> "kernel.db") <$> stateHome xdgStateHome home
+
+{- | The kernel's directory, @state@, from @XDG_STATE_HOME@ and @HOME@, as the
+XDG base directory spec reads them: a relative or empty one is unset. No
+root, no store.
+-}
+stateHome :: Maybe FilePath -> Maybe FilePath -> Maybe FilePath
+stateHome xdgStateHome home = (</> "state") <$> base
   where
     base = case (absolute =<< xdgStateHome, absolute =<< home) of
         (Just state, _) -> Just state

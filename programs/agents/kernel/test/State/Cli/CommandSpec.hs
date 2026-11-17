@@ -17,7 +17,7 @@ import State.Cli.Command (BriefPart (..), Command (..), Exit (..), Failure (..),
 import State.Golden (golden)
 import State.Protocol.Record (Recording (..))
 import State.Run.Ask (Above (..), Kind (..), Parent (..), Proposal (..), oneLineText)
-import State.Run.Event (AgentRole (..), Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
+import State.Run.Event (AgentRole (..), Asker (..), Branch (..), Commit (..), Event (..), Label (..), Picks (..), RunId, StateName (..), Stop (..), StopReason (..), Target (..), TaskId (..), stepTook, tookIn)
 import State.Run.EventGen (fuelSet, runId)
 import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.RunGen (g, happyPath, loadSteps, pickOf, runAt, securityScope, sha)
@@ -178,14 +178,18 @@ spec = describe "State.Cli.Command" $ do
         it "needs the free words" $
             failureWhat (parse ["override", "review"]) `shouldBe` Just "Missing: <why>"
 
-        it "refuses a parent log that is not an absolute events.jsonl" $
-            (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/other.jsonl", "--task", "t1"]
-                `shouldBe` Just "--parent-log /p/other.jsonl"
-
-        it "keeps an absolute parent log" $
-            case parse ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"] of
-                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") "/p/events.jsonl" (TaskId "t1"))
+        it "takes a child's parent run and task" $
+            case parse ["init", "--notes", "/n", "--parent", "r1", "--task", "t1"] of
+                Right (Init args) -> args.origin `shouldBe` FromParent (Parent (runId "r1") (TaskId "t1"))
                 _ -> expectationFailure "not an init"
+
+        it "refuses --parent-log: a child names its parent by run id alone" $
+            (failureWhat . parse) ["init", "--notes", "/n", "--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"]
+                `shouldBe` Just "Invalid option `--parent-log'"
+
+        it "takes dump with a run id, refusing an event id" $
+            (fmap dumped . parse <$> [["dump", "r1"], ["dump", "r1:2"]])
+                `shouldBe` [Right (Just (runId "r1")), Left "no run id r1:2"]
 
         it "refuses a notes dir that is relative or holds what a shell reads" $
             map (failureWhat . parse . (["init", "--notes"] <>) . pure) ["rel/dir", ".", "/a b", "/a;b", "/a$(b)"]
@@ -195,11 +199,11 @@ spec = describe "State.Cli.Command" $ do
             map (fmap notesOf . parse . (["init", "--notes"] <>) . pure) ["/n/", "/n", "/./n//"]
                 `shouldBe` replicate 3 (Right (Just "/n"))
 
-        it "refuses --parent, its log or its task without the other two" $
+        it "refuses --parent or --task without the other" $
             map
                 (failureWhat . parse . (["init", "--notes", "/n"] <>))
-                [["--parent", "r1", "--task", "t1"], ["--parent", "r1", "--parent-log", "/p/events.jsonl"], ["--task", "t1"], ["--parent", "r1"]]
-                `shouldBe` replicate 4 (Just "--parent, --parent-log and --task go together")
+                [["--task", "t1"], ["--parent", "r1"]]
+                `shouldBe` replicate 2 (Just "--parent and --task go together")
 
         it "takes --pr as a user's round on that PR" $
             map (fmap originOf . parse . (["init", "--notes", "/n"] <>)) [[], ["--pr", "https://github.com/o-1/r.x/pull/12"]]
@@ -209,10 +213,10 @@ spec = describe "State.Cli.Command" $ do
             map (fmap originOf . parse . (["init", "--notes", "/n", "--child"] <>)) [[], ["--pr", "https://github.com/o/r/pull/3"]]
                 `shouldBe` [Right (Just (FromCaller OwnPr)), Right (Just (FromCaller (RoundOn (Url "https://github.com/o/r/pull/3"))))]
 
-        it "refuses --child with any of --parent, its log or its task" $
+        it "refuses --child with --parent, its task or both" $
             map
                 (failureWhat . parse . (["init", "--notes", "/n", "--child"] <>))
-                [["--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"], ["--task", "t1"], ["--parent-log", "/p/events.jsonl"]]
+                [["--parent", "r1", "--task", "t1"], ["--task", "t1"], ["--parent", "r1"]]
                 `shouldBe` replicate 3 (Just "--child with --parent")
 
         it "refuses a --pr that is no GitHub PR URL, its fix the URL's form" $ do
@@ -235,10 +239,10 @@ spec = describe "State.Cli.Command" $ do
                 Right (_, Left failure) -> failure.fix `shouldBe` "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>"
                 _ -> expectationFailure "not a refusal"
 
-        it "refuses --pr with any of --parent, its log or its task: a child's PR is its task's" $
+        it "refuses --pr with --parent or its task: a child's PR is its task's" $
             map
                 (failureWhat . parse . (["init", "--notes", "/n", "--pr", "https://github.com/o/r/pull/1"] <>))
-                [["--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"], ["--parent", "r1"], ["--task", "t1"]]
+                [["--parent", "r1", "--task", "t1"], ["--parent", "r1"], ["--task", "t1"]]
                 `shouldBe` replicate 3 (Just "--pr with --parent")
 
     describe "failures" $ do
@@ -352,6 +356,10 @@ spec = describe "State.Cli.Command" $ do
     originOf :: Command -> Maybe Origin
     originOf = \case
         Init args -> Just args.origin
+        _ -> Nothing
+    dumped :: Command -> Maybe RunId
+    dumped = \case
+        Dump run -> Just run
         _ -> Nothing
     notesOf :: Command -> Maybe FilePath
     notesOf = \case

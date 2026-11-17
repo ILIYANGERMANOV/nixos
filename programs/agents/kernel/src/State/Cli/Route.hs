@@ -57,6 +57,8 @@ stateCalls steps cwd command = [StateCall at sub written | (Just at, sub, parsed
         Next -> True
         HandbackOf _ _ -> True
         Move _ -> True
+        -- It names its run and writes nothing, whatever directory it runs in.
+        Dump _ -> False
         -- It opens with the run's id, so it reads another run's state safely (#432).
         OnRun ShowRun -> False
         OnRun _ -> True
@@ -76,7 +78,7 @@ parentlessInit steps command = listToMaybe [denial sub written | (_, sub, Init a
                 { exit = BadInput
                 , what = written <> " starts a user's run"
                 , why = "a subagent's run is a child: it neither asks the user nor spawns in the background"
-                , fix = "rerun it with --parent <run> --parent-log <path> --task <id> from your brief under a fan-out, else with --child"
+                , fix = "rerun it with --parent <run> --task <id> from your brief under a fan-out, else with --child"
                 }
 
 {- | Every @state@ call of a command that parses, in order: the directory it

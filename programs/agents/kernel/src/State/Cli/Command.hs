@@ -58,7 +58,7 @@ import State.Role (RoleDef (..), defaultFlow)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Proposal (..), QId, Question (..), kindName, parseOneLine, parseQId, qidText)
 import State.Run.Ask qualified as Ask
-import State.Run.Codec (areaText, logName, reasonText)
+import State.Run.Codec (areaText, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
@@ -69,7 +69,7 @@ import State.Show (tshow)
 import State.Step.Artifact (Shape (..), ShellPath, parsePrUrl, prUrlRule, shellPath, shellPathRule)
 import State.Step.Catalog (shownEdges)
 import State.Table (Steps, agentRoles)
-import System.FilePath (dropTrailingPathSeparator, isAbsolute, normalise, takeFileName)
+import System.FilePath (dropTrailingPathSeparator, normalise)
 import Text.Read (readMaybe)
 
 data Command
@@ -81,6 +81,8 @@ data Command
     | Help
     | -- | The worktree's run moves to the worktree at this directory; its notes stay.
       Move FilePath
+    | -- | A run's events as stored, one envelope per line, in seq order.
+      Dump RunId
     | OnRun RunCommand
 
 -- | A command on the worktree's run, read and written under the log's lock.
@@ -220,7 +222,7 @@ commandInfo :: Steps -> ScopePath -> ParserInfo (Either Failure Command)
 commandInfo steps scope =
     Optparse.info
         (Optparse.hsubparser commands <**> Optparse.helper)
-        (Optparse.header "state - the run of an agent flow, kept in the worktree's log" <> Optparse.footerDoc (Just (vsep (map pretty footer))))
+        (Optparse.header "state - the run of an agent flow, kept in its run store" <> Optparse.footerDoc (Just (vsep (map pretty footer))))
   where
     commands =
         mconcat
@@ -247,6 +249,7 @@ commandInfo steps scope =
                     <$> textArgument "<seq>"
                     <*> sentence "<why>"
             , sub "move" "Move the run to another worktree; its notes stay" (Right . Move . Text.unpack <$> textArgument "<worktree>")
+            , sub "dump" "Print a run's events, one JSON envelope per line" (fmap Dump . runId <$> textArgument "<run>")
             , sub "render" "Print a block of the flow, as the skills paste it" $
                 (\block flow -> Render <$> maybe (Right States) (named "block" (parseByName blockName)) block <*> flowOf flow)
                     <$> optional (textArgument (choices blockName))
@@ -319,24 +322,23 @@ initArgs =
         <$> textOption "notes" "<dir>" "the directory of the run's notes, an absolute path"
         <*> optional flowOption
         <*> optional (textOption "parent" "<run>" "a child run's parent run")
-        <*> optional (textOption "parent-log" "<path>" "the parent's events.jsonl, an absolute path")
         <*> optional (textOption "task" "<id>" "the parent's task this child run takes")
         <*> optional (textOption "pr" "<url>" "the open PR a user's run takes another round on")
         <*> Optparse.switch (Optparse.long "child" <> Optparse.help "a subagent's run whose spawner holds no run to link: it hands everything back")
   where
-    init' notesRaw flowRaw parentRaw logRaw taskRaw prRaw child = do
+    init' notesRaw flowRaw parentRaw taskRaw prRaw child = do
         notes <- notesDir notesRaw
         flow <- traverse flowNamed flowRaw
         let mine = if child then FromCaller else FromUser
-        origin <- case (prRaw, parentRaw, logRaw, taskRaw) of
-            _ | child, any isJust [parentRaw, logRaw, taskRaw] -> Left childWithParent
-            (Nothing, Nothing, Nothing, Nothing) -> Right (mine OwnPr)
-            (Just pr, Nothing, Nothing, Nothing) -> mine . RoundOn <$> roundPr pr
-            (Just _, _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
-            (Nothing, Just run, Just logPath, Just task) -> (\r l -> FromParent (Parent r l (TaskId task))) <$> runId run <*> parentLog logPath
-            (Nothing, _, _, _) -> Left (usage "--parent, --parent-log and --task go together" "a child run names its parent's run and log, and its task")
+        origin <- case (prRaw, parentRaw, taskRaw) of
+            _ | child, any isJust [parentRaw, taskRaw] -> Left childWithParent
+            (Nothing, Nothing, Nothing) -> Right (mine OwnPr)
+            (Just pr, Nothing, Nothing) -> mine . RoundOn <$> roundPr pr
+            (Just _, _, _) -> Left (usage "--pr with --parent" "a child run takes its PR from its parent's task")
+            (Nothing, Just run, Just task) -> (\r -> FromParent (Parent r (TaskId task))) <$> runId run
+            (Nothing, _, _) -> Left (usage "--parent and --task go together" "a child run names its parent's run and its task")
         Right (Init InitArgs {notes, flow, origin})
-    childWithParent = usage "--child with --parent" "a --child run links to no parent run; a fan-out's child names --parent, --parent-log and --task alone"
+    childWithParent = usage "--child with --parent" "a --child run links to no parent run; a fan-out's child names --parent and --task alone"
     roundPr raw = maybe (Left (Failure BadInput ("--pr " <> raw) ("the PR is " <> prUrlRule) "state init --notes <dir> --pr https://github.com/<owner>/<repo>/pull/<n>")) Right (parsePrUrl raw)
 
 -- | One subcommand per event the table holds, its flags its options.
@@ -413,16 +415,6 @@ asker roles raw
     | AgentRole raw `elem` roles = Right (Subagent (AgentRole raw))
     | otherwise = ChildRun <$> runId raw
 
-{- | A parent's log as its brief names it: an absolute path to an
-@events.jsonl@, checked before anything there is opened.
--}
-parentLog :: Text -> Either Failure FilePath
-parentLog raw
-    | isAbsolute path, takeFileName path == logName = Right path
-    | otherwise = Left (usage ("--parent-log " <> raw) ("the parent's log is an absolute path to its " <> Text.pack logName))
-  where
-    path = Text.unpack raw
-
 {- | A run's notes dir, one spelling of it: the pointer, the log's start, the
 same-dir check and init's @run@ line all hold this value. Unquoted, as the
 @run@ line and the brief's init line print it, and a later reader runs in
@@ -494,7 +486,7 @@ explain g fuel at = \case
         Fan.NotItsRound task url -> refused ("task " <> Codec.taskIdText task <> " kept") ("its round is on " <> Codec.urlText url <> ": only that PR is kept") ("state record task " <> Codec.taskIdText task <> " " <> Codec.taskStateArgs (Kept url))
         Fan.TaskExists task -> refused ("task " <> Codec.taskIdText task) "the fan-out has a task of that id already" "state show"
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText at <> ", no fan-out's state") "state show"
-    NotVoidable n -> refused ("seq " <> tshow n) "no line the run replays has it: none does, it is voided, or it is a void" ("state void <seq of a line in " <> Text.pack logName <> "> <why>")
+    NotVoidable n -> refused ("seq " <> tshow n) "no line the run replays has it: none does, it is voided, or it is a void" "state void <the seq of an event state dump prints> <why>"
     VoidBreaks n refusal ->
         let broken = explain g fuel at refusal
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"

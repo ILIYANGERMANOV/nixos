@@ -117,7 +117,7 @@ spec = describe "State.Run.Ask" $ do
             ask (ByUser OwnPr) Lead Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
-            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
+            ask (ByRole (Parent (runId "p1") (TaskId "t1")) OwnPr ChildConfirms) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
             ask (ByUser OwnPr) Lead Fact `shouldBe` AnswerSelf
