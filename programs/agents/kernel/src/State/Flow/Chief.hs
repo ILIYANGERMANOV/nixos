@@ -6,7 +6,7 @@ question asked inside it climbs from that flow's rung.
 -}
 module State.Flow.Chief (chief, discussion) where
 
-import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Label (..), Name (..))
+import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Label (..), Name (..))
 import State.Category.Fuel (PerFuel (..))
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))

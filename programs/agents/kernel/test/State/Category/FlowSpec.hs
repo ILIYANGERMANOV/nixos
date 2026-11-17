@@ -11,7 +11,7 @@ import Control.Exception (TypeError (..), evaluate, try)
 import Data.Char (isAlphaNum, isDigit)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..))
+import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..))
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..), Limit (..))
@@ -73,7 +73,7 @@ spec = describe "State.Category.Flow" $ do
 
         it "capping a flow that is neither a step nor a fork of one" $
             rejected
-                "Couldn't match expected type: Cappable"
+                "Couldn't match expected type: CapTarget"
                 (Capped (always (UpTo 1)) Stop (Do Fix) :: Flow 'State.Category.Ty.Findings 'Nothing 'State.Category.Ty.Diff)
 
         it "a case after a step whose out is not a sum" $

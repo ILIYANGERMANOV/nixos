@@ -4,7 +4,7 @@ open loops back to agree on the next round's plan, in the same run.
 -}
 module State.Flow.TenX (tenX) where
 
-import State.Category.Flow (AgentRole (..), Cappable (..), Flow (..), Group (..))
+import State.Category.Flow (AgentRole (..), CapTarget (..), Flow (..), Group (..))
 import State.Category.Fuel (always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))

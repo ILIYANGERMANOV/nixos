@@ -6,7 +6,7 @@ is asked whether to go on.
 -}
 module State.Flow.Architect (architect) where
 
-import State.Category.Flow (Cappable (..), Flow (..))
+import State.Category.Flow (CapTarget (..), Flow (..))
 import State.Category.Fuel (always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))

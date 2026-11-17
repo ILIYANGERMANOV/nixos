@@ -7,7 +7,7 @@ any flow.
 -}
 module State.Category.Flow (
     Flow (..),
-    Cappable (..),
+    CapTarget (..),
     Branches (..),
     Branch (..),
     branchesWith,
@@ -85,9 +85,9 @@ data Flow (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
     {- | A step, or a 'Fork' of a step, whose events spend a budget, its
     step's 'Meter': at most the limit at the run's Fuel, then what 'AtCap'
     says. A step with no 'Meter' cannot be capped, nor can any other flow
-    ('Cappable'). Law: it walks as the step or the fork, with a cap.
+    ('CapTarget'). Law: it walks as the step or the fork, with a cap.
     -}
-    Capped :: PerFuel Limit -> AtCap -> Cappable i e o -> Flow i e o
+    Capped :: PerFuel Limit -> AtCap -> CapTarget i e o -> Flow i e o
     {- | Repeat the body while it continues; its exit is the loop's out. Over
     one type only: a loop over a sum would start each round at one of
     several states, and the exit of a sum would not say which summand. Its
@@ -195,11 +195,11 @@ alternateLoop name = Loop name . foldr1 (:>)
 one step, whose cap counts the children it starts. No other flow has a
 meter, so capping one does not compile.
 -}
-data Cappable (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
-    Step :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> Cappable i e o
-    ForkOf :: (StepSet k, Meter s, Sig s ~ '(a, 'Nothing, b), KnownTy a, KnownTy b, NotSum a) => Group b -> Sing (s :: k) -> Cappable a 'Nothing a
+data CapTarget (i :: Ty) (e :: Maybe Ty) (o :: Ty) where
+    Step :: (StepSet k, Meter s, Sig s ~ '(i, e, o), KnownTy i, KnownTy o, NotSum i) => Sing (s :: k) -> CapTarget i e o
+    ForkOf :: (StepSet k, Meter s, Sig s ~ '(a, 'Nothing, b), KnownTy a, KnownTy b, NotSum a) => Group b -> Sing (s :: k) -> CapTarget a 'Nothing a
 
-deriving stock instance Show (Cappable i e o)
+deriving stock instance Show (CapTarget i e o)
 
 deriving stock instance Show (Flow i e o)
 

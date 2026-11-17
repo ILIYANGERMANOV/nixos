@@ -32,7 +32,7 @@ import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, symbolVal)
-import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Label (..), Name (..))
+import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), CapTarget (..), Flow (..), Group (..), Label (..), Name (..))
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (KnownTy, NotSum, Summands, TyOf (..))

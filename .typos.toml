@@ -25,3 +25,8 @@ noice = "noice"
 # Scoped to this repo on purpose: allowing `nd` globally would hide a genuine
 # `nd` -> `and` in prose everywhere, forever.
 nd = "nd"
+
+[default.extend-identifiers]
+# GHC's `GHC.TypeLits` module, which the kernel imports. Allowed as the whole
+# identifier, not the word `Lits`, so a real `Lits` -> `List` typo still fails.
+TypeLits = "TypeLits"
