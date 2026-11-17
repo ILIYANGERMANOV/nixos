@@ -13,19 +13,21 @@ import State.Cli.View (showRun)
 import State.Golden (golden)
 import State.Run.Codec (decodeLogBytes)
 import State.Run.Fold (replay)
-import State.Run.RunGen (g, tenXGraph)
+import State.Run.RunGen (g, loadSteps, tenXGraph)
+import State.Table (Steps)
 import Test.Hspec (Spec, describe, it, runIO)
 
 spec :: Spec
 spec =
-    describe "a version 4 log" $
-        mapM_ folds [("engineer-1", g), ("engineer-2", g), ("engineer-3", g), ("engineer-4", g), ("tenx", tenXGraph)]
+    describe "a version 4 log" $ do
+        steps <- runIO loadSteps
+        mapM_ (folds steps) [("engineer-1", g), ("engineer-2", g), ("engineer-3", g), ("engineer-4", g), ("tenx", tenXGraph)]
 
-folds :: (FilePath, OpenGraph) -> Spec
-folds (name, flowGraph) = do
+folds :: Steps -> (FilePath, OpenGraph) -> Spec
+folds steps (name, flowGraph) = do
     raw <- runIO (BS.readFile ("test/golden/v4-logs/" <> name <> ".jsonl"))
     it ("folds " <> name <> ".jsonl to the state it folded to before") $
-        golden ("v4-logs/" <> name <> ".state") (either (Text.pack . ("does not fold: " <>)) (showRun flowGraph) (replayed raw))
+        golden ("v4-logs/" <> name <> ".state") (either (Text.pack . ("does not fold: " <>)) (showRun steps flowGraph) (replayed raw))
   where
     replayed raw = do
         envelopes <- either (Left . show) Right (decodeLogBytes raw)

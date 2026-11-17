@@ -117,6 +117,10 @@ data Event
       questions start afresh.
       -}
       Extended Text
+    | {- | A gap the lead saw in the flow or its tools, logged in place of a
+      loose notes file: it moves nothing.
+      -}
+      Gapped Text
     | {- | A step's outcome, or a mode's skip, inside the scopes its step sits
       in: the one event that moves the run. 'tookEvent' is its name on the wire.
       -}

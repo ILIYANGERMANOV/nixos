@@ -823,6 +823,14 @@ spec = describe "state over the doubles" $ do
                 brief `shouldSatisfy` (planWrong `isSuffixOf`)
                 brief `shouldSatisfy` (not . any (`elem` stopRule))
 
+            it "refuses a section the role does not run, naming its sections" $ \world -> do
+                _ <- drive world []
+
+                refused <- state world ["brief", "researcher", "--section", "implement"]
+
+                (refused.code, refused.err)
+                    `shouldBe` (2, ["state brief: section implement - the role's sections are research, simplify_plan", "fix: state brief researcher --section <step>"])
+
         describe "render" $ do
             it "prints a block of the flow without a run" $ \world -> do
                 ran <- state world ["render", "stop-rule"]

@@ -10,7 +10,7 @@ Available commands:
   record                   Record an event: 'state record --help' lists them
   handback                 Record a role's hand-back, read from stdin
   next                     Print the next action, its facts and the step's task
-  brief                    Print a role's brief, a child engineer's task too
+  brief                    Print a role's brief, one section, or a child's task
   show                     Print where the run is and what it holds
   override                 Move the run to a state by hand, saying why
   void                     Void a line logged in error, by its seq, saying why

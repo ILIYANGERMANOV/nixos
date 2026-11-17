@@ -57,6 +57,7 @@ module State.Protocol.Hook (
     followedAt,
     tracked,
     spawnedAt,
+    opensChild,
     hookSources,
     restartOf,
     loggedAlready,
@@ -455,6 +456,10 @@ spawnedAt steps at spawned = case at of
         | otherwise -> Nothing
     Out -> Nothing
     Exit -> Nothing
+
+-- | Whether a lead's spawn of this step's role records the step's spawn: 'spawnedAt's rule, scope aside.
+opensChild :: Layer k -> Sing (s :: k) -> Bool
+opensChild l s = isJust (opening mempty l s)
 
 -- | The event of a step's spawn of a child: only an action that opens children has one.
 opening :: ScopePath -> Layer k -> Sing (s :: k) -> Maybe Event
