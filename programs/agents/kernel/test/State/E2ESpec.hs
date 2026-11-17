@@ -52,14 +52,14 @@ spec = describe "the state binary" $ do
 
         it "runs a chief's request on a targeted PR: plan unconfirmed, GitHub's PR its draft, ready skipped" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            transcript <- driveOn bin repo (Record ["route.engineer"] : Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : targetedPath)
-            transcript `shouldBe` ["route.engineer -> engineer/fuel", "target -> engineer/fuel", "engineer/fuel.set -> engineer/gather"] <> targetedTranscript
+            transcript <- driveOn bin repo (Record ["fuel.set", "low"] : Record ["route.engineer"] : Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : targetedPath)
+            transcript `shouldBe` ["fuel.set -> route", "route.engineer -> engineer/fuel", "target -> engineer/fuel", "engineer/fuel.set -> engineer/gather"] <> targetedTranscript
             atNext <- succeeded =<< state bin repo ["next"]
             atNext `shouldSatisfy` any (Text.isSuffixOf ("The last result: " <> Text.pack roundUrlString))
 
         it "asks the user to confirm the next request's plan when it names no target" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            _ <- driveOn bin repo (Record ["route.engineer"] : Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : targetedPath)
+            _ <- driveOn bin repo (Record ["fuel.set", "low"] : Record ["route.engineer"] : Record ["target", "pr", roundUrlString] : Record ["fuel.set", "low"] : targetedPath)
             transcript <- driveOn bin repo ([Record ["next.request"], Record ["fuel.set", "low"], Record ["route.engineer"], Record ["fuel.set", "low"]] <> gathered <> [Planned, Record ["skip_simplify_plan.skip"]])
             transcript `shouldBe` ["next.request -> fuel", "fuel.set -> route", "route.engineer -> engineer/fuel", "engineer/fuel.set -> engineer/gather", "engineer/gather.enough -> engineer/gather/notes", "engineer/gather/notes.done -> engineer/plan", "engineer/plan.done -> engineer/skip_simplify_plan", "engineer/skip_simplify_plan.skip -> engineer/confirm"]
             asked <- succeeded =<< state bin repo ["next"]
@@ -67,8 +67,8 @@ spec = describe "the state binary" $ do
 
         it "adopts a chief's targeted ticket, opening none" $ \repo -> do
             _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
-            transcript <- driveOn bin repo [Record ["route.architect"], Record ["target", "ticket", "https://github.com/o/r/issues/3"], Record ["fuel.set", "low"], Record ["exploring.enough"], Record ["exploring/notes.done"]]
-            transcript `shouldBe` ["route.architect -> architect/fuel", "target -> architect/fuel", "architect/fuel.set -> architect/exploring", "architect/exploring.enough -> architect/exploring/notes", "architect/exploring/notes.done -> architect/open_ticket", "architect/open_ticket.done -> architect/discussing"]
+            transcript <- driveOn bin repo [Record ["fuel.set", "low"], Record ["route.architect"], Record ["target", "ticket", "https://github.com/o/r/issues/3"], Record ["fuel.set", "low"], Record ["exploring.enough"], Record ["exploring/notes.done"]]
+            transcript `shouldBe` ["fuel.set -> route", "route.architect -> architect/fuel", "target -> architect/fuel", "architect/fuel.set -> architect/exploring", "architect/exploring.enough -> architect/exploring/notes", "architect/exploring/notes.done -> architect/open_ticket", "architect/open_ticket.done -> architect/discussing"]
 
         it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
             refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]

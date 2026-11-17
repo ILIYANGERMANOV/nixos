@@ -1012,7 +1012,7 @@ liveness state = case (state.stopped, Fold.over state) of
     (Nothing, True) -> Ended "finished"
     (Nothing, False) -> Live
 
--- | Who starts a run, its flow, and the Fuel given it: a child's task gives one, the 10x's and the chief's are fixed, a user's other run asks.
+-- | Who starts a run, its flow, and the Fuel given it: a child's task gives one, the 10x's is fixed, a user's other run, the chief's each request too, takes one at its Fuel step.
 data Begin = Begin {principal :: Principal, flow :: FlowName, fuel :: Maybe Fuel}
 
 {- | Who starts the run, and its flow: a child runs its task's flow, at its
@@ -1027,13 +1027,13 @@ startOf args = case args.origin of
             Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
 
 {- | The Fuel a flow runs at whoever starts it: the 10x picks each task's
-Fuel and runs at Balanced itself, and the chief starts at Balanced, as a
-request names its own level; so neither user is asked one.
+Fuel and runs at Balanced itself, so its user is asked none. The chief has
+none: each request, the first too, records its own at its Fuel step.
 -}
 fixedFuel :: FlowName -> Maybe Fuel
 fixedFuel = \case
     TenXFlow -> Just Balanced
-    ChiefFlow -> Just Balanced
+    ChiefFlow -> Nothing
     EngineerFlow -> Nothing
     ArchitectFlow -> Nothing
 

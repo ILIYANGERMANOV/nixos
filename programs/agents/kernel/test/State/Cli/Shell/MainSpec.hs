@@ -71,6 +71,7 @@ spec = describe "state over the doubles" $ do
                 for_ [("engineer", []), ("10x", ["--flow", "10x"]), ("architect", ["--flow", "architect"])] $ \(branch, flag) -> do
                     fresh <- newWorld
                     chief <- startedIn fresh ["--flow", "chief"]
+                    _ <- succeeded =<< state fresh ["record", "fuel.set", "balanced"]
                     _ <- succeeded =<< state fresh ["record", "route." <> branch]
                     next <- succeeded =<< state fresh ["next"]
                     before' <- loggedEvents fresh
@@ -81,8 +82,8 @@ spec = describe "state over the doubles" $ do
                     shown <- succeeded =<< state fresh ["show"]
                     (inner, after, take 1 shown) `shouldBe` (next, before', ["run: " <> chief <> " (chief)"])
 
-            it "starts an engineer, 10x or architect run in a free worktree, the 10x past its Fuel at Balanced" $ \_ ->
-                for_ [([], ["started"]), (["--flow", "10x"], ["started", "fuel.set"]), (["--flow", "architect"], ["started"])] $ \(flag, begun) -> do
+            it "starts an engineer, 10x, architect or chief run in a free worktree, only the 10x past its Fuel at Balanced" $ \_ ->
+                for_ [([], ["started"]), (["--flow", "10x"], ["started", "fuel.set"]), (["--flow", "architect"], ["started"]), (["--flow", "chief"], ["started"])] $ \(flag, begun) -> do
                     fresh <- newWorld
 
                     ran <- state fresh (["init", "--notes", "/notes"] <> flag)
@@ -97,8 +98,9 @@ spec = describe "state over the doubles" $ do
                     chief = ["--flow", "chief"]
                     standalone = [(held, [], flag) | held <- [engineer, tenX, architect], flag <- [engineer, tenX, architect]]
                     atHub = [(chief, [], flag) | flag <- [engineer, tenX, architect]]
-                    otherBranch = [(chief, [["route.engineer"]], tenX), (chief, [["route.engineer"]], architect), (chief, [["route.10x"]], engineer)]
-                    inBlocks = [(chief, [["route.blocks"]], flag) | flag <- [engineer, tenX, architect]]
+                    requested pick = [["fuel.set", "balanced"], [pick]]
+                    otherBranch = [(chief, requested "route.engineer", tenX), (chief, requested "route.engineer", architect), (chief, requested "route.10x", engineer)]
+                    inBlocks = [(chief, requested "route.blocks", flag) | flag <- [engineer, tenX, architect]]
                 for_ (standalone <> atHub <> otherBranch <> inBlocks) $ \(held, picks, flag) -> do
                     fresh <- newWorld
                     run <- startedIn fresh held

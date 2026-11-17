@@ -421,6 +421,7 @@ spec = describe "state-hook over the doubles" $ do
                 for_ ["route.discussion", "route.architect"] $ \branch -> do
                     world <- newWorld
                     run <- startedIn world ["--flow", "chief"]
+                    _ <- succeeded =<< state world ["record", "fuel.set", "balanced"]
                     _ <- succeeded =<< state world ["record", branch]
                     putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
 
@@ -430,11 +431,11 @@ spec = describe "state-hook over the doubles" $ do
 
                     said `shouldBe` map (const True) denied <> map (const False) allowed
 
-            it "lets a session bound to a chief run edit, commit and push at its hub and in its engineer, 10x, blocks or other branch" $ \_ ->
-                for_ [[], ["route.engineer"], ["route.10x"], ["route.blocks"], ["route.other"]] $ \picks -> do
+            it "lets a session bound to a chief run edit, commit and push at its Fuel, its hub and in its engineer, 10x, blocks or other branch" $ \_ ->
+                for_ [[], [["fuel.set", "balanced"]], [["fuel.set", "balanced"], ["route.engineer"]], [["fuel.set", "balanced"], ["route.10x"]], [["fuel.set", "balanced"], ["route.blocks"]], [["fuel.set", "balanced"], ["route.other"]]] $ \picks -> do
                     world <- newWorld
                     run <- startedIn world ["--flow", "chief"]
-                    for_ picks $ \pick -> succeeded =<< state world ["record", pick]
+                    for_ picks $ \pick -> succeeded =<< state world ("record" : pick)
                     putFile world (bindings <> "/main") ("run " <> run <> " " <> Text.pack notes <> " /work\n")
 
                     said <- traverse (hook world "route") (editCall : map stateCall writing)
