@@ -253,8 +253,9 @@ spec = describe "State.Protocol.Advice" $ do
         it "records ready once GitHub says the PR is ready" $
             due g withPr {pr = Just (PullRequest draftPr IsReady)} atReady `shouldBe` Just (stepTook (ReadyDone prUrl))
 
-        it "asks the user to confirm a user's round's plan, as before targets" $
-            (due g withPr (runUnder userRound (knobs Balanced <> map (Took mempty) (take 5 happyPath))), next withPr (runUnder userRound (knobs Balanced <> map (Took mempty) (take 5 happyPath))))
+        it "asks the user to confirm a user's round's plan, as before targets" $ do
+            let roundAtConfirm = runUnder userRound (knobs Balanced <> map (Took mempty) (take 5 happyPath))
+            (due g withPr roundAtConfirm, next withPr roundAtConfirm)
                 `shouldSatisfy` \case
                     (Nothing, Ask Confirm _) -> True
                     _ -> False

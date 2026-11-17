@@ -652,7 +652,14 @@ asked g state asking
                 }
   where
     qid = asking.question.qid
-    opens kind = kind == Ask.Design || kind == Ask.Scope
+    opens = \case
+        Ask.Design -> True
+        Ask.Scope -> True
+        Ask.Fact -> False
+        Ask.Pick -> False
+        Ask.Confirm -> False
+        Ask.Security -> False
+        Ask.Stuck -> False
     spends = case (asking.from, asking.question.kind) of
         (Itself, Ask.Stuck) -> False
         (Itself, _) -> True
