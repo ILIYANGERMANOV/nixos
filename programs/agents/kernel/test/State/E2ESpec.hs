@@ -5,9 +5,7 @@ slice C's.
 -}
 module State.E2ESpec (spec) where
 
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, throwIO, try)
+import Concurrently (bothAtOnce)
 import Control.Monad (replicateM_, void, (<=<))
 import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson qualified as Aeson
@@ -26,8 +24,9 @@ import Effects.Store (withStore)
 import Effects.Store qualified as Store
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Codec (decodeLine, eventType)
-import State.Run.Event (Envelope (..), FlowName (TenXFlow), RunId, Task (..), parseRunId)
+import State.Run.Event (Envelope (..), FlowName (TenXFlow), Task (..))
 import State.Run.Event qualified as Event
+import State.Run.EventGen (runId)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, taskFileJson)
 import System.Directory (createDirectory, findExecutable, getPermissions, setOwnerExecutable, setPermissions)
 import System.Environment (getEnv, getEnvironment)
@@ -282,10 +281,7 @@ spec = describe "the state binary" $ do
             let perProcess = 10
                 -- Each call appends one event: the same Fuel again, or its refusal.
                 appending = replicateM_ perProcess (void (state bin repo ["record", "fuel", "balanced"]))
-            done <- newEmptyMVar
-            _ <- forkIO (try @SomeException appending >>= putMVar done)
-            appending
-            takeMVar done >>= either throwIO pure
+            bothAtOnce appending appending
             seqs <- map (.seq) . rights . map decodeLine <$> dumped bin repo
             seqs `shouldBe` [1 .. fromIntegral (before + 2 * perProcess)]
 
@@ -293,8 +289,8 @@ spec = describe "the state binary" $ do
             parent <- tenXAtFanOut bin repo
             w1 <- worktree repo "w1"
             child <- childRun bin w1 parent "n1" "t1"
-            listed <- withStore (storeOf repo) (\store -> Store.children store (runIdOf parent))
-            listed `shouldBe` [runIdOf child]
+            listed <- withStore (storeOf repo) (\store -> Store.children store (runId parent))
+            listed `shouldBe` [runId child]
 
         describe "the review loop" $ do
             it "asks Stuck when rounds 1 and 2 pick the same row" $ \repo -> do
@@ -1106,9 +1102,6 @@ storedRows repo run = SQLite.withConnection (storeOf repo) $ \c -> map SQLite.fr
 -- | An event of log version 3, which this kernel does not read.
 olderEvent :: Text
 olderEvent = "{\"v\":3,\"ts\":\"2025-11-21T00:00:00Z\",\"type\":\"fuel\"}"
-
-runIdOf :: Text -> RunId
-runIdOf = fromMaybe (error "not a run id") . parseRunId
 
 -- | Each expected entry is in the list.
 shouldReturnContaining :: IO [Text] -> [Text] -> IO ()

@@ -4,14 +4,11 @@ the store does: hold up under writers at once, and link a child to its parent.
 -}
 module Effects.LogSpec (spec) where
 
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (IOException, SomeException, throwIO)
-import Control.Exception qualified as Exception
+import Concurrently (bothAtOnce)
+import Control.Exception (IOException)
+import Data.Either (isLeft)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromJust)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Time (UTCTime (..), fromGregorian)
 import Doubles.Environment (runEnvironmentGiven)
 import Doubles.Log (Runs (..), runLogInMemory)
@@ -23,10 +20,11 @@ import Effects.Store (children, withStore)
 import Effects.Store qualified as Store
 import State.Run.Ask (Parent (..), Principal (..))
 import State.Run.Codec (encodeLine)
-import State.Run.Event (Envelope (..), Event (..), FlowName (..), Note (..), RunId, Shape (..), Source (..), Start (..), TaskId (..), parseRunId)
+import State.Run.Event (Envelope (..), Event (..), FlowName (..), Note (..), RunId, Shape (..), Source (..), Start (..), TaskId (..))
+import State.Run.EventGen (runId)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
-import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
+import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy)
 
 spec :: Spec
 spec = describe "Effects.Log" $ do
@@ -102,7 +100,7 @@ contract backend = do
     it "throws on events for a run never started that do not start it" $ do
         failed <- backend [] (try @IOException (locked top ([followed top 1],)))
 
-        either (const True) (const False) failed `shouldBe` True
+        failed `shouldSatisfy` isLeft
 
 -- | A run's first event.
 started :: RunId -> Envelope
@@ -115,14 +113,6 @@ childOf parent run = envelope run 1 (Started Start {flow = EngineerFlow, notes =
 -- | An event past the start, at this seq.
 followed :: RunId -> Integer -> Envelope
 followed run n = envelope run (fromIntegral n) (Refused (Note "n" "f"))
-
--- | Both on threads of their own (the suite runs threaded), a failure of either thrown.
-bothAtOnce :: IO () -> IO () -> IO ()
-bothAtOnce first second = do
-    done <- newEmptyMVar
-    _ <- forkIO (Exception.try @SomeException first >>= putMVar done)
-    second
-    takeMVar done >>= either throwIO pure
 
 -- | One more event after those logged.
 appendOne :: Either a [Envelope] -> ([Envelope], ())
@@ -143,9 +133,6 @@ envelope run n event =
         }
 
 top, child, other :: RunId
-top = runIdOf "00010203"
-child = runIdOf "0a0b0c0d"
-other = runIdOf "ffff0000"
-
-runIdOf :: Text -> RunId
-runIdOf = fromJust . parseRunId
+top = runId "00010203"
+child = runId "0a0b0c0d"
+other = runId "ffff0000"

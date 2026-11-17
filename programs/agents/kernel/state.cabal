@@ -126,6 +126,7 @@ test-suite state-test
   -- on SQLite's lock must not stop the other.
   ghc-options:        -threaded
   other-modules:
+    Concurrently
     Doubles.Clock
     Doubles.Console
     Doubles.Environment
