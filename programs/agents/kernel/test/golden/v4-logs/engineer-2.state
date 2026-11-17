@@ -1,3 +1,6 @@
 run: r7f2 (engineer)
 step: out
 fuel: max
+hooks:
+  research.spawned: the spawn hook, as the lead spawns a researcher
+  research.handed_back: the handback hook, at its hand-back

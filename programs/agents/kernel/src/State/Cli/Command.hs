@@ -6,6 +6,7 @@ and every failure in the shape the @/self-improve@ analyzer parses:
 module State.Cli.Command (
     Command (..),
     RunCommand (..),
+    BriefPart (..),
     InitArgs (..),
     Origin (..),
     defaultFlow,
@@ -34,7 +35,7 @@ module State.Cli.Command (
     help,
 ) where
 
-import Control.Applicative (many, optional, some, (<**>))
+import Control.Applicative (many, optional, some, (<**>), (<|>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
 import Data.Map.Strict (Map)
@@ -87,8 +88,7 @@ data RunCommand
     = Record Recording
     | -- | An event the grammar lacks, refused with the events the run takes where it is.
       RecordUnknown Text
-    | -- | The role's brief, and the task a child engineer runs.
-      Brief AgentRole (Maybe TaskId)
+    | Brief AgentRole BriefPart
     | ShowRun
     | Override StateName Text
     | -- | The line of this seq is void, and why.
@@ -104,6 +104,10 @@ data RunCommand
       Answer Text Text (Maybe Above)
     | StopRun Stop
     | Pending
+
+-- | What of a role's brief to print: all of it, with a child engineer's task, or one step's section.
+data BriefPart = Whole (Maybe TaskId) | Section StateName
+    deriving stock (Eq, Show)
 
 {- | A child's flow, when not named, is its parent's fan-out's; a top run's
 is 'defaultFlow'.
@@ -225,10 +229,12 @@ commandInfo steps scope =
                     <$> textArgument "<role>"
                     <*> optional (textOption "child" "<run>" "the child run handing back, when the hand-back names none")
             , sub "next" "Print the next action, its facts and the step's task" (pure (Right Next))
-            , sub "brief" "Print a role's brief, a child engineer's task too" $
-                (\role task -> OnRun <$> (Brief <$> knownRole anyRole role <*> pure (TaskId <$> task)))
+            , sub "brief" "Print a role's brief, one section, or a child's task" $
+                (\role part -> OnRun <$> (Brief <$> knownRole anyRole role <*> pure part))
                     <$> textArgument "<role>"
-                    <*> optional (textOption "task" "<id>" "the task of the breakdown")
+                    <*> ( Section . StateName <$> textOption "section" "<step>" "only the section of this step"
+                            <|> Whole . fmap TaskId <$> optional (textOption "task" "<id>" "the task of the breakdown")
+                        )
             , sub "show" "Print where the run is and what it holds" (pure (Right (OnRun ShowRun)))
             , freeText "override" "Move the run to a state by hand, saying why" $
                 (\target why -> Right (OnRun (Override (StateName target) why)))

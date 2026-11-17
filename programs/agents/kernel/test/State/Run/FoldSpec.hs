@@ -480,6 +480,11 @@ gatherBudgets = describe "the gather's choice" $ do
         let adjusted = spent <> replicate 5 handedBack <> [enough, stepTook (PlanDone "p"), stepTook SimplifyPlanDone, stepTook ConfirmAdjusted]
         replay g (logOf (started :| adjusted <> asks 31 30 <> spawns 5)) `shouldSatisfy` isRight
 
+    it "keeps each gap recorded, oldest first, and stays where it is" $ do
+        let at = map (Took mempty) (take 7 happyPath)
+        fmap (\state -> (state.at, state.gaps)) (replay g (logOf (started :| at <> [Gapped "one", Gapped "two"])))
+            `shouldBe` fmap (\state -> (state.at, ["one", "two"])) (replay g (logOf (started :| at)))
+
     it "refuses extend outside the gather" $
         replay g (logOf (started :| map (Took mempty) (take 7 happyPath) <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where

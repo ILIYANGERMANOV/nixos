@@ -120,7 +120,7 @@ spec = describe "the state binary" $ do
 
         it "refuses an unknown event with no run, listing every event and fixing it by the help" $ \repo -> do
             refused <- state bin repo ["record", "bogus"]
-            (refused.code, map (Text.isPrefixOf "state record: no event bogus - the events are fuel, research.spawned, ") (take 1 refused.err), drop 1 refused.err)
+            (refused.code, map (Text.isPrefixOf "state record: no event bogus - the events are fuel, gap, research.spawned, ") (take 1 refused.err), drop 1 refused.err)
                 `shouldBe` (2, [True], ["fix: state help"])
 
         it "takes a question's kind in any case" $ \repo -> do

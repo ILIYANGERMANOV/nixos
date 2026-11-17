@@ -3,13 +3,13 @@ module State.Cli.ViewSpec (spec) where
 import Data.Foldable (for_)
 import Data.Text qualified as Text
 import State.Cli.Render qualified as Render
-import State.Cli.View (beginText, brief, briefOf)
+import State.Cli.View (beginText, brief, briefOf, briefSection, showRun)
 import State.Protocol.Handback (tokenWords)
 import State.Protocol.Hook (Begin (..), LeadSkill (..))
-import State.Run.Event (AgentRole (..), Event (Took))
-import State.Run.RunGen (happyPath, loadSteps, runAt)
+import State.Run.Event (AgentRole (..), Event (Gapped, Took), StateName (..))
+import State.Run.RunGen (g, happyPath, loadSteps, runAt)
 import State.Table (agentRoles)
-import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, expectationFailure, it, runIO, shouldBe, shouldSatisfy)
 
 spec :: Spec
 spec = describe "the texts that need no run" $ do
@@ -40,6 +40,35 @@ spec = describe "the texts that need no run" $ do
 
         it "is nothing for a role that runs no step" $
             briefOf steps (AgentRole "Explore") `shouldBe` ""
+
+    describe "one section of a role's brief" $ do
+        let researcher = AgentRole "researcher"
+            headings = filter ("## " `Text.isPrefixOf`) . Text.lines
+
+        it "holds only the step named, then the hand-back rule" $
+            case briefSection steps researcher (StateName "research") of
+                Right text -> (headings text, Render.handbackRule `Text.isInfixOf` text) `shouldBe` (["## research"], True)
+                Left _ -> expectationFailure "no research section"
+
+        it "is the role's sections, for every section, in order" $
+            mapM (briefSection steps researcher) [StateName "research", StateName "simplify_plan"]
+                `shouldSatisfy` either (const False) (\texts -> concatMap headings texts == headings (briefOf steps researcher))
+
+        it "names the role's sections when it runs no such step" $
+            briefSection steps researcher (StateName "implement") `shouldBe` Left [StateName "research", StateName "simplify_plan"]
+
+    describe "state show" $ do
+        it "lists which hook records the spawn and the hand-back of each step a subagent runs" $
+            showRun steps g (runAt []) `shouldSatisfy` \text ->
+                all
+                    (`Text.isInfixOf` text)
+                    [ "hooks:\n"
+                    , "  research.spawned: the spawn hook, as the lead spawns a researcher\n"
+                    , "  research.handed_back: the handback hook, at its hand-back\n"
+                    ]
+
+        it "lists the run's gaps, oldest first" $
+            showRun steps g (runAt [Gapped "one", Gapped "two"]) `shouldSatisfy` Text.isInfixOf "gaps:\n  one\n  two\n"
 
     describe "how work begins" $ do
         it "gives a spawned step runner its brief" $

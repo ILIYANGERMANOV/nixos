@@ -147,6 +147,9 @@ recordables =
     [ stay "fuel" ("<" <> choices fuelName <> ">") $ \case
         [raw] -> FuelSet <$> known "fuel" parseFuel raw
         _ -> Left "one level"
+    , stay "gap" "<text>" $ \case
+        [] -> Left "the gap"
+        gap -> Right (Gapped (Text.unwords gap))
     , nothing ResearchSpawned
     , nothing ResearchHandedBack
     ]

@@ -116,6 +116,8 @@ data RunState = RunState
     -- ^ Every ruling the run made, oldest first: @show@ and the hand-back list them (law Audit).
     , answers :: [Answer]
     -- ^ Every forwarded question answered from above, oldest first: @show@ lists them.
+    , gaps :: [Text]
+    -- ^ Every gap the lead recorded, oldest first: @show@ lists them.
     , drafted :: Maybe DraftPr
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     , untriaged :: [(AgentRole, OneLine)]
@@ -307,6 +309,7 @@ begin g envelope = case runStart envelope.event of
                 , askedHere = []
                 , rulings = []
                 , answers = []
+                , gaps = []
                 , drafted = Nothing
                 , published = Nothing
                 , untriaged = []
@@ -324,6 +327,7 @@ runStart = \case
     FuelSet _ -> Nothing
     Targeted _ -> Nothing
     Extended _ -> Nothing
+    Gapped _ -> Nothing
     Took _ _ -> Nothing
     Stopped _ -> Nothing
     Overridden _ _ -> Nothing
@@ -355,6 +359,7 @@ applyEvent g state n = \case
     FuelSet fuel -> going (fuelSet g state fuel)
     Targeted target -> going (targeted g state target)
     Extended _ -> going (extended g state)
+    Gapped gap -> going (Right state {gaps = state.gaps <> [gap]})
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
     Overridden name _ -> going (overridden g state name)

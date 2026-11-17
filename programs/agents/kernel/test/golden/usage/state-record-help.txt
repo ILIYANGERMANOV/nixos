@@ -7,6 +7,7 @@ Available options:
 
 Available commands:
   fuel                     <low|balanced|max>
+  gap                      <text>
   research.spawned         no arguments
   research.handed_back     no arguments
   gather.enough            no arguments

@@ -5,6 +5,7 @@ module State.Cli.View (
     showRun,
     pendingLines,
     brief,
+    briefSection,
     taskBrief,
     briefOf,
     beginText,
@@ -16,26 +17,28 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Fuel (fuelLabel)
-import State.Category.Graph (Node (..), OpenGraph, Place (..))
-import State.Category.Step (SomeStep (..), StateName, stateNameText, stepName)
+import State.Category.Graph (Node (..), OpenGraph (..), Place (..))
+import State.Category.Step (EventName (..), SomeStep (..), StateName, eventText, handedBackOutcome, spawnedOutcome, stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.FlowName (namedFlowText)
 import State.Protocol.Advice (Facts (..), factLines)
-import State.Protocol.Hook (Begin (..))
+import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName)
 import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
 import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
 import State.Show (tshow)
 import State.Step.Artifact (shellPathText, slugChar)
 import State.Step.Catalog (AnyStep (..))
-import State.Table (Row (..), Steps, row, stepsRunBy)
+import State.Table (Row (..), Steps, agentRoles, row, stepsRunBy)
 
--- | Where the run is and what it carries: step, mode, rounds, questions, rulings.
-showRun :: OpenGraph -> RunState -> Text
-showRun g state =
+{- | Where the run is and what it carries: step, mode, rounds, questions,
+rulings, gaps; and which hook records which of the flow's events.
+-}
+showRun :: Steps -> OpenGraph -> RunState -> Text
+showRun steps g state =
     Text.unlines $
         ["run: " <> runIdText state.run <> " (" <> flowText state.start.flow <> ")"]
             <> ["task: " <> taskIdText parent.task | ByRole parent _ _ <- [state.start.principal]]
@@ -46,11 +49,32 @@ showRun g state =
             <> section "pending:" (pendingLines state)
             <> section "rulings:" (map rulingLine state.rulings)
             <> section "answered:" (map answerLine state.answers)
+            <> section "gaps:" state.gaps
+            <> section "hooks:" (hookLines steps g)
   where
     answerLine answered = qidText answered.about.qid <> " " <> kindName answered.about.kind <> ": " <> oneLineText answered.about.text <> " - " <> answered.given
     section title = \case
         [] -> []
         items -> title : map ("  " <>) items
+
+{- | What the hooks record of the flow's events, so no agent records them
+by hand: the spawn and the hand-back of each step a subagent runs as a child
+of a choice, the only steps whose spawn a hook sees ('State.Protocol.Hook.spawnedAt').
+-}
+hookLines :: Steps -> OpenGraph -> [Text]
+hookLines steps g =
+    [ line
+    | role <- agentRoles steps
+    , AnyStep _ (SomeStep s) <- stepsRunBy steps role
+    , let spawned = EventName (stepName s) spawnedOutcome
+    , Set.member spawned flowEvents
+    , line <-
+        [ eventText spawned <> ": the " <> hookName SpawnHook <> " hook, as the lead spawns a " <> roleText role
+        , eventText (EventName (stepName s) handedBackOutcome) <> ": the " <> hookName HandbackHook <> " hook, at its hand-back"
+        ]
+    ]
+  where
+    flowEvents = Set.fromList (map snd (Map.keys g.edges))
 
 -- | One line per open question, oldest first.
 pendingLines :: RunState -> [Text]
@@ -149,6 +173,16 @@ engineerNotes rounds tried branch repo =
     slug c = if slugChar c then c else '-'
     roundSuffix = if rounds > 0 then "-r" <> tshow rounds else ""
     trySuffix = if tried > rounds then "-t" <> tshow (tried + 1) else ""
+
+{- | One section of a role's brief: the task text of the step named, then
+the rules its hand-back follows; the role's step names when it runs no such step.
+-}
+briefSection :: Steps -> AgentRole -> StateName -> Either [StateName] Text
+briefSection steps agent name = case filter ((== name) . fst) runs of
+    [] -> Left (map fst runs)
+    named -> Right (sections named <> rulesOf agent)
+  where
+    runs = runsOf steps agent
 
 {- | A role's brief wherever a run is: the task text of each step it runs,
 then the rules its hand-back follows. 'brief' gives it at a step the role
