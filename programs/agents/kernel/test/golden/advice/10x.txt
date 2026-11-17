@@ -1,0 +1,82 @@
+== gather
+RUN one option below
+  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state ask --kind <kind> <question> - asks one question; what it prints says who answers
+    state record gather.enough - on to plan
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+
+== plan
+RUN state record plan.done <path>
+  at plan: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record plan.done <path> - on to simplify_plan
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== simplify_plan
+SPAWN researcher background: no
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    simplify_plan.done - on to confirm
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal. Run the researcher skill's `references/proposal.md` on the plan your prompt names.
+
+== confirm
+ASK Confirm the simplified plan: confirmed, or adjusted?
+  at confirm: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record confirm.adjusted - back to gather, the plan loop's next round
+    state record confirm.confirmed - on to breakdown
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Propose: the simplified plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+
+== breakdown
+RUN state record breakdown.done --tasks <file.json>
+  at breakdown: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record breakdown.done --tasks <file.json> - on to engineers
+  fuel: balanced
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Break the confirmed plan into tasks.
+
+== engineers
+SPAWN engineer --task t1 background: no
+  at engineers: a fan-out - its tasks run as child runs; do what each unindented line says, then state next
+  fuel: balanced
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+
+== merge
+HANDBACK AWAIT merge t1 t2
+  at merge: a step you run - do the task below, run the option that fits its result, then state next
+  fuel: balanced
+  Rounds: 0 of 9 used, 9 left
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Merge: the review queue, the merge loop and the final audit, or a next round, as the 10x skill's Merge says.
+

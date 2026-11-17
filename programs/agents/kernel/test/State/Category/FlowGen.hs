@@ -14,8 +14,13 @@ module State.Category.FlowGen (
     skipsKept,
     composes,
     redrawn,
+    threeWay,
+    threeWayGraph,
+    genBranches,
 ) where
 
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -24,10 +29,10 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (Flow (..), Name, ScopePath, inl, inr, scopePath, (|||))
 import State.Category.Fuel (Fuel, PerFuel (..), SkipWhen (..), always, atFuel)
-import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), places)
+import State.Category.Graph (Arrow (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Meter (AtCap (..), Limit (..))
-import State.Category.Step (EventName, OutcomeEdge (..), StateName)
-import State.Category.Ty (NotSum, Ty (..))
+import State.Category.Step (EventName, OutcomeEdge (..), OutcomeName (..), StateName)
+import State.Category.Ty (KnownTy, NotSum, Ty (..))
 import State.Flow.Library (gather)
 import State.Flow.Triage (Sing (..))
 import State.Step.Build (Sing (..))
@@ -77,9 +82,24 @@ genBranching =
         , (\small big -> Do Triage :> (small ||| Do Implement :> big)) <$> genBranching <*> genBranching
         , (\f g -> inl :> (f ||| g)) <$> genBranching <*> genBranching
         , (\f g -> inr :> (f ||| g)) <$> genBranching <*> genBranching
+        , Route <$> genName <*> genBranches genBranching
         ]
 
-genEndo :: (NotSum a) => Kit a -> Gen (Flow a 'Nothing a)
+{- | A route from a diff to its PR over three branches, each entering a
+state of its own: @describe@, @refactor@ and a second @describe@.
+-}
+threeWay :: Flow 'Diff 'Nothing 'PR
+threeWay = Route "route" ((OutcomeName "small", Do Describe) :| [(OutcomeName "big", Do Refactor :> Do Describe), (OutcomeName "other", Do Describe :> Do Ready)])
+
+-- | 'threeWay''s graph.
+threeWayGraph :: OpenGraph
+threeWayGraph = either (error . show) id (graph threeWay)
+
+-- | A route's branches, one to three, each under a name of its own.
+genBranches :: Gen (Flow a e c) -> Gen (NonEmpty (OutcomeName, Flow a e c))
+genBranches gen = NonEmpty.zip (OutcomeName "small" :| [OutcomeName "big", OutcomeName "other"]) <$> Gen.nonEmpty (Range.linear 1 3) gen
+
+genEndo :: (KnownTy a, NotSum a) => Kit a -> Gen (Flow a 'Nothing a)
 genEndo kit =
     Gen.recursive
         Gen.choice
@@ -87,6 +107,7 @@ genEndo kit =
         ( [ Opt <$> genName <*> genSkips <*> genEndo kit
           , (:>) <$> genEndo kit <*> genEndo kit
           , Scope <$> genName <*> genEndo kit
+          , Route <$> genName <*> genBranches (genEndo kit)
           ]
             <> [Loop <$> genName <*> genExiting kit | not (null kit.exiting)]
         )
@@ -105,7 +126,7 @@ genSkips = PerFuel <$> skip <*> skip <*> skip
     skip = Gen.element [Never, AtOrBelow 100, Skippable]
 
 -- | A term with an exit, an exiting step glued on either side of an endo term.
-genExiting :: (NotSum a) => Kit a -> Gen (Flow a ('Just a) a)
+genExiting :: (KnownTy a, NotSum a) => Kit a -> Gen (Flow a ('Just a) a)
 genExiting kit =
     Gen.choice
         [ (:>) <$> Gen.element kit.exiting <*> genEndo kit
@@ -176,6 +197,7 @@ redrawn g =
         , edges = Map.fromList [((ranked from, event), fmap node edge) | ((from, event), edge) <- Map.toList g.edges]
         , loops = fmap (\at -> at {entry = ranked at.entry, body = Set.map ranked at.body}) g.loops
         , caps = Map.mapKeys (\metered -> metered {place = ranked metered.place}) g.caps
+        , routes = Set.map ranked g.routes
         }
   where
     ranks = Map.fromList (zip (Set.toList (places g)) [0 ..])

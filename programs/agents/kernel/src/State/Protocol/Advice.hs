@@ -45,7 +45,7 @@ import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), isRouteHub, placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary), StepSet (..), builtEvent, eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
@@ -261,7 +261,7 @@ skipsHere g state = case (state.stopped, state.at) of
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
-advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
+advise steps g facts state = Advice action more (atLine steps g state) leads (factLines g facts state) prompt notify
   where
     plain next = (next, "")
     more = case (state.stopped, fanHere) of
@@ -315,6 +315,7 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
         (Exit, _) -> plain (Done output)
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
+        (At place, _) | isRouteHub g state.at -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
             Just (AnyStep _ (SomeStep s)) -> (atStep place s, promptOf (row steps s))
@@ -339,6 +340,10 @@ advise steps g facts state = Advice action more (atLine steps state) leads (fact
             (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
             (Nothing, _) -> commandOption (recordCommand enough) "leaves the choice"
         option step = maybe (commandOption (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
+    -- A route asks the user its branch at most once, and only when the request leaves it open.
+    routePrompt
+        | Ask.Pick `elem` state.askedHere = "The user was asked the branch once: record the branch the answer names."
+        | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
     -- One line per action, so one action's task never reads as another's.
     choicePrompt place = Text.intercalate "\n" [promptOf (row steps s) | (step, _) <- budgetsAt place, Just (AnyStep _ (SomeStep s)) <- [stepNamed step]]
     actionAt :: Place -> AnyStep -> Option
@@ -723,18 +728,20 @@ ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itsel
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.
 -}
-atLine :: Steps -> RunState -> Text
-atLine steps state = case state.at of
-    At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place.name
+atLine :: Steps -> OpenGraph -> RunState -> Text
+atLine steps g state = case state.at of
+    At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place
     Out -> "at the end: the flow is done"
     Exit -> "at the end: the flow is done"
   where
-    meaning name = case (stepNamed name, choiceNamed name) of
-        (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
-            Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
-            Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
-        (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
-        (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
+    meaning place
+        | isRouteHub g (At place) = "a route you pick - take one option below, once, then state next"
+        | otherwise = case (stepNamed place.name, choiceNamed place.name) of
+            (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
+                Inline -> "a step you run - do the task below, run the option that fits its result, then state next"
+                Agent role _ -> "a step a " <> roleText role <> " subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback " <> roleText role <> "; then state next"
+            (Nothing, Just _) -> "a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each"
+            (Nothing, Nothing) -> "a fan-out - its tasks run as child runs; do what each unindented line says, then state next"
 
 {- | The lines under the advice's first line: where the run is, then each
 option to take, or where the step's outcomes lead, one per line.

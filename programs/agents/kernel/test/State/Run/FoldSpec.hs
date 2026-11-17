@@ -15,12 +15,14 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.Natural (Natural)
 import State.Category.Flow (Flow (..), scopePath)
-import State.Category.FlowGen (composes, genFlow, genWalk)
+import State.Category.FlowGen (composes, genFlow, genWalk, threeWay, threeWayGraph)
 import State.Category.Fuel (Fuel (..), always)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, placeName, places)
 import State.Category.Meter (AtCap (Extend), Limit (..), someMeterName)
 import State.Category.Path (ty)
+import State.Category.Step (OutcomeName (..))
 import State.Flow.Engineer (engineer)
+import State.Flow.Library qualified as Library
 import State.Flow.TenX (tenX)
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Basis (..), Choice (..), Kind (Design, Fact, Pick, Security), Proposal (..), QId (..), Question (..), Reading (..), Refusal (MayNotRule, MustAnswer, NoBasis), deliver, handback, oneLineText, qidText)
@@ -154,6 +156,25 @@ spec = describe "State.Run.Fold" $ do
             securityRun (toSecurity <> [stepTook (ReviewRows sha)]) `shouldSatisfy` \case
                 Left (NoEdge _ _) -> True
                 _ -> False
+
+    describe "a route" $ do
+        let routeRun flowGraph events = replay flowGraph (logOf (started :| events))
+            scopedRoute = either (error . show) id (graph (Scope "x" threeWay))
+            x = scopePath "x"
+            picked = Picked "route" . OutcomeName
+        it "moves into the branch the pick names" $
+            atName <$> routeRun threeWayGraph [stepTook (picked "big")] `shouldBe` Right (Just (StateName "refactor"))
+        it "refuses a pick of a branch the route lacks" $
+            routeRun threeWayGraph [stepTook (picked "huge")] `shouldSatisfy` \case
+                Left (NoEdge _ _) -> True
+                _ -> False
+        it "runs a scoped route from its scoped pick to the end" $
+            (.at) <$> routeRun scopedRoute [tookIn x (picked "small"), tookIn x (DescribeDone sha)] `shouldBe` Right Out
+
+    it "runs a scoped choice's actions, then leaves it by its scoped enough" $ do
+        let scopedGather = either (error . show) id (graph (Scope "x" Library.gather))
+            x = scopePath "x"
+        (.at) <$> replay scopedGather (logOf (started :| [tookIn x ResearchSpawned, tookIn x ResearchHandedBack, tookIn x (Enough gathering)])) `shouldBe` Right Out
 
     describe "two scoped copies of one fan-out" $ do
         let copiesRun events = replay scopedFans (logOf (Started (startOf TenXFlow (ByUser OwnPr)) :| events))
@@ -335,7 +356,10 @@ spec = describe "State.Run.Fold" $ do
         fuelOf <$> replay routed (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Right Low
 
     it "refuses a new Fuel past the Route hub" $
-        replay routed (logOf (started :| [FuelSet Max, Overridden (StateName "chief/plan") "routed", FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
+        replay routed (logOf (started :| [FuelSet Max, Overridden (StateName "chief/refactor") "routed", FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
+
+    it "refuses a new Fuel at a choice merely named route" $
+        replay routeNamedChoice (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
 
     it "takes the same Fuel again" $
         fuelOf <$> replay g (logOf (started :| [FuelSet Max, FuelSet Max])) `shouldBe` Right Max
@@ -635,11 +659,13 @@ scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Sc
   where
     fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
 
-{- | A request routed at a hub, then planned. The hub is a choice named
-@route@, the name the Route hub stub reads, until Route lands.
--}
+-- | A request routed at a Route hub, under a scope as a run's request is.
 routed :: OpenGraph
-routed = either (error . show) id (graph (Scope "chief" (Choice "route" [Capped (always (UpTo 1)) Extend Interview] :> Do PlanS)))
+routed = either (error . show) id (graph (Scope "chief" threeWay))
+
+-- | A choice that takes a Route hub's name but is no Route.
+routeNamedChoice :: OpenGraph
+routeNamedChoice = either (error . show) id (graph (Scope "chief" (Choice "route" [Capped (always (UpTo 1)) Extend Interview] :> Do PlanS)))
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
 first's PRs. No step goes from a PR back to a plan, so the second has no

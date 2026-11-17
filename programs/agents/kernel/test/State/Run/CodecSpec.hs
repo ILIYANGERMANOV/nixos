@@ -10,6 +10,7 @@ import Data.Time.Calendar (fromGregorian)
 import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import State.Category.Flow (scopePath)
 import State.Category.Fuel (Fuel (Low))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
@@ -18,6 +19,7 @@ import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
 import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
+import State.Step.Choice (Outcome (..), gathering)
 import State.Step.Fan (Outcome (..), engineers)
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
@@ -67,6 +69,10 @@ spec = describe "State.Run.Codec" $ do
     it "reads a step's outcome inside a scope under its qualified type" $
         decodeLine (encodeLine reviewRows `replacing` ("\"type\":\"review.rows\"", "\"type\":\"security/review.rows\""))
             `shouldBe` Right reviewRows {event = tookIn securityScope (ReviewRows (Sha "abc123"))}
+
+    it "reads a choice's enough inside a scope under its qualified type" $
+        decodeLine (encodeLine reviewRows {event = stepTook (Enough gathering)} `replacing` ("\"type\":\"gather.enough\"", "\"type\":\"x/gather.enough\""))
+            `shouldBe` Right reviewRows {event = tookIn (scopePath "x") (Enough gathering)}
 
     it "refuses a run's event inside a scope: only a step's outcome is named so" $
         decodeLine (encodeLine reviewRows {event = FuelSet Low} `replacing` ("\"type\":\"fuel\"", "\"type\":\"security/fuel\"")) `shouldSatisfy` malformed

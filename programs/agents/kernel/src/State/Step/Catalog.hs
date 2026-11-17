@@ -27,7 +27,7 @@ import State.Category.Graph (Cap (..), Edge, Metered (..), Node (..), OpenGraph 
 import State.Category.Step (Decoder, EventName (..), SomeOutcome, SomeStep (..), StateName, StepSet (..), decodeWith, decoderEvent, payload)
 import State.Category.Step qualified as Step
 import State.Step.Build (BuildStep)
-import State.Step.Choice (ChoiceStep, Sing (Hub), choices)
+import State.Step.Choice (ChoiceStep, Sing (Hub, Pick), choices, routes)
 import State.Step.Fan (FanStep, Sing (FanOut), fanOuts)
 import State.Step.Gather (GatherStep)
 import State.Step.Plan (PlanStep)
@@ -135,11 +135,16 @@ allSteps = concatMap stepsOf layers
     stepsOf (SomeLayer l) = map (AnyStep l) layerSteps
 
 {- | Every step with outcomes: those 'allSteps' lists, each fan-out's own
-state, which 'State.Category.Flow.Par' draws, and each choice's, which
-'State.Category.Flow.Choice' draws.
+state, which 'State.Category.Flow.Par' draws, each choice's, which
+'State.Category.Flow.Choice' draws, and each route's, per branch, which
+'State.Category.Flow.Route' draws.
 -}
 outcomeSteps :: [AnyStep]
-outcomeSteps = allSteps <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts] <> [AnyStep ChoiceLayer (SomeStep (Hub choice)) | choice <- choices]
+outcomeSteps =
+    allSteps
+        <> [AnyStep FanLayer (SomeStep (FanOut fan)) | fan <- fanOuts]
+        <> [AnyStep ChoiceLayer (SomeStep (Hub choice)) | choice <- choices]
+        <> [AnyStep ChoiceLayer (SomeStep (Pick route branch)) | (route, branches) <- routes, branch <- branches]
 
 -- | The step a state is named after; a fan-out's state names none.
 stepNamed :: StateName -> Maybe AnyStep

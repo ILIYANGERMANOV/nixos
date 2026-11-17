@@ -1,0 +1,446 @@
+== gather
+RUN one option below
+  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state ask --kind <kind> <question> - asks one question; what it prints says who answers
+    state record gather.enough - on to plan
+  fuel: low
+  Researchers: 0 of 1 used, 1 left
+  Interview questions: 0 of 15 used, 15 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+
+== plan
+RUN state record plan.done <path>
+  at plan: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record plan.done <path> - on to simplify_plan
+  fuel: low
+  Plan rounds: 0 of 3 used, 3 left
+Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== simplify_plan
+SPAWN researcher background: no
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    simplify_plan.done - on to confirm
+  fuel: low
+  Plan rounds: 0 of 3 used, 3 left
+  Low: skip it when the task is trivial: state record simplify_plan.skipped
+Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal. Run the researcher skill's `references/proposal.md` on the plan your prompt names.
+
+== confirm
+ASK Confirm the simplified plan: confirmed, or adjusted?
+  at confirm: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record confirm.adjusted - back to gather, the plan loop's next round
+    state record confirm.confirmed - on to draft
+  fuel: low
+  Plan rounds: 0 of 3 used, 3 left
+Propose: the simplified plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+
+== draft
+RUN state record draft.done <url> <base> <branch>
+  at draft: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record draft.done <url> <base> <branch> - on to implement
+  fuel: low
+Build: branch from origin/<base>, or keep the worktree's task branch; an empty commit `Draft: <task> (plan only)`, push, and the draft PR against <base> (`gh pr create --draft --base <base>`) with the plan as its body.
+
+== implement
+SPAWN implementer background: no
+  at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  outcomes:
+    implement.done - on to refactor
+  fuel: low
+Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== refactor
+SPAWN refactorer background: no
+  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback refactorer; then state next
+  outcomes:
+    refactor.done - on to review
+  fuel: low
+  Low: skip it when the task is trivial: state record refactor.skipped <why>
+Build: one refactorer, briefed with `state brief refactorer`. Refactor the branch's diff; hand back each bigger proposal as a Scope question.
+
+== review
+SPAWN review-lead background: no
+  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  outcomes:
+    review.clean - on to describe
+    review.rows - on to pick
+  fuel: low
+Review: one review-lead, briefed with `state brief review-lead`. Run `pragmatic-review` on the branch against the requirements file.
+
+== pick
+RUN one option below
+  at pick: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe
+    state record pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to fix
+  fuel: low
+  Re-reviews: 0 of 1 used, 1 left
+Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` goes on to describe, where the final fixer gets the chosen rows; `loop` sends them to a fixer, then a re-review, and spends one Re-review. An Unverified requirement is a verdict (`--verdict <req>=unverified`), never a row: with no surviving Major and no Not met, `final` with no `--row`.
+
+== fix
+SPAWN fixer background: no
+  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    fix.done - on to re_review
+  fuel: low
+  Re-reviews: 0 of 1 used, 1 left
+Review: one fixer for the picked rows, briefed with `state brief fixer`. Fix the picked rows your prompt names.
+
+== re_review
+SPAWN review-lead background: no
+  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  outcomes:
+    re_review.clean - on to describe
+    re_review.rows - back to pick, the fix loop's next round
+  fuel: low
+  Re-reviews: 0 of 1 used, 1 left
+Review: one review-lead for the fix, briefed with `state brief review-lead`. Run `pragmatic-review` with `--fixes <sha>`, the last review's head, on the fix against the requirements file; a fix that touches what your Fuel row's Full review of a fix to names gets the whole branch.
+
+== describe
+SPAWN fixer background: no
+  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    describe.done - on to simplify_pr
+  fuel: low
+Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing the PR body's full facts as `pr-description` says, and any picked rows your prompt names; nothing reviews your fix.
+
+== simplify_pr
+SPAWN fixer background: no
+  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    simplify_pr.done - on to await_ci
+  fuel: low
+Describe: a fixer on row S0, briefed with `state brief fixer`. Row S0: `pr-description`'s Simplify; your hand-back ends `Simplified: <head sha>`.
+
+== await_ci
+HANDBACK AWAIT ci the PR
+  at await_ci: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record await_ci.green - on to ready
+    state record await_ci.red <check>... - on to fix_pr
+  fuel: low
+  CI fixes: 0 of 5 used, 5 left
+Ship: CI on the PR. `green` when every check passes; `red` names the failing checks.
+
+== fix_pr
+SPAWN fixer background: no
+  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    fix_pr.done - back to await_ci, the ci loop's next round
+  fuel: low
+  CI fixes: 0 of 5 used, 5 left
+Ship: one fixer on the failing checks, as `references/review.md`'s CI fix says, briefed with `state brief fixer`. Fix the failing checks your prompt names.
+
+== ready
+RUN state record ready.done <url>
+  at ready: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record ready.done <url> - the flow ends
+  fuel: low
+Ship: the skill's gates, then mark the PR ready.
+
+
+== gather
+RUN one option below
+  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state ask --kind <kind> <question> - asks one question; what it prints says who answers
+    state record gather.enough - on to plan
+  fuel: balanced
+  Researchers: 0 of 5 used, 5 left
+  Interview questions: 0 of 30 used, 30 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+
+== plan
+RUN state record plan.done <path>
+  at plan: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record plan.done <path> - on to simplify_plan
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== simplify_plan
+SPAWN researcher background: no
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    simplify_plan.done - on to confirm
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal. Run the researcher skill's `references/proposal.md` on the plan your prompt names.
+
+== confirm
+ASK Confirm the simplified plan: confirmed, or adjusted?
+  at confirm: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record confirm.adjusted - back to gather, the plan loop's next round
+    state record confirm.confirmed - on to draft
+  fuel: balanced
+  Plan rounds: 0 of 3 used, 3 left
+Propose: the simplified plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+
+== draft
+RUN state record draft.done <url> <base> <branch>
+  at draft: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record draft.done <url> <base> <branch> - on to implement
+  fuel: balanced
+Build: branch from origin/<base>, or keep the worktree's task branch; an empty commit `Draft: <task> (plan only)`, push, and the draft PR against <base> (`gh pr create --draft --base <base>`) with the plan as its body.
+
+== implement
+SPAWN implementer background: no
+  at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  outcomes:
+    implement.done - on to refactor
+  fuel: balanced
+Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== refactor
+SPAWN refactorer background: no
+  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback refactorer; then state next
+  outcomes:
+    refactor.done - on to review
+  fuel: balanced
+Build: one refactorer, briefed with `state brief refactorer`. Refactor the branch's diff; hand back each bigger proposal as a Scope question.
+
+== review
+SPAWN review-lead background: no
+  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  outcomes:
+    review.clean - on to describe
+    review.rows - on to pick
+  fuel: balanced
+Review: one review-lead, briefed with `state brief review-lead`. Run `pragmatic-review` on the branch against the requirements file.
+
+== pick
+RUN one option below
+  at pick: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe
+    state record pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to fix
+  fuel: balanced
+  Re-reviews: 0 of 3 used, 3 left
+Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` goes on to describe, where the final fixer gets the chosen rows; `loop` sends them to a fixer, then a re-review, and spends one Re-review. An Unverified requirement is a verdict (`--verdict <req>=unverified`), never a row: with no surviving Major and no Not met, `final` with no `--row`.
+
+== fix
+SPAWN fixer background: no
+  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    fix.done - on to re_review
+  fuel: balanced
+  Re-reviews: 0 of 3 used, 3 left
+Review: one fixer for the picked rows, briefed with `state brief fixer`. Fix the picked rows your prompt names.
+
+== re_review
+SPAWN review-lead background: no
+  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  outcomes:
+    re_review.clean - on to describe
+    re_review.rows - back to pick, the fix loop's next round
+  fuel: balanced
+  Re-reviews: 0 of 3 used, 3 left
+Review: one review-lead for the fix, briefed with `state brief review-lead`. Run `pragmatic-review` with `--fixes <sha>`, the last review's head, on the fix against the requirements file; a fix that touches what your Fuel row's Full review of a fix to names gets the whole branch.
+
+== describe
+SPAWN fixer background: no
+  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    describe.done - on to simplify_pr
+  fuel: balanced
+Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing the PR body's full facts as `pr-description` says, and any picked rows your prompt names; nothing reviews your fix.
+
+== simplify_pr
+SPAWN fixer background: no
+  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    simplify_pr.done - on to await_ci
+  fuel: balanced
+Describe: a fixer on row S0, briefed with `state brief fixer`. Row S0: `pr-description`'s Simplify; your hand-back ends `Simplified: <head sha>`.
+
+== await_ci
+HANDBACK AWAIT ci the PR
+  at await_ci: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record await_ci.green - on to ready
+    state record await_ci.red <check>... - on to fix_pr
+  fuel: balanced
+  CI fixes: 0 of 5 used, 5 left
+Ship: CI on the PR. `green` when every check passes; `red` names the failing checks.
+
+== fix_pr
+SPAWN fixer background: no
+  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    fix_pr.done - back to await_ci, the ci loop's next round
+  fuel: balanced
+  CI fixes: 0 of 5 used, 5 left
+Ship: one fixer on the failing checks, as `references/review.md`'s CI fix says, briefed with `state brief fixer`. Fix the failing checks your prompt names.
+
+== ready
+RUN state record ready.done <url>
+  at ready: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record ready.done <url> - the flow ends
+  fuel: balanced
+Ship: the skill's gates, then mark the PR ready.
+
+
+== gather
+RUN one option below
+  at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
+  options:
+    spawn a researcher in the foreground - prompted with state brief researcher and the task below; the hook records research.spawned, and its hand-back as research.handed_back
+    state ask --kind <kind> <question> - asks one question; what it prints says who answers
+    state record gather.enough - on to plan
+  fuel: max
+  Researchers: 0 used, one per group
+  Interview questions: 0 of 50 used, 50 left
+  Plan rounds: 0 of 3 used, 3 left
+Gather: spawn a researcher per open fact group, in the background or not as its option says, each prompted per the researcher skill's `## Callers`; the hooks record each spawn and hand-back. Each researcher's task: Research the open fact group your prompt names, as the researcher skill says.
+Gather: the `grilling` interview, one question at a time, each through `state ask`, no record between; spawn a researcher for any fact an answer opens. `gather.enough` when nothing is open and every researcher handed back. At either Fuel budget's end, asked whether to go on: yes is `extend <why>`, no is `gather.enough`.
+
+== plan
+RUN state record plan.done <path>
+  at plan: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record plan.done <path> - on to simplify_plan
+  fuel: max
+  Plan rounds: 0 of 3 used, 3 left
+Propose: write the plan in the notes directory, as the skill's Propose block says.
+
+== simplify_plan
+SPAWN researcher background: no
+  at simplify_plan: a step a researcher subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback researcher; then state next
+  outcomes:
+    simplify_plan.done - on to confirm
+  fuel: max
+  Plan rounds: 0 of 3 used, 3 left
+Propose: one researcher, naming the plan and the notes directory. After an adjust that kept the approach, rerun nothing: `state record simplify_plan.done` on the earlier proposal. Run the researcher skill's `references/proposal.md` on the plan your prompt names.
+
+== confirm
+ASK Confirm the simplified plan: confirmed, or adjusted?
+  at confirm: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record confirm.adjusted - back to gather, the plan loop's next round
+    state record confirm.confirmed - on to draft
+  fuel: max
+  Plan rounds: 0 of 3 used, 3 left
+Propose: the simplified plan as one Confirm question. `confirmed` builds it; `adjusted` gathers again.
+
+== draft
+RUN state record draft.done <url> <base> <branch>
+  at draft: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record draft.done <url> <base> <branch> - on to implement
+  fuel: max
+Build: branch from origin/<base>, or keep the worktree's task branch; an empty commit `Draft: <task> (plan only)`, push, and the draft PR against <base> (`gh pr create --draft --base <base>`) with the plan as its body.
+
+== implement
+SPAWN implementer background: no
+  at implement: a step a implementer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback implementer; then state next
+  outcomes:
+    implement.done - on to refactor
+  fuel: max
+Build: implementers, one per slice, one after another, in parallel only when independent; brief each with `state brief implementer` plus its slice. Build the slice your prompt names, as the plan says.
+
+== refactor
+SPAWN refactorer background: no
+  at refactor: a step a refactorer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback refactorer; then state next
+  outcomes:
+    refactor.done - on to review
+  fuel: max
+Build: one refactorer, briefed with `state brief refactorer`. Refactor the branch's diff; hand back each bigger proposal as a Scope question.
+
+== review
+SPAWN review-lead background: no
+  at review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  outcomes:
+    review.clean - on to describe
+    review.rows - on to pick
+  fuel: max
+Review: one review-lead, briefed with `state brief review-lead`. Run `pragmatic-review` on the branch against the requirements file.
+
+== pick
+RUN one option below
+  at pick: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe
+    state record pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to fix
+  fuel: max
+  Re-reviews: 0 of 5 used, 5 left
+Review: pick the rows to fix and judge each requirement, as `references/review.md` says. `final` goes on to describe, where the final fixer gets the chosen rows; `loop` sends them to a fixer, then a re-review, and spends one Re-review. An Unverified requirement is a verdict (`--verdict <req>=unverified`), never a row: with no surviving Major and no Not met, `final` with no `--row`.
+
+== fix
+SPAWN fixer background: no
+  at fix: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    fix.done - on to re_review
+  fuel: max
+  Re-reviews: 0 of 5 used, 5 left
+Review: one fixer for the picked rows, briefed with `state brief fixer`. Fix the picked rows your prompt names.
+
+== re_review
+SPAWN review-lead background: no
+  at re_review: a step a review-lead subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback review-lead; then state next
+  outcomes:
+    re_review.clean - on to describe
+    re_review.rows - back to pick, the fix loop's next round
+  fuel: max
+  Re-reviews: 0 of 5 used, 5 left
+Review: one review-lead for the fix, briefed with `state brief review-lead`. Run `pragmatic-review` with `--fixes <sha>`, the last review's head, on the fix against the requirements file; a fix that touches what your Fuel row's Full review of a fix to names gets the whole branch.
+
+== describe
+SPAWN fixer background: no
+  at describe: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    describe.done - on to simplify_pr
+  fuel: max
+Describe: the final fixer, briefed with `state brief fixer`. Fix row R0, writing the PR body's full facts as `pr-description` says, and any picked rows your prompt names; nothing reviews your fix.
+
+== simplify_pr
+SPAWN fixer background: no
+  at simplify_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    simplify_pr.done - on to await_ci
+  fuel: max
+Describe: a fixer on row S0, briefed with `state brief fixer`. Row S0: `pr-description`'s Simplify; your hand-back ends `Simplified: <head sha>`.
+
+== await_ci
+HANDBACK AWAIT ci the PR
+  at await_ci: a step you run - do the task below, run the option that fits its result, then state next
+  outcomes:
+    state record await_ci.green - on to ready
+    state record await_ci.red <check>... - on to fix_pr
+  fuel: max
+  CI fixes: 0 of 5 used, 5 left
+Ship: CI on the PR. `green` when every check passes; `red` names the failing checks.
+
+== fix_pr
+SPAWN fixer background: no
+  at fix_pr: a step a fixer subagent runs - spawn it with the task below; its hand-back is recorded by the hook, or by piping it into state handback fixer; then state next
+  outcomes:
+    fix_pr.done - back to await_ci, the ci loop's next round
+  fuel: max
+  CI fixes: 0 of 5 used, 5 left
+Ship: one fixer on the failing checks, as `references/review.md`'s CI fix says, briefed with `state brief fixer`. Fix the failing checks your prompt names.
+
+== ready
+RUN state record ready.done <url>
+  at ready: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record ready.done <url> - the flow ends
+  fuel: max
+Ship: the skill's gates, then mark the PR ready.
+
+
