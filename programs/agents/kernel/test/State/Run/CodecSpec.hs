@@ -62,7 +62,7 @@ spec = describe "State.Run.Codec" $ do
         decodeLine (encodeLine reviewRows `replacing` ("r7f2", "h")) `shouldSatisfy` malformed
 
     it "refuses a parent run h" $
-        decodeLine (encodeLine parentRun `replacing` ("\"run\":\"r7f2\",\"log\"", "\"run\":\"h\",\"log\"")) `shouldSatisfy` malformed
+        decodeLine (encodeLine parentRun `replacing` ("\"run\":\"r7f2\",\"task\"", "\"run\":\"h\",\"task\"")) `shouldSatisfy` malformed
 
     it "refuses a CLI id that names another seq" $
         decodeLine (encodeLine reviewRows `replacing` ("r7f2:12", "r7f2:11")) `shouldSatisfy` malformed
@@ -266,8 +266,13 @@ pythonV1, pythonV2 :: Text
 pythonV1 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\"}}"
 pythonV2 = "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"
 
+{- | Errors when @old@ is absent, so a stale pattern fails its test instead of
+quietly checking the unchanged line.
+-}
 replacing :: Text -> (Text, Text) -> Text
-replacing whole (old, new) = Text.replace old new whole
+replacing whole (old, new)
+    | old `Text.isInfixOf` whole = Text.replace old new whole
+    | otherwise = error ("replacing: " <> show old <> " is not in " <> show whole)
 
 malformed :: Either LineError a -> Bool
 malformed = \case

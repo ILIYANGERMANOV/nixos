@@ -291,7 +291,8 @@ spec = describe "the state binary" $ do
 
         it "records a child's parent run, and the store lists it among the parent's children" $ \repo -> do
             parent <- tenXAtFanOut bin repo
-            child <- childRun bin repo parent "n1" "t1"
+            w1 <- worktree repo "w1"
+            child <- childRun bin w1 parent "n1" "t1"
             listed <- withStore (storeOf repo) (\store -> Store.children store (runIdOf parent))
             listed `shouldBe` [runIdOf child]
 
