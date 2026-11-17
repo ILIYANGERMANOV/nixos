@@ -475,7 +475,7 @@ spec = describe "State.Protocol.Advice" $ do
     draftPr = DraftPr prUrl (Branch "main") (Branch "b")
     userRound = start {principal = ByUser (RoundOn prUrl)}
     parent = runId "p1"
-    child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms, interface = Set.empty}
+    child = start {principal = ByRole (Parent parent (TaskId "t1")) OwnPr ChildConfirms, interface = Set.empty}
     which = Question (QId run 1) Design (oneLine "which store?")
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"

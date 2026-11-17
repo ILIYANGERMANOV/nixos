@@ -122,7 +122,7 @@ No `refactor` per round: `/final-review` covers the whole PR.
   needed, so `/final-review` goes deep there.
 - If the rest of the description no longer matches, rewrite it with the
   `pr-description` skill, which keeps its shape and budget.
-- When a 10x run tracks this PR (`rg -l <PR URL> ~/.10x/*/events.jsonl`), run
+- When a 10x run tracks this PR (`rg -l <PR URL> ~/.10x/` finds its notes), run
   `state record held <task> <PR URL>` in that run's directory, `<task>` the
   one its `state show` lists with this PR: the push voided the approval. Its
   next wake reads it.

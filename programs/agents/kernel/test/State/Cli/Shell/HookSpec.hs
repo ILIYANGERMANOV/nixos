@@ -7,15 +7,15 @@ module State.Cli.Shell.HookSpec (spec) where
 import Data.Aeson (Value (..), decodeStrictText)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Foldable (for_)
-import Data.IORef (IORef, modifyIORef')
+import Data.IORef (modifyIORef')
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Doubles.FileSystem (Disk (..))
 import State.Cli.Shell.World
 import State.Protocol.Advice (Readiness (..))
-import State.Run.Event (Branch (..), Envelope (..), runIdText)
-import Test.Hspec (Spec, before, describe, expectationFailure, it, shouldBe, shouldReturn, shouldSatisfy)
+import State.Run.Event (Branch (..))
+import Test.Hspec (Spec, before, describe, it, shouldBe, shouldReturn, shouldSatisfy)
 
 spec :: Spec
 spec = describe "state-hook over the doubles" $ do
@@ -44,7 +44,7 @@ spec = describe "state-hook over the doubles" $ do
 
             it "is silent on a log it does not read" $ \world -> do
                 _ <- startedRun world
-                editLog world (const "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n")
+                editLog world (const ["{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"])
 
                 said <- succeeded =<< hook world "resume" sessionStart
 
@@ -52,12 +52,12 @@ spec = describe "state-hook over the doubles" $ do
 
             it "tells a log line it does not read, as context" $ \world -> do
                 _ <- drive world []
-                editLog world (<> "{\"v\":3,broken\n")
+                editLog world (<> ["{\"v\":3,broken"])
 
                 said <- hook world "resume" sessionStart
 
                 said.code `shouldBe` 0
-                contextOf said `shouldSatisfy` maybe False ("line 2 is not read" `Text.isInfixOf`)
+                contextOf said `shouldSatisfy` maybe False ("event 2 is not read" `Text.isInfixOf`)
 
             it "tells a disk failure before any run is found as context naming none, and still exits 0" $ \world -> do
                 _ <- drive world []
@@ -79,7 +79,7 @@ spec = describe "state-hook over the doubles" $ do
             it "names the run of the session's own worktree on a log line it does not read" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
-                editLog world (<> "{\"v\":3,broken\n")
+                editLog world (<> ["{\"v\":3,broken"])
 
                 said <- hook world "resume" sessionStart
 
@@ -88,7 +88,7 @@ spec = describe "state-hook over the doubles" $ do
             it "names the run of the session's own worktree on a disk failure" $ \world -> do
                 _ <- drive world []
                 run <- runOf world
-                unmount world notes
+                storeDown world
 
                 said <- hook world "resume" sessionStart
 
@@ -331,7 +331,7 @@ spec = describe "state-hook over the doubles" $ do
                 _ <- drive world (init toImplement)
                 run <- runOf world
                 _ <- hook world "bind" (spawnResult "implementer")
-                editLog world (<> "{\"v\":3,broken\n")
+                editLog world (<> ["{\"v\":3,broken"])
 
                 said <- hook world "handback" (handedBack "implementer")
 
@@ -341,7 +341,7 @@ spec = describe "state-hook over the doubles" $ do
                 _ <- drive world (init toImplement)
                 run <- runOf world
                 _ <- hook world "bind" (spawnResult "implementer")
-                unmount world notes
+                storeDown world
 
                 said <- hook world "handback" (handedBack "implementer")
 
@@ -351,7 +351,7 @@ spec = describe "state-hook over the doubles" $ do
                 _ <- drive world (init toImplement)
                 run <- runOf world
                 _ <- hook world "handback" (handedBack "implementer")
-                unmount world notes
+                storeDown world
 
                 said <- hook world "bind" (spawnResult "implementer")
 
@@ -486,11 +486,11 @@ spec = describe "state-hook over the doubles" $ do
 
             it "appends nothing on bad usage" $ \world -> do
                 _ <- drive world []
-                before' <- logBytes world
+                before' <- logRows world
 
                 _ <- hook world "handback" "not json"
 
-                after <- logBytes world
+                after <- logRows world
                 after `shouldBe` before'
 
 -- | Calls the architect's run denies: a commit, a push, a PR opened.
@@ -505,24 +505,11 @@ issuing = ["gh issue create --repo o/r --title '[WIP] t' --body x", "gh issue ed
 denies :: Ran -> Bool
 denies said = any ("the architect flow changes no code" `Text.isInfixOf`) said.out
 
--- | The id of the run the worktree's log holds.
-runOf :: IORef World -> IO Text
-runOf world =
-    logged world >>= \case
-        first : _ -> pure (runIdText first.run)
-        [] -> "" <$ expectationFailure "no run logged"
-
 -- | The @context@ of the reply printed, if any.
 contextOf :: Ran -> Maybe Text
 contextOf said = case decodeStrictText (Text.concat said.out) of
     Just (Object reply) | Just (String context) <- KeyMap.lookup "context" reply -> Just context
     _ -> Nothing
-
-{- | A directory gone from under the files in it, as when a disk unmounts:
-they still read, but nothing writes there.
--}
-unmount :: IORef World -> FilePath -> IO ()
-unmount world dir = modifyIORef' world (\w -> w {disk = w.disk {dirs = Set.delete dir w.disk.dirs}})
 
 -- | Session @s1@'s bindings, under the world's @HOME@.
 bindings :: FilePath

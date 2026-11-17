@@ -183,7 +183,7 @@ taskJson task =
 
 -- | The child run of this id, for this task.
 childOf :: Text -> Text -> Child
-childOf child task = Child (runId child) (TaskId task) (Text.unpack child <> "/events.jsonl") (Text.unpack child)
+childOf child task = Child (runId child) (TaskId task) (Text.unpack child)
 
 sha :: Sha
 sha = Sha "abc123"

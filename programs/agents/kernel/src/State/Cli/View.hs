@@ -25,7 +25,7 @@ import State.Protocol.Advice (Facts (..), factLines)
 import State.Protocol.Hook (Begin (..), HookName (HandbackHook, SpawnHook), hookName, opensChild)
 import State.Role (leads)
 import State.Run.Ask (Parent (..), Principal (ByRole), Question (..), kindName, oneLineText, qidText, rulingLine)
-import State.Run.Codec (branchText, flowText, logOf, reasonText, taskIdText, topicText, urlText)
+import State.Run.Codec (branchText, flowText, reasonText, taskIdText, topicText, urlText)
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Branch, FlowName, Note (..), Repo (..), Shape (..), Start (..), Stop (..), Task (..), TaskId, roleText, runIdText)
 import State.Run.Fan (Fan (..), lookupTask, tries)
 import State.Run.Fold (Answer (..), Pending (..), RunState (..), Waits (..), askedAt, currentFan)
@@ -151,8 +151,6 @@ initLine state flow notesText taskText =
         <> flowFlag
         <> " --parent "
         <> runIdText state.run
-        <> " --parent-log "
-        <> Text.pack (logOf state.start.notes)
         <> " --task "
         <> taskText
         <> "\n"

@@ -23,6 +23,8 @@ module State.Cli.Shell.World (
     addWorktree,
     childWorktree,
     logged,
+    runOf,
+    storeDown,
     loggedEvents,
     loggedEventsIn,
     headOf,
@@ -30,11 +32,10 @@ module State.Cli.Shell.World (
     prOn,
     editLog,
     editLogIn,
-    logBytes,
+    logRows,
     fileBytes,
     prUrl,
     notes,
-    eventsPath,
     sessionStart,
     sessionStartIn,
     handedBack,
@@ -61,7 +62,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -74,14 +75,14 @@ import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
 import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
-import Doubles.Log (runLogInMemory)
+import Doubles.Log (Runs (..), rowsOf, runLogInMemory)
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
 import Effectful.State.Static.Local (runState)
 import State.Cli.Shell qualified as Shell
 import State.Protocol.Advice (PrView (..), PullRequest (..), Readiness (..))
-import State.Run.Codec (LogError (..), decodeLogBytes, eventType, logOf)
-import State.Run.Event (Branch (..), DraftPr (..), Envelope (..), Sha (..), Task (..), Url (..))
+import State.Run.Codec (LogError (..), decodeLine, decodeLines, eventType)
+import State.Run.Event (Branch (..), DraftPr (..), Envelope (..), Event (..), RunId, Sha (..), Start (..), Task (..), Url (..), runIdText)
 import State.Run.RunGen (breakdownJson, plainTask)
 import System.Environment (getEnv)
 import System.Exit (ExitCode (..))
@@ -94,6 +95,8 @@ counted: each changes one line, as the e2e's do.
 data World = World
     { env :: Map String String
     , disk :: Disk
+    , runs :: Runs
+    -- ^ The run store's runs, apart from the disk as the real store's are.
     , gitDir :: Either Text FilePath
     , others :: [FilePath]
     -- ^ The tops of other worktrees, apart from the one calls run in.
@@ -114,6 +117,7 @@ newWorld = do
         World
             { env = Map.fromList [("STATE_STEPS", stepsPath), ("HOME", "/home")]
             , disk = Disk {files = Map.singleton stepsPath steps, dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"], cwd = "/work"}
+            , runs = Runs Map.empty
             , gitDir = Right "/work/.git"
             , others = []
             , gitOnPath = True
@@ -141,7 +145,7 @@ hook world name input = run world (LBS.toStrict input) (Shell.hook [name])
 
 run :: IORef World -> ByteString -> (forall es. (Shell.Shell es) => Eff es ExitCode) -> IO Ran
 run world input program = atomicModifyIORef' world $ \w ->
-    let (((code, entropy), disk), streams) =
+    let ((((code, entropy), runs), disk), streams) =
             runPureEff
                 . runClockFixed w.clock
                 . runConsoleCaptured input
@@ -150,10 +154,11 @@ run world input program = atomicModifyIORef' world $ \w ->
                 . runFileSystemInMemory
                 . runGhScripted w.pr
                 . (if w.gitOnPath then runGitScripted (worktreeOf w) else runGitMissing)
+                . runState w.runs
                 . runLogInMemory
                 . runRandomFixed w.entropy
                 $ program
-     in (w {entropy, disk}, Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr))
+     in (w {entropy, runs, disk}, Ran (exitNumber code) (Text.lines streams.stdout) (Text.lines streams.stderr))
   where
     exitNumber = \case
         ExitSuccess -> 0
@@ -223,7 +228,7 @@ given, in 'childWorktree', where later calls run; its id.
 childRun :: IORef World -> Text -> FilePath -> Text -> IO Text
 childRun world parent dir task = do
     atWorktree world childWorktree
-    startedIn world ["--notes", Text.pack dir, "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", task]
+    startedIn world ["--notes", Text.pack dir, "--parent", parent, "--task", task]
 
 -- | The worktree a child runs in, apart from the parent's at @/work@.
 childWorktree :: FilePath
@@ -239,27 +244,28 @@ addWorktree :: IORef World -> FilePath -> IO ()
 addWorktree world top = modifyIORef' world $ \w ->
     let disk = w.disk in w {others = top : w.others, disk = disk {dirs = disk.dirs <> Set.fromList [top, top </> ".git"]}}
 
-eventsPath :: FilePath
-eventsPath = logOf notes
-
--- | The worktree's log as written, decoded line by line; it must read.
+-- | The log of the worktree's notes' run as written, decoded row by row; it must read.
 logged :: IORef World -> IO [Envelope]
-logged world = loggedIn world eventsPath
+logged world = loggedIn world notes
 
--- | The log at this path as written, decoded line by line; it must read.
+-- | The log of the run started in these notes as written, decoded row by row; it must read.
 loggedIn :: IORef World -> FilePath -> IO [Envelope]
-loggedIn world path = do
-    w <- readIORef world
-    case decodeLogBytes (Map.findWithDefault "" path w.disk.files) of
-        Right lines' -> pure lines'
-        Left bad -> [] <$ expectationFailure ("the log does not read: " <> show bad.line)
+loggedIn world dir =
+    either (\bad -> [] <$ expectationFailure ("the log does not read: " <> show bad.line)) pure . decodeLines =<< logRowsIn world dir
+
+-- | The id of the worktree's notes' run.
+runOf :: IORef World -> IO Text
+runOf world =
+    logged world >>= \case
+        first : _ -> pure (runIdText first.run)
+        [] -> "" <$ expectationFailure "no run logged"
 
 loggedEvents :: IORef World -> IO [Text]
-loggedEvents world = loggedEventsIn world eventsPath
+loggedEvents world = loggedEventsIn world notes
 
--- | The event types of the log at this path.
+-- | The event types of the log of the run started in these notes.
 loggedEventsIn :: IORef World -> FilePath -> IO [Text]
-loggedEventsIn world path = map (eventType . (.event)) <$> loggedIn world path
+loggedEventsIn world dir = map (eventType . (.event)) <$> loggedIn world dir
 
 prUrl :: Text
 prUrl = "https://github.com/o/r/pull/1"
@@ -272,18 +278,29 @@ draftPr = prOn "main"
 prOn :: Text -> Readiness -> PrView
 prOn base = printedPr . PullRequest (DraftPr (Url prUrl) (Branch base) (Branch "feat"))
 
--- | Edit the worktree's log by hand, as the bytes on disk.
-editLog :: IORef World -> (ByteString -> ByteString) -> IO ()
-editLog world = editLogIn world eventsPath
+-- | Edit the log of the worktree's notes' run by hand, row by row, as a store's rows are.
+editLog :: IORef World -> ([Text] -> [Text]) -> IO ()
+editLog world = editLogIn world notes
 
--- | Edit the log at this path by hand, as the bytes on disk.
-editLogIn :: IORef World -> FilePath -> (ByteString -> ByteString) -> IO ()
-editLogIn world path edit = modifyIORef' world $ \w ->
-    let disk = w.disk in w {disk = disk {files = Map.alter (Just . edit . fromMaybe "") path disk.files}}
+-- | Edit the log of the run started in these notes by hand, row by row.
+editLogIn :: IORef World -> FilePath -> ([Text] -> [Text]) -> IO ()
+editLogIn world dir edit = modifyIORef' world $ \w ->
+    let runs = rowsOf w.runs in w {runs = Runs (maybe runs (\found -> Map.adjust edit found runs) (runIn w dir))}
 
--- | The worktree's log as the bytes on disk.
-logBytes :: IORef World -> IO (Maybe ByteString)
-logBytes world = fileBytes world eventsPath
+-- | The log of the worktree's notes' run as the rows the store holds.
+logRows :: IORef World -> IO [Text]
+logRows world = logRowsIn world notes
+
+logRowsIn :: IORef World -> FilePath -> IO [Text]
+logRowsIn world dir = (\w -> maybe [] (\found -> Map.findWithDefault [] found (rowsOf w.runs)) (runIn w dir)) <$> readIORef world
+
+-- | The run whose first row starts it in these notes.
+runIn :: World -> FilePath -> Maybe RunId
+runIn w dir = listToMaybe [found | (found, first : _) <- Map.toList (rowsOf w.runs), Right Envelope {event = Started start} <- [decodeLine first], start.notes == dir]
+
+-- | The run store takes no write from now on, as on a disk failure; it still reads.
+storeDown :: IORef World -> IO ()
+storeDown world = modifyIORef' world (\w -> w {runs = ReadOnly (rowsOf w.runs)})
 
 -- | A file's bytes as written, if it exists.
 fileBytes :: IORef World -> FilePath -> IO (Maybe ByteString)

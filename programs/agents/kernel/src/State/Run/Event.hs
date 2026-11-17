@@ -225,8 +225,8 @@ data StopReason = Blocked | Failed | Replan | OutOfRounds
 data Note = Note {message :: Text, fix :: Text}
     deriving stock (Eq, Show)
 
--- | A child run of the fan-out: its run id, its task, its log and worktree.
-data Child = Child {run :: RunId, task :: TaskId, log :: FilePath, worktree :: FilePath}
+-- | A child run of the fan-out: its run id, its task and its worktree.
+data Child = Child {run :: RunId, task :: TaskId, worktree :: FilePath}
     deriving stock (Eq, Show)
 
 -- | A child's hand-back, typed: only 'AsksUp' and 'Awaits' leave it running.

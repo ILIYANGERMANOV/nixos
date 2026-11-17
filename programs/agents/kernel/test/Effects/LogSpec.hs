@@ -1,101 +1,151 @@
-{- | The log's contract, held by the IO interpreter over a temp dir and by the
-in-memory double over its disk alike, so the two cannot drift apart.
+{- | The log's contract, held by the IO interpreter over a temp run store and
+by the in-memory double alike, so the two cannot drift apart; and what only
+the store does: hold up under writers at once, and link a child to its parent.
 -}
 module Effects.LogSpec (spec) where
 
-import Control.Exception (IOException)
-import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (IOException, SomeException, throwIO)
+import Control.Exception qualified as Exception
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Data.Time (UTCTime (..), fromGregorian)
-import Doubles.FileSystem (Disk (..))
-import Doubles.Log (runLogInMemory)
+import Doubles.Environment (runEnvironmentGiven)
+import Doubles.Log (Runs (..), runLogInMemory)
 import Effectful (Eff, runEff, runPureEff, (:>))
 import Effectful.Exception (try)
 import Effectful.State.Static.Local (evalState)
 import Effects.Log (Log, exists, firstLine, locked, runLogIO)
-import State.Run.Ask (Principal (..))
-import State.Run.Codec (LogError (..), encodeLine)
-import State.Run.Event (Envelope (..), Event (..), FlowName (..), Shape (..), Source (..), Start (..), parseRunId)
+import Effects.Store (children, withStore)
+import Effects.Store qualified as Store
+import State.Run.Ask (Parent (..), Principal (..))
+import State.Run.Codec (encodeLine)
+import State.Run.Event (Envelope (..), Event (..), FlowName (..), Note (..), RunId, Shape (..), Source (..), Start (..), TaskId (..), parseRunId)
 import System.FilePath ((</>))
-import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (withSystemTempDirectory)
-import Test.Hspec (Spec, describe, it, shouldBe)
+import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
 
 spec :: Spec
 spec = describe "Effects.Log" $ do
-    describe "runLogIO" $ contract onDisk
+    describe "runLogIO" $ contract inStore
     describe "Doubles.Log" $ contract inMemory
+    describe "the run store" $ do
+        it "numbers every event of writers at once densely, losing none" $
+            withSystemTempDirectory "state-store" $ \dir -> do
+                let db = dir </> "kernel.db"
+                    perWriter = 25 :: Int
+                    -- Each append on its own connection, as each process has one.
+                    writer = mapM_ (\_ -> withStore db (\store -> Store.locked store top appendOne)) [1 .. perWriter]
+                withStore db (\store -> Store.locked store top (const ([started top], ())))
 
-{- | Runs a program on a directory that exists and holds these files, by name;
-the program gets the directory.
+                bothAtOnce writer writer
+
+                withStore db (\store -> Store.locked store top (\logged -> ([], map (.seq) <$> logged)))
+                    `shouldReturn` Right [1 .. 1 + 2 * fromIntegral perWriter]
+
+        it "lists the runs started as a run's children" $
+            withSystemTempDirectory "state-store" $ \dir -> withStore (dir </> "kernel.db") $ \store -> do
+                mapM_ (\e -> Store.locked store e.run (const ([e], ()))) [started top, childOf top child, started other]
+
+                traverse (children store) [top, child, other] `shouldReturn` [[child], [], []]
+
+{- | Runs a program on a log with these runs, each its rows; the program
+gets nothing else.
 -}
-type Backend = forall a. [(FilePath, ByteString)] -> (forall es. (Log :> es) => FilePath -> Eff es a) -> IO a
+type Backend = forall a. [Envelope] -> (forall es. (Log :> es) => Eff es a) -> IO a
 
-onDisk :: Backend
-onDisk seeded program = withSystemTempDirectory "state-log" $ \dir -> do
-    mapM_ (\(name, bytes) -> BS.writeFile (dir </> name) bytes) seeded
-    runEff . runLogIO $ program dir
+-- | A temp run store, found as the shell finds it: from @XDG_STATE_HOME@.
+inStore :: Backend
+inStore seeded program = withSystemTempDirectory "state-log" $ \dir -> do
+    let env = Map.fromList [("XDG_STATE_HOME", dir)]
+    runEff . runEnvironmentGiven env . runLogIO $ do
+        mapM_ (\e -> locked e.run (const ([e], ()))) seeded
+        program
 
 inMemory :: Backend
 inMemory seeded program =
-    pure . runPureEff . evalState disk . runLogInMemory $ program dir
-  where
-    dir = "/logs"
-    disk = Disk {files = Map.fromList [(dir </> name, bytes) | (name, bytes) <- seeded], dirs = Set.fromList ["/", dir], cwd = "/"}
+    pure . runPureEff . evalState (Runs Map.empty) . runLogInMemory $ do
+        mapM_ (\e -> locked e.run (const ([e], ()))) seeded
+        program
 
 contract :: Backend -> Spec
 contract backend = do
-    it "creates an absent log, appends each decision's lines and reads them back" $ do
-        seen <- backend [] $ \dir -> do
-            let path = dir </> "events.jsonl"
-            before <- exists path
-            first <- locked path ([started],)
-            second <- locked path ([started],)
-            after <- locked path ([],)
-            line <- firstLine path
+    it "starts a run, appends each decision's events and reads them back" $ do
+        seen <- backend [] $ do
+            before <- exists top
+            first <- locked top ([started top],)
+            second <- locked top ([followed top 2],)
+            after <- locked top ([],)
+            line <- firstLine top
             pure (before, first, second, after, line)
 
-        seen `shouldBe` (False, Right [], Right [started], Right [started, started], Just (encodeLine started))
+        seen `shouldBe` (False, Right [], Right [started top], Right [started top, followed top 2], Just (encodeLine (started top)))
 
-    it "creates the log even when a decision appends nothing" $ do
-        created <- backend [] $ \dir -> do
-            let path = dir </> "events.jsonl"
-            locked path ([],) >> exists path
+    it "keeps no run that a decision appends nothing to" $ do
+        kept <- backend [] (locked top ([],) >> exists top)
 
-        created `shouldBe` True
+        kept `shouldBe` False
 
-    it "reads the first line of a log, and none of an absent one" $ do
-        firsts <- backend [("events.jsonl", "first\nsecond\n")] $ \dir ->
-            traverse firstLine [dir </> "events.jsonl", dir </> "absent"]
+    it "reads the first event of a run, and none of an absent one" $ do
+        firsts <- backend [started top] (traverse firstLine [top, other])
 
-        firsts `shouldBe` [Just "first", Nothing]
+        firsts `shouldBe` [Just (encodeLine (started top)), Nothing]
 
-    it "reads a log that is not UTF-8 as a malformed line 0, and its first line leniently" $ do
-        seen <- backend [("events.jsonl", "\xff\n")] $ \dir -> do
-            let path = dir </> "events.jsonl"
-            bad <- locked path (\read' -> ([], either (Just . (.line)) (const Nothing) read'))
-            line <- firstLine path
-            pure (bad, line)
+    it "keeps each run's events apart" $ do
+        seen <- backend [started top, started other] (locked other (\logged -> ([], map (.run) <$> logged)))
 
-        seen `shouldBe` (Just 0, Just "\xfffd")
+        seen `shouldBe` Right [other]
 
-    it "throws on a log whose directory does not exist" $ do
-        failed <- backend [] $ \dir -> try @IOException (locked (dir </> "absent" </> "events.jsonl") ([started],))
+    it "throws on events for a run never started that do not start it" $ do
+        failed <- backend [] (try @IOException (locked top ([followed top 1],)))
 
-        either isDoesNotExistError (const False) failed `shouldBe` True
+        either (const True) (const False) failed `shouldBe` True
 
--- | A run's first line.
-started :: Envelope
-started =
+-- | A run's first event.
+started :: RunId -> Envelope
+started run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/notes", principal = ByUser OwnPr, interface = Set.empty})
+
+-- | A child's first event, under this parent.
+childOf :: RunId -> RunId -> Envelope
+childOf parent run = envelope run 1 (Started Start {flow = EngineerFlow, notes = "/child", principal = ByRole (Parent parent (TaskId "t1")) OwnPr minBound, interface = Set.empty})
+
+-- | An event past the start, at this seq.
+followed :: RunId -> Integer -> Envelope
+followed run n = envelope run (fromIntegral n) (Refused (Note "n" "f"))
+
+-- | Both on threads of their own (the suite runs threaded), a failure of either thrown.
+bothAtOnce :: IO () -> IO () -> IO ()
+bothAtOnce first second = do
+    done <- newEmptyMVar
+    _ <- forkIO (Exception.try @SomeException first >>= putMVar done)
+    second
+    takeMVar done >>= either throwIO pure
+
+-- | One more event after those logged.
+appendOne :: Either a [Envelope] -> ([Envelope], ())
+appendOne = \case
+    Right logged -> ([followed top (fromIntegral (length logged) + 1)], ())
+    Left _ -> ([], ())
+
+envelope :: RunId -> Integer -> Event -> Envelope
+envelope run n event =
     Envelope
         { source = Cli
-        , seq = 1
+        , seq = fromIntegral n
         , ts = UTCTime (fromGregorian 2026 11 13) 0
-        , run = fromJust (parseRunId "00010203")
+        , run
         , head = Nothing
         , session = Nothing
-        , event = Started Start {flow = EngineerFlow, notes = "/notes", principal = ByUser OwnPr, interface = Set.empty}
+        , event
         }
+
+top, child, other :: RunId
+top = runIdOf "00010203"
+child = runIdOf "0a0b0c0d"
+other = runIdOf "ffff0000"
+
+runIdOf :: Text -> RunId
+runIdOf = fromJust . parseRunId

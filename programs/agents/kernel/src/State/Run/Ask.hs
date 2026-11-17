@@ -331,8 +331,8 @@ principalPlan = \case
     ByRole _ _ plan -> plan
     ByCaller _ -> ChildConfirms
 
--- | The parent run, its log and the task of its breakdown it gave this run.
-data Parent = Parent {run :: RunId, log :: FilePath, task :: TaskId}
+-- | The parent run and the task of its breakdown it gave this run.
+data Parent = Parent {run :: RunId, task :: TaskId}
     deriving stock (Eq, Show)
 
 -- | What the run's interface can do: a subagent cannot ask the user or wait.

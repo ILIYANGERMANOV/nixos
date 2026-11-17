@@ -3,12 +3,10 @@ the log it writes. The e2e specs prove the same over a real repo and binary.
 -}
 module State.Cli.Shell.MainSpec (spec) where
 
-import Data.ByteString qualified as BS
 import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef', readIORef)
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
@@ -17,7 +15,6 @@ import State.Cli.Command (help)
 import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
-import State.Run.Codec (logOf)
 import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), PlanCall (..), Repo (..), SessionId (..), Task (..))
 import State.Run.RunGen (breakdownJson, loadSteps, plainTask, roundTask)
 import State.Step.Artifact (shellPath)
@@ -43,13 +40,12 @@ spec = describe "state over the doubles" $ do
 
                 (again, dotted) `shouldBe` (["resumed " <> run, "run " <> run <> " /notes /work"], ["resumed " <> run, "run " <> run <> " /notes /work"])
 
-            it "resumes the run whose pointer an older init wrote with a trailing slash" $ \world -> do
-                run <- startedRun world
-                putFile world "/work/.git/state-notes" "/notes/\n"
+            it "starts afresh over a pointer that names no run id, as an older init's notes dir" $ \world -> do
+                putFile world "/work/.git/state-run" "/notes/\n"
 
-                again <- succeeded =<< state world ["init", "--notes", "/notes"]
+                ran <- state world ["init", "--notes", "/notes"]
 
-                again `shouldBe` ["resumed " <> run, "run " <> run <> " /notes /work"]
+                (ran.code, take 1 ran.out) `shouldBe` (0, ["started 00010203"])
 
             it "refuses another run over the worktree's unfinished one, keeping the pointer" $ \world -> do
                 run <- startedRun world
@@ -117,8 +113,8 @@ spec = describe "state over the doubles" $ do
 
                 (ran.code, ran.out) `shouldBe` (0, ["started 04050607", "run 04050607 /other /work"])
 
-            it "starts a run over a pointer whose log is gone" $ \world -> do
-                putFile world "/work/.git/state-notes" "/gone\n"
+            it "starts a run over a pointer whose run is gone" $ \world -> do
+                putFile world "/work/.git/state-run" "deadbeef\n"
 
                 ran <- state world ["init", "--notes", "/notes"]
 
@@ -235,24 +231,26 @@ spec = describe "state over the doubles" $ do
 
             it "names a hand-edited bad line and appends nothing after it" $ \world -> do
                 _ <- drive world []
-                editLog world (<> "{\"v\":3,broken\n")
-                before' <- logBytes world
+                run <- runOf world
+                editLog world (<> ["{\"v\":3,broken"])
+                before' <- logRows world
 
                 for_ [("next", []), ("show", []), ("record", ["fuel", "max"])] $ \(sub, args) -> do
                     bad <- state world (sub : args)
                     (bad.code, map (fst . Text.breakOn " - ") bad.err)
-                        `shouldBe` (2, ["state " <> sub <> ": /notes/events.jsonl line 2 is not read", "fix: repair or move /notes/events.jsonl"])
-                after <- logBytes world
+                        `shouldBe` (2, ["state " <> sub <> ": run " <> run <> " event 2 is not read", "fix: state init --notes <a new dir> starts afresh"])
+                after <- logRows world
                 after `shouldBe` before'
 
-            it "names the recovery for an older state's log: set it aside, start fresh" $ \world -> do
+            it "names the recovery for an older state's log: start fresh" $ \world -> do
                 _ <- drive world []
-                editLog world (const "{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}\n")
+                run <- runOf world
+                editLog world (const ["{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"])
 
                 old <- state world ["next"]
 
                 (old.code, old.err)
-                    `shouldBe` (2, ["state next: /notes/events.jsonl line 1 is not read - log version 2, this state reads 4", "fix: move the old run aside and start fresh: mv /notes /notes.old, then state init --notes /notes"])
+                    `shouldBe` (2, ["state next: run " <> run <> " event 1 is not read - log version 2, this state reads 4", "fix: state init --notes <a new dir> starts afresh"])
 
         describe "record" $ do
             it "refuses an event with no arrow: exit 2, a fix line, the refusal logged, and next warns" $ \world -> do
@@ -414,7 +412,7 @@ spec = describe "state over the doubles" $ do
                 first <- state world ["void", "1", "why"]
 
                 map (\ran -> (ran.code, ran.err)) [unknown, first]
-                    `shouldBe` [ (2, ["state void: seq 9 - no line the run replays has it: none does, it is voided, or it is a void", "fix: state void <seq of a line in events.jsonl> <why>"])
+                    `shouldBe` [ (2, ["state void: seq 9 - no line the run replays has it: none does, it is voided, or it is a void", "fix: state void <the seq of an event state dump prints> <why>"])
                                , (2, ["state void: the void of 1 - the log without it does not replay: the log - its first line is not started", "fix: state void <the later line that needs it> <why>, then this one"])
                                ]
 
@@ -559,7 +557,7 @@ spec = describe "state over the doubles" $ do
                 parent <- tenXAtFanOut world
 
                 child <- childRun world parent "/child" "t1"
-                again <- succeeded =<< state world ["init", "--notes", "/child", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                again <- succeeded =<< state world ["init", "--notes", "/child", "--parent", parent, "--task", "t1"]
 
                 again `shouldBe` ["resumed " <> child, "run " <> child <> " /child /child-work"]
                 filter (== "spawned") <$> loggedEvents world `shouldReturn` ["spawned"]
@@ -576,7 +574,7 @@ spec = describe "state over the doubles" $ do
                 parent <- tenXAtFanOut world
                 atWorktree world childWorktree
 
-                refused <- state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                refused <- state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--task", "t1"]
 
                 (refused.code, refused.err)
                     `shouldBe` (2, ["state init: --flow 10x - task t1 runs the engineer flow", "fix: state brief engineer --task t1, in the parent's worktree, prints the init line"])
@@ -585,10 +583,10 @@ spec = describe "state over the doubles" $ do
             it "starts a 10x child for a task whose flow is 10x, --flow named or not" $ \world -> do
                 parent <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}, (plainTask "t2" []) {flow = TenXFlow}]
                 atWorktree world childWorktree
-                named <- succeeded =<< state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                named <- succeeded =<< state world ["init", "--notes", "/child", "--flow", "10x", "--parent", parent, "--task", "t1"]
                 namedShown <- succeeded =<< state world ["show"]
                 atWorktree world "/other-work"
-                _ <- succeeded =<< state world ["init", "--notes", "/other", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t2"]
+                _ <- succeeded =<< state world ["init", "--notes", "/other", "--parent", parent, "--task", "t2"]
                 unnamedShown <- succeeded =<< state world ["show"]
 
                 map (Text.takeWhile (/= ' ')) named `shouldBe` ["started", "run"]
@@ -598,7 +596,7 @@ spec = describe "state over the doubles" $ do
                 parent <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
                 atWorktree world childWorktree
 
-                refused <- state world ["init", "--notes", "/child", "--flow", "engineer", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                refused <- state world ["init", "--notes", "/child", "--flow", "engineer", "--parent", parent, "--task", "t1"]
 
                 (refused.code, refused.err)
                     `shouldBe` (2, ["state init: --flow engineer - task t1 runs the 10x flow", "fix: state brief 10x --task t1, in the parent's worktree, prints the init line"])
@@ -618,7 +616,7 @@ spec = describe "state over the doubles" $ do
                 parent <- tenXAtFanOut world
                 atWorktree world childWorktree
 
-                accepted <- state world ["init", "--notes", "/child", "--flow", "engineer", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                accepted <- state world ["init", "--notes", "/child", "--flow", "engineer", "--parent", parent, "--task", "t1"]
 
                 (accepted.code, map (Text.takeWhile (/= ' ')) accepted.out) `shouldBe` (0, ["started", "run"])
 
@@ -626,7 +624,7 @@ spec = describe "state over the doubles" $ do
                 parent <- tenXAtFanOut world
                 atWorktree world childWorktree
 
-                refused <- state world ["init", "--notes", "/child", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t9"]
+                refused <- state world ["init", "--notes", "/child", "--parent", parent, "--task", "t9"]
 
                 (refused.code, refused.err)
                     `shouldBe` (2, ["state init: --task t9 - the parent's breakdown has no such task", "fix: state brief engineer, in the parent's worktree, prints the init line"])
@@ -636,7 +634,7 @@ spec = describe "state over the doubles" $ do
                 parent <- startedRun world
                 atWorktree world childWorktree
 
-                ran <- state world ["init", "--notes", "/child", "--parent", parent, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+                ran <- state world ["init", "--notes", "/child", "--parent", parent, "--task", "t1"]
                 shown <- state world ["show"]
 
                 (ran.code, shown.code) `shouldBe` (2, 2)
@@ -714,12 +712,12 @@ spec = describe "state over the doubles" $ do
             it "tells an answer it could not write down, and a retry lands it once in every run below" $ \world -> do
                 (_, mid, grand) <- threeLevels world
                 let qid = grand <> ":1"
-                    broken = "{broken\n"
+                    broken = "{broken"
                 climbed world qid
-                editLogIn world (logOf grandNotes) (<> broken)
+                editLogIn world grandNotes (<> [broken])
 
                 failed <- succeeded =<< state world ["answer", qid, "it's postgres"]
-                editLogIn world (logOf grandNotes) (\bytes -> fromMaybe bytes (BS.stripSuffix broken bytes))
+                editLogIn world grandNotes (filter (/= broken))
                 retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
 
                 drop 1 failed `shouldSatisfy` \case
@@ -781,7 +779,7 @@ spec = describe "state over the doubles" $ do
                                , "Heavy: yes"
                                , "Security-sensitive: none"
                                , ""
-                               , "state init --notes <dir> --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t2"
+                               , "state init --notes <dir> --parent " <> run <> " --task t2"
                                ]
 
             it "briefs a 10x task's init line with its flow, whichever lead role asks" $ \world -> do
@@ -790,7 +788,7 @@ spec = describe "state over the doubles" $ do
                 briefs <- traverse (\role -> succeeded =<< state world ["brief", role, "--task", "t1"]) ["engineer", "10x"]
 
                 map (drop 9) briefs
-                    `shouldBe` replicate 2 ["state init --notes <dir> --flow 10x --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
+                    `shouldBe` replicate 2 ["state init --notes <dir> --flow 10x --parent " <> run <> " --task t1"]
 
             it "briefs an engineer to init in its task's worktree and its repo's notes dir" $ \world -> do
                 run <- tenXAtFanOutOf world [(plainTask "t1" []) {branch = Branch "feat/x", repo = Just (Repo "o" "r"), worktree = shellPath "/wt/t1"}]
@@ -798,7 +796,7 @@ spec = describe "state over the doubles" $ do
                 brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
                 drop 9 brief
-                    `shouldBe` ["cd /wt/t1 && state init --notes /tmp/engineer-o-r-feat-x/ --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
+                    `shouldBe` ["cd /wt/t1 && state init --notes /tmp/engineer-o-r-feat-x/ --parent " <> run <> " --task t1"]
 
             it "briefs an engineer a notes dir whose branch slug holds nothing a shell reads" $ \world -> do
                 run <- tenXAtFanOutOf world [(plainTask "t1" []) {branch = Branch "feat/x;rm -rf $(y)`z`|w", repo = Just (Repo "o" "r")}]
@@ -806,7 +804,7 @@ spec = describe "state over the doubles" $ do
                 brief <- succeeded =<< state world ["brief", "engineer", "--task", "t1"]
 
                 drop 9 brief
-                    `shouldBe` ["state init --notes /tmp/engineer-o-r-feat-x-rm--rf---y--z--w/ --parent " <> run <> " --parent-log " <> Text.pack eventsPath <> " --task t1"]
+                    `shouldBe` ["state init --notes /tmp/engineer-o-r-feat-x-rm--rf---y--z--w/ --parent " <> run <> " --task t1"]
 
             it "briefs a round task with the PR it stays on" $ \world -> do
                 _ <- tenXAtFanOutOf world [roundTask "t1" "https://pr/1"]
@@ -907,12 +905,12 @@ threeLevels :: IORef World -> IO (Text, Text, Text)
 threeLevels world = do
     top <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]
     atWorktree world midWorktree
-    mid <- startedIn world ["--notes", Text.pack midNotes, "--parent", top, "--parent-log", Text.pack eventsPath, "--task", "t1"]
+    mid <- startedIn world ["--notes", Text.pack midNotes, "--parent", top, "--task", "t1"]
     putFile world (midNotes </> "tasks.json") (breakdownJson [plainTask "t1" []])
     _ <- succeeded =<< state world ["override", "breakdown", "the", "plan", "is", "agreed"]
     _ <- succeeded =<< state world ["record", "breakdown.done", "--tasks", Text.pack (midNotes </> "tasks.json")]
     atWorktree world grandWorktree
-    grand <- startedIn world ["--notes", Text.pack grandNotes, "--parent", mid, "--parent-log", Text.pack (logOf midNotes), "--task", "t1"]
+    grand <- startedIn world ["--notes", Text.pack grandNotes, "--parent", mid, "--task", "t1"]
     pure (top, mid, grand)
 
 {- | The grandchild asks a Design question, the middle run forwards it, and
@@ -929,7 +927,7 @@ climbed world qid = do
 
 -- | How many answers each run's log holds, top first.
 answersIn :: IORef World -> IO [Int]
-answersIn world = traverse (fmap (length . filter (== "answered")) . loggedEventsIn world) [eventsPath, logOf midNotes, logOf grandNotes]
+answersIn world = traverse (fmap (length . filter (== "answered")) . loggedEventsIn world) [notes, midNotes, grandNotes]
 
 midNotes, grandNotes, midWorktree, grandWorktree :: FilePath
 midNotes = "/mid"
