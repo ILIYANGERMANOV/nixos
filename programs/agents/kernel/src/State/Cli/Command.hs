@@ -37,8 +37,6 @@ module State.Cli.Command (
 import Control.Applicative (many, optional, some, (<**>))
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -48,7 +46,7 @@ import Options.Applicative qualified as Optparse
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
 import State.Category.Fuel (Fuel, parseByName)
-import State.Category.Graph (Cap (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, places)
+import State.Category.Graph (Cap (..), Node (..), OpenGraph (..), Place (..), placeName, places)
 import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
 import State.Flow.Drawn (fuelTakes)
@@ -62,7 +60,7 @@ import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
+import State.Run.Fold (Refusal (..), RunState (..))
 import State.Run.Fold qualified as Fold
 import State.Run.Id (parseEventId)
 import State.Show (tshow)
@@ -436,11 +434,10 @@ notStarted = Failure BadInput "the log" "its first line is not started" "state i
 
 {- | A refusal of the fold, as the reader acts on it: what, why, and the
 command to run instead, from the edges out of where the run is that the
-run's Fuel would take, and the run's meters: a hand-back is named only while
-a child it closes is open.
+run's Fuel would take: a hand-back is never named, as its hand-back records it.
 -}
-explain :: OpenGraph -> Fuel -> Node -> Map Metered Spent -> Refusal -> Failure
-explain g fuel at meters = \case
+explain :: OpenGraph -> Fuel -> Node -> Refusal -> Failure
+explain g fuel at = \case
     NotStarted -> notStarted
     StartedTwice -> refused "started" "the run has started already" "state next"
     OtherRun run -> refused "the line" ("it is run " <> runIdText run <> "'s, not this log's") "state show"
@@ -452,7 +449,6 @@ explain g fuel at meters = \case
             ("the spend at " <> atText at)
             (someMeterName cap.meter <> " allows " <> tshow allowed <> " at this Fuel, all spent")
             (atPlace (\place -> Text.intercalate " | " (map (.command) (capRecords g place cap.atCap))))
-    NoneOpen (StateName step) -> refused ("the hand-back to " <> step) "no child it spawned is open" "state show"
     StillOpen open -> refused ("leaving " <> atText at) (tshow open <> " spawned here have yet to hand back") "state next"
     NothingToExtend -> refused "extend" ("the run is at " <> atText at <> ", where no budget asks the user to go on") "state next"
     TargetOffFuel -> refused "target" ("the run is at " <> atText at <> ": a target is named at a request's Fuel, before its level") "state show"
@@ -487,20 +483,17 @@ explain g fuel at meters = \case
     NotAtFan -> refused "the child's or task's event" ("the run is at " <> atText at <> ", no fan-out's state") "state show"
     NotVoidable n -> refused ("seq " <> tshow n) "no line the run replays has it: none does, it is voided, or it is a void" ("state void <seq of a line in " <> Text.pack logName <> "> <why>")
     VoidBreaks n refusal ->
-        let broken = explain g fuel at meters refusal
+        let broken = explain g fuel at refusal
          in refused ("the void of " <> tshow n) ("the log without it does not replay: " <> broken.what <> " - " <> broken.why) "state void <the later line that needs it> <why>, then this one"
   where
     refused = Failure BadInput
-    records = atPlace $ \place -> case [recordCommand event | (event, _) <- shownEdges g place, fuelTakes fuel place.name event, closesOpen place event] of
+    records = atPlace $ \place -> case [recordCommand event | (event, _) <- shownEdges g place, fuelTakes fuel place.name event, event.outcome /= handedBackOutcome] of
         [] -> "state show"
         commands -> Text.intercalate " | " commands
     atPlace fix = case at of
         At place -> fix place
         Out -> "state show"
         Exit -> "state show"
-    closesOpen place event
-        | event.outcome == handedBackOutcome = maybe False ((> 0) . (.open)) (Map.lookup (Metered place event.step) meters)
-        | otherwise = True
     stateNames = map (stateNameText . placeName) (Set.toList (places g))
     rule qid = "state rule " <> qid <> " --answer <a> --why <w> --cost <c>"
     triage qid = rule qid <> " | state forward " <> qid

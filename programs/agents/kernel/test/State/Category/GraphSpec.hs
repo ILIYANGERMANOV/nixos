@@ -6,7 +6,7 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Hedgehog (Gen, PropertyT, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), branchesWith, qualifyEvent, scopePath)
+import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), branchesWith, qualifyEvent, scopePath)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
 import State.Category.Fuel (always)
@@ -167,14 +167,14 @@ arrows = \case
 
 -- | The 10x's engineers, each a child run from a task's context to its PR.
 engineerGroup :: Group 'PR
-engineerGroup = Group "engineers"
+engineerGroup = Group "engineers" (AgentRole "engineer")
 
 -- | Researchers forked one at a time, three at most: a fork of one step.
 researchers :: Flow 'Ctx 'Nothing 'Ctx
 researchers = Capped (always (UpTo 3)) Extend (ForkOf researcherGroup Research)
 
 researcherGroup :: Group 'Ctx
-researcherGroup = Group "researchers"
+researcherGroup = Group "researchers" (AgentRole "researcher")
 
 engineerChild :: Flow 'Ctx 'Nothing 'PR
 engineerChild = Do PlanS :> Do Implement :> Do Describe

@@ -80,7 +80,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
-import State.Category.Graph (Metered (..), Node (..), Place (..))
+import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..))
 import State.Category.Step (Sing, SomeOutcome (..), SomeStep (..), stepName)
 import State.Protocol.Advice (Readiness (..))
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, bindingIn)
@@ -88,7 +88,7 @@ import State.Role (leads)
 import State.Run.Ask (Principal (..), Question (..), qidText)
 import State.Run.Event (AgentRole (..), Asking (..), Branch, DraftPr (..), Envelope (..), Event (Restarted, Took), RunId, SessionId (..), Source (..), Start (..), roleText, runIdText, tookIn)
 import State.Run.Fan (Fan (..))
-import State.Run.Fold (Pending (..), RunState (..), Waits (..), openForks, over, unvoided)
+import State.Run.Fold (Open (..), Pending (..), RunState (..), Waits (..), forks, ledger, over, unvoided)
 import State.Run.Id (digestOf)
 import State.Step.Build (Outcome (DraftDone))
 import State.Step.Build qualified as Build
@@ -436,11 +436,14 @@ tracked :: Steps -> AgentRole -> Bool
 tracked steps role = role `elem` agentRoles steps
 
 {- | Whether the run records this step runner's hand-back: one also spawned
-beside the advice only while a fork of its step has a child open, wherever
-the run is. A child run records its own in its parent's run.
+beside the advice only while the flow forks its step and the run's 'ledger'
+has a child of its role open, wherever the run is. A child run records its
+own in its parent's run.
 -}
-followedAt :: Steps -> RunState -> AgentRole -> Bool
-followedAt steps state role = role `notElem` beside || or [stepName s == metered.step | metered <- openForks state, AnyStep _ (SomeStep s) <- stepsRunBy steps role]
+followedAt :: Steps -> OpenGraph -> RunState -> AgentRole -> Bool
+followedAt steps g state role =
+    role `notElem` beside
+        || (any ((== role) . (.role)) (ledger g state) && or [stepName s == metered.step | metered <- forks g state, AnyStep _ (SomeStep s) <- stepsRunBy steps role])
 
 {- | What a lead's spawn of this role records: at a fork of the step the
 role runs, the spawn of a child the group then waits for. The spawn hook
@@ -523,7 +526,7 @@ restartOf source state = case source of
     Resumed -> lost
     Compact -> Nothing
   where
-    lost = if all (Set.null . (.atWork)) state.fans && null state.live then Nothing else Just Restarted
+    lost = if all (Set.null . (.atWork)) state.fans && null state.workers then Nothing else Just Restarted
 
 {- | The ids of a hook's records, one per event it appends, in order: a hash
 of the run, the agent and its message, so the same hand-back seen twice

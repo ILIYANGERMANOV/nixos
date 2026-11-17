@@ -27,8 +27,7 @@ module State.Role (
 
 import Data.List (find)
 import Data.Maybe (mapMaybe)
-import Data.Text (Text)
-import State.Category.Flow (Flow, Name (..), scopeNames, unqualify)
+import State.Category.Flow (AgentRole (..), Flow, Name (..), roleText, scopeNames, unqualify)
 import State.Category.Fuel (parseByName)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (KnownTy (..), NotSum, TyOf (..), TyVal)
@@ -41,10 +40,6 @@ import State.FlowName (FlowName (..), defaultFlow, flowText)
 -- | A rung of the chain a question climbs; the user is the top.
 data Rung = Worker | Lead | Orchestrator | User
     deriving stock (Eq, Show, Enum, Bounded)
-
--- | A subagent's role, as @state handback <role>@ names it: @implementer@.
-newtype AgentRole = AgentRole Text
-    deriving stock (Eq, Show)
 
 -- | A role that leads a flow: its wire name, its flow, and its rung.
 data RoleDef = RoleDef {name :: AgentRole, flow :: SomeFlow, rung :: Rung}
@@ -70,9 +65,6 @@ roles = map role [minBound .. maxBound]
 -- | The flow a role leads; a worker leads none.
 leads :: AgentRole -> Maybe FlowName
 leads agent = find (\flowName -> (role flowName).name == agent) [minBound .. maxBound]
-
-roleText :: AgentRole -> Text
-roleText (AgentRole name) = name
 
 {- | The flow a scope runs inline: a scope named after a flow's wire name,
 @Scope "10x" tenX@, runs that flow. The chief's @discussion@ runs as the

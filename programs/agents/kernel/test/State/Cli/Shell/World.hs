@@ -42,6 +42,7 @@ module State.Cli.Shell.World (
     stateCall,
     editCall,
     spawnResult,
+    spawnResultOf,
     Act (..),
     drive,
     driveOut,
@@ -323,13 +324,17 @@ stateCall command = hookEvent Null ["event" .= String "beforeTool", "tool" .= St
 
 -- | The lead's spawn of a subagent @a1@ of this role, done: its result names the agent.
 spawnResult :: Text -> LBS.ByteString
-spawnResult role =
+spawnResult role = spawnResultOf role "a1"
+
+-- | The lead's spawn of a subagent of this role and id, done.
+spawnResultOf :: Text -> Text -> LBS.ByteString
+spawnResultOf role agent =
     hookEvent
         Null
         [ "event" .= String "afterTool"
         , "tool" .= String "delegate"
         , "input" .= object ["subagent_type" .= role]
-        , "output" .= object ["status" .= String "completed", "agentId" .= String "a1", "agentType" .= role]
+        , "output" .= object ["status" .= String "completed", "agentId" .= String agent, "agentType" .= role]
         , "context" .= Null
         ]
 

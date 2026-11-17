@@ -4,10 +4,15 @@ import Data.Aeson (Value (..), decode, encode)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (fromLeft)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
-import State.Category.Step (EventName (..), OutcomeName (..), StateName (..))
-import State.Table (namingProblems, parseSteps)
+import State.Category.Graph (GroupAt (..), GroupOf (..), Metered (..), OpenGraph (..))
+import State.Category.Step (EventName (..), OutcomeName (..), SomeStep (..), StateName (..))
+import State.Role (FlowName)
+import State.Run.RunGen (flowGraph, loadSteps)
+import State.Step.Catalog (AnyStep (..), stepNamed)
+import State.Table (Row (..), Runner (..), namingProblems, parseSteps, row)
 import System.Environment (getEnv)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe)
 
@@ -21,6 +26,20 @@ spec = describe "State.Table" $ do
 
     it "steps_match" $
         problems table `shouldBe` []
+
+    -- A group names its runner in the term ('State.Category.Flow.Group'), so the fold needs no table: it must be the table's.
+    it "runs each forked step's group by the table's runner of that step" $ do
+        steps <- loadSteps
+        [ (metered.step, group.runner)
+          | flow <- [minBound .. maxBound :: FlowName]
+          , let g = flowGraph flow
+          , (metered, _) <- Map.toList g.caps
+          , Just (Forking group) <- [Map.lookup metered.place g.groupStates]
+          , Just (AnyStep _ (SomeStep s)) <- [stepNamed metered.step]
+          , Agent runner _ <- [(row steps s).runner]
+          , runner /= group.runner
+          ]
+            `shouldBe` []
 
     it "refuses a row whose cod is not its step's" $
         reparse (KeyMap.insert "plan" (setField "cod" "Diff" (rowNamed "plan")) rows)

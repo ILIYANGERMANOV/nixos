@@ -11,6 +11,9 @@ of 'State.Run.Ask.authority', the row of the role its flow runs.
 module State.Run.Fold (
     RunState (..),
     Worker (..),
+    ChildId (..),
+    Open (..),
+    ledger,
     returnOf,
     Round (..),
     Problem (..),
@@ -34,7 +37,6 @@ module State.Run.Fold (
     stuck,
     stuckExits,
     Budget (..),
-    Spent (..),
     budgets,
     extendable,
     usedUp,
@@ -44,7 +46,7 @@ module State.Run.Fold (
     askingChildren,
     askedAt,
     over,
-    openForks,
+    forks,
     awaitedOpen,
     ScopedFan (..),
     fanAt,
@@ -56,7 +58,7 @@ module State.Run.Fold (
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, void)
 import Data.Bifunctor qualified as Bifunctor
-import Data.List (find, isSuffixOf, partition)
+import Data.List (find, genericLength, isSuffixOf, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
@@ -68,8 +70,8 @@ import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText, scopeNames)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, outOf, placeName, places)
-import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, outOf, placeName, places)
+import State.Category.Meter (AtCap (..), Owed (Closes), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (awaitDone, forkPasses, step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
 import State.Flow.Drawn (isPick)
@@ -106,10 +108,9 @@ data RunState = RunState
     -- ^ Oldest first.
     , everAsked :: Set QId
     -- ^ Every question asked, open or closed: a retried ask is refused, so it is never ruled twice.
-    , meters :: Map Metered Spent
+    , meters :: Map Metered Natural
     {- ^ What the run spent of each capped step's budget since it entered the
-    innermost loop around the step's state, or extended it, and the children
-    its spends opened that have yet to hand back: an empty ledger is absent.
+    innermost loop around the step's state, or extended it: none spent is absent.
     -}
     , askedHere :: [Kind]
     {- ^ The kinds asked since the run last moved, oldest first: advice asks a step's
@@ -124,8 +125,10 @@ data RunState = RunState
     -- ^ The draft PR the run recorded last: its url when GitHub is not read.
     , untriaged :: [(AgentRole, OneLine)]
     -- ^ The workers' hand-backs the run has yet to ask as its own question, oldest first.
-    , live :: [Worker]
-    -- ^ The workers spawned that have yet to return, oldest first: the run hands back after them.
+    , workers :: [Worker]
+    {- ^ The agents spawned that have yet to return, oldest first: the run
+    hands back after them. The agent children of the run's 'ledger'.
+    -}
     , published :: Maybe Url
     {- ^ The PR @ready@ recorded last: the url of a run that skipped its draft
     by override, as a retry does, when GitHub is not read.
@@ -149,9 +152,38 @@ since it was named: then the user confirms its plan after all.
 data OnTarget = OnTarget {target :: Target, designAsked :: Bool}
     deriving stock (Eq, Show)
 
--- | A worker at work: its role, its id, and the seq of the line that logged its spawn.
+{- | A worker at work: its role, its id, and the seq of the line that logged
+its spawn (@worker_spawned@, the bind, the first line to name its id).
+-}
 data Worker = Worker {role :: AgentRole, agent :: AgentId, spawnedAt :: Natural}
     deriving stock (Eq, Show)
+
+-- | A child of the run: an agent it spawned, or a child run of its fan-out.
+data ChildId = AgentChild AgentId | RunChild RunId
+    deriving stock (Eq, Show)
+
+-- | A child of the run spawned and yet to return or hand back its end, and the role that runs it.
+data Open = Open {child :: ChildId, role :: AgentRole}
+    deriving stock (Eq, Show)
+
+{- | The run's open children, agents first, each oldest first: what a group's
+'State.Category.Flow.Await' waits on, those of its role. An agent's entry
+opens at its bind and closes when it returns ('WorkerReturned'). A child
+run's is its task book's: running ('Fan.running'), on a task not settled,
+as parking a task settles even a lost child. Derived, not stored: the task
+book holds each child's hand-backs, its last one says whether it runs on.
+-}
+ledger :: OpenGraph -> RunState -> [Open]
+ledger g state =
+    [Open (AgentChild worker.agent) worker.role | worker <- state.workers]
+        <> [ Open (RunChild childRun.child.run) group.runner
+           | (scoped, fan) <- Map.toList state.fans
+           , (place, Awaiting group) <- Map.toList g.groupStates
+           , place.scope == scoped.scope
+           , place.name == namedState scoped.fan
+           , childRun <- Fan.running fan
+           , not (Fan.settled fan childRun.child.task)
+           ]
 
 -- | A forwarded question and the answer that came down for it.
 data Answer = Answer {about :: Question, given :: Text}
@@ -188,8 +220,6 @@ data Refusal
       NotSkippable Name
     | -- | The event would spend past its step's cap, which allows this many at the run's Fuel.
       OutOfBudget Cap Natural
-    | -- | A hand-back to this step where it has no child open.
-      NoneOpen StateName
     | -- | A move off a group's 'State.Category.Flow.Await' while this many of its children have yet to hand back.
       StillOpen Natural
     | -- | An @extend@ where no budget the user may extend holds the run.
@@ -298,7 +328,7 @@ begin g envelope = case runStart envelope.event of
                 , drafted = Nothing
                 , published = Nothing
                 , untriaged = []
-                , live = []
+                , workers = []
                 , fans = Map.empty
                 , ticket = Nothing
                 , latest = Nothing
@@ -358,10 +388,10 @@ applyEvent g state n = \case
     ActedOn task url -> going (inFan (Fan.actedOn task url))
     TaskAdded task -> going (inFan (Fan.added task) >>= reopened g)
     -- The lead's session started afresh: every agent it had at work is gone.
-    Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, live = []})
+    Restarted -> going (Right state {fans = Map.map Fan.restarted state.fans, workers = []})
     WorkerHandedBack role line -> going (Right state {untriaged = state.untriaged <> [(role, line)]})
-    WorkerSpawned role agent -> going (Right state {live = state.live <> [Worker role agent n]})
-    WorkerReturned role agent -> going (Right state {live = returned role agent state.live})
+    WorkerSpawned role agent -> going (Right state {workers = state.workers <> [Worker role agent n]})
+    WorkerReturned role agent -> going (Right state {workers = returned role agent state.workers})
     -- A replay drops every void, so only an 'append' that is no 'appendTo' meets one.
     Voided target _ -> Left (NotVoidable target)
   where
@@ -400,13 +430,13 @@ targeted state target = case state.at of
 of that role, as a hand-back piped in by hand names no id.
 -}
 returned :: AgentRole -> Maybe AgentId -> [Worker] -> [Worker]
-returned role agent live = case break (returning role agent) live of
+returned role agent workers = case break (returning role agent) workers of
     (before, _ : after) -> before <> after
     (before, []) -> before
 
 -- | The event saying a worker of this role returned, when it is one at work: none for another.
 returnOf :: RunState -> AgentRole -> Maybe AgentId -> Maybe Event
-returnOf state role agent = WorkerReturned role agent <$ find (returning role agent) state.live
+returnOf state role agent = WorkerReturned role agent <$ find (returning role agent) state.workers
 
 returning :: AgentRole -> Maybe AgentId -> Worker -> Bool
 returning role agent worker = maybe (worker.role == role) (== worker.agent) agent
@@ -418,23 +448,14 @@ triagedBy role untriaged = case break ((== role) . fst) untriaged of
     (before, []) -> before
 
 {- | Moves along the outcome's edge, after the outcome spends its step's
-meter and its problems join the rounds it ends.
+meter and its problems join the rounds it ends. A forked child's hand-back
+(@research.handed_back@) is taken anywhere, before its bind too, and
+changes nothing: its agent's return closes its entry in the 'ledger'.
 -}
 took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
-took g state scope outcome@(AnyOutcome _ some) = case NonEmpty.nonEmpty [metered | (metered, cap) <- Map.toList g.caps, owedBy cap.meter (RecordedOutcome some) == Just Closes] of
-    Nothing -> walked g state scope outcome
-    Just forks -> handedBack state forks
-
-{- | A child's hand-back closes one open child of a fork of its step,
-wherever the run is while the group is open (structured concurrency): the
-run stays. The children are alike, so any fork of its step with one open
-closes it, in any scope: an await closes each group before the run leaves
-it, so two are never open at once.
--}
-handedBack :: RunState -> NonEmpty Metered -> Either Refusal RunState
-handedBack state forks@(first :| _) = case filter (`elem` openForks state) (NonEmpty.toList forks) of
-    metered : _ -> Right state {meters = Map.adjust (\spent -> spent {open = spent.open - 1}) metered state.meters}
-    [] -> Left (NoneOpen first.step)
+took g state scope outcome@(AnyOutcome _ some)
+    | any (\cap -> owedBy cap.meter (RecordedOutcome some) == Just Closes) g.caps = Right state
+    | otherwise = walked g state scope outcome
 
 {- | A group's 'State.Category.Flow.Await' goes on by itself once every
 child handed back (an AND-join): no one records its @done@, as the
@@ -453,10 +474,6 @@ joined g state = case state.at of
     Exit -> state
   where
     movedOn edge = state {at = edge.to, rounds = enter g edge.back state.at edge.to state.rounds, meters = kept g edge.to state.meters, askedHere = []}
-
--- | Each forked step's ledger with a child yet to hand back: a hand-back closes one.
-openForks :: RunState -> [Metered]
-openForks state = [metered | (metered, spent) <- Map.toList state.meters, spent.open > 0]
 
 walked :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunState
 walked g state scope outcome@(AnyOutcome _ some) = do
@@ -487,7 +504,7 @@ pickedUsedUp g state from edge = case edge.to of
                 [ OutOfBudget budget.cap most
                 | (metered, budget@Budget {allows = Just most}) <- Map.toList (budgets g state)
                 , metered.place == next
-                , budget.ledger.spent >= most
+                , budget.spent >= most
                 ]
     At _ -> Nothing
     Out -> Nothing
@@ -749,7 +766,7 @@ once more.
 extended :: OpenGraph -> RunState -> Either Refusal RunState
 extended g state = case extendable g state of
     [] -> Left NothingToExtend
-    regranted -> Right state {meters = foldr (Map.update (\l -> ledger (Spent 0 l.open))) state.meters regranted, askedHere = []}
+    regranted -> Right state {meters = foldr Map.delete state.meters regranted, askedHere = []}
 
 -- | The budgets holding the run that the user may extend: what an @extend@ grants again.
 extendable :: OpenGraph -> RunState -> [Metered]
@@ -760,62 +777,53 @@ extendable g state = Map.keys (Map.filter (\budget -> extends budget.cap.atCap) 
         Refuse -> False
         Stop -> False
 
-{- | What the event spends of each cap at the run's place, and the child it
-opens or closes. Past the cap at the run's Fuel it is refused; a
-'State.Category.Meter.PerGroup' cap the kernel only counts. A hand-back
-closes any child its step opened: children are alike, so none is named.
+{- | What the event spends of each cap at the run's place. Past the cap at
+the run's Fuel it is refused; a 'State.Category.Meter.PerGroup' cap the
+kernel only counts.
 -}
-spend :: OpenGraph -> RunState -> Recorded -> Either Refusal (Map Metered Spent)
+spend :: OpenGraph -> RunState -> Recorded -> Either Refusal (Map Metered Natural)
 spend g state recorded = case state.at of
     At place -> foldM charge state.meters [(metered, cap) | (metered, cap) <- Map.toList g.caps, metered.place == place]
     Out -> Right state.meters
     Exit -> Right state.meters
   where
     charge meters (metered, cap) = do
-        let before = Map.findWithDefault empty metered meters
+        let before = Map.findWithDefault 0 metered meters
         spent <- case (spentBy cap.meter recorded, allowed (atFuel (fuelOf state) cap.limit)) of
-            (0, _) -> Right before.spent
-            (cost, Just most) | before.spent + cost > most -> Left (OutOfBudget cap most)
-            (cost, _) -> Right (before.spent + cost)
-        open <- case (owedBy cap.meter recorded, before.open) of
-            (Nothing, open) -> Right open
-            (Just Opens, open) -> Right (open + 1)
-            (Just Closes, 0) -> Left (NoneOpen metered.step)
-            (Just Closes, open) -> Right (open - 1)
-        Right (Map.alter (const (ledger (Spent spent open))) metered meters)
+            (0, _) -> Right before
+            (cost, Just most) | before + cost > most -> Left (OutOfBudget cap most)
+            (cost, _) -> Right (before + cost)
+        Right (if spent == 0 then meters else Map.insert metered spent meters)
 
-{- | What the run spent of a capped step's budget, and how many children its
-spends opened that have yet to hand back.
--}
-data Spent = Spent {spent :: Natural, open :: Natural}
-    deriving stock (Eq, Show)
-
-empty :: Spent
-empty = Spent 0 0
-
--- | The ledger as the map keeps it: an empty one is absent.
-ledger :: Spent -> Maybe Spent
-ledger spent = if spent == empty then Nothing else Just spent
-
-{- | At a group's 'State.Category.Flow.Await', the children its forks
-opened that have yet to hand back, and a fan-out's tasks not yet settled:
+{- | At a group's 'State.Category.Flow.Await', the 'ledger''s open children
+of its role, and a fan-out's tasks not yet settled with no child running:
 the state is left only at none (an AND-join). None elsewhere.
 -}
 awaitedOpen :: OpenGraph -> RunState -> Place -> Natural
 awaitedOpen g state place = case Map.lookup place g.groupStates of
     Just (Awaiting group) ->
-        sum [spent.open | (metered, spent) <- Map.toList state.meters, Map.lookup metered.place g.groupStates == Just (Forking group)]
-            + sum [fromIntegral (length (Fan.unsettled (fanIn state.fans (ScopedFan place.scope fan)))) | Just fan <- [fanNamed place.name]]
+        genericLength (filter ((== group.runner) . (.role)) (ledger g state))
+            + sum [genericLength (filter (`notElem` running fan) (Fan.unsettled fan)) | Just name <- [fanNamed place.name], let fan = fanIn state.fans (ScopedFan place.scope name)]
     Just (Forking _) -> 0
     Nothing -> 0
+  where
+    running fan = map (.child.task) (Fan.running fan)
 
--- | A cap's budget as the run stands: its ledger, and what the run's Fuel allows.
-data Budget = Budget {cap :: Cap, ledger :: Spent, allows :: Maybe Natural}
+{- | The capped forks whose budget holds the run: a forked child's
+hand-back is recorded at one, in its scope, wherever the run is in the
+fork's loop. Outside it, its role's hand-back is the step's there, as a
+researcher also simplifies the plan.
+-}
+forks :: OpenGraph -> RunState -> [Metered]
+forks g state = [metered | metered <- Map.keys (budgets g state), Just (Forking _) <- [Map.lookup metered.place g.groupStates]]
+
+-- | A cap's budget as the run stands: what it spent, and what the run's Fuel allows.
+data Budget = Budget {cap :: Cap, spent :: Natural, allows :: Maybe Natural}
     deriving stock (Eq, Show)
 
 -- | Nothing is left of it: the next spend is refused.
 usedUp :: Budget -> Bool
-usedUp budget = maybe False (budget.ledger.spent >=) budget.allows
+usedUp budget = maybe False (budget.spent >=) budget.allows
 
 {- | The budgets that hold the run: of each cap whose innermost loop holds
 its place, so the run spends them in this round.
@@ -823,14 +831,14 @@ its place, so the run spends them in this round.
 budgets :: OpenGraph -> RunState -> Map Metered Budget
 budgets g state = Map.mapWithKey budgetOf (Map.filterWithKey (\metered _ -> heldIn g metered.place state.at) g.caps)
   where
-    budgetOf metered cap = Budget {cap, ledger = Map.findWithDefault empty metered state.meters, allows = allowed (atFuel (fuelOf state) cap.limit)}
+    budgetOf metered cap = Budget {cap, spent = Map.findWithDefault 0 metered state.meters, allows = allowed (atFuel (fuelOf state) cap.limit)}
 
 -- | The budgets at the run's state that a question spends.
 spentByAsk :: OpenGraph -> RunState -> [Budget]
 spentByAsk g state = [budget | (metered, budget) <- Map.toList (budgets g state), At metered.place == state.at, spentBy budget.cap.meter RecordedAsk > 0]
 
 -- | The ledger after a move: a meter's spend lasts while the run stays in the innermost loop around its step's state.
-kept :: OpenGraph -> Node -> Map Metered Spent -> Map Metered Spent
+kept :: OpenGraph -> Node -> Map Metered Natural -> Map Metered Natural
 kept g to = Map.filterWithKey (\metered _ -> heldIn g metered.place to)
 
 {- | The node is in the innermost loop around the capped step's place, or the

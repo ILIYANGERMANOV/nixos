@@ -16,7 +16,7 @@ import Data.Type.Equality ((:~:) (..))
 import Data.Typeable (eqT)
 import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
-import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
+import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), branchesWith, nameText, qualify, qualifyText, scoped, unqualify)
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (Kit (..), diffKit, genBranching, genEndo, genExiting, genFlow, genScopePath, prKit, redrawn)
 import State.Category.Fuel (PerFuel (..), SkipWhen, always, monotone, skipsAtMost)
@@ -163,7 +163,7 @@ triaged f g = Do Triage :> Case (#small :-> f :& #big :-> Do Implement :> g :& E
 
 -- | The group 'par' forks its children into, in the laws.
 engineers :: Group 'Diff
-engineers = Group "engineers"
+engineers = Group "engineers" (AgentRole "engineer")
 
 -- | A capped fix of a PR: what bounds a choice loop over PRs.
 fixCapped :: Flow 'PR 'Nothing 'PR
@@ -240,8 +240,8 @@ unscoped scope g =
         }
   where
     renameGroup = \case
-        Graph.Forking group -> Graph.Forking (renameName bare group)
-        Graph.Awaiting group -> Graph.Awaiting (renameName bare group)
+        Graph.Forking group -> Graph.Forking group {Graph.group = renameName bare group.group}
+        Graph.Awaiting group -> Graph.Awaiting group {Graph.group = renameName bare group.group}
     bare text = fromMaybe ("unscoped:" <> text) (Text.stripPrefix (nameText scope <> "/") text)
     place at = let (inner, name) = unqualify (bare (stateNameText (placeName at))) in at {scope = inner, name = StateName name}
     renameEdge edge =

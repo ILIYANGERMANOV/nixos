@@ -107,9 +107,9 @@ deriving stock instance Show (Outcome (s :: GatherStep) l)
 deriving stock instance Eq (Outcome (s :: GatherStep) l)
 
 {- | Each researcher spawned, by the 'State.Category.Flow.Fork' of this
-step; each must hand back before the gather's 'State.Category.Flow.Await'
-goes on. Researchers are alike, so the run counts them: a spawn names none,
-and a hand-back closes any one open.
+step; each must return before the gather's 'State.Category.Flow.Await'
+goes on. A spawn names none: the run's ledger holds each from its bind,
+by its agent id, and its hand-back closes nothing.
 -}
 instance Meter Research where
     type Owes Research = 'True

@@ -13,6 +13,8 @@ module State.Category.Flow (
     branchesWith,
     Label (..),
     Group (..),
+    AgentRole (..),
+    roleText,
     alternateLoop,
     Join,
     Name (..),
@@ -169,10 +171,19 @@ instance (l ~ l') => IsLabel l (Label l') where
     fromLabel = Label
 
 {- | The children a 'Fork' starts and an 'Await' waits for, each ending in
-a @b@. A group is a name, like a loop's: one ledger of open children each.
+a @b@, and the role that runs each: an agent of that role, or a child run of
+the flow that role leads. A group is a name, like a loop's; its 'Await'
+waits on the run's open children of its role ("State.Run.Fold"'s ledger).
 -}
-newtype Group (b :: Ty) = Group Name
+data Group (b :: Ty) = Group Name AgentRole
     deriving stock (Eq, Show)
+
+-- | A subagent's role, as @state handback <role>@ names it: @implementer@.
+newtype AgentRole = AgentRole Text
+    deriving stock (Eq, Show)
+
+roleText :: AgentRole -> Text
+roleText (AgentRole name) = name
 
 {- | The steps in a fixed order, round after round: a loop over their series.
 Law: @alternateLoop n (f :| [g]) = Loop n (f :> g)@.

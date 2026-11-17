@@ -55,7 +55,7 @@ import State.Category.Fuel (Fuel (..), fuelName)
 import State.Category.Graph (Edge (..), LoopAt (..), Node (..), OpenGraph (..), Place (..), graph, outOf)
 import State.Category.Graph qualified as Graph
 import State.Category.Path (unrecorded)
-import State.Category.Step (EventName (..), OutcomeName (..), stateNameText)
+import State.Category.Step (EventName (..), OutcomeName (..), spawnedOutcome, stateNameText)
 import State.Category.Ty (NotSum, TyOf (..))
 import State.Flow.Architect (architect)
 import State.Flow.Chief (chief)
@@ -67,7 +67,7 @@ import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
-import State.Run.Fold (Append (..), RunState (..), append, openForks, replay)
+import State.Run.Fold (Append (..), RunState (..), Worker (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
@@ -279,15 +279,29 @@ genAcceptedOn own on = do
             choices -> do
                 took <- Gen.frequency choices
                 case append on state (line n took) of
-                    Right (Appended next) -> (took :) <$> go (k - 1) next (n + 1)
+                    Right (Appended next) -> (took :) <$> bound next (n + 1) (bindOf took n)
                     Right AlreadyLogged -> go (k - 1) state n
                     Left _ -> go (k - 1) state n
+              where
+                -- A researcher's spawn is bound to its agent next, as the bind hook logs it.
+                bound next m = \case
+                    Just bind | Right (Appended after) <- append on next (line m bind) -> (bind :) <$> go (k - 1) after (m + 1)
+                    _ -> go (k - 1) next m
         Out -> pure []
         Graph.Exit -> pure []
     -- The edge is named in the place's scope; the outcome is its step's own.
     tookBy place name = Took place.scope <$> outcomeIn own (EventName (StateName (snd (unqualify (stateNameText name.step)))) name.outcome)
-    -- A researcher in the background may hand back wherever the run is; at an await, only it moves the run on.
-    handBacks place state = [(3, pure (Took place.scope (outcome ResearchHandedBack))) | not (null (openForks state))]
+    {- A researcher in the background may return wherever the run is; at an
+    await, only it moves the run on. Its hand-back is taken anywhere, before
+    its bind too, and closes nothing.
+    -}
+    handBacks place state =
+        [(3, pure (WorkerReturned researcher Nothing)) | any ((== researcher) . (.role)) state.workers]
+            <> [(1, pure (Took place.scope (outcome ResearchHandedBack)))]
+    bindOf took n = case took of
+        Took scope spawn | (tookEvent scope spawn).outcome == spawnedOutcome -> Just (WorkerSpawned researcher (AgentId ("r" <> Text.pack (show n))))
+        _ -> Nothing
+    researcher = AgentRole "researcher"
     stays place edge = case edge.to of
         At to ->
             all (\loop -> not (Set.member place loop.body) || Set.member to loop.body) (Map.elems on.loops)

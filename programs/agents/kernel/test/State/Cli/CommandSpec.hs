@@ -217,36 +217,36 @@ spec = describe "State.Cli.Command" $ do
                 `shouldBe` "state record: fuel - set once\nfix: state show\n"
 
         it "explains a void that breaks the replay by what breaks, fixing it by voiding the later line first" $
-            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt fueled).at (runAt fueled).meters (VoidBreaks 0 NotStarted))
+            (\failure -> (failure.why, failure.fix)) (explain g Balanced (runAt fueled).at (VoidBreaks 0 NotStarted))
                 `shouldBe` ("the log without it does not replay: the log - its first line is not started", "state void <the later line that needs it> <why>, then this one")
 
         it "fixes a question past the gather's questions by extending, or going back to the gather's pick" $
-            (explain g Balanced (runAt interviewing).at (runAt interviewing).meters (OutOfBudget (capOf "Interview questions") 30)).fix
+            (explain g Balanced (runAt interviewing).at (OutOfBudget (capOf "Interview questions") 30)).fix
                 `shouldBe` "state record extend <why> | state record interview.asked"
 
         it "fixes a researcher past the cap at the research state by extending" $
-            (explain g Balanced (runAt researching).at (runAt researching).meters (OutOfBudget (capOf "Researchers") 5)).fix
+            (explain g Balanced (runAt researching).at (OutOfBudget (capOf "Researchers") 5)).fix
                 `shouldBe` "state record extend <why> | state record gather/research.spawned"
 
         it "fixes a plan round past the cap by confirming or stopping" $
-            (explain g Balanced (runAt planned).at (runAt planned).meters (OutOfBudget (capOf "Plan rounds") 3)).fix
+            (explain g Balanced (runAt planned).at (OutOfBudget (capOf "Plan rounds") 3)).fix
                 `shouldBe` "state record confirm.confirmed | state stop rounds <why>"
 
         it "fixes a re-review past the cap by the loop's exit alone" $
-            (explain g Balanced (runAt picking).at (runAt picking).meters (OutOfBudget (capOf "Re-reviews") 3)).fix
+            (explain g Balanced (runAt picking).at (OutOfBudget (capOf "Re-reviews") 3)).fix
                 `shouldBe` "state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."
 
         it "explains an extend where no budget asks the user to go on" $
-            (explain g Balanced (runAt fueled).at (runAt fueled).meters NothingToExtend).fix `shouldBe` "state next"
+            (explain g Balanced (runAt fueled).at NothingToExtend).fix `shouldBe` "state next"
 
         it "fixes an event with no arrow by the events out of the step the Fuel takes" $
-            [ (explain g fuel (runAt skipping).at (runAt skipping).meters (NoEdge (runAt skipping).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            [ (explain g fuel (runAt skipping).at (NoEdge (runAt skipping).at (outcomeEvent (outcome (ReviewClean sha))))).fix
             | fuel <- [Balanced, Low]
             ]
                 `shouldBe` ["state record skip_simplify_plan.run", "state record skip_simplify_plan.run | state record skip_simplify_plan.skip"]
 
         it "fixes an event with no arrow at the gather's pick by its picks, a researcher open or not: a hand-back is no pick" $
-            [ (explain g Balanced (runAt events).at (runAt events).meters (NoEdge (runAt events).at (outcomeEvent (outcome (ReviewClean sha))))).fix
+            [ (explain g Balanced (runAt events).at (NoEdge (runAt events).at (outcomeEvent (outcome (ReviewClean sha))))).fix
             | events <- [fueled, researched]
             ]
                 `shouldBe` replicate 2 "state record gather.enough | state record gather.interview | state record gather.research"

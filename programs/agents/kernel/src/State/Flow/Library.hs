@@ -32,7 +32,7 @@ import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Typeable (Typeable)
 import GHC.TypeLits (KnownSymbol, symbolVal)
-import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Label (..), Name (..))
+import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Label (..), Name (..))
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (KnownTy, NotSum, Summands, TyOf (..))
@@ -140,9 +140,11 @@ researchersOf scope = Scope scope (Capped (PerFuel (UpTo 1) (UpTo 5) PerGroup) E
 merged :: Name -> Flow 'Ctx 'Nothing 'Ctx
 merged scope = Scope scope (Await researchers :> Do Notes)
 
--- | The researchers a choice spawns, each handing back its facts: the group's state is its 'Await'.
+{- | The researchers a choice spawns, each handing back its facts: the group's state is its 'Await'.
+Run by @flows/steps.nix@'s runner of @research@, which "State.Table" checks.
+-}
 researchers :: Group 'Ctx
-researchers = Group "researchers"
+researchers = Group "researchers" (AgentRole "researcher")
 
 -- | The questions the user is asked, by Fuel: an interview's or a discussion's.
 questions :: PerFuel Limit

@@ -153,12 +153,12 @@ spec = describe "the state binary" $ do
             missing <- state bin repo ["record", "plan.done", "/no/such"]
             (missing.code, missing.err) `shouldBe` (2, ["state record: /no/such - no such file", "fix: write it first"])
 
-        it "closes a researcher's child on its report, which has no token, so the waiting gather goes on to its notes" $ \repo -> do
+        it "closes a researcher's child as it returns with its report, which has no token, so the waiting gather goes on to its notes" $ \repo -> do
             _ <- drive bin repo [Record ["fuel.set", "balanced"], Record ["gather.research"], Spawn "researcher"]
             enough <- succeeded =<< state bin repo ["record", "gather.enough"]
             back <- succeeded =<< hook hookBin repo "handback" (reportedBack repo "researcher" researched)
             (recorded enough, back) `shouldSatisfy` \case
-                (["gather.enough -> gather/researchers"], [reply]) -> "gather/research.handed_back -> gather/notes" `Text.isInfixOf` reply
+                (["gather.enough -> gather/researchers"], [reply]) -> all (`Text.isInfixOf` reply) ["gather/research.handed_back -> gather/researchers", "worker_returned -> gather/notes"]
                 _ -> False
 
         it "prints each record it advises with its arguments" $ \repo -> do

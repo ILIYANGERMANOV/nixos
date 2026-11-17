@@ -28,7 +28,7 @@ import Data.Typeable (Typeable)
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Flow (Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), ScopePath, scopePath)
+import State.Category.Flow (AgentRole (..), Branch (..), Branches (..), Cappable (..), Flow (..), Group (..), Name (..), ScopePath, scopePath)
 import State.Category.Fuel (PerFuel (..), SkipWhen (..), always)
 import State.Category.Graph (Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), graph, outOf, places)
 import State.Category.Graph qualified as Graph
@@ -71,7 +71,7 @@ genFlow = do
     plan <- genEndo planKit
     Gen.choice
         [ (\diff pr -> ctx :> Do PlanS :> plan :> Do Implement :> diff :> Do Describe :> pr) <$> genEndo diffKit <*> genEndo prKit
-        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> par (Group "engineers") engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers))))
+        , pure (Loop "round" (ctx :> Do PlanS :> plan :> Do (Breakdown engineers) :> par (Group "engineers" (AgentRole "engineer")) engineer :> Capped (always (UpTo 9)) Stop (Step (Merge engineers))))
         ]
   where
     engineer = Do PlanS :> Do Implement :> Do Describe

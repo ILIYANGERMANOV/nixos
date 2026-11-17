@@ -16,7 +16,7 @@ import State.Run.Ask (Kind (..), QId (..), Question (..))
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.EventGen (fuelSet, genOneLine, genQuestion, genRunId, oneLine, run, runId)
-import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
+import State.Run.RunGen (childOf, g, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
@@ -57,7 +57,7 @@ spec = describe "State.Protocol.Handback" $ do
 typing :: Spec
 typing = describe "typeHandback" $ do
     steps <- runIO loadSteps
-    let typed at role = typeHandback steps at (Just sha) (AgentRole role) Nothing . parsed
+    let typed at role = typeHandback steps g at (Just sha) (AgentRole role) Nothing . parsed
 
     it "types an implementer's READY as implement.done at the head, with its areas" $
         typed atImplement "implementer" "READY built\nTouches: auth"
@@ -73,7 +73,7 @@ typing = describe "typeHandback" $ do
 
     it "says a worker logged at work returned, by its id or else its role, and no other" $ do
         let fixing = runAt (fuelSet Balanced : take 13 happyPath <> map (Took mempty) [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))] <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
-            returns agent = drop 1 . (.events) <$> typeHandback steps fixing (Just sha) (AgentRole "fixer") agent (parsed "READY fixed")
+            returns agent = drop 1 . (.events) <$> typeHandback steps g fixing (Just sha) (AgentRole "fixer") agent (parsed "READY fixed")
         map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
             `shouldBe` [Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))], Right [Event.WorkerReturned (AgentRole "fixer") Nothing], Right []]
 

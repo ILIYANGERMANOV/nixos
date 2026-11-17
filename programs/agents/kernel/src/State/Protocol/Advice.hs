@@ -33,7 +33,7 @@ import Data.Aeson (eitherDecodeStrictText, withObject, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.Containers.ListUtils (nubOrdOn)
 import Data.Foldable (asum, toList)
-import Data.List (sortOn)
+import Data.List (genericLength, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -45,7 +45,7 @@ import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), GroupAt (..), GroupOf (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
 import State.Category.Step (EventName (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, outcomeNames, stateNameText)
 import State.Category.Step qualified as Step
@@ -63,7 +63,7 @@ import State.Run.Event (AgentId (..), AgentRole (..), Asker (Itself), Asking (..
 import State.Run.Event qualified as Event
 import State.Run.Fan (ChildRun (..), Fan (..))
 import State.Run.Fan qualified as Fan
-import State.Run.Fold (Budget (..), OnTarget (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Spent (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
+import State.Run.Fold (Budget (..), OnTarget (..), Open (..), Pending (..), Problem (..), RunState (..), ScopedFan (..), Stuck (..), Waits (..), Worker (..), askedAt, askingChildren, awaitedOpen, budgets, currentFan, fanIn, fuelOf, given, ledger, nextQId, onRound, planSettled, shape, stuck, stuckExits, usedUp)
 import State.Show (firstLine, tshow)
 import State.Step.Build (Outcome (..), Sing (Draft))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
@@ -376,43 +376,48 @@ shownBudgets g state = sortOn (\(metered, budget) -> shownOrder metered budget.c
 {- | What a child's spawn or hand-back tells under its line in place of the
 advice, which parallel spawns would each repeat:
 
-> researchers: 2 running, 3 of 5 left
+> researchers: 3 of 5 left
 > next: spawn more, or end your turn until they hand back
 
-None for an event that opens or closes no child.
+A hand-back tells the children of its group's role still open in the
+run's 'State.Run.Fold.ledger' instead: a spawn's own child is not in it
+before its bind. None for an event that opens or closes no child.
 -}
 childBudget :: OpenGraph -> RunState -> Event -> Maybe [Text]
 childBudget g state event =
     listToMaybe
-        [ childLines owed budget
+        [ childLines owed budget (genericLength (filter ((== group.runner) . (.role)) (ledger g state)))
         | Event.Took _ (AnyOutcome _ some) <- [event]
-        , (_, budget) <- shownBudgets g state
+        , (metered, budget) <- shownBudgets g state
         , Just owed <- [owedBy budget.cap.meter (RecordedOutcome some)]
+        , Just (Forking group) <- [Map.lookup metered.place g.groupStates]
         ]
 
-childLines :: Owed -> Budget -> [Text]
-childLines owed budget =
-    [ Text.toLower (someMeterName budget.cap.meter) <> ": " <> howMany open <> " running" <> foldMap left budget.allows
+childLines :: Owed -> Budget -> Natural -> [Text]
+childLines owed budget open =
+    [ Text.toLower (someMeterName budget.cap.meter) <> ": " <> Text.intercalate ", " (running <> foldMap left budget.allows)
     , "next: " <> next
     ]
   where
-    open = budget.ledger.open
-    left allows = ", " <> howMany (allows - min allows budget.ledger.spent) <> " of " <> tshow allows <> " left"
+    running = case owed of
+        Opens -> []
+        Closes -> [howMany open <> " running"]
+    left allows = [howMany (allows - min allows budget.spent) <> " of " <> tshow allows <> " left"]
     howMany n = if n == 0 then "none" else tshow n
-    await = "end your turn until " <> if open == 1 then "it hands back" else "they hand back"
     next = case owed of
-        Opens | usedUp budget -> await
-        Opens -> "spawn more, or " <> await
+        Opens | usedUp budget -> "end your turn until they hand back"
+        Opens -> "spawn more, or end your turn until they hand back"
         Closes | open == 0 -> "state next"
-        Closes -> await
+        Closes | open == 1 -> "end your turn until it hands back"
+        Closes -> "end your turn until they hand back"
 
 -- | @Re-reviews: 1 of 3 used, 2 left@: what a budget spent of what the run's Fuel allows.
 spentText :: Budget -> Text
-spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.ledger.spent <> left budget.allows
+spentText budget = someMeterName budget.cap.meter <> ": " <> tshow budget.spent <> left budget.allows
   where
     left = \case
-        Just allows | budget.ledger.spent >= allows -> " of " <> tshow allows <> " used, none left"
-        Just allows -> " of " <> tshow allows <> " used, " <> tshow (allows - budget.ledger.spent) <> " left"
+        Just allows | budget.spent >= allows -> " of " <> tshow allows <> " used, none left"
+        Just allows -> " of " <> tshow allows <> " used, " <> tshow (allows - budget.spent) <> " left"
         Nothing -> " used, one per group"
 
 {- | At a fan-out: what this run does at once first - record the hand-back
@@ -611,7 +616,7 @@ structured-concurrency scope ends only after its children. Decided on the
 delivered line, so 'advise' stays principal-blind. Names the oldest worker.
 -}
 heldBy :: Start -> [Worker] -> Advice -> Advice
-heldBy start live advice = case live of
+heldBy start workers advice = case workers of
     worker : _
         | handsBack (deliver start advice.action) ->
             advice {action = AwaitWorker worker.role worker.agent, more = [], leads = [], facts = stillAtWork worker <> advice.facts}

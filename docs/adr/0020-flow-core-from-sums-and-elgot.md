@@ -31,7 +31,7 @@ meters, `Capped`, `Loop` without rounds, the review loop, scoped names.
   | `Loop name f` | Elgot iteration: repeat until the body exits |
   | `Capped limits atCap c` | a step, or a `Fork` of one, whose `Meter` spends a budget |
   | `Fork g f` | start `f` as a child in the typed group `g`, go on with the input |
-  | `Await g` | wait for every child of `g`: their results, in fork order |
+  | `Await g` | wait for every open child of `g`'s role: their results, in fork order |
   | `Each f` | `f` once per item of a list, in this run |
   | `Scope name f` | the body's states named `name/...` |
 
@@ -112,10 +112,16 @@ an unbounded loop).
   skills' states tables render from the terms (`kernel/rendered.nix`).
 - The wire stays version 4; a log with a removed event is refused, not
   migrated.
-- The open children are still counted in two places, the meters' spends
-  and the 10x fan ledger; one ledger keyed by a `ChildId` sum (an agent id
-  for an agent child, a run id for a 10x engineer run) is the decided
-  follow-up.
+- One ledger of open children, keyed by a `ChildId` sum: an agent id for
+  an agent child, a run id for a 10x engineer run. A group names the role
+  that runs its children (`Group name role`), and its `Await` waits on the
+  open entries of that role. An agent's entry opens at its bind
+  (`worker_spawned`) and closes at its return (`worker_returned`, by id,
+  else the oldest of its role); `research.handed_back` closes nothing and
+  is taken anywhere, before its bind too. A child run's entry is read off
+  the 10x task book, which keeps each child's hand-backs. Meters only
+  count spends. A forked step's runner in `steps.nix` must be its group's
+  role (`TableSpec`).
 
 ## Considered options
 

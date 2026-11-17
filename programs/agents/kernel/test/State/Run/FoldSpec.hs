@@ -2,7 +2,7 @@ module State.Run.FoldSpec (spec) where
 
 import Data.Either (isRight)
 import Data.Foldable (for_)
-import Data.List (intercalate)
+import Data.List (inits, intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -34,7 +34,7 @@ import State.Run.EventGen (fuelSet, genOneLine, genProposal, genQuestion, genRea
 import State.Run.Fan qualified as Fan
 import State.Run.Fold hiding (Answer (..))
 import State.Run.Fold qualified as Fold
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXGraph, ticketOpened, ticketUrl, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, enoughIn, g, genAccepted, genAcceptedOn, happyPath, outcomeOf, pickOf, plainTask, researchedIn, roundTask, runOf, scopedIn, securityGraph, securityScope, sha, spawnedIn, tenXAt, tenXGraph, ticketOpened, ticketUrl, within)
 import State.Step.Catalog (flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fan (Outcome (..), Sing (Breakdown, Merge), engineers)
 import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
@@ -100,7 +100,7 @@ spec = describe "State.Run.Fold" $ do
 
     describe "a lead's workers" $ do
         let fixer = AgentRole "fixer"
-            atWork events = map (\worker -> (worker.agent, worker.spawnedAt)) . (.live) <$> replay g (logOf (Started start0 :| events))
+            atWork events = map (\worker -> (worker.agent, worker.spawnedAt)) . (.workers) <$> replay g (logOf (Started start0 :| events))
             start0 = startOf EngineerFlow (ByUser OwnPr)
             spawn role agent = WorkerSpawned role (AgentId agent)
         it "holds each worker spawned, by the seq of its spawn, until the one of its id returns" $
@@ -220,7 +220,7 @@ spec = describe "State.Run.Fold" $ do
         states <- traverse (evalEither . replay g . logOf) (NonEmpty.toList (NonEmpty.inits1 (started :| events)))
         let held = [budget | state <- states, budget <- Map.elems (budgets g state)]
         cover 1 "a used-up budget" (any usedUp held)
-        for_ held $ \budget -> assert (all (budget.ledger.spent <=) budget.allows)
+        for_ held $ \budget -> assert (all (budget.spent <=) budget.allows)
 
     -- At the pick, before the fixer runs, so the run can still take the loop's exit.
     it "refuses a re-review past Low's one at the loop pick" $
@@ -490,8 +490,32 @@ gatherBudgets = describe "the gather's choice" $ do
         gathered (interleaved <> [pickEnough] <> replicate (n - early) handedBack)
             === gathered (spawns n <> [pickEnough] <> replicate n handedBack)
 
-    it "refuses a hand-back with no researcher open" $
-        replay g (logOf (started :| fuelSet Balanced : spawns 1 <> [handedBack, handedBack])) `shouldBe` Left (NoneOpen (StateName "research"))
+    it "takes a researcher's hand-back before its bind, which closes nothing: its return does" $ do
+        let early = spawnedIn "gather" <> [stepTook ResearchHandedBack, bind, pickEnough]
+        map (fmap atName . replay g . logOf . (started :|) . (fuelSet Balanced :)) [early, early <> [handedBack]]
+            `shouldBe` map (Right . Just . StateName) ["gather/researchers", "gather/notes"]
+
+    it "keeps every bound child in the ledger, oldest first, until its own return, whatever comes between" . hedgehog $ do
+        events <- forAll (merged . concat =<< traverse lifetime [1 .. 6])
+        for_ (inits events) $ \prefix -> do
+            state <- evalEither (replay g (logOf (started :| fuelSet Balanced : prefix)))
+            let back = [agent | WorkerReturned _ (Just agent) <- prefix]
+            map (.child) (ledger g state) === [AgentChild agent | WorkerSpawned _ agent <- prefix, agent `notElem` back]
+
+    it "completes the researchers' await iff every researcher it waits on returned, whatever the order of other roles' events" . hedgehog $ do
+        n <- forAll (Gen.int (Range.linear 1 4))
+        others <- forAll (Gen.list (Range.linear 0 4) (Gen.element [AgentRole "implementer", AgentRole "fixer", AgentRole "refactorer"]))
+        let researchersOpen = [spawnedIn "gather" <> [WorkerSpawned researcher (agentNo i)] | i <- [1 .. n]]
+            othersOpen = [WorkerSpawned role (agentNo i) | (i, role) <- zip [100 ..] others]
+        after <- forAll (merged ([[WorkerReturned researcher (Just (agentNo i))] | i <- [1 .. n]] <> [[WorkerReturned role (Just (agentNo i))] | (i, role) <- zip [100 ..] others] <> [[stepTook ResearchHandedBack] | _ <- [1 .. n]]))
+        for_ (inits after) $ \prefix -> do
+            state <- evalEither (replay g (logOf (started :| fuelSet Balanced : concat researchersOpen <> othersOpen <> [pickEnough] <> prefix)))
+            let open = n - length [() | WorkerReturned role _ <- prefix, role == researcher]
+            atName state === Just (StateName (if open > 0 then "gather/researchers" else "gather/notes"))
+
+    it "takes a researcher's hand-back anywhere, closing nothing" $
+        atName <$> replay g (logOf (started :| fuelSet Balanced : spawns 1 <> [stepTook ResearchHandedBack, stepTook ResearchHandedBack, pickEnough]))
+            `shouldBe` Right (Just (StateName "gather/researchers"))
 
     it "grants another 5 researchers and 30 questions after extend, keeping the open ones" $ do
         let extended = spent <> [Extended "the user goes on"] <> asks 31 30 <> spawns 5
@@ -507,8 +531,12 @@ gatherBudgets = describe "the gather's choice" $ do
     it "refuses extend outside the gather" $
         replay g (logOf (started :| fuelSet Balanced : take 10 happyPath <> [Extended "why"])) `shouldBe` Left NothingToExtend
   where
-    spawns n = concat (replicate n (spawnedIn "gather"))
-    handedBack = stepTook ResearchHandedBack
+    -- Each spawn bound to its agent, as the bind hook logs it: its entry in the ledger.
+    spawns n = concat (replicate n (spawnedIn "gather" <> [bind]))
+    bind = WorkerSpawned researcher (AgentId "r")
+    -- A researcher's return closes its entry: the oldest of its role, as a hand-back by hand names no id.
+    handedBack = WorkerReturned researcher Nothing
+    researcher = AgentRole "researcher"
     pickInterview = Took mempty (pickOf "gather" "interview")
     pickEnough = Took mempty (pickOf "gather" "enough")
     notesDone = tookIn (scopePath "gather") NotesDone
@@ -516,6 +544,22 @@ gatherBudgets = describe "the gather's choice" $ do
     spent = spawns 5 <> asks 1 30
     asks from n = interviewed [askAt i Fact | i <- [from .. from + n - 1]]
     askAt n kind = Asked (Asking (Question (QId run n) kind (oneLine "a question")) (StateName "interview") Itself)
+    agentNo i = AgentId ("a" <> Text.pack (show (i :: Int)))
+    -- An agent of any role bound, then returned by its id or never, and a hand-back that closes nothing: each its own lane.
+    lifetime i = do
+        role <- Gen.element [researcher, AgentRole "implementer", AgentRole "fixer"]
+        returns <- Gen.bool
+        reports <- Gen.bool
+        pure ([WorkerSpawned role (agentNo i) : [WorkerReturned role (Just (agentNo i)) | returns]] <> [[stepTook ResearchHandedBack] | reports])
+    -- The lanes' events merged in any order, each lane's in its own.
+    merged :: [[Event]] -> Gen [Event]
+    merged lanes = case filter (not . null) lanes of
+        [] -> pure []
+        open -> do
+            i <- Gen.int (Range.constant 0 (length open - 1))
+            case splitAt i open of
+                (before, (next : rest) : after) -> (next :) <$> merged (before <> (rest : after))
+                _ -> pure []
     -- These spawns and hand-backs in any order a run may record them: a hand-back only while one is open.
     genHandBacks :: Int -> Int -> Int -> Gen [Event]
     genHandBacks toSpawn toHandBack open = case (toSpawn > 0, toHandBack > 0 && open > 0) of
@@ -524,7 +568,7 @@ gatherBudgets = describe "the gather's choice" $ do
         (False, True) -> handed
         (True, True) -> Gen.choice [spawned, handed]
       where
-        spawned = (spawnedIn "gather" <>) <$> genHandBacks (toSpawn - 1) toHandBack (open + 1)
+        spawned = ((spawnedIn "gather" <> [bind]) <>) <$> genHandBacks (toSpawn - 1) toHandBack (open + 1)
         handed = (handedBack :) <$> genHandBacks toSpawn (toHandBack - 1) (open - 1)
 
 -- | The interview picked at the gather, these questions asked at it, then back at the pick.
@@ -631,6 +675,12 @@ or loops back to gather for the next round, with fresh budgets.
 -}
 tenXRounds :: Spec
 tenXRounds = describe "the 10x's rounds" $ do
+    it "keeps an engineer's child run in the ledger while it runs or asks up, until it hands back its end" $ do
+        let asking = HandedBack (runId "c1") (AsksUp (QId run 1))
+            ledgerAfter events = ledger tenXGraph (tenXAt (plainTask "t1" [] :| []) (Spawned (childOf "c1" "t1") : events))
+        map ledgerAfter [[], [asking], [HandedBack (runId "c1") (Finished (oneLine "READY"))]]
+            `shouldBe` [[Open (RunChild (runId "c1")) (AgentRole "engineer")], [Open (RunChild (runId "c1")) (AgentRole "engineer")], []]
+
     for_ [minBound .. maxBound] $ \fuel ->
         it ("lets a round on an existing PR skip ready at " <> show fuel) $
             (.at) <$> engineerRun (ByRole parent (RoundOn pr) ChildConfirms) fuel `shouldBe` Right Out
@@ -797,14 +847,14 @@ fan-out, with its own tasks and children.
 scopedFans :: OpenGraph
 scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Scope "b" fanned))
   where
-    fanned = Do (Breakdown engineers) :> Library.par (Group engineers) engineer :> Do (Merge engineers)
+    fanned = Do (Breakdown engineers) :> Library.par (Group engineers (AgentRole "engineer")) engineer :> Do (Merge engineers)
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
 first's PRs. No step goes from a PR back to a plan, so the second has no
 breakdown of its own.
 -}
 twoFans :: OpenGraph
-twoFans = either (error . show) id (graph (Do (Breakdown engineers) :> Library.par (Group engineers) engineer :> Scope "second" (Library.par (Group engineers) (Do SimplifyPR)) :> Do (Merge engineers)))
+twoFans = either (error . show) id (graph (Do (Breakdown engineers) :> Library.par (Group engineers (AgentRole "engineer")) engineer :> Scope "second" (Library.par (Group engineers (AgentRole "engineer")) (Do SimplifyPR)) :> Do (Merge engineers)))
 
 -- | The state a run is at, if it is at one.
 atName :: RunState -> Maybe StateName

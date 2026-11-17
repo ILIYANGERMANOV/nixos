@@ -155,7 +155,7 @@ spec = describe "state-hook over the doubles" $ do
                 said.code `shouldBe` 0
                 contextOf said `shouldSatisfy` maybe False ("state: the advice is SPAWN researcher, not implementer" `Text.isInfixOf`)
 
-            it "records a researcher's spawn at its research state, and its hand-back, which moves the waiting gather on to its notes" $ \world -> do
+            it "records a researcher's spawn at its research state, and its hand-back and return, which moves the waiting gather on to its notes" $ \world -> do
                 _ <- drive world researching
 
                 spawn <- hook world "spawn" (spawned "researcher")
@@ -165,10 +165,10 @@ spec = describe "state-hook over the doubles" $ do
 
                 (contextOf spawn, enough.code, contextOf back)
                     `shouldSatisfy` \case
-                        (Just opened, 0, Just closed) -> "recorded event 4 gather/research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 7 gather/research.handed_back -> gather/notes" `Text.isInfixOf` closed
+                        (Just opened, 0, Just closed) -> "recorded event 4 gather/research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 7 gather/research.handed_back -> gather/researchers" `Text.isInfixOf` closed && "recorded 8 worker_returned -> gather/notes" `Text.isInfixOf` closed
                         _ -> False
 
-            it "tells a recorded spawn's line, the researchers running and left, and to spawn more or wait, not the advice" $ \world -> do
+            it "tells a recorded spawn's line, the researchers left, and to spawn more or wait, not the advice" $ \world -> do
                 _ <- drive world researching
                 _ <- hook world "spawn" (spawned "researcher")
                 _ <- state world ["record", "gather.research"]
@@ -180,12 +180,12 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldBe` Just
                         ( Text.unlines
                             [ "run " <> run <> ": recorded event 6 gather/research.spawned -> gather"
-                            , "  researchers: 2 running, 3 of 5 left"
+                            , "  researchers: 3 of 5 left"
                             , "  next: spawn more, or end your turn until they hand back"
                             ]
                         )
 
-            it "tells a spawn that spends the researchers' budget only to wait for the one running" $ \world -> do
+            it "tells a spawn that spends the researchers' budget only to wait" $ \world -> do
                 _ <- drive world [Record ["fuel.set", "low"], Record ["gather.research"]]
 
                 said <- hook world "spawn" (spawned "researcher")
@@ -195,14 +195,15 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldBe` Just
                         ( Text.unlines
                             [ "run " <> run <> ": recorded event 4 gather/research.spawned -> gather"
-                            , "  researchers: 1 running, none of 1 left"
-                            , "  next: end your turn until it hands back"
+                            , "  researchers: none of 1 left"
+                            , "  next: end your turn until they hand back"
                             ]
                         )
 
             it "tells a researcher's hand-back with another still running to wait for it" $ \world -> do
                 _ <- drive world researching
                 _ <- hook world "spawn" (spawned "researcher")
+                _ <- hook world "bind" (spawnResultOf "researcher" "a0")
                 _ <- state world ["record", "gather.research"]
                 _ <- hook world "spawn" (spawned "researcher")
                 _ <- hook world "bind" (spawnResult "researcher")
@@ -213,10 +214,10 @@ spec = describe "state-hook over the doubles" $ do
                 contextOf said
                     `shouldBe` Just
                         ( Text.unlines
-                            [ "run " <> run <> ": recorded event 8 gather/research.handed_back -> gather"
+                            [ "run " <> run <> ": recorded event 9 gather/research.handed_back -> gather"
                             , "  researchers: 1 running, 3 of 5 left"
                             , "  next: end your turn until it hands back"
-                            , "state: recorded 9 worker_returned -> gather"
+                            , "state: recorded 10 worker_returned -> gather"
                             ]
                         )
 

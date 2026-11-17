@@ -41,7 +41,7 @@ parBodies = \case
     Case branches -> concat (branchesWith parBodies branches)
     Exit -> []
     Each body -> parBodies body
-    Fork (Group group) body -> (group, show body) : parBodies body
+    Fork (Group group _) body -> (group, show body) : parBodies body
     Await _ -> []
     Catch body -> parBodies body
     Scope scope body -> [(scoped scope fan, shown) | (fan, shown) <- parBodies body]

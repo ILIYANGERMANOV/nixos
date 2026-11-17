@@ -148,7 +148,7 @@ spec = describe "State.Protocol.Advice" $ do
             next noFacts (runAt (knobs Balanced <> researched <> [Took mempty (pickOf "gather" "enough")])) `shouldBe` offering ["end your turn"]
 
         it "offers enough again once every researcher handed back" $
-            explainedAt (runAt (knobs Balanced <> researched <> [stepTook ResearchHandedBack])) `shouldBe` explainedAt (runAt (knobs Balanced))
+            explainedAt (runAt (knobs Balanced <> researched <> [stepTook ResearchHandedBack, WorkerReturned (AgentRole "researcher") Nothing])) `shouldBe` explainedAt (runAt (knobs Balanced))
 
         it "asks the user whether to go on once the questions are used up" $
             next noFacts (runAt (knobs Balanced <> questions 30)) `shouldBe` Ask Stuck "Interview questions: 30 of 30 used, none left: go on?"
@@ -495,7 +495,8 @@ spec = describe "State.Protocol.Advice" $ do
     -- As init starts a 10x: at Balanced, given.
     tenXStarted = tenXRun [fuelSet Balanced]
     gathering = StateName "gather"
-    researched = spawnedIn "gather"
+    -- A researcher spawned and bound to its agent: open in the ledger until it returns.
+    researched = spawnedIn "gather" <> [WorkerSpawned (AgentRole "researcher") (AgentId "r1")]
     pickResearch = Took mempty (pickOf "gather" "research")
     -- Each put to the user at the interview and answered, then back at the gather's pick.
     questions n = Took mempty (pickOf "gather" "interview") : concat [[Asked (Asking (Question (QId run i) Design (oneLine "a question")) (StateName "interview") Itself), Forwarded (QId run i) TheUser, Answered (QId run i) "yes" TheUser] | i <- [1 .. n]] <> [stepTook InterviewAsked]

@@ -32,7 +32,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (ScopePath)
 import State.Category.Fuel (Area, parseByName)
-import State.Category.Graph (Metered (..), Node (..), Place (..))
+import State.Category.Graph (Metered (..), Node (..), OpenGraph, Place (..))
 import State.Category.Step (Outcome, Sing, SomeStep (..), StateName (..), StepSet, stepName)
 import State.Role (leads)
 import State.Run.Ask (Kind (Stuck), OneLine, Question (..), oneLineText, parseKind, parseOneLine, parseQId, questionLine)
@@ -40,7 +40,7 @@ import State.Run.Codec (areaText, parseStopLine, shaText, stopToken, stopWire, w
 import State.Run.Event (AgentId, AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, TaskMoved), RunId, Said (..), Sha (..), Shape (..), Stop, StopReason (Replan), Task (..), TaskState (..), Url (..), Waiting (..), parseRunId, runIdText, tookIn)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, childTask)
-import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, nextQId, openForks, returnOf)
+import State.Run.Fold (RunState (..), ScopedFan (..), askedAt, fanIn, forks, nextQId, returnOf)
 import State.Step.Build (Outcome (..))
 import State.Step.Build qualified as Build
 import State.Step.Catalog (AnyStep (..), KnownLayer, Layer (..), stepNamed)
@@ -237,10 +237,10 @@ run's own to triage (@state ask --from@): a worker's failure does not stop
 the run. A worker's hand-back also says it returned, when it was logged at
 work ('returnOf'). The sha is the worktree's HEAD.
 -}
-typeHandback :: Steps -> RunState -> Maybe Sha -> AgentRole -> Maybe AgentId -> Handback -> Either Refusal Typed
-typeHandback steps state worktreeHead agent agentId handback = case [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
+typeHandback :: Steps -> OpenGraph -> RunState -> Maybe Sha -> AgentRole -> Maybe AgentId -> Handback -> Either Refusal Typed
+typeHandback steps g state worktreeHead agent agentId handback = case [ScopedFan place.scope fan | Just _ <- [leads agent], At place <- [state.at], Just fan <- [Fan.fanNamed place.name]] of
     here : _ -> fromChild state (fanIn state.fans here) handback
-    [] -> (\typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}) <$> fromWorker steps state worktreeHead agent handback
+    [] -> (\typed -> typed {events = typed.events <> maybeToList (returnOf state agent agentId)}) <$> fromWorker steps g state worktreeHead agent handback
 
 {- | A child run's hand-back at the fan-out: what it said, under its run id,
 which it must name. A question it asked joins this run's pending; its stop
@@ -275,8 +275,8 @@ fromChild state fan handback = case handback.run of
             Nothing -> Left (Why ("line 1 is no stop: " <> tokenLine token))
         unasked = Left (Why ("a child asks by state ask in its own run: hand back " <> tokenWordText NeedsDecisionWord <> " <Kind> <qid>: <question>"))
 
-fromWorker :: Steps -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Refusal Typed
-fromWorker steps state worktreeHead agent handback = case handback.token of
+fromWorker :: Steps -> OpenGraph -> RunState -> Maybe Sha -> AgentRole -> Handback -> Either Refusal Typed
+fromWorker steps g state worktreeHead agent handback = case handback.token of
     -- A forked worker reports in its own shape (a researcher's opens with its index): any hand-back closes its child.
     Nothing -> recorded <$> done (not forked)
     Just (Ready _) -> recorded <$> done False
@@ -297,10 +297,10 @@ fromWorker steps state worktreeHead agent handback = case handback.token of
         (True, Right events) -> typed {events = events <> typed.events}
         _ -> typed
     forked = isJust openFork
-    {- A worker of a group with a child open hands back wherever the run is
-    (structured concurrency): its step is the one forked. Else the step here.
+    {- A worker of a group hands back wherever the run is, before its bind
+    too (structured concurrency): its step is the one forked. Else the step here.
     -}
-    openFork = listToMaybe [(metered.place, step) | metered <- openForks state, step@(AnyStep _ (SomeStep s)) <- stepsRunBy steps agent, stepName s == metered.step]
+    openFork = listToMaybe [(metered.place, step) | metered <- forks g state, step@(AnyStep _ (SomeStep s)) <- stepsRunBy steps agent, stepName s == metered.step]
     stepHere = openFork <|> listToMaybe [(place, step) | At place <- [state.at], Just step <- [stepNamed place.name]]
     -- Logged, so @state next@ advises the triage until the run asks it.
     triage token = (\line -> Typed [Event.WorkerHandedBack agent line] (Just line)) <$> Bifunctor.first Why (oneLine (tokenLine token))
