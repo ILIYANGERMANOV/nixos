@@ -73,7 +73,8 @@ import State.Run.Fold qualified as Fold
 import State.Run.Id (digestOf)
 import State.Show (tshow)
 import State.Step.Artifact (Shape (..), shellPathText, shellWord)
-import State.Step.Catalog (termSkips)
+import State.Step.Catalog (outcome, termSkips)
+import State.Step.Fuel (Outcome (LevelSet))
 import State.Table (Steps, parseSteps)
 import System.Exit (ExitCode (..))
 import System.FilePath (equalFilePath, takeDirectory, (</>))
@@ -851,7 +852,8 @@ initRun gd args = do
             fresh <- newRunId
             let path = logOf notes
                 start = Start {flow, notes = notes, principal, interface = interfaceOf principal}
-                begun = Started start : map FuelSet (toList fuel)
+                -- The run starts at its root's Fuel step: a Fuel given takes it at once.
+                begun = Started start : [Took mempty (outcome (LevelSet level)) | level <- toList fuel]
             result <- Log.locked path $ \case
                 Left bad -> ([], Left (unreadLine path bad))
                 Right [] -> (zipWith (stamped stamp Cli fresh) [1 ..] begun, Right ("started", fresh))
@@ -1010,7 +1012,7 @@ liveness state = case (state.stopped, Fold.over state) of
     (Nothing, True) -> Ended "finished"
     (Nothing, False) -> Live
 
--- | Who starts a run, its flow, and the Fuel already set: a child's task sets it, a user's run asks.
+-- | Who starts a run, its flow, and the Fuel given it: a child's task gives one, the 10x's is fixed, a user's other run asks.
 data Begin = Begin {principal :: Principal, flow :: FlowName, fuel :: Maybe Fuel}
 
 {- | Who starts the run, and its flow: a child runs its task's flow, at its
@@ -1018,11 +1020,21 @@ task's Fuel, the task read from the parent's log.
 -}
 startOf :: (Shell es) => InitArgs -> Eff es (Either Failure Begin)
 startOf args = case args.origin of
-    FromUser shape -> pure (Right (Begin (ByUser shape) (fromMaybe defaultFlow args.flow) Nothing))
+    FromUser shape -> let flow = fromMaybe defaultFlow args.flow in pure (Right (Begin (ByUser shape) flow (fixedFuel flow)))
     FromParent parent ->
         parentStarts parent >>= \case
             Left failure -> pure (Left failure)
             Right () -> onLog (\_ run -> ([], childStart parent args.flow run.state)) parent.log
+
+{- | The Fuel a flow runs at whoever starts it: the 10x picks each task's
+Fuel and runs at Balanced itself, so its user is never asked one.
+-}
+fixedFuel :: FlowName -> Maybe Fuel
+fixedFuel = \case
+    TenXFlow -> Just Balanced
+    EngineerFlow -> Nothing
+    ArchitectFlow -> Nothing
+    ChiefFlow -> Nothing
 
 {- | A parent's log path was checked by the parser; here its first line must
 be that run's start.

@@ -9,6 +9,7 @@ module State.Flow.Drawn (
     SkipHere (..),
     skipHere,
     fuelTakes,
+    isPick,
 ) where
 
 import Data.Aeson (Object)
@@ -20,7 +21,7 @@ import State.Category.Flow (Name)
 import State.Category.Fuel (Fuel, PerFuel, SkipWhen (Never), atFuel)
 import State.Category.Step (EventName (..), SomeStep (..), StateName, StepSet (stepName))
 import State.Role (RoleDef (..), SomeFlow (..), roles)
-import State.Step.Catalog (AnyOutcome, AnyStep (..), Layer (FuelLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
+import State.Step.Catalog (AnyOutcome, AnyStep (..), Layer (FuelLayer, PickLayer), flowOutcomes, outcome, outcomeEvent, termSteps)
 import State.Step.Fuel (Outcome (Running, Skipping), Sing (Skip))
 
 {- | Once per name: two flows drawing one name draw one step, or the step
@@ -56,3 +57,7 @@ fuelTakes :: Fuel -> StateName -> EventName -> Bool
 fuelTakes fuel name event = case skipHere name of
     Just skip | atFuel fuel skip.when == Never -> event.outcome /= (outcomeEvent skip.skips).outcome
     _ -> True
+
+-- | Whether the flows draw a pick of this name: the agent picks its branch by label.
+isPick :: StateName -> Bool
+isPick name = or [stepName s == name | AnyStep PickLayer (SomeStep s) <- drawnSteps]

@@ -12,7 +12,6 @@ import Hedgehog (Gen, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
-import State.Category.FlowGen (threeWayGraph)
 import State.Category.Fuel (Fuel (..))
 import State.Category.Step (OutcomeName (..))
 import State.Flow.TenX (tenX)
@@ -21,13 +20,14 @@ import State.Protocol.Record (Option (..), commandOption)
 import State.Run.Ask (Above (..), Kind (..), Proposal (..), QId (..), Question (..))
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
-import State.Run.EventGen (genStart, genText, logOf, oneLine, run, runId, start, started)
+import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
 import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designWritten, flowGraph, g, genAccepted, happyPath, loadSteps, plainTask, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, tenXAt, tenXGraph, ticketOpened, ticketUrl)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Choice (Outcome (..))
 import State.Step.Fan (Outcome (..), engineers)
+import State.Step.Fuel (Outcome (LevelSet))
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..))
 import State.Step.Request (Outcome (..))
@@ -73,59 +73,57 @@ spec = describe "State.Protocol.Advice" $ do
                            ]
 
     describe "fuel" $ do
-        it "asks the engineer's Fuel first, the 10x's never: it runs at Balanced" $
-            map (next noFacts) [runAt [], tenXStarted]
-                `shouldBe` [offering ["state record fuel <low|balanced|max>"], choosing]
+        it "advises a root's Fuel step first, the user asked only when no Fuel is given" $
+            (\advice -> (commandsOnly advice.action, last (Text.lines advice.prompt))) (advise steps g noFacts (runAt []))
+                `shouldBe` (offering ["state record fuel.set <low|balanced|max>"], "No Fuel given yet: take your brief's or the request's Fuel line; with none, ask the user once.")
 
-    describe "a route" $ do
-        let atHub events = advise steps threeWayGraph noFacts (either (error . show) id (replay threeWayGraph (logOf (started :| knobs Balanced <> events))))
-            pickAsked = [Asked (Asking (Question (QId run 1) Pick (oneLine "which branch?")) (StateName "route") Itself), Forwarded (QId run 1) TheUser, Answered (QId run 1) "big" TheUser]
-        it "offers one pick per branch, each with where it goes" $
-            explained start (atHub [])
-                `shouldBe` [ "at route: a route you pick - take one option below, once, then state next"
-                           , "options:"
-                           , "  state record route.big - on to refactor"
-                           , "  state record route.other - on to describe"
-                           , "  state record route.small - on to describe"
-                           ]
-        it "tells the agent to guess the branch, say it, and ask the user once only when the request is ambiguous" $
-            (atHub []).prompt `shouldBe` "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
-        it "asks no more once the user was asked the branch" $
-            (atHub pickAsked).prompt `shouldBe` "The user was asked the branch once: record the branch the answer names."
+        it "records a given Fuel at a whole flow's root as given, asking nothing: the chief's request gave it" $
+            last (Text.lines (advise steps chiefGraph noFacts (either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| [fuelSet Max, stepTook (Picked "route" (OutcomeName "engineer"))]))))).prompt)
+                `shouldBe` "The Fuel given: max. Record it, unless the request names another."
 
     describe "the chief" $ do
         let chiefAt events = either (error . show) id (replay chiefGraph (logOf (Started (Event.Start ChiefFlow "notes" (ByUser OwnPr) Set.empty) :| events)))
             atChief events = advise steps chiefGraph noFacts (chiefAt events)
-            routed branch = stepTook (Picked "route" (OutcomeName branch))
+            -- A request's Fuel, then its pick.
+            routed branch = [fuelSet Balanced, stepTook (Picked "route" (OutcomeName branch))]
             onPr = Targeted (OnPr prUrl)
             designAsked = Asked (Asking (Question (QId run 1) Design (oneLine "which store?")) (StateName "engineer/gather") Itself)
-            inScope scope = map (Took (scopePath scope))
-        it "routes a new run's first request at once, asking no Fuel: each request sets its own at the hub" $
-            Set.fromList [option.command | Run options <- [(atChief []).action], option <- toList options]
+            -- A whole flow's outcomes in its scope, past its root's Fuel.
+            inScope scope outcomes = map (Took (scopePath scope)) (outcome (LevelSet Balanced) : outcomes)
+            pickAsked = [Asked (Asking (Question (QId run 1) Pick (oneLine "which branch?")) (StateName "route") Itself), Forwarded (QId run 1) TheUser, Answered (QId run 1) "engineer" TheUser]
+        it "sets each request's Fuel first, its target named before it" $
+            (\advice -> (commandsOnly advice.action, advice.at)) (atChief [])
+                `shouldBe` (offering ["state record fuel.set <low|balanced|max>"], "at fuel: a step you run - do the task below, run the option that fits its result, then state next")
+        it "then offers one pick per branch" $
+            Set.fromList [option.command | Run options <- [(atChief [fuelSet Balanced]).action], option <- toList options]
                 `shouldBe` Set.fromList ["state record route." <> branch | branch <- ["architect", "engineer", "10x", "blocks", "discussion", "other"]]
-        it "tells the agent at the hub to guess the branch and ask the user once only when the request is ambiguous" $
-            (atChief []).prompt `shouldSatisfy` Text.isPrefixOf "Guess the branch from the request"
+        it "names the pick a branch the agent picks" $
+            (atChief [fuelSet Balanced]).at `shouldBe` "at route: a branch you pick - take one option below, once, then state next"
+        it "tells the agent at the pick to guess the branch and ask the user once only when the request is ambiguous" $
+            (atChief [fuelSet Balanced]).prompt `shouldSatisfy` Text.isPrefixOf "Guess the branch from the request"
+        it "asks no more once the user was asked the branch" $
+            (atChief (fuelSet Balanced : pickAsked)).prompt `shouldBe` "The user was asked the branch once: record the branch the answer names."
         it "names the url the request recorded last at next, the PR an engineer request ended in" $
-            (atChief (routed "engineer" : inScope "engineer" happyPath)).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: u"
+            (atChief (routed "engineer" <> inScope "engineer" happyPath)).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: u"
         it "names no url at next after a request that recorded none" $
-            (atChief [routed "other", stepTook (DirectDone "renamed a file")]).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: none recorded"
+            (atChief (routed "other" <> [stepTook (DirectDone "renamed a file")])).prompt `shouldSatisfy` Text.isSuffixOf "\nThe last result: none recorded"
         it "settles a targeted request's plan itself: skips its simplify and confirms it" $
-            map (\n -> due noFacts (chiefAt (onPr : routed "engineer" : inScope "engineer" (take n happyPath)))) [4, 6]
+            map (\n -> due noFacts (chiefAt (onPr : routed "engineer" <> inScope "engineer" (take n happyPath)))) [4, 6]
                 `shouldBe` [Just (Took (scopePath "engineer") (skipOf "simplify_plan")), Just (Took (scopePath "engineer") (outcome ConfirmConfirmed))]
         it "leaves a targeted request's plan to the user once a Design question was asked" $
-            due noFacts (chiefAt (onPr : routed "engineer" : designAsked : inScope "engineer" (take 6 happyPath))) `shouldBe` Nothing
+            due noFacts (chiefAt (onPr : routed "engineer" <> [designAsked] <> inScope "engineer" (take 6 happyPath))) `shouldBe` Nothing
         it "asks the user to confirm a request's plan with no target, as before targets" $
-            next noFacts (chiefAt (routed "engineer" : inScope "engineer" (take 6 happyPath))) `shouldSatisfy` \case
+            next noFacts (chiefAt (routed "engineer" <> inScope "engineer" (take 6 happyPath))) `shouldSatisfy` \case
                 Ask Confirm _ -> True
                 _ -> False
         it "skips ready on a targeted PR, as GitHub reads it by its url" $
-            due withPr (chiefAt (onPr : routed "engineer" : inScope "engineer" (take 15 happyPath)))
+            due withPr (chiefAt (onPr : routed "engineer" <> inScope "engineer" (take 15 happyPath)))
                 `shouldBe` Just (Took (scopePath "engineer") (outcome (ReadySkipped prUrl)))
         it "adopts a targeted ticket, opening none" $
-            due noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" : [Took (scopePath "architect") o | Took _ o <- take 3 ticketOpened]))
+            due noFacts (chiefAt (Targeted (OnTicket ticketUrl) : routed "architect" <> inScope "architect" [o | Took _ o <- take 3 ticketOpened]))
                 `shouldBe` Just (Took (scopePath "architect") (outcome (OpenTicketDone ticketUrl)))
         it "explains each discussion question before it is asked, as the architect's discussion does" $
-            (atChief [routed "discussion"]).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
+            (atChief (routed "discussion")).prompt `shouldSatisfy` Text.isInfixOf "First send the Explain message"
 
     describe "gather" $ do
         it "offers each action in the order the flow declares them, and enough, each with what it does" $
@@ -225,7 +223,7 @@ spec = describe "State.Protocol.Advice" $ do
     it "advises a scoped step's outcomes under their qualified names" $ do
         let atSecurityPick =
                 either (error . show) id . replay securityGraph . logOf $
-                    started :| knobs Balanced <> [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty)), tookIn securityScope (ReviewRows sha)]
+                    started :| [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty)), tookIn securityScope (ReviewRows sha)]
         commandsOnly (advise steps securityGraph noFacts atSecurityPick).action
             `shouldBe` offering ["state record security/pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]...", "state record security/pick.loop [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]..."]
 
@@ -485,7 +483,8 @@ spec = describe "State.Protocol.Advice" $ do
     atConfirm = runAt (knobs Balanced <> map (Took mempty) (take 6 happyPath))
     atRefactor = runAt (knobs Balanced <> map (Took mempty) (take 9 happyPath))
     tenXRun events = either (error . show) id (replay tenXGraph (logOf (Started start {Event.flow = TenXFlow} :| events)))
-    tenXStarted = tenXRun []
+    -- As init starts a 10x: at Balanced, given.
+    tenXStarted = tenXRun [fuelSet Balanced]
     gathering = StateName "gather"
     researched = [stepTook ResearchSpawned]
     -- Each put to the user and answered.
@@ -508,7 +507,7 @@ spec = describe "State.Protocol.Advice" $ do
     askedUp line above = (which, [Asked (Asking which implement Itself), Forwarded which.qid above], line)
 
 knobs :: Fuel -> [Event]
-knobs fuel = [FuelSet fuel]
+knobs fuel = [fuelSet fuel]
 
 -- | Whether the commands a 'Run' offers hold.
 offers :: ([Text] -> Bool) -> Action -> Bool

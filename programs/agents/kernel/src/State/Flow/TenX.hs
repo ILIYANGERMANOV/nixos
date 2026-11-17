@@ -11,7 +11,8 @@ import State.Category.Ty (TyOf (..))
 import State.Flow.Engineer (engineer)
 import State.Flow.Library (agree)
 import State.Step.Fan (Sing (Breakdown, Merge), engineers)
+import State.Step.Fuel (Sing (Fuel))
 
 -- | Each @next_round@ spends a round, so a stuck loop ends: 10 rounds are generous for one PR.
 tenX :: Flow 'Ctx 'Nothing 'PR
-tenX = Loop "round" (agree :> Do (Breakdown engineers) :> Par engineers engineer :> Capped (always (UpTo 9)) Stop (Merge engineers))
+tenX = Do Fuel :> Loop "round" (agree :> Do (Breakdown engineers) :> Par engineers engineer :> Capped (always (UpTo 9)) Stop (Merge engineers))

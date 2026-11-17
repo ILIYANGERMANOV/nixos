@@ -66,7 +66,7 @@ import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), Name (..), ScopePath, fanEvent, nameText, namedState, qualify, qualifyText)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, isRouteHub, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName), stateNameText)
@@ -81,7 +81,7 @@ import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
 import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
-import State.Step.Fuel (FuelStep, Outcome (..), Sing (Skip))
+import State.Step.Fuel (FuelStep, Outcome (..), Sing (Fuel, Skip))
 import State.Step.Request (Outcome (..), RequestStep)
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
@@ -191,15 +191,12 @@ data Refusal
       StillOpen Natural
     | -- | An @extend@ where no budget the user may extend holds the run.
       NothingToExtend
-    | FuelSetOnce Fuel
-    | -- | A target named off a route's hub: only a request, before its branch, has one.
-      TargetOffHub
+    | -- | A target named off a Fuel step: only a request's Fuel, before its branch, names one.
+      TargetOffFuel
     | -- | An override names a state the flow does not have, or more than one.
       NoSingleState StateName
     | -- | The question was asked already, whether pending or closed.
       AskedTwice QId
-    | -- | A second pick of the branch asked at a route's hub: the user names it once.
-      PickedOnce
     | NotPending QId
     | -- | Forwarded already: only its answer is left.
       AlreadyForwarded QId
@@ -322,7 +319,6 @@ begin g envelope = case runStart envelope.event of
 runStart :: Event -> Maybe Start
 runStart = \case
     Started start -> Just start
-    FuelSet _ -> Nothing
     Targeted _ -> Nothing
     Extended _ -> Nothing
     Took _ _ -> Nothing
@@ -353,8 +349,7 @@ applyEvent :: OpenGraph -> RunState -> Natural -> Event -> Either Refusal RunSta
 applyEvent g state n = \case
     Refused note -> Right state {refused = Just note}
     Started _ -> going (Left StartedTwice)
-    FuelSet fuel -> going (fuelSet g state fuel)
-    Targeted target -> going (targeted g state target)
+    Targeted target -> going (targeted state target)
     Extended _ -> going (extended g state)
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
@@ -401,22 +396,14 @@ applyEvent g state n = \case
         Just stop -> Left (AfterStop stop)
         Nothing -> (\moved -> moved {refused = Nothing}) <$> next
 
-{- | Fuel is set once, and again at each Route hub: each request a run routes
-there may run at a Fuel of its own. Requests run one after another, so the
-run holds one Fuel, the one set last.
+{- | A target is named at a request's Fuel step, before its level: its
+request's work is on it, so a PR, draft or ticket an earlier request
+recorded is not its own.
 -}
-fuelSet :: OpenGraph -> RunState -> Fuel -> Either Refusal RunState
-fuelSet g state fuel = case state.fuel of
-    Just set | set /= fuel, not (isRouteHub g state.at) -> Left (FuelSetOnce set)
-    _ -> Right state {fuel = Just fuel}
-
-{- | A target is named at a route's hub, as Fuel is: its request's work is
-on it, so a PR, draft or ticket an earlier request recorded is not its own.
--}
-targeted :: OpenGraph -> RunState -> Target -> Either Refusal RunState
-targeted g state target
-    | isRouteHub g state.at = Right state {onTarget = Just (OnTarget target False), drafted = Nothing, published = Nothing, ticket = Nothing}
-    | otherwise = Left TargetOffHub
+targeted :: RunState -> Target -> Either Refusal RunState
+targeted state target = case state.at of
+    At place | place.name == stepName Fuel -> Right state {onTarget = Just (OnTarget target False), drafted = Nothing, published = Nothing, ticket = Nothing}
+    _ -> Left TargetOffFuel
 
 {- | The worker gone from those at work: the one of that id, else the oldest
 of that role, as a hand-back piped in by hand names no id.
@@ -669,12 +656,10 @@ atFan g state event = case state.at of
 
 {- | A question the run asks: its own question at a capped step, as the
 interview's, spends the step's meter. Asking whether to go on spends none.
-At a route's hub the run asks the user its branch once.
 -}
 asked :: OpenGraph -> RunState -> Asking -> Either Refusal RunState
 asked g state asking
     | Set.member qid state.everAsked = Left (AskedTwice qid)
-    | asking.question.kind == Ask.Pick, isRouteHub g state.at, Ask.Pick `elem` state.askedHere = Left PickedOnce
     | otherwise = do
         meters <- if spends then spend g state RecordedAsk else Right state.meters
         Right

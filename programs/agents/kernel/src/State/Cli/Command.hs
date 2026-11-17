@@ -47,7 +47,7 @@ import Options.Applicative (ParserInfo)
 import Options.Applicative qualified as Opt
 import Options.Applicative.Help.Pretty (pretty, vsep)
 import State.Category.Flow (ScopePath, qualifyText, unqualify)
-import State.Category.Fuel (Fuel, fuelName, parseByName)
+import State.Category.Fuel (Fuel, parseByName)
 import State.Category.Graph (Cap (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, places)
 import State.Category.Meter (someMeterName)
 import State.Category.Step (EventName (..), eventText, handedBackOutcome, stateNameText)
@@ -455,12 +455,10 @@ explain g fuel at meters = \case
     NoneOpen (StateName step) -> refused ("the hand-back to " <> step) "no child it spawned is open" "state show"
     StillOpen open -> refused ("leaving " <> atText at) (tshow open <> " spawned here have yet to hand back") "state next"
     NothingToExtend -> refused "extend" ("the run is at " <> atText at <> ", where no budget asks the user to go on") "state next"
-    FuelSetOnce set -> refused "fuel" ("it is " <> fuelName set <> " already, set once") "state show"
-    TargetOffHub -> refused "target" ("the run is at " <> atText at <> ": a target is named at a route's hub, before its branch") "state show"
+    TargetOffFuel -> refused "target" ("the run is at " <> atText at <> ": a target is named at a request's Fuel, before its level") "state show"
     NoSingleState (StateName name) ->
         refused ("override to " <> name) "the flow has no single state of that name" ("state override <" <> Text.intercalate "|" stateNames <> "> <why>")
     AskedTwice qid -> refused (qidText qid) "it was asked already" "state pending"
-    PickedOnce -> refused "the pick" "the user was asked this route's branch once already" records
     NotPending qid -> refused (qidText qid) "no such question is pending" "state pending"
     AlreadyForwarded qid -> refused (qidText qid) "it was forwarded: only its answer is left" ("state answer " <> qidText qid <> " <answer>")
     NotForwarded qid -> refused (qidText qid) "it was never forwarded: this run rules on it or forwards it" (triage (qidText qid))

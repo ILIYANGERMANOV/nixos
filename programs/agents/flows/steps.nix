@@ -157,11 +157,19 @@ let
         // step;
     in
     {
+      # Every role's root and each chief request: Fuel is an input, recorded as given.
       fuel = chiefStep {
         dom = "Ctx";
         cod = "Ctx";
         outcomes = [ "set" ];
-        task = "Fuel: name the request's target first when it names one, `target pr <url>`, `branch <name>` or `ticket <url>`; then set its Fuel from what it asks, as the Fuel table says.";
+        task = "Fuel: a chief request names its target first when it names one, `target pr <url>`, `branch <name>` or `ticket <url>`. Then record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.";
+        skills = [ ];
+        flows = [
+          "engineer"
+          "10x"
+          "architect"
+          "chief"
+        ];
       };
       open_plan = chiefStep {
         dom = "Ctx";

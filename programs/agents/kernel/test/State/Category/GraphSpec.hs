@@ -11,7 +11,7 @@ import State.Category.Flow (Branch (..), Branches (..), Flow (..), Group (..), b
 import State.Category.Flow qualified as Flow
 import State.Category.FlowGen (ctxKit, diffKit, genBranching, genEndo, genExiting, genFlow, genWalk, genWalkTo, pathTo, threeWay)
 import State.Category.Fuel (always)
-import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, isRouteHub, places)
+import State.Category.Graph (Clash (..), Edge (..), Node (..), OpenGraph (..), Place (..), graph, places)
 import State.Category.Graph qualified as Graph
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Path (step, ty)
@@ -120,9 +120,6 @@ spec = describe "State.Category.Graph" $ do
         let picks scope = [(qualifyEvent scope (EventName (StateName "route") (OutcomeName branch)), At (Place path scope (StateName entry))) | (branch, path, entry) <- [("big", [1, 0], "refactor"), ("other", [2, 0], "describe"), ("small", [0], "describe")]]
         it "draws one hub, its start, with one edge per branch into that branch's first state" $
             outOfStart <$> graph threeWay `shouldBe` Right (picks mempty)
-
-        it "is the one hub the run picks a branch at" $
-            (\g -> filter (isRouteHub g . At) (Set.toList (places g))) <$> graph threeWay `shouldBe` Right [Place [] mempty (StateName "route")]
 
         it "names its hub and its picks inside a scope" $
             outOfStart <$> graph (Scope "x" threeWay) `shouldBe` Right (picks (scopePath "x"))

@@ -23,7 +23,6 @@ module State.Category.Graph (
     innermost,
     leaving,
     eventLabel,
-    isRouteHub,
 ) where
 
 import Control.Monad (foldM)
@@ -596,15 +595,6 @@ eventLabel :: Place -> EventName -> Text
 eventLabel place event@(EventName step (OutcomeName outcome))
     | step == placeName place = outcome
     | otherwise = eventText event
-
-{- | Whether the run sits at a 'Route''s hub, where it picks a branch, and
-where nothing of a branch has run yet.
--}
-isRouteHub :: OpenGraph -> Node -> Bool
-isRouteHub g = \case
-    At place -> Set.member place g.routes
-    Out -> False
-    Exit -> False
 
 -- | The states these edges leave.
 sources :: Map (Place, EventName) a -> Set Place

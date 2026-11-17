@@ -9,12 +9,12 @@ import Data.Text qualified as Text
 import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import State.Category.Fuel (Area (..))
+import State.Category.Fuel (Area (..), Fuel (Balanced))
 import State.Protocol.Handback
 import State.Run.Ask (Kind (..), QId (..), Question (..))
 import State.Run.Event (AgentId (..), AgentRole (..), Asker (..), Asking (..), Commit (..), Event (Asked, HandedBack, Spawned, TaskMoved, Took), Picks (..), Said (..), Sha (..), StateName (..), TaskId (..), TaskState (..), Url (..), stepTook)
 import State.Run.Event qualified as Event
-import State.Run.EventGen (genOneLine, genQuestion, genRunId, oneLine, run, runId)
+import State.Run.EventGen (fuelSet, genOneLine, genQuestion, genRunId, oneLine, run, runId)
 import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, tenXAt)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
@@ -71,7 +71,7 @@ typing = describe "typeHandback" $ do
             `shouldBe` Right (Typed [stepTook (FixDone (Commit sha Set.empty))] Nothing)
 
     it "says a worker logged at work returned, by its id or else its role, and no other" $ do
-        let fixing = runAt (map (Took mempty) (take 11 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]) <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
+        let fixing = runAt (fuelSet Balanced : map (Took mempty) (take 11 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]) <> [Event.WorkerSpawned (AgentRole "fixer") (AgentId "a1")])
             returns agent = drop 1 . (.events) <$> typeHandback steps fixing (Just sha) (AgentRole "fixer") agent (parsed "READY fixed")
         map returns [Just (AgentId "a1"), Nothing, Just (AgentId "a2")]
             `shouldBe` [Right [Event.WorkerReturned (AgentRole "fixer") (Just (AgentId "a1"))], Right [Event.WorkerReturned (AgentRole "fixer") Nothing], Right []]
@@ -139,11 +139,11 @@ typing = describe "typeHandback" $ do
         it "refuses a question the child did not ask in its own run" $
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
-    atGather = runAt (map (Took mempty) (take 1 happyPath))
-    atSimplifyPlan = runAt (map (Took mempty) (take 5 happyPath))
-    atImplement = runAt (map (Took mempty) (take 8 happyPath))
-    atReview = runAt (map (Took mempty) (take 11 happyPath))
-    atFix = runAt (map (Took mempty) (take 11 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
+    atGather = runAt (fuelSet Balanced : map (Took mempty) (take 1 happyPath))
+    atSimplifyPlan = runAt (fuelSet Balanced : map (Took mempty) (take 5 happyPath))
+    atImplement = runAt (fuelSet Balanced : map (Took mempty) (take 8 happyPath))
+    atReview = runAt (fuelSet Balanced : map (Took mempty) (take 11 happyPath))
+    atFix = runAt (fuelSet Balanced : map (Took mempty) (take 11 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
     atFanOut = tenXAt (plainTask "t1" [] :| []) [Spawned (childOf "c1" "t1")]
     implement = StateName "implement"
     engineers = StateName "engineers"

@@ -21,9 +21,10 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import State.Category.Flow (Name, namedState)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullReview)
-import State.Category.Graph (Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, isRouteHub, placeName, places, shownOrder)
+import State.Category.Graph (Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
+import State.Flow.Drawn (isPick)
 import State.Protocol.Handback (TokenWord (NeedsDecisionWord), tokenWordText, tokenWords)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
@@ -46,8 +47,8 @@ states g steps =
         ["State", "Run by", "Arrows out"]
         [[stateNameText (placeName place), runBy place, arrowsOut place] | place <- Set.toList (places g)]
   where
-    -- A choice's and a route's hub are the lead's own: any other unnamed state is a fan-out.
-    runBy place = case (stepNamed place.name, isJust (choiceNamed place.name) || isRouteHub g (At place)) of
+    -- A choice and a pick are the lead's own: any other unnamed state is a fan-out.
+    runBy place = case (stepNamed place.name, isJust (choiceNamed place.name) || isPick place.name) of
         (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of
             Agent agent _ -> roleText agent
             Inline -> "you"

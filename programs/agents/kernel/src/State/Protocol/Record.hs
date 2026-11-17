@@ -43,9 +43,9 @@ import State.Step.Artifact (parsePrUrl, prUrlRule)
 import State.Step.Build (Outcome (..), Sing (..))
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (Outcome (..))
-import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Choice qualified as Choice
 import State.Step.Fan (Outcome (..), Sing (..), fanOuts)
+import State.Step.Fuel (Outcome (LevelSet), Sing (Fuel))
 import State.Step.Gather (Outcome (..))
 import State.Step.Plan (Outcome (..), Sing (..))
 import State.Step.Request (Outcome (..), Sing (..))
@@ -145,10 +145,7 @@ usageOf r = Text.unwords (filter (not . Text.null) (r.positional : map flagUsage
 -- | Every event a lead records by hand, in the order a run meets them.
 recordables :: [Recordable]
 recordables =
-    [ stay "fuel" ("<" <> choices fuelName <> ">") $ \case
-        [raw] -> FuelSet <$> known "fuel" parseFuel raw
-        _ -> Left "one level"
-    , nothing ResearchSpawned
+    [ nothing ResearchSpawned
     , nothing ResearchHandedBack
     ]
         <> [nothing (Enough choice) | choice <- Choice.choices]

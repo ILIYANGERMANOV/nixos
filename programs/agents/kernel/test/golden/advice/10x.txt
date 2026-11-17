@@ -1,3 +1,14 @@
+== fuel
+RUN state record fuel.set <low|balanced|max>
+  at fuel: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record fuel.set <low|balanced|max> - on to gather
+  fuel: balanced
+  task t1: not started, tries 0
+  task t2: not started, tries 0
+Fuel: a chief request names its target first when it names one, `target pr <url>`, `branch <name>` or `ticket <url>`. Then record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
+The Fuel given: balanced. Record it, unless the request names another.
+
 == gather
 RUN one option below
   at gather: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each

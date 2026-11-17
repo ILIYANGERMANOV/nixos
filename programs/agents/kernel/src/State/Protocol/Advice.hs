@@ -45,16 +45,16 @@ import Data.Text.Read (decimal)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (Leaves), enoughOutcome, fanEvent, nameText, namedState, qualify, qualifyEvent)
 import State.Category.Fuel (SkipWhen (..), atFuel, fuelLabel, fuelName)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), isRouteHub, placeName, shownOrder)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Metered (..), Node (..), OpenGraph (..), Place (..), placeName, shownOrder)
 import State.Category.Meter (AtCap (Extend), Owed (..), Recorded (RecordedOutcome), owedBy, someMeterName)
 import State.Category.Step (EventName (..), Outcomes (..), Sing, SomeStep (..), Special (AsksConfirm, AwaitsMerge, Ordinary, TellsResult), StepSet (..), eventText, handedBackOutcome, outcomeNames, spawnedOutcome, stateNameText)
 import State.Category.Step qualified as Step
 import State.Category.Ty (TyOf (..), TyVal)
-import State.Flow.Drawn (SkipHere (..), fuelTakes, skipHere)
+import State.Flow.Drawn (SkipHere (..), fuelTakes, isPick, skipHere)
 import State.Flow.Library (simplifyPlan)
 import State.Protocol.Handback (Need (Asks), Token (NeedsDecision), TokenWord (AwaitWord, ReadyWord), stopLine, tokenLine, tokenWordText)
 import State.Protocol.Record (Option (..), capRecords, commandOption, extendOption, goes, recordCommand, recordOption)
-import State.Role (FlowName (..), RoleDef (..))
+import State.Role (RoleDef (..))
 import State.Role qualified as Role
 import State.Run.Ask (Above (..), Delivery (..), Kind, OneLine, QId, Question (..), kindName, oneLineText, qidText, questionLine)
 import State.Run.Ask qualified as Ask
@@ -70,6 +70,7 @@ import State.Step.Catalog (AnyOutcome (..), AnyStep (..), shownEdges, stepNamed)
 import State.Step.Catalog qualified as Catalog
 import State.Step.Choice (choiceNamed)
 import State.Step.Fan (Outcome (..), fanNamed)
+import State.Step.Fuel (Sing (Fuel))
 import State.Step.Plan (Outcome (..), Sing (Confirm))
 import State.Step.Ship (Outcome (..), Sing (Ready))
 import State.Step.Ticket (Outcome (OpenTicketDone), Sing (OpenTicket))
@@ -237,7 +238,7 @@ skippable state = case (state.stopped, state.at) of
 
 -- | The next action, from the run's state alone.
 advise :: Steps -> OpenGraph -> Facts -> RunState -> Advice
-advise steps g facts state = Advice action more (atLine steps g state) leads (factLines g facts state) prompt notify
+advise steps g facts state = Advice action more (atLine steps state) leads (factLines g facts state) prompt notify
   where
     plain next = (next, "")
     more = case (state.stopped, fanHere) of
@@ -265,25 +266,16 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
     notify = case (state.at, Text.null prompt) of
         (At place, False) | Just (AnyStep _ (SomeStep s)) <- stepNamed place.name -> (row steps s).notifies
         _ -> False
-    (action, prompt) = case (state.stopped, state.pending, fuelAsked) of
-        (Just stop, _, _) -> plain (Stopped stop)
+    (action, prompt) = case (state.stopped, state.pending) of
+        (Just stop, _) -> plain (Stopped stop)
         -- At a fan-out, a question waits beside the children's work: 'atFan' orders it.
-        (Nothing, _ : _, True) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
-        (Nothing, oldest : _, _) -> plain $ case oldest.waits of
+        (Nothing, _ : _) | Just fan <- fanHere -> plain (atFan fan facts.ended state)
+        (Nothing, oldest : _) -> plain $ case oldest.waits of
             ForTriage -> Triage oldest.asking.question
             ForAnswer -> AwaitAnswer oldest.asking.question
-        (Nothing, [], False) -> plain (Run (one (recordOne "fuel" (map fuelName [minBound .. maxBound])) "sets the run's Fuel, once: how much it researches, reviews and spends"))
-        (Nothing, [], True) -> case state.untriaged of
+        (Nothing, []) -> case state.untriaged of
             (role, line) : _ -> plain (TriageHandback role line)
             [] -> going
-    {- The 10x picks each task's Fuel and never asks one: it runs at the default.
-    The chief's Fuel is each request's, set at its route's hub only when it differs.
-    -}
-    fuelAsked = case state.start.flow of
-        EngineerFlow -> isJust state.fuel
-        TenXFlow -> True
-        ArchitectFlow -> isJust state.fuel
-        ChiefFlow -> True
     output = outputUrl (Role.flowOut (Role.role state.start.flow).flow) facts state
     fanHere = case state.at of
         At place -> ScopedFan place.scope <$> fanNamed place.name
@@ -294,7 +286,8 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
         (Exit, _) -> plain (Done output)
         (At _, found : _) | Ask.Stuck `notElem` state.askedHere -> plain (Ask Ask.Stuck (stuckText found))
         (At place, _) | Just _ <- choiceNamed place.name -> (atChoice place, choicePrompt place)
-        (At place, _) | isRouteHub g state.at -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
+        (At place, _) | isPick place.name -> (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place]), routePrompt)
+        (At place, _) | place.name == stepName Fuel -> (atStep place Fuel, promptOf (row steps Fuel) <> fuelGiven)
         (At place, _) | Just _ <- skipHere place.name -> plain (Run (someOptions [recordOption event edge | (event, edge) <- shownEdges g place, fuelTakes (fuelOf state) place.name event]))
         (At place, _) | Just budget <- usedUpAt place, Extend <- budget.cap.atCap -> plain (extendOrGo place budget)
         (At place, _) -> case stepNamed place.name of
@@ -320,7 +313,13 @@ advise steps g facts state = Advice action more (atLine steps g state) leads (fa
             (Just edge, _) -> (recordOption enough edge) {means = goes edge <> ", after the open ones hand back (" <> tshow open <> " open): end your turn until then"}
             (Nothing, _) -> commandOption (recordCommand enough) "leaves the choice"
         option step = maybe (commandOption (stateNameText step) "an action of the choice") (actionAt place) (stepNamed step)
-    -- A route asks the user its branch at most once, and only when the request leaves it open.
+    {- Fuel is an input: the level a caller gave, or one an earlier request
+    set, is recorded as given; the user is asked only when none is.
+    -}
+    fuelGiven = case state.fuel of
+        Just level -> "\nThe Fuel given: " <> fuelName level <> ". Record it, unless the request names another."
+        Nothing -> "\nNo Fuel given yet: take your brief's or the request's Fuel line; with none, ask the user once."
+    -- A pick asks the user its branch at most once, and only when the request leaves it open.
     routePrompt
         | Ask.Pick `elem` state.askedHere = "The user was asked the branch once: record the branch the answer names."
         | otherwise = "Guess the branch from the request and say which you picked. Ask the user only when the request is ambiguous, once: state ask --kind Pick <question>, with your guess as the recommended option. Then record the branch."
@@ -551,9 +550,6 @@ recordOutcomes g place s =
 shapeSkip :: EventName
 shapeSkip = Catalog.outcomeEvent (Catalog.outcome (ReadySkipped (Url "")))
 
-recordOne :: Text -> [Text] -> Text
-recordOne event choices = "state record " <> event <> " <" <> Text.intercalate "|" choices <> ">"
-
 stuckText :: Stuck -> Text
 stuckText found =
     "the "
@@ -724,14 +720,14 @@ ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itsel
 {- | Where the run is, in one plain line: the state, and what it means to
 an agent that knows nothing of the kernel.
 -}
-atLine :: Steps -> OpenGraph -> RunState -> Text
-atLine steps g state = case state.at of
+atLine :: Steps -> RunState -> Text
+atLine steps state = case state.at of
     At place -> "at " <> stateNameText (placeName place) <> ": " <> meaning place
     Out -> "at the end: the flow is done"
     Exit -> "at the end: the flow is done"
   where
     meaning place
-        | isRouteHub g (At place) = "a route you pick - take one option below, once, then state next"
+        | isPick place.name = "a branch you pick - take one option below, once, then state next"
         | Just _ <- skipHere place.name = "an optional block - take one option below, then state next"
         | otherwise = case (stepNamed place.name, choiceNamed place.name) of
             (Just (AnyStep _ (SomeStep s)), _) -> case (row steps s).runner of

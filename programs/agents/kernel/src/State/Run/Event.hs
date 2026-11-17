@@ -69,7 +69,6 @@ import Data.Text (Text)
 import Data.Time (UTCTime)
 import Numeric.Natural (Natural)
 import State.Category.Flow (ScopePath, qualifyEvent)
-import State.Category.Fuel (Fuel)
 import State.Category.Step (EventName, Outcome, StateName (..))
 import State.Role (AgentRole (..), FlowName (..), roleText)
 import State.Run.Ask (Above, OneLine, Op (..), Parent (..), Principal (..), Proposal, QId, Question)
@@ -107,10 +106,8 @@ newtype SessionId = SessionId Text
 
 data Event
     = Started Start
-    | -- | Set once.
-      FuelSet Fuel
     | {- | The existing work the request applies feedback to, named at a
-      route's hub before its branch: none is new work, so none is logged.
+      request's Fuel step, before its branch: none is new work, so none is logged.
       -}
       Targeted Target
     | {- | The user let the gather loop go on, and why: its researchers and

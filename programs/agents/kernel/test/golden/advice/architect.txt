@@ -1,3 +1,12 @@
+== fuel
+RUN state record fuel.set <low|balanced|max>
+  at fuel: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record fuel.set <low|balanced|max> - on to exploring
+  fuel: low
+Fuel: a chief request names its target first when it names one, `target pr <url>`, `branch <name>` or `ticket <url>`. Then record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
+The Fuel given: low. Record it, unless the request names another.
+
 == exploring
 RUN one option below
   at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
@@ -58,6 +67,15 @@ RUN state record finalize_ticket.done
 Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.
 
 
+== fuel
+RUN state record fuel.set <low|balanced|max>
+  at fuel: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record fuel.set <low|balanced|max> - on to exploring
+  fuel: balanced
+Fuel: a chief request names its target first when it names one, `target pr <url>`, `branch <name>` or `ticket <url>`. Then record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
+The Fuel given: balanced. Record it, unless the request names another.
+
 == exploring
 RUN one option below
   at exploring: a choice you run - take the options below one at a time, in any order, as their budgets allow; state next after each
@@ -117,6 +135,15 @@ RUN state record finalize_ticket.done
   fuel: balanced
 Ticket: drop `[WIP]` from the ticket's title (`gh issue edit <number> --repo <owner>/<repo> --title <title>`, or through the `linear` MCP when the request names Linear); the run hands back its url.
 
+
+== fuel
+RUN state record fuel.set <low|balanced|max>
+  at fuel: a step you run - do the task below, run the option that fits its result, then state next
+  options:
+    state record fuel.set <low|balanced|max> - on to exploring
+  fuel: max
+Fuel: a chief request names its target first when it names one, `target pr <url>`, `branch <name>` or `ticket <url>`. Then record the Fuel given: your brief's, parent's or request's `Fuel:` line, or the level the request asks for as the Fuel table says.
+The Fuel given: max. Record it, unless the request names another.
 
 == exploring
 RUN one option below

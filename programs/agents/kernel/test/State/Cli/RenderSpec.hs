@@ -18,7 +18,7 @@ spec = describe "State.Cli.Render" $ do
     describe "states" $ do
         it "has a row per state, in the flow's order" $
             (length rows, take 1 rows, take 1 (reverse rows))
-                `shouldBe` (Set.size (places g), ["| gather | you | research.spawned: gather; research.handed_back: gather; enough: plan |"], ["| ready | you | done: end; skipped: end |"])
+                `shouldBe` (Set.size (places g), ["| fuel | you | set: gather |"], ["| ready | you | done: end; skipped: end |"])
 
         it "names who runs each state and where each outcome goes" $
             rows

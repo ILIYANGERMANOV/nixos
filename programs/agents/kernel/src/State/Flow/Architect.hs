@@ -11,11 +11,13 @@ import State.Category.Fuel (always)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Ty (TyOf (..))
 import State.Flow.Library (discuss, research)
+import State.Step.Fuel (Sing (Fuel))
 import State.Step.Ticket (Sing (..))
 
 architect :: Flow 'Ctx 'Nothing 'Ticket
 architect =
-    research
+    Do Fuel
+        :> research
         :> Do OpenTicket
         :> Loop "design" (discuss :> Do UpdateTicket :> Capped (always (UpTo 3)) Extend ConfirmDesign)
         :> Do FinalizeTicket

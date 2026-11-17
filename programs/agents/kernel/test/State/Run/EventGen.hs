@@ -23,6 +23,7 @@ module State.Run.EventGen (
     run,
     start,
     started,
+    fuelSet,
     genStart,
     line,
     lineOf,
@@ -80,7 +81,6 @@ genEvent :: Gen Event
 genEvent =
     Gen.choice
         [ Started <$> genStart
-        , FuelSet <$> Gen.enumBounded
         , Targeted <$> genTarget
         , Extended <$> genText
         , Took <$> genScopePath <*> (Gen.element templates >>= like)
@@ -209,7 +209,8 @@ outcomeNames = Set.fromList (map outcomeEvent templates)
 -- | One of each outcome; 'like' fills in its data.
 templates :: [AnyOutcome]
 templates =
-    [ outcome ResearchSpawned
+    [ outcome (LevelSet Balanced)
+    , outcome ResearchSpawned
     , outcome ResearchHandedBack
     , outcome (Enough gathering)
     , outcome (Enough exploring)
@@ -404,6 +405,10 @@ start = Start EngineerFlow "notes" (ByUser OwnPr) (Set.fromList [AskUser, Hooks]
 
 started :: Event
 started = Started start
+
+-- | A Fuel step's event, as a root's or a request's records it: the run's level from here on.
+fuelSet :: Fuel -> Event
+fuelSet level = Took mempty (outcome (LevelSet level))
 
 -- | A CLI line of 'run', at its seq.
 line :: Natural -> Event -> Envelope

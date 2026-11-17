@@ -11,13 +11,11 @@ import Hedgehog (Gen, forAll, tripping)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Category.Flow (scopePath)
-import State.Category.Fuel (Fuel (Low))
-import State.Category.Step (OutcomeName (..))
 import State.Run.Ask (Basis (..), Proposal (..), QId (..))
 import State.Run.Codec (LineError (..), LogError (..), decodeBreakdown, decodeLine, decodeLog, decodeTask, encodeLine)
 import State.Run.Event (Branch (..), Digest (..), Envelope (..), Event (..), EventId (..), FlowName (..), Judgement (..), Label (..), Parent (..), Picks (..), PlanCall (..), Principal (..), Repo (..), Requirement (..), Said (..), Sha (..), Shape (..), Source (..), Start (..), Stop (..), StopReason (..), Target (..), Task (..), TaskId (..), Url (..), Waiting (..), parseRunId, stepTook, taskList, tookIn)
 import State.Run.EventGen (genEnvelope, oneLine, runId, tasksOf)
-import State.Run.RunGen (breakdownJson, plainTask, roundTask, securityScope, taskFileJson)
+import State.Run.RunGen (breakdownJson, pickOf, plainTask, roundTask, securityScope, taskFileJson)
 import State.Step.Artifact (shellPath)
 import State.Step.Artifact qualified as Artifact (Task (..))
 import State.Step.Catalog (outcome)
@@ -79,7 +77,7 @@ spec = describe "State.Run.Codec" $ do
             `shouldBe` Right reviewRows {event = tookIn (scopePath "x") (Enough gathering)}
 
     it "writes and reads the chief's picks by their route's and branch's names, a block's inside the blocks' route" $ do
-        let picks = [reviewRows {event = stepTook (Picked "route" (OutcomeName "engineer"))}, reviewRows {event = stepTook (Picked "block" (OutcomeName "shipping"))}]
+        let picks = [reviewRows {event = Took mempty (pickOf "route" "engineer")}, reviewRows {event = Took mempty (pickOf "block" "shipping")}]
         and (zipWith Text.isInfixOf ["\"type\":\"route.engineer\"", "\"type\":\"block.shipping\""] (map encodeLine picks)) `shouldBe` True
         map (fmap (.event) . decodeLine . encodeLine) picks `shouldBe` map (Right . (.event)) picks
 
@@ -103,7 +101,7 @@ spec = describe "State.Run.Codec" $ do
         map (fmap (.event) . decodeLine) lines' `shouldBe` map (Right . Targeted) targets
 
     it "refuses a run's event inside a scope: only a step's outcome is named so" $
-        decodeLine (encodeLine reviewRows {event = FuelSet Low} `replacing` ("\"type\":\"fuel\"", "\"type\":\"security/fuel\"")) `shouldSatisfy` malformed
+        decodeLine (encodeLine reviewRows {event = Extended "why"} `replacing` ("\"type\":\"extend\"", "\"type\":\"security/extend\"")) `shouldSatisfy` malformed
 
     it "refuses a red CI result with no failing check" $
         decodeLine (encodeLine reviewRows `replacing` ("review.rows", "await_ci.red") `replacing` ("{\"head\":\"abc123\"}", "{\"head\":\"abc123\",\"failing\":[]}"))

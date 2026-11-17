@@ -22,6 +22,7 @@ module State.Run.RunGen (
     happyPath,
     skipOf,
     runOf,
+    pickOf,
     runAt,
     runUnder,
     loadSteps,
@@ -60,7 +61,7 @@ import State.Flow.TenX (tenX)
 import State.Run.Codec (branchText, repoText, taskIdText, topicText, urlText)
 import State.Run.Event
 import State.Run.Event qualified as Event (Start (..))
-import State.Run.EventGen (genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
+import State.Run.EventGen (fuelSet, genOutcomeNamed, line, logOf, runId, start, started, tasksOf)
 import State.Run.Fold (Append (..), RunState (..), append, replay)
 import State.Step.Artifact (shellPathText)
 import State.Step.Build (Outcome (..))
@@ -127,7 +128,7 @@ tenXAt :: NonEmpty Task -> [Event] -> RunState
 tenXAt tasks events = either (error . show) id (replay tenXGraph (logOf (Started tenXStart :| toFanOut <> events)))
   where
     tenXStart = start {Event.flow = TenXFlow}
-    toFanOut = [Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
+    toFanOut = [fuelSet Balanced, Overridden (StateName "breakdown") "the plan is agreed", stepTook (BreakdownDone engineers (tasksOf tasks))]
 
 -- | A task on its own branch off main, Balanced, light, after these tasks.
 plainTask :: Text -> [Text] -> Task
@@ -211,10 +212,18 @@ runOf :: Text -> AnyOutcome
 runOf = skipStep "run"
 
 skipStep :: Text -> Text -> AnyOutcome
-skipStep way block = fromMaybe (error ("no optional block " <> Text.unpack block)) (find ((== EventName (StateName ("skip_" <> block)) (OutcomeName way)) . Catalog.outcomeEvent) drawnOutcomes)
+skipStep way block = drawn ("skip_" <> block) way
 
-{- | Any Fuel, then up to 300 tries at an event on an edge out of where the
-run is, keeping those the fold accepts. Edges into a loop that leave none
+-- | The outcome of the flows' pick of this name that takes this label.
+pickOf :: Text -> Text -> AnyOutcome
+pickOf = drawn
+
+-- | The flows' drawn outcome of this event: a skip's or a pick's.
+drawn :: Text -> Text -> AnyOutcome
+drawn step way = fromMaybe (error ("no drawn " <> Text.unpack step <> "." <> Text.unpack way)) (find ((== EventName (StateName step) (OutcomeName way)) . Catalog.outcomeEvent) drawnOutcomes)
+
+{- | Up to 300 tries at an event on an edge out of where the run is, any
+Fuel at a Fuel step, keeping those the fold accepts. Edges into a loop that leave none
 are likelier, so loops run out of rounds: a review with rows enters the fix
 loop rather than exiting clean.
 -}
@@ -224,10 +233,9 @@ genAccepted = genAcceptedOn g
 -- | 'genAccepted' on any graph: an edge inside a scope is taken in its place's scope.
 genAcceptedOn :: OpenGraph -> Gen [Event]
 genAcceptedOn on = do
-    knobs <- genKnobs
     steps <- Gen.int (Range.linear 0 300)
-    first <- either (fail . show) pure (replay on (logOf (started :| knobs)))
-    (knobs <>) <$> go steps first (fromIntegral (length knobs) + 1)
+    first <- either (fail . show) pure (replay on (logOf (started :| [])))
+    go steps first 1
   where
     go :: Int -> RunState -> Natural -> Gen [Event]
     go 0 _ _ = pure []
@@ -248,9 +256,6 @@ genAcceptedOn on = do
                 && any (Set.member to . (.body)) (Map.elems on.loops)
         Out -> False
         Graph.Exit -> False
-
-genKnobs :: Gen [Event]
-genKnobs = (\fuel -> [FuelSet fuel]) <$> Gen.enumBounded
 
 outcomeOf :: EventName -> Gen AnyOutcome
 outcomeOf name = fromMaybe Gen.discard (genOutcomeNamed name)
