@@ -34,6 +34,7 @@ request -> route -> branch, inline -> next -> request | done
   | Branch | You |
   |---|---|
   | `architect`, `engineer`, `10x` | load that skill with the Skill tool (`architect`, `engineer`, `10x-engineer`) and follow it; its `state init` line prints the current step of this run. For `10x`, skip Intake's directory, `git init` and `state init`, which start a separate run: this run's notes dir and worktree are the 10x's; start at what `state next` prints |
+  | `engineer` or `architect` on existing work ("feedback for <PR>: ...", "apply this" on a branch or ticket) | before the branch, `state record target pr <url>`, `target branch <name>` or `target ticket <url>`. A PR or branch: check it out first, `state move` to the worktree `git worktree list` shows holding it, else `gh pr checkout <url>` or `git checkout <name>`. `state next` confirms the plan itself unless you ask a Design or Scope question, and takes the target's PR or ticket as the run's |
   | `blocks` | pick the block at the `block` hub; an `open_*` step reads the issue, branch or PR the request names |
   | `discussion` | below |
   | `other` | do it yourself (`direct`) |
