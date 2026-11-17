@@ -103,6 +103,7 @@ plainTask name deps =
         , heavy = False
         , security = Set.empty
         , shape = OwnPr
+        , plan = ChildConfirms
         , repo = Nothing
         , worktree = Nothing
         , flow = EngineerFlow
@@ -135,6 +136,9 @@ taskJson task =
             <> case task.shape of
                 OwnPr -> []
                 RoundOn url -> ["pr" .= urlText url]
+            <> case task.plan of
+                ChildConfirms -> []
+                ParentDecided -> ["planDecided" .= True]
             <> maybe [] (\repo -> ["repo" .= repoText repo]) task.repo
             <> maybe [] (\path -> ["worktree" .= shellPathText path]) task.worktree
             <> case task.flow of

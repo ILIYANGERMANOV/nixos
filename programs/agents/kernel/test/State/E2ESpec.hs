@@ -105,7 +105,7 @@ spec = describe "the state binary" $ do
 
         it "takes a question's kind in any case" $ \repo -> do
             _ <- startedRun bin repo
-            asked <- traverse (\kind -> state bin repo ["ask", "--kind", kind, "which", "store?"]) ["design", "DESIGN", "Design"]
+            asked <- traverse (\(kind, store) -> state bin repo ["ask", "--kind", kind, "which", store]) [("design", "store?"), ("DESIGN", "queue?"), ("Design", "cache?")]
             map (.code) asked `shouldBe` [0, 0, 0]
 
         it "refuses a ruling's unquoted words, telling to quote them" $ \repo -> do
@@ -256,6 +256,14 @@ spec = describe "the state binary" $ do
                 advice <- succeeded =<< state bin repo ["next"]
                 take 1 advice `shouldBe` ["ASK Stuck the fix loop repeats R1: go on, change course, or stop?"]
 
+            it "offers a stuck loop's exit once Stuck was asked, and takes it to describe with no override" $ \repo -> do
+                _ <- drive bin repo (atReview <> reviewRound "R1" [] <> [Handback "fixer" ready] <> reviewRound "R1" [] <> [AskUser "Stuck" ["stop?"]])
+                advice <- succeeded =<< state bin repo ["next"]
+                filter ("pick.final" `Text.isInfixOf`) advice
+                    `shouldBe` ["    state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe"]
+                exited <- succeeded =<< state bin repo ["record", "pick.final", "--row", "R1"]
+                recorded exited `shouldBe` ["pick.final -> describe"]
+
             it "refuses a pick.loop past Balanced's 3 re-reviews, then exits by pick.final" $ \repo -> do
                 let rounds = concat [reviewRound label [] <> [Handback "fixer" ready] | label <- ["R1", "R2", "R3"]]
                 _ <- drive bin repo (atReview <> rounds <> [Handback "review-lead" reviewed])
@@ -371,7 +379,7 @@ spec = describe "the state binary" $ do
                 again <- logLines repo
                 triage <- succeeded =<< state bin repo ["next"]
                 again `shouldBe` once
-                take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c1 <> " <question> - triage: FAILED no access"]
+                take 1 triage `shouldBe` ["RUN state retry t1 --why <w> | state ask --kind <kind> --from " <> c1 <> " <question> - triage: FAILED no access"]
 
             it "leaves a child's recorded hand-back be once its parent moved past the fan-out" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
@@ -407,11 +415,38 @@ spec = describe "the state binary" $ do
                 c1 <- childRun bin w1 parent "n1" "t1"
                 relay bin repo ["HANDBACK BLOCKED no access to the registry", "Run: " <> c1]
                 triage <- succeeded =<< state bin repo ["next"]
-                take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c1 <> " <question> - triage: BLOCKED no access to the registry"]
+                take 1 triage `shouldBe` ["RUN state retry t1 --why <w> | state ask --kind <kind> --from " <> c1 <> " <question> - triage: BLOCKED no access to the registry"]
                 qid <- askedQid bin repo "Stuck" ["--from", Text.unpack c1, "retry", "with", "a", "token?"]
                 _ <- succeeded =<< state bin repo ["rule", Text.unpack qid, "--answer", "retry", "--why", "first try", "--cost", "one try"]
                 retry <- succeeded =<< state bin repo ["next"]
                 take 1 retry `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+
+            it "retries a stopped child's task under a fresh notes dir, once" $ \repo -> do
+                parent <- startedIn bin repo ["--notes", repo.notes, "--flow", "10x"]
+                let tasks = repo.root </> "tasks.json"
+                Text.writeFile tasks (breakdownJson [(plainTask "t1" []) {repo = Just (Event.Repo "o" "r")}])
+                for_ [["override", "breakdown", "the", "plan", "is", "agreed"], ["record", "breakdown.done", "--tasks", tasks]] (succeeded <=< state bin repo)
+                first <- succeeded =<< state bin repo ["brief", "engineer", "--task", "t1"]
+                w1 <- worktree repo "w1"
+                c1 <- childRun bin w1 parent "n1" "t1"
+                relay bin repo ["HANDBACK BLOCKED no access to the registry", "Run: " <> c1]
+                retry <- succeeded =<< state bin repo ["retry", "t1", "--why", "the token is set now"]
+                spawn <- succeeded =<< state bin repo ["next"]
+                w2 <- worktree repo "w2"
+                c2 <- childRun bin w2 parent "n2" "t1"
+                relay bin repo ["HANDBACK BLOCKED no access still", "Run: " <> c2]
+                capped <- state bin repo ["retry", "t1", "--why", "once more"]
+                triage <- succeeded =<< state bin repo ["next"]
+                first `shouldSatisfy` mentions ("state init --notes /tmp/engineer-o-r-t1/ --parent " <> parent)
+                retry `shouldSatisfy` mentions ("state init --notes /tmp/engineer-o-r-t1-t2/ --parent " <> parent)
+                take 1 spawn `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+                (capped.code, take 1 capped.err) `shouldBe` (2, ["state retry: task t1 - 2 children tried it, its one retry is spent"])
+                take 1 triage `shouldBe` ["RUN state ask --kind <kind> --from " <> c2 <> " <question> - triage: BLOCKED no access still"]
+
+            it "refuses a retry of a task with no stopped child to triage" $ \repo -> do
+                _ <- childAtWork bin repo
+                refused <- state bin repo ["retry", "t1", "--why", "a guess"]
+                (refused.code, refused.err) `shouldBe` (2, ["state retry: task t1 - no stopped child of it awaits triage", "fix: state next"])
 
             it "lists, after a crash, the child still running and the question pending" $ \repo -> do
                 parent <- tenXAtFanOut bin repo
@@ -695,7 +730,7 @@ spec = describe "the state binary" $ do
 
                     said <- workerAt hookBin repo Null "w1"
 
-                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
                     loggedTypes repo.notes `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
                 it "record a 10x session's, whose run is outside the repo its hooks fire in" $ \repo -> do
@@ -706,7 +741,7 @@ spec = describe "the state binary" $ do
 
                     said <- workerAt hookBin repo Null "w1"
 
-                    said `shouldSatisfy` mentions ("run " <> run <> ": state: recorded")
+                    said `shouldSatisfy` mentions ("run " <> run <> ": recorded event")
                     loggedTypes tenX `shouldReturnContaining` ["research.spawned", "research.handed_back"]
 
                 it "record a child engineer's worker spawn in its own run, not its parent's, at depth 1" $ \repo -> do
@@ -801,7 +836,7 @@ spec = describe "the state binary" $ do
                     said <- succeeded =<< hook hookBin repo "route" (edited repo Null)
 
                     replyField "decision" said `shouldBe` Just "deny"
-                    replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>\n" `Text.isSuffixOf`)
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>/\n" `Text.isSuffixOf`)
 
                 it "deny a typed /10x-engineer's commit before its state init, naming the 10x's init" $ \repo -> do
                     _ <- succeeded =<< hook hookBin repo "begin" (typed repo "10x-engineer")
@@ -1204,10 +1239,14 @@ aboutNoRun line = case Text.stripPrefix "run " line of
     Just rest | (_, after) <- Text.breakOn ": " rest, not (Text.null after) -> Text.drop 2 after
     _ -> line
 
--- | The @recorded <seq> <event> -> <state>@ lines of an output, without their sequence numbers.
+{- | The @recorded <seq> <event> -> <state>@ lines of an output, and a hook's
+@recorded event <seq> ...@ of a child's spawn or hand-back, without their
+sequence numbers.
+-}
 recorded :: [Text] -> [Text]
 recorded = concatMap $ \line -> case Text.words line of
     ["recorded", _, event, "->", at] -> [event <> " -> " <> at]
+    ["recorded", "event", _, event, "->", at] -> [event <> " -> " <> at]
     _ -> []
 
 -- | A researcher's report as its skill shapes it: no token on line 1.

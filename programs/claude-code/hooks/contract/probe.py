@@ -11,6 +11,7 @@ run says REFUSED and `--live` (live.py) is the probe.
 
     probe.py <snapshot.json> [--update]   run, compare, print the summary line
     probe.py <snapshot.json> --live       the live probe, see live.py
+    probe.py <snapshot.json> --record <out>  one live run as fixtures/live-run.json holds it
     probe.py hook <log.jsonl>             the recording hook the offline run registers
     probe.py live-hook <log.jsonl>        the one the live run registers
 """
@@ -67,17 +68,16 @@ class UnscriptedCallError(Exception):
         )
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str]) -> int:  # noqa: PLR0911 - one return per mode
     match argv:
         case ["hook", log]:
             return hook(Path(log), sys.stdin.read(), rewrite)
         case ["live-hook", log]:
             return hook(Path(log), sys.stdin.read(), live.respond)
         case [_, "--live"]:
-            return live.probe(
-                claude_version(),
-                [sys.executable, str(Path(__file__).resolve()), "live-hook"],
-            )
+            return live.probe(claude_version(), live_hook())
+        case [_, "--record", out]:
+            return record_live(Path(out))
         case [snapshot]:
             return check(Path(snapshot), update=False)
         case [snapshot, "--update"]:
@@ -85,6 +85,30 @@ def main(argv: list[str]) -> int:
         case _:
             print(__doc__, file=sys.stderr)
             return 2
+
+
+def live_hook() -> list[str]:
+    """The argv that runs `live.respond` on a payload, less the log path."""
+    return [sys.executable, str(Path(__file__).resolve()), "live-hook"]
+
+
+def record_live(out: Path) -> int:
+    """Writes one live run as test_live.py reads it: its events, and its
+    transcripts cut to the lines holding a probe marker or the deny reason."""
+    with tempfile.TemporaryDirectory(prefix="probe-agents-hooks-live-") as work:
+        events = live.run(Path(work), live_hook())
+    transcripts = {
+        path: "".join(
+            line
+            for line in text.splitlines(keepends=True)
+            if live.CONTEXT_MARKER in line or live.DENY_REASON in line
+        )
+        for path, text in live.read_transcripts(events).items()
+    }
+    _ = out.write_text(
+        json.dumps({"events": events, "transcripts": transcripts}, indent=2) + "\n"
+    )
+    return 0
 
 
 def check(snapshot: Path, *, update: bool) -> int:

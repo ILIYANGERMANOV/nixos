@@ -23,6 +23,7 @@ Available commands:
   render                   Print a block of the flow, as the skills paste it
   ask                      Ask a question: the run's, a worker's or a child's
   rule                     Rule on a question: the answer, why and its cost
+  retry                    Retry a stopped child's task, printing its brief
   forward                  Forward a question up, to the parent run or the user
   answer                   Record the answer to a forwarded question
   stop                     Stop the run, with a reason and why

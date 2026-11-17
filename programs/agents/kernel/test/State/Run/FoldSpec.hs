@@ -203,6 +203,29 @@ spec = describe "State.Run.Fold" $ do
         atName <$> replay g (logOf (started :| FuelSet Low : toReview <> reviewRounds [[]] <> [stepTook (FixDone commit), stepTook (ReReviewRows sha), stepTook (PickFinal (Picks Set.empty Map.empty))]))
             `shouldBe` Right (Just (StateName "describe"))
 
+    -- An Unverified requirement is a verdict, never a row (#440).
+    it "takes a final pick with no row and an Unverified verdict to describe" $
+        atName <$> replay g (logOf (started :| toReview <> [stepTook (ReviewRows sha), stepTook (PickFinal (Picks Set.empty (Map.singleton (Requirement "R1") Unverified)))]))
+            `shouldBe` Right (Just (StateName "describe"))
+
+    describe "a stuck review loop" $ do
+        let stuckAtFix = toReview <> reviewRounds [["A"], ["A"]]
+            askStuck = Asked (Asking (Question (QId run 1) Ask.Stuck (oneLine "the fix loop repeats A")) (StateName "fix") Itself)
+            final = stepTook (PickFinal (Picks (Set.singleton (Label "A")) Map.empty))
+        it "exits by pick.final at fix once Stuck was asked there" $
+            atName <$> replay g (logOf (started :| stuckAtFix <> [askStuck, final]))
+                `shouldBe` Right (Just (StateName "describe"))
+
+        it "refuses pick.final at fix before Stuck was asked" $
+            replay g (logOf (started :| stuckAtFix <> [final])) `shouldSatisfy` \case
+                Left (NoEdge _ _) -> True
+                _ -> False
+
+        it "refuses pick.final at fix once the run moved on from the Stuck ask" $
+            replay g (logOf (started :| stuckAtFix <> [askStuck, stepTook (FixDone commit), stepTook (ReReviewRows sha), stepTook (PickLoop (Picks Set.empty Map.empty)), final])) `shouldSatisfy` \case
+                Left (NoEdge _ _) -> True
+                _ -> False
+
     it "stuck_after_two_same_rounds" . hedgehog $ do
         -- Up to Max's 5 re-reviews, each a pick of the loop.
         rows <- forAll (Gen.list (Range.linear 1 5) (Gen.subsequence ["A", "B", "C"]))
@@ -221,6 +244,14 @@ spec = describe "State.Run.Fold" $ do
         let red = stepTook (AwaitCiRed sha (Check "lint" :| []))
         stuck <$> replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red]))
             `shouldBe` Right [Stuck "ci" (Set.singleton (Failing (Check "lint")))]
+
+    -- Green is CI's own outcome: a stuck CI loop never claims it without CI.
+    it "refuses await_ci.green at fix_pr once Stuck was asked there" $ do
+        let red = stepTook (AwaitCiRed sha (Check "lint" :| []))
+            askStuck = Asked (Asking (Question (QId run 1) Ask.Stuck (oneLine "the ci loop repeats lint")) (StateName "fix_pr") Itself)
+        replay g (logOf (started :| toCi <> [red, stepTook (FixPrDone sha), red, askStuck, stepTook (AwaitCiGreen sha)])) `shouldSatisfy` \case
+            Left (NoEdge _ _) -> True
+            _ -> False
 
     it "forgets a loop's rounds once the run leaves it" $
         stuck <$> replay g (logOf (started :| FuelSet Max : toReview <> reviewRounds [["A"], ["A"]] <> [stepTook (FixDone commit), stepTook (ReReviewClean sha)]))
@@ -417,11 +448,11 @@ tenXRounds :: Spec
 tenXRounds = describe "the 10x's rounds" $ do
     for_ [minBound .. maxBound] $ \fuel ->
         it ("lets a round on an existing PR skip ready at " <> show fuel) $
-            (.at) <$> engineerRun (ByRole parent (RoundOn pr)) fuel `shouldBe` Right Out
+            (.at) <$> engineerRun (ByRole parent (RoundOn pr) ChildConfirms) fuel `shouldBe` Right Out
 
     for_ [Balanced, Max] $ \fuel ->
         it ("refuses an ordinary task's skip of ready at " <> show fuel) $
-            engineerRun (ByRole parent OwnPr) fuel `shouldBe` Left (NotSkippable "ready")
+            engineerRun (ByRole parent OwnPr ChildConfirms) fuel `shouldBe` Left (NotSkippable "ready")
 
     it "ends a run whose tasks merged by merge done" $
         (.at) <$> tenXRun (settled (plainTask "t1" []) (Merged pr) <> [stepTook (MergeDone engineers pr)]) `shouldBe` Right Out
@@ -597,7 +628,7 @@ or a parent, keeping those the fold accepts: the run state and the events.
 genAskLog :: Gen (RunState, [Event])
 genAskLog = do
     flow <- Gen.enumBounded
-    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr]
+    principal <- Gen.element [ByUser OwnPr, ByRole (Parent (runId "p1") "p1/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms]
     first <- either (fail . show) pure (replay g (logOf (Started (startOf flow principal) :| [])))
     tries <- Gen.int (Range.linear 0 60)
     go tries first 1 0
@@ -643,7 +674,7 @@ genChain =
         <*> Gen.element
             [ [rung "e1" EngineerFlow (ByUser OwnPr)]
             , [rung "x1" TenXFlow (ByUser OwnPr)]
-            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr), rung "x1" TenXFlow (ByUser OwnPr)]
+            , [rung "e1" EngineerFlow (ByRole (Parent (runId "x1") "x1/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms), rung "x1" TenXFlow (ByUser OwnPr)]
             ]
   where
     rung name flow principal = Rung (runId name) (startOf flow principal)

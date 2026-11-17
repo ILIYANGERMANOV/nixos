@@ -20,6 +20,7 @@ module State.Run.Fold (
     Refusal (..),
     Append (..),
     replay,
+    unvoided,
     runStart,
     fold,
     append,
@@ -28,6 +29,7 @@ module State.Run.Fold (
     onRound,
     Stuck (..),
     stuck,
+    stuckExits,
     Budget (..),
     Spent (..),
     budgets,
@@ -64,18 +66,19 @@ import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
-import State.Category.Step (EventName, Outcome, SomeOutcome (..), StepSet (stepName))
+import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName))
 import State.Role (FlowName, RoleDef (..), Rung)
 import State.Role qualified as Role
-import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalShape)
+import State.Run.Ask (Above, Kind (Security), OneLine, Principal (..), Proposal (..), QId (..), Question (..), Ruling, deliver, oneLineText, principalPlan, principalShape)
 import State.Run.Ask qualified as Ask
-import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, tookEvent)
+import State.Run.Event (AgentId, AgentRole, Asker (..), Asking (..), Check, DraftPr, Envelope (..), Event (..), EventId, Judgement (..), Label, Note, Picks (..), PlanCall (ParentDecided), Requirement, RunId, Shape (..), Start (..), StateName (..), Stop, TaskId, TaskState (InCi, InReview, Kept, Merged, Parked), Url, eventId, tookEvent)
 import State.Run.Event qualified as Event
 import State.Run.Fan (Fan, emptyFan)
 import State.Run.Fan qualified as Fan
 import State.Step.Build (BuildStep, Outcome (..))
-import State.Step.Catalog (AnyOutcome (..), Layer (..))
+import State.Step.Catalog (AnyOutcome (..), AnyStep (..), Layer (..), stepNamed)
 import State.Step.Fan (FanStep, Outcome (..), fanOf, mergeName)
+import State.Step.Plan (Sing (SimplifyP))
 import State.Step.Review (Outcome (..), ReviewStep)
 import State.Step.Ship (Outcome (..), ShipStep, Sing (Ready))
 
@@ -339,7 +342,7 @@ applyEvent g state n = \case
     Spawned child -> going (atFan g state Spawns >> inFan (Fan.spawned (askingChildren state) child))
     Resumed child -> going (inFan (Fan.resumed child))
     HandedBack child said -> going (atFan g state HandsBack >> inFan (Fan.handedBack child said))
-    TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= roundReopens moved)
+    TaskMoved task moved -> going (inFan (Fan.moved task moved) >>= afterMove task moved)
     Held task url -> going (inFan (Fan.held task url))
     ActedOn task url -> going (inFan (Fan.actedOn task url))
     TaskAdded task -> going (inFan (Fan.added task) >>= reopened g)
@@ -357,13 +360,13 @@ applyEvent g state n = \case
         Itself -> after
         -- A question asked from a worker triages its oldest hand-back.
         Subagent role -> after {untriaged = triagedBy role after.untriaged}
-    roundReopens = \case
+    afterMove task = \case
         Event.Round _ -> reopened g
         InCi _ -> Right
         InReview _ -> Right
         Merged _ -> Right
         Kept _ -> Right
-        Parked _ _ -> Right
+        Parked _ _ -> Right . unaskedBy task
     -- A child's or a task's event names no fan-out: it is the one the run is at.
     inFan change = case fanAt state.at of
         Just fan -> (\changed -> state {fans = Map.insert fan changed state.fans}) <$> Bifunctor.first FanRefused (change (fanIn state.fans fan))
@@ -400,7 +403,7 @@ took :: OpenGraph -> RunState -> ScopePath -> AnyOutcome -> Either Refusal RunSt
 took g state scope outcome@(AnyOutcome _ some) = do
     let name = tookEvent scope outcome
     (from, edge) <- maybe (Left (NoEdge state.at name)) Right $ case state.at of
-        At place -> (place,) <$> step g place name
+        At place -> (place,) <$> (step g place name <|> lookup name (stuckExits g state place))
         Out -> Nothing
         Exit -> Nothing
     case edge.arrow of
@@ -463,11 +466,15 @@ fanOutcome scope outcome fans = case outcome of
   where
     here = ScopedFan scope
 
-{- | The Fuel's skips, and @ready@ for a round on an existing PR at every
-Fuel: the PR stays as it is, by the task's shape.
+{- | The Fuel's skips, @ready@ for a round on an existing PR at every
+Fuel: the PR stays as it is, by the task's shape, and @simplify_plan@ for a
+plan its parent decided.
 -}
 skips :: RunState -> Place -> PerFuel SkipWhen -> Bool
-skips state from when = atFuel (fuelOf state) when /= Never || (from.name == stepName Ready && onRound state.start.principal)
+skips state from when =
+    atFuel (fuelOf state) when /= Never
+        || (from.name == stepName Ready && onRound state.start.principal)
+        || (from.name == stepName SimplifyP && principalPlan state.start.principal == ParentDecided)
 
 -- | The run is a round on a PR that exists already, named at init or by its parent's breakdown.
 onRound :: Principal -> Bool
@@ -691,6 +698,18 @@ heldAnswer state qid = (.given) <$> find ((== qid) . (.about.qid)) state.answers
 given :: RunState -> [(QId, Text)]
 given state = [(ruling.qid, oneLineText ruling.proposal.answer) | ruling <- state.rulings] <> [(answer.about.qid, answer.given) | answer <- state.answers]
 
+{- | A parked task's children wait on no answer: the questions they asked
+leave the pending ones, as no child of it will read an answer.
+-}
+unaskedBy :: TaskId -> RunState -> RunState
+unaskedBy task state = state {pending = filter (not . byChild . (.asking.from)) state.pending}
+  where
+    children = map (.child.run) (Fan.childrenOf (currentFan state) task)
+    byChild = \case
+        ChildRun run -> run `elem` children
+        Itself -> False
+        Subagent _ -> False
+
 -- | The children whose question is still open, in triage or with the user: none of their tasks is retried.
 askingChildren :: RunState -> [RunId]
 askingChildren state = [run | pending <- state.pending, ChildRun run <- [pending.asking.from]]
@@ -795,6 +814,31 @@ fuelOf state = fromMaybe Balanced state.fuel
 -- | A loop making no progress: these problems were in both of its last two rounds.
 data Stuck = Stuck {loop :: Name, same :: Set Problem}
     deriving stock (Eq, Show)
+
+{- | Once a Stuck question was asked in a loop's body, the edges that leave
+the loop from its entry, which the run may take from where it is: a stuck
+review loop ends by @pick.final@ at @fix@ without an override. None at the
+entry itself, whose edges are its own, and none from an entry that awaits
+something outside the run: a stuck CI loop never claims @await_ci.green@.
+-}
+stuckExits :: OpenGraph -> RunState -> Place -> [(EventName, Edge Node)]
+stuckExits g state place = case innermost g place of
+    Just loop
+        | Ask.Stuck `elem` state.askedHere && loop.entry /= place && not (awaits loop.entry) ->
+            [(event, edge) | ((from, event), edge) <- Map.toList g.edges, from == loop.entry, not (inBody loop edge.to)]
+    _ -> []
+  where
+    inBody loop = \case
+        At to -> Set.member to loop.body
+        Out -> False
+        Exit -> False
+    awaits entry = case stepNamed entry.name of
+        Just (AnyStep _ (SomeStep s)) -> case special s of
+            AwaitsCi -> True
+            AwaitsMerge -> True
+            Ordinary -> False
+            AsksConfirm -> False
+        Nothing -> False
 
 {- | Only the last two rounds, and only in a row, as #351 decided. It misses
 rows alternating A, B, A, B on purpose: no two rounds in a row share a row, and

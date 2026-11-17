@@ -38,11 +38,20 @@ run_quick_typecheck() {
 
 # With a filter, the examples `--match` selects run in the session: exit 0 when
 # they pass, 1 when they fail, none match or the code does not typecheck, 2 when
-# no answer could be had. Without one, the `<name>-test` runner.
+# no answer could be had. Without one, the `<name>-test` runner. The filter
+# may follow hspec's own `-m`/`--match`, as a rerun hint prints it.
 run_quick_test() {
   enter_session
   if [ "$#" -eq 0 ]; then
     exec nix run "$root#$name-test"
+  fi
+  case $1 in
+    -m | --match) shift ;;
+    *) ;;
+  esac
+  if [ "$#" -eq 0 ]; then
+    printf 'usage: %s-quick-test [-m|--match] <pattern>\n' "$name" >&2
+    exit 2
   fi
   typecheck
   request_run "$@"
@@ -342,24 +351,30 @@ report_run() {
 
 # The `--test` expression: one line, every name qualified, since multi-unit
 # GHCi refuses `:script` and `:module` and the hook sees no Prelude. Empty
-# request: nothing. Else it empties the request, runs the suite with stdout on
-# the report (`bracket` hands stdout back however the run ends), and writes
-# the result.
+# request: nothing. Else it runs the suite with stdout on the report
+# (`bracket` hands stdout back however the run ends). An async exception, such
+# as the interrupt of the reload `request_run` triggers, writes no result and
+# keeps the request, so the run that reload starts reruns it. Any other end
+# clears the request if it still holds this id (another caller may have
+# replaced it), then writes the result.
 test_hook() {
   local -a parts=(
     "do { request <- Data.List.lines Data.Functor.<$> System.IO.readFile \"$test_request\""
     "; _ <- Control.Exception.evaluate (Data.List.length request)"
     "; case request of { [] -> Control.Monad.return ()"
-    "; (rid : args) -> do { System.IO.writeFile \"$test_request\" \"\""
-    "; outcome <- Control.Exception.try (System.IO.withFile \"$test_report\" System.IO.WriteMode (\\report ->"
+    "; (rid : args) -> do { outcome <- Control.Exception.try (System.IO.withFile \"$test_report\" System.IO.WriteMode (\\report ->"
     "Control.Exception.bracket"
     "(GHC.IO.Handle.hDuplicate System.IO.stdout Control.Applicative.<* GHC.IO.Handle.hDuplicateTo report System.IO.stdout)"
     "(\\ghcid -> System.IO.hFlush System.IO.stdout Control.Monad.>> GHC.IO.Handle.hDuplicateTo ghcid System.IO.stdout)"
     "(\\_ -> System.Environment.withArgs args (Test.Hspec.Runner.hspecWithResult Test.Hspec.Runner.defaultConfig Main.spec))))"
+    "; case outcome of { Data.Either.Left e | Data.Maybe.isJust (Control.Exception.fromException e :: Data.Maybe.Maybe Control.Exception.SomeAsyncException) -> Control.Exception.throwIO e"
+    "; _ -> do { now <- Data.List.lines Data.Functor.<$> System.IO.readFile \"$test_request\""
+    "; _ <- Control.Exception.evaluate (Data.List.length now)"
+    "; Control.Monad.when (Data.List.take 1 now Data.Eq.== [rid]) (System.IO.writeFile \"$test_request\" \"\")"
     "; System.IO.writeFile \"$test_result\" (rid Data.List.++ \" \" Data.List.++ Data.Either.either"
     "(\\e -> \"aborted: \" Data.List.++ Control.Exception.displayException (e :: Control.Exception.SomeException))"
     "(\\summary -> Data.List.unwords (Data.List.map Text.Show.show [Test.Hspec.Runner.summaryExamples summary, Test.Hspec.Runner.summaryFailures summary]))"
-    "outcome) } } }"
+    "outcome) } } } } }"
   )
   printf '%s ' "${parts[@]}"
 }

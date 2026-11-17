@@ -16,6 +16,7 @@ module State.Step.Artifact (
     TaskId (..),
     Task (..),
     Shape (..),
+    PlanCall (..),
     Repo (..),
     parsePrUrl,
     prUrlRule,
@@ -46,6 +47,7 @@ module State.Step.Artifact (
     tasksData,
     taskEncoding,
     shapeData,
+    planData,
     headOf,
     urlOf,
     draftOf,
@@ -55,6 +57,7 @@ module State.Step.Artifact (
     decodeBreakdown,
     taskOf,
     shapeOf,
+    planOf,
     decodeTask,
     distinct,
     keyed,
@@ -66,6 +69,7 @@ import Data.Aeson (Object, Value, eitherDecodeStrictText, parseJSON, withObject,
 import Data.Aeson.Encoding (Encoding, list, pair, pairs)
 import Data.Aeson.Types (Parser, Series, parseEither)
 import Data.Bifunctor (first)
+import Data.Bool (bool)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
@@ -134,6 +138,7 @@ data Task = Task
     -- ^ Advisory: the kernel caps nothing on it; it stays on the wire for old breakdowns.
     , security :: Set Topic
     , shape :: Shape
+    , plan :: PlanCall
     , repo :: Maybe Repo
     -- ^ The repo the task's work lands in, when the breakdown names it: its brief's notes dir.
     , worktree :: Maybe ShellPath
@@ -216,6 +221,12 @@ exists leaves it open: its run skips @ready@, and the task settles kept.
 -}
 data Shape = OwnPr | RoundOn Url
     deriving stock (Eq, Show)
+
+{- | Who settles the task's plan: its child confirms it with its parent, or
+the parent decided it already, so the child neither simplifies nor confirms it.
+-}
+data PlanCall = ChildConfirms | ParentDecided
+    deriving stock (Eq, Show, Enum, Bounded)
 
 -- | The security-sensitive work a task's brief flags.
 data Topic = CiTopic | AuthTopic | DatabaseTopic | SecretsTopic
@@ -312,6 +323,7 @@ taskEncoding task =
             <> "heavy" .= task.heavy
             <> "security" .= map topicText (Set.toList task.security)
             <> shapeData task.shape
+            <> planData task.plan
             <> maybe mempty (("repo" .=) . repoText) task.repo
             <> maybe mempty (("worktree" .=) . shellPathText) task.worktree
             <> flowData task.flow
@@ -319,6 +331,12 @@ taskEncoding task =
 -- | The default flow is omitted, so a breakdown older than flows encodes as it was written.
 flowData :: FlowName -> Series
 flowData = maybe mempty ("flow" .=) . namedFlowText
+
+-- | Only a decided plan is written, so a breakdown older than it encodes as it was written.
+planData :: PlanCall -> Series
+planData = \case
+    ChildConfirms -> mempty
+    ParentDecided -> "planDecided" .= True
 
 -- | Only a round names its PR: a log older than rounds reads as own PRs.
 shapeData :: Shape -> Series
@@ -383,15 +401,19 @@ taskFieldsOf obj = do
     heavy <- obj .: "heavy"
     security <- obj .: "security" >>= traverse (named "topic" (parseByName topicText)) >>= distinct "topic"
     shape <- shapeOf obj
+    plan <- planOf obj
     repo <- obj .:? "repo" >>= traverse (named "repo" parseRepo)
     worktree <- obj .:? "worktree" >>= traverse worktreeOf
     flow <- fromMaybe defaultFlow <$> (obj .:? "flow" >>= traverse (named "flow" (parseByName flowText)))
-    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, repo, worktree, flow}
+    pure Task {id = taskId, deps, base, branch, fuel, qa, heavy, security, shape, plan, repo, worktree, flow}
   where
     worktreeOf path = maybe (fail ("a worktree is " <> shellPathRule <> ", not " <> show path)) pure (shellPath path)
 
 shapeOf :: Object -> Parser Shape
 shapeOf obj = maybe OwnPr (RoundOn . Url) <$> obj .:? "pr"
+
+planOf :: Object -> Parser PlanCall
+planOf obj = bool ChildConfirms ParentDecided . fromMaybe False <$> obj .:? "planDecided"
 
 {- | A list read as a set, refusing a repeat: a set would keep one copy
 silently, and a log naming one twice is a bug in its writer.

@@ -131,6 +131,18 @@ mutation:
 probe-agents-hooks *ARGS:
     nix run .#probe-agents-hooks -- programs/claude-code/hooks/contract/snapshot.json {{ ARGS }}
 
+# In the shell-tests check's environment. Runs one after another: its programs
+# have the fixed work dir /tmp/factory-check baked in.
+#
+# Run one bats suite `n` times in a row, stopping at the first failure
+bats-repeat file n="20":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    # shellcheck disable=SC2016 # the inner bash expands them
+    nix develop ".#checks.$system.shell-tests" -c bash -c \
+      'for i in $(seq "$1"); do bats "$2" || { echo "failed on run $i of $1" >&2; exit 1; }; done' _ {{ n }} {{ file }}
+
 # Run all checks (lint + architecture + format + spell + flake check)
 check:
     just lint

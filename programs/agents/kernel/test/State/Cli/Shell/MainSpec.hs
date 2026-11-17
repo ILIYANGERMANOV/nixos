@@ -18,7 +18,7 @@ import State.Cli.Render qualified as Render
 import State.Cli.Shell.World
 import State.Protocol.Advice (PrView (..), Readiness (..))
 import State.Run.Codec (logOf)
-import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), Repo (..), SessionId (..), Task (..))
+import State.Run.Event (Branch (..), Envelope (..), FlowName (TenXFlow), PlanCall (..), Repo (..), SessionId (..), Task (..))
 import State.Run.RunGen (breakdownJson, loadSteps, plainTask, roundTask)
 import State.Step.Artifact (shellPath)
 import System.FilePath ((</>))
@@ -189,7 +189,7 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["next"]
 
                 (ran.code, ran.err)
-                    `shouldBe` (2, ["state next: no run in this worktree - no state init ran here", "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>"])
+                    `shouldBe` (2, ["state next: no run in this worktree - no state init ran here", "fix: state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"])
 
             it "names a hand-edited bad line and appends nothing after it" $ \world -> do
                 _ <- drive world []
@@ -242,6 +242,13 @@ spec = describe "state over the doubles" $ do
                 (ran.code, ran.out, ran.err) `shouldBe` (0, ["recorded 2 fuel -> gather"], [])
                 loggedEvents world `shouldReturn` ["started", "fuel"]
 
+            it "refuses a surplus argument to an event with its own usage, not the whole help" $ \world -> do
+                _ <- startedRun world
+
+                ran <- state world ["record", "simplify_plan.done", "extra"]
+
+                (ran.code, take 3 ran.err) `shouldBe` (2, ["Invalid argument `extra'", "", "Usage: state record simplify_plan.done"])
+
             it "names a usage error with exit 2, lists the events and writes nothing" $ \world -> do
                 _ <- startedRun world
 
@@ -260,6 +267,14 @@ spec = describe "state over the doubles" $ do
                 (ran.code, ran.err) `shouldBe` (0, [])
                 recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
 
+            it "records a researcher's simplify report from stdin, which opens with no token" $ \world -> do
+                _ <- drive world [Record ["fuel", "balanced"], Record ["gather.enough"], Planned]
+
+                ran <- stateIn world "# Plan (simplify proposal)\n## Goals\n" ["handback", "researcher"]
+
+                (ran.code, ran.err) `shouldBe` (0, [])
+                recorded ran.out `shouldBe` ["simplify_plan.done -> confirm"]
+
             it "advises a worker's BLOCKED for triage until the run asks it as its own" $ \world -> do
                 _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
                 _ <- succeeded =<< stateIn world "BLOCKED no access\n" ["handback", "implementer"]
@@ -271,6 +286,23 @@ spec = describe "state over the doubles" $ do
 
                 take 1 blocked `shouldBe` ["RUN state ask --kind <kind> --from implementer <question> - triage: BLOCKED no access"]
                 ruled `shouldSatisfy` (not . any ("triage: BLOCKED no access" `Text.isInfixOf`))
+
+            it "refuses a hand-back with no token on line 1, its fix piping it again with one" $ \world -> do
+                _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
+
+                ran <- stateIn world "Done, all green.\n" ["handback", "implementer"]
+
+                ran.code `shouldBe` 2
+                drop 1 ran.err `shouldBe` ["fix: state handback implementer < <the hand-back, a token added as line 1>"]
+
+            it "refuses a Touches line with words after its areas, its fix piping it again with bare names" $ \world -> do
+                _ <- drive world ([Record ["fuel", "balanced"]] <> init toImplement)
+                untouched <- loggedEvents world
+
+                ran <- stateIn world "READY\nTouches: interface (the parser)\n" ["handback", "implementer"]
+
+                (ran.code, drop 1 ran.err) `shouldBe` (2, ["fix: state handback implementer < <the hand-back, its Touches: line bare names only, comma-separated: interface, data-model, auth or none>"])
+                loggedEvents world `shouldReturn` untouched
 
             it "refuses a hand-back that is not UTF-8, with exit 2" $ \world -> do
                 _ <- startedRun world
@@ -427,6 +459,17 @@ spec = describe "state over the doubles" $ do
 
             shown `shouldContain` ["answered:", "  " <> qid <> " Design: which store? - postgres"]
 
+        it "refuses the same open question from the same asker, naming the open one" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            let qid = Text.drop (Text.length "asked ") asked
+
+            again <- state world ["ask", "--kind", "Design", "which", "store?"]
+            pending <- succeeded =<< state world ["pending"]
+
+            (again.code, again.err) `shouldBe` (2, ["state ask: the question - it is open already as " <> qid, "fix: state next"])
+            pending `shouldBe` [qid <> " Design forwarded from this run: which store?"]
+
         describe "the 10x" $ do
             it "spawns the first task, the second waiting on it" $ \world -> do
                 _ <- tenXAtFanOut world
@@ -552,6 +595,33 @@ spec = describe "state over the doubles" $ do
                 take 1 again `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
                 again `shouldSatisfy` (not . any ("parent: " `Text.isPrefixOf`))
                 loggedEvents world `shouldReturn` once
+
+            for_ [(ChildConfirms, ["plan.done -> simplify_plan"]), (ParentDecided, ["plan.done -> simplify_plan", "simplify_plan.skipped -> confirm", "confirm.confirmed -> draft"])] $ \(plan, transcript) ->
+                it ("passes a child's plan per its task's plan call, asking its parent nothing: " <> show plan) $ \world -> do
+                    parent <- tenXAtFanOutOf world [(plainTask "t1" []) {plan}]
+                    _ <- childRun world parent "/child" "t1"
+                    _ <- succeeded =<< state world ["record", "gather.enough"]
+                    putFile world "/child/plan.md" "the plan"
+                    planned <- succeeded =<< state world ["record", "plan.done", "/child/plan.md"]
+                    advised <- succeeded =<< state world ["next"]
+
+                    recorded (planned <> advised) `shouldBe` transcript
+                    filter (== "asked") <$> loggedEvents world `shouldReturn` []
+
+            it "drops a parked task's forwarded question from pending and next" $ \world -> do
+                parent <- tenXAtFanOut world
+                _ <- childRun world parent "/child" "t1"
+                _ <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+                atWorktree world "/work"
+                asked <- succeeded =<< state world ["pending"]
+
+                _ <- succeeded =<< state world ["record", "task", "t1", "parked", "out", "of", "scope"]
+                pending <- succeeded =<< state world ["pending"]
+                advised <- succeeded =<< state world ["next"]
+
+                asked `shouldSatisfy` any ("which store?" `Text.isSuffixOf`)
+                pending `shouldBe` []
+                advised `shouldSatisfy` (not . any ("which store?" `Text.isInfixOf`))
 
             it "writes the top's answer down to every run below, each resuming the next with it" $ \world -> do
                 (_, mid, grand) <- threeLevels world
@@ -716,6 +786,11 @@ spec = describe "state over the doubles" $ do
                 ran <- state world ["render", "stop-rule"]
 
                 (ran.code, ran.out, ran.err) `shouldBe` (0, Text.lines Render.stopRule, [])
+
+            it "prints each flow's init line, as the hooks name it" $ \world -> do
+                ran <- traverse (\flow -> state world ["render", "init", "--flow", flow]) ["engineer", "10x"]
+
+                [(r.code, r.out) | r <- ran] `shouldBe` [(0, ["state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"]), (0, ["state init --notes \"$PWD\" --flow 10x"])]
 
             it "refuses a block it does not know, with exit 2" $ \world -> do
                 ran <- state world ["render", "nowhere"]

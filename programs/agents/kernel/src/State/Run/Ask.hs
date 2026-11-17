@@ -28,6 +28,7 @@ module State.Run.Ask (
     OneLine,
     oneLineText,
     parseOneLine,
+    flattened,
     Question (..),
     Reading (..),
     Choice (..),
@@ -44,13 +45,14 @@ module State.Run.Ask (
     andThen,
     Principal (..),
     principalShape,
+    principalPlan,
     Parent (..),
     Op (..),
     Delivery (..),
     Above (..),
     ask,
     deliver,
-    needsDecision,
+    questionLine,
     handback,
     rulingLine,
 ) where
@@ -62,7 +64,7 @@ import Numeric.Natural (Natural)
 import State.Category.Fuel (parseByName)
 import State.Role (Rung (..))
 import State.Run.Id (EventId, RunId, TaskId, breaksLine, eventIdText, numberedText, parseNumbered, runIdText)
-import State.Step.Artifact (Shape)
+import State.Step.Artifact (PlanCall (..), Shape)
 
 {- | What a question is about, which decides who may answer it. 'Security' is
 above every other kind and the rest are not ordered, so no 'Ord': only
@@ -173,6 +175,10 @@ parseOneLine :: Text -> Maybe OneLine
 parseOneLine raw
     | Text.any breaksLine raw = Nothing
     | otherwise = Just (OneLine raw)
+
+-- | Text the run wrote itself, made one line: each line break a space.
+flattened :: Text -> OneLine
+flattened = OneLine . Text.map (\c -> if breaksLine c then ' ' else c)
 
 data Question = Question {qid :: QId, kind :: Kind, text :: OneLine}
     deriving stock (Eq, Show)
@@ -303,17 +309,23 @@ andThen first next question =
         Forward forwarded -> next forwarded
 
 {- | Who started the run, and the shape of its work: the user, who names a
-round's PR at init, or a parent run, which gave it a task of this shape,
-read from the parent's breakdown when the run started.
+round's PR at init, or a parent run, which gave it a task of this shape and
+plan call, read from the parent's breakdown when the run started.
 -}
-data Principal = ByUser Shape | ByRole Parent Shape
+data Principal = ByUser Shape | ByRole Parent Shape PlanCall
     deriving stock (Eq, Show)
 
 -- | What the run does to its PR, whoever started it.
 principalShape :: Principal -> Shape
 principalShape = \case
     ByUser shape -> shape
-    ByRole _ shape -> shape
+    ByRole _ shape _ -> shape
+
+-- | Who settles the run's plan: the user confirms its own run's.
+principalPlan :: Principal -> PlanCall
+principalPlan = \case
+    ByUser _ -> ChildConfirms
+    ByRole _ _ plan -> plan
 
 -- | The parent run, its log and the task of its breakdown it gave this run.
 data Parent = Parent {run :: RunId, log :: FilePath, task :: TaskId}
@@ -335,7 +347,7 @@ data Delivery
 data Above
     = -- | Ask the user.
       TheUser
-    | -- | Hand back with 'needsDecision' to the parent run.
+    | -- | Hand back with the question's @NEEDS_DECISION@ line to the parent run.
       ParentRun RunId
     deriving stock (Eq, Show)
 
@@ -361,12 +373,11 @@ ask principal role kind = case authority role kind of
 deliver :: Principal -> Above
 deliver = \case
     ByUser _ -> TheUser
-    ByRole parent _ -> ParentRun parent.run
+    ByRole parent _ _ -> ParentRun parent.run
 
--- | The hand-back's first line for a forwarded question (#360's wire format).
-needsDecision :: Question -> Text
-needsDecision question =
-    "NEEDS_DECISION " <> kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
+-- | A question on one line, @<Kind> <qid>: <question>@, as a hand-back's @NEEDS_DECISION@ carries it (#360's wire format).
+questionLine :: Question -> Text
+questionLine question = kindName question.kind <> " " <> qidText question.qid <> ": " <> oneLineText question.text
 
 {- | A flow role's hand-back: its first line (#360's wire format), its run,
 then a line per ruling it made, so the reader sees each one (law Audit).

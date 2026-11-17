@@ -19,6 +19,7 @@ import State.Run.RunGen (childOf, happyPath, loadSteps, plainTask, runAt, sha, t
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
+import State.Step.Plan (Outcome (..))
 import State.Step.Review (Outcome (..))
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 import Test.Hspec.Hedgehog (hedgehog)
@@ -34,7 +35,7 @@ spec = describe "State.Protocol.Handback" $ do
             (.token) <$> parseHandback first `shouldBe` Right token
 
     it "refuses an AWAIT on anything but CI or a merge" $
-        parseHandback "AWAIT deploy prod" `shouldBe` Left "AWAIT deploy: only ci or merge is awaited"
+        parseHandback "AWAIT deploy prod" `shouldBe` Left (Why "AWAIT deploy: only ci or merge is awaited")
 
     it "reads line 1 pasted with the HANDBACK delivery prefix as the bare token" $
         for_ tokens $ \(first, token) ->
@@ -48,7 +49,7 @@ spec = describe "State.Protocol.Handback" $ do
         stopLine (Event.Stop Event.Replan "no such table") `shouldBe` "NEEDS_DECISION plan wrong: no such table"
 
     it "refuses a Touches line naming no area" $
-        parseHandback "READY\nTouches: auth, the parser" `shouldSatisfy` either (Text.isInfixOf "the parser") (const False)
+        parseHandback "READY\nTouches: auth, the parser" `shouldBe` Left (NoArea "the parser")
 
     typing
 
@@ -86,11 +87,15 @@ typing = describe "typeHandback" $ do
         typed atReview "review-lead" "| # | Severity | What |" `shouldSatisfy` isLeft
 
     it "refuses a line 1 with no token from any other role" $
-        typed atImplement "implementer" "built it" `shouldSatisfy` isLeft
+        typed atImplement "implementer" "built it" `shouldBe` Left NoToken
 
     it "closes a researcher's child at the gather on its report, which opens with no token" $
         typed atGather "researcher" "The Index, ranked\n1. src/State.hs:12"
             `shouldBe` Right (Typed [stepTook ResearchHandedBack] Nothing)
+
+    it "records simplify_plan.done on a researcher's report, which opens with no token" $
+        typed atSimplifyPlan "researcher" "# t5 plan (simplify proposal)\n## Goals"
+            `shouldBe` Right (Typed [stepTook SimplifyPlanDone] Nothing)
 
     it "asks a stuck question under the run's next own id" $
         typed atImplement "implementer" "NEEDS_DECISION stuck: the same test fails"
@@ -112,7 +117,7 @@ typing = describe "typeHandback" $ do
         let fromChild = typed atFanOut "engineer"
             c1 = runId "c1"
         it "refuses one that does not name its run" $
-            fromChild "READY https://pr/1" `shouldSatisfy` either (Text.isInfixOf "add Run: <run id> as line 2") (const False)
+            fromChild "READY https://pr/1" `shouldSatisfy` either (Text.isInfixOf "add Run: <run id> as line 2" . refusalText) (const False)
         it "records READY as the child finished, the PR it names in review" $
             fromChild "READY https://pr/1\nRun: c1" `shouldBe` Right (Typed [HandedBack c1 (Finished (oneLine "https://pr/1")), TaskMoved (TaskId "t1") (InReview (Url "https://pr/1"))] Nothing)
         it "records only the finish of a READY that names no PR" $
@@ -135,6 +140,7 @@ typing = describe "typeHandback" $ do
             fromChild "NEEDS_DECISION stuck: same rows\nRun: c1" `shouldSatisfy` isLeft
   where
     atGather = runAt (map (Took mempty) (take 1 happyPath))
+    atSimplifyPlan = runAt (map (Took mempty) (take 4 happyPath))
     atImplement = runAt (map (Took mempty) (take 7 happyPath))
     atReview = runAt (map (Took mempty) (take 9 happyPath))
     atFix = runAt (map (Took mempty) (take 9 happyPath <> [outcome (ReviewRows sha), outcome (PickLoop (Picks Set.empty Map.empty))]))
@@ -158,7 +164,7 @@ tokens =
     ]
 
 parsed :: Text -> Handback
-parsed = either (error . Text.unpack) id . parseHandback
+parsed = either (error . Text.unpack . refusalText) id . parseHandback
 
 blank :: Maybe Token -> Handback
 blank token = Handback token Nothing Nothing Nothing Nothing

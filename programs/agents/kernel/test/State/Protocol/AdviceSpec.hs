@@ -39,7 +39,7 @@ spec = describe "State.Protocol.Advice" $ do
         facts <- forAll genFacts
         one <- forAll genStart
         other <- forAll genStart
-        let under from = runUnder start {principal = from.principal, interface = from.interface} events
+        let under from = runUnder start {principal = confirming from.principal, interface = from.interface} events
             decided state = (due g facts state, advise steps g facts state)
         decided (under one) === decided (under other)
 
@@ -122,6 +122,12 @@ spec = describe "State.Protocol.Advice" $ do
         it "offers only pick.final once no re-review is left" $
             next noFacts (atPick Low looped)
                 `shouldSatisfy` offers (all ("state record pick.final" `Text.isPrefixOf`))
+
+        it "offers pick.final beside the fixer at a stuck fix once Stuck was asked" $ do
+            let stuckAt asked = atPick Balanced (looped <> [stepTook (PickLoop (Picks (Set.singleton (Label "A")) Map.empty))] <> asked)
+                finalLeads = filter ("pick.final" `Text.isInfixOf`) . explainedAt . stuckAt
+            map finalLeads [[], [Asked (Asking goOn (StateName "fix") Itself), Forwarded goOn.qid TheUser, Answered goOn.qid "stop" TheUser]]
+                `shouldBe` [[], ["  state record pick.final [--row <label>]... [--verdict <requirement>=<met|not-met|unverified>]... - on to describe"]]
 
     describe "confirm" $ do
         it "asks Confirm at confirm" $
@@ -216,7 +222,12 @@ spec = describe "State.Protocol.Advice" $ do
                 stopped = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended stop)]
                 triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
             map (next noFacts . tenXAt (t1 :| [])) [stopped, stopped <> [Asked (Asking triaged (StateName "engineers") (ChildRun (runId "c1"))), RuledOn triaged.qid ruling]]
-                `shouldBe` [TriageStop (runId "c1") stop, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
+                `shouldBe` [TriageStop (runId "c1") (Just (TaskId "t1")) stop, Spawn (AgentRole "engineer") (Just (TaskId "t1"))]
+        it "offers no retry of a task once its second child stops" $ do
+            let stop = Stop Blocked "no access"
+                triaged = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
+                twice = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended stop), Asked (Asking triaged (StateName "engineers") (ChildRun (runId "c1"))), RuledOn triaged.qid ruling, Spawned (childOf "c2" "t1"), HandedBack (runId "c2") (Ended stop)]
+            next noFacts (tenXAt (t1 :| []) twice) `shouldBe` TriageStop (runId "c2") Nothing stop
         it "waits on the user's answer to a stopped child's question before a retry" $ do
             let stuckOn = Question (QId (runId "r7f2") 1) Stuck (oneLine "retry?")
                 forwarded = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Ended (Stop Blocked "no access")), Asked (Asking stuckOn (StateName "engineers") (ChildRun (runId "c1"))), Forwarded stuckOn.qid TheUser]
@@ -298,9 +309,11 @@ spec = describe "State.Protocol.Advice" $ do
             deliver child (AwaitMerge ((TaskId "t1", Just prUrl) :| [(TaskId "t2", Nothing)]))
                 `shouldBe` "HANDBACK AWAIT merge https://pr/1 t2"
 
-        it "puts a child's stop to triage as a question from the child" $
-            deliver start (TriageStop (runId "c1") (Stop Blocked "no access"))
-                `shouldBe` "RUN state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
+        it "puts a child's stop to triage as a retry of its task while one is left, else as a question from the child" $
+            [deliver start (TriageStop (runId "c1") task (Stop Blocked "no access")) | task <- [Just (TaskId "t1"), Nothing]]
+                `shouldBe` [ "RUN state retry t1 --why <w> | state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
+                           , "RUN state ask --kind <kind> --from c1 <question> - triage: BLOCKED no access"
+                           ]
 
         it "waits on CI or a merge itself only where the interface can" $
             [deliver from (AwaitOn on "u") | on <- [Ci, Merge], from <- [start {interface = Set.singleton Await}, start]]
@@ -369,7 +382,7 @@ spec = describe "State.Protocol.Advice" $ do
     draftPr = DraftPr prUrl (Branch "main") (Branch "b")
     userRound = start {principal = ByUser (RoundOn prUrl)}
     parent = runId "p1"
-    child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")) OwnPr, interface = Set.empty}
+    child = start {principal = ByRole (Parent parent "/p/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms, interface = Set.empty}
     which = Question (QId run 1) Design (oneLine "which store?")
     ruling = Proposal (oneLine "confirmed") (oneLine "the plan holds") (oneLine "none") Nothing
     implement = StateName "implement"
@@ -426,3 +439,9 @@ genPullRequest =
     PullRequest
         <$> (DraftPr . Url <$> genText <*> pure (Branch "main") <*> pure (Branch "b"))
         <*> Gen.element [IsDraft, IsReady, IsMerged, IsClosed]
+
+-- | The principal with the plan left to its run: a plan its parent decided is advice of its own.
+confirming :: Principal -> Principal
+confirming = \case
+    ByRole parent shape _ -> ByRole parent shape ChildConfirms
+    ByUser shape -> ByUser shape

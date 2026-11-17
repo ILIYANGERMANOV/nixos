@@ -10,6 +10,7 @@ module State.Cli.Render (
     kinds,
     stopRule,
     planWrong,
+    handbackRule,
 ) where
 
 import Data.List (nub, sortOn)
@@ -21,6 +22,7 @@ import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel, fullRevie
 import State.Category.Graph (Arrow (..), Cap (..), Edge (..), Node (..), OpenGraph (..), Place (..), eventLabel, placeName, places, shownOrder)
 import State.Category.Meter (Limit (..), SomeMeter (..), someMeterName)
 import State.Category.Step (SomeStep (..), StateName, StepSet (stepName), stateNameText)
+import State.Protocol.Handback (TokenWord (NeedsDecisionWord), tokenWordText, tokenWords)
 import State.Role (FlowName (..), RoleDef (..), Rung (..), role, roleText)
 import State.Run.Ask (Cond (..), Kind, Rule (..), authority, kindName)
 import State.Run.Codec (areaText)
@@ -158,9 +160,12 @@ stopRule =
         , "> stop at once. Commit and push the work you have, if any, as a"
         , "> normal commit with no WIP marker and `Remaining: <what is left>` in its"
         , "> body, plus `(does not build yet)` when it does not build."
-        , "> Start your hand-back with `NEEDS_DECISION <question>`, then that commit, what"
+        , "> Start your hand-back with `" <> needsDecision <> " <question>`, then that commit, what"
         , "> you tried and the evidence paths. Spawn no researcher."
         ]
+
+needsDecision :: Text
+needsDecision = tokenWordText NeedsDecisionWord
 
 -- | The line a review-lead brief carries instead of 'stopRule'.
 planWrong :: Text
@@ -169,9 +174,19 @@ planWrong =
         [ "> The plan is wrong when a finding shows a wrong approach, a requirement that"
         , "> cannot be met, scope the plan does not hold, or a data-model or auth"
         , "> redesign. Do not stop early: finish the review, then make"
-        , "> `NEEDS_DECISION plan wrong: <finding>` the first line of your return, before"
+        , "> `" <> needsDecision <> " plan wrong: <finding>` the first line of your return, before"
         , "> the usual report. Every other finding, security included, goes in the table"
         , "> as usual."
+        ]
+
+{- | The line every step runner's brief carries: a hand-back whose line 1
+opens with no token goes unrecorded where the run needs one (#439).
+-}
+handbackRule :: Text
+handbackRule =
+    Text.unlines
+        [ "> Line 1 of your hand-back opens with one token, its payload on the same line,"
+        , "> one of: " <> Text.intercalate ", " ["`" <> word <> "`" | word <- tokenWords] <> "."
         ]
 
 -- | A Markdown table: the header, its rule, then a line per row.

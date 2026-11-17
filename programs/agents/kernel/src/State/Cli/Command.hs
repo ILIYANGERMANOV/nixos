@@ -19,11 +19,14 @@ module State.Cli.Command (
     optparseText,
     failureText,
     initFix,
+    tenXInitFix,
     noteOf,
     explain,
     unknownEvent,
     anyEvent,
     openQid,
+    notOpenYet,
+    retryOf,
     answeredQid,
     notStarted,
     help,
@@ -54,7 +57,7 @@ import State.Run.Ask (Above (..), Basis (..), Kind, OneLine, Parent (..), Propos
 import State.Run.Ask qualified as Ask
 import State.Run.Codec (areaText, logName, reasonText)
 import State.Run.Codec qualified as Codec
-import State.Run.Event (AgentRole (..), Asker (..), Asking (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
+import State.Run.Event (AgentRole (..), Asker (..), Asking (..), Child (..), FlowName (..), Note (..), RunId, StateName (..), Stop (..), Task, TaskId (..), TaskState (Kept), parseRunId, roleText, runIdText)
 import State.Run.Fan qualified as Fan
 import State.Run.Fold (Refusal (..), RunState (..), Spent (..))
 import State.Run.Fold qualified as Fold
@@ -93,6 +96,8 @@ data RunCommand
     | -- | A question's id as typed, checked against the run's open ones ('openQid').
       RuleOn Text Raise Proposal
     | Forward Text Raise
+    | -- | A stopped child's task taken again: its stop triaged as Stuck and ruled a retry, and why.
+      Retry TaskId OneLine
     | -- | The answer that came down; by the run's principal unless named.
       Answer Text Text (Maybe Above)
     | StopRun Stop
@@ -114,7 +119,7 @@ data Raise = AsAsked | ToSecurity
     deriving stock (Eq, Show)
 
 -- | What @state render@ prints: each a block the skills paste.
-data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong
+data Block = States | FuelRows | Mermaid | Kinds | StopRule | PlanWrong | InitLine
     deriving stock (Eq, Show, Enum, Bounded)
 
 {- | Why a command did nothing, as @state <sub>: what - why@ and a @fix:@
@@ -132,7 +137,11 @@ failureText sub failure = "state " <> sub <> ": " <> failure.what <> " - " <> fa
 
 -- | The fix where a run is missing: start one, its notes dir as the skills name it.
 initFix :: Text
-initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>"
+initFix = "state init --notes /tmp/engineer-<owner>-<repo>-<slug>/"
+
+-- | The 10x lead's @state init@ line, run in the run directory its skill names.
+tenXInitFix :: Text
+tenXInitFix = "state init --notes \"$PWD\" --flow 10x"
 
 -- | A refusal as the log keeps it, for @next@ and @show@ to warn of.
 noteOf :: Failure -> Note
@@ -175,8 +184,11 @@ runCli pinfo argv = case Opt.execParserPure cliPrefs pinfo (map Text.unpack argv
     Opt.Failure failure -> Left (Usage failure)
     Opt.CompletionInvoked _ -> Left (Usage (Opt.parserFailure cliPrefs pinfo (Opt.ErrorMsg "shell completion is not offered") []))
 
+{- | No backtracking: a surplus argument fails in the subcommand it follows,
+so its help, not the top-level one, follows the error.
+-}
 cliPrefs :: Opt.ParserPrefs
-cliPrefs = Opt.prefs Opt.showHelpOnError
+cliPrefs = Opt.prefs (Opt.showHelpOnError <> Opt.noBacktrack)
 
 -- | optparse's text, less the trailing spaces it leaves where it wraps a usage line.
 optparseText :: String -> Text
@@ -236,6 +248,10 @@ commandInfo steps scope =
                     <*> textOption "cost" "<c>" "what the answer costs"
                     <*> optional (textOption "basis" "<event-id>|obvious:<why>" "the event that answered it, or why it is obvious")
                     <*> optional raiseOption
+            , sub "retry" "Retry a stopped child's task, printing its brief" $
+                (\task why -> OnRun . Retry (TaskId task) <$> oneLine why)
+                    <$> textArgument "<task>"
+                    <*> textOption "why" "<w>" "why another try may succeed"
             , sub "forward" "Forward a question up, to the parent run or the user" $
                 (\qid raise -> OnRun . Forward qid <$> raising raise) <$> textArgument "<qid>" <*> optional raiseOption
             , freeText "answer" "Record the answer to a forwarded question" $
@@ -401,6 +417,7 @@ blockName = \case
     Kinds -> "kinds"
     StopRule -> "stop-rule"
     PlanWrong -> "plan-wrong"
+    InitLine -> "init"
 
 -- | A log whose first line starts no run: it has no flow to explain against.
 notStarted :: Failure
@@ -528,6 +545,30 @@ closest name events = case (sameStep, events) of
     sameStep = case Text.breakOn "." name of
         (_, "") -> []
         (step, _) -> [e | e@(event, _) <- events, (step <> ".") `Text.isPrefixOf` event]
+
+{- | The task's latest child, whose stop awaits triage, while a retry is
+left ('Fan.retryLeft'): what @state retry@ triages and retries.
+-}
+retryOf :: RunState -> TaskId -> Either Failure (Task, Child, Stop)
+retryOf state task = case (Fan.lookupTask fan task, lookup task [(child.task, stopped) | stopped@(child, _) <- Fan.untriaged fan]) of
+    (Nothing, _) -> Left (refused "the breakdown has no such task" "state show")
+    (Just _, Nothing) -> Left (refused "no stopped child of it awaits triage" "state next")
+    (Just _, Just (child, _))
+        | not (Fan.retryLeft fan task) ->
+            Left (refused (tshow (Fan.tries fan task) <> " children tried it, its one retry is spent") ("state ask --kind Stuck --from " <> runIdText child.run <> " <question> | state record task " <> Codec.taskIdText task <> " parked <why>"))
+    (Just found, Just (child, stop)) -> Right (found, child, stop)
+  where
+    fan = Fold.currentFan state
+    refused = Failure BadInput ("task " <> Codec.taskIdText task)
+
+{- | A question its asker has not open already: the same one again would
+wait twice on one answer. Checked when asked, never in the fold, so a log
+that repeated one still replays.
+-}
+notOpenYet :: RunState -> Asker -> OneLine -> Either Failure ()
+notOpenYet state from text = case [p.asking.question.qid | p <- state.pending, p.asking.from == from, p.asking.question.text == text] of
+    [] -> Right ()
+    qid : _ -> Left (Failure BadInput "the question" ("it is open already as " <> qidText qid) "state next")
 
 {- | A question to answer: one open, or one answered already, whose answer
 again the fold judges (the same one is no news).

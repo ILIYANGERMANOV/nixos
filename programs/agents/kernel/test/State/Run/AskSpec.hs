@@ -7,7 +7,7 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import State.Role (Rung (..))
 import State.Run.Ask
-import State.Run.Event (Shape (..))
+import State.Run.Event (PlanCall (..), Shape (..))
 import State.Run.EventGen (genOneLine, genProposal, genQId, genQuestion, genReading, oneLine, runId)
 import State.Run.Id (TaskId (..), breaksLine)
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -117,7 +117,7 @@ spec = describe "State.Run.Ask" $ do
             ask (ByUser OwnPr) Lead Design `shouldBe` Up TheUser
 
         it "hands a forwarded question back to the parent run" $
-            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1")) OwnPr) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
+            ask (ByRole (Parent (runId "p1") "parent/events.jsonl" (TaskId "t1")) OwnPr ChildConfirms) Lead Design `shouldBe` Up (ParentRun (runId "p1"))
 
         it "leaves a question the role's row may answer to the role" $
             ask (ByUser OwnPr) Lead Fact `shouldBe` AnswerSelf
@@ -128,9 +128,9 @@ spec = describe "State.Run.Ask" $ do
         it "forwards the 10x's own Confirm: no confirmed breakdown exists yet for it to fit" $
             ask (ByUser OwnPr) Orchestrator Confirm `shouldBe` Up TheUser
 
-    it "spells the hand-back line as #360's wire format" $
-        needsDecision (Question qid Design (oneLine "change the data model?"))
-            `shouldBe` "NEEDS_DECISION Design r7f2:3: change the data model?"
+    it "spells a question on one line as #360's wire format" $
+        questionLine (Question qid Design (oneLine "change the data model?"))
+            `shouldBe` "Design r7f2:3: change the data model?"
 
     it "writes a hand-back's first line, its run, then a line per ruling" $
         fmap (\ruling -> handback "READY https://example.test/pr/1" (runId "r7f2") [ruling]) (rule Orchestrator Security (asking Security) based)
@@ -139,7 +139,7 @@ spec = describe "State.Run.Ask" $ do
     it "keeps every hand-back line one line" . hedgehog $ do
         question <- forAll genQuestion
         ruling <- forAll (Gen.mapMaybe (either (const Nothing) Just) (rule Orchestrator Pick <$> genQuestion <*> genProposal))
-        assert (not (Text.any breaksLine (needsDecision question)))
+        assert (not (Text.any breaksLine (questionLine question)))
         let handbackLines = Text.lines (handback "READY ref" (runId "r7f2") [ruling])
         length handbackLines === 3
         filter (Text.any breaksLine) handbackLines === []

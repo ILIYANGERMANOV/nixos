@@ -23,6 +23,7 @@ module State.Protocol.Record (
     choices,
 ) where
 
+import Data.Bifunctor qualified as Bifunctor
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -33,7 +34,7 @@ import State.Category.Fuel (fuelName, parseByName, parseFuel)
 import State.Category.Graph (Arrow (..), Edge (..), Node (..), OpenGraph (..), Place, leaving, placeName)
 import State.Category.Meter (AtCap (..))
 import State.Category.Step (EventName, builtEvent, eventText, stateNameText)
-import State.Protocol.Handback (parseTouches)
+import State.Protocol.Handback (parseTouches, refusalText)
 import State.Run.Codec (judgementText)
 import State.Run.Codec qualified as Codec
 import State.Run.Event (Branch (..), Check (..), Commit (..), DraftPr (..), Event (..), Label (..), Picks (..), Requirement (..), Sha, TaskId (..), TaskState (..), Url (..), parseRunId, tookIn)
@@ -184,7 +185,7 @@ recordables =
            , url Ready ReadySkipped
            ]
         <> concat [[breakdown fan, nothing (FanDone fan)] | fan <- fanOuts]
-        <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | <id> parked <why> | add <task.json>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
+        <> [ atRoot $ Recordable "task" "<id> <ci|review|merged|kept|round> <pr> | add <task.json> | <id> parked <why>" [Flag "pr" "<url>" Optional] $ \a -> case a.positional of
                 [task, "round", pr] -> maybe (Left (pr <> " is not " <> prUrlRule)) (Right . Plain . TaskMoved (TaskId task) . Round) (parsePrUrl pr)
                 [task, state, pr] | Just moved <- lookup state Codec.prStates -> Right (Plain (TaskMoved (TaskId task) (moved (Url pr))))
                 task : "parked" : why@(_ : _) -> Right (Plain (TaskMoved (TaskId task) (Parked (Text.unwords why) (Url <$> option "pr" a))))
@@ -218,7 +219,7 @@ recordables =
         [] -> Right (AtHead (tookIn a.scope . done))
         _ -> Left "no arguments: the head is HEAD"
     commitAt s done unstated = outcome (builtEvent s done) "" [Flag "touches" "<area>,...|none" Optional] $ \a -> case a.positional of
-        [] -> (\areas -> AtHead (\sha -> tookIn a.scope (done (Commit sha areas)))) <$> maybe (Right unstated) parseTouches (option "touches" a)
+        [] -> (\areas -> AtHead (\sha -> tookIn a.scope (done (Commit sha areas)))) <$> maybe (Right unstated) (Bifunctor.first refusalText . parseTouches) (option "touches" a)
         _ -> Left "no arguments: the head is HEAD"
     picks s done = outcome (builtEvent s done) "" [Flag "row" "<label>" Repeated, Flag "verdict" ("<requirement>=<" <> choices judgementText <> ">") Repeated] $ \a -> case a.positional of
         [] -> Plain . tookIn a.scope . done . Picks (Set.fromList (map Label (options "row" a))) . Map.fromList <$> traverse verdict (options "verdict" a)

@@ -184,14 +184,18 @@ Write `tasks.json` in the run directory, a JSON array in the plan's order of
 `repo` the task's `<owner>/<repo>`, `worktree` the absolute path of its worktree
 (`~` expanded), then `state record breakdown.done --tasks tasks.json`. A round task adds
 `"pr": "<url>"`, the PR it works on: its child skips `ready`, and its READY
-settles it `kept`. A task outside it, a base fix or an epic's final PR, joins
+settles it `kept`. A task whose plan is already settled adds
+`"planDecided": true`: its child skips `simplify_plan` and confirms without
+asking you. A task outside it, a base fix or an epic's final PR, joins
 mid-run: one such object in a file, then `state record task add <file>`.
 
 ### Engineers
 
 **Spawn.** `state next` prints `SPAWN engineer --task <id>` for each task
 free to start; run `state record spawning <id>`, then spawn, then `state next`
-for the next line. Spawn as many as it prints. Worktree, brief and spawn prompt:
+for the next line. Spawn as many as it prints, one at a time: never record
+`spawning` for several tasks in a batch, since a task recorded `spawning`
+leaves the SPAWN list, and a batch loses which ones still need a spawn. Worktree, brief and spawn prompt:
 `${CLAUDE_SKILL_DIR}/references/brief.md`. The child's first command, the
 `state init` line in its brief, records `spawned` in your log. No `10x`
 subagent_type exists: `SPAWN 10x` spawns `subagent_type: claude`, its prompt
@@ -335,7 +339,9 @@ run it, then triage it as any question. No retry spawns before.
 
 1. Answer from the brief if the brief answers it.
 2. A fresh engineer retries, from its PR or its worktree, with the failure in
-   the brief and a fresh notes directory in its `state init` line.
+   the brief: `state retry <task> --why <w>` triages the stop, rules the
+   retry and prints the brief head, its `state init` on a fresh notes dir.
+   It refuses once the task's one retry is spent.
 3. Stuck, the same failure in 2 tries in a row whatever the commit (`tries`
    in `state show`): ask once, retry with a direction, re-plan or park, and go
    on with other tasks. Parked: `state record task <id> parked <why>`, notify.

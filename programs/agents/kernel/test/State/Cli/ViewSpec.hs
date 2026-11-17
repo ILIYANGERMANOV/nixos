@@ -4,9 +4,10 @@ import Data.Foldable (for_)
 import Data.Text qualified as Text
 import State.Cli.Render qualified as Render
 import State.Cli.View (beginText, brief, briefOf)
+import State.Protocol.Handback (tokenWords)
 import State.Protocol.Hook (Begin (..), LeadSkill (..))
-import State.Run.Event (AgentRole (..))
-import State.Run.RunGen (loadSteps, runAt)
+import State.Run.Event (AgentRole (..), Event (Took))
+import State.Run.RunGen (happyPath, loadSteps, runAt)
 import State.Table (agentRoles)
 import Test.Hspec (Spec, describe, it, runIO, shouldBe, shouldSatisfy)
 
@@ -18,6 +19,16 @@ spec = describe "the texts that need no run" $ do
         it "is what state brief gives at a step the role does not run, for every step runner" $
             for_ (agentRoles steps) $ \role ->
                 brief steps (runAt []) role Nothing `shouldBe` Right (briefOf steps role)
+
+        it "names every hand-back token for line 1, for every step runner" $
+            for_ (agentRoles steps) $ \role ->
+                briefOf steps role `shouldSatisfy` \text -> all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
+
+        it "names every hand-back token for line 1 at a step the role runs" $ do
+            let atImplement = runAt (map (Took mempty) (take 7 happyPath))
+            brief steps atImplement (AgentRole "implementer") Nothing `shouldSatisfy` \case
+                Right text -> take 1 (Text.lines text) == ["## implement"] && all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
+                Left _ -> False
 
         it "gives an implementer its step's task, then the stop rule" $ do
             let text = briefOf steps (AgentRole "implementer")

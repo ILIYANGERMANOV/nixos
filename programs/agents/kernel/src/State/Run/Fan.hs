@@ -47,6 +47,7 @@ module State.Run.Fan (
     mergesAwaited,
     ciAwaited,
     tries,
+    retryLeft,
 ) where
 
 import Data.List (find)
@@ -454,3 +455,10 @@ busy fan = [task | task <- fan.tasks, Set.member task.id fan.atWork || isJust (r
 -- | The children spawned for the task so far.
 tries :: Fan -> TaskId -> Int
 tries fan task = length (childrenOf fan task)
+
+{- | The task may take another child after a stop: its first child's stop
+gets one retry, the Orchestrator's 'State.Run.Ask.OneRetry'; past it the
+10x asks, re-plans or parks.
+-}
+retryLeft :: Fan -> TaskId -> Bool
+retryLeft fan task = tries fan task < 2

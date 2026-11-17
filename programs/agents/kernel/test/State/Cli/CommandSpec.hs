@@ -272,6 +272,10 @@ spec = describe "State.Cli.Command" $ do
         it "names the run's kinds" $
             help steps `shouldSatisfy` Text.isInfixOf "kinds: Fact|"
 
+        it "of a surplus argument, is the usage of the command it follows" $
+            map (take 3 . Text.lines . usageError "state" . parseCommand steps) [["record", "gather.enough", "nope"], ["show", "nope"]]
+                `shouldBe` [["Invalid argument `nope'", "", "Usage: state record gather.enough"], ["Invalid argument `nope'", "", "Usage: state show"]]
+
         -- The text a reader sees, pinned whole.
         it "of state" $ golden "usage/state.txt" (help steps)
         it "of state record" $ golden "usage/state-record-help.txt" (helpOf ["record", "--help"])

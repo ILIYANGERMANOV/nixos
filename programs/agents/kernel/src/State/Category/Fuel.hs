@@ -40,9 +40,9 @@ fuelName = \case
 fuelLabel :: Fuel -> Text
 fuelLabel = Text.toTitle . fuelName
 
--- | Exact spelling only: a misspelled level is not silently a default.
+-- | Any case, as a brief writes @Fuel: Balanced@, but a misspelled level is not silently a default.
 parseFuel :: Text -> Maybe Fuel
-parseFuel = parseByName fuelName
+parseFuel = parseByName fuelName . Text.toLower
 
 {- | The value whose wire name is exactly the given text, for any enum named by
 a total function, so a name and its parser cannot drift.
