@@ -326,11 +326,18 @@ spec = describe "State.Protocol.Advice" $ do
             let inReview = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (InReview prUrl)]
             map (next noFacts . tenXAt (t1 :| [])) [inReview, inReview <> [TaskMoved (TaskId "t1") (Merged prUrl)]]
                 `shouldBe` [AwaitMerge ((TaskId "t1", Just prUrl) :| []), offering ["state record merge.done <url>", "state record merge.next_round"]]
-        it "gives the merge the PRs in fork order, whatever order the engineers hand back in" $ do
-            let spawned = [Spawned (childOf "c1" "t1"), Spawned (childOf "c2" "t2")]
-                back c task url = [HandedBack (runId c) (Finished (oneLine "PR")), TaskMoved (TaskId task) (InReview (Url url))]
-            map (next noFacts . tenXAt (t1 :| [t2]) . (spawned <>)) [back "c1" "t1" "pr1" <> back "c2" "t2" "pr2", back "c2" "t2" "pr2" <> back "c1" "t1" "pr1"]
-                `shouldBe` replicate 2 (AwaitMerge ((TaskId "t1", Just (Url "pr1")) :| [(TaskId "t2", Just (Url "pr2"))]))
+        {- par's identity law as a run sees it: @par g f@ is @traverse f@,
+        so its results come back in the items' order, whatever order the
+        children hand back in.
+        -}
+        it "par_identity_gives_the_merge_the_prs_in_fork_order_whatever_order_the_engineers_hand_back_in" . hedgehog $ do
+            n <- forAll (Gen.int (Range.linear 1 4))
+            let indices = map (Text.pack . show) [1 .. n]
+                task i = "t" <> i
+                back i = [HandedBack (runId ("c" <> i)) (Finished (oneLine "PR")), TaskMoved (TaskId (task i)) (InReview (Url ("pr" <> i)))]
+            handBacks <- forAll (Gen.shuffle indices)
+            next noFacts (tenXAt (NonEmpty.fromList [plainTask (task i) [] | i <- indices]) ([Spawned (childOf ("c" <> i) (task i)) | i <- indices] <> concatMap back handBacks))
+                === AwaitMerge (NonEmpty.fromList [(TaskId (task i), Just (Url ("pr" <> i))) | i <- indices])
         it "spawns a task added at the merge" $ do
             let merged = [Spawned (childOf "c1" "t1"), HandedBack (runId "c1") (Finished (oneLine "PR #1")), TaskMoved (TaskId "t1") (Merged prUrl)]
             next noFacts (tenXAt (t1 :| []) (merged <> [TaskAdded (plainTask "fix" [])])) `shouldBe` Spawn (AgentRole "engineer") (Just (TaskId "fix"))

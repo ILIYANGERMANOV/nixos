@@ -54,6 +54,9 @@ spec = describe "laws" $ do
     injection: beta, the step's edge into a summand walks as that summand's
     branch; fusion, a series after a case is the case of each branch then
     the series. A choice's branches are a set: their order is the type's only.
+    Eta, @h = Case (each l, inj_l :> h)@, is not expressible: the core has
+    no injection, and a flow out of a sum is a 'Case' already, as 'Do'
+    takes no sum.
     -}
     describe "sums" $ do
         it "case_beta_each_summand_walks_as_its_branch" . hedgehog $ do
@@ -105,10 +108,14 @@ spec = describe "laws" $ do
 
     {- What a parent's graph says of @traverse@: each child is a run of its
     own, so the parent draws the same states whatever the child, a series of
-    steps or none. The order of the results is the run's, not the graph's.
+    steps or none: identity, @par g Id@, and composition, @par g (f :> h)@,
+    draw as @par g f@. The results' values never reach the kernel, so
+    @par g (f :> h) = par g f :> par g' h@ holds of the children's runs, not
+    of a graph; their order, the items', is the run's
+    ("State.Protocol.AdviceSpec", par_identity).
     -}
     describe "par, traverse over child runs" $
-        it "draws_no_state_of_its_child" . hedgehog $ do
+        it "par_identity_and_composition_draw_one_parent_graph" . hedgehog $ do
             (f, g) <- forAll ((,) <$> genEndo diffKit <*> genEndo diffKit)
             (drawn (par engineers (f :> g)), drawn (par engineers f)) === (drawn (par engineers Id), drawn (par engineers Id))
 
