@@ -80,6 +80,7 @@ locked (Store conn) run decide = withImmediateTransaction conn $ do
         _ -> Nothing
     parentOf = \case
         ByUser _ -> Nothing
+        ByCaller _ -> Nothing
         ByRole parent _ _ -> Just parent.run
 
 -- | The runs started as children of this one, oldest first.
