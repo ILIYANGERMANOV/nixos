@@ -15,6 +15,7 @@
   engineer,
   tenX,
   architect,
+  chief,
   fuel,
 }:
 pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
@@ -53,5 +54,7 @@ pkgs.runCommand "agents-rendered" { nativeBuildInputs = [ state ]; } ''
   inline ${tenX}/SKILL.md "init --flow 10x"
   block ${architect}/SKILL.md "states --flow architect"
   inline ${architect}/SKILL.md "init --flow architect"
+  block ${chief}/SKILL.md "states --flow chief"
+  inline ${chief}/SKILL.md "init --flow chief"
   touch "$out"
 ''

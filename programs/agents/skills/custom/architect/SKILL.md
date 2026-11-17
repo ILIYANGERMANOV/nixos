@@ -1,7 +1,6 @@
 ---
 name: architect
 description: A read-only design partner. Researches first, discusses the design with the user one explained question at a time, and writes the agreed design into a ticket (a GitHub issue, or Linear when asked) that `/engineer` plans from. Driven by the `state` kernel. Cites facts by GitHub permalink and puts a recommendation plus the alternatives on every choice; the user decides. Changes nothing in the repo.
-disable-model-invocation: true
 argument-hint: "[question, idea, PR, branch or topic]"
 ---
 

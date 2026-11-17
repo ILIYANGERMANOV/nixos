@@ -259,6 +259,7 @@ in
         engineer = ./skills/custom/engineer;
         tenX = ./skills/custom/10x-engineer;
         architect = ./skills/custom/architect;
+        chief = ./skills/custom/chief;
         fuel = ./instructions/topics/fuel.md;
       };
     }
@@ -270,7 +271,8 @@ in
       path = pkgs.runCommand "no-delegated-word" { nativeBuildInputs = [ pkgs.ripgrep ]; } ''
         status=0
         rg -i -n delegated ${./kernel/src} ${./kernel/app} ${./skills/custom/engineer} \
-          ${./skills/custom/10x-engineer} ${./skills/custom/architect} ${./roles/engineer} || status=$?
+          ${./skills/custom/10x-engineer} ${./skills/custom/architect} \
+          ${./skills/custom/chief} ${./roles/engineer} || status=$?
         [[ $status == 1 ]] || { echo "the word delegated is back (#360 law Principal-blind)" >&2; exit 1; }
         touch "$out"
       '';

@@ -149,7 +149,7 @@ let
           outcomes = [ "done" ];
           runner = "inline";
           tools = [ "shell" ];
-          skills = [ ];
+          skills = [ "chief" ];
           prose = leadProse;
           ops = [ ];
           flows = [ "chief" ];
@@ -160,22 +160,22 @@ let
       open_plan = chiefStep {
         dom = "Ctx";
         cod = "Plan";
-        task = "Open: read the issue the request names, which holds the plan to build. Record its url.";
+        task = "Open: the issue the request names holds the plan to build. Read it with `gh issue view <url>` and record its url; the block builds what its plan says.";
       };
       open_branch = chiefStep {
         dom = "Ctx";
         cod = "Diff";
-        task = "Open: check out the branch, or the sha, the request names: its diff is what the block works on. Record it.";
+        task = "Open: the branch or sha the request names is what the block works on. Fetch it, check it out, and record it.";
       };
       open_pr = chiefStep {
         dom = "Ctx";
         cod = "PR";
-        task = "Open: check out the branch of the PR the request names. Record its url.";
+        task = "Open: the PR the request names is what the block works on. Check out its branch (`gh pr checkout <url>`) and record its url.";
       };
       direct = chiefStep {
         dom = "Ctx";
         cod = "Ctx";
-        task = "Direct: do the request no flow fits yourself; you may commit and open PRs. Record what was asked and what you did.";
+        task = "Direct: no flow fits the request, so do it yourself, the hooks and the context guard as everywhere; you may commit and open PRs. Record one line: what was asked and what you did.";
       };
       next = chiefStep {
         dom = "Result";
@@ -187,7 +187,7 @@ let
         ];
         tools = [ ];
         ops = [ "ask" ];
-        task = "Next: say what the request ended in, its url if it has one. `request` takes the user's next request, carrying that result as its context; `done` ends the run.";
+        task = "Next: tell the user in one line what the request ended in, the last result below, then ask for the next request or whether they are done, and end the turn. `request` when they name one, carrying that result as its context; `done` when they are done. At the Fuel's cap, asked whether to go on: yes is `extend <why>`, no is `done`.";
       };
     };
 in
