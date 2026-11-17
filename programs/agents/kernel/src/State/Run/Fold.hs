@@ -63,7 +63,7 @@ import Data.Text (Text)
 import Numeric.Natural (Natural)
 import State.Category.Flow (FanEvent (..), Name, ScopePath, fanEvent, namedState, qualify)
 import State.Category.Fuel (Fuel (..), PerFuel, SkipWhen (..), atFuel)
-import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, placeName, places)
+import State.Category.Graph (Arrow (..), Cap (..), Edge (..), LoopAt (..), Metered (..), Node (..), OpenGraph (..), Place (..), innermost, isRouteHub, placeName, places)
 import State.Category.Meter (AtCap (..), Owed (..), Recorded (..), allowed, owedBy, spentBy)
 import State.Category.Path (step)
 import State.Category.Step (EventName, Outcome, SomeOutcome (..), SomeStep (..), Special (..), StepSet (special, stepName))
@@ -325,7 +325,7 @@ applyEvent :: OpenGraph -> RunState -> Natural -> Event -> Either Refusal RunSta
 applyEvent g state n = \case
     Refused note -> Right state {refused = Just note}
     Started _ -> going (Left StartedTwice)
-    FuelSet fuel -> going (fuelSet state fuel)
+    FuelSet fuel -> going (fuelSet g state fuel)
     Extended _ -> going (extended g state)
     Took scope outcome -> going (took g state scope outcome)
     Stopped stop -> going (Right state {stopped = Just stop, pending = []})
@@ -376,23 +376,10 @@ applyEvent g state n = \case
 there may run at a Fuel of its own. Requests run one after another, so the
 run holds one Fuel, the one set last.
 -}
-fuelSet :: RunState -> Fuel -> Either Refusal RunState
-fuelSet state fuel = case state.fuel of
-    Just set | set /= fuel, not (atRouteHub state.at) -> Left (FuelSetOnce set)
+fuelSet :: OpenGraph -> RunState -> Fuel -> Either Refusal RunState
+fuelSet g state fuel = case state.fuel of
+    Just set | set /= fuel, not (isRouteHub g state.at) -> Left (FuelSetOnce set)
     _ -> Right state {fuel = Just fuel}
-
-atRouteHub :: Node -> Bool
-atRouteHub = \case
-    At place -> isRouteHub place
-    Out -> False
-    Exit -> False
-
-{- | Stub for the Route hub predicate t1 exports (#417): a state named
-@route@, the name t1's Route is expected to take. Whichever of t1 and t2
-merges second replaces this with t1's predicate.
--}
-isRouteHub :: Place -> Bool
-isRouteHub place = place.name == StateName "route"
 
 {- | The worker gone from those at work: the one of that id, else the oldest
 of that role, as a hand-back piped in by hand names no id.

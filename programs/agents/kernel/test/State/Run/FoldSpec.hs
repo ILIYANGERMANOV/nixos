@@ -356,7 +356,10 @@ spec = describe "State.Run.Fold" $ do
         fuelOf <$> replay routed (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Right Low
 
     it "refuses a new Fuel past the Route hub" $
-        replay routed (logOf (started :| [FuelSet Max, Overridden (StateName "chief/plan") "routed", FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
+        replay routed (logOf (started :| [FuelSet Max, Overridden (StateName "chief/refactor") "routed", FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
+
+    it "refuses a new Fuel at a choice merely named route" $
+        replay routeNamedChoice (logOf (started :| [FuelSet Max, FuelSet Low])) `shouldBe` Left (FuelSetOnce Max)
 
     it "takes the same Fuel again" $
         fuelOf <$> replay g (logOf (started :| [FuelSet Max, FuelSet Max])) `shouldBe` Right Max
@@ -656,11 +659,13 @@ scopedFans = either (error . show) id (graph (Scope "a" fanned :> Do PlanS :> Sc
   where
     fanned = Do (Breakdown engineers) :> Par engineers engineer :> Do (Merge engineers)
 
-{- | A request routed at a hub, then planned. The hub is a choice named
-@route@, the name the Route hub stub reads, until Route lands.
--}
+-- | A request routed at a Route hub, under a scope as a run's request is.
 routed :: OpenGraph
-routed = either (error . show) id (graph (Scope "chief" (Choice "route" [Capped (always (UpTo 1)) Extend Interview] :> Do PlanS)))
+routed = either (error . show) id (graph (Scope "chief" threeWay))
+
+-- | A choice that takes a Route hub's name but is no Route.
+routeNamedChoice :: OpenGraph
+routeNamedChoice = either (error . show) id (graph (Scope "chief" (Choice "route" [Capped (always (UpTo 1)) Extend Interview] :> Do PlanS)))
 
 {- | A flow with two fan-outs, the second a scoped copy that runs on the
 first's PRs. No step goes from a PR back to a plan, so the second has no
