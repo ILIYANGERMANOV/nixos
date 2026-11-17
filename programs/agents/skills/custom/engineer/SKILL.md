@@ -43,7 +43,7 @@ who owns each decision.
   every implementer, refactorer and fixer brief, and the plan-wrong line into a
   review-lead's.
 - **`state` holds the record and the mechanics** (`state help`, `state <command> --help`). When your
-  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes /tmp/engineer-<owner>-<repo>-<slug>/`, plus `--pr <url>` on an existing PR,
+  brief holds a `state init` line, it is your first command, as written. Else run `state init --notes /tmp/engineer-<owner>-<repo>-<slug>/`, plus `--pr <url>` on an existing PR, `--child` as a subagent,
   the slug the branch name (on `--pr`, the PR's head branch), each character but `[A-Za-z0-9._-]` a `-`. Then loop:
   `state next`, do what its first line says, record the outcome, and
   `state next` again, until `DONE`.

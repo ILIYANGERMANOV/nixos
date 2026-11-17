@@ -491,6 +491,15 @@ spec = describe "state over the doubles" $ do
             forwarded `shouldContain` [ruling]
             stopped `shouldBe` ["stopped", "HANDBACK FAILED no access", "Run: " <> child, ruling]
 
+        it "hands a --child run's forwarded question back to its caller, never to the user" $ \world -> do
+            _ <- startedIn world ["--child"]
+
+            asked <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            again <- succeeded =<< state world ["next"]
+
+            map (take 1) [drop 1 asked, again] `shouldSatisfy` all (all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`))
+            filter (== "ASK user") (asked <> again) `shouldBe` []
+
         it "shows a forwarded question with the answer that came down for it" $ \world -> do
             _ <- startedRun world
             [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
@@ -519,6 +528,13 @@ spec = describe "state over the doubles" $ do
                 advised <- succeeded =<< state world ["next"]
 
                 take 1 advised `shouldBe` ["SPAWN engineer --task t1 background: yes"]
+
+            it "spawns a --child 10x's tasks in the foreground, as a subagent cannot wait on the background" $ \world -> do
+                _ <- tenXAtFanOutBy world ["--child"] [plainTask "t1" []]
+
+                advised <- succeeded =<< state world ["next"]
+
+                take 1 advised `shouldBe` ["SPAWN engineer --task t1 background: no"]
 
             it "spawns a task's child as the role leading its task's flow" $ \world -> do
                 _ <- tenXAtFanOutOf world [(plainTask "t1" []) {flow = TenXFlow}]

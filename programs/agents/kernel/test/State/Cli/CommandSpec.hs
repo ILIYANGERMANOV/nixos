@@ -201,6 +201,16 @@ spec = describe "State.Cli.Command" $ do
             map (fmap originOf . parse . (["init", "--notes", "/n"] <>)) [[], ["--pr", "https://github.com/o-1/r.x/pull/12"]]
                 `shouldBe` [Right (Just (FromUser OwnPr)), Right (Just (FromUser (RoundOn (Url "https://github.com/o-1/r.x/pull/12"))))]
 
+        it "takes --child as a caller's run, on its own PR or a round on --pr's" $
+            map (fmap originOf . parse . (["init", "--notes", "/n", "--child"] <>)) [[], ["--pr", "https://github.com/o/r/pull/3"]]
+                `shouldBe` [Right (Just (FromCaller OwnPr)), Right (Just (FromCaller (RoundOn (Url "https://github.com/o/r/pull/3"))))]
+
+        it "refuses --child with any of --parent, its log or its task" $
+            map
+                (failureWhat . parse . (["init", "--notes", "/n", "--child"] <>))
+                [["--parent", "r1", "--parent-log", "/p/events.jsonl", "--task", "t1"], ["--task", "t1"], ["--parent-log", "/p/events.jsonl"]]
+                `shouldBe` replicate 3 (Just "--child with --parent")
+
         it "refuses a --pr that is no GitHub PR URL, its fix the URL's form" $ do
             let bad =
                     [ "github.com/o/r/pull/1"

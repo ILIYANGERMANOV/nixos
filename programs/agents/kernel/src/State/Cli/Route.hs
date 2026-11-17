@@ -1,7 +1,8 @@
 {- | Whether a shell command's @state@ calls reach the run its agent is bound
 to (#402). An agent's hooks fire in its spawner's directory, and so may its
 shell: a child engineer's @state next@ from its parent's checkout would read
-the parent's run. @state-hook route@ denies such a call, naming the fix.
+the parent's run. @state-hook route@ denies such a call, naming the fix, as it
+does a subagent's @state init@ that would start a user's run ('parentlessInit').
 
 The command is read as a shell would only as far as is simple: simple
 commands split at @&&@, @||@, @;@, @|@, @&@ and newlines, quotes and
@@ -16,6 +17,7 @@ run where the architect flow runs writes nothing ('readOnly').
 module State.Cli.Route (
     StateCall (..),
     stateCalls,
+    parentlessInit,
     route,
     Lead (..),
     leadOf,
@@ -29,7 +31,7 @@ import Data.Char (isDigit, isSpace)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import State.Cli.Command (Command (..), Exit (..), Failure (..), RunCommand (ShowRun), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
+import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (ShowRun), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (FlowName (..), leads)
@@ -46,29 +48,7 @@ data StateCall = StateCall {dir :: FilePath, sub :: Text, written :: Text}
 @init@, @help@, @render@, @show@ and argv @state@ refuses never route.
 -}
 stateCalls :: Steps -> FilePath -> Text -> [StateCall]
-stateCalls steps cwd command = maybe [] (walk (Just cwd)) (segments command)
-  where
-    walk dir = \case
-        [] -> []
-        segment : rest -> case segment.tokens of
-            ["cd", target] -> walk ((</> Text.unpack target) <$> (guard (plainDir target) *> dir)) rest
-            "cd" : _ -> walk Nothing rest
-            "state" : argv
-                | Just at <- dir
-                , Just sub <- readsRun steps argv ->
-                    StateCall at sub segment.written : walk dir rest
-            _ -> walk dir rest
-    -- A directory the shell reads as written: no home, variable or previous directory.
-    plainDir target = case Text.uncons target of
-        Just (first, _) -> first `notElem` ['~', '-'] && not (Text.any (== '$') target)
-        Nothing -> False
-
--- | The subcommand of argv that reads the run of the directory it runs in.
-readsRun :: Steps -> [Text] -> Maybe Text
-readsRun steps argv = case parseCommand steps argv of
-    Right (sub, Right command) -> sub <$ guard (readsOne command)
-    Right (_, Left _) -> Nothing
-    Left _ -> Nothing
+stateCalls steps cwd command = [StateCall at sub written | (Just at, sub, parsed, written) <- stateCommands steps (Just cwd) command, readsOne parsed]
   where
     readsOne = \case
         Init _ -> False
@@ -80,6 +60,46 @@ readsRun steps argv = case parseCommand steps argv of
         -- It opens with the run's id, so it reads another run's state safely (#432).
         OnRun ShowRun -> False
         OnRun _ -> True
+
+{- | Why a subagent's command is denied: a @state init@ in it starts a user's
+run, which may spawn in the background and ask the user, neither of which a
+subagent can (#459). Its run is a child: of its fan-out's run, or, spawned
+outside one, of its caller ('FromCaller').
+-}
+parentlessInit :: Steps -> Text -> Maybe Text
+parentlessInit steps command = listToMaybe [denial sub written | (_, sub, Init args, written) <- stateCommands steps Nothing command, FromUser _ <- [args.origin]]
+  where
+    denial sub written =
+        failureText
+            sub
+            Failure
+                { exit = BadInput
+                , what = written <> " starts a user's run"
+                , why = "a subagent's run is a child: it neither asks the user nor spawns in the background"
+                , fix = "rerun it with --parent <run> --parent-log <path> --task <id> from your brief under a fan-out, else with --child"
+                }
+
+{- | Every @state@ call of a command that parses, in order: the directory it
+runs in ('Nothing': unknown, as a @cd@ this reader leaves be moved it, or
+none was given), its
+subcommand, the command and its text as written.
+-}
+stateCommands :: Steps -> Maybe FilePath -> Text -> [(Maybe FilePath, Text, Command, Text)]
+stateCommands steps cwd command = maybe [] (walk cwd) (segments command)
+  where
+    walk dir = \case
+        [] -> []
+        segment : rest -> case segment.tokens of
+            ["cd", target] -> walk ((</> Text.unpack target) <$> (guard (plainDir target) *> dir)) rest
+            "cd" : _ -> walk Nothing rest
+            "state" : argv
+                | Right (sub, Right parsed) <- parseCommand steps argv ->
+                    (dir, sub, parsed, segment.written) : walk dir rest
+            _ -> walk dir rest
+    -- A directory the shell reads as written: no home, variable or previous directory.
+    plainDir target = case Text.uncons target of
+        Just (first, _) -> first `notElem` ['~', '-'] && not (Text.any (== '$') target)
+        Nothing -> False
 
 {- | Why the first call aimed at another worktree than the bound run's is
 denied, by the top of the worktree each call's directory is in ('Nothing':

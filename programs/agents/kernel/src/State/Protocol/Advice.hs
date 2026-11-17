@@ -677,6 +677,7 @@ deliver start = \case
     AwaitAnswer question -> case Ask.deliver start.principal of
         TheUser -> "ASK " <> questionLine question
         ParentRun _ -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
+        TheCaller -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
     AwaitOn waiting refs -> awaiting waiting refs
     Resume child with -> "RESUME " <> runIdText child <> " " <> with
     TriageStop child task stop -> "RUN " <> foldMap (\t -> "state retry " <> taskIdText t <> " --why <w> | ") task <> askFrom (runIdText child) (stopLine stop)
@@ -692,9 +693,11 @@ deliver start = \case
     Stopped stop -> case Ask.deliver start.principal of
         TheUser -> "STOP " <> reasonText stop.reason <> " " <> stop.why
         ParentRun _ -> "HANDBACK " <> stopLine stop
+        TheCaller -> "HANDBACK " <> stopLine stop
     Done url -> case Ask.deliver start.principal of
         TheUser -> "DONE" <> foldMap ((" " <>) . urlText) url
         ParentRun _ -> "HANDBACK " <> tokenWordText ReadyWord <> foldMap ((" " <>) . urlText) url
+        TheCaller -> "HANDBACK " <> tokenWordText ReadyWord <> foldMap ((" " <>) . urlText) url
   where
     has op = Set.member op start.interface
     -- A run that cannot be woken hands the wait up to the run above (#360's AWAIT).
@@ -743,6 +746,7 @@ ownAsk state kind text = (question, Asked (Asking question (askedAt state) Itsel
             , case above of
                 TheUser -> "ASK user"
                 ParentRun _ -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
+                TheCaller -> "HANDBACK " <> tokenLine (NeedsDecision (Asks question))
             )
 
 {- | Where the run is, in one plain line: the state, and what it means to

@@ -14,6 +14,10 @@ a `-`. Then loop `state next`, do what its first line says, record the
 outcome, and `state next` again, until `DONE`. `$ARGUMENTS` starting with
 `resume`: go to Resume.
 
+Then `git fetch origin main`. When `git rev-list --count HEAD..origin/main`
+is not 0, tell the user this worktree is that many commits behind
+`origin/main`, and branch new work from `origin/main`.
+
 You are the user's chief for `$ARGUMENTS`, or the conversation so far. The
 user speaks to you only; you route each request and decide nothing for them.
 

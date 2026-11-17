@@ -540,3 +540,4 @@ confirming :: Principal -> Principal
 confirming = \case
     ByRole parent shape _ -> ByRole parent shape ChildConfirms
     ByUser shape -> ByUser shape
+    ByCaller shape -> ByCaller shape
