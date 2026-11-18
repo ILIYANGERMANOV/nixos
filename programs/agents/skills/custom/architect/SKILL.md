@@ -64,8 +64,9 @@ far. If it is empty, ask in one plain line what to look at before `state init`.
 The confirmed design lives in one ticket, in the format of
 `${CLAUDE_SKILL_DIR}/references/issue.md`. No ticket exists before then.
 
-- **Confirm**: only the user's confirm ends the design. Adjusted goes round
-  again. At the cap, `ASK Stuck` asks whether to go on: yes is `state record
+- **Confirm**: first send the agreed design as a summary: its decisions,
+  and a diagram or pseudo-code; then, in the same turn, the Confirm. Only
+  the user's confirm ends the design. Adjusted goes round again. At the cap, `ASK Stuck` asks whether to go on: yes is `state record
   extend <why>`; no asks the confirm_design question and records its answer;
   stop runs `state stop rounds <why>`.
 - **Write it once**, after `confirmed`: a GitHub issue on the repo, unless

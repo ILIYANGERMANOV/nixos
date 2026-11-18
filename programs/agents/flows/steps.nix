@@ -110,7 +110,7 @@ let
         "adjusted"
       ];
       runner = "inline";
-      task = "Design: the agreed design as one Confirm question. `adjusted` discusses again. Only once it is `confirmed`, write the ticket, once: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear. Then record `confirm_design.confirmed <url>`.";
+      task = "Design: first send the agreed design as a summary: its decisions, and a diagram or pseudo-code; then, in the same turn, the one Confirm question. `adjusted` discusses again. Only once it is `confirmed`, write the ticket, once: the skill's `references/issue.md` sections from a quoted heredoc (`<<'EOF'`), into the ticket the request named (`gh issue edit <number> --repo <owner>/<repo> --body-file -`), else a new one (`gh issue create --repo <owner>/<repo>`), or a Linear issue when the request names Linear. Then record `confirm_design.confirmed <url>`.";
       tools = [ "shell" ];
       skills = [ "architect" ];
       prose = leadProse;
