@@ -15,7 +15,7 @@ import Doubles.Log (Runs (..), runLogInMemory)
 import Effectful (Eff, runEff, runPureEff, (:>))
 import Effectful.Exception (try)
 import Effectful.State.Static.Local (evalState)
-import Effects.Log (Log, exists, firstLine, locked, runLogIO)
+import Effects.Log (Log, exists, firstLine, inNotes, locked, runLogIO)
 import Effects.Store (Durability (Full), children, withStore)
 import Effects.Store qualified as Store
 import State.Run.Ask (ChildTask (..), Link (..), Parent (..), Principal (..))
@@ -115,6 +115,11 @@ contract backend = do
         failed <- backend [started top] (try @IOException (locked top ([followed top 3],)))
 
         failed `shouldSatisfy` isLeft
+
+    it "lists the runs started in a notes dir, oldest first" $ do
+        found <- backend [started top, childOf top child, started other] (traverse inNotes ["/notes", "/child", "/none"])
+
+        found `shouldBe` [[top, other], [child], []]
 
     it "throws on events for a run never started that do not start it" $ do
         failed <- backend [] (try @IOException (locked top ([followed top 1],)))

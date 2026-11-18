@@ -8,6 +8,7 @@ module Effects.Log (
     firstLine,
     locked,
     children,
+    inNotes,
     runLogIO,
 ) where
 
@@ -28,6 +29,7 @@ data Log :: Effect where
     FirstLine :: RunId -> Log m (Maybe Text)
     Locked :: RunId -> (Either LogError [Envelope] -> ([Envelope], a)) -> Log m a
     Children :: RunId -> Log m [RunId]
+    InNotes :: FilePath -> Log m [RunId]
 
 type instance DispatchOf Log = Dynamic
 
@@ -51,6 +53,10 @@ locked run = send . Locked run
 children :: (Log :> es) => RunId -> Eff es [RunId]
 children = send . Children
 
+-- | The runs started in this notes dir, oldest first.
+inNotes :: (Log :> es) => FilePath -> Eff es [RunId]
+inNotes = send . InNotes
+
 {- | The log in the run store the environment names ('runStore'), opened for
 each operation at this durability. A store error, such as a lock still held after the wait, or
 no store at all, throws an 'IOException': an outage the shell tells.
@@ -70,3 +76,4 @@ onStore op store = case op of
     FirstLine run -> Store.firstEvent store run
     Locked run decide -> Store.locked store run decide
     Children run -> Store.children store run
+    InNotes notes -> Store.inNotes store notes

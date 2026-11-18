@@ -18,7 +18,7 @@ spec :: Spec
 spec = describe "routing a shell command's state calls" $ do
     steps <- runIO loadSteps
     let calls = stateCalls steps "/work"
-        at = StateCall
+        at dir sub written = StateCall dir sub written OwnRun
 
     describe "the state calls of a command" $ do
         it "finds a call in the hook's directory" $
@@ -69,6 +69,10 @@ spec = describe "routing a shell command's state calls" $ do
             sub <- forAll (Gen.element ["next", "pending"])
             stateCalls steps "/work" ("cd " <> Text.pack dir <> " && state " <> sub) === [at dir sub ("state " <> sub)]
 
+        it "lets a record and an answer reach a child run, no other call" $
+            map (.reach) (calls "state record await_ci.green; state answer q1 postgres; state next; state stop blocked why; state ask --kind Design which")
+                `shouldBe` [OwnOrChildRun, OwnOrChildRun, OwnRun, OwnRun, OwnRun]
+
         it "a_single_quoted_directory_reads_back_whole" . hedgehog $ do
             dir <- forAll (Gen.string (Range.linear 1 20) (Gen.filter (/= '\'') Gen.unicode))
             map (.dir) (stateCalls steps "/" ("cd '/" <> Text.pack dir <> "' && state next")) === ["/" <> dir]
@@ -76,11 +80,33 @@ spec = describe "routing a shell command's state calls" $ do
     describe "the verdict" $ do
         let bound = Binding (runId "0a1b2c3d") "/notes" "/repo/.claude/worktrees/child"
             next = at "/repo" "next" "state next"
+            own = Just (Target "/repo/.claude/worktrees/child" Nothing)
+            other = Just (Target "/repo" Nothing)
+            childOf parent = Just (Target "/repo/.claude/worktrees/grandchild" (Just (runId parent)))
+            parentMay dir sub written = StateCall dir sub written OwnOrChildRun
+            green = parentMay "/repo/.claude/worktrees/grandchild" "record" "state record await_ci.green"
+            answer = parentMay "/repo/.claude/worktrees/grandchild" "answer" "state answer 0e0e0e0e:1 postgres"
         it "allows a call in the bound worktree" $
-            route bound [(next, Just "/repo/.claude/worktrees/child")] `shouldBe` Nothing
+            route bound [(next, own)] `shouldBe` Nothing
+
+        it "allows a record and an answer in the worktree of the bound run's child" $
+            route bound [(green, childOf "0a1b2c3d"), (answer, childOf "0a1b2c3d")] `shouldBe` Nothing
+
+        it "denies a record in the worktree of another run's child, naming the fix" $
+            route bound [(green, childOf "0f0f0f0f")]
+                `shouldBe` Just
+                    ( "state record: the run at /repo/.claude/worktrees/grandchild is not this agent's - this agent is bound to run 0a1b2c3d at /repo/.claude/worktrees/child\n"
+                        <> "fix: cd /repo/.claude/worktrees/child && state record await_ci.green\n"
+                    )
+
+        it "denies a record in a worktree whose run is no child" $
+            route bound [(green, Just (Target "/repo/.claude/worktrees/grandchild" Nothing))] `shouldSatisfy` maybe False ("state record:" `Text.isPrefixOf`)
+
+        it "denies any other call in the worktree of the bound run's child" $
+            route bound [(at "/repo/.claude/worktrees/grandchild" "next" "state next", childOf "0a1b2c3d")] `shouldSatisfy` maybe False ("state next:" `Text.isPrefixOf`)
 
         it "denies a call in another worktree, even the one the bound worktree sits in, naming the fix" $
-            route bound [(next, Just "/repo")]
+            route bound [(next, other)]
                 `shouldBe` Just
                     ( "state next: the run at /repo is not this agent's - this agent is bound to run 0a1b2c3d at /repo/.claude/worktrees/child\n"
                         <> "fix: cd /repo/.claude/worktrees/child && state next\n"
@@ -90,10 +116,10 @@ spec = describe "routing a shell command's state calls" $ do
             route bound [(at "/tmp" "pending" "state pending", Nothing)] `shouldSatisfy` maybe False ("state pending: /tmp is in no git worktree" `Text.isPrefixOf`)
 
         it "denies by the first call at another run" $
-            route bound [(next, Just "/repo/.claude/worktrees/child"), (at "/repo" "pending" "state pending", Just "/repo")] `shouldSatisfy` maybe False ("state pending:" `Text.isPrefixOf`)
+            route bound [(next, own), (at "/repo" "pending" "state pending", other)] `shouldSatisfy` maybe False ("state pending:" `Text.isPrefixOf`)
 
         it "quotes a bound worktree a shell would split" $
-            route bound {toplevel = "/home/me/my repo"} [(next, Just "/repo")] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
+            route bound {toplevel = "/home/me/my repo"} [(next, other)] `shouldSatisfy` maybe False ("fix: cd '/home/me/my repo' && state next\n" `Text.isSuffixOf`)
 
     gateSpec
     readOnlySpec

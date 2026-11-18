@@ -46,6 +46,7 @@ runLogInMemory = interpret $ \_ -> \case
         pure result
     -- Oldest first, in the order they started, as the store's rowid orders them.
     Children run -> (\runs -> [child | (child, rows) <- runs, started <- startOf rows, parentOf started == Just run]) . rowsOf <$> get
+    InNotes notes -> (\runs -> [found | (found, rows) <- runs, Envelope {event = Started start} <- startOf rows, start.notes == notes]) . rowsOf <$> get
 
 -- | The run's first line, when it reads.
 startOf :: [Text] -> [Envelope]

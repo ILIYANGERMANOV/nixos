@@ -42,7 +42,7 @@ request -> fuel -> route -> branch, inline -> next -> request | done
   | `blocks` | no skill: pick the block at the `block` pick; an `open_*` step reads the issue, branch or PR the request names |
   | `discussion` | no skill: below |
   | `other` | no skill: do it yourself (`direct`) |
-  | `delegate` | a background engineer or 10x subagent takes the whole request: fill in the brief `state brief engineer` (or `state brief 10x`) prints, then spawn it with that brief. Its `state init --parent <run>` moves this run on to `next`: take the next request at once. The run ends only once each such child finished or stopped; `state tasks` lists each with its last event |
+  | `delegate` | a background engineer or 10x subagent takes the whole request: fill in the brief `state brief engineer` (or `state brief 10x`) prints, then spawn it with that brief. Its `state init --parent <run>` moves this run on to `next`: take the next request at once. The run ends only once each such child finished or stopped; `state tasks` lists each with its last event. Its `AWAIT ci` hand-back names the command you run (`Parent runs: cd <its worktree> && state record await_ci.green`), as does an answer to its question that could not reach its run |
 
 - **Focus.** One request is in focus, the others wait. At any state, one
   step switches: `state focus --summary "<where this one stands>"` opens
@@ -213,8 +213,9 @@ is no arrow: it leaves a request at its state and turns to another.
 ## Resume
 
 `/chief resume`: the notes dir is the newest `/tmp/chief-*` unless the user
-names one. From the worktree the run started in (inside the notes dir it
-fails: not a git work tree), `state init --notes <notes dir>`: it resumes
-the run. Then get current, as the Current code rule says, and `state show`
+names one. From the worktree holding the run, the one it started in or
+moved to by `state move` (inside the notes dir it fails: not a git work
+tree), `state init --notes <notes dir>`: it resumes the run. Elsewhere it
+refuses: run its `fix:`, `cd <its worktree> && state init ...`. Then get current, as the Current code rule says, and `state show`
 and `state tasks`. Stopped inside `architect`, `engineer` or `10x`: load
 that branch's skill again with the Skill tool. Carry on with `state next`.
