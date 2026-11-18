@@ -12,13 +12,19 @@ import Control.Exception (TypeError (..), evaluate, try)
 import Data.Char (isAlphaNum, isDigit)
 import Data.List (isInfixOf)
 import Data.Set qualified as Set
-import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..))
+import State.Category.Effect (Handler (..))
+import State.Category.Flow (Branch (..), Branches (..), CapTarget (..), Flow (..), Shape (..))
 import State.Category.Fuel (SkipWhen (..), always)
 import State.Category.Graph (graph)
 import State.Category.Meter (AtCap (..), Limit (..))
 import State.Category.Step (Leg (..), Outcome, Sing, outcomeEvent, packed)
 import State.Category.Ty qualified
-import State.Flow.Library (opt)
+import State.Flow.Architect (architect)
+import State.Flow.Attend (Sing (..))
+import State.Flow.Chief (chief)
+import State.Flow.Engineer (engineer)
+import State.Flow.Library (gather, handled, opt)
+import State.Flow.TenX (tenX)
 import State.Flow.Triage (Sing (..))
 import State.Role (SomeFlow (..), flowOut)
 import State.Step.Artifact (Commit (..), Sha (..))
@@ -105,6 +111,32 @@ spec = describe "State.Category.Flow" $ do
                 "A sum State.Category.Ty.Sum"
                 (graph (Do Triage :> opt "refactor" (always Never) Id :> Case (#small :-> Do Describe :& #big :-> Do Implement :> Do Describe :& End)))
 
+    {- 'Unhandled' names the effects left, in 'Eff''s order. 'Eff' is not
+    imported, so GHC prints its constructors qualified.
+    -}
+    describe "a_whole_flow_with_an_unhandled_effect_does_not_compile" $ do
+        it "a pick no handler takes" $
+            rejectedShown
+                "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
+                (flowOut (SomeFlow (Handle UserAsks gather)))
+
+        it "a question no handler takes" $
+            rejectedShown
+                "A whole flow leaves effects unhandled: '[State.Category.Effect.AskE]"
+                (flowOut (SomeFlow (Handle AgentPicks gather)))
+
+        it "a wait for focus no handler takes" $
+            rejectedShown
+                "A whole flow leaves effects unhandled: '[State.Category.Effect.FocusE]"
+                (flowOut (SomeFlow (handled (Do Attend))))
+
+        it "each registered flow, its pick handler removed" $ do
+            let fragment = "A whole flow leaves effects unhandled: '[State.Category.Effect.PickE]"
+            rejectedShown fragment (flowOut (SomeFlow (unhandled engineer)))
+            rejectedShown fragment (flowOut (SomeFlow (unhandled tenX)))
+            rejectedShown fragment (flowOut (SomeFlow (unhandled architect)))
+            rejectedShown fragment (flowOut (SomeFlow (unhandled chief)))
+
     describe "ill_typed_outcomes_do_not_compile" $ do
         it "an exit of a step with none" $
             rejectedShown
@@ -129,6 +161,10 @@ the lines after it quote the call, fragment included, so they are left out.
 -}
 rejected :: String -> ((() ~ ()) => Flow s i e o) -> Expectation
 rejected = rejectedShown
+
+-- | The flow under its outermost handler: a registered flow's is the agent's picks.
+unhandled :: Flow (HandleS eff s) i e o -> Flow s i e o
+unhandled (Handle _ flow) = flow
 
 -- | An outcome of this step by this leg, which no constructor need declare: the test never forces it.
 by :: forall l k (s :: k). Sing s -> Outcome s l

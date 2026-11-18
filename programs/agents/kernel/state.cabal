@@ -158,6 +158,7 @@ test-suite state-test
     State.Cli.Shell.World
     State.Cli.ViewSpec
     State.E2ESpec
+    State.Flow.Attend
     State.Flow.ChiefSpec
     State.Flow.EngineerSpec
     State.Flow.InlineSpec

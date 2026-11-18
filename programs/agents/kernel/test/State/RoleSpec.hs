@@ -2,11 +2,17 @@ module State.RoleSpec (spec) where
 
 import Data.Either (isRight)
 import Data.Set qualified as Set
-import State.Category.Flow (scopeNames)
+import Data.Type.Equality ((:~:) (..))
+import State.Category.Effect (Eff (..))
+import State.Category.Flow (Effects, scopeNames)
 import State.Category.Graph (Place (..), graph, placeName, places)
 import State.Category.Step (StateName (..))
 import State.Category.Ty (TyOf (..))
-import State.Flow.Library (agree, handled)
+import State.Flow.Architect (ArchitectS)
+import State.Flow.Chief (ChiefS)
+import State.Flow.Engineer (EngineerS)
+import State.Flow.Library (Handled, ParS, agree, handled)
+import State.Flow.TenX (TenXS)
 import State.Role (AgentRole (..), FlowName (..), RoleDef (..), Rung (..), SomeFlow (..), flowOut, role, rungAt)
 import State.Run.RunGen (chiefGraph, flowGraph)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
@@ -43,3 +49,19 @@ spec = describe "State.Role" $ do
 
         it "keeps the engineer's and the 10x's flows ending in a PR, the architect's in a ticket, the chief's in a request's result" $
             map (flowOut . (.flow) . role) [minBound .. maxBound] `shouldBe` [PR, PR, Ticket, Result]
+
+    describe "Effects" $
+        it "each registered flow raises picks and questions, a forked engineer none: checked as this module compiles" $
+            effectsRaised `shouldBe` (Refl, Refl, Refl, Refl, Refl)
+
+{- | The effects each registered flow's body leaves to its handlers. The 10x
+forks handled engineers, so its picks are its own gather's.
+-}
+effectsRaised ::
+    ( Effects EngineerS :~: '[PickE, AskE]
+    , Effects TenXS :~: '[PickE, AskE]
+    , Effects ChiefS :~: '[PickE, AskE]
+    , Effects ArchitectS :~: '[PickE, AskE]
+    , Effects (ParS (Handled EngineerS)) :~: '[]
+    )
+effectsRaised = (Refl, Refl, Refl, Refl, Refl)
