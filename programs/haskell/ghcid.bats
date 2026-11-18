@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
-# shellcheck disable=SC2312 # a masked failure fails the assertion around it
-# The session client's verdicts, against hand-written session files: the
-# daemon itself needs GHC, so `nix run .#kernel-quick-typecheck` covers it.
+# shellcheck disable=SC2016,SC2312 # a stub's body expands when the stub runs, and a masked failure fails the assertion around it
+# The session client's verdicts, against hand-written session files, and the
+# daemon's launch and reaping with stubs: the daemon itself needs GHC, so
+# `nix run .#kernel-quick-typecheck` covers it.
 
 load ../shell-check/test_helper.bash
 
@@ -60,4 +61,44 @@ setup() {
   echo 999999999 >"$lock/owner"
   acquire_lock
   [ "$(<"$lock/owner")" = "$$" ]
+}
+
+# A daemon launch with nix and the watchdog stubbed to record their arguments.
+launch_daemon() {
+  root=$BATS_TEST_TMPDIR
+  stub nix 'printf "%s\n" "$*" >"$BATS_TEST_TMPDIR/nix.args"'
+  stub kernel-ghcid-watchdog :
+  stub systemd-escape 'echo "escaped$2" | tr / -'
+  stub systemd-run 'printf "%s\n" "$*" >"$BATS_TEST_TMPDIR/systemd-run.args"
+while [ "$1" != nix ]; do shift; done
+exec "$@"'
+  start_daemon
+  wait_for "$BATS_TEST_TMPDIR/nix.args"
+}
+
+@test "on the factory the daemon runs in a capped scope under ghci.slice" {
+  stub systemctl '[ "$*" = "--user show -p LoadState --value ghci.slice" ] && echo loaded'
+  launch_daemon
+  [[ "$(<"$BATS_TEST_TMPDIR/systemd-run.args")" == "--user --scope --collect --quiet --unit=ghcid-escaped${PWD//\//-} --slice=ghci.slice -p MemoryMax=16G -p MemorySwapMax=0 nix develop $root#kernel "* ]]
+}
+
+@test "without ghci.slice the daemon starts as a plain process" {
+  stub systemctl 'echo not-found'
+  launch_daemon
+  [ ! -e "$BATS_TEST_TMPDIR/systemd-run.args" ]
+  [[ "$(<"$BATS_TEST_TMPDIR/nix.args")" == "develop $root#kernel "* ]]
+}
+
+@test "the watchdog stops the daemon once its worktree is removed" {
+  local daemon
+  bash -c 'sleep 1000; :' "ghcid --outputfile $outf" >/dev/null 2>&1 3>&- &
+  daemon=$!
+  touch "$lastuse"
+  # One watchdog tick, then its loop ends: one that missed the removal returns
+  # with the daemon alive.
+  stub sleep '[ "$1" != 60 ] || [ ! -e "$BATS_TEST_TMPDIR/slept" ] || exit 1
+touch "$BATS_TEST_TMPDIR/slept"'
+  run_ghcid_watchdog "$state" "$BATS_TEST_TMPDIR/removed"
+  # Killed, it is a zombie until the test's shell reaps it.
+  [ ! -e "/proc/$daemon" ] || [ "$(cut -d ' ' -f 3 "/proc/$daemon/stat")" = Z ]
 }

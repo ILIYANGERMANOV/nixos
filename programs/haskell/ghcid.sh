@@ -18,7 +18,7 @@
 #   worktree holds one GHCi. Unfiltered it runs the compiled suite, faster for
 #   all of it.
 
-idle_seconds=7200 # a session holds hundreds of MB: reclaim it after 2h unused
+idle_seconds=7200 # a session can hold tens of GB: reclaim it after 2h unused
 wait_seconds=180  # for a verdict, before giving up loudly
 spawn_seconds=10  # until a spawned daemon must show in the process table
 # A live daemon that has not rewritten its verdict in this long never will: the
@@ -59,15 +59,15 @@ run_quick_test() {
   report_run "$*"
 }
 
-# $1: the session's state directory. Kills the daemon after idle_seconds unused,
-# and ends with it.
+# $1: the session's state directory, $2: its worktree root. Kills the daemon
+# after idle_seconds unused or once the worktree is removed, and ends with it.
 run_ghcid_watchdog() {
   session_paths "$1"
   local used
   while sleep 60; do
     pgrep -f "$daemon_match" >/dev/null || return 0
     used=$(stat -c %Y "$lastuse")
-    if [ "$((EPOCHSECONDS - used))" -ge "$idle_seconds" ]; then
+    if [ ! -d "$2" ] || [ "$((EPOCHSECONDS - used))" -ge "$idle_seconds" ]; then
       kill_matching "$daemon_match"
       return 0
     fi
@@ -158,7 +158,7 @@ needs_start() {
 }
 
 # `mkdir` is the portable atomic mutex: two callers at once must not each
-# spawn a daemon of hundreds of MB.
+# spawn a daemon of many GB.
 acquire_lock() {
   if mkdir "$lock" 2>/dev/null; then
     printf '%s\n' "$$" >"$lock/owner"
@@ -185,25 +185,46 @@ reclaim_lock() {
 
 # The daemon runs in the package's dev shell, so its toolchain is evaluated
 # here, once per spawn, not on every call. Its log holds this session only.
+# The watchdog stays outside the memory scope: it is tiny, and must outlive a
+# daemon the scope's cap killed.
 start_daemon() {
   rm -f "$outf" "$session"
   : >"$test_request"
   printf '%s\n' "$version" >"$stamp"
   : >"$logf"
-  local -a restarts=()
+  local -a restarts=() scope=()
   local file hook
   hook=$(test_hook)
+  # shellcheck disable=SC2310 # a predicate
+  if ghci_slice_loaded; then
+    scope=(systemd-run --user --scope --collect --quiet
+      --unit="ghcid-$(systemd-escape --path "$PWD")" --slice=ghci.slice
+      -p MemoryMax=16G -p MemorySwapMax=0)
+  fi
   for file in "${cabal_files[@]}"; do
     restarts+=(--restart "$file")
   done
   # A subshell detaches them: macOS has no setsid.
   (
-    nohup nix develop "$root#$name" --no-warn-dirty --quiet -c \
+    nohup "${scope[@]}" nix develop "$root#$name" --no-warn-dirty --quiet -c \
       ghcid --command "$name-repl $(printf %q "$session")" --outputfile "$outf" --no-title \
       --test "$hook" --reload "$test_trigger" "${restarts[@]}" \
       >>"$logf" 2>&1 </dev/null &
   )
-  (nohup "$name-ghcid-watchdog" "$state" >>"$logf" 2>&1 </dev/null &)
+  (nohup "$name-ghcid-watchdog" "$state" "$root" >>"$logf" 2>&1 </dev/null &)
+}
+
+# Only the factory defines this user slice (modules/home/factory). There GHCi
+# runs in its own scope under it, so a GHCi past its cap is OOM-killed alone:
+# left in the claude-rc@ unit, oomd kills that whole unit, every session with
+# it. The scope is named after the package directory, so a worktree's escaped
+# path prefixes its scopes' names: `factory-ctl kill ghcid` stops them by that.
+# Elsewhere (macOS, a laptop) the daemon starts as a plain process.
+ghci_slice_loaded() {
+  command -v systemctl >/dev/null || return 1
+  local load_state
+  load_state=$(systemctl --user show -p LoadState --value ghci.slice 2>/dev/null) || return 1
+  [ "$load_state" = loaded ]
 }
 
 # Returns 0 once the verdict describes what is on disk, 2 once the daemon is

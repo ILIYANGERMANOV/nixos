@@ -165,6 +165,15 @@ in
     };
   };
 
+  # Every GHCi session's scope (programs/haskell/ghcid.sh, 16G each) lands in
+  # this slice, capped together so a few warm sessions cannot starve the box.
+  # Past it the kernel kills inside the slice, never claude-rc@. No MemoryHigh:
+  # its reclaim stall is the pressure that makes oomd kill a whole unit.
+  systemd.user.slices.ghci = {
+    Unit.Description = "GHCi sessions of the quick typecheck and test runners";
+    Slice.MemoryMax = "24G";
+  };
+
   systemd.user.timers.factory-root-shells = {
     Unit.Description = "Root the repositories' main dev shells daily";
     Timer = {
