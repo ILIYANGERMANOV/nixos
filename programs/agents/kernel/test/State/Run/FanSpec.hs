@@ -120,6 +120,11 @@ spec = describe "State.Run.Fan" $ do
         map (.id) . spawnable [] <$> reviewed `shouldBe` Right []
         map (.id) . spawnable [] <$> (reviewed >>= moved t1 (Merged (Url "pr"))) `shouldBe` Right [t2]
 
+    it "keeps_a_merged_task_merged_ignoring_any_later_move" . hedgehog $ do
+        later <- forAll genTaskState
+        let merged' = applied [moved t1 (Merged (Url "pr"))]
+        (merged' >>= moved t1 later) === merged'
+
     it "awaits the merge of a dependency in review" $
         mergesAwaited <$> moved t1 (InReview (Url "pr")) twoTasks `shouldBe` Right [t1]
 

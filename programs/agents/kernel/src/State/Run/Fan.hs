@@ -201,22 +201,32 @@ handedBack run said fan = case find ((== run) . (.child.run)) fan.children of
 {- | A parked task has no agent at work: parking settles even a lost child.
 Only a round's PR is kept, and only under that PR's own URL. A round makes
 the task a round on its PR, refused while a child or an agent works on it.
+A merged task stays merged: a later move, such as a stale review's, is
+ignored, never refused, so a log holding one still replays.
 -}
 moved :: TaskId -> TaskState -> Fan -> Either Refusal Fan
-moved task state fan = do
-    found <- known task fan
-    case (state, found.shape) of
-        (Kept _, OwnPr) -> Left (NotARound task)
-        (Kept kept, RoundOn roundPr)
-            | kept == roundPr -> Right ()
-            | otherwise -> Left (NotItsRound task roundPr)
-        (Round _, _) -> idle
-        (Parked _ _, _) -> Right ()
-        (InCi _, _) -> Right ()
-        (InReview _, _) -> Right ()
-        (Merged _, _) -> Right ()
-    Right (rounded fan {moves = Map.insert task state fan.moves, atWork = working})
+moved task state fan = case Map.lookup task fan.moves of
+    Just (Merged _) -> Right fan
+    Just (Kept _) -> moving
+    Just (Parked _ _) -> moving
+    Just (Round _) -> moving
+    Just (InReview _) -> moving
+    Just (InCi _) -> moving
+    Nothing -> moving
   where
+    moving = do
+        found <- known task fan
+        case (state, found.shape) of
+            (Kept _, OwnPr) -> Left (NotARound task)
+            (Kept kept, RoundOn roundPr)
+                | kept == roundPr -> Right ()
+                | otherwise -> Left (NotItsRound task roundPr)
+            (Round _, _) -> idle
+            (Parked _ _, _) -> Right ()
+            (InCi _, _) -> Right ()
+            (InReview _, _) -> Right ()
+            (Merged _, _) -> Right ()
+        Right (rounded fan {moves = Map.insert task state fan.moves, atWork = working})
     idle = case (runningOn task fan, Set.member task fan.atWork) of
         (Just child, _) -> Left (StillRunning task child.child.run)
         (Nothing, True) -> Left (AtWork task)

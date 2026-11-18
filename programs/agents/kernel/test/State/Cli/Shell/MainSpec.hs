@@ -606,6 +606,18 @@ spec = describe "state over the doubles" $ do
             (again.code, again.err) `shouldBe` (2, ["state ask: the question - it is open already as " <> qid, "fix: state next"])
             pending `shouldBe` [qid <> " Design forwarded from this run: which store?"]
 
+        it "refuses a question answered already, printing its answer and logging nothing" $ \world -> do
+            _ <- startedRun world
+            [asked, _] <- succeeded =<< state world ["ask", "--kind", "Design", "which", "store?"]
+            let qid = Text.drop (Text.length "asked ") asked
+            _ <- succeeded =<< state world ["answer", qid, "postgres"]
+            before' <- loggedEvents world
+
+            again <- state world ["ask", "--kind", "Design", "which", "store?"]
+
+            (again.code, again.err) `shouldBe` (2, ["state ask: the question - it is answered already as " <> qid <> ": postgres", "fix: state next"])
+            loggedEvents world `shouldReturn` before'
+
         describe "the 10x" $ do
             it "spawns the first task, the second waiting on it" $ \world -> do
                 _ <- tenXAtFanOut world
@@ -810,7 +822,7 @@ spec = describe "state over the doubles" $ do
                 retried <- succeeded =<< state world ["answer", qid, "it's postgres"]
 
                 drop 1 failed `shouldSatisfy` \case
-                    [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " 'it'\\''s postgres' --by " <> mid <> ", in " <> Text.pack grandWorktree
+                    [why, fix] -> ("child " <> grand <> ": ") `Text.isPrefixOf` why && fix == "fix: state answer " <> qid <> " 'it'\\''s postgres' --by " <> mid <> ", in run " <> grand <> "'s worktree"
                     _ -> False
                 retried `shouldBe` ["answered " <> qid]
                 answersIn world `shouldReturn` [1, 1, 1]

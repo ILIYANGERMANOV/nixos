@@ -20,7 +20,7 @@ spec = describe "the texts that need no run" $ do
     describe "a role's brief" $ do
         it "is what state brief gives at a step the role does not run, for every step runner" $
             for_ (agentRoles steps) $ \role ->
-                brief steps (runAt []) role Nothing `shouldBe` Right (briefOf steps role)
+                brief steps g (runAt []) role Nothing `shouldBe` Right (briefOf steps role)
 
         it "names every hand-back token for line 1, for every step runner" $
             for_ (agentRoles steps) $ \role ->
@@ -28,7 +28,7 @@ spec = describe "the texts that need no run" $ do
 
         it "names every hand-back token for line 1 at a step the role runs" $ do
             let atImplement = runAt (fuelSet Balanced : take 10 happyPath)
-            brief steps atImplement (AgentRole "implementer") Nothing `shouldSatisfy` \case
+            brief steps g atImplement (AgentRole "implementer") Nothing `shouldSatisfy` \case
                 Right text -> take 1 (Text.lines text) == ["## implement"] && all (\word -> ("`" <> word) `Text.isInfixOf` text) tokenWords
                 Left _ -> False
 
@@ -75,11 +75,11 @@ spec = describe "the texts that need no run" $ do
 
     describe "how work begins" $ do
         it "gives a spawned step runner its brief" $
-            beginText steps (SpawnedWorker (AgentRole "fixer")) `shouldBe` briefOf steps (AgentRole "fixer")
+            beginText steps Nothing (SpawnedWorker (AgentRole "fixer")) `shouldBe` briefOf steps (AgentRole "fixer")
 
         it "tells a spawned engineer its run starts at the init line of its prompt, then state next" $
-            beginText steps SpawnedLead `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init` line", "`state next`"]
+            beginText steps Nothing SpawnedLead `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init` line", "`state next`"]
 
         it "tells a lead skill it begins with state init, then state next, typed or called alike" $ do
-            beginText steps (TypedSkill EngineerSkill) `shouldBe` beginText steps (CalledSkill TenXSkill)
-            beginText steps (TypedSkill EngineerSkill) `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init ...`", "`state next`"]
+            beginText steps Nothing (TypedSkill EngineerSkill) `shouldBe` beginText steps Nothing (CalledSkill TenXSkill)
+            beginText steps Nothing (TypedSkill EngineerSkill) `shouldSatisfy` \text -> all (`Text.isInfixOf` text) ["`state init ...`", "`state next`"]

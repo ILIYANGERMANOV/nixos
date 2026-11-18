@@ -20,7 +20,7 @@ import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime)
 import State.Category.Flow (qualifyEvent)
 import State.Category.Fuel (fuelLabel)
-import State.Category.Graph (Node (..), OpenGraph (..), Place (..))
+import State.Category.Graph (Edge (..), Node (..), OpenGraph (..), Place (..))
 import State.Category.Step (EventName (..), SomeStep (..), StateName, eventText, handedBackOutcome, spawnedOutcome, stateNameText, stepName)
 import State.Cli.Render qualified as Render
 import State.FlowName (namedFlowText)
@@ -136,21 +136,33 @@ pendingLines state = map line state.pending
         Subagent (AgentRole role) -> role
         ChildRun run -> runIdText run
 
-{- | A role's brief skeleton: the task text of the step the run is at, or,
-when the role runs no step there, of each step it runs; then the rule its
-hand-back follows. A role that leads a flow, a child run, gets its task's
+{- | A role's brief skeleton: its 'stepBrief'; then the rule its hand-back
+follows. A role that leads a flow, a child run, gets its task's
 fields and the line that starts its run under this one, on the task's flow:
 in the task's worktree and notes dir when the breakdown names them; a task
 the breakdown lacks is returned as the failure.
 -}
-brief :: Steps -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
-brief steps state agent task = case (leads agent, task) of
+brief :: Steps -> OpenGraph -> RunState -> AgentRole -> Maybe TaskId -> Either TaskId Text
+brief steps g state agent task = case (leads agent, task) of
     -- At no fan-out the child is direct: it names --parent alone.
     (Just flow, Nothing) -> Right (initLine state flow "<dir>" ("<id>" <$ fanAt state.at))
     (Just _, Just taskId) -> maybe (Left taskId) (Right . taskBrief state) (lookupTask (currentFan state) taskId)
-    (Nothing, _) -> Right $ case [text | At place <- [state.at], Right text <- [briefSection steps agent place.name]] of
-        [] -> briefOf steps agent
-        here : _ -> here
+    (Nothing, _) -> Right (stepBrief steps g state.at agent)
+
+{- | A step runner's brief where the run is: the task text of the step the
+run is at, else of the step whose spawn led there, as a researcher's leads
+back to the gather's pick before it starts; else, where the role runs
+neither, of each step it runs.
+-}
+stepBrief :: Steps -> OpenGraph -> Node -> AgentRole -> Text
+stepBrief steps g at agent = case [text | name <- named, Right text <- [briefSection steps agent name]] of
+    [] -> briefOf steps agent
+    here : _ -> here
+  where
+    named = case at of
+        At place -> place.name : [from.name | ((from, event), edge) <- Map.toList g.edges, event.outcome == spawnedOutcome, edge.to == at]
+        Out -> []
+        Exit -> []
 
 {- | A child engineer's brief head: its task's fields, then the line that
 starts its run under this one, on the task's flow: in the task's worktree and
@@ -248,15 +260,16 @@ ruleOf (AgentRole role)
     | otherwise = ""
 
 {- | What a hook tells as work begins (#403): a spawned lead and a lead
-skill how its run starts, a step runner its brief. Stated as facts, as
-imperative text in a hook's context can read as an injected order.
+skill how its run starts, a step runner its brief: at the worktree's run,
+when read, its 'stepBrief'. Stated as facts, as imperative text in a hook's
+context can read as an injected order.
 -}
-beginText :: Steps -> Begin -> Text
-beginText steps = \case
+beginText :: Steps -> Maybe (OpenGraph, RunState) -> Begin -> Text
+beginText steps run = \case
     SpawnedLead ->
         "state: this lead's run is driven by `state`. Its first command is the `state init` line in its prompt, as written; "
             <> "then `state next`, until it prints DONE.\n"
-    SpawnedWorker role -> briefOf steps role
+    SpawnedWorker role -> maybe (briefOf steps role) (\(g, state) -> stepBrief steps g state.at role) run
     TypedSkill _ -> skillBegins
     CalledSkill _ -> skillBegins
   where

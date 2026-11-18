@@ -42,14 +42,6 @@ spec = describe "state-hook over the doubles" $ do
 
                 said `shouldBe` []
 
-            it "is silent on a log it does not read" $ \world -> do
-                _ <- startedRun world
-                editLog world (const ["{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"])
-
-                said <- succeeded =<< hook world "resume" sessionStart
-
-                said `shouldBe` []
-
             it "tells a log line it does not read, as context" $ \world -> do
                 _ <- drive world []
                 editLog world (<> ["{\"v\":3,broken"])
@@ -147,6 +139,15 @@ spec = describe "state-hook over the doubles" $ do
                 length after `shouldBe` length before'
 
         describe "spawn" $ do
+            it "names the record by hand on a log of another version, as it records nothing there" $ \world -> do
+                _ <- startedRun world
+                editLog world (const ["{\"seq\":0,\"ts\":\"t\",\"head\":null,\"session\":null,\"event\":{\"type\":\"started\",\"notes\":\"n\",\"version\":2}}"])
+
+                said <- hook world "spawn" (spawned "researcher")
+
+                said.code `shouldBe` 0
+                contextOf said `shouldSatisfy` maybe False ("state handback <role>" `Text.isInfixOf`)
+
             it "warns the lead spawning a role off the advice" $ \world -> do
                 _ <- drive world ([Record ["fuel.set", "balanced"]] <> gathered <> [Planned])
 
@@ -167,6 +168,15 @@ spec = describe "state-hook over the doubles" $ do
                     `shouldSatisfy` \case
                         (Just opened, 0, Just closed) -> "recorded event 4 gather/research.spawned -> gather" `Text.isInfixOf` opened && "recorded event 7 gather/research.handed_back -> gather/researchers" `Text.isInfixOf` closed && "recorded 8 worker_returned -> gather/notes" `Text.isInfixOf` closed
                         _ -> False
+
+            it "gives a researcher whose spawn led back to the gather's pick the research section of its brief alone" $ \world -> do
+                _ <- drive world researching
+                _ <- hook world "spawn" (spawned "researcher")
+                section <- succeeded =<< state world ["brief", "researcher", "--section", "research"]
+
+                said <- hook world "begin" (agentStarted "researcher")
+
+                contextOf said `shouldBe` Just (Text.unlines section)
 
             it "tells a recorded spawn's line, the researchers left, and the pick to record before each more spawn, not the advice" $ \world -> do
                 _ <- drive world researching

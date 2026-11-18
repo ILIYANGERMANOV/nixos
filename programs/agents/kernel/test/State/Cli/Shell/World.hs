@@ -42,6 +42,7 @@ module State.Cli.Shell.World (
     handedBack,
     askedUser,
     spawned,
+    agentStarted,
     stateCall,
     editCall,
     spawnResult,
@@ -336,6 +337,10 @@ askedUser = hookEvent Null ["event" .= String "afterTool", "tool" .= String "ask
 -- | The lead spawns a subagent of this role.
 spawned :: Text -> LBS.ByteString
 spawned role = hookEvent Null ["event" .= String "beforeTool", "tool" .= String "delegate", "input" .= object ["subagent_type" .= role], "history" .= ([] :: [Text])]
+
+-- | A subagent @a1@ of this role starting in the worktree.
+agentStarted :: Text -> LBS.ByteString
+agentStarted role = hookEvent (object ["id" .= String "a1", "role" .= role]) ["event" .= String "agentStart"]
 
 -- | The lead about to edit a file in the worktree.
 editCall :: LBS.ByteString
