@@ -68,9 +68,11 @@ The confirmed design lives in one ticket, in the format of
   and a diagram or pseudo-code; then, in the same turn, the Confirm. Only
   the user's confirm ends the design. Adjusted goes round again: put
   what the user wants changed into the next Discuss question, or into your
-  notes, before `discussing.enough`. At the cap, `ASK Stuck` asks whether to go on: yes is `state record
-  extend <why>`; no asks the confirm_design question and records its answer;
-  stop runs `state stop rounds <why>`.
+  notes, before `discussing.enough`. At the cap, `ASK Stuck` asks whether
+  to go on: yes is `state record extend <why>`; no asks the confirm_design
+  question and records its answer; stop runs `state stop rounds <why>`.
+- **Problem cap**: at the Problem rounds cap, the same `ASK Stuck` go-on:
+  yes is `state record extend <why>`; no records `problem.understood`.
 - **Write it once**, after `confirmed`: a GitHub issue on the repo, unless
   the request names Linear; then a Linear issue through the `linear` MCP. A
   request on a ticket edits that one (`gh issue edit <n> --repo
