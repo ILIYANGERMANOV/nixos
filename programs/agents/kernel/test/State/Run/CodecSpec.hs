@@ -191,7 +191,7 @@ spec = describe "State.Run.Codec" $ do
 
     it "writes and reads an architect run's start by its flow's name, and its ticket by its url" $ do
         let architectStart = reviewRows {event = Started (Start ArchitectFlow "/n" (ByUser OwnPr) Set.empty)}
-            confirmed = reviewRows {event = stepTook (ConfirmDesignConfirmed (Url "https://github.com/o/r/issues/1"))}
+            confirmed = reviewRows {event = stepTook (TicketWritten (Url "https://github.com/o/r/issues/1"))}
         (encodeLine architectStart, encodeLine confirmed) `shouldSatisfy` \(start, ticket) -> "\"flow\":\"architect\"" `Text.isInfixOf` start && "\"url\":\"https://github.com/o/r/issues/1\"" `Text.isInfixOf` ticket
         map (fmap (.event) . decodeLine . encodeLine) [architectStart, confirmed] `shouldBe` map (Right . (.event)) [architectStart, confirmed]
 

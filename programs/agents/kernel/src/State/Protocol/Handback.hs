@@ -371,6 +371,7 @@ fromWorker steps g state worktreeHead agent handback = case handback.token of
             Ship.AwaitCi -> inline s
             Ship.Ready -> inline s
         TicketLayer -> case s of
+            Ticket.WriteTicket -> inline s
             Ticket.Problem -> inline s
             Ticket.ConfirmDesign -> inline s
         RequestLayer -> case s of

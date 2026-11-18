@@ -244,6 +244,7 @@ templates =
     , outcome (FixPrDone (Sha ""))
     , outcome (ReadyDone (Url ""))
     , outcome (ReadySkipped (Url ""))
+    , outcome (TicketWritten (Url ""))
     , outcome ProblemUnderstood
     , outcome ProblemMore
     , outcome (ConfirmDesignConfirmed (Url ""))
@@ -302,6 +303,7 @@ likeIn = \case
         ReadyDone _ -> ReadyDone . Url <$> genText
         ReadySkipped _ -> ReadySkipped . Url <$> genText
     TicketLayer -> \case
+        TicketWritten _ -> TicketWritten . Url <$> genText
         ProblemUnderstood -> pure ProblemUnderstood
         ProblemMore -> pure ProblemMore
         ConfirmDesignConfirmed _ -> ConfirmDesignConfirmed . Url <$> genText

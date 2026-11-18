@@ -54,6 +54,7 @@ import State.Cli.Route (StateCall (..), leadOf, route, stateCalls)
 import State.Cli.Route qualified as Route
 import State.Cli.View (beginText, brief, briefSection, pendingLines, showRun, taskBrief)
 import State.Cli.View qualified as View
+import State.Flow.Legacy (legacyGraph)
 import State.Protocol.Advice (Action (AwaitAnswer, Triage), Advice (..), Facts (..), PullRequest (..), advise, changedLinesOf, deliver, deliverMore, deliverPrompt, due, explained, handsBack, ownAsk, pullRequestOf, skippable)
 import State.Protocol.Advice qualified as Advice
 import State.Protocol.Binding (AgentId (..), Binding (..), Key (..), Slot, Worktree (..), bindingFile, bindingIn, leadFile, ledFile, rebound, renderBinding, resolve, sessionDir, slotOf, slottedAgents, staleNote, stashFile, storeRoot)
@@ -1102,14 +1103,22 @@ orNoRun = \case
 noRun :: Failure
 noRun = Failure BadInput "no run in this worktree" "no state init ran here" initFix
 
--- | A log replayed under the flow its first line starts.
+{- | A log replayed under the flow its first line starts, with the graph
+that replays it, which its appends then walk: the flow's current graph, else
+its legacy one ("State.Flow.Legacy"), so an old run goes on in the flow it
+started in. A log neither replays tells why the current graph refuses it.
+-}
 replayed :: RunId -> NonEmpty Envelope -> Either Failure (OpenGraph, RunState)
 replayed run logged@(first :| _) = case Fold.runStart first.event of
     Nothing -> Left (unreplayed run notStarted)
     Just start ->
-        let g = graphOf start.flow
-         in -- Balanced, the Fuel until recorded: only what and why are read.
-            either (Left . unreplayed run . explain g Balanced Out) (Right . (g,)) (replay g logged)
+        let current = graphOf start.flow
+            under g = (g,) <$> replay g logged
+         in case (under current, under <$> legacyGraph start.flow) of
+                (Right ok, _) -> Right ok
+                (Left _, Just (Right ok)) -> Right ok
+                -- Balanced, the Fuel until recorded: only what and why are read.
+                (Left refusal, _) -> Left (unreplayed run (explain current Balanced Out refusal))
 
 {- | @state init@: idempotent, as a retried brief runs it again: the run
 the worktree's pointer names in these notes resumes. A child names its

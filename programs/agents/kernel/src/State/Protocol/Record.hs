@@ -193,6 +193,7 @@ recordables =
            , atHead FixPR FixPrDone
            , url "the PR's url" Ready ReadyDone
            , url "the PR's url" Ready ReadySkipped
+           , url "the issue's url" WriteTicket TicketWritten
            , nothing ProblemUnderstood
            , nothing ProblemMore
            , url "the issue's url" ConfirmDesign ConfirmDesignConfirmed

@@ -18,11 +18,12 @@ import State.Protocol.Advice
 import State.Protocol.Record (Option (..), commandOption)
 import State.Role (Rung (Lead))
 import State.Run.Ask (Above (..), Kind (..), OneLine, Proposal (..), QId (..), Question (..), Refusal (MustAnswer), Route (..))
+import State.Run.Codec (urlText)
 import State.Run.Event hiding (Stopped)
 import State.Run.Event qualified as Event (Start (..))
 import State.Run.EventGen (fuelSet, genStart, genText, logOf, oneLine, run, runId, start, started)
 import State.Run.Fold (RunState (..), Worker (..), replay)
-import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, flowGraph, g, genAccepted, happyPath, loadSteps, pickOf, plainTask, problemUnderstood, researchedIn, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketUrl, within)
+import State.Run.RunGen (architectGraph, chiefGraph, childOf, commit, designConfirmed, designDiscussed, enoughIn, flowGraph, g, genAccepted, happyPath, legacyArchitectGraph, loadSteps, pickOf, plainTask, problemUnderstood, researchedIn, runAt, runOf, runUnder, scopedIn, securityGraph, securityScope, sha, skipOf, spawnedIn, tenXAt, tenXGraph, ticketUrl, ticketWritten, within)
 import State.Step.Build (Outcome (..))
 import State.Step.Catalog (outcome)
 import State.Step.Gather (Outcome (..))
@@ -205,39 +206,53 @@ spec = describe "State.Protocol.Advice" $ do
     describe "the architect" $ do
         let architectFrom events = either (error . show) id (replay architectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
             architectRun = architectFrom . (knobs Balanced <>)
+            notesFile = "notes/notes.md"
+        it "asks the architect's Fuel first, as the engineer's" $
+            next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
+
+        it "offers research, the discussion's questions, the ticket and enough at its one pick" $
+            next noFacts (architectRun []) `shouldBe` offering ["state record architect.discuss", "state record architect.enough", "state record architect.research", "state record architect.ticket"]
+
+        it "ends with no ticket on enough, naming its notes file" $
+            next noFacts (architectRun (enoughIn "architect")) `shouldBe` Done [notesFile]
+
+        it "ends naming its notes file and the ticket's url it wrote" $
+            next noFacts (architectRun (ticketWritten <> enoughIn "architect")) `shouldBe` Done [notesFile, urlText ticketUrl]
+
+        it "tells the discussion to send its Explain message before each question, in the same turn" $
+            (advise steps architectGraph noFacts (architectRun [Took mempty (pickOf "architect" "discuss")])).prompt
+                `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
+
+    describe "the legacy architect" $ do
+        let architectFrom events = either (error . show) id (replay legacyArchitectGraph (logOf (Started start {Event.flow = ArchitectFlow} :| events)))
+            architectRun = architectFrom . (knobs Balanced <>)
+            legacyNext state = commandsOnly (advise steps legacyArchitectGraph noFacts state).action
             atProblem = architectRun (researchedIn "exploring" <> enoughIn "exploring")
             atDesignConfirm = problemUnderstood <> designDiscussed
             atCap = problemUnderstood <> concat (replicate 3 (designDiscussed <> [stepTook ConfirmDesignAdjusted])) <> designDiscussed
             designGoOn = Question (QId run 100) Stuck (oneLine "go on?")
             wentOn = [Asked (Asking designGoOn (StateName "design/confirm_design") Itself), Forwarded designGoOn.qid TheUser, Answered designGoOn.qid (Chose "yes") TheUser]
-        it "asks the architect's Fuel first, as the engineer's" $
-            next noFacts (architectFrom []) `shouldBe` next noFacts (runAt [])
-
         it "offers the problem's records without asking, and tells the agent to discuss free-form until the user says design" $ do
-            let advice = advise steps architectGraph noFacts atProblem
+            let advice = advise steps legacyArchitectGraph noFacts atProblem
             commandsOnly advice.action `shouldBe` offering ["state record problem.understood", "state record problem.more"]
             advice.prompt `shouldSatisfy` \prompt -> all (`Text.isInfixOf` prompt) ["free-form: no picker", "Only when the user says design or enough", "state ask --kind Confirm \"the problem: understood, or more?\"", "the user's own words"]
 
         it "drops the line on when to ask once the problem's Confirm was asked and answered" $ do
             let (question, asked, _) = byRow atProblem Confirm (oneLine "the problem: understood, or more?")
                 answered = architectRun (researchedIn "exploring" <> enoughIn "exploring" <> asked <> [Answered question.qid (Chose "design") TheUser])
-                advice = advise steps architectGraph noFacts answered
+                advice = advise steps legacyArchitectGraph noFacts answered
             (commandsOnly advice.action, "Only when the user says" `Text.isInfixOf` advice.prompt)
                 `shouldBe` (offering ["state record problem.understood", "state record problem.more"], False)
 
         it "asks the user to confirm the design" $
-            next noFacts (architectRun atDesignConfirm) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
+            legacyNext (architectRun atDesignConfirm) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
 
         it "asks whether to go on at the design rounds' cap, then the confirm again after extend" $ do
-            next noFacts (architectRun atCap) `shouldBe` Ask Stuck "Design rounds: 3 of 3 used, none left: go on?"
-            next noFacts (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
+            legacyNext (architectRun atCap) `shouldBe` Ask Stuck "Design rounds: 3 of 3 used, none left: go on?"
+            legacyNext (architectRun (atCap <> wentOn <> [Extended "the user goes on"])) `shouldBe` Ask Confirm "the design: confirmed, or adjusted?"
 
-        it "tells the discussion to send its Explain message before each question, in the same turn" $
-            (advise steps architectGraph noFacts (architectRun problemUnderstood)).prompt
-                `shouldSatisfy` any (\line -> "Discuss:" `Text.isPrefixOf` line && "First send the Explain message" `Text.isInfixOf` line && "then the picker question" `Text.isInfixOf` line && "in the same turn" `Text.isInfixOf` line) . Text.lines
-
-        it "ends with the confirmed design's ticket url" $
-            next noFacts (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done (Just ticketUrl)
+        it "ends, as the architect, naming its notes file and the confirmed design's ticket url" $
+            legacyNext (architectRun (problemUnderstood <> designConfirmed)) `shouldBe` Done ["notes/notes.md", urlText ticketUrl]
 
     it "names a subagent's role with its article" $
         map (Text.isPrefixOf "at implement: a step an implementer subagent runs") (take 1 (explainedAt (runAt (knobs Balanced <> take 10 happyPath))))
@@ -449,7 +464,7 @@ spec = describe "State.Protocol.Advice" $ do
             map (`deliverPrompt` ready) [start {interface = Set.singleton Notify}, child]
                 `shouldBe` [ready.prompt <> " Then notify.", ready.prompt]
         it "ends as DONE for the user, READY for a parent run" $
-            map (`deliver` Done (Just prUrl)) [start, child]
+            map (`deliver` Done ["https://pr/1"]) [start, child]
                 `shouldBe` ["DONE https://pr/1", "HANDBACK READY https://pr/1"]
 
         it "stops for the user, or hands the stop back to a parent run" $
@@ -458,7 +473,7 @@ spec = describe "State.Protocol.Advice" $ do
 
     describe "heldBy" $ do
         let fixer = [Worker (AgentRole "fixer") (AgentId "a1") 7]
-            finished = Advice (Done (Just prUrl)) [] "at the end: the flow is done" [commandOption "state record x" ""] ["fuel: balanced"] "" False
+            finished = Advice (Done ["https://pr/1"]) [] "at the end: the flow is done" [commandOption "state record x" ""] ["fuel: balanced"] "" False
         it "holds a hand-back to a parent while a worker is at work, naming it in house format" $
             heldBy child fixer finished
                 `shouldBe` finished
