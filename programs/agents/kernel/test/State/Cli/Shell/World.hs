@@ -65,7 +65,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -78,7 +78,7 @@ import Doubles.Environment (runEnvironmentGiven)
 import Doubles.FileSystem (Disk (..), runFileSystemInMemory)
 import Doubles.Gh (printedPr, runGhScripted)
 import Doubles.Git (Worktree (..), runGitMissing, runGitScripted)
-import Doubles.Log (Runs (..), rowsOf, runLogInMemory)
+import Doubles.Log (Runs (..), editRows, rowsOf, runLogInMemory)
 import Doubles.Random (runRandomFixed)
 import Effectful (Eff, runPureEff)
 import Effectful.State.Static.Local (runState)
@@ -120,7 +120,7 @@ newWorld = do
         World
             { env = Map.fromList [("STATE_STEPS", stepsPath), ("HOME", "/home")]
             , disk = Disk {files = Map.singleton stepsPath steps, dirs = Set.fromList ["/", "/etc", "/work", "/work/.git"], cwd = "/work"}
-            , runs = Runs Map.empty
+            , runs = Runs []
             , gitDir = Right "/work/.git"
             , others = []
             , gitOnPath = True
@@ -288,18 +288,18 @@ editLog world = editLogIn world notes
 -- | Edit the log of the run started in these notes by hand, row by row.
 editLogIn :: IORef World -> FilePath -> ([Text] -> [Text]) -> IO ()
 editLogIn world dir edit = modifyIORef' world $ \w ->
-    let runs = rowsOf w.runs in w {runs = Runs (maybe runs (\found -> Map.adjust edit found runs) (runIn w dir))}
+    w {runs = maybe (Runs (rowsOf w.runs)) (\found -> editRows found edit w.runs) (runIn w dir)}
 
 -- | The log of the worktree's notes' run as the rows the store holds.
 logRows :: IORef World -> IO [Text]
 logRows world = logRowsIn world notes
 
 logRowsIn :: IORef World -> FilePath -> IO [Text]
-logRowsIn world dir = (\w -> maybe [] (\found -> Map.findWithDefault [] found (rowsOf w.runs)) (runIn w dir)) <$> readIORef world
+logRowsIn world dir = (\w -> maybe [] (\found -> fromMaybe [] (lookup found (rowsOf w.runs))) (runIn w dir)) <$> readIORef world
 
 -- | The run whose first row starts it in these notes.
 runIn :: World -> FilePath -> Maybe RunId
-runIn w dir = listToMaybe [found | (found, first : _) <- Map.toList (rowsOf w.runs), Right Envelope {event = Started start} <- [decodeLine first], start.notes == dir]
+runIn w dir = listToMaybe [found | (found, first : _) <- rowsOf w.runs, Right Envelope {event = Started start} <- [decodeLine first], start.notes == dir]
 
 -- | The run store takes no write from now on, as on a disk failure; it still reads.
 storeDown :: IORef World -> IO ()
