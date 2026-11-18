@@ -161,16 +161,11 @@ the caller's binding, names none, as no run is known yet.
 jobReply :: (Shell es) => Steps -> HookName -> BS.ByteString -> Call -> Job -> Eff es Reply
 jobReply steps name input call job = case job of
     Begins begin -> do
-        marked <- case begin of
-            Hook.TypedSkill skill -> markLead call skill
-            Hook.CalledSkill skill -> markLead call skill
-            Hook.SpawnedLead -> pure ""
-            Hook.SpawnedWorker _ -> pure ""
-        run <- case begin of
-            Hook.SpawnedWorker _ -> workedRun
-            Hook.SpawnedLead -> pure Nothing
-            Hook.TypedSkill _ -> pure Nothing
-            Hook.CalledSkill _ -> pure Nothing
+        (marked, run) <- case begin of
+            Hook.TypedSkill skill -> (,Nothing) <$> markLead call skill
+            Hook.CalledSkill skill -> (,Nothing) <$> markLead call skill
+            Hook.SpawnedLead -> pure ("", Nothing)
+            Hook.SpawnedWorker _ -> ("",) <$> workedRun
         pure (replyOf job (beginText steps run begin <> marked))
     Routes (RunsShell command)
         | Just _ <- call.agent
