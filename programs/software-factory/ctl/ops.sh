@@ -30,7 +30,7 @@ latest_deploy_run() {
   gh run list --repo "$deploy_repo" --workflow "$deploy_workflow" --limit 1 --json databaseId --jq '.[0].databaseId // ""'
 }
 
-# rollback | reboot | gc: start the matching root unit and return at once.
+# rollback | reboot | poweroff | gc: start the matching root unit and return at once.
 cmd_root_op() {
   systemctl start --no-block "factory-$1.service"
   echo "Started factory-$1. Check the result with: factory-ctl status"

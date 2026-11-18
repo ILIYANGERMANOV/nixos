@@ -116,8 +116,8 @@ These are deliberate, and recorded so they are not mistaken for oversights.
 - **Any `factory` process can trigger the root operations.** polkit tells
   callers apart by uid only, and the admin agent and the repository agents
   share one, so a prompt-injected repository agent could also deploy, roll
-  back, reboot or collect garbage. That costs availability, not secrets: none
-  of these units reveals the Claude login, the SSH key or a token, and a deploy
+  back, reboot, power off or collect garbage. That costs availability, not
+  secrets: none of these units reveals the Claude login, the SSH key or a token, and a deploy
   only ever builds the current tip of `main`, never an older commit of it.
   Reboots are refused within 10 minutes of boot so a loop cannot keep the box
   down. Each run is recorded for `factory-ctl status` and in the journal.
@@ -182,8 +182,8 @@ and taking no input (`modules/nixos/server/ops.nix`):
   only after a health gate (Tailscale running, sshd active, GitHub reachable).
   Otherwise it switches back. Pulling rather than pushing keeps every
   credential to the server out of GitHub.
-- `factory-rollback`, `factory-reboot` and `factory-gc` may be started by
-  `factory` through one polkit rule. GC keeps the current and previous
+- `factory-rollback`, `factory-reboot`, `factory-poweroff` and `factory-gc`
+  may be started by `factory` through one polkit rule. GC keeps the current and previous
   generation of every profile, which is all a rollback reaches. It trims a
   user's profiles as that user, since the paths there are that user's to choose.
   `factory-ctl root-shells` runs daily and roots, in `~/.gcroots/<repo>`, the
