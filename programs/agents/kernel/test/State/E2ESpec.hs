@@ -103,6 +103,18 @@ spec = describe "the state binary" $ do
             takeWhile (/= "architect/discussing.enough") (dropWhile (/= "architect/exploring/notes.done") types)
                 `shouldBe` ["architect/exploring/notes.done", "asked", "forwarded", "answered", "architect/problem.understood"]
 
+        it "refuses a chief's problem understood before the user's answer, naming the Confirm to ask" $ \repo -> do
+            _ <- startedIn bin repo ["--notes", repo.notes, "--flow", "chief"]
+            _ <- driveOn bin repo (map Record [["fuel.set", "low"], ["route.architect"], ["fuel.set", "low"], ["exploring.enough"], ["exploring/notes.done"]])
+            refused <- state bin repo ["record", "problem.understood"]
+            (refused.code, refused.err)
+                `shouldBe` ( 2
+                           ,
+                               [ "state record: leaving architect/problem - it is the user's word: no Confirm was asked here yet"
+                               , "fix: state ask --kind Confirm 'the problem: understood, or more?'"
+                               ]
+                           )
+
         it "refuses init --pr of no GitHub PR URL in the house format" $ \repo -> do
             refused <- state bin repo ["init", "--notes", repo.notes, "--pr", "https://github.com/o/r/issues/7"]
             (refused.code, refused.err)
@@ -365,7 +377,7 @@ spec = describe "the state binary" $ do
             take 1 waiting `shouldSatisfy` all ("HANDBACK NEEDS_DECISION Design " `Text.isPrefixOf`)
             recorded moved `shouldBe` ["fuel.set -> gather"]
             pending `shouldSatisfy` mentions qid
-            take 1 resumed `shouldSatisfy` (not . any ("HANDBACK" `Text.isPrefixOf`))
+            take 1 resumed `shouldBe` ["RUN state record fuel.set <low|balanced|max>"]
             shownAsking `shouldSatisfy` mentions (qid <> " Design: which store? - postgres")
             siblingRuled `shouldBe` siblingAsked
             shownSibling `shouldSatisfy` (not . mentions qid)
@@ -992,11 +1004,11 @@ spec = describe "the state binary" $ do
                     replyField "decision" said `shouldBe` Just "deny"
                     replyField "reason" said `shouldSatisfy` maybe False ("fix: run the `state init` line in your prompt, as written\n" `Text.isSuffixOf`)
 
-                it "deny a subagent's state init that would start a user's run, naming --child" $ \repo -> do
+                it "deny a subagent's state init that would start a user's run, naming --parent, then --child with no parent run" $ \repo -> do
                     said <- succeeded =<< hook hookBin repo "route" (ranIn repo (worker "e9" "engineer") ("state init --notes " <> Text.pack repo.notes))
 
                     replyField "decision" said `shouldBe` Just "deny"
-                    replyField "reason" said `shouldSatisfy` maybe False ("else with --child\n" `Text.isSuffixOf`)
+                    replyField "reason" said `shouldSatisfy` maybe False ("fix: rerun it with --parent <run> from your brief, plus --task <id> under a fan-out; with no parent run, with --child\n" `Text.isSuffixOf`)
 
                 it "let a subagent init with --child or --parent, and a top-level session with neither" $ \repo -> do
                     let notes = "state init --notes " <> Text.pack repo.notes

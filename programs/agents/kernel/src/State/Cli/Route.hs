@@ -26,17 +26,22 @@ module State.Cli.Route (
     writesNoCode,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Monad (guard)
 import Data.Char (isDigit, isSpace)
+import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import State.Category.Flow (unqualify)
+import State.Category.Step (StateName, StepSet (stepName), stateNameText)
 import State.Cli.Command (Command (..), Exit (..), Failure (..), InitArgs (..), Origin (..), RunCommand (ShowRun), architectInitFix, chiefInitFix, failureText, initFix, parseCommand, tenXInitFix)
 import State.Protocol.Binding (Binding (..))
 import State.Protocol.Hook (Gate (..), LeadSkill (..))
 import State.Role (FlowName (..), leads)
 import State.Run.Event (AgentRole, runIdText)
 import State.Step.Artifact (shellPath)
+import State.Step.Ticket (Sing (ConfirmDesign))
 import State.Table (Steps)
 import System.FilePath ((</>))
 
@@ -80,7 +85,7 @@ parentlessInit steps command = listToMaybe [denial sub written | (_, sub, Init a
                 { exit = BadInput
                 , what = written <> " starts a user's run"
                 , why = "a subagent's run is a child: it neither asks the user nor spawns in the background"
-                , fix = "rerun it with --parent <run> --task <id> from your brief under a fan-out, else with --child"
+                , fix = "rerun it with --parent <run> from your brief, plus --task <id> under a fan-out; with no parent run, with --child"
                 }
 
 {- | Every @state@ call of a command that parses, in order: the directory it
@@ -164,26 +169,36 @@ gate lead call = case lead of
                 , fix
                 }
 
-{- | Why a call is denied where this flow runs: the architect's design goes
-into its ticket, so it edits, writes, commits, pushes and opens or merges a
-PR nowhere. Its researchers spawn, and its shell runs, @gh issue@ and a
-heredoc into it included. Other flows write, the chief where no scope runs
-the architect's.
+{- | Why a call is denied where this flow runs, at this state: the
+architect's design goes into its ticket, so it edits, writes, commits,
+pushes and opens or merges a PR nowhere, and writes the ticket
+(@gh issue create@ or @edit@) only at @confirm_design@. Its researchers
+spawn, and its shell reads, anywhere. Other flows write, the chief where no
+scope runs the architect's.
 -}
-readOnly :: FlowName -> Gate -> Maybe Text
-readOnly flow call = denial <$> (guard (writesNoCode flow) *> codeWrite)
+readOnly :: FlowName -> StateName -> Gate -> Maybe Text
+readOnly flow at call = guard (writesNoCode flow) *> (denial "the architect flow changes no code" <$> codeWrite <|> denial "the ticket is written at confirm_design" <$> earlyTicket)
   where
     codeWrite = case call of
         Spawns -> Nothing
         Edits -> writeOf call
         Writes -> writeOf call
         RunsShell _ -> writeOf call
-    denial act =
+    earlyTicket = case (call, snd (unqualify (stateNameText at)) == stateNameText (stepName ConfirmDesign)) of
+        (RunsShell command, False) -> listToMaybe ["`" <> segment.written <> "`" | segment <- fromMaybe [] (segments command), writesTicket segment.tokens]
+        (RunsShell _, True) -> Nothing
+        (Spawns, _) -> Nothing
+        (Edits, _) -> Nothing
+        (Writes, _) -> Nothing
+    writesTicket = \case
+        "gh" : "issue" : sub : _ -> sub `elem` ["create", "edit"]
+        _ -> False
+    denial because act =
         failureText
             "architect"
             Failure
                 { exit = BadInput
-                , what = "the architect flow changes no code, so " <> act <> " is denied"
+                , what = because <> ", so " <> act <> " is denied"
                 , why = "an architect run's one write is its ticket, written once the user confirms the design"
                 , fix = "keep the design in the discussion; only at confirm_design, once the user confirms, write the ticket, once: a quoted heredoc (<<'EOF') into `gh issue create` or `gh issue edit <number> --body-file -`"
                 }
@@ -242,7 +257,7 @@ scan acc = \case
     '$' : '(' : _ -> Nothing
     '(' : _ -> Nothing
     ')' : _ -> Nothing
-    '<' : '<' : _ -> Nothing
+    '<' : '<' : rest -> heredoc acc rest
     '&' : '&' : rest -> scan (close acc) rest
     '|' : '|' : rest -> scan (close acc) rest
     '&' : '>' : rest -> redirect "&>" acc rest
@@ -252,6 +267,25 @@ scan acc = \case
         | isSpace c -> scan (wrote [c] (endWord acc)) rest
         | c == '#', Nothing <- acc.word -> scan acc (dropWhile (/= '\n') rest)
         | otherwise -> scan (wrote [c] (inWord [c] acc)) rest
+
+{- | A here-document: its operator and delimiter stay in the written text;
+its body, the lines up to the delimiter's own, is no command. A line with
+another here-document, or a body with no end, is left be.
+-}
+heredoc :: Acc -> String -> Maybe Acc
+heredoc acc input = case (delimiter, break (== '\n') afterMarker) of
+    (_ : _, (line, '\n' : body))
+        | not ("<<" `isInfixOf` line)
+        , (_, _ : after) <- break ((== delimiter) . stripTabs) (lines body) ->
+            scan (wrote ("<<" <> dash <> spaces <> marker) (endWord acc)) (line <> "\n" <> unlines after)
+    _ -> Nothing
+  where
+    -- @<<-@ strips the body's leading tabs, the delimiter's line's too.
+    (dash, afterDash) = span (== '-') input
+    (spaces, afterSpaces) = span (== ' ') afterDash
+    (marker, afterMarker) = break (\c -> isSpace c || c `elem` [';', '|', '&', '<', '>', '(', ')']) afterSpaces
+    delimiter = filter (`notElem` ['\'', '"', '\\']) marker
+    stripTabs = if null dash then id else dropWhile (== '\t')
 
 -- | Inside double quotes: the word's text so far and the text as written, each reversed.
 doubleQuoted :: Acc -> String -> String -> String -> Maybe Acc

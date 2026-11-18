@@ -199,7 +199,7 @@ readOnlyAt run gate =
   where
     startedFlow line = either (const Nothing) (fmap (.flow) . Fold.runStart . (.event)) (decodeLine line)
     denialAt =
-        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) gate))) run <&> \case
+        onRunLog (\_ loaded -> ([], Right (Route.readOnly (Role.flowAt loaded.state.start.flow (askedAt loaded.state)) (askedAt loaded.state) gate))) run <&> \case
             Ran (Right denial) -> denial
             Ran (Left _) -> Nothing
             NoRun -> Nothing
@@ -491,8 +491,9 @@ execute steps = \case
 
 {- | @state focus [rK] --summary <line>@: the chief's request in focus
 waits, unless it recorded nothing, which is dropped, or it is finished, at
-@next@, which takes the next request; the waiting request named takes the
-focus, else a new one. A turn back prints its card, and
+@next@, which a turn back drops and a turn away ends by taking the next
+request; the waiting request named takes the focus, else a new one. A turn
+back is no new request, so it spends none of the Requests cap. A turn back prints its card, and
 the advice from the two logged times, so a replay prints the same.
 -}
 focusPlan :: Loaded -> Maybe TaskNo -> Maybe OneLine -> Either Failure Plan
@@ -500,11 +501,12 @@ focusPlan run target summary = do
     Bifunctor.first refusal (Fold.focusable run.state)
     -- The request in focus waits on nothing: turning to it is no turn.
     for_ target (\task -> if task == run.state.focus then Left (refusal (Fold.NotSuspended task)) else Right ())
-    waits <- case (Fold.stage run.g run.state, summary) of
-        (Fold.Untouched, _) -> Right []
-        (Fold.Finished, _) -> Right [stepTook NextRequest]
-        (Fold.Underway, Just line) -> Right [Suspended run.state.focus line]
-        (Fold.Underway, Nothing) -> Left (refusal (Fold.FocusRecorded run.state.focus))
+    waits <- case (Fold.stage run.g run.state, summary, target) of
+        (Fold.Untouched, _, _) -> Right []
+        (Fold.Finished, _, Just _) -> Right []
+        (Fold.Finished, _, Nothing) -> Right [stepTook NextRequest]
+        (Fold.Underway, Just line, _) -> Right [Suspended run.state.focus line]
+        (Fold.Underway, Nothing, _) -> Left (refusal (Fold.FocusRecorded run.state.focus))
     before <- cardsOf run
     Right $ Plan (waits <> map Focused (toList target)) $ \after written ->
         let card = target >>= \task -> find ((== task) . (.task)) before

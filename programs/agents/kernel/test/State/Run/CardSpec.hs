@@ -35,8 +35,9 @@ spec = do
             let at seconds = resumeAdvice pausedAt (addUTCTime seconds pausedAt) agent
             (at (window - 0.001), at window) === (ResumeAgent agent, FreshFromCard)
 
-        it "keeps a 15 second safety buffer under the 5 minute cache life" $
-            (cacheLife, safetyBuffer) `shouldBe` (300, 15)
+        it "resumes the worker paused 4m44s, and starts a fresh agent at 4m45s and 4m46s: 15s under the 5-minute cache" $
+            map (\seconds -> resumeAdvice noon (addUTCTime seconds noon) agent) [284, 285, 286]
+                `shouldBe` [ResumeAgent agent, FreshFromCard, FreshFromCard]
 
     describe "cards" $
         it "gives the request in focus and each waiting one its node, its own decisions and open questions, and its last worker" $ do
@@ -62,6 +63,7 @@ spec = do
   where
     agent = AgentId "a7"
     window = cacheLife - safetyBuffer
+    noon = UTCTime (fromGregorian 2026 1 1) 43200
 
 genTime :: Gen UTCTime
 genTime = (\day -> UTCTime (addDays day (fromGregorian 2026 1 1)) 0) <$> Gen.integral (Range.linear 0 3650)

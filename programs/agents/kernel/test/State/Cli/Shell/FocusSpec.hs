@@ -117,6 +117,16 @@ spec = describe "a chief's request switch over the doubles" $ before newWorld $ 
                            , ["ASK Stuck Requests: 5 of 5 used, none left: go on?"]
                            )
 
+        it "turns back to a waiting request at the Requests cap, as a turn back opens no new request" $ \world -> do
+            _ <- startedIn world ["--flow", "chief"]
+            mapM_ (succeeded <=< state world) ([["record", "fuel.set", "low"], ["record", "route.architect"], ["focus", "--summary", "researching the store"]] :: [[Text]])
+            spendRequests world
+
+            back <- state world ["focus", "r1"]
+            tasks <- succeeded =<< state world ["tasks"]
+
+            (back.code, tasks) `shouldBe` (0, ["notes /notes", "r1 in focus at architect/fuel"])
+
         it "refuses a request switch in a run of a flow that does not switch requests" $ \world -> do
             _ <- startedRun world
 
@@ -142,9 +152,11 @@ finished world = do
 @next.request@ the Requests cap allows at Low are spent.
 -}
 atCap :: IORef World -> IO ()
-atCap world = do
-    _ <- startedIn world ["--flow", "chief"]
-    mapM_ (succeeded <=< state world) (concat (replicate 5 (request <> [["record", "next.request"]])) <> request)
+atCap world = startedIn world ["--flow", "chief"] >> spendRequests world
+
+-- | The request in focus and five more run to their end at Low Fuel: the Requests cap is spent.
+spendRequests :: IORef World -> IO ()
+spendRequests world = mapM_ (succeeded <=< state world) (concat (replicate 5 (request <> [["record", "next.request"]])) <> request)
   where
     request = [["record", "fuel.set", "low"], ["record", "route.other"], ["record", "direct.done", "renamed a file"]] :: [[Text]]
 
